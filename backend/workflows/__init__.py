@@ -13,6 +13,6 @@ Spec: docs/superpowers/specs/2026-10-28-workflows-design.md
 Plan: docs/superpowers/plans/2026-10-28-workflows.md
 """
 from .catalog import load_packs
-from .emit import CURRENT_RUN, emit
+from .emit import CURRENT_RUN, emit, quiet
 
-__all__ = ["emit", "load_packs", "CURRENT_RUN"]
+__all__ = ["emit", "load_packs", "CURRENT_RUN", "quiet"]

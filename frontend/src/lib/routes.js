@@ -12,8 +12,10 @@
 //   help-center    <-> support     (Help Center since Neil, Oct 13 2026)
 //   credentials    <-> credvault   (Credential Vault renamed Credentials, Neil Oct 28
 //                                   2026; the id stays - it is the stored access grant)
+//   people          -> hr          (the module is called People; /people/... opens it,
+//                                   the address it writes stays /hr - Oct 29 2026)
 export const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr', insights: 'bi', bi: 'bi',
-  team: 'shifts', shifts: 'shifts', 'help-center': 'support', support: 'support', credentials: 'credvault', credvault: 'credvault' };
+  team: 'shifts', shifts: 'shifts', 'help-center': 'support', support: 'support', credentials: 'credvault', credvault: 'credvault', people: 'hr' };
 export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday', bi: 'insights', shifts: 'team', support: 'help-center', credvault: 'credentials' };
 
 // Purchase Requisition moved to Workday > Purchase Requests (Neil, Oct 22

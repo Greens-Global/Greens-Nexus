@@ -2876,6 +2876,26 @@ html { overflow-x: hidden; }
 .acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td.acct-label { background: linear-gradient(color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%), color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%)), var(--bg-card); }
 .acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label,
 .acct-report.mre-grid tbody tr.acct-grand td.acct-label { background: linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card); }
+/* MRE (Charmi, call of 10/27, items 04 and 05): Vendor and Entity read the
+   name, its code underneath in small muted text; the month columns pad less
+   and their filter boxes give way, so a month can be dragged down to ~60 px
+   and nine fit at 1440 with the side menu open. A long vendor name wraps
+   onto a second line instead of being cut (Charmi: "1st Choice Backf...");
+   the month figures are a step smaller so 23,080.30 fits a 74 px month;
+   Expected (mre-x) pads like a month. */
+.acct-report.mre-grid .mre-main { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-report.mre-grid .mre-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
+.acct-report.mre-grid .mre-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.68rem; font-weight: 500; line-height: 1.3; color: var(--text-muted); }
+.acct-report.mre-grid th.mre-m, .acct-report.mre-grid td.mre-m { padding-left: 5px; padding-right: 5px; }
+.acct-report.mre-grid tbody td.mre-m, .acct-report.mre-grid tfoot td.mre-m { padding-left: 3px; padding-right: 3px; font-size: 12px; }
+.acct-report.mre-grid th.mre-x, .acct-report.mre-grid td.mre-x { padding-left: 5px; padding-right: 5px; }
+.acct-report.mre-grid tbody td.mre-x { font-size: 12px; }
+.acct-report.mre-grid tbody td.acct-label { padding-right: 6px; }
+.acct-report.mre-grid .acct-filter-row td.mre-m, .acct-report.mre-grid .acct-filter-row td.mre-x { padding-left: 3px; padding-right: 3px; }
+.acct-report.mre-grid .acct-filter-row td.mre-x .acct-op-filter select { max-width: 30px; padding: 0 1px; }
+.acct-report.mre-grid .acct-filter-row td.mre-x .acct-op-filter input { min-width: 22px; padding: 0 4px; }
+.acct-report.mre-grid .acct-filter-row td.mre-m .acct-op-filter select { max-width: 30px; padding: 0 1px; }
+.acct-report.mre-grid .acct-filter-row td.mre-m .acct-op-filter input { min-width: 22px; padding: 0 4px; }
 /* The same on every statement (UI test 10/23): the pinned first column keeps
    the hover and Total tints painted over the card color, so the figures
    scrolling sideways under it never show through - flagged rows on hover
@@ -2942,6 +2962,17 @@ html { overflow-x: hidden; }
 .acct-controlbar .acct-bar-more-group { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
 .acct-controlbar[data-fold] .acct-bar-more-panel .acct-bar-label,
 .acct-controlbar[data-fold] .acct-bar-more-panel .acct-bar-label-2 { display: inline; }
+/* Call of 10/27 with Charmi, item 09 ("Anytime I select a filter, it should
+   say stagnant"): a picker's words (PickText) are as wide as its default
+   words, drawn unseen from data-base; whatever is picked sits over them, cut
+   with "..." - so a pick never widens the picker and the bar never folds its
+   buttons' words because of it. Selects do the same with fitSelect's base. */
+.acct-pick { position: relative; display: inline-block; min-width: 0; max-width: 100%; vertical-align: top; text-align: left; }
+.acct-pick::before { content: attr(data-base); display: block; visibility: hidden; white-space: nowrap; overflow: hidden; font-weight: 600; }
+.acct-pick > .acct-pick-text { position: absolute; top: 0; left: 0; right: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-controlbar[data-fold] .acct-bar-more-panel .acct-pick.acct-bar-label-2 { display: inline-block; }
+.acct-controlbar .acct-bar-more-panel .acct-pick { flex: 1 1 auto; }
+.acct-controlbar select { text-overflow: ellipsis; }
 /* A word only the More menu shows (the row has the icon and its tooltip). */
 .acct-controlbar .acct-more-only { display: none; }
 .acct-controlbar .acct-bar-more-panel .acct-more-only { display: inline; }
@@ -2969,6 +3000,9 @@ html { overflow-x: hidden; }
   animation: nx-fade-in var(--dur-sm, 120ms) ease-out;
 }
 .acct-side-panel.is-full { width: 100vw; }
+/* Call of 10/27, item 17: a ledger line opens the transaction behind it on the right; the open one stays marked. */
+.acct-lines tr.acct-line-opens { cursor: pointer; }
+.acct-lines tr.acct-line-opens.is-open td { background: var(--wk-brand-tint, #e8ecfd); }
 .acct-side-panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px 20px 18px; display: grid; gap: 14px; align-content: start; background: var(--bg-secondary); }
 .acct-side-panel > .modal-footer { flex-shrink: 0; padding: 12px 20px 14px; background: var(--bg-card); }
 @media (max-width: 640px) { .acct-side-panel { width: 100vw; min-width: 0; } }

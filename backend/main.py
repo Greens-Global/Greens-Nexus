@@ -1367,6 +1367,29 @@ def _run_migrations():
             "ALTER TABLE hr_departments ADD COLUMN weather INTEGER DEFAULT 0",
             # Help Center (Oct 2026) - see the Postgres list. models.KbSearchLog.
             "ALTER TABLE kb_search_log ADD COLUMN source VARCHAR DEFAULT 'kb'",
+            # Shift groups (Oct 28) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN open_shifts INTEGER DEFAULT 0",
+            "ALTER TABLE shift_groups ADD COLUMN department VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_group_members ADD COLUMN source VARCHAR DEFAULT ''",
+            # Performance, made simple (Oct 29) - see the Postgres list. models.PerfGoal / PerfReview.
+            "ALTER TABLE hr_perf_goals ADD COLUMN metric_key VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_goals ADD COLUMN period_start VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_goals ADD COLUMN period_end VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_goals ADD COLUMN approved_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_goals ADD COLUMN approved_by VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN rating VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN goal_scores JSON DEFAULT '{}'",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN promotion_ready BOOLEAN DEFAULT 0",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN employee_comment TEXT DEFAULT ''",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN reminded JSON DEFAULT '{}'",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN removed_at VARCHAR DEFAULT ''",
+            # Training emails opt-out (Oct 29) - see the Postgres list. models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN kb_due_soon_email INTEGER DEFAULT 1",
+            # Page request assign / close note (Oct 29) - see the Postgres list. models.KbPageRequest.
+            "ALTER TABLE kb_page_requests ADD COLUMN assigned_to VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_page_requests ADD COLUMN close_note VARCHAR DEFAULT ''",
+            # Search misses by company (Oct 29) - see the Postgres list. models.KbSearchLog.
+            "ALTER TABLE kb_search_log ADD COLUMN company VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3185,6 +3208,14 @@ def _run_migrations():
         # table, explicit RLS. models.TimePunch.entry_source, TimeEntryBatch.
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS entry_source VARCHAR DEFAULT ''",
         "ALTER TABLE time_entry_batches ENABLE ROW LEVEL SECURITY",
+        # Import Hub bank statement rules (Charmi, 10/27 call item 01): new
+        # table, shared by the accounting team - explicit RLS.
+        # import_hub_models.AccountingStatementRule.
+        "ALTER TABLE accounting_statement_rules ENABLE ROW LEVEL SECURITY",
+        # Workers' comp rate per person and year (Charmi, 10/27 call, item 14) -
+        # a new table: explicit RLS on top of the _enable_rls_everywhere sweep.
+        # models.WorkersCompRate.
+        "ALTER TABLE workers_comp_rates ENABLE ROW LEVEL SECURITY",
         # Workflows (Neil, Oct 28 2026, docs/superpowers/specs/
         # 2026-10-28-workflows-design.md): eight new tables - the workflows,
         # their versions, the event outbox, runs, run steps, the wait queue,
@@ -3234,6 +3265,39 @@ def _run_migrations():
         # models.HelpFeedback.
         "ALTER TABLE kb_search_log ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'kb'",
         "ALTER TABLE help_feedback ENABLE ROW LEVEL SECURITY",
+        # Shift groups (Neil, Oct 28 2026): open shifts per team (off by
+        # default), the department a team follows, and which members that
+        # department added. models.ShiftGroup / ShiftGroupMember.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS open_shifts INTEGER DEFAULT 0",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_group_members ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT ''",
+        # Performance, made simple (Neil, Oct 29 2026): a goal measured by a
+        # Nexus number over its own period, Proposed until approved; a review's
+        # 4-word rating, goal scores, Ready for Promotion, the employee's
+        # comments, the reminders sent and removal from a cycle. Additive only.
+        # models.PerfGoal / PerfReview.
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS metric_key VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS period_start VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS period_end VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS approved_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS approved_by VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS rating VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS goal_scores JSON DEFAULT '{}'",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS promotion_ready BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS employee_comment TEXT DEFAULT ''",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS reminded JSON DEFAULT '{}'",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS removed_at VARCHAR DEFAULT ''",
+        # Knowledge Base training emails (WP 2.4, 10/29/2026): a person may
+        # turn off due-soon emails only. models.NexusPersonPref.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS kb_due_soon_email INTEGER DEFAULT 1",
+        # Knowledge Base Health (WP 4.3, 10/29/2026): a page request's writer
+        # and the note back to the asker. models.KbPageRequest.
+        "ALTER TABLE kb_page_requests ADD COLUMN IF NOT EXISTS assigned_to VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_page_requests ADD COLUMN IF NOT EXISTS close_note VARCHAR DEFAULT ''",
+        # Knowledge Base search misses, walled by the searcher's company (WP 4.4,
+        # 10/29/2026). Older rows stay '' and read as shared. models.KbSearchLog.
+        "ALTER TABLE kb_search_log ADD COLUMN IF NOT EXISTS company VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_kb_search_log_company ON kb_search_log (company)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4972,7 +5036,11 @@ from routers import perf_reviews as perf_reviews_router  # noqa: E402 - new tabl
 app.include_router(perf_reviews_router.router)  # Performance: review cycles - People > Performance, Workday > Performance (Neil, Oct 27 2026)
 from routers import extra_time as extra_time_router  # noqa: E402
 app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)
+from routers import import_hub as import_hub_router  # noqa: E402 - also registers import_hub_models before create_all
+app.include_router(import_hub_router.router)  # Accounting > Tools > Import Hub: bank statement rules, shared by the team (Charmi, 10/27 call item 01)
 from routers import workflows as workflows_router  # noqa: E402 - eight new tables: create_all + explicit RLS lines above
 app.include_router(workflows_router.router)  # Workflows: when X happens, do Y across modules - catalog, builder, runs, approvals, settings (Neil, Oct 28 2026)
 from routers import help_center as help_center_router  # noqa: E402 - new table help_feedback: create_all + explicit RLS line
 app.include_router(help_center_router.router)  # Help Center: Ask Nexus (docs only), failed searches, Was This Helpful?, Known Issues (Oct 2026)
+from routers import kb_reminder_settings  # noqa: E402
+app.include_router(kb_reminder_settings.router)  # Training Reminders switches - Settings > Emails & Reminders (Sagar, Oct 28 2026)

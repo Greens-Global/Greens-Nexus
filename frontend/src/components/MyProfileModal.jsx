@@ -6,6 +6,7 @@ import { refreshPhotoMap } from '../lib/peoplePhotos';
 import { ZONE_GROUPS, MAX_ZONES, LOCAL_TZ, currentZones, setZones, zoneOptionLabel } from '../lib/worldClockZones';
 import { Spinner } from './AsyncState';
 import EmailSettingsPanel from '../tasks/MyEmailSettings';
+import KbTrainingEmailPref from './KbTrainingEmailPref';
 import { DATE_FORMATS, getDateFormat, setDateFormat, formatDate } from '../lib/datetime';
 import { Modal, useIsMobile } from '../tasks/components';
 import { SettingCard, SettingRow, SwitchRow } from './settings/SettingsUI';
@@ -337,12 +338,18 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
     ),
     // Email Settings (Neil, Oct 13 2026: "no need to have this as a separate
     // pop-up") - your own task email preferences, now a section of its own.
-    email: emailUnavailable ? (
-      <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
-        Task email settings aren&apos;t available for your account because you don&apos;t have access to the Tasks module.
-      </p>
-    ) : (
-      <div id="profile-email-settings"><EmailSettingsPanel onUnavailable={() => setEmailUnavailable(true)} /></div>
+    email: (
+      <>
+        {/* Training emails (WP 2.4, Oct 29 2026) - for everyone, Tasks access or not. */}
+        <KbTrainingEmailPref />
+        {emailUnavailable ? (
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
+            Task email settings aren&apos;t available for your account because you don&apos;t have access to the Tasks module.
+          </p>
+        ) : (
+          <div id="profile-email-settings"><EmailSettingsPanel onUnavailable={() => setEmailUnavailable(true)} /></div>
+        )}
+      </>
     ),
   };
   const current = SECTIONS.find(([k]) => k === section) || SECTIONS[0];

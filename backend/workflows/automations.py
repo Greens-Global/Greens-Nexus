@@ -114,7 +114,7 @@ def jobs() -> list[dict]:
              "Rotation due, overdue and hard expiry, to the owner and backup owner.", "Daily"),
         _job("kb_daily", "Training Reminders",
              "Training due, policies to sign, and the manager and owner digests; assignment rules and renewals "
-             "keep running.", "Daily"),
+             "keep running. Also sends policy signing requests through Nexus Sign.", "Daily", "emails:kb-reminders"),
         _job("ticket_notify", "Ticket Notifications",
              "Ticket email retries, overdue and SLA breach notices, and the auto-close of long-resolved tickets.",
              "Every minute", "notifications:tickets"),
@@ -208,5 +208,7 @@ def jobs() -> list[dict]:
 
 
 def register(db, user: dict) -> dict:
-    return {"taskRules": task_rules(db, user), "jobs": jobs(),
+    import job_switch
+    runs = job_switch.last_runs(db)   # jobs that report their last run (job_switch.record_run)
+    return {"taskRules": task_rules(db, user), "jobs": [{**j, "lastRun": runs.get(j["key"])} for j in jobs()],
             "taskEngine": {"actor": task_automation.AUTOMATION_ACTOR}}

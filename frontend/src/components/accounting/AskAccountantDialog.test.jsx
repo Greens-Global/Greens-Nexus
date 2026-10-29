@@ -40,7 +40,7 @@ beforeEach(() => { localStorage.clear(); resetAccountingPrefs(); vi.clearAllMock
 
 describe('Ask My Accountant on a ledger line', () => {
   it('asks from Ledger Search with the line as a snapshot', async () => {
-    render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    render(<LedgerSearch term="amazon" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Ask My Accountant about this line' }));
     const dialog = await screen.findByRole('dialog', { name: 'Ask My Accountant' });
     expect(within(dialog).getByText('71100 General')).toBeTruthy();
@@ -66,10 +66,12 @@ describe('Ask My Accountant on a ledger line', () => {
   });
 
   it('asks from a line of the journal entry', async () => {
-    render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    render(<LedgerSearch term="amazon" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'IA-1293173' }));
     const entry = await screen.findByRole('dialog', { name: /Journal entry/ });
-    await within(entry).findByText('American Express', { exact: false });
+    // The vendor shows in the panel's summary and on its line; wait for the line.
+    const lines = await within(entry).findByRole('table');
+    await within(lines).findByText('American Express', { exact: false });
     fireEvent.click(within(entry).getByRole('button', { name: 'Ask My Accountant about this line' }));
     const dialog = await screen.findByRole('dialog', { name: 'Ask My Accountant' });
     fireEvent.change(within(dialog).getByLabelText('Question'), { target: { value: 'Personal?' } });

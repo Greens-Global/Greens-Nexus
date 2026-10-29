@@ -6,6 +6,10 @@ import AsyncSection from '../../components/AsyncState';
 import { Stat, Av } from '../components/Chips';
 import { useToast, errText } from '../components/Toast';
 import { goKb, CELL_COLORS, fmtDate, plural } from '../lib';
+import { toCsv } from '../../operations/csv';
+
+// Byte order mark: makes Excel read the file as UTF-8 (names with accents).
+const BOM = String.fromCharCode(0xFEFF);
 
 export default function Compliance({ me }) {
   const toast = useToast();
@@ -19,10 +23,10 @@ export default function Compliance({ me }) {
   useEffect(() => { load(); }, [scope, company, department]); // eslint-disable-line react-hooks/exhaustive-deps
   const nudge = async (emails) => { try { const r = await api.kbComplianceNudge(emails); toast(r.nudged ? `Nudged ${plural(r.nudged, 'person', 'people')}` : 'Nothing to nudge, or already nudged today'); setPicked([]); } catch (e) { toast(errText(e), 'err'); } };
   const exportCsv = () => {
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const head = ['Name', 'Email', 'Department', 'Job Title', ...data.columns.map((c) => c.title)];
     const lines = data.people.map((p) => [p.name, p.email, p.department, p.job_title, ...data.columns.map((c) => { const cell = p.cells[c.key]; return cell ? `${cell.status}${cell.due ? ` (due ${fmtDate(cell.due)})` : ''}` : ''; })]);
-    saveBlob(new Blob([[head, ...lines].map((r) => r.map(esc).join(',')).join('\n')], { type: 'text/csv' }), `compliance-${scope}.csv`);
+    // toCsv defuses cells a spreadsheet would run as a formula (= + - @).
+    saveBlob(new Blob([BOM, toCsv(head, lines)], { type: 'text/csv;charset=utf-8' }), `compliance-${scope}.csv`);
   };
   const behind = data ? data.people.filter((p) => p.counts.red > 0).map((p) => p.email) : [];
 

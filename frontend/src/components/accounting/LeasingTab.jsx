@@ -4,7 +4,7 @@ import { api, withFreshReads } from '../../api';
 import Amount, { formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate, formatDateTime } from '../../lib/datetime';
-import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, SyncButton, control, usePopover } from './reportControls';
+import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PickText, PopoverPanel, SyncButton, control, usePopover } from './reportControls';
 import { spaceBelow, useCustomizePrefs, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { cellStyle, headStyle } from './columnStyles';
@@ -507,7 +507,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const updateNote = (id, note) => setRoll((d) => d && { ...d, rows: d.rows.map((r) => (r.lease.id === id ? { ...r, lease: { ...r.lease, teamNote: note } } : r)) });
 
   // What the Export menu writes: the section on screen, as on screen.
-  const entityLabel = !entities.length ? (locations.limited ? 'All my entities' : 'All entities') : entities.length === 1 ? (() => { const e = locations.entities.find((x) => x.code === entities[0]); return e?.name ? `${e.name} (${e.code})` : entities[0]; })() : `${entities.length} entities`;
+  const entityLabel = !entities.length ? (locations.limited ? 'All My Entities' : 'All Entities') : entities.length === 1 ? (() => { const e = locations.entities.find((x) => x.code === entities[0]); return e?.name ? `${e.name} (${e.code})` : entities[0]; })() : `${entities.length} entities`;
   const periodLabel = periodText(period, year, span);
   const buildTable = () => {
     const title = section === 'outstanding' ? 'Income Outstanding' : section === 'tenants' ? 'Payers' : 'Monthly Recurring Income';
@@ -743,7 +743,8 @@ function MultiPicker({ label: aria, allLabel, noun, Icon, options, value, onChan
       <button type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={aria} title={text}
         style={{ ...control, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', maxWidth: 260, whiteSpace: 'nowrap', border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', fontWeight: on ? 600 : 400 }}>
         <Icon size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{text}</span>
+        {/* As wide as "All Payers" / "All Types" whatever is picked (10/27 call, item 09). */}
+        <PickText text={text} base={allLabel} />
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} role="listbox" aria-label={allLabel.replace(/^All /, '')} aria-multiselectable="true"
@@ -860,11 +861,11 @@ function NoteCell({ lease, canEdit, onSaved, monthNotes = '' }) {
     : null;
   const body = note.text
     ? <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note.text}<span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)' }}>{who}</span>{months}</span>
-    : months ? <span style={{ display: 'block', minWidth: 0 }}>{months}</span> : <span style={{ color: 'var(--text-muted)' }}>{canEdit ? 'Add a note' : '-'}</span>;
+    : months ? <span style={{ display: 'block', minWidth: 0 }}>{months}</span> : <span style={{ color: 'var(--text-muted)' }}>{canEdit ? 'Add a Note' : '-'}</span>;
   const tip = [note.text ? `${note.text} - ${who}` : '', monthNotes].filter(Boolean).join('\n');
   if (!canEdit) return <span title={tip || undefined}>{body}</span>;
   return (
-    <button type="button" onClick={() => { setText(note.text || ''); setEditing(true); }} aria-label={note.text ? `Change the note on ${lease.propertyName}` : `Add a note on ${lease.propertyName}`} title={tip ? `${tip}${note.text ? '' : '\nClick to add a note'}` : 'Add a note'}
+    <button type="button" onClick={() => { setText(note.text || ''); setEditing(true); }} aria-label={note.text ? `Change the note on ${lease.propertyName}` : `Add a note on ${lease.propertyName}`} title={tip ? `${tip}${note.text ? '' : '\nClick to add a note'}` : 'Add a Note'}
       style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: '0.76rem', color: 'var(--text-primary)', cursor: 'text', textAlign: 'left', width: '100%', minWidth: 0 }}>
       {body}
     </button>

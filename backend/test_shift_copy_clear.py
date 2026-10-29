@@ -66,7 +66,7 @@ class CopyClearTests(unittest.TestCase):
             db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
             db.add(models.NexusGroup(id=G_VW, name="vw", allowed_modules="hr:viewer"))
             db.add(models.NexusGroupMember(group_id=G_VW, email=VIEWER))
-            db.add(models.ShiftGroup(id=GROUP, name="Store A"))
+            db.add(models.ShiftGroup(open_shifts=1, id=GROUP, name="Store A"))
             db.add(models.ShiftGroupMember(id="sgm-copy", group_id=GROUP, employee_email=A))
             db.add(models.Shift(id=SHIFT, code="GST", name="Store", start_hhmm="09:00", end_hhmm="17:00",
                                 color="#3b82f6", break_min=30))
@@ -173,6 +173,21 @@ class CopyClearTests(unittest.TestCase):
         b = {x.start_hhmm: x for x in self._rows(employee_email=B, work_date=NEXT_MON)}
         self.assertEqual(b["06:00"].pending_delete, 1)     # published: staff keep it until the copy is published
         self.assertEqual(b["09:00"].published, 0)
+
+    def test_a_pending_time_off_request_does_not_take_the_day_away(self):
+        # Oct 28 2026: Neil's copy left Vinod's Wednesday empty - a request
+        # still waiting is not time off yet; the shift goes in and the grid
+        # flags it (Approve And Remove Shifts clears it on approval).
+        self._place(A, MON)
+        db = database.SessionLocal()
+        try:
+            db.add(models.TimeOffRequest(id="to-pending", employee_email=A, start_date=NEXT_MON, end_date=NEXT_MON,
+                                         status="pending", type="vacation"))
+            db.commit()
+        finally:
+            db.close()
+        r = self._copy().json()
+        self.assertEqual((r["created"], r["timeoffSkipped"]), (1, 0))
 
     def test_open_shifts_copy_when_included_and_are_never_doubled(self):
         self._place("", MON, open_slots=2, group_id=GROUP)

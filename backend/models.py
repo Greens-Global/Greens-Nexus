@@ -2686,6 +2686,14 @@ class ShiftGroup(Base):
     # Shifts Phase 0 (Oct 14 2026): the HrEntity company this group belongs
     # to; '' = shared across companies (managed company-wide only).
     company_id      = Column(String, default="")
+    # Neil, Oct 28 2026: open shifts are a per-team choice, OFF by default -
+    # useful for Ops or retail, noise for IT, Accounting or Admin. 1 = this
+    # team can post new open shifts; ones already posted always stay visible.
+    open_shifts     = Column(Integer, default=0)
+    # The department this team follows ('' = none): its active people are
+    # added automatically (shift_group_departments.py). A department NAME, as
+    # nexus_employees.department holds it, within company_id when set.
+    department      = Column(String, default="")
 
 
 class ShiftGroupMember(Base):
@@ -2693,6 +2701,9 @@ class ShiftGroupMember(Base):
     id             = Column(String, primary_key=True)   # uuid
     group_id       = Column(String, index=True, nullable=False)
     employee_email = Column(String, index=True, nullable=False)
+    # '' = added by hand; 'department' = added because they are in the
+    # group's department, and taken off again when they leave it.
+    source         = Column(String, default="")
 
 
 class ShiftAssignment(Base):
@@ -6610,6 +6621,10 @@ class NexusPersonPref(Base):
     # at the card, so it can mark what arrived since - on the server so a
     # phone and a desktop agree. ALTER lines in main.py.
     updates_seen_at = Column(String, default="")
+    # Knowledge Base training emails (WP 2.4, Oct 29 2026, kb_daily.py): 0 =
+    # no email when training is only DUE SOON. Overdue training and policies
+    # to sign always email; the bell always rings. ALTER lines in main.py.
+    kb_due_soon_email = Column(Integer, default=1)
 
 
 class TaskAutomationRun(Base):
@@ -8101,6 +8116,10 @@ class KbSearchLog(Base):
     # Nexus answer the sources did not cover) or 'ticket-form' (searched in
     # the ticket form, then filed the ticket anyway).
     source     = Column(String, default="kb")
+    # The searcher's company (WP 4.4, Oct 29 2026): one row per query, day,
+    # box and company, so Health shows a company only its own people's misses.
+    # ALTER lines in main.py.
+    company    = Column(String, default="", index=True)
 
 
 class KbPageRequest(Base):
@@ -8118,6 +8137,10 @@ class KbPageRequest(Base):
     created_at    = Column(String, default="")
     closed_at     = Column(String, default="")
     closed_by     = Column(String, default="")
+    # Manage > Health (WP 4.3, Oct 29 2026): who is writing it, and the word
+    # back to the asker when it is closed. ALTER lines in main.py.
+    assigned_to   = Column(String, default="")
+    close_note    = Column(String, default="")
 
 
 class KbJob(Base):
@@ -8772,6 +8795,15 @@ class PerfGoal(Base):
     created_by       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+    # Performance, made simple (Neil, Oct 29 2026): a goal can be measured BY
+    # one of the person's Nexus numbers (perf_metrics.METRICS key, '' = by
+    # hand) over its own period; status is computed, never picked; a goal an
+    # employee sets for themselves waits for their manager's Approve.
+    metric_key       = Column(String, default="")
+    period_start     = Column(String, default="")                      # YYYY-MM-DD
+    period_end       = Column(String, default="")                      # YYYY-MM-DD (due_on mirrors it)
+    approved_at      = Column(String, default="")                      # '' = Proposed
+    approved_by      = Column(String, default="")
 
 
 class PerfGoalCheckin(Base):
@@ -8901,7 +8933,7 @@ class PerfReview(Base):
     company_id           = Column(String, default="", index=True)
     employee_email       = Column(String, nullable=False, index=True)
     manager_email        = Column(String, default="", index=True)      # who writes the manager review ('' = HR)
-    stage                = Column(String, default="self_review", index=True)  # self_review | manager_review | hr_review | shared | complete
+    stage                = Column(String, default="self_review", index=True)  # self_review | manager_review | ready | shared | complete | removed
     self_answers         = Column(JSON, default=dict)                  # {question id: {rating, text}}
     self_values          = Column(JSON, default=dict)                  # {value id: rating}
     self_submitted_at    = Column(String, default="")
@@ -8923,6 +8955,17 @@ class PerfReview(Base):
     nudged_at            = Column(String, default="")
     created_at           = Column(String, default="")
     updated_at           = Column(String, default="")
+    # Performance, made simple (Oct 29 2026): one 4-word rating
+    # (exceeds | meets | partly | below), each goal scored (met | partly |
+    # not), Ready for Promotion, the employee's own comments printed on the
+    # signed copy, which automatic reminders went out, and removal from a
+    # cycle (stage "removed" - the row is kept).
+    rating               = Column(String, default="")
+    goal_scores          = Column(JSON, default=dict)                  # {goal id: met | partly | not}
+    promotion_ready      = Column(Boolean, default=False)
+    employee_comment     = Column(Text, default="")
+    reminded             = Column(JSON, default=dict)                  # {launch, soonSelf, dueSelf, soonMgr, dueMgr: ISO}
+    removed_at           = Column(String, default="")
 
 
 class ExtraTimeClaim(Base):
@@ -8978,6 +9021,26 @@ class TimeEntryBatch(Base):
     created_at     = Column(String, default="")
     undone_by      = Column(String, default="")
     undone_at      = Column(String, default="")
+
+
+class WorkersCompRate(Base):
+    """A person's workers' comp rate (Charmi, 10/27 call, item 14: "it changes
+    every year ... I would enter here in the HR module, in the people's module
+    when I'm setting that up"): a percent of gross wages, in force from
+    `effective_year` until a later year has its own. Append-only - a changed
+    rate is a new row and the newest row for a year wins, so every earlier
+    entry stays as the history. Written from People > Pay, Benefits & Bank
+    (hr_comp editors); read by Accounting > Compensation, which charges
+    rate x gross wages for each year of the period. New table - RLS on dev and
+    prod at release."""
+    __tablename__ = "workers_comp_rates"
+    id             = Column(String, primary_key=True)                 # uuid
+    employee_id    = Column(String, nullable=False, index=True)       # NexusEmployee.id
+    effective_year = Column(Integer, nullable=False)
+    rate_pct       = Column(Float, nullable=False)                    # percent of gross wages, e.g. 3.5
+    note           = Column(String, default="")
+    set_by         = Column(String, default="")
+    set_at         = Column(String, default="")                       # ISO timestamp, UTC
 
 
 # ─────────────────────────────────────────────────────────────────────────────

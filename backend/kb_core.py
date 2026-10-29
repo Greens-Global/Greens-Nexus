@@ -36,8 +36,71 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Which calendar day it is (Oct 29 2026): due dates and overdue counts follow
+# the PERSON's own day, so a Pacific employee is not a day overdue after 5 PM
+# (the UTC day had flipped). today() is the organization's day, for stamps and
+# page review dates; today_for() is one person's. utc_day() is only for the
+# once-a-day dedupe keys, which compare against UTC timestamps.
+# Policies may be signed through Nexus Sign (Release 3, Oct 29 2026,
+# kb_policy_sign.py). False hides the editor option and makes every page sign
+# in-page, keeping each page's stored choice.
+NEXUS_SIGN_FOR_POLICIES = True
+
+ORG_TZ = "America/Los_Angeles"
+_ZONE_TTL_S = 600
+_zones: dict[str, tuple[float, str]] = {}
+
+
+def _day_in(tz: str) -> str:
+    from zoneinfo import ZoneInfo
+    try:
+        zone = ZoneInfo(tz or ORG_TZ)
+    except Exception:  # noqa: BLE001 - an unknown zone name reads as the organization's
+        zone = ZoneInfo(ORG_TZ)
+    return datetime.now(timezone.utc).astimezone(zone).date().isoformat()
+
+
 def today() -> str:
+    """The organization's calendar day (Pacific)."""
+    return _day_in(ORG_TZ)
+
+
+def utc_day() -> str:
     return now()[:10]
+
+
+def zone_for(db: Session, email: str) -> str:
+    """A person's time zone: the one they chose in their task email settings,
+    else their company's (an India company is on India time), else Pacific.
+    Cached for ten minutes - a compliance list asks once per person."""
+    import time
+    email = (email or "").lower().strip()
+    if not email:
+        return ORG_TZ
+    hit = _zones.get(email)
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+    tz = ""
+    try:
+        row = db.query(models.TaskNotifyPref.prefs).filter(models.TaskNotifyPref.email == email).first()
+        raw = row[0] if row else None
+        if isinstance(raw, str):
+            raw = json.loads(raw or "{}")
+        tz = str((raw or {}).get("timezone") or "") if isinstance(raw, dict) else ""
+        if not tz:
+            import auth
+            import hr_analytics
+            tz = hr_analytics.company_tz(db, auth.company_of(email, db))
+    except Exception:  # noqa: BLE001 - a missing zone never stops a page or the daily scan
+        tz = ""
+    tz = tz or ORG_TZ
+    _zones[email] = (time.monotonic() + _ZONE_TTL_S, tz)
+    return tz
+
+
+def today_for(db: Session, email: str) -> str:
+    """This person's own calendar day."""
+    return _day_in(zone_for(db, email)) if email else today()
 
 
 def new_id(prefix: str) -> str:
@@ -176,7 +239,7 @@ def notify(db: Session, *, recipient: str, ntype: str, title: str, body: str,
     if not email or email == (requested_by or "").lower():
         return False
     if dedupe_today:
-        day = today()
+        day = utc_day()   # created_at is a UTC timestamp
         dup = db.query(models.NexusNotification).filter(
             models.NexusNotification.type == ntype, models.NexusNotification.recipient == email,
             models.NexusNotification.ref_id == ref_id, models.NexusNotification.created_at >= day).first()
@@ -340,9 +403,19 @@ def signoff_state(db: Session, d: models.KbDocument, email: str) -> dict:
     due = signature_due(db, d, emp) if required else ""
     return {
         "required": required, "signed": bool(sig), "signed_at": sig.signed_at if sig else "",
-        "due": due, "overdue_days": max(0, days_between(due, today())) if required and not sig and due else 0,
+        "due": due, "overdue_days": max(0, days_between(due, today_for(db, email))) if required and not sig and due else 0,
         "version_signed": (sig.version if sig else (older.version if older else "")),
+        "nexus_sign": _envelope_state(db, d, email) if required and not sig else None,
     }
+
+
+def _envelope_state(db: Session, d: models.KbDocument, email: str):
+    """Where the person's Nexus Sign envelope stands (kb_policy_sign.py), or
+    None when the page signs in-page."""
+    if not (NEXUS_SIGN_FOR_POLICIES and d.signing == "nexus_sign"):
+        return None
+    import kb_policy_sign
+    return kb_policy_sign.state_for(db, d, email)
 
 
 # ----------------------------------------------------------------- training
@@ -380,7 +453,7 @@ def expiry_of(db: Session, c: models.KbCourse, prog: models.KbCourseProgress | N
     return add_months(prog.completed_at[:10], int(c.recert_months))
 
 
-def training_status(db: Session, c: models.KbCourse, prog: models.KbCourseProgress | None, due_date: str = "") -> dict:
+def training_status(db: Session, c: models.KbCourse, prog: models.KbCourseProgress | None, due_date: str = "", email: str = "") -> dict:
     """One rule for every screen: {status: Completed|In Progress|Not Started|Expired|Overdue,
     pct, expires, days_overdue}."""
     lessons = lessons_of(c)
@@ -394,11 +467,12 @@ def training_status(db: Session, c: models.KbCourse, prog: models.KbCourseProgre
     did = len([L for L in lessons if L.get("_id") in done]) + (1 if (prog and prog.passed) else 0)
     pct = int(round(100 * did / total)) if total else (100 if prog and prog.completed_at else 0)
     expires = expiry_of(db, c, prog)
+    day = today_for(db, email or (getattr(prog, "user_email", "") if prog else ""))
     if prog and prog.completed_at and (prog.passed or not course_settings(c)["questions"]):
-        if expires and expires < today():
-            return {"status": "Expired", "pct": 100, "expires": expires, "days_overdue": days_between(expires, today())}
+        if expires and expires < day:
+            return {"status": "Expired", "pct": 100, "expires": expires, "days_overdue": days_between(expires, day)}
         return {"status": "Completed", "pct": 100, "expires": expires, "days_overdue": 0}
-    overdue = days_between(due_date, today()) if due_date else 0
+    overdue = days_between(due_date, day) if due_date else 0
     if overdue > 0:
         return {"status": "Overdue", "pct": pct, "expires": "", "days_overdue": overdue}
     return {"status": "In Progress" if (prog and (done or prog.started_at)) else "Not Started", "pct": pct, "expires": "", "days_overdue": 0}

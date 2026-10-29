@@ -72,7 +72,7 @@ class ShiftViewTests(unittest.TestCase):
             db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
             db.add(models.NexusGroup(id=G_VW, name="vw", allowed_modules="hr:viewer"))
             db.add(models.NexusGroupMember(group_id=G_VW, email=VIEWER))
-            db.add(models.ShiftGroup(id=GROUP, name="Store"))
+            db.add(models.ShiftGroup(open_shifts=1, id=GROUP, name="Store"))
             db.add(models.ShiftGroupMember(id="sgm-view-a", group_id=GROUP, employee_email=A))
             db.commit()
         finally:
@@ -249,6 +249,27 @@ class ShiftViewTests(unittest.TestCase):
         self._as(VIEWER)
         self.assertIn(self.client.post("/timeclock/schedule/discard-all",
                                        json={"start_date": MON, "end_date": TUE}).status_code, (401, 403))
+
+    def test_discard_everything_deletes_drafts_too_on_every_date_or_one_team(self):
+        # Save / Discard (Neil, Oct 28 2026): the Discard button throws away
+        # every unshared change - drafts deleted, edits and removals reverted.
+        edited = self._place()["id"]
+        self._publish()
+        self.client.patch(f"/timeclock/schedule/{edited}", json={"employee_email": A, "work_date": MON,
+                                                                 "start_hhmm": "10:00", "end_hhmm": "18:00"})
+        draft_a, draft_b = self._place(day=TUE)["id"], self._place(email=B, day=TUE)["id"]
+        r = self.client.post("/timeclock/schedule/discard-all", json={"include_drafts": True, "emails": [B]})
+        self.assertEqual(r.json(), {"discarded": 1})                 # narrowed to B: only B's draft
+        ids = {s["id"] for s in self._grid(A) + self._grid(B)}
+        self.assertNotIn(draft_b, ids)
+        self.assertIn(draft_a, ids)
+        r = self.client.post("/timeclock/schedule/discard-all", json={"include_drafts": True})   # no dates = every week
+        self.assertEqual(r.json(), {"discarded": 2})
+        grid = {s["id"]: s for s in self._grid(A) + self._grid(B)}
+        self.assertNotIn(draft_a, grid)
+        self.assertEqual((grid[edited]["start"], grid[edited]["hasChanges"]), ("09:00", False))
+        self._as(VIEWER)
+        self.assertIn(self.client.post("/timeclock/schedule/discard-all", json={"include_drafts": True}).status_code, (401, 403))
 
     # ── Day notes ─────────────────────────────────────────────────────────
 

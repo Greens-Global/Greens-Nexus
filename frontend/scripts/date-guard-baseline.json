@@ -41,9 +41,6 @@
   "components/accounting/PfsTab.jsx": {
     "type=\"date\"": 2
   },
-  "components/accounting/ProfitabilityReport.jsx": {
-    "type=\"date\"": 2
-  },
   "components/accounting/reportControls.jsx": {
     "type=\"date\"": 3
   },

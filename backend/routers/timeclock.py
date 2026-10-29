@@ -76,6 +76,7 @@ import india_contractor_pay
 import workflows
 from shift_day import shift_day as _shift_day, shift_bounds_by_day as _shift_bounds_by_day
 import shift_log
+import shift_group_departments as _sgd
 
 router = APIRouter(prefix="/timeclock", tags=["timeclock"])
 
@@ -2890,7 +2891,7 @@ _IIF_PAY_CLASSES = (("regMin", "regular"), ("otMin", "overtime"), ("dtMin", "dou
 
 @router.get("/export.iif")
 def export_iif(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
-               finalized_only: bool = True,
+               finalized_only: bool = True, create_time: str = "",
                user: dict = Depends(require_team_read_pay),
                _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi keys every
@@ -2911,7 +2912,12 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
     is named "-DRAFT" - a preview, not the import.
     COMPANYNAME is the export's company (payroll_codes.qb_company_name: HR's
     QuickBooks Company Name, else the company's name); a file spanning
-    several companies keeps "Greens Global"."""
+    several companies keeps "Greens Global".
+    `create_time` (Charmi, 10/27 call item 02) is COMPANYCREATETIME: the
+    number on the TIMERHDR line of a Timer Lists export from her QuickBooks
+    company file, which QuickBooks' Timer Activities import can check the
+    file against. Digits only; anything else (or none) keeps the 0 this file
+    always carried."""
     scope = _export_scope(db, user, company)
     rows = _team_rows(db, start, end, only_emails=scope)
     if approved_only:
@@ -2932,9 +2938,11 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
     def _clean(s: str) -> str:
         return (s or "").replace("\t", " ").replace("\r", " ").replace("\n", " ").strip()
 
+    created = (create_time or "").strip()
+    created = created if re.fullmatch(r"[0-9]{1,12}", created) else "0"
     lines = [
         "!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME",
-        f"TIMERHDR\t8\t0\t{qb_company}\tN\tY\t0",
+        f"TIMERHDR\t8\t0\t{qb_company}\tN\tY\t{created}",
         "!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS",
     ]
     book = payroll_codes.codebook(db)
@@ -2993,7 +3001,11 @@ def export_hours(start: str = "", end: str = "", company: str = "", approved_onl
         if approved_only and not approved:
             continue
         # The same filter as export.iif's (Oct 19), so the preview is the file.
-        if finalized_only and not _finalized_row(db, r["email"], start, end):
+        # Every row says whether it is finalized (Charmi, 10/27 call item 02):
+        # the screen loads everyone, names who is not finalized yet and offers
+        # to include them, instead of a preview - and an IIF - with nobody in it.
+        finalized = bool(_finalized_row(db, r["email"], start, end))
+        if finalized_only and not finalized:
             continue
         _card = _compute_timecard(db, r["email"], start, end)
         t = _card["totals"]
@@ -3015,7 +3027,7 @@ def export_hours(start: str = "", end: str = "", company: str = "", approved_onl
         for _k, _m in (("mealPremium", "mealPremiumMin"), ("restPremium", "restPremiumMin")):
             if t.get(_m):
                 hours[_k] = h(_m)
-        out.append({"email": r["email"], "name": r["name"], "approved": approved,
+        out.append({"email": r["email"], "name": r["name"], "approved": approved, "finalized": finalized,
                     "employeeCode": (emp.employee_code if emp else "") or "",
                     "department": (emp.department if emp else "") or "",
                     "company": (emp.company if emp else "") or "",
@@ -6630,7 +6642,13 @@ def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Dep
     # company's team by name (QA, Oct 15).
     admit = _visible_companies(db, user)
     companies, can_pick = _company_choices(db, user, admit)
+    auto = {}
+    for m in db.query(ShiftGroupMember).filter(ShiftGroupMember.source == _sgd.AUTO).all():
+        auto.setdefault(m.group_id, []).append(m.employee_email)
     return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
+                        # Members the group's department put there (Oct 28) - the editor
+                        # shows them as from the department, not removable by hand.
+                        "autoMembers": [e for e in auto.get(g.id, []) if e in members.get(g.id, [])], **_group_flags(g),
                         "schedulers": _schedulers(g), "archived": bool(getattr(g, "archived", 0)),
                         "sortOrder": int(getattr(g, "sort_order", 0) or 0),
                         "chatId": g.teams_chat_id or "", "chatName": g.teams_chat_name or "",
@@ -6665,10 +6683,40 @@ class GroupIn(BaseModel):
     # The HrEntity company this group belongs to ('' = shared). None = leave
     # as is; on create, a company-limited caller's own company (Phase 0).
     company_id: Optional[str] = None
+    # Neil, Oct 28 2026. None = leave as is. open_shifts: this team may post
+    # open shifts (off by default); department: the department it follows.
+    open_shifts: Optional[bool] = None
+    department: Optional[str] = None
 
 
 def _target_of(g) -> str:
     return "channel" if (getattr(g, "teams_target", "") or "") == "channel" else "chat"
+
+
+def _group_flags(g) -> dict:
+    return {"openShifts": bool(int(getattr(g, "open_shifts", 0) or 0)), "department": getattr(g, "department", "") or ""}
+
+
+def _apply_group_flags(g, body: "GroupIn") -> None:
+    if body.open_shifts is not None:
+        g.open_shifts = 1 if body.open_shifts else 0
+    if body.department is not None:
+        g.department = (body.department or "").strip()[:120]
+
+
+OPEN_SHIFTS_OFF = "Open shifts are off for {team}. Turn them on for the team in Settings > Shifts & Scheduling > Groups."
+
+
+def _open_shifts_on(g) -> bool:
+    return bool(int(getattr(g, "open_shifts", 0) or 0))
+
+
+def _require_open_shifts(db: Session, group_id: str) -> None:
+    """New open shifts only for a team that has them on (Neil, Oct 28 2026).
+    Ones already posted are left alone - nothing is lost."""
+    g = db.query(ShiftGroup).filter(ShiftGroup.id == (group_id or "")).first()
+    if g is not None and not _open_shifts_on(g):
+        raise HTTPException(400, OPEN_SHIFTS_OFF.format(team=g.name or "this team"))
 
 
 def _apply_teams_binding(g, body: "GroupIn") -> None:
@@ -6713,6 +6761,7 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_shift_manage)
                    created_by=user["email"], created_at=_now_iso())
     _apply_teams_binding(g, body)
     _apply_weather(db, g, body)
+    _apply_group_flags(g, body)
     if body.schedulers is not None:
         g.scheduler_emails = _clean_schedulers(db, body.schedulers)
     g.sort_order = (int(body.sort_order) if body.sort_order is not None
@@ -6721,8 +6770,12 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_shift_manage)
     for em in members:
         db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=g.id, employee_email=em))
     db.commit()
+    _sgd.sync_group(db, g)
+    db.commit()
+    members = sorted({(m.employee_email or "").lower() for m in
+                      db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == g.id).all()})
     return {"id": g.id, "name": g.name, "members": members, "sortOrder": int(g.sort_order or 0),
-            "companyId": g.company_id or ""}
+            "companyId": g.company_id or "", **_group_flags(g)}
 
 
 @router.patch("/shift-groups/{group_id}")
@@ -6740,13 +6793,20 @@ def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require
         g.name = body.name.strip()[:80]
     _apply_teams_binding(g, body)
     _apply_weather(db, g, body)
+    _apply_group_flags(g, body)
     if body.schedulers is not None:
         g.scheduler_emails = _clean_schedulers(db, body.schedulers)
     if body.sort_order is not None:
         g.sort_order = int(body.sort_order)
+    # Members the department added stay marked as such through the rewrite.
+    auto = {(m.employee_email or "").lower() for m in db.query(ShiftGroupMember).filter(
+        ShiftGroupMember.group_id == group_id, ShiftGroupMember.source == _sgd.AUTO).all()}
     db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
     for em in members:
-        db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=group_id, employee_email=em))
+        db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=group_id, employee_email=em,
+                                source=_sgd.AUTO if em in auto else ""))
+    db.commit()
+    _sgd.sync_group(db, g)
     db.commit()
     return {"ok": True}
 
@@ -7099,6 +7159,8 @@ def _resolve_group(db: Session, group_id, email: str, open_shift: bool) -> str:
     if gid:
         if not db.query(ShiftGroup.id).filter(ShiftGroup.id == gid).first():
             raise HTTPException(400, "Team not found.")
+        if open_shift:
+            _require_open_shifts(db, gid)
         return gid
     if open_shift:
         raise HTTPException(400, "Pick a team for the open shift.")
@@ -7334,6 +7396,7 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     employees = [{"email": em, "name": names.get(em, em),
                   "photoUrl": getattr(people.get(em), "photo_url", "") or "",
                   "location": (getattr(people.get(em), "location", "") or "").strip(),
+                  "contractor": (getattr(people.get(em), "employment_type", "") or "") == "contractor",
                   "canEdit": can_write and (write_scope is None or em in write_scope)} for em in emails]
 
     presets = {s.id: s for s in db.query(Shift).all()}
@@ -7348,7 +7411,7 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     sites = _site_map(db)
     groups = [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                "archived": bool(getattr(g, "archived", 0)), "sortOrder": int(getattr(g, "sort_order", 0) or 0),
-               "canEdit": _group_editable(db, user, g), **_group_weather(g, sites)}
+               "canEdit": _group_editable(db, user, g), **_group_weather(g, sites), **_group_flags(g)}
               for g in _ordered_groups(db)]
     if user.get("_group_scheduler"):
         groups = [g for g in groups if g["members"]]   # only the groups they schedule
@@ -8002,7 +8065,7 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
     if body.skip_timeoff:
         for t in (db.query(TimeOffRequest)
                   .filter(TimeOffRequest.employee_email.in_(emails),
-                          TimeOffRequest.status.in_(["approved", "pending"]),
+                          TimeOffRequest.status == "approved",
                           TimeOffRequest.start_date <= dates[-1], TimeOffRequest.end_date >= dates[0]).all()):
             off.setdefault(t.employee_email, []).append((t.start_date, t.end_date))
 
@@ -8186,6 +8249,9 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
     sources = [(_sched_dict(r, presets, effective=True), r) for r in rows]   # what the scheduler sees
     active = _active_people(db)
     sources = [(src, r) for src, r in sources if not src["email"] or src["email"] in active]
+    # An open shift is copied only into a team that still has open shifts on (Oct 28).
+    open_on = {g.id for g in db.query(ShiftGroup).all() if _open_shifts_on(g)}
+    sources = [(src, r) for src, r in sources if src["email"] or (r.group_id or "") in open_on]
     people = {src["email"] for src, _ in sources if src["email"]}
 
     lo, hi = t0.isoformat(), t_last.isoformat()
@@ -8201,7 +8267,7 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
     if body.skip_timeoff and people:
         for t in (db.query(TimeOffRequest)
                   .filter(TimeOffRequest.employee_email.in_(list(people)),
-                          TimeOffRequest.status.in_(["approved", "pending"]),
+                          TimeOffRequest.status == "approved",
                           TimeOffRequest.start_date <= hi, TimeOffRequest.end_date >= lo).all()):
             off.setdefault((t.employee_email or "").lower(), []).append((t.start_date, t.end_date))
 
@@ -8329,6 +8395,8 @@ def move_scheduled(sched_id: str, body: MoveIn, user: dict = Depends(require_sch
         gid = _first_group_of(db, src_em)   # a shift moved to Open needs a team
         if not gid:
             raise HTTPException(400, "Pick a team for the open shift.")
+    if not target:
+        _require_open_shifts(db, gid)
     _dup_check(db, target, day, eff["start"], eff["end"], exclude_id=row.id if not body.duplicate else "",
                group_id=gid)
     new = ScheduledShift(
@@ -8357,10 +8425,13 @@ def move_scheduled(sched_id: str, body: MoveIn, user: dict = Depends(require_sch
 
 
 class DiscardAllIn(BaseModel):
-    start_date: str
-    end_date: str
+    start_date: str = ""          # "" with include_drafts = no bound
+    end_date: str = ""
     group_id: Optional[str] = ""
     emails: List[str] = []
+    # Save / Discard (Neil, Oct 28 2026): Discard throws away everything not
+    # shared yet - new drafts are deleted too, not only edits and removals.
+    include_drafts: bool = False
 
 
 @router.post("/schedule/discard-all")
@@ -8368,7 +8439,11 @@ def discard_all_changes(body: DiscardAllIn, user: dict = Depends(require_schedul
                         db: Session = Depends(get_db)):
     """Undo every unpublished edit and removal on PUBLISHED shifts in a range
     at once (Sep 29, Teams parity) - back to exactly what staff see. New
-    drafts are left alone: they are new work, and Clear removes those."""
+    drafts are left alone: they are new work, and Clear removes those -
+    unless `include_drafts` (the schedule's Discard button and its leave
+    prompt), which deletes the caller's unshared drafts as well."""
+    if body.include_drafts:
+        return _discard_everything(db, user, body)
     d0, d1 = _parse_day(body.start_date, "start date"), _parse_day(body.end_date, "end date")
     if d1 < d0:
         raise HTTPException(400, "End date is before the start date.")
@@ -8398,6 +8473,34 @@ def discard_all_changes(body: DiscardAllIn, user: dict = Depends(require_schedul
         n += 1
     import shift_calendar
     shift_calendar.enqueue(db, restored)   # Phase 3a: the Outlook events follow what staff see
+    db.commit()
+    return {"discarded": n}
+
+
+def _discard_everything(db: Session, user: dict, body: DiscardAllIn) -> dict:
+    """Everything a Share by this caller would send, thrown away instead:
+    drafts deleted, edits and removals back to what staff see. Optionally
+    inside a range and narrowed to a team / people (same rows as Share)."""
+    import shift_calendar
+    d0 = _parse_day(body.start_date, "start date").isoformat() if body.start_date else ""
+    d1 = _parse_day(body.end_date, "end date").isoformat() if body.end_date else ""
+    if d0 and d1 and d1 < d0:
+        raise HTTPException(400, "End date is before the start date.")
+    n, restored = 0, []
+    for r in _unshared_query(db, user, d0, d1, body.group_id or "", body.emails).all():
+        if not r.published:
+            shift_log.record(db, "removed", r, user["email"], before=shift_log.snapshot(r), reason="Discarded before sharing")
+            shift_calendar.enqueue_delete(db, r.id, r.employee_email)
+            db.delete(r)
+        else:
+            shift_log.record(db, "discarded", r, user["email"],
+                             before=shift_log.snapshot({**_pending(r), "date": r.work_date, "email": r.employee_email}
+                                                       if not r.pending_delete else r, pendingDelete=bool(r.pending_delete)),
+                             after=shift_log.snapshot(r))
+            r.pending_json, r.pending_delete = "", 0
+            restored.append(r.id)
+        n += 1
+    shift_calendar.enqueue(db, restored)
     db.commit()
     return {"discarded": n}
 
@@ -8588,9 +8691,12 @@ def import_schedule(body: ImportIn, user: dict = Depends(require_schedule_write)
         for k in (p.code, p.name):
             if (k or "").strip():
                 by_key.setdefault(k.strip().lower(), p)
-    groups_by_key = {}
+    groups_by_key, group_names, open_on = {}, {}, set()
     for g in db.query(ShiftGroup).all():
         groups_by_key[g.id] = g.id
+        group_names[g.id] = g.name or ""
+        if _open_shifts_on(g):
+            open_on.add(g.id)
         if (g.name or "").strip():
             groups_by_key.setdefault(g.name.strip().lower(), g.id)
     team_tz = _team_tz(db)
@@ -8639,6 +8745,8 @@ def import_schedule(body: ImportIn, user: dict = Depends(require_schedule_write)
                 gid = first_group[em]
             else:
                 raise ValueError("an open shift needs a team (the Group column).")
+            if not em and gid not in open_on:
+                raise ValueError(f"open shifts are off for {group_names.get(gid) or 'this team'} (Settings > Shifts & Scheduling > Groups).")
             if (em, day, st, et) in have:
                 raise ValueError("that shift is already on the schedule.")
         except ValueError as e:

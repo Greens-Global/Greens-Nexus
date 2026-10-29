@@ -19,7 +19,7 @@ describe('ShiftBlock actuals', () => {
   it('draws no bar without actuals or before the shift', () => {
     const { unmount } = render(<ShiftBlock shift={shift} onOpen={() => {}} />);
     expect(bar()).toBeNull();
-    expect(block().textContent).toBe('8:00a - 5:00pGST');
+    expect(block().textContent).toBe('8:00a - 5:00p');
     unmount();
     render(<ShiftBlock shift={shift} onOpen={() => {}} actual={{ status: 'upcoming' }} />);
     expect(bar()).toBeNull();
@@ -41,7 +41,7 @@ describe('ShiftBlock actuals', () => {
     expect(b.style.animation).toBe('');
     expect(block().getAttribute('aria-label')).toBe(`Shift 8:00 AM - 5:00 PM GST, ${word}`);
     // Still one line: the bar and a one-letter badge (not a color) are the only additions.
-    expect(block().textContent).toBe(`8:00a - 5:00pGST${letter}`);
+    expect(block().textContent).toBe(`8:00a - 5:00p${letter}`);
     const badge = block().querySelector('[data-actual-badge]');
     if (letter) { expect(badge.getAttribute('data-actual-badge')).toBe(status); expect(badge.style.color).toBe(color); } else expect(badge).toBeNull();
     expect(document.querySelector('[data-actual-sheet]')).toBeNull();

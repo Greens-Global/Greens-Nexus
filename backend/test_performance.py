@@ -177,20 +177,238 @@ class GoalTests(PerfCase):
         self.assertEqual(e.exception.status_code, 403)
         self.assertEqual({x["id"] for x in api.list_goals("company", "", "", False, U(HR), self.db)}, {c, d})
 
-    def test_checkins_keep_history_and_status(self):
+    def test_checkins_keep_history_and_the_status_is_computed(self):
         g = self.goal(U(EMP), measure="number", start_value=10, target_value=30)["id"]
-        api.check_in(g, api.CheckinIn(value=20, status="at_risk", note="Half way"), U(EMP), self.db)
-        out = api.check_in(g, api.CheckinIn(value=30, status="on_track", note="There"), U(MGR), self.db)
-        self.assertEqual((out["progress"], out["status"]), (100, "on_track"))
+        api.check_in(g, api.CheckinIn(value=20, status="behind", note="Half way"), U(EMP), self.db)
+        out = api.check_in(g, api.CheckinIn(value=30, status="at_risk", note="There"), U(MGR), self.db)
+        # The status sent is ignored: the target is met, so it is Done.
+        self.assertEqual((out["progress"], out["status"]), (100, "done"))
         self.assertEqual([c["note"] for c in out["checkins"]], ["There", "Half way"])
         with self.assertRaises(HTTPException) as e:
             api.check_in(g, api.CheckinIn(value=1), U(PEER), self.db)
         self.assertEqual(e.exception.status_code, 404)
         done = self.goal(U(EMP), measure="done")["id"]
-        self.assertEqual(api.check_in(done, api.CheckinIn(value=1), U(EMP), self.db)["status"], "done")
-        # Ticking Done is Done even when the form still says On Track.
-        done2 = self.goal(U(EMP), measure="done")["id"]
-        self.assertEqual(api.check_in(done2, api.CheckinIn(value=1, status="on_track"), U(EMP), self.db)["status"], "done")
+        self.assertEqual(api.check_in(done, api.CheckinIn(value=1, status="on_track"), U(EMP), self.db)["status"], "done")
+
+    def test_status_from_progress_against_time(self):
+        from datetime import date
+        g = models.PerfGoal(id="x", level="personal", owner_email=EMP, measure="percent", current_value=0,
+                            start_value=0, target_value=100, period_start="2026-01-01", period_end="2026-12-31",
+                            metric_key="", archived_at="")
+        day = lambda iso: date.fromisoformat(iso).isoformat()   # noqa: E731
+        # Half the year gone: 50% expected.
+        g.current_value = 55
+        self.assertEqual(perf.computed_status(g, day("2026-07-02")), "on_track")
+        g.current_value = 40      # 40 >= 0.7 x 50
+        self.assertEqual(perf.computed_status(g, day("2026-07-02")), "at_risk")
+        g.current_value = 20
+        self.assertEqual(perf.computed_status(g, day("2026-07-02")), "behind")
+        g.current_value = 100
+        self.assertEqual(perf.computed_status(g, day("2026-07-02")), "done")
+        g.current_value = 90      # the period is over without the target
+        self.assertEqual(perf.computed_status(g, day("2027-01-05")), "behind")
+
+    def test_a_less_is_better_number_and_a_rate(self):
+        low = models.PerfGoal(id="l", level="personal", owner_email=EMP, measure="number", metric_key="no_shows",
+                              target_value=2, current_value=1, period_start="2026-01-01", period_end="2026-12-31")
+        self.assertEqual(perf.computed_status(low, "2026-06-01"), "on_track")
+        self.assertEqual(perf.progress(low), 100)
+        low.current_value = 3
+        self.assertEqual(perf.computed_status(low, "2026-06-01"), "behind")
+        low.current_value = 2
+        self.assertEqual(perf.computed_status(low, "2027-01-02"), "done")    # within target when it ended
+        rate = models.PerfGoal(id="r", level="personal", owner_email=EMP, measure="number", metric_key="on_time",
+                               target_value=95, current_value=90, period_start="2026-01-01", period_end="2026-12-31")
+        self.assertEqual(perf.computed_status(rate, "2026-03-01"), "at_risk")   # 90 >= 0.9 x 95
+        rate.current_value = 96
+        self.assertEqual(perf.computed_status(rate, "2026-03-01"), "on_track")  # a rate is Done only at the end
+        self.assertEqual(perf.computed_status(rate, "2027-01-02"), "done")
+        self.assertEqual(perf.computed_status(rate, "2026-03-01", applies=False), "no_data")
+
+    def test_five_open_goals_at_most(self):
+        for i in range(perf.MAX_OPEN_GOALS):
+            self.goal(U(MGR), owner_email=EMP, title=f"Goal {i}")
+        with self.assertRaises(HTTPException) as e:
+            self.goal(U(EMP), title="One too many")
+        self.assertEqual(e.exception.status_code, 400)
+        self.assertIn("5 open goals", e.exception.detail)
+        # Archiving one frees a place; restoring it is refused while full.
+        first = self.db.query(models.PerfGoal).filter_by(owner_email=EMP).first()
+        api.archive_goal(first.id, False, U(EMP), self.db)
+        self.goal(U(EMP), title="Now it fits")
+        with self.assertRaises(HTTPException):
+            api.archive_goal(first.id, True, U(EMP), self.db)
+
+    def test_an_own_goal_is_proposed_until_the_manager_approves(self):
+        g = self.goal(U(EMP), title="Get forklift certified")
+        self.assertTrue(g["proposed"])
+        self.assertFalse(g["canApprove"])
+        bells = [n.title for n in self.db.query(models.NexusNotification).filter_by(recipient=MGR).all()]
+        self.assertIn("Goals to Approve", bells)
+        with self.assertRaises(HTTPException):
+            api.approve_goal(g["id"], U(EMP), self.db)            # never your own
+        with self.assertRaises(HTTPException):
+            api.approve_goal(g["id"], U(PEER), self.db)           # a peer cannot see it
+        out = api.approve_goal(g["id"], U(MGR), self.db)
+        self.assertFalse(out["proposed"])
+        self.assertEqual(out["approvedBy"], MGR)
+        # Changing what was agreed sends it back for approval.
+        back = api.update_goal(g["id"], api.GoalPatch(title="Get forklift and lift certified"), U(EMP), self.db)
+        self.assertTrue(back["proposed"])
+        # The manager's own goal for a report is agreed at once.
+        self.assertFalse(self.goal(U(MGR), owner_email=EMP, title="Set by Max")["proposed"])
+        # Someone with no manager needs nobody's approval.
+        self.assertFalse(self.goal(U(BOSS), title="Bea's own")["proposed"])
+
+    def test_one_goal_for_several_reports(self):
+        out = api.create_goal(api.GoalIn(title="95% on time", owner_emails=[EMP, PEER], metric_key="on_time",
+                                         target_value=95), U(MGR), self.db)
+        self.assertEqual(sorted(x["ownerEmail"] for x in out["created"]), sorted([EMP, PEER]))
+        self.assertTrue(all(x["measuredByNexus"] and x["metricLabel"] == "On-Time Arrival" for x in out["created"]))
+        with self.assertRaises(HTTPException) as e:   # only your own reports
+            api.create_goal(api.GoalIn(title="x", owner_emails=[EMP, OTHER]), U(MGR), self.db)
+        self.assertEqual(e.exception.status_code, 403)
+
+    def test_a_nexus_measured_goal_reads_its_number(self):
+        import perf_metrics
+        g = self.goal(U(MGR), owner_email=EMP, title="Finish tasks on time", metric_key="tasks_on_time", target_value=90)
+        self.assertEqual(g["status"], "no_data")            # nothing assigned yet
+        with mock.patch.object(perf_metrics, "metric", return_value={"available": True, "value": 92.0}):
+            out = api.get_goal(g["id"], U(EMP), self.db)
+        self.assertEqual((out["currentValue"], out["status"], out["canCheckIn"]), (92.0, "on_track", False))
+        with self.assertRaises(HTTPException):             # no hand check-ins on a measured goal
+            api.check_in(g["id"], api.CheckinIn(value=50), U(EMP), self.db)
+        with self.assertRaises(HTTPException):
+            self.goal(U(EMP), metric_key="made_up", target_value=1)
+        self.db.rollback()                                  # what a GET read is never kept
+        row = self.db.get(models.PerfGoal, g["id"])
+        row.updated_at = (datetime.now(timezone.utc) - timedelta(hours=7)).isoformat()
+        self.db.commit()
+        with mock.patch.object(perf_metrics, "metric", return_value={"available": True, "value": 70.0}):
+            self.assertEqual(perf.refresh_measured_goals(self.db), 1)
+            self.assertEqual(perf.refresh_measured_goals(self.db), 0)    # fresh: not read again
+        self.db.commit()
+        row = self.db.get(models.PerfGoal, g["id"])
+        self.assertEqual((row.current_value, row.status), (70.0, "behind"))
+
+    def test_only_a_personal_goal_is_measured_by_nexus(self):
+        import perf_metrics
+        with self.assertRaises(HTTPException) as e:
+            self.goal(U(HR), level="company", company_id=CO, title="On time", metric_key="on_time", target_value=95)
+        self.assertEqual(e.exception.status_code, 400)
+        d = self.goal(U(MGR), level="department", department="Ops", title="Dept")
+        with self.assertRaises(HTTPException):
+            api.update_goal(d["id"], api.GoalPatch(metric_key="on_time", target_value=95), U(MGR), self.db)
+        # A stray key on an old company row is ignored: its owner's numbers never show.
+        row = models.PerfGoal(id="old-co", level="company", company_id=CO, owner_email=HR, title="Legacy", measure="number",
+                              metric_key="on_time", target_value=95, current_value=0, start_value=0, archived_at="",
+                              created_at=perf.now_iso(), period_start="2026-01-01", period_end="2026-12-31")
+        self.db.add(row)
+        self.db.commit()
+        with mock.patch.object(perf_metrics, "metric") as called:
+            out = api.get_goal("old-co", U(OTHER), self.db)
+            perf.refresh_measured_goals(self.db, datetime.now(timezone.utc) + timedelta(days=1))
+        called.assert_not_called()
+        self.assertEqual((out["measuredByNexus"], out["metricKey"]), (False, ""))
+
+    def test_the_manager_s_manager_reads_but_does_not_change(self):
+        g = self.goal(U(EMP), title="Proposed by Erin")
+        self.assertTrue(self.see(U(BOSS), g["id"]))
+        out = api.get_goal(g["id"], U(BOSS), self.db)
+        self.assertEqual((out["canEdit"], out["canApprove"]), (False, False))
+        for call in (lambda: api.approve_goal(g["id"], U(BOSS), self.db),
+                     lambda: api.update_goal(g["id"], api.GoalPatch(title="x"), U(BOSS), self.db),
+                     lambda: api.archive_goal(g["id"], False, U(BOSS), self.db),
+                     lambda: api.check_in(g["id"], api.CheckinIn(value=5), U(BOSS), self.db)):
+            with self.assertRaises(HTTPException) as e:
+                call()
+            self.assertEqual(e.exception.status_code, 403)
+        self.assertTrue(api.get_goal(g["id"], U(MGR), self.db)["canApprove"])      # the direct manager does
+        self.assertTrue(api.get_goal(g["id"], U(HR), self.db)["canApprove"])       # and HR
+
+    def test_a_note_only_edit_keeps_it_approved(self):
+        g = self.goal(U(EMP), title="Learn the POS")
+        api.approve_goal(g["id"], U(MGR), self.db)
+        out = api.update_goal(g["id"], api.GoalPatch(description="Started the course"), U(EMP), self.db)
+        self.assertFalse(out["proposed"])
+        out = api.update_goal(g["id"], api.GoalPatch(title="Learn the POS"), U(EMP), self.db)    # same title
+        self.assertFalse(out["proposed"])
+        out = api.update_goal(g["id"], api.GoalPatch(title="Learn the new POS"), U(EMP), self.db)
+        self.assertTrue(out["proposed"])
+
+    def test_restore_is_for_who_may_change_it(self):
+        g = self.goal(U(MGR), owner_email=EMP, title="To archive")
+        api.archive_goal(g["id"], False, U(MGR), self.db)
+        self.assertTrue(api.get_goal(g["id"], U(EMP), self.db)["canRestore"])
+        self.assertFalse(api.get_goal(g["id"], U(BOSS), self.db)["canRestore"])       # reads only
+        with self.assertRaises(HTTPException):
+            api.archive_goal(g["id"], True, U(BOSS), self.db)
+
+    def test_goal_dates_and_the_measured_window_are_bounded(self):
+        import perf_metrics
+        from datetime import date
+        today = date.fromisoformat(perf.local_today())
+        with self.assertRaises(HTTPException):
+            self.goal(U(EMP), start_on=(today - timedelta(days=4 * 366)).isoformat())
+        with self.assertRaises(HTTPException):
+            self.goal(U(EMP), start_on=today.isoformat(), due_on=(today - timedelta(days=1)).isoformat())
+        g = self.goal(U(MGR), owner_email=EMP, title="Long run", metric_key="tasks_done", target_value=50,
+                      start_on=(today - timedelta(days=2 * 366)).isoformat(), due_on=today.isoformat())
+        seen = {}
+
+        def fake(db, email, key, start, end, today=None):
+            seen.update(start=start, end=end)
+            return {"available": True, "value": 10.0}
+        with mock.patch.object(perf_metrics, "metric", side_effect=fake):
+            api.get_goal(g["id"], U(EMP), self.db)
+        span = (date.fromisoformat(seen["end"]) - date.fromisoformat(seen["start"])).days
+        self.assertLessEqual(span, perf.MEASURED_MAX_DAYS)
+
+    def test_the_cap_counts_an_owner_whatever_the_case(self):
+        for i in range(perf.MAX_OPEN_GOALS):
+            self.goal(U(MGR), owner_email=EMP.upper() if i % 2 else EMP, title=f"G{i}")
+        with self.assertRaises(HTTPException):
+            self.goal(U(MGR), owner_email=EMP.upper(), title="Sixth")
+
+    def test_a_custom_numbers_range_is_bounded(self):
+        from datetime import date
+        today = date.fromisoformat(perf.local_today())
+        ok = api.scorecard(EMP, "", (today - timedelta(days=360)).isoformat(), today.isoformat(), U(EMP), self.db)
+        self.assertTrue(ok["metrics"])
+        for start, end in (((today - timedelta(days=430)).isoformat(), today.isoformat()),        # 14 months
+                           ((today - timedelta(days=4 * 366)).isoformat(),
+                            (today - timedelta(days=4 * 366 - 30)).isoformat())):                  # four years back
+            with self.assertRaises(HTTPException) as e:
+                api.scorecard(EMP, "", start, end, U(EMP), self.db)
+            self.assertEqual(e.exception.status_code, 400)
+
+    def test_the_team_reads_its_numbers_in_one_pass(self):
+        import perf_metrics
+        calls = []
+        real = perf_metrics.scorecards
+        with mock.patch.object(perf_metrics, "scorecards", side_effect=lambda db, ems, *a, **k: calls.append(sorted(ems)) or real(db, ems, *a, **k)):
+            api.my_team(U(MGR), self.db)
+        self.assertEqual(calls, [sorted([EMP, PEER])])
+
+    def test_the_team_is_direct_reports_with_their_numbers(self):
+        self.goal(U(EMP), title="Proposed one")
+        team = api.my_team(U(MGR), self.db)
+        self.assertEqual(sorted(p["email"] for p in team), sorted([EMP, PEER]))
+        erin = next(p for p in team if p["email"] == EMP)
+        self.assertEqual(erin["goals"]["proposed"], 1)
+        self.assertIn("numbers", erin)
+        self.assertEqual(api.my_team(U(BOSS), self.db)[0]["email"] in (MGR, OTHER_MGR, HR), True)
+
+    def test_who_reads_a_scorecard(self):
+        for who, ok in ((EMP, True), (MGR, True), (BOSS, True), (HR, True), (PEER, False), (OTHER_MGR, False), (FAR, False)):
+            if ok:
+                out = api.scorecard(EMP, "quarter", "", "", U(who), self.db)
+                self.assertEqual(out["email"], EMP)
+                self.assertTrue(all("available" in m for m in out["metrics"]))
+            else:
+                with self.assertRaises(HTTPException) as e:
+                    api.scorecard(EMP, "quarter", "", "", U(who), self.db)
+                self.assertEqual(e.exception.status_code, 404)
 
     def test_a_supported_goal_is_named_only_to_who_may_see_it(self):
         mine = self.goal(U(MGR), title="Max private aim")["id"]
@@ -322,6 +540,40 @@ class OneOnOneTests(PerfCase):
         with self.assertRaises(HTTPException) as e:
             api.update_meeting(m["id"], api.MeetingPatch(shared_notes="Theirs", notes_at=m["notesAt"]), U(MGR), self.db)
         self.assertEqual(e.exception.status_code, 409)
+
+    def test_cancel_this_one_cancels_the_teams_occurrence(self):
+        seen = {}
+
+        def fake_create(*a, **k):
+            return {"eventId": "series-1", "joinUrl": "https://teams/x"}
+
+        class R:
+            status_code = 200
+
+            def json(self):
+                return {"value": [{"id": "occ-7", "start": {}}]}
+
+        start = (datetime.now(timezone.utc) + timedelta(days=3)).strftime("%Y-%m-%dT10:00")
+        with mock.patch("routers.hr_interviews._graph_create_meeting", side_effect=fake_create):
+            s = api.create_one_on_one(api.OneOnOneIn(report_email=EMP, start_local=start, cadence="weekly"), U(MGR), self.db)
+        mid = s["meetings"][0]["id"]
+        with mock.patch("httpx.get", return_value=R()), mock.patch("routers.hr._graph_token", return_value="t"), \
+                mock.patch("routers.hr_interviews._graph_cancel_meeting",
+                           side_effect=lambda org, ev: seen.update({"org": org, "ev": ev}) or ""):
+            api.update_meeting(mid, api.MeetingPatch(status="canceled"), U(MGR), self.db)
+        self.assertEqual(seen, {"org": MGR, "ev": "occ-7"})
+
+    def test_an_ended_1on1_is_read_only(self):
+        s = self.make()
+        mid = s["meetings"][0]["id"]
+        out = api.add_agenda(mid, api.AgendaIn(text="Before the end"), U(EMP), self.db)
+        aid = out["meetings"][0]["agenda"][0]["id"]
+        api.end_one_on_one(s["id"], U(MGR), self.db)
+        for call in (lambda: api.update_agenda(aid, api.AgendaPatch(done=True), U(EMP), self.db),
+                     lambda: api.remove_agenda(aid, U(EMP), self.db)):
+            with self.assertRaises(HTTPException) as e:
+                call()
+            self.assertEqual(e.exception.status_code, 409)
 
     def test_monthly_starts_on_a_day_every_month_has(self):
         with self.assertRaises(HTTPException) as e:

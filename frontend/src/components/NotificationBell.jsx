@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight, Sparkles, ArrowRight } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight, Sparkles, ArrowRight, Flag, Award, PenLine, Users, BookOpen, Unlock } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
@@ -63,6 +63,19 @@ const TYPE_META = {
   kb_course_assigned:   { icon: HelpCircle,  label: 'Training assigned',    color: 'var(--color-blue)'   },
   kb_course_overdue:    { icon: AlertCircle, label: 'Training overdue',      color: 'var(--color-red)'    },
   kb_course_recert:     { icon: RotateCcw,   label: 'Recertification due',   color: 'var(--color-orange)' },
+  // The rest of the Knowledge Base's bells (WP 1.7, Oct 29 2026; Visesh agreed).
+  kb_sign_required:     { icon: PenLine,     label: 'Policy To Sign',         color: 'var(--color-orange)' },
+  kb_training_reminder: { icon: Clock,       label: 'Training Reminder',      color: 'var(--color-orange)' },
+  kb_team_training:     { icon: Users,       label: 'Team Training Behind',   color: 'var(--color-orange)' },
+  kb_course_complete:   { icon: Award,       label: 'Course Completed',       color: 'var(--color-green)'  },
+  kb_plan_assigned:     { icon: BookOpen,    label: 'Training Plan Assigned', color: 'var(--color-blue)'   },
+  kb_quiz_unlocked:     { icon: Unlock,      label: 'Quiz Unlocked',          color: 'var(--color-blue)'   },
+  kb_flag:              { icon: Flag,        label: 'Page Reported',          color: 'var(--color-red)'    },
+  kb_flag_resolved:     { icon: CheckCircle, label: 'Page Fixed',             color: 'var(--color-green)'  },
+  kb_owner_digest:      { icon: BookOpen,    label: 'Pages Need You',         color: 'var(--color-orange)' },
+  kb_page_request:      { icon: HelpCircle,  label: 'Page Requested',         color: 'var(--color-blue)'   },
+  kb_request_done:      { icon: CheckCircle, label: 'Page Request Done',      color: 'var(--color-green)'  },
+  kb_sign_declined:     { icon: XCircle,     label: 'Policy Signature Declined', color: 'var(--color-red)'  },
   time_missed_out:      { icon: Clock,       label: 'Missing clock-out',    color: 'var(--color-orange)' },
   time_overtime:        { icon: Clock,       label: 'Overtime',             color: 'var(--color-orange)' },
   // The week's What's New, kept here for anyone who dismissed the bar (Oct 12).

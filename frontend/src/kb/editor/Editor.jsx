@@ -439,7 +439,7 @@ export default function Editor({ id, me }) {
                   {settings.require_ack && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 24 }}>
                       <div className="kb-meta">Who signs: <b>{page.audience_text || 'Everyone'}</b> <a href="#aud" onClick={(e) => { e.preventDefault(); setAudienceOpen(true); }}>Change</a></div>
-                      <label className="kb-check" style={{ fontSize: 13 }}><input type="checkbox" checked={settings.signing === 'nexus_sign'} onChange={(e) => patchSettings({ signing: e.target.checked ? 'nexus_sign' : 'in_page' })} />Send through Nexus Sign instead of in-page</label>
+                      {page.nexus_sign_available && <label className="kb-check" style={{ fontSize: 13 }}><input type="checkbox" checked={settings.signing === 'nexus_sign'} onChange={(e) => patchSettings({ signing: e.target.checked ? 'nexus_sign' : 'in_page' })} />Send through Nexus Sign instead of in-page</label>}
                     </div>
                   )}
                   {page.translations?.length > 0 && <div className="kb-meta">Languages: {page.translations.map((t) => `${t.lang.toUpperCase()}${t.outdated ? ' (outdated)' : ''}`).join(', ')}. A translation falls out of date when a new version goes live.</div>}

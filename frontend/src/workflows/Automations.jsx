@@ -141,6 +141,7 @@ export default function Automations({ go }) {
                 <div style={{ flex: 1, minWidth: 180 }}>
                   <div style={{ fontSize: 14, fontWeight: 700 }}>{j.label}</div>
                   <Muted>{j.what}</Muted>
+                  {j.lastRun?.at && <LastRun run={j.lastRun} />}
                 </div>
                 <Muted style={{ whiteSpace: 'nowrap' }}>{j.every}</Muted>
                 {j.settingLink?.view && (
@@ -157,6 +158,18 @@ export default function Automations({ go }) {
         </section>
       </AsyncSection>
       {runsFor && <RuleRunsModal rule={runsFor} onClose={() => setRunsFor(null)} />}
+    </div>
+  );
+}
+
+// A built-in job's last run (job_switch.record_run, Oct 29 2026): when, what
+// it did (non-zero counts) and any pass that failed.
+function LastRun({ run }) {
+  const done = (run.items || []).filter((i) => i.count > 0);
+  return (
+    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+      Last run {formatDateTime(run.at)}{done.length ? `: ${done.map((i) => `${i.label} ${i.count}`).join(', ')}` : ': nothing to do'}
+      {(run.errors || []).map((e) => <div key={e} style={{ color: '#dc2626', marginTop: 2 }}>{e}</div>)}
     </div>
   );
 }

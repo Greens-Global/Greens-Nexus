@@ -3,8 +3,8 @@ import * as XLSX from 'xlsx';
 import { parseCsv, toCsv } from './statementImport';
 import {
   DEFAULT_PAYROLL_MAPPING, INTACCT_HOURS_COLUMNS, INTACCT_PAYROLL_COLUMNS, buildIif, buildPayrollEntries, checkBalance, classifyHoursItem,
-  codeFromName, hoursFromNexus, hoursFromPayroll, hoursRows, loadPayrollPrefs, netPayMismatches, parseHoursFile, parsePayrollSheets,
-  parseQbPayroll, payrollFileProblem, payrollRows, readPayrollSheets, savePayrollPrefs, totalsFromHoursFile, unmappedItems,
+  codeFromName, hoursFromNexus, hoursFromPayroll, hoursRows, loadPayrollPrefs, nameList, netPayMismatches, parseHoursFile, parsePayrollSheets,
+  parseQbPayroll, payPeriods, payrollFileProblem, payrollReportProblems, payrollRows, readPayrollSheets, savePayrollPrefs, totalsFromHoursFile, unmappedItems,
 } from './payrollConvert';
 
 // Import Hub payroll (Neil, 10/15). Fixtures are made up, shaped like the
@@ -265,7 +265,8 @@ describe('QuickBooks Online payroll to Intacct', () => {
     const p = parseQbPayroll(noAmount);
     expect(p.employees).toEqual([]);
     expect(p.missing).toEqual(['Amount']);
-    expect(payrollFileProblem(p)).toMatch(/^No Amount column found\./);
+    // 10/27 item 03: the names were found, so it says where and what is missing under them.
+    expect(payrollFileProblem(p)).toBe('Found 3 employee names and TOTAL on line 1, but no Amount column under them - line 2 should read Hours, Rate and Amount (QuickBooks Online puts the pay period where Amount goes).');
     const detail = parseQbPayroll(parseCsv('Employee,Hours\nPat Lee,8\n'));
     expect(detail.missing).toEqual(['Payroll Item', 'Amount']);
     expect(payrollFileProblem(detail)).toMatch(/^No Payroll Item and Amount columns found\./);
@@ -279,8 +280,31 @@ describe('QuickBooks Online payroll to Intacct', () => {
     const bytes = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
     const sheets = await readPayrollSheets({ name: 'OSM Payroll .xlsx', arrayBuffer: async () => bytes });
     expect(sheets).toHaveLength(2);
-    expect(sheets[0]).toEqual([]);
+    expect(sheets[0]).toHaveLength(0);
+    expect(sheets[1].sheet).toBe('Sheet1');
     expect(parsePayrollSheets(sheets).employees).toHaveLength(3);
+  });
+
+  it('keeps the file line numbers past blank rows and names amounts it cannot read (10/27 item 03)', async () => {
+    const wb = XLSX.utils.book_new();
+    // Two blank lines on top and one under the headings; Robin's Hourly amount (1,750.00) typed as "n/a".
+    const withGap = [[], [], ...QBO.slice(0, 2), [], ...QBO.slice(2)].map((r) => r.map((c) => (c === '1,750.00' ? 'n/a' : c)));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(withGap), 'Sheet1');
+    const bytes = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    const sheets = await readPayrollSheets({ name: 'payroll.xlsx', arrayBuffer: async () => bytes });
+    expect(sheets[0].lines.slice(0, 3)).toEqual([3, 4, 6]);
+    const report = parsePayrollSheets(sheets);
+    const hourlyLine = QBO.findIndex((r) => r.includes('Hourly')) + 4;
+    expect(report.unreadable).toEqual([{ line: hourlyLine, item: 'Hourly', employee: 'Robin Hale(E-0801)', value: 'n/a' }]);
+    expect(payrollReportProblems(report)[0]).toBe(`Could not read an amount in the report: line ${hourlyLine}, Hourly for Robin Hale(E-0801) ("n/a"). Fix it in the file and upload it again.`);
+    // A clean report has nothing to say.
+    expect(payrollReportProblems(parseQbPayroll(QBO))).toEqual([]);
+  });
+
+  it('opens only spreadsheets and says why a file cannot be opened', async () => {
+    await expect(readPayrollSheets({ name: 'Payroll.pdf' })).rejects.toThrow(/^Payroll\.pdf is not a spreadsheet\./);
+    await expect(readPayrollSheets({ name: 'Payroll.xlsx', arrayBuffer: async () => { throw new Error('locked'); } }))
+      .rejects.toThrow('Could not open Payroll.xlsx: locked. Save it again from QuickBooks as Excel (.xlsx) or CSV and upload that copy.');
   });
 
   it('adds the Online items to a mapping saved before them, once', () => {
@@ -317,6 +341,18 @@ describe('payroll hours to QuickBooks', () => {
     expect(iif[5]).toBe('TIMEACT\t1/17/2026\t\tKim Doe\t\tSick Pay\t4.00\t\t\tY\t0');
     const totals = totalsFromHoursFile(entries);
     expect(totals.find((t) => t.name === 'Pat Lane').buckets).toEqual({ 'P.REG': 8, 'P.OHR': 1.5, 'P.SHR': 0, 'P.VHR': 0 });
+  });
+
+  it('lists the closed Nexus pay periods on the server calendar (10/27 item 02)', () => {
+    // 10/28/2026: 10/18-10/31 is still open, so the last closed one is 10/04-10/17.
+    expect(payPeriods('2026-10-28', 3)).toEqual([
+      { start: '2026-10-04', end: '2026-10-17' }, { start: '2026-09-20', end: '2026-10-03' }, { start: '2026-09-06', end: '2026-09-19' }]);
+    // The Saturday a period ends still belongs to it.
+    expect(payPeriods('2026-10-17', 1)).toEqual([{ start: '2026-09-20', end: '2026-10-03' }]);
+    expect(payPeriods('2026-10-18', 1)).toEqual([{ start: '2026-10-04', end: '2026-10-17' }]);
+    expect(payPeriods('', 2)).toEqual([]);
+    expect(nameList(['A', 'B'])).toBe('A and B');
+    expect(nameList(['A', 'B', 'C', 'D'], 2)).toBe('A, B and 2 more');
   });
 
   it('classifies payroll items and reads codes from names', () => {

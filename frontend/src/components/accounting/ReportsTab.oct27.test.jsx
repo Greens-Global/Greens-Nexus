@@ -48,6 +48,20 @@ describe('Reports, 10/27 triage', () => {
     expect(screen.queryByText(/Profit & Loss/)).toBeNull();
   });
 
+  // UI lesson (10/27) and call of 10/27, item 09: More counted a quick view's
+  // own Columns as a change; Columns keeps one width whatever is picked.
+  it('a quick view\'s own Columns is not a change, and Columns keeps one width', async () => {
+    render(<ReportsTab report="pnl" view="pnl-job" />);
+    const cols = await screen.findByRole('combobox', { name: 'Columns' });
+    expect(cols.value).toBe('project');
+    expect(cols.style.fontWeight).toBe('400');        // not lit: what this screen opens on
+    const width = cols.style.width;
+    fireEvent.change(cols, { target: { value: 'total' } });
+    const after = screen.getByRole('combobox', { name: 'Columns' });
+    expect(after.style.fontWeight).toBe('600');       // changed from the quick view's own
+    expect(after.style.width).toBe(width);
+  });
+
   it('Spend by Vendor: a Vendors button searched by name, and an account amount opens that vendor\'s lines', async () => {
     render(<ReportsTab report="vendor-spend" />);
     // Folded to one line per vendor (the summary names the largest one too).

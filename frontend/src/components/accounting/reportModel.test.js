@@ -548,7 +548,7 @@ describe('file names (R2)', () => {
     expect(reportFileName(pnl, entities, 'excel')).toMatch(/\.xlsx$/);
     expect(reportFileName(pnl, entities, 'csv')).toMatch(/\.csv$/);
     const bs = { config: resolveConfig({ report: 'balance-sheet', asof: '2026-09-30', asofToday: false }, NOW), def: { key: 'balance-sheet', label: 'Balance Sheet', period: 'asof' } };
-    expect(reportFileName(bs, entities, 'pdf')).toBe('Balance Sheet - All entities - as of 09-30-2026.pdf');
+    expect(reportFileName(bs, entities, 'pdf')).toBe('Balance Sheet - All Entities - as of 09-30-2026.pdf');
     // Nothing a file system refuses.
     expect(reportFileName(pnl, [{ code: '13000', name: 'A/B: "C"' }], 'pdf')).toBe('Income Statement - A B C (13000) - 01-01-2026 to 12-31-2026.pdf');
   });

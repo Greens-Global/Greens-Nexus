@@ -35,7 +35,7 @@ import { BFF_MODE } from "./bffAuth";
 import LoginPage from "./views/LoginPage";
 import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
-import { hasUnsavedWork, confirmDiscard } from "./lib/dialogGuard";
+import { hasUnsavedWork, askToLeave } from "./lib/dialogGuard";
 
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
@@ -707,7 +707,7 @@ function MainApp() {
     // leaving (Neil, Sep 22 - see lib/dialogGuard.js). The move goes ahead
     // only on Discard.
     if (hasUnsavedWork()) {
-      confirmDiscard().then(ok => { if (ok) applyNavigate(view, sub); });
+      askToLeave().then(ok => { if (ok) applyNavigate(view, sub); });
       return;
     }
     applyNavigate(view, sub);

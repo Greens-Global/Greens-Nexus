@@ -130,7 +130,7 @@ def _training(db: Session, me: str) -> int:
         c = db.query(models.KbCourse).filter(models.KbCourse.id == a.course_id).first()
         if not c or c.status != "published":
             continue
-        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, me), a.due_date)
+        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, me), a.due_date, me)
         if st["status"] != "Completed":
             n += 1
     return n
@@ -179,6 +179,8 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
                         # HR (Oct 27 2026): the HR Letters card lives here.
                         + a("hr_letter", 0),
             "timeoff": a("shift_peer", 0),
+            # Performance (Oct 29 2026): reviews waiting on you and goals to approve.
+            "performance": a("perf_review", 0) + a("perf_goal", 0),
         },
         "shifts": {
             "requests": a("shift_request", 0) + time_off,
