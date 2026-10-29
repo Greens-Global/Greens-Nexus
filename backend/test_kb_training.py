@@ -236,6 +236,19 @@ class KbTrainingCase(unittest.TestCase):
         self.assertEqual(rep["stats"]["completed"], 1)
         self.assertEqual(rep["stats"]["overdue"], 1)
 
+    def test_my_compliance_is_only_my_own_requirements(self):
+        # Training > Compliance (Oct 30 2026): the caller alone, by the same rule
+        cid = self._course(title="Forklift Refresher")
+        self._as(MGR)
+        self.client.post(f"/kb/courses/{cid}/assign", json={"emails": [LRN, LRN2], "due_date": "2020-01-01"})
+        self._as(LRN2)
+        mine = self.client.get("/kb/compliance", params={"scope": "me", "company": "x", "department": "y"}).json()
+        self.assertEqual([p["email"] for p in mine["people"]], [LRN2])          # never the team, filters ignored
+        self.assertEqual(mine["people"][0]["cells"][f"course:{cid}"]["status"], "Overdue")
+        self.assertEqual(mine["stats"]["overdue"], mine["people"][0]["counts"]["red"])   # the totals are theirs alone
+        self._as(MGR)                                                       # a manager's "me" is the manager alone
+        self.assertEqual([p["email"] for p in self.client.get("/kb/compliance", params={"scope": "me"}).json()["people"]], [MGR])
+
     def test_training_plan_tracks_courses_and_policies_as_one_checklist(self):
         cid = self._course(title="Plan course")
         self._as(MGR)
