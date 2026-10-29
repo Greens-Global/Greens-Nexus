@@ -1290,7 +1290,7 @@ export const api = {
   markAccountingOpened: () => req("/accounting/opened", { method: "POST" }),
   // My own layout of the accounting screens: columns shown, widths, density.
   getAccountingPrefs: () => req("/accounting/prefs"),
-  saveAccountingPrefs: (prefs) => req("/accounting/prefs", { method: "PUT", body: JSON.stringify({ prefs }) }),
+  saveAccountingPrefs: (prefs, opts = {}) => req("/accounting/prefs", { method: "PUT", body: JSON.stringify({ prefs }), ...(opts.keepalive ? { keepalive: true } : {}) }),
   // Memorized reports (a Reports view saved under a name) and reporting
   // packages (an ordered set of them, sent out as one PDF).
   // Send the statement on (Charmi, 09/29): by email from my own mailbox, or shared with a teammate.
