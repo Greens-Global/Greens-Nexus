@@ -98,6 +98,11 @@ _feature_request_sync.wire(SessionLocal)
 import workflows.observer as _wf_observer  # noqa: E402
 _wf_observer.wire(SessionLocal)
 
+# A shift group that follows a department gains and loses that department's
+# people whichever path changed them (Oct 28 2026, shift_group_departments.py).
+import shift_group_departments as _shift_group_departments  # noqa: E402
+_shift_group_departments.wire(SessionLocal)
+
 
 class Base(DeclarativeBase):
     pass

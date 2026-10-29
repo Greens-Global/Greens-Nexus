@@ -1367,6 +1367,10 @@ def _run_migrations():
             "ALTER TABLE hr_departments ADD COLUMN weather INTEGER DEFAULT 0",
             # Help Center (Oct 2026) - see the Postgres list. models.KbSearchLog.
             "ALTER TABLE kb_search_log ADD COLUMN source VARCHAR DEFAULT 'kb'",
+            # Shift groups (Oct 28) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN open_shifts INTEGER DEFAULT 0",
+            "ALTER TABLE shift_groups ADD COLUMN department VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_group_members ADD COLUMN source VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3234,6 +3238,12 @@ def _run_migrations():
         # models.HelpFeedback.
         "ALTER TABLE kb_search_log ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'kb'",
         "ALTER TABLE help_feedback ENABLE ROW LEVEL SECURITY",
+        # Shift groups (Neil, Oct 28 2026): open shifts per team (off by
+        # default), the department a team follows, and which members that
+        # department added. models.ShiftGroup / ShiftGroupMember.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS open_shifts INTEGER DEFAULT 0",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_group_members ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

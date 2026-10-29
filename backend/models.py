@@ -2686,6 +2686,14 @@ class ShiftGroup(Base):
     # Shifts Phase 0 (Oct 14 2026): the HrEntity company this group belongs
     # to; '' = shared across companies (managed company-wide only).
     company_id      = Column(String, default="")
+    # Neil, Oct 28 2026: open shifts are a per-team choice, OFF by default -
+    # useful for Ops or retail, noise for IT, Accounting or Admin. 1 = this
+    # team can post new open shifts; ones already posted always stay visible.
+    open_shifts     = Column(Integer, default=0)
+    # The department this team follows ('' = none): its active people are
+    # added automatically (shift_group_departments.py). A department NAME, as
+    # nexus_employees.department holds it, within company_id when set.
+    department      = Column(String, default="")
 
 
 class ShiftGroupMember(Base):
@@ -2693,6 +2701,9 @@ class ShiftGroupMember(Base):
     id             = Column(String, primary_key=True)   # uuid
     group_id       = Column(String, index=True, nullable=False)
     employee_email = Column(String, index=True, nullable=False)
+    # '' = added by hand; 'department' = added because they are in the
+    # group's department, and taken off again when they leave it.
+    source         = Column(String, default="")
 
 
 class ShiftAssignment(Base):
