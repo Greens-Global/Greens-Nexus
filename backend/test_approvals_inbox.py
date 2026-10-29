@@ -432,6 +432,8 @@ class InboxCase(unittest.TestCase):
         row = out["rows"][0]
         self.assertEqual(row["title"], "HR Letter - Employment Verification")
         self.assertEqual([(a["key"], a["note"]) for a in row["actions"]], [("open", "none"), ("decline", "required")])
+        # Review opens that request in Ask HR, where letters live (Oct 28 2026).
+        self.assertEqual(row["link"], {"view": "myhr", "sub": "ask-hr:letter:l1"})
         self.assertEqual(self._counts(HRC)["myhr"]["overview"], 2)
         self.assertEqual(self._inbox(MGR)["rows"], [])
         self.assertEqual(self._inbox(EMP)["rows"], [])
