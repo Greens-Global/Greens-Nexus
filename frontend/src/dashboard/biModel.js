@@ -44,6 +44,42 @@ export function matchesStat(stat, tone = 'all', query = '') {
   return !q || String(stat.label || '').toLowerCase().includes(q);
 }
 
+// Where each count is acted on (Neil, 10/28/2026: "it mentions the problem
+// but doesn't give a link to solve it"). The screen in the owning module
+// that lists those items - the same view and sub its own bells open - with
+// the words on the button. A count not listed opens its module.
+const ACTIONS = {
+  people: {
+    leave_pending: ['hr', 'hr-time-off', 'Review Leave Requests'],
+    open_candidates: ['hr', 'hr-hiring', 'Open Hiring'],
+    interviews_7d: ['hr', 'hr-hiring', 'Open Hiring'],
+    docs_expiring: ['hr', 'hr-people', 'Open People'],
+  },
+  operations: {
+    pending_inventory: ['inventory', 'checkouts', 'Review Item Requests'],
+    open_purchases: ['timeclock', 'purchase', 'Review Purchase Requests'],
+  },
+  documents: {
+    pending_signatures: ['documents', 'documents-esign', 'Open Nexus Sign'],
+    needs_attention: ['documents', 'documents-esign', 'Open Nexus Sign'],
+    signed_7d: ['documents', 'documents-esign', 'Open Nexus Sign'],
+  },
+  credential_vault: { pending_shares: ['credvault', 'approvals', 'Review Share Requests'] },
+  it: {
+    sites_down: ['it', 'it-websites', 'Open Websites'],
+    ssl_expiring: ['it', 'it-websites', 'Open Websites'],
+  },
+  construction: { '*': ['ops', 'construction-dashboard', 'Open Construction'] },
+  asset_management: { '*': ['property-asset', 'asset-portfolio', 'Open the Portfolio'] },
+};
+
+/** { view, sub, label } for the button that takes a count to where it is fixed. */
+export function actionFor(row) {
+  const hit = ACTIONS[row?.moduleId]?.[row?.key] || ACTIONS[row?.moduleId]?.['*'];
+  if (hit) return { view: hit[0], sub: hit[1], label: hit[2] };
+  return row?.nav ? { view: row.nav, sub: null, label: `Open ${row.moduleLabel || 'the Module'}` } : null;
+}
+
 /**
  * Every critical or warning count above zero, across every module, worst
  * first then largest first - the rows the "Needs Attention" strip shows.
