@@ -1057,9 +1057,9 @@ export const DOCS = [
     ],
     walkthroughs: [
       {
-        title: 'Copy a Password From My Logins',
+        title: 'Copy a Password From the List',
         steps: [
-          'Open Credentials. My Logins lists every login you can open - your favorites first, then the ones you used lately, then the rest by department. Search by name, username or site.',
+          'Open Credentials and go to My Logins (owners, department heads and admins land on Overview first). It lists every login you can open - your favorites first, then the ones you used lately, then the rest by department. Search by name, username or site.',
           'Click User or Password on the row to copy it. The first time in a while you confirm it is you with a code by text or email; after that the header says "Verified until" and copies are instant.',
           'Click Open to copy the password and open the sign-in page in a new tab; the username is in the message. The clipboard clears itself 30 seconds after a copy.',
           'Click the name for everything else: the password itself, the link, notes, who has access and history. Copies and reveals are logged.',
@@ -1091,8 +1091,8 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'My Logins', desc: 'The everyday list: only what you can open, favorites and recently used first, with User, Password and Open on every row. Logins you cannot open sit folded at the bottom with Request Access.' },
-      { name: 'Overview', desc: 'For owners, department heads and admins: the numbers (logins, needs attention, no backup owner, shared with you, awaiting approval), health by department, what rotates next, and Export to Excel of who can open what - never a password. Below it, the full list with its collections (All, Owned by Me, Shared With Me, Favorites, Needs Attention, No Backup Owner, Trash) and the Department, Type and Tier filters.' },
+      { name: 'Everyday List', desc: 'The My Logins tab: only what you can open, favorites and recently used first, with User, Password and Open on every row. Logins you cannot open sit folded at the bottom with Request Access.' },
+      { name: 'Overview', desc: 'The first tab for owners, department heads and admins: the numbers (logins, needs attention, no backup owner, shared with you, awaiting approval), health by department, what rotates next, and Export to Excel of who can open what - never a password. Below it, the full list with its collections (All, Owned by Me, Shared With Me, Favorites, Needs Attention, No Backup Owner, Trash) and the Department, Type and Tier filters.' },
       { name: 'Drawer', desc: 'Everything about one credential: sign-in, link, notes, rotation, expiry, who has access, and its history.' },
       { name: 'Who Can Open It', desc: 'Set on each credential: its department, everyone at a company, an Access Group, or named people - each able to open the password or view only. Nothing set = its own department. Critical credentials ignore everything but named people.' },
       { name: 'Timed Sharing and Requests', desc: 'Owners share for 1 hour to 7 days; others request the same way. Access ends by itself.' },

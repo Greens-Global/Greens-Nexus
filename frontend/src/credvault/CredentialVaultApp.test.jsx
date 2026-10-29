@@ -47,11 +47,20 @@ beforeEach(() => {
 });
 
 describe('Credentials', () => {
-  it('opens on My Logins: what I can open, copy from the row, the drawer on a click', async () => {
+  // An owner lands on Overview (Pranshu, Oct 29 2026); the list is one tab away.
+  const toLogins = async () => { fireEvent.click(await screen.findByRole('tab', { name: 'My Logins' })); await waitFor(() => expect(row('c1')).toBeTruthy()); };
+
+  it('an owner lands on Overview first, with My Logins next to it', async () => {
+    render(<CredentialVaultApp />);
+    expect(await screen.findByText('No Backup Owner', { selector: '.cv-kpi-label' })).toBeTruthy();
+    expect(within(screen.getAllByRole('tablist')[0]).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Overview', 'My Logins', 'Personal', 'Approvals (1)', 'Activity']);
+  });
+
+  it('My Logins: what I can open, copy from the row, the drawer on a click', async () => {
     const writeText = vi.fn().mockResolvedValue();
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     render(<CredentialVaultApp />);
-    await waitFor(() => expect(row('c1')).toBeTruthy());
+    await toLogins();
     expect(screen.getByText(/Verified until/)).toBeTruthy();
     expect(screen.getByText('Copy from the row, or open a login')).toBeTruthy();       // the empty pane
     expect(row('c2')).toBeNull();                                                      // folded: not mine to open
@@ -75,7 +84,7 @@ describe('Credentials', () => {
 
   it('a row I cannot open sits folded, hides the username and asks instead of revealing', async () => {
     render(<CredentialVaultApp />);
-    await waitFor(() => expect(row('c1')).toBeTruthy());
+    await toLogins();
     fireEvent.click(screen.getByRole('button', { name: /Not shared with you/ }));
     expect(within(row('c2')).queryByRole('button', { name: /Copy password/ })).toBeNull();
     fireEvent.click(within(row('c2')).getByRole('button', { name: 'Request access to Jira Admin' }));
@@ -91,7 +100,7 @@ describe('Credentials', () => {
 
   it('shows waiting requests on Approvals and approves inside the verified window', async () => {
     render(<CredentialVaultApp />);
-    await waitFor(() => expect(row('c1')).toBeTruthy());
+    await screen.findByText('No Backup Owner', { selector: '.cv-kpi-label' });
     fireEvent.click(screen.getByRole('tab', { name: /^Approvals/ }));
     const who = await screen.findByText('Ben Builder', { selector: 'strong' });
     expect(who.closest('p').textContent).toMatch(/asks for 4 hours of access/);
@@ -122,7 +131,7 @@ describe('Credentials', () => {
     window.matchMedia = (q) => ({ matches: /max-width: 900px/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
     try {
       render(<CredentialVaultApp />);
-      await waitFor(() => expect(row('c1')).toBeTruthy());
+      await toLogins();
       expect(screen.queryByText('Copy from the row, or open a login')).toBeNull();     // no inline pane on a phone
       fireEvent.click(screen.getByRole('button', { name: 'Stripe details' }));
       const dlg = await screen.findByRole('dialog', { name: 'Stripe' });

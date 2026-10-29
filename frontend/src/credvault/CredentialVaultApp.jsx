@@ -75,6 +75,7 @@ export default function CredentialVaultApp({ activeSub }) {
 
   // ── ui state ────────────────────────────────────────────────────────────
   const [tab, setTab] = useState("logins");
+  const landed = useRef(false);
   const personalSeen = useRef(false);
   if (tab === "personal") personalSeen.current = true;
   const [collection, setCollection] = useState("all");
@@ -154,6 +155,13 @@ export default function CredentialVaultApp({ activeSub }) {
   const visibleLog = useMemo(() => logs.filter((e) => logMatches(e, logFilter)), [logs, logFilter]);
   const sharedWithMe = countOf("shared");
   const canManage = isAdmin || creds.some((c) => c.canEdit);
+  // The landing tab is decided once the list is in: Overview for owners,
+  // heads and admins - unless a deep link already picked a place.
+  useEffect(() => {
+    if (loading || landed.current) return;
+    landed.current = true;
+    if (canManage && !parseSub(activeSub).tab) setTab("overview");
+  }, [loading, canManage, activeSub]);
   useEffect(() => {
     if (!clipLeft) return undefined;
     const t = setTimeout(() => setClipLeft((n) => n - 1), 1000);
@@ -296,10 +304,12 @@ export default function CredentialVaultApp({ activeSub }) {
 
   if (loading) return <div style={{ padding: "16px 0" }}><SkeletonBlocks count={6} height={52} /></div>;
 
+  // Overview leads for the people who have it (Pranshu, Oct 29 2026: the
+  // numbers first, then the list); everyone else opens on My Logins.
   const tabs = [
+    ...(canManage ? [{ key: "overview", label: "Overview", Icon: LayoutDashboard }] : []),
     { key: "logins", label: "My Logins", Icon: KeyRound },
     { key: "personal", label: "Personal", Icon: Lock },
-    ...(canManage ? [{ key: "overview", label: "Overview", Icon: LayoutDashboard }] : []),
     ...((isAdmin || requests.length || tab === "approvals" || creds.some((c) => c.canEdit)) ? [{ key: "approvals", label: "Approvals", Icon: Inbox, badge: requests.length || null }] : []),
     { key: "activity", label: "Activity", Icon: History },
   ];
