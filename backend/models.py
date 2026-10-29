@@ -2351,6 +2351,12 @@ class TimePunch(Base):
     edit_status      = Column(String, default="")   # '' | pending | approved | rejected
     edit_reviewed_by = Column(String, default="")   # approver email
     edit_reviewed_at = Column(String, default="")
+    # What the employee asked for, kept after the decision (Neil, Oct 29 2026):
+    # pending_at is cleared on approve AND reject, so a rejected edit used to
+    # lose the time asked for. edit_note is the approver's note, which only
+    # ever reached the bell.
+    edit_requested_at = Column(String, default="")
+    edit_note        = Column(String, default="")
     # Add Time (Oct 14 2026): every punch a manager's batch wrote together
     # shares an id, so the batch can be undone as one.
     batch_id         = Column(String, default="", index=True)

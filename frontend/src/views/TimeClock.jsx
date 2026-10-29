@@ -18,7 +18,7 @@ import BodModal from '../components/BodModal';
 import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending, utcStamp, holdPunch, signedIn } from '../lib/punchQueue';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
-import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
+import { formatTime, formatDate, formatDateTime, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
 import { getPosition, punchPosition } from '../lib/geoPosition';
 import { askPunchPosition } from '../lib/punchLocation';
@@ -614,6 +614,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     try { return new Set(JSON.parse(localStorage.getItem('nx-timereq-dismissed') || '[]')); } catch { return new Set(); }
   });
   const [reqBusy, setReqBusy] = useState('');
+  // Cleared requests are hidden, never deleted - Show Cleared brings this
+  // period's back, so what was asked and what was decided stays readable
+  // (Neil, Oct 29 2026).
+  const [showCleared, setShowCleared] = useState(false);
   const dismissReq = (id) => {
     setMyReqs(rs => rs.map(r => (r.id === id ? { ...r, dismissed: true } : r)));
     api.timeDismissPunchRequest(id).catch(() => loadMyRequests());
@@ -1456,15 +1460,24 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
         const day = (r) => r.localDate || today;
         const inPeriod = (r) => day(r) >= pStart && day(r) <= pEnd;
-        const visible = myReqs.filter(r => r.status !== 'cancelled'
-          && (r.status === 'pending' || !(r.dismissed || dismissedReqs.has(r.id))) && inPeriod(r));
-        if (!visible.length) return null;
-        const decidedCount = visible.filter(r => r.status !== 'pending').length;
+        const cleared = (r) => r.status !== 'pending' && (r.dismissed || dismissedReqs.has(r.id));
+        const periodReqs = myReqs.filter(r => r.status !== 'cancelled' && inPeriod(r));
+        const clearedCount = periodReqs.filter(cleared).length;
+        const visible = periodReqs.filter(r => showCleared || !cleared(r));
+        if (!visible.length && !clearedCount) return null;
+        const decidedCount = visible.filter(r => r.status !== 'pending' && !cleared(r)).length;
         return (
         <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)' }}>Change Requests This Period</span>
             <span style={{ flex: 1 }} />
+            {clearedCount > 0 && (
+              <button onClick={() => setShowCleared(v => !v)} aria-pressed={showCleared}
+                title={showCleared ? 'Hide the requests you cleared' : 'Show the requests you cleared from this list - what you asked and what was decided'}
+                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11.5, fontWeight: 700, padding: '2px 4px' }}>
+                {showCleared ? 'Hide Cleared' : `Show Cleared (${clearedCount})`}
+              </button>
+            )}
             {decidedCount > 1 && (
               <button onClick={dismissAllReqs} title="Clear every approved and rejected request from this list"
                 style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11.5, fontWeight: 700, padding: '2px 4px' }}>Clear All</button>
@@ -1487,9 +1500,19 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 {r.localDate && <span style={{ color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{formatWeekday(r.localDate + 'T12:00:00')} {formatDate(r.localDate + 'T12:00:00')}</span>}
                 <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{r.action === 'add' ? `Add ${(KIND_LABEL[r.punchKind] || r.punchKind).toLowerCase()}${when}` : 'Remove a punch'}</span>
                 {r.reason && <span style={{ color: 'var(--muted)' }}>Your reason: “{r.reason}”</span>}
-                {r.status === 'rejected' && r.decisionNote && <span style={{ color: 'hsl(var(--color-red))' }}>Approver: “{r.decisionNote}”</span>}
+                {/* The approver's note on an approval too - it carries a changed
+                    Type ("Type changed from Personal to Sick"), which an approved
+                    request used to keep out of sight (Neil, Oct 29 2026). */}
+                {decided && r.decisionNote && <span style={{ color: r.status === 'rejected' ? 'hsl(var(--color-red))' : 'var(--ink)' }}>Approver: “{r.decisionNote}”</span>}
+                {decided && (r.decidedByName || r.decidedAt) && (
+                  <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>
+                    {r.status === 'approved' ? 'Approved' : 'Rejected'}{r.decidedByName ? ` by ${r.decidedByName}` : ''}{r.decidedAt ? ` on ${formatDateTime(r.decidedAt)}` : ''}
+                  </span>
+                )}
                 <span style={{ flex: 1, minWidth: 8 }} />
-                {decided
+                {decided && cleared(r)
+                  ? <span style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic', flexShrink: 0 }}>Cleared</span>
+                  : decided
                   ? <button onClick={() => dismissReq(r.id)} title="Dismiss" aria-label="Dismiss this request"
                       style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', padding: 2, flexShrink: 0 }}><X size={14} /></button>
                   : <>

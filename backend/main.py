@@ -1395,6 +1395,9 @@ def _run_migrations():
             # Page readers (Oct 29) - see the Postgres list. models.KbDocument.
             "ALTER TABLE kb_documents ADD COLUMN readers TEXT DEFAULT ''",
             "ALTER TABLE kb_documents ADD COLUMN live_from VARCHAR DEFAULT ''",
+            # Punch edit history (Oct 29) - see the Postgres list. models.TimePunch.
+            "ALTER TABLE time_punches ADD COLUMN edit_requested_at VARCHAR DEFAULT ''",
+            "ALTER TABLE time_punches ADD COLUMN edit_note VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3321,6 +3324,10 @@ def _run_migrations():
         # Knowledge Base photo-proof quiz answers (WP 5.5, 10/29/2026) - a new
         # table, explicit RLS. models.KbPhotoReview.
         "ALTER TABLE kb_photo_reviews ENABLE ROW LEVEL SECURITY",
+        # Punch edit history (Neil, 10/29/2026): the time an employee asked
+        # for and the approver's note, kept after the decision. models.TimePunch.
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS edit_requested_at VARCHAR DEFAULT ''",
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS edit_note VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
