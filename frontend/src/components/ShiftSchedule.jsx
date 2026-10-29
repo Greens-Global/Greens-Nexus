@@ -350,7 +350,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
         if (g.archived && g.id !== groupFilter) return;
         const members = (g.members || []).map((m) => empByEmail[m]).filter(Boolean);
         members.forEach((m) => claimed.add(m.email));
-        if (members.length || (g.canEdit && !query.trim())) out.push({ id: g.id, name: g.name, members, canEdit: !!g.canEdit, archived: !!g.archived, isGroup: true, canReorder: !data.groupScheduler && groups.every((x) => x.canEdit) });
+        if (members.length || (g.canEdit && !query.trim())) out.push({ id: g.id, name: g.name, members, canEdit: !!g.canEdit, archived: !!g.archived, isGroup: true, openShifts: !!g.openShifts, canReorder: !data.groupScheduler && groups.every((x) => x.canEdit) });
       });
       const rest = emps.filter((e) => !claimed.has(e.email));
       if (rest.length) out.push({ id: '', name: out.length ? 'Everyone Else' : 'Everyone', members: rest });
@@ -1052,11 +1052,11 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
           if (kind === 'note') { setNoteDate(view === 'day' ? start : isoDate(new Date()) >= start && isoDate(new Date()) <= end ? isoDate(new Date()) : start); setOpen('note'); return; }
           const date = view === 'day' ? start : (isoDate(new Date()) >= start && isoDate(new Date()) <= end ? isoDate(new Date()) : start);
           const firstPerson = sections.flatMap((g) => g.members).find((m) => rowEditable(m.email))?.email || '';
-          if (kind === 'open') setPanel({ cell: { email: '', date, groupId: groupFilter || groups[0]?.id || '' }, mode: 'shift' });
+          if (kind === 'open') setPanel({ cell: { email: '', date, groupId: groupFilter || groups.find((g) => g.openShifts)?.id || '' }, mode: 'shift' });
           else setPanel({ cell: { email: firstPerson, date }, mode: kind === 'timeoff' ? 'timeoff' : 'shift' });
         }}
         onShare={() => setOpen('share')}
-        actions={{ canTimeOff, hideEmpty: !!prefs.hideEmpty, toggleHideEmpty: () => setPrefs({ ...prefs, hideEmpty: !prefs.hideEmpty }), copy: () => setOpen('copy'), fill: () => setOpen('fill'), clear: () => setOpen('clear'), importFile: () => setOpen('import'),
+        actions={{ canTimeOff, canOpen: groups.some((g) => g.openShifts && (!groupFilter || g.id === groupFilter)), hideEmpty: !!prefs.hideEmpty, toggleHideEmpty: () => setPrefs({ ...prefs, hideEmpty: !prefs.hideEmpty }), copy: () => setOpen('copy'), fill: () => setOpen('fill'), clear: () => setOpen('clear'), importFile: () => setOpen('import'),
           exportFile: exportSchedule, print: printView, viewOptions: () => setOpen('view'), discard: discardAll, discardCount, shortcuts: () => setKeysOpen(true),
           coverage: showCoverage, toggleCoverage: () => setPrefs({ ...prefs, coverage: !showCoverage }),
           requests: () => (onOpenRequests ? onOpenRequests() : window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'requests' } }))) }} />

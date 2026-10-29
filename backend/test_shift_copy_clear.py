@@ -66,7 +66,7 @@ class CopyClearTests(unittest.TestCase):
             db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
             db.add(models.NexusGroup(id=G_VW, name="vw", allowed_modules="hr:viewer"))
             db.add(models.NexusGroupMember(group_id=G_VW, email=VIEWER))
-            db.add(models.ShiftGroup(id=GROUP, name="Store A"))
+            db.add(models.ShiftGroup(open_shifts=1, id=GROUP, name="Store A"))
             db.add(models.ShiftGroupMember(id="sgm-copy", group_id=GROUP, employee_email=A))
             db.add(models.Shift(id=SHIFT, code="GST", name="Store", start_hhmm="09:00", end_hhmm="17:00",
                                 color="#3b82f6", break_min=30))

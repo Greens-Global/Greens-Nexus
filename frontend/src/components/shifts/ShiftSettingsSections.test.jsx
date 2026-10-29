@@ -46,7 +46,7 @@ vi.mock('../../api', () => ({
     timeShiftGroupSet: (...a) => timeShiftGroupSet(...a), timeMyChannels: (...a) => timeMyChannels(...a),
     timeOffTypes: vi.fn().mockResolvedValue({ builtIn: ['vacation'], custom: ['Jury Duty'] }),
     timeOffTypesSave: vi.fn().mockImplementation(async (b) => ({ builtIn: ['vacation'], custom: b.custom })),
-    getPeopleDirectory: vi.fn().mockResolvedValue([{ email: 'a@x.com', name: 'Amy Adams' }, { email: 'b@x.com', name: 'Bob Brown' }, { email: 'c@x.com', name: 'Cat Cole' }]),
+    getPeopleDirectory: vi.fn().mockResolvedValue([{ email: 'a@x.com', name: 'Amy Adams', department: 'Construction' }, { email: 'b@x.com', name: 'Bob Brown', department: 'Accounting' }, { email: 'c@x.com', name: 'Cat Cole' }]),
     getRolesDirectory: vi.fn().mockResolvedValue([]),
     getWorkSites: vi.fn().mockResolvedValue([{ id: 's1', name: 'Harbor View', latitude: '33.1', longitude: '-117.2' }, { id: 's2', name: 'Yard', latitude: '', longitude: '' }]),
   },
@@ -145,6 +145,15 @@ describe('Shift Settings', () => {
 });
 
 describe('Shift Types', () => {
+  // Neil, Oct 28 2026: "I need to see the total number of hours also right here".
+  it('shows the paid hours of each shift type, and live while editing', async () => {
+    timeShiftsFor.mockResolvedValue({ shifts: [{ ...preset, breakMin: 60 }], defaultTimezone: ASIA, companies: [], canPickCompany: false });
+    render(<ShiftTypesPanel toastOk={toastOk} toastErr={toastErr} />);
+    expect(await screen.findByText('7 paid hours')).toBeTruthy();
+    fireEvent.click(screen.getByText('New Shift Type'));
+    expect(await screen.findByText('8 paid hours a shift')).toBeTruthy();
+  });
+
   it('asks before deleting a shift type, and says what hangs off it', async () => {
     confirmAsk.mockResolvedValue(false);
     render(<ShiftTypesPanel toastOk={toastOk} toastErr={toastErr} />);
@@ -242,6 +251,27 @@ describe('Groups', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: /Save/ }));
     await waitFor(() => expect(timeShiftGroupSet).toHaveBeenCalled());
     expect(timeShiftGroupSet.mock.calls[0][1]).toMatchObject({ work_site_id: 's1', weather_deciders: ['b@x.com'], weather_alerts: true });
+  });
+
+  // Neil, Oct 28 2026: open shifts per team, off by default; a group follows a department.
+  it('turns open shifts on for a group and links it to a department', async () => {
+    timeShiftGroupSet.mockReset().mockResolvedValue({ ok: true });
+    timeShiftGroups.mockResolvedValue({ groups: [...groups.slice(0, 2), { ...groups[2], department: 'Construction', autoMembers: ['a@x.com'], openShifts: true }], canManageGroups: true, companies: [], canPickCompany: false });
+    render(<ShiftGroupsPanel toastOk={toastOk} toastErr={toastErr} />);
+    expect(await screen.findByText(/Follows Construction · Open Shifts On · 1 member/)).toBeTruthy();
+    fireEvent.click(screen.getAllByText('Edit')[2]);                                  // Operations
+    let dlg = await screen.findByRole('dialog', { name: 'Edit Group' });
+    expect(within(dlg).getByLabelText('Open shifts for this group').checked).toBe(true);
+    expect(within(dlg).queryByRole('button', { name: 'Remove Amy Adams' })).toBeNull();   // the department's member stays
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getAllByText('Edit')[1]);                                  // Back Office
+    dlg = await screen.findByRole('dialog', { name: 'Edit Group' });
+    expect(within(dlg).getByLabelText('Open shifts for this group').checked).toBe(false);
+    fireEvent.change(within(dlg).getByLabelText('Group department'), { target: { value: 'Accounting' } });
+    fireEvent.click(within(dlg).getByLabelText('Open shifts for this group'));
+    fireEvent.click(within(dlg).getByRole('button', { name: /Save/ }));
+    await waitFor(() => expect(timeShiftGroupSet).toHaveBeenCalled());
+    expect(timeShiftGroupSet.mock.calls[0][1]).toMatchObject({ department: 'Accounting', open_shifts: true });
   });
 
   // Schedulers are picked like every person (Oct 25 2026): a search box,

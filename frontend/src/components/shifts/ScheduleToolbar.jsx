@@ -42,7 +42,7 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
   const viewName = VIEWS.find(([k]) => k === view)?.[1] || (view === 'twoweeks' ? 'Two Weeks' : 'Week');
   const addItems = [
     { key: 'shift', label: 'Shift', Icon: Clock, onClick: () => onAdd('shift') },
-    { key: 'open', label: 'Open Shift', Icon: CalendarRange, onClick: () => onAdd('open') },
+    ...(actions.canOpen === false ? [] : [{ key: 'open', label: 'Open Shift', Icon: CalendarRange, onClick: () => onAdd('open') }]),
     ...(actions.canTimeOff ? [{ key: 'timeoff', label: 'Time Off', Icon: CalendarOff, onClick: () => onAdd('timeoff') }] : []),
     { key: 'note', label: 'Day Note', Icon: StickyNote, onClick: () => onAdd('note') },
   ];

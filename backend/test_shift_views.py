@@ -72,7 +72,7 @@ class ShiftViewTests(unittest.TestCase):
             db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
             db.add(models.NexusGroup(id=G_VW, name="vw", allowed_modules="hr:viewer"))
             db.add(models.NexusGroupMember(group_id=G_VW, email=VIEWER))
-            db.add(models.ShiftGroup(id=GROUP, name="Store"))
+            db.add(models.ShiftGroup(open_shifts=1, id=GROUP, name="Store"))
             db.add(models.ShiftGroupMember(id="sgm-view-a", group_id=GROUP, employee_email=A))
             db.commit()
         finally:

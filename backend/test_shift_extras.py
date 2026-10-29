@@ -66,9 +66,9 @@ class _Base(unittest.TestCase):
             # is team-limited, so the company-wide scope these tests exercise
             # is an administrator's.
             db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
-            db.add(models.ShiftGroup(id=GROUP, name="Xtra Store", scheduler_emails=json.dumps([LEAD])))
+            db.add(models.ShiftGroup(open_shifts=1, id=GROUP, name="Xtra Store", scheduler_emails=json.dumps([LEAD])))
             db.add(models.ShiftGroupMember(id="sgm-xtra-a", group_id=GROUP, employee_email=A))
-            db.add(models.ShiftGroup(id=OTHER, name="Xtra Other"))
+            db.add(models.ShiftGroup(open_shifts=1, id=OTHER, name="Xtra Other"))
             db.add(models.ShiftGroupMember(id="sgm-xtra-b", group_id=OTHER, employee_email=B))
             db.add(models.Shift(id=PRESET, name="Xtra Early", code="XE", start_hhmm="06:00", end_hhmm="14:00"))
             db.commit()

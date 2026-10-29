@@ -75,8 +75,8 @@ class RebuildTests(unittest.TestCase):
                     manager_email=M1 if em == A else ""))
             db.add(models.NexusRole(email=BOSS, role="administrator", assigned_by="test"))
             db.add(models.NexusRole(email=M1, role="manager", assigned_by="test"))
-            db.add(models.ShiftGroup(id=GROUP, name="Rb Store", sort_order=2))
-            db.add(models.ShiftGroup(id=GROUP2, name="Rb Yard", sort_order=1))
+            db.add(models.ShiftGroup(open_shifts=1, id=GROUP, name="Rb Store", sort_order=2))
+            db.add(models.ShiftGroup(open_shifts=1, id=GROUP2, name="Rb Yard", sort_order=1))
             for i, (gid, em) in enumerate(((GROUP, A), (GROUP, B), (GROUP, GONE), (GROUP2, B))):
                 db.add(models.ShiftGroupMember(id=f"sgm-rb-{i}", group_id=gid, employee_email=em))
             db.add(models.Shift(id=PRESET, code="RB", name="Rb Day", start_hhmm="09:00", end_hhmm="17:00",

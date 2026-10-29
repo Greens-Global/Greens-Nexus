@@ -1367,6 +1367,10 @@ def _run_migrations():
             "ALTER TABLE hr_departments ADD COLUMN weather INTEGER DEFAULT 0",
             # Help Center (Oct 2026) - see the Postgres list. models.KbSearchLog.
             "ALTER TABLE kb_search_log ADD COLUMN source VARCHAR DEFAULT 'kb'",
+            # Shift groups (Oct 28) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN open_shifts INTEGER DEFAULT 0",
+            "ALTER TABLE shift_groups ADD COLUMN department VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_group_members ADD COLUMN source VARCHAR DEFAULT ''",
             # Performance, made simple (Oct 29) - see the Postgres list. models.PerfGoal / PerfReview.
             "ALTER TABLE hr_perf_goals ADD COLUMN metric_key VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_goals ADD COLUMN period_start VARCHAR DEFAULT ''",
@@ -3246,6 +3250,12 @@ def _run_migrations():
         # models.HelpFeedback.
         "ALTER TABLE kb_search_log ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'kb'",
         "ALTER TABLE help_feedback ENABLE ROW LEVEL SECURITY",
+        # Shift groups (Neil, Oct 28 2026): open shifts per team (off by
+        # default), the department a team follows, and which members that
+        # department added. models.ShiftGroup / ShiftGroupMember.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS open_shifts INTEGER DEFAULT 0",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_group_members ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT ''",
         # Performance, made simple (Neil, Oct 29 2026): a goal measured by a
         # Nexus number over its own period, Proposed until approved; a review's
         # 4-word rating, goal scores, Ready for Promotion, the employee's
