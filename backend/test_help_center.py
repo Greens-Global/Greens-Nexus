@@ -133,6 +133,45 @@ class HelpCenterCase(unittest.TestCase):
         finally:
             db.close()
 
+    def test_the_hourly_cap_stops_before_the_knowledge_base_scan(self):
+        self._as(EMP)
+        ok = {"answer": "Yes [1].", "sources": [0], "grounded": True}
+        with mock.patch.object(kb_ai, "available", return_value=True), mock.patch.object(kb_ai, "answer_help", return_value=ok):
+            for _ in range(help_center.ASKS_PER_HOUR):
+                self.client.post("/help-center/ask", json={"question": "gate keypad"})
+            with mock.patch.object(help_center, "_kb_pages") as scan:
+                self.assertEqual(self.client.post("/help-center/ask", json={"question": "gate keypad"}).status_code, 429)
+            scan.assert_not_called()
+
+    def test_an_external_without_the_knowledge_base_grant_gets_the_guide_only(self):
+        db = database.SessionLocal()
+        try:
+            ext = {"email": EMP, "external": True, "level": 1}
+            with mock.patch.object(auth, "_grants_for", return_value={"support": 1}):
+                self.assertEqual(help_center._kb_pages(db, ext, "gate keypad"), [])
+            with mock.patch.object(auth, "_grants_for", return_value={"support": 1, "sop": 1}):
+                self.assertIn("kb-live", [p["id"] for p in help_center._kb_pages(db, ext, "gate keypad")])
+        finally:
+            db.close()
+        # The Help Center's own grant opens /help-center for an external.
+        self.assertIn("/help-center", auth.MODULE_API_PREFIXES["support"])
+
+    def test_ticket_titles_never_reach_the_knowledge_base_health_list(self):
+        self._as(EMP)
+        self.client.post("/help-center/search-log", json={"q": "paycheck short for march", "results": 2, "source": "ticket-form"})
+        self.client.post("/help-center/search-log", json={"q": "keypad battery", "results": 0, "source": "help"})
+        import kb_search
+        from routers import kb as kb_router
+        db = database.SessionLocal()
+        try:
+            health = {m["query"] for m in kb_search.misses(db, sources=kb_router._HEALTH_MISS_SOURCES)}
+            signals = {m["query"] for m in kb_search.misses(db, sources=("ticket-form",))}
+        finally:
+            db.close()
+        self.assertNotIn("paycheck short for march", health)
+        self.assertIn("keypad battery", health)
+        self.assertIn("paycheck short for march", signals)
+
     def test_empty_question_is_refused(self):
         self._as(EMP)
         self.assertEqual(self.client.post("/help-center/ask", json={"question": "   "}).status_code, 422)

@@ -2252,7 +2252,7 @@ def restore_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: S
                  detail="restored this ticket")
     db.commit()
     db.refresh(t)
-    return ticket_to_dict(t)
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 # ── Ticket conversation / attachments / activity (reuse the task tables, keyed
@@ -3097,7 +3097,7 @@ def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "approval_required", user["email"])
-    return ticket_to_dict(t)
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 class ApprovalBody(BaseModel):
@@ -3181,7 +3181,7 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
         _send_auto_assignment(background_tasks, t, actor, auto_dms)
     elif decision == "approve":
         background_tasks.add_task(notify_ticket_event, t.id, "created", actor, only_roles=("it_admin",))
-    return ticket_to_dict(t)
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 # ── Ticket ↔ ticket links (adds the inverse link on the other ticket too) ─────
@@ -3212,7 +3212,7 @@ def add_ticket_link(ticket_id: str, body: TicketLinkBody, user: dict = Depends(g
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=f"linked {other.code} ({typ.replace('_', ' ')})")
     db.commit()
     db.refresh(t)
-    return ticket_to_dict(t)
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 @router.delete("/task-tickets/{ticket_id}/links/{target_id}", dependencies=[Depends(require_ticket_desk)])
@@ -3241,7 +3241,7 @@ def remove_ticket_link(ticket_id: str, target_id: str, user: dict = Depends(get_
                      detail=f"unlinked {other.code if other else target_id}")
     db.commit()
     db.refresh(t)
-    return ticket_to_dict(t)
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 ESCALATE_COOLDOWN_MIN = 30
@@ -3322,7 +3322,7 @@ def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "escalated", user["email"])
-    return ticket_to_dict(t)
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 @router.get("/task-tickets/my-access")

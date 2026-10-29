@@ -40,6 +40,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import kb_ai
@@ -111,6 +112,13 @@ class AskIn(BaseModel):
 
 def _kb_pages(db: Session, user: dict, q: str) -> list[dict]:
     # The same wall /kb/ask reads through - published pages this person may see.
+    # An external user reaches /help-center through the Help Center's own
+    # grant; the Knowledge Base needs its own (sop), so without it Ask Nexus
+    # answers from the guide alone.
+    if user.get("external"):
+        from auth import _grants_for
+        if not _grants_for((user.get("email") or "").lower(), db).get("sop"):
+            return []
     from routers.kb import _published
     pub = _published(db, user)
     res = kb_search.search(db, pub, q, limit=KB_PAGES_MAX)
@@ -136,12 +144,16 @@ def ask(body: AskIn, user: dict = Depends(get_current_user), db: Session = Depen
         gid, title, text = (g.id or "").strip()[:200], (g.title or "").strip()[:300], (g.text or "").strip()[:GUIDE_TEXT_MAX]
         if gid and text:
             guide.append({"kind": "guide", "id": gid, "title": title, "text": text})
+    online = kb_ai.available()
+    # The hourly cap comes before the Knowledge Base scan, so it bounds the
+    # database work too, not only the model calls. A server with no model key
+    # never spends anyone's asks (the answer is the sources alone).
+    if online and not _take_ask(email):
+        raise HTTPException(429, f"You have asked Nexus {ASKS_PER_HOUR} questions in the last hour. Try again later, or file a ticket.")
     sources = guide + _kb_pages(db, user, q)
     public = [{k: v for k, v in s.items() if k != "text"} for s in sources]
-    if not kb_ai.available():
+    if not online:
         return {"answer": "", "sources": public[:5], "grounded": False, "offline": True}
-    if not _take_ask(email):
-        raise HTTPException(429, f"You have asked Nexus {ASKS_PER_HOUR} questions in the last hour. Try again later, or file a ticket.")
     if not sources:
         kb_search.log_miss(db, q, 0, email, source="ask", floor=10 ** 6)
         db.commit()
@@ -202,20 +214,31 @@ def feedback(body: FeedbackIn, user: dict = Depends(get_current_user), db: Sessi
     if not target or (kind == "answer" and not question):
         raise HTTPException(422, "Nothing to rate")
     email = (user["email"] or "").lower()
-    row = (db.query(models.HelpFeedback)
-           .filter(models.HelpFeedback.user_email == email, models.HelpFeedback.target_kind == kind,
-                   models.HelpFeedback.target_id == target).first())
-    now = _now()
-    if not row:
-        row = models.HelpFeedback(id=uuid.uuid4().hex, user_email=email, target_kind=kind, target_id=target, created_at=now)
-        db.add(row)
-    row.helpful = bool(body.helpful)
-    # A Yes clears an earlier "what was missing" note; a No keeps the newest.
-    row.note = "" if body.helpful else (body.note or "").strip()[:1000]
-    row.question = question
-    row.title = (body.title or "").strip()[:300] or row.title or ""
-    row.updated_at = now
-    db.commit()
+
+    def vote() -> models.HelpFeedback:
+        row = (db.query(models.HelpFeedback)
+               .filter(models.HelpFeedback.user_email == email, models.HelpFeedback.target_kind == kind,
+                       models.HelpFeedback.target_id == target).first())
+        now = _now()
+        if not row:
+            row = models.HelpFeedback(id=uuid.uuid4().hex, user_email=email, target_kind=kind, target_id=target, created_at=now)
+            db.add(row)
+        row.helpful = bool(body.helpful)
+        # A Yes clears an earlier "what was missing" note; a No keeps the newest.
+        row.note = "" if body.helpful else (body.note or "").strip()[:1000]
+        row.question = question
+        row.title = (body.title or "").strip()[:300] or row.title or ""
+        row.updated_at = now
+        db.commit()
+        return row
+
+    try:
+        row = vote()
+    except IntegrityError:
+        # A double click: the other request inserted this person's vote first
+        # (ux_help_feedback_vote) - update that row instead.
+        db.rollback()
+        row = vote()
     return {"ok": True, "helpful": row.helpful}
 
 

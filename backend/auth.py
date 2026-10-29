@@ -302,7 +302,7 @@ MODULE_API_PREFIXES = {
     "manager-dashboard":  ("/dashboard",),
     "tasks":              ("/task",),        # /tasks, /task-tickets, /task-projects, /task-* family
     "tickets":            ("/task",),
-    "support":            ("/task",),        # Support raises/reads the caller's own tickets
+    "support":            ("/task", "/help-center"),   # Support raises/reads the caller's own tickets; Ask Nexus, Known Issues, feedback
     "sop":                ("/kb", "/knowledge-base", "/sop-updates", "/lms-"),
     "it":                 ("/unifi",),
     "ops":                ("/construction",),

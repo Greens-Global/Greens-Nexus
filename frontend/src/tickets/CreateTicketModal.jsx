@@ -391,8 +391,10 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           appDialog.alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) - they won't be playable/downloadable.`);
         }
       }
-      // Searched the guide right here, then filed anyway - what the guide is missing.
-      if (!fromTask) logHelpSearch(form.subject, deflectCount.current, 'ticket-form');
+      // Suggested Articles showed answers and the person filed anyway - what
+      // the guide is missing. Only then: a ticket filed with no suggestions
+      // on screen is not a search, and its title is not a search term.
+      if (!fromTask && deflectCount.current > 0) logHelpSearch(form.subject, deflectCount.current, 'ticket-form');
       onCreated?.(created);
       // A property's ticket tabs in Asset Management refresh on this, and so do
       // the Help Center's list and the Help panel's Messages (Oct 28 2026: a

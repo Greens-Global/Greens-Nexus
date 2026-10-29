@@ -16,7 +16,7 @@ import HelpFeedback from './HelpFeedback';
 const BRAND = 'var(--wk-brand, #2b45e1)';
 
 // **bold** and [n] citations inside one line of the answer.
-function Inline({ text, cite }) {
+function Inline({ text, cite, open }) {
   const parts = String(text).split(/(\*\*[^*]+\*\*|\[\d+\])/g).filter(Boolean);
   return parts.map((p, i) => {
     const b = /^\*\*([^*]+)\*\*$/.exec(p);
@@ -26,7 +26,7 @@ function Inline({ text, cite }) {
       const s = cite(Number(c[1]));
       if (!s) return null;   // a number that is not among the sources it kept
       return (
-        <button key={i} type="button" className="nx-ask-cite" onClick={() => openSource(s)} title={s.title}
+        <button key={i} type="button" className="nx-ask-cite" onClick={() => open(s)} title={s.title}
           aria-label={`Source: ${s.title}`}
           style={{ border: 'none', background: 'rgba(43,69,225,0.10)', color: BRAND, borderRadius: 4, padding: '0 4px', margin: '0 1px',
             fontSize: 10.5, fontWeight: 700, cursor: 'pointer', verticalAlign: 'super', lineHeight: 1.2, fontFamily: 'inherit' }}>
@@ -39,7 +39,7 @@ function Inline({ text, cite }) {
 }
 
 /** Paragraphs, "1." steps and "-" bullets - what the answer prompt asks for. */
-function AnswerText({ text, cite }) {
+function AnswerText({ text, cite, open }) {
   const blocks = [];
   for (const raw of String(text || '').split('\n')) {
     const line = raw.trim();
@@ -56,11 +56,11 @@ function AnswerText({ text, cite }) {
   const p = { margin: '0 0 8px', fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink)' };
   return blocks.map((b, i) => {
     if (b.kind === 'gap') return null;
-    if (b.kind === 'p') return <p key={i} style={p}><Inline text={b.text} cite={cite} /></p>;
+    if (b.kind === 'p') return <p key={i} style={p}><Inline text={b.text} cite={cite} open={open} /></p>;
     const List = b.kind === 'ol' ? 'ol' : 'ul';
     return (
       <List key={i} style={{ ...p, paddingLeft: 20, display: 'grid', gap: 4 }}>
-        {b.items.map((it, j) => <li key={j}><Inline text={it} cite={cite} /></li>)}
+        {b.items.map((it, j) => <li key={j}><Inline text={it} cite={cite} open={open} /></li>)}
       </List>
     );
   });
@@ -155,7 +155,7 @@ export default function AskNexus({ question, allow, onFileTicket, onOpened, styl
         </div>
       )}
 
-      {answered && <div><AnswerText text={res.answer} cite={cite} /></div>}
+      {answered && <div><AnswerText text={res.answer} cite={cite} open={(src) => { onOpened?.(); openSource(src); }} /></div>}
       {res && !res.offline && !res.answer && (
         <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>The guides and the Knowledge Base do not cover this yet.</div>
       )}

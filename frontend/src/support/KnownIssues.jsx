@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { Info, AlertTriangle, OctagonAlert, Plus, Trash2, Megaphone } from 'lucide-react';
 import { Modal, DateField } from '../tasks/components';
 import { formatDate, formatDateTime } from '../lib/datetime';
-import { useKnownIssues, saveKnownIssues } from './knownIssuesStore';
+import { useKnownIssues, saveKnownIssues, withLocalExpiry } from './knownIssuesStore';
 
 const SEVERITY_META = {
   info:    { label: 'Info',    color: '#2b45e1', tint: 'rgba(43,69,225,0.07)', Icon: Info },
@@ -17,7 +17,7 @@ const SEVERITY_META = {
   outage:  { label: 'Outage',  color: '#dc2626', tint: 'rgba(220,38,38,0.08)', Icon: OctagonAlert },
 };
 const meta = (s) => SEVERITY_META[s] || SEVERITY_META.info;
-const live = (issues) => issues.filter((i) => !i.expired);
+const live = (issues) => withLocalExpiry(issues).filter((i) => !i.expired);
 
 /** One line per live issue - the Help panel and the ticket form. */
 export function KnownIssuesNotice({ style }) {

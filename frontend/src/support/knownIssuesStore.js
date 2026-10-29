@@ -40,11 +40,29 @@ export async function saveKnownIssues(issues) {
 /** { status, issues (live ones; an administrator's list keeps the expired, flagged), canEdit } */
 export function useKnownIssues() {
   const snap = useSyncExternalStore(subscribe, getState, getState);
-  useEffect(() => { loadKnownIssues(); }, []);
+  // A tab left open checks again every few minutes, so a cleared or ended
+  // issue does not linger until a reload.
+  useEffect(() => {
+    loadKnownIssues();
+    const t = setInterval(() => { if (!document.hidden) loadKnownIssues(); }, 5 * 60_000);
+    return () => clearInterval(t);
+  }, []);
   return snap;
 }
 function subscribe(cb) { listeners.add(cb); return () => { listeners.delete(cb); }; }
 function getState() { return state; }
+
+// "Until" ends at midnight where the reader is: the server keeps an issue
+// until its day has passed in Los Angeles (the company's latest zone), and
+// a reader in India stops seeing it at their own midnight, half a day sooner.
+const localDay = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+/** The issues with any whose "until" day has ended HERE flagged expired. */
+export function withLocalExpiry(issues, today = localDay()) {
+  return issues.map((i) => (i.until && String(i.until).slice(0, 10) < today && !i.expired ? { ...i, expired: true } : i));
+}
 
 /** Test seam. */
 export function __resetKnownIssues() {

@@ -625,7 +625,7 @@ function enoughCoverage(matched, n) {
  * @param {string} text what the person typed
  * @param {object} [opts]
  * @param {number} [opts.limit=8] most results to return
- * @param {(docId: string) => boolean} [opts.allow] keep only docs the person can open
+ * @param {(docId: string, kind?: string) => boolean} [opts.allow] keep only docs (and sections) the person can open
  * @param {number} [opts.perDoc=3] most results from any one module
  * @param {number} [opts.minScore=MIN_SCORE] relevance floor
  * @returns {Array<{id, docId, docName, kind, title, anchor, snippet, body, view, sub, score}>}
@@ -641,7 +641,9 @@ export function searchDocs(text, opts = {}) {
     if (sources && !sources.includes(s.source)) continue;
     // Guide pages follow the left menu's access rule; Knowledge Base rows were
     // already scoped by the server to what this person may read.
-    if (allow && s.source === 'guide' && !allow(s.docId)) continue;
+    // `allow` also takes the section's kind: a Managers & Admins block is
+    // only for people who see it in Documentation (supervisor and up).
+    if (allow && s.source === 'guide' && !allow(s.docId, s.kind)) continue;
     const r = scoreSection(s, concepts, index, coverageWeight);
     if (!r || r.score < minScore || !coverage(r.matched, concepts.length)) continue;
     scored.push({ s, score: r.score });
