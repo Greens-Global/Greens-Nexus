@@ -38,6 +38,9 @@ const props = { self: true, anchor: '2026-09-06', periodLabel: '09/06/2026 - 09/
 
 // HR corrects a finalized period (Neil, Oct 22 2026): HR / Global Admin only,
 // the employee signs the corrected card again, or HR re-locks it unchanged.
+// The words a reader sees, without the avatars' initials in between.
+const said = (el) => { const c = el.cloneNode(true); c.querySelectorAll('[data-avatar]').forEach((n) => n.remove()); return c.textContent.replace(/\s+/g, ' '); };
+
 describe('TimesheetReviewPanel - HR correction', () => {
   const corr = { ...base, status: 'correcting', inCorrection: true,
     correction: { by: 'hr@x.com', at: '2026-10-22T15:00:00', reason: 'Wrong lunch on Monday', acceptBy: '' } };
@@ -134,7 +137,7 @@ describe('TimesheetReviewPanel', () => {
     render(<TimesheetReviewPanel {...props} review={{ ...base, status: 'approved', canEmployeeApprove: true, canSubmit: true,
       agreedBy: 'mgr@x.com', agreedAt: '2026-09-20T17:00:00Z',
       approvalLog: ['Approved by Max (manager) on 09/20/2026 at 10:00 AM', 'Hours changed by Hana (HR) on 09/21/2026 at 9:00 AM'] }} />);
-    expect(screen.getByText(/HR changed your hours after Max approved them/)).toBeInTheDocument();
+    expect(said(screen.getByText(/HR changed your hours after/))).toMatch(/HR changed your hours after Max approved them/);
     expect(screen.getByText('Hours changed by Hana (HR) on 09/21/2026 at 9:00 AM')).toBeInTheDocument();
     expect(screen.getByText('Not Right - Send Back').closest('button')).toBeDisabled();   // needs a note
     fireEvent.click(screen.getByText('Sign Updated Time Sheet'));
@@ -161,7 +164,7 @@ describe('TimesheetReviewPanel', () => {
       agreedBy: 'mgr@x.com', agreedAt: '2026-09-20T10:00:00Z',
       parties: [{ role: 'employee', name: 'Erin', status: 'notified' }] }} />);
     expect(screen.getByText('Approval')).toBeInTheDocument();
-    expect(screen.getByText(/Waiting for Erin/)).toBeInTheDocument();
+    expect(said(screen.getByText(/Waiting for/))).toMatch(/Waiting for Erin/);
     expect(screen.queryByText(/Manager Signature/)).toBeNull();
     fireEvent.click(screen.getByText('Sign & Submit'));
     expect(screen.getByTestId('sign-modal')).toHaveTextContent('p-emp');

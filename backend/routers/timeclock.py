@@ -11988,6 +11988,7 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" 
            "startTime": getattr(r, "start_time", "") or "",
            "endTime": getattr(r, "end_time", "") or "",
            "note": r.note or "", "status": r.status, "approver": r.approver or "",
+           "approverName": (names or {}).get(r.approver or "", ""),
            "decidedAt": r.decided_at or "", "decideNote": r.decide_note or "",
            "createdAt": r.created_at,
            "requestedBy": getattr(r, "requested_by", "") or "",

@@ -49,6 +49,9 @@ const jane = { id: 'e1', firstName: 'Jane', lastName: 'Doe', startDate: '2029-12
 
 beforeEach(() => { current = base; decide.mockReset(); removeFn.mockReset(); startFn.mockReset(); sendLetter.mockReset(); });
 
+// The words a reader sees, without the avatars' initials in between.
+const said = (el) => { const c = el.cloneNode(true); c.querySelectorAll('[data-avatar]').forEach((n) => n.remove()); return c.textContent.replace(/\s+/g, ' '); };
+
 describe('ProbationBadge', () => {
   it('shows only while a decision is due', () => {
     const { rerender, container } = render(<ProbationBadge p={{ status: 'in_probation', ending: true, daysLeft: 5, endDate: '2030-03-31' }} />);
@@ -166,7 +169,7 @@ describe('ProbationCard past the window', () => {
     current = { ...base, status: 'removed', label: 'Removed From Probation', canDecide: false, canRemove: false, ending: false, daysLeft: null,
       decision: { decision: 'removed', by: 'hana@x.com', byName: 'Hana Hr', at: '2030-03-10T17:00:00Z', reason: 'Moved from a sister company' } };
     render(<ProbationCard employee={jane} toastOk={() => {}} toastErr={() => {}} />);
-    expect(await screen.findByText('Removed From Probation on 03/10/2030 by Hana Hr: Moved from a sister company')).toBeTruthy();
+    expect(said(await screen.findByText(/Removed From Probation on 03\/10\/2030 by/))).toBe('Removed From Probation on 03/10/2030 by Hana Hr: Moved from a sister company');
     expect(screen.queryByText('Edit')).toBeNull();
     expect(screen.getByText('Start A New Probation')).toBeTruthy();
   });
@@ -187,7 +190,7 @@ describe('ProbationCard past the window', () => {
     expect(confirm.disabled).toBe(false);
     fireEvent.click(confirm);
     await waitFor(() => expect(removeFn).toHaveBeenCalledWith('e1', 'Started by mistake'));
-    expect(await screen.findByText('Removed From Probation on 03/10/2030 by Hana Hr: Started by mistake')).toBeTruthy();
+    expect(said(await screen.findByText(/Removed From Probation on 03\/10\/2030 by/))).toBe('Removed From Probation on 03/10/2030 by Hana Hr: Started by mistake');
     expect(toastOk).toHaveBeenCalledWith('Saved.');
   });
 

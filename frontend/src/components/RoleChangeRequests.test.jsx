@@ -37,6 +37,9 @@ vi.mock('../api', () => ({
 
 const { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory, RoleChangeDeepLinkFallback } = await import('./RoleChangeRequests');
 
+// The words a reader sees, without the avatars' initials in between.
+const said = (el) => { const c = el.cloneNode(true); c.querySelectorAll('[data-avatar]').forEach((n) => n.remove()); return c.textContent.replace(/\s+/g, ' '); };
+
 describe('RoleChangeDeepLinkFallback', () => {
   it('shows the decision on its own, notes the outcome, then hands back', async () => {
     row = { ...base, canDecide: true, canCancel: false };
@@ -101,9 +104,9 @@ describe('RoleHistory', () => {
   it('logs who raised each change, the reason, and who approved or signed', async () => {
     render(<RoleHistory employeeId="e1" />);
     await waitFor(() => expect(screen.getByText('Lead')).toBeTruthy());
-    expect(screen.getByText(/Signed by Erin Lee, Max/)).toBeTruthy();
-    expect(screen.getByText(/Raised by Ada/)).toBeTruthy();
-    expect(screen.getByText(/Approved by Max/)).toBeTruthy();
+    expect(said(document.body)).toMatch(/Signed by Erin Lee, Max/);
+    expect(said(document.body)).toMatch(/Raised by Ada/);
+    expect(said(document.body)).toMatch(/Approved by Max/);
     expect(screen.getByText('Covers month-end close')).toBeTruthy();
     expect(screen.getByText('Runs the platform team now')).toBeTruthy();       // a direct change keeps its reason
     expect(screen.getByText(/Changed directly - no approval needed/)).toBeTruthy();

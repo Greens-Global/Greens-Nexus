@@ -20,6 +20,7 @@ import { CheckCircle, Clock, FileSignature, Send, Undo2, ChevronRight, Lock, Shi
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { SignModal } from './ESign';
+import { Avatar, AvatarName } from '../tasks/components';
 
 const ACTION_LABEL = {
   submitted: 'submitted the time sheet', resubmitted: 'sent it back to the manager',
@@ -88,14 +89,14 @@ function SigCard({ label, party, waiting }) {
       {done ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, color: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <CheckCircle size={14} /> {party.name}
+            <CheckCircle size={14} /> <Avatar email={party.email} name={party.name} size={20} /> {party.name}
           </span>
           <span style={{ fontSize: 11, color: 'var(--muted)' }}>{formatDate(party.signedAt)}</span>
           {party.signatureKind === 'paper' && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', background: 'var(--mist)', padding: '2px 8px', borderRadius: 999 }}>On Paper</span>}
         </div>
       ) : (
         <span style={{ fontSize: 12.5, fontWeight: 700, color: waiting ? '#b45309' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          {waiting ? <><Clock size={13} /> Waiting for {party?.name || label}</> : party?.name ? `${party.name} - not yet` : 'Not yet'}
+          {waiting ? <><Clock size={13} /> Waiting for {party?.name ? <AvatarName email={party.email} name={party.name} size={18} /> : label}</> : party?.name ? <><AvatarName email={party.email} name={party.name} size={18} /> - not yet</> : 'Not yet'}
         </span>
       )}
     </div>
@@ -132,7 +133,7 @@ function History({ rounds, nameFor }) {
         <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
           {[...rounds].reverse().map((e, i) => (
             <div key={`${e.at}-${i}`} style={{ fontSize: 12.5, borderLeft: '2px solid var(--line)', paddingLeft: 10 }}>
-              <div><strong>{nameFor(e.by)}</strong> {ACTION_LABEL[e.action] || e.action}
+              <div><AvatarName email={e.by} name={nameFor(e.by)} size={18}><strong>{nameFor(e.by)}</strong></AvatarName> {ACTION_LABEL[e.action] || e.action}
                 <span style={{ color: 'var(--muted)' }}> · {formatDateTime(e.at)}</span></div>
               {e.note && <div style={{ color: 'var(--ink)', marginTop: 2 }}>"{e.note}"</div>}
               {e.changes?.length > 0 && (
@@ -263,7 +264,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     body = r.isHr && !self ? (
       <>
         <p style={{ fontSize: 13, margin: '0 0 8px' }}>
-          Unlocked by {name(corr.by) || 'HR'}{corr.at ? ` on ${formatDate(corr.at)}` : ''}{why}. Only HR can change these hours now. When they are right, send the time sheet to {emp} to sign. If nothing needed changing, lock it again - no new signature is needed.
+          Unlocked by {corr.by ? <AvatarName email={corr.by} name={name(corr.by)} /> : 'HR'}{corr.at ? ` on ${formatDate(corr.at)}` : ''}{why}. Only HR can change these hours now. When they are right, send the time sheet to {emp} to sign. If nothing needed changing, lock it again - no new signature is needed.
         </p>
         {r.correctionBlocker && <p role="note" style={{ fontSize: 12.5, margin: '0 0 8px', color: '#b45309' }}>{r.correctionBlocker}</p>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -281,15 +282,15 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     ) : (
       <p style={{ fontSize: 13, margin: 0 }}>
         {self
-          ? `HR (${name(corr.by) || 'HR'}) unlocked your time sheet to correct it${why}. You will be asked to review and sign it again when they are done.`
-          : `${name(corr.by) || 'HR'} unlocked this time sheet${corr.at ? ` on ${formatDate(corr.at)}` : ''} to correct it${why}. Only HR can change it; ${emp} signs it again.`}
+          ? <>HR ({corr.by ? <AvatarName email={corr.by} name={name(corr.by)} /> : 'HR'}) unlocked your time sheet to correct it{why}. You will be asked to review and sign it again when they are done.</>
+          : <>{corr.by ? <AvatarName email={corr.by} name={name(corr.by)} /> : 'HR'} unlocked this time sheet{corr.at ? ` on ${formatDate(corr.at)}` : ''} to correct it{why}. Only HR can change it; {emp} signs it again.</>}
       </p>
     );
   } else if (r.status === 'approved') {
     body = r.canEmployeeApprove ? (
       <>
         <p style={{ fontSize: 13, margin: '0 0 8px' }}>
-          HR changed your hours after {name(r.agreedBy) || mgr} approved them{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. Check them above, then sign the updated time sheet. If something is wrong, ask for a punch fix or tell {mgr} what - it goes back to them.
+          HR changed your hours after {r.agreedBy ? <AvatarName email={r.agreedBy} name={name(r.agreedBy)} /> : mgr} approved them{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. Check them above, then sign the updated time sheet. If something is wrong, ask for a punch fix or tell {mgr} what - it goes back to them.
         </p>
         {noteBox('What is wrong? (required to send it back)')}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -302,7 +303,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
       </>
     ) : (
       <p style={{ fontSize: 13, margin: 0 }}>
-        Approved by {name(r.agreedBy) || mgr}{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. HR changed the time sheet since, so it is waiting for {name(r.employeeEmail) || 'the employee'} to sign the updated time sheet.
+        Approved by {r.agreedBy ? <AvatarName email={r.agreedBy} name={name(r.agreedBy)} /> : mgr}{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. HR changed the time sheet since, so it is waiting for {name(r.employeeEmail) || 'the employee'} to sign the updated time sheet.
       </p>
     );
   }
@@ -374,13 +375,13 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
               </p>
             : r.inCorrection
             ? <p style={{ fontSize: 13, margin: '0 0 10px' }}>HR corrected this time sheet after it was signed. {self ? 'Sign it, or decline it with what is wrong' : `${emp} signs it, or declines it with what is wrong`} - a decline goes back to HR.{corr.acceptBy ? ` If it is not signed or declined by ${formatDate(corr.acceptBy)}, it is accepted as sent.` : ''}</p>
-            : <p style={{ fontSize: 13, margin: '0 0 10px' }}>{r.agreedBy ? `Agreed by ${name(r.agreedBy)}${r.agreedAt ? ` on ${formatDate(r.agreedAt)}` : ''}. ` : ''}To change the hours, ask for a punch fix or decline in Nexus Sign with a reason - either way it goes back to the manager.</p>}
+            : <p style={{ fontSize: 13, margin: '0 0 10px' }}>{r.agreedBy ? <>Agreed by <AvatarName email={r.agreedBy} name={name(r.agreedBy)} />{r.agreedAt ? ` on ${formatDate(r.agreedAt)}` : ''}. </> : ''}To change the hours, ask for a punch fix or decline in Nexus Sign with a reason - either way it goes back to the manager.</p>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' }}>Approval</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13.5, fontWeight: 700, color: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <CheckCircle size={14} /> {name(r.agreedBy) || 'Approver'}
+                  <CheckCircle size={14} /> {r.agreedBy && <Avatar email={r.agreedBy} name={name(r.agreedBy)} size={20} />} {name(r.agreedBy) || 'Approver'}
                 </span>
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>agreed {formatDate(r.agreedAt)}</span>
               </div>

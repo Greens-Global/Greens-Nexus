@@ -29,7 +29,7 @@ import RecordTag from './RecordTag';
 import { recordOf } from '../lib/duplicateDay';
 import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
-import { Modal, DateField } from '../tasks/components';
+import { Modal, DateField, AvatarName } from '../tasks/components';
 import EmployeeCombobox from './EmployeeCombobox';
 import { downloadBlob } from './accounting/reportModel';
 import { formatDistance } from '../lib/distance';
@@ -273,7 +273,7 @@ function CorrectionChip({ review, nameFor }) {
   return (
     <span data-correction title={c.reason ? `Why: ${c.reason}` : undefined}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>
-      <Lock size={12} /> Unlocked by {nameFor(c.by) || 'HR'}{c.at ? ` on ${formatDate(c.at)}` : ''} - HR Only Until Signed Again
+      <Lock size={12} /> Unlocked by {c.by ? <AvatarName email={c.by} name={nameFor(c.by)} size={16} /> : 'HR'}{c.at ? ` on ${formatDate(c.at)}` : ''} - HR Only Until Signed Again
     </span>
   );
 }
@@ -1584,9 +1584,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             </span>
           )}
           {mgrAp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', fontWeight: 700 }}>
-            <CheckCircle size={12} /> Manager approved · {nameFor(mgrAp.by)}</span>}
+            <CheckCircle size={12} /> Manager approved · <AvatarName email={mgrAp.by} name={nameFor(mgrAp.by)} size={16} /></span>}
           {fin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontWeight: 700 }}>
-            <CheckCircle size={12} /> Finalized · {nameFor(fin.by)} - period locked</span>}
+            <CheckCircle size={12} /> Finalized · <AvatarName email={fin.by} name={nameFor(fin.by)} size={16} /> - period locked</span>}
           {data.review?.inCorrection && <CorrectionChip review={data.review} nameFor={nameFor} />}
         </div>
       )}
@@ -2160,7 +2160,7 @@ function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameF
         {icp && showPay && <span title="Approved Extra Time is paid at 1.35 x the hourly equivalent of the daily rate (daily / 9), with no minimum">
           <strong style={{ color: 'var(--ink)' }}>Extra Time:</strong> {fmtM(icp.extraTime?.rate)}/hr (1.35 × {fmtM(icp.extraTime?.hourlyEquivalent)})
         </span>}
-        {mgrAp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', fontWeight: 700 }}><CheckCircle size={12} /> Manager approved · {nameFor(mgrAp.by)}</span>}
+        {mgrAp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', fontWeight: 700 }}><CheckCircle size={12} /> Manager approved · <AvatarName email={mgrAp.by} name={nameFor(mgrAp.by)} size={16} /></span>}
         {fin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontWeight: 700 }}><CheckCircle size={12} /> Finalized · period locked</span>}
         {data.review?.inCorrection && <CorrectionChip review={data.review} nameFor={nameFor} />}
       </div>
