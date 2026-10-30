@@ -110,7 +110,8 @@ describe('Notes page on a phone', () => {
     render(<NotesPage activeSub="notes:note_1" onSubChange={onSubChange} />);
     const sheet = await screen.findByRole('dialog', { name: 'Note' });
     expect(sheet.classList.contains('nt-qn')).toBe(true);
-    expect(within(sheet).getByDisplayValue('Budget Review')).toBeTruthy();
+    // The sheet is up while the note loads; wait for the note itself.
+    expect(await within(sheet).findByDisplayValue('Budget Review')).toBeTruthy();
     expect(within(sheet).getByRole('button', { name: 'Share' })).toBeTruthy();
     expect(within(sheet).getByText(/Saved/)).toBeTruthy();
     // The list is still there under it.
