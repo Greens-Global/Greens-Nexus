@@ -9556,3 +9556,56 @@ class VaultCredentialAudience(Base):
     level      = Column(String, default="open")
     created_at = Column(String, default="")
     created_by = Column(String, default="")
+
+
+# ── Performance: KPI scorecards per department (Oct 30 2026, perf_scorecards.py)
+class PerfKpi(Base):
+    """A MANUAL KPI in the library (Nexus's own metrics come from
+    perf_metrics.METRICS and have no row). company_id '' = every company."""
+    __tablename__ = "hr_perf_kpis"
+    id          = Column(String, primary_key=True)                 # uuid
+    company_id  = Column(String, default="", index=True)
+    key         = Column(String, nullable=False)                   # "manual:<slug>" - what scorecard rows point at
+    name        = Column(String, nullable=False)
+    description = Column(Text, default="")
+    unit        = Column(String, default="rating")                 # % | count | per100 | rating
+    direction   = Column(String, default="high")                   # high | low (which way is better)
+    active      = Column(Boolean, default=True)                    # retired KPIs stay on past versions
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+
+
+class PerfScorecard(Base):
+    """A JOB ROLE's scorecard, one VERSION (kind 'role': in force from
+    effective_from, the first of a month, to effective_to, '' = open; a change
+    to a running version becomes a new row starting next month) - or a SHARED
+    set (kind 'shared', role_id '', named) HR keeps to copy from, edited in
+    place. company_id '' on a shared set = every company may copy it."""
+    __tablename__ = "hr_perf_scorecards"
+    id             = Column(String, primary_key=True)              # uuid
+    company_id     = Column(String, default="", index=True)
+    kind           = Column(String, default="role")                # role | shared
+    role_id        = Column(String, default="", index=True)        # NexusGroup.id (is_job_role) for kind 'role'
+    name           = Column(String, default="")                    # the role's name at save, or the shared set's name
+    copied_from    = Column(String, default="")                    # "Role: X" / "Shared set: Y" when it started as a copy
+    version        = Column(Integer, default=1)
+    effective_from = Column(String, default="")                    # YYYY-MM-01
+    effective_to   = Column(String, default="")                    # YYYY-MM-DD, '' = open
+    status         = Column(String, default="active")              # active | retired
+    notes          = Column(Text, default="")
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class PerfScorecardKpi(Base):
+    """A KPI on a scorecard version: weight (whole %), target (full marks),
+    threshold (below it nothing), cap (above it no extra)."""
+    __tablename__ = "hr_perf_scorecard_kpis"
+    id           = Column(String, primary_key=True)                # uuid
+    scorecard_id = Column(String, nullable=False, index=True)
+    kpi_key      = Column(String, nullable=False)
+    weight       = Column(Integer, default=0)
+    target       = Column(Float, default=0)
+    threshold    = Column(Float, default=0)
+    cap          = Column(Float, default=0)
+    position     = Column(Integer, default=0)

@@ -5119,6 +5119,8 @@ from routers import perf_reviews as perf_reviews_router  # noqa: E402 - new tabl
 app.include_router(perf_reviews_router.router)  # Performance: review cycles - People > Performance, Workday > Performance (Neil, Oct 27 2026)
 from routers import perf_feedback as perf_feedback_router  # noqa: E402 - new tables: create_all + explicit RLS lines
 app.include_router(perf_feedback_router.router)  # Performance: peer feedback, kudos, improvement plans (Neil, Oct 29 2026)
+from routers import perf_scorecards as perf_scorecards_router  # noqa: E402 - new tables: create_all + _enable_rls_everywhere
+app.include_router(perf_scorecards_router.router)  # Performance: KPI scorecards per department - Settings > Performance (Charmi, 10/30/2026)
 from routers import extra_time as extra_time_router  # noqa: E402
 app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)
 from routers import import_hub as import_hub_router  # noqa: E402 - also registers import_hub_models before create_all
