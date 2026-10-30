@@ -10,7 +10,7 @@ import {
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma, MoveRight,
-  History, Upload, HardDrive, Image as ImageIcon,
+  History, Upload, HardDrive, Image as ImageIcon, AudioLines,
 } from 'lucide-react';
 import MoveTaskModal from './MoveTaskModal';
 import MyDayToggle from './MyDayToggle';
@@ -18,6 +18,7 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { formulaEngineFor } from './formula';
 import { FormulaValue } from './FormulaColumn';
+import { isAudioAttachment } from './lib';
 import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, uploadTaskAttachmentVersion, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
@@ -62,6 +63,7 @@ import LabelsEditor from './LabelsEditor';
 import { labelsInUse } from './labels';
 import { FieldHistoryContext, useHistoryCtx } from './fieldHistoryContext';
 import { groupFieldChanges, historyFieldName } from './fieldHistory';
+import { STOP_VOICE_FIRST } from '../lib/voice';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const VIEW_ONLY_TITLE = 'You can view this task but not change it';
@@ -1609,7 +1611,7 @@ function PendingAttachments({ files, setFiles }) {
         <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 8px 2px 2px', fontSize: 11.5, color: NX.dim }}>
           {f.type.startsWith('image/')
             ? <img src={URL.createObjectURL(f)} alt="" style={{ width: 18, height: 18, borderRadius: 4, objectFit: 'cover' }} />
-            : <Paperclip size={11} />}
+            : f.type.startsWith('audio/') ? <AudioLines size={11} aria-label="Voice Note" /> : <Paperclip size={11} />}
           <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
           <button type="button" onClick={() => remove(i)} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={11} /></button>
         </span>
@@ -1806,6 +1808,8 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
   const { body, setBody, pending, setPending, assignTo, setAssignTo, clear: clearComment } = useCommentDraft(task.id);
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
+  // A voice note still recording in the box: Comment waits for Stop.
+  const [voiceRec, setVoiceRec] = useState(false);
   const people = usePeople();
   const [attachments, reloadAttachments] = useCommentAttachments(task.id);
   const uploads = useCommentUploads(task.id, reloadAttachments);
@@ -1875,6 +1879,7 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
           mentionPeople={people}
           minHeight={64}
           onStageFiles={(fs) => setPending((p) => [...p, ...fs])}
+          onRecordingChange={setVoiceRec}
         />
       </div>}
       <PendingAttachments files={pending} setFiles={setPending} />
@@ -1885,8 +1890,8 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
             Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
           </span>
           <AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} />
-          <button onClick={submit} disabled={isEmptyDoc(body) || busy}
-            style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1, flexShrink: 0 }}>
+          <button onClick={submit} disabled={isEmptyDoc(body) || busy || voiceRec} title={voiceRec ? STOP_VOICE_FIRST : undefined}
+            style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy || voiceRec) ? 0.5 : 1, flexShrink: 0 }}>
             {busy ? 'Posting…' : assignTo ? 'Assign Comment' : 'Comment'}
           </button>
         </div>
@@ -1973,6 +1978,8 @@ function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment
 // ── Comments ────────────────────────────────────────────────────────────────
 function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComment = null, canComment = true, canPin = true }) {
   const [comments, setComments] = useState(null);
+  // A voice note still recording in the box: Send waits for Stop.
+  const [voiceRec, setVoiceRec] = useState(false);
   const listRef = useRef(null);
   const focused = useRef(null);
   // Land on the comment the drawer was opened for, once its list is in: the
@@ -2018,7 +2025,7 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
       {canComment && <div data-nx-noguard onPaste={(e) => onPasteStage(e, setPending)}>
         <RichDescription value={body} onChange={setBody} onSubmit={submit}
           mentionPeople={people} minHeight={64}
-          onStageFiles={(fs) => setPending((p) => [...p, ...fs])} />
+          onStageFiles={(fs) => setPending((p) => [...p, ...fs])} onRecordingChange={setVoiceRec} />
         <PendingAttachments files={pending} setFiles={setPending} />
         <FailedUploads failed={uploads.failed} onRetry={uploads.retry} onDismiss={uploads.dismiss} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
@@ -2026,8 +2033,8 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
             Type <b>@</b> to mention someone - they'll get an email.
           </span>
           <span style={{ marginLeft: 'auto' }}><AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} /></span>
-          <button onClick={submit} disabled={isEmptyDoc(body)}
-            style={{ ...btn('primary'), opacity: isEmptyDoc(body) ? 0.5 : 1 }}>{assignTo ? 'Assign Comment' : 'Send'}</button>
+          <button onClick={submit} disabled={isEmptyDoc(body) || voiceRec} title={voiceRec ? STOP_VOICE_FIRST : undefined}
+            style={{ ...btn('primary'), opacity: isEmptyDoc(body) || voiceRec ? 0.5 : 1 }}>{assignTo ? 'Assign Comment' : 'Send'}</button>
         </div>
       </div>}
       {comments === null ? <LoadingState />
@@ -2310,7 +2317,9 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
                 const href = a.dataUrl || a.url;
                 const thumb = a.kind === 'image' && href
                   ? <img src={href} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
-                  : <Paperclip size={13} style={{ color: NX.dim }} />;
+                  : isAudioAttachment(a)
+                    ? <AudioLines size={14} style={{ color: NX.primary }} aria-label="Voice Note" />
+                    : <Paperclip size={13} style={{ color: NX.dim }} />;
                 const nVersions = a.versionCount || 1;
                 const up = verUploads[a.id];
                 return (

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 // userEvent, not fireEvent, for the file input: FileList is read-only, so a
 // plain change event cannot attach one.
 import userEvent from '@testing-library/user-event';
@@ -307,5 +307,25 @@ describe('DailyLogCapture', () => {
 
     await waitFor(() => expect(screen.getByText(/1 file did not attach/i)).toBeInTheDocument());
     expect(screen.getByText(/uploads are unavailable right now/i)).toBeInTheDocument();
+  });
+
+  // Voice (Oct 30 2026): a voice note is never transcribed (AI is off), so
+  // the mic types the crew's words into the notes, which save as notes_raw.
+  it('takes dictated notes and saves them', async () => {
+    let rec;
+    window.webkitSpeechRecognition = function SR() { rec = this; this.start = vi.fn(); this.stop = vi.fn(() => this.onend?.()); this.abort = vi.fn(); };
+    try {
+      const onClose = vi.fn();
+      render(<DailyLogCapture log={{ ...log, status: 'draft' }} project={project}
+        onClose={onClose} onSubmitted={() => {}} />);
+      fireEvent.click(screen.getByRole('button', { name: /Say the Notes/ }));
+      expect(rec.start).toHaveBeenCalled();
+      await act(async () => { rec.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'footings poured on the north wall' } }] }); });
+      expect(screen.getByDisplayValue(`${log.notes} Footings poured on the north wall`)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Save & Close/i }));
+      await waitFor(() => expect(api.updateConstructionLog).toHaveBeenCalledWith(
+        log.id, expect.objectContaining({ notes_raw: `${log.notes} Footings poured on the north wall` }),
+      ));
+    } finally { delete window.webkitSpeechRecognition; }
   });
 });

@@ -22,7 +22,7 @@ describe('directory PDF', () => {
     const { PDFDocument } = await import('pdf-lib');
     const back = await PDFDocument.load(bytes);
     expect(back.getPageCount()).toBe(2);
-    expect(back.getTitle()).toBe('Contact Directory');
+    expect(back.getTitle()).toBe('Directory');
   });
   it('maps typography to ASCII and drops what Helvetica cannot draw', () => {
     expect(ascii('Controller — “Finance” 💼…')).toBe('Controller - "Finance" ...');

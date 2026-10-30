@@ -924,7 +924,7 @@ def _headcount(db: Session, user: dict, ctx: dict) -> list:
     """Headcount requests waiting on the caller (routers/hiring._can_decide):
     the department line's step, then HR's. Approve / Decline (a reason is
     required) through POST /hiring/headcount/{id}/decide."""
-    from routers.hiring import _can_decide
+    from routers.hiring import _can_decide     # also False while the company has them off
     H = models.HrHeadcountRequest
     out = []
     for r in db.query(H).filter(H.status == "awaiting_approval").order_by(H.submitted_at).all():

@@ -40,20 +40,45 @@ describe('the weekly New in Nexus bar', () => {
     expect(region.querySelector('.feature-banner-lead-short').textContent).toBe('Including ');
   });
 
-  it("opens What's New from the message as well as the button", async () => {
+  it("opens this week's updates in a popup from the message as well as the button - never a reload (Oct 30 2026)", async () => {
+    api.getFeatureBanner.mockResolvedValue({ ...SHOW, items: [
+      { id: 'a', title: 'Quick Create', type: 'New Feature', module: 'Header', summary: 'A + beside the search bar.' },
+    ] });
     const onNavigate = vi.fn();
     render(<FeatureBanner activeView="tasks" onNavigate={onNavigate} />);
     fireEvent.click(await screen.findByText('2 New Features'));
+    const dialog = screen.getByRole('dialog', { name: "What's New This Week" });
+    expect(dialog.textContent).toContain('Quick Create');
+    expect(dialog.textContent).toContain("And 4 more - see them all on What's New.");
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(api.dismissFeatureBanner).toHaveBeenCalledTimes(1);          // seen for the week
+    fireEvent.click(screen.getByRole('button', { name: "See All on What's New" }));
     expect(onNavigate).toHaveBeenCalledWith('whats-new');
   });
 
-  it('its link only navigates; reaching What\'s New is what closes it for the week', async () => {
+  it('closing the weekly popup folds the bar away; the bar has its own Reload too', async () => {
+    const reload = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...original, reload } });
+    try {
+      render(<FeatureBanner activeView="tasks" onNavigate={() => {}} />);
+      const region = await screen.findByRole('region', { name: 'New in Nexus' });
+      fireEvent.click(screen.getByRole('button', { name: "See What's New" }));
+      fireEvent.click(screen.getAllByRole('button', { name: 'Close' }).at(-1));   // the footer one (the X is Close too)
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(region.className).toMatch(/is-closing/);
+      expect(api.dismissFeatureBanner).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+      expect(reload).toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
+  });
+
+  it("reaching What's New another way closes it for the week", async () => {
     const onNavigate = vi.fn();
     const { rerender } = render(<FeatureBanner activeView="tasks" onNavigate={onNavigate} />);
-    fireEvent.click(await screen.findByRole('button', { name: "See What's New" }));
-    expect(onNavigate).toHaveBeenCalledWith('whats-new');
-    // Not yet dismissed: the move could still be cancelled at an unsaved-changes prompt.
-    expect(api.dismissFeatureBanner).not.toHaveBeenCalled();
+    await screen.findByRole('region', { name: 'New in Nexus' });
     rerender(<FeatureBanner activeView="whats-new" onNavigate={onNavigate} />);
     expect(bar()).toBeNull();
     await waitFor(() => expect(api.dismissFeatureBanner).toHaveBeenCalledTimes(1));

@@ -259,6 +259,8 @@ describe('LedgerSearch grid', () => {
     expect(box.style.maxHeight).toBe('');
     // UI test 10/23: the box ends inside the window, measured from where it starts.
     const tall = window.innerHeight;
+    // The fit effect lands a render after the rows do; wait for it (flaked on CI 10/30).
+    await waitFor(() => expect(box.style.getPropertyValue('--acct-lines-h')).not.toBe(''));
     // What the page still shows under the box (the notes under the lines) is left room for.
     const under = tall - 8 - parseInt(box.style.getPropertyValue('--acct-lines-h'), 10);
     expect(under).toBeGreaterThanOrEqual(0);

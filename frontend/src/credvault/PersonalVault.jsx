@@ -4,7 +4,7 @@
 // Personal Vault unlock time); it locks itself when that window ends or on
 // Lock Now. Passwords stay readable while unlocked - no per-row timer.
 import { useCallback, useEffect, useState } from "react";
-import { Lock, Unlock, Plus, Eye, EyeOff, Copy, Check, Pencil, Trash2, KeyRound, ShieldCheck } from "lucide-react";
+import { Lock, Unlock, Plus, Eye, EyeOff, Copy, Check, Pencil, Trash2, KeyRound, ShieldCheck, ExternalLink } from "lucide-react";
 import { api } from "../api";
 import { dialog } from "../ui/dialog";
 import { formatTime } from "../lib/datetime";
@@ -13,7 +13,7 @@ import { PersonalLockGate, Field, PasswordField, TYPES, MsLogo } from "./vaultSh
 
 function PersonalForm({ row, onClose, onSave }) {
   const editing = !!row;
-  const [form, setForm] = useState({ name: row?.name || "", username: row?.username === "-" ? "" : row?.username || "", secret: "", type: row?.type || "Password", note: row?.note || "" });
+  const [form, setForm] = useState({ name: row?.name || "", url: row?.url || "", username: row?.username === "-" ? "" : row?.username || "", secret: "", type: row?.type || "Password", note: row?.note || "" });
   const [initial] = useState(form);
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -32,6 +32,7 @@ function PersonalForm({ row, onClose, onSave }) {
           <Field label="Type"><select value={form.type} onChange={(e) => set("type", e.target.value)} className="cv-ipt">{TYPES.map((t) => <option key={t}>{t}</option>)}</select></Field>
         </div>
         <PasswordField value={form.secret} onChange={(v) => set("secret", v)} required={!editing} label={editing ? "New Password" : "Password"} placeholder={editing ? "Leave blank to keep the current password" : "Enter or generate a password"} />
+        <Field label="Link"><input value={form.url} onChange={(e) => set("url", e.target.value)} className="cv-ipt" placeholder="https://… (Open signs you in from the list)" /></Field>
         <Field label="Note"><input value={form.note} onChange={(e) => set("note", e.target.value)} className="cv-ipt" placeholder="Security question, recovery hint…" /></Field>
         <div className="cv-callout tone-info"><ShieldCheck size={14} style={{ flexShrink: 0, marginTop: 1 }} /><span>Encrypted and private - not visible to any admin or team member.</span></div>
       </div>
@@ -72,6 +73,18 @@ export default function PersonalVault({ myEmail, flash, active = true }) {
   function copy(text, id) {
     try { navigator.clipboard?.writeText(text); } catch { /* blocked */ }
     setCopied(id); setTimeout(() => setCopied((c) => (c === id ? "" : c)), 1400);
+  }
+  // Open (Oct 29 2026): copy the password, then open the site - same as My
+  // Logins. The clipboard cannot be written once the new tab has focus.
+  async function openSite(r) {
+    let secret = open[r.id];
+    if (!secret) {
+      try { secret = (await api.cvPersonalReveal(r.id)).secret; }
+      catch (e) { if (e?.status === 403) { setUnlockedUntil(0); setGate(true); } else flash(e?.message || "Could not open.", "info"); return; }
+    }
+    copy(secret, r.id);
+    window.open(r.url, "_blank", "noopener,noreferrer");
+    flash(`Password copied - paste it on the site.${r.username && r.username !== "-" ? ` Username: ${r.username}` : ""}`);
   }
   async function save(f) {
     if (form?.row) await api.cvPersonalUpdate(form.row.id, f); else await api.cvPersonalCreate(f);
@@ -130,6 +143,7 @@ export default function PersonalVault({ myEmail, flash, active = true }) {
                     ? <button type="button" className="cv-iconbtn" title="Hide" aria-label="Hide Password" onClick={() => setOpen((o) => { const n = { ...o }; delete n[r.id]; return n; })}><EyeOff size={14} /></button>
                     : <button type="button" className="cv-iconbtn" title="Reveal" aria-label="Reveal Password" onClick={() => reveal(r)}><Eye size={14} /></button>}
                   <button type="button" className="cv-iconbtn" title="Copy Password" aria-label="Copy Password" disabled={!secret} onClick={() => copy(secret, r.id)}>{copied === r.id ? <Check size={14} style={{ color: "var(--cv-ok)" }} /> : <Copy size={14} />}</button>
+                  {r.url && <button type="button" className="cv-iconbtn" title="Copy the password and open the site" aria-label={`Open ${r.name}`} onClick={() => openSite(r)}><ExternalLink size={14} /></button>}
                   <button type="button" className="cv-iconbtn" title="Edit" aria-label="Edit" onClick={() => setForm({ row: r })}><Pencil size={14} /></button>
                   <button type="button" className="cv-iconbtn is-danger" title="Delete" aria-label="Delete" onClick={() => remove(r)}><Trash2 size={14} /></button>
                 </div>

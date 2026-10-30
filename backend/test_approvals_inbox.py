@@ -519,6 +519,9 @@ class InboxCase(unittest.TestCase):
                                               submitted_at="2026-10-23T08:00:00+00:00",
                                               created_at="2026-10-23T08:00:00+00:00"))
         self.db.commit()
+        self.assertEqual(self._inbox(MGR)["rows"], [])   # off for the company until turned on (Oct 30 2026)
+        self.db.merge(models.NexusSetting(key=f"hiring_headcount:{ENTITY}", value='{"on": true}'))
+        self.db.commit()
         rows = self._inbox(MGR)["rows"]
         self.assertEqual([r["key"] for r in rows], ["headcount:h1"])
         self.assertEqual(rows[0]["title"], "Headcount Request - Site Manager (2)")

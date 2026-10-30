@@ -22,9 +22,12 @@ import re
 import secrets as _secrets
 import uuid
 from datetime import datetime, timezone, timedelta
+from types import SimpleNamespace
 
-from cryptography.fernet import Fernet, InvalidToken
-from fastapi import APIRouter, Depends, HTTPException
+from contextvars import ContextVar
+
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -33,14 +36,37 @@ import graph_mail
 import models
 from database import get_db
 from auth import (get_current_user, require_module_grant, _module_level, _MODULE_LEVEL_RANK,
-                  company_scope, company_ok, company_of_email_map)
+                  company_scope, company_ok, company_of_email_map, company_of)
 from notify_company import notification_company
 import job_switch
+import vault_access as VA
+import vault_breach
+import vault_totp
+
+# Where a request came from (Oct 29 2026): set once per request by the router
+# dependency below, read by _log so every reveal, share and change says which
+# address and browser did it - no per-route plumbing.
+_REQ: ContextVar = ContextVar("credvault_req", default=("", ""))
+
+
+async def _remember_request(request: Request) -> None:
+    # async: runs in the request's own context, so the sync endpoint's thread
+    # (a copy of that context) sees what is set here; a sync dependency's
+    # thread would keep it to itself.
+    from middleware_hardening import _client_ip
+    try:
+        ip = _client_ip(request)
+    except Exception:
+        ip = ""
+    if not ip:
+        ip = request.client.host if request.client else ""
+    _REQ.set((ip or "", (request.headers.get("user-agent") or "")[:200]))
+
 
 router = APIRouter(
     prefix="/credvault",
     tags=["Credential Vault"],
-    dependencies=[Depends(require_module_grant("credvault"))],
+    dependencies=[Depends(require_module_grant("credvault")), Depends(_remember_request)],
 )
 
 TIERS = ("Standard", "High", "Critical")
@@ -54,19 +80,39 @@ PERSONAL_DEPT = "Personal"      # vault_access_logs.dept for Personal Vault rows
 # now DISABLES the vault (503 on every operation) instead of silently running
 # fake crypto. Same posture as NEXUS_SKIP_AUTH being refused on Azure. The
 # whole app deliberately does NOT crash - only the vault locks.
-_VAULT_KEY = os.getenv("NEXUS_VAULT_KEY", "").strip()
 _ON_AZURE = bool(os.getenv("WEBSITE_SITE_NAME"))
-if _VAULT_KEY:
-    _fernet = Fernet(_VAULT_KEY.encode())
-elif _ON_AZURE:
-    _fernet = None
-    print("[credvault] NEXUS_VAULT_KEY not set on a DEPLOYED API - vault DISABLED (fail-closed)")
-else:
-    # DEV-ONLY fallback so local SQLite dev works out of the box.
-    _fernet = Fernet(base64.urlsafe_b64encode(
-        hashlib.sha256(b"nexus-credvault-DEV-ONLY-key-set-NEXUS_VAULT_KEY").digest()
-    ))
-    print("[credvault] WARNING: NEXUS_VAULT_KEY not set - using dev-only fallback key")
+_VAULT_KEY = ""
+_fernet = None
+_HASH_KEY = b""
+
+
+def load_keys() -> None:
+    """Key rotation (Oct 29 2026): NEXUS_VAULT_KEYS is a comma-separated list,
+    NEWEST FIRST; new secrets are written under the first key and every key in
+    the list can still read. Rotating = put the new key in front, deploy, let
+    rotate_vault_keys() rewrite the rows at startup, then drop the old key.
+    NEXUS_VAULT_KEY alone still works (one key, as before). The reuse hash is
+    keyed with the primary key; rehash_secret_hashes() notices a new primary
+    through the fingerprint it stores."""
+    global _VAULT_KEY, _fernet, _HASH_KEY
+    keys = [k.strip() for k in os.getenv("NEXUS_VAULT_KEYS", "").split(",") if k.strip()] or \
+        ([os.getenv("NEXUS_VAULT_KEY", "").strip()] if os.getenv("NEXUS_VAULT_KEY", "").strip() else [])
+    _VAULT_KEY = keys[0] if keys else ""
+    if keys:
+        _fernet = MultiFernet([Fernet(k.encode()) for k in keys])
+    elif _ON_AZURE:
+        _fernet = None
+        print("[credvault] NEXUS_VAULT_KEY not set on a DEPLOYED API - vault DISABLED (fail-closed)")
+    else:
+        # DEV-ONLY fallback so local SQLite dev works out of the box.
+        _fernet = MultiFernet([Fernet(base64.urlsafe_b64encode(
+            hashlib.sha256(b"nexus-credvault-DEV-ONLY-key-set-NEXUS_VAULT_KEY").digest()
+        ))])
+        print("[credvault] WARNING: NEXUS_VAULT_KEY not set - using dev-only fallback key")
+    _HASH_KEY = (_VAULT_KEY or "nexus-credvault-DEV-ONLY-hash-key").encode()
+
+
+load_keys()
 
 
 def _require_key():
@@ -93,8 +139,11 @@ def _dec(ciphertext: str) -> str:
 # brute-force the weaker entries WITHOUT the vault key. The hash is now an HMAC
 # keyed with that same key - worthless without it. rehash_secret_hashes() moves
 # the existing rows over once (main._startup_seeds).
-_HASH_KEY = (_VAULT_KEY or "nexus-credvault-DEV-ONLY-hash-key").encode()
-REHASH_MARK = "vault_secret_hash_hmac"      # nexus_settings key: the one-time rehash ran
+REHASH_MARK = "vault_secret_hash_hmac"      # nexus_settings key: the rehash ran - value = the primary key's fingerprint
+
+
+def _key_fingerprint() -> str:
+    return hashlib.sha256(_HASH_KEY).hexdigest()[:16]
 
 
 def _hash(secret: str) -> str:
@@ -107,7 +156,8 @@ def rehash_secret_hashes(db: Session) -> int:
     nexus_settings marker makes every later boot a no-op. Not run - and not
     marked - while the vault key is missing, so it happens on the first start
     that has it. Returns how many rows were rehashed."""
-    if _fernet is None or db.get(models.NexusSetting, REHASH_MARK):
+    mark = db.get(models.NexusSetting, REHASH_MARK)
+    if _fernet is None or (mark and mark.value == _key_fingerprint()):
         return 0
     n = 0
     for c in db.query(models.VaultCredential).all():
@@ -118,8 +168,40 @@ def rehash_secret_hashes(db: Session) -> int:
             n += 1
         except InvalidToken:
             continue            # written under another key - leave its hash alone
-    db.add(models.NexusSetting(key=REHASH_MARK, value=_now(), updated_by="startup", updated_at=_now()))
+    if mark:
+        mark.value, mark.updated_at = _key_fingerprint(), _now()
+    else:
+        db.add(models.NexusSetting(key=REHASH_MARK, value=_key_fingerprint(), updated_by="startup", updated_at=_now()))
     db.commit()
+    return n
+
+
+def rotate_vault_keys(db: Session) -> int:
+    """Rewrite every secret that is not under the primary key (MultiFernet
+    .rotate re-encrypts with the first key, reading with any). Startup, one
+    process per deploy; a no-op with one key. Returns how many fields moved."""
+    if _fernet is None or len(_fernet._fernets) < 2:    # noqa: SLF001 - MultiFernet keeps no public count
+        return 0
+    n = 0
+
+    def move(value: str) -> str:
+        nonlocal n
+        if not value:
+            return value
+        try:
+            out = _fernet.rotate(value.encode()).decode()
+        except InvalidToken:
+            return value                                 # not ours - leave it
+        if out != value:
+            n += 1
+        return out
+
+    for c in db.query(models.VaultCredential).all():
+        c.secret_enc, c.prev_secret_enc, c.totp_enc = move(c.secret_enc), move(c.prev_secret_enc), move(c.totp_enc)
+    for p in db.query(models.VaultPersonalCredential).all():
+        p.secret_enc = move(p.secret_enc)
+    if n:
+        db.commit()
     return n
 
 
@@ -420,6 +502,8 @@ def _log(db: Session, user: dict, action: str, cred_name: str, dept: str = "",
         dept=dept,
         detail=detail,
         loc=loc,
+        ip=_REQ.get()[0],
+        user_agent=_REQ.get()[1],
         created_at=_now(),
     ))
 
@@ -462,14 +546,17 @@ def _get_cred(cred_id: str, db: Session, user: dict | None = None) -> models.Vau
     return row
 
 
-def _can_modify(cred: models.VaultCredential, user: dict) -> bool:
-    """The owner, the backup owner - or an admin. Until Oct 14 2026 an admin could
+def _can_modify(cred: models.VaultCredential, user: dict, db: Session | None = None) -> bool:
+    """The owner, the backup owner, the head or backup head of its department
+    (Oct 29 2026, with `db`) - or an admin. Until Oct 14 2026 an admin could
     purge a credential from the trash but not edit, delete, recover or re-own
     it, so an entry whose owner had left could never be touched again."""
     email = user["email"]
-    return (_is_admin(user)
+    if (_is_admin(user)
             or email == (cred.owner_email or "").lower()
-            or email == (cred.backup_owner_email or "").lower())
+            or email == (cred.backup_owner_email or "").lower()):
+        return True
+    return db is not None and email in VA.heads_for(db, cred)
 
 
 # Multi-company walls (auth.company_scope): a company credential belongs to its
@@ -516,7 +603,14 @@ def _my_grants(user: dict, db: Session) -> dict:
     return {g.cred_id: g.expires_at for g in rows}
 
 
-def _access_for(c: models.VaultCredential, user: dict, my_dept: str, grants: dict) -> str:
+MANAGE = ("admin", "owner", "backup", "head")
+# What a row reports in `access`: the manage roles, then a live grant, then the
+# audience that admits the person (vault_access.audience_access), else
+# "view" (sees it, never the password) or "request".
+
+
+def _access_for(c: models.VaultCredential, user: dict, ctx: dict, grants: dict,
+                heads: set | None = None, rows: list | None = None) -> str:
     email = user["email"]
     if _is_admin(user):
         return "admin"
@@ -524,31 +618,37 @@ def _access_for(c: models.VaultCredential, user: dict, my_dept: str, grants: dic
         return "owner"
     if email == (c.backup_owner_email or "").lower():
         return "backup"
+    if heads and email in heads:
+        return "head"
     if c.id in grants:
         return "shared"
-    if my_dept and (c.dept or "").strip().lower() == my_dept and (c.tier or "Standard") != "Critical":
-        return "department"
-    return "request"
+    return VA.audience_access(c, rows or [], ctx) or "request"
 
 
 def _access_ctx(user: dict, db: Session) -> tuple:
-    return _my_department(user, db), _my_grants(user, db)
+    return VA.person_ctx(db, user["email"]), _my_grants(user, db)
+
+
+def _access_one(c: models.VaultCredential, user: dict, db: Session) -> str:
+    ctx, grants = _access_ctx(user, db)
+    return _access_for(c, user, ctx, grants, VA.heads_for(db, c), VA.rows_for(db, [c.id]).get(c.id, []))
 
 
 def _can_reveal(c: models.VaultCredential, user: dict, db: Session) -> bool:
-    my_dept, grants = _access_ctx(user, db)
-    return _access_for(c, user, my_dept, grants) != "request"
+    return _access_one(c, user, db) not in ("request", "view")
 
 
 def _cred_dict(c: models.VaultCredential, reused: bool, shared_with: int,
-               access: str = "owner", grant_until: str = "") -> dict:
-    can_reveal = access != "request"
+               access: str = "owner", grant_until: str = "", audiences: list | None = None) -> dict:
+    can_reveal = access not in ("request", "view")
+    # "view" (Oct 29 2026): the row, username, link and notes - never the password.
+    can_see = access != "request"
     return {
-        "id": c.id, "name": c.name, "dept": c.dept or "", "type": c.type or "Password",
+        "id": c.id, "name": c.name, "dept": c.dept or "", "companyId": c.company_id or "", "type": c.type or "Password",
         # The username is half of a login: only for people who can see the other half.
-        "username": (c.username or "") if can_reveal else "",
+        "username": (c.username or "") if can_see else "",
         "url": c.url or "", "tier": c.tier or "Standard",
-        "note": (c.note or "") if can_reveal else "",
+        "note": (c.note or "") if can_see else "",
         "owner": c.owner_email or "", "backupOwner": c.backup_owner_email or "",
         # Health and rotation facts say which passwords are weak, reused or
         # stale - exactly the list an attacker wants - so they stay with the
@@ -561,11 +661,13 @@ def _cred_dict(c: models.VaultCredential, reused: bool, shared_with: int,
         "expiresAt": (c.expires_at or "") if can_reveal else "",
         "expiresInDays": _days_until(c.expires_at) if can_reveal else None,
         "hasPrevious": bool(c.prev_secret_enc) if can_reveal else False,
+        "hasTotp": bool(c.totp_enc), "breached": bool(c.breached) if can_reveal else False,
         "prevRotatedAt": (c.prev_rotated_at or "") if can_reveal else "",
         "sharedWith": shared_with, "deletedAt": _ms(c.deleted_at) or None,
         "createdAt": _ms(c.created_at),
-        "access": access, "canReveal": can_reveal, "canEdit": access in ("admin", "owner", "backup"),
+        "access": access, "canReveal": can_reveal, "canEdit": access in MANAGE,
         "grantUntil": _ms(grant_until) if grant_until else None,
+        "audiences": audiences or [],
     }
 
 
@@ -583,6 +685,14 @@ class CredentialIn(BaseModel):
     customExpiry: bool = False
     note: str = ""
     expiresAt: str = ""          # YYYY-MM-DD hard expiry (API keys, certificates), "" = none
+    # Who may open it (vault_access): [{kind, value, level}]. Omitted on an
+    # edit = unchanged; omitted on a create = the credential's own department.
+    audiences: list[dict] | None = None
+    # Authenticator key (vault_totp): the text under the site's QR code or the
+    # otpauth:// link; "" = unchanged on an edit; clearTotp removes it.
+    totpSecret: str = ""
+    clearTotp: bool = False
+    companyId: str = ""          # home company (HrEntity id); "" on a create = the owner's company
 
 
 def _clean_url(v: str) -> str:
@@ -594,6 +704,22 @@ def _clean_url(v: str) -> str:
     if not re.match(r"^https?://", v, re.I):
         raise HTTPException(400, "The link must start with http:// or https://")
     return v
+
+
+def _clean_totp(v: str) -> str:
+    v = (v or "").strip()
+    if not v:
+        return ""
+    key = vault_totp.normalize(v)
+    if not key:
+        raise HTTPException(400, "That is not an authenticator key - paste the text under the QR code, or the otpauth:// link")
+    return key
+
+
+def _breached(secret: str, current: bool = False) -> bool:
+    """Have I Been Pwned on save; unreachable = keep what we had (fail open)."""
+    hit = vault_breach.is_breached(secret)
+    return current if hit is None else hit
 
 
 def _clean_date(v: str) -> str:
@@ -626,19 +752,28 @@ def list_credentials(user: dict = Depends(get_current_user), db: Session = Depen
     grant_counts: dict = {}
     for g in grants:
         grant_counts[g.cred_id] = grant_counts.get(g.cred_id, 0) + 1
-    my_dept, mine = _access_ctx(user, db)
+    ctx, mine = _access_ctx(user, db)
+    heads = VA.heads_map(db, rows)
+    auds = VA.rows_for(db, [c.id for c in rows])
     out = []
     for c in rows:
-        access = _access_for(c, user, my_dept, mine)
-        if c.deleted_at and access not in ("admin", "owner", "backup"):
+        access = _access_for(c, user, ctx, mine, heads.get(c.id), auds.get(c.id))
+        if c.deleted_at and access not in MANAGE:
             continue
         out.append(_cred_dict(
             c,
             reused=bool(not c.deleted_at and c.secret_hash and hash_counts.get(c.secret_hash, 0) > 1),
             shared_with=1 + grant_counts.get(c.id, 0),
             access=access, grant_until=mine.get(c.id, ""),
+            audiences=VA.labels(db, auds.get(c.id, [])),
         ))
     return out
+
+
+@router.get("/audience-options")
+def audience_options(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Companies, departments and Access Groups the form can give a credential to."""
+    return VA.options(db, company_scope(user, db))
 
 
 @router.post("/credentials")
@@ -659,11 +794,13 @@ def create_credential(body: CredentialIn, user: dict = Depends(get_current_user)
         expires_at=_clean_date(body.expiresAt),
         secret_enc=_enc(body.secret),
         secret_hash=_hash(body.secret),
+        totp_enc=_enc(_clean_totp(body.totpSecret)) if _clean_totp(body.totpSecret) else "",
         tier=body.tier if body.tier in TIERS else "Standard",
+        company_id=(body.companyId or "").strip() or company_of(user["email"], db),
         owner_email=user["email"],
         backup_owner_email=(body.backupOwner or "").lower().strip(),
         strength=_eval_strength(body.secret),
-        breached=False,
+        breached=_breached(body.secret),
         rotation_max=body.rotationMax or 90,
         custom_expiry=bool(body.customExpiry),
         rotated_at=_now(),
@@ -671,12 +808,14 @@ def create_credential(body: CredentialIn, user: dict = Depends(get_current_user)
         created_by=user["email"],
     )
     db.add(row)
+    auds = VA.clean(body.audiences) if body.audiences is not None else ([{"kind": "department", "value": row.dept, "level": "open"}] if row.dept else [])
+    VA.replace(db, row.id, auds, user["email"])
     _log(db, user, "Created", row.name, row.dept, row.id)
     # Only the backup owner is told (Oct 14 2026). Every add used to broadcast
     # to every manager's bell - noise nobody acted on; the activity log has it.
     if row.backup_owner_email and row.backup_owner_email != user["email"]:
         _notify(db, type="vault_change", recipient=row.backup_owner_email,
-                title="Credential Vault - You Are a Backup Owner",
+                title="Credentials - You Are a Backup Owner",
                 body=f"{_display_name(user['email'], db)} added {row.name} ({row.dept}) and named you its backup owner.",
                 ref_id=row.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{row.id}"})
     db.commit()
@@ -687,7 +826,7 @@ def create_credential(body: CredentialIn, user: dict = Depends(get_current_user)
 def update_credential(cred_id: str, body: CredentialIn,
                       user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _get_cred(cred_id, db, user)
-    if not _can_modify(c, user):
+    if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can edit this credential")
     changed = []
     if body.tier in TIERS and body.tier != (c.tier or "Standard"):
@@ -699,6 +838,9 @@ def update_credential(cred_id: str, body: CredentialIn,
     if body.dept and body.dept != c.dept:
         changed.append({"field": "Department", "from": c.dept or "-", "to": body.dept})
         c.dept = body.dept
+    if body.companyId and body.companyId != (c.company_id or ""):
+        changed.append({"field": "Company", "from": c.company_id or "-", "to": body.companyId})
+        c.company_id = body.companyId
     if body.type != c.type and body.type in TYPES:
         changed.append({"field": "Type", "from": c.type, "to": body.type})
         c.type = body.type
@@ -727,9 +869,35 @@ def update_credential(cred_id: str, body: CredentialIn,
         c.secret_enc = _enc(body.secret)
         c.secret_hash = _hash(body.secret)
         c.strength = _eval_strength(body.secret)
-        c.breached = False
+        c.breached = _breached(body.secret, c.breached)
         c.rotated_at = _now()
+    if body.clearTotp and c.totp_enc:
+        changed.append({"field": "Authenticator", "from": "set", "to": "-"})
+        c.totp_enc = ""
+    elif body.totpSecret:
+        key = _clean_totp(body.totpSecret)
+        changed.append({"field": "Authenticator", "from": "set" if c.totp_enc else "-", "to": "set"})
+        c.totp_enc = _enc(key)
+    if body.audiences is not None:
+        before = VA.labels(db, VA.rows_for(db, [c.id]).get(c.id, []))
+        new = VA.clean(body.audiences)
+        if [(a["kind"], a["value"], a["level"]) for a in before] != [(a["kind"], a["value"], a["level"]) for a in new]:
+            VA.replace(db, c.id, new, user["email"])
+            # autoflush is off: label the cleaned rows, not a re-query that cannot see them yet.
+            after = VA.labels(db, [SimpleNamespace(**r) for r in new])
+            changed.append({"field": "Who can open", "from": ", ".join(a["label"] for a in before) or "-",
+                            "to": ", ".join(a["label"] for a in after) or "-"})
     _log(db, user, "Edited", c.name, c.dept, c.id, detail=changed or None)
+    if any(d["field"] == "Password" for d in changed):
+        # Everyone who can open it hears the password changed (Oct 29 2026) -
+        # the bell says so and opens the credential; the password itself never
+        # travels in a notification.
+        rows = VA.rows_for(db, [c.id]).get(c.id, [])
+        for who in VA.openers(db, c, rows) - {user["email"]}:
+            _notify(db, type="vault_change", recipient=who,
+                    title="Credentials - Password Changed",
+                    body=f"{_display_name(user['email'], db)} changed the password for {c.name} ({c.dept}). Open it to copy the new one.",
+                    ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
     return {"ok": True}
 
@@ -738,14 +906,14 @@ def update_credential(cred_id: str, body: CredentialIn,
 def delete_credential(cred_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Soft delete → Trash."""
     c = _get_cred(cred_id, db, user)
-    if not _can_modify(c, user):
+    if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can remove this credential")
     c.deleted_at = _now()
     c.deleted_by = user["email"]
     _log(db, user, "Removed", c.name, c.dept, c.id)
     for who in {(c.owner_email or "").lower(), (c.backup_owner_email or "").lower()} - {"", user["email"]}:
         _notify(db, type="vault_change", recipient=who,
-                title="Credential Vault - Moved to the Trash",
+                title="Credentials - Moved to the Trash",
                 body=f"{_display_name(user['email'], db)} moved {c.name} ({c.dept}) to the trash. It can be recovered from there.",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": "trash"})
     db.commit()
@@ -762,7 +930,7 @@ def bulk_delete(body: BulkIds, user: dict = Depends(get_current_user), db: Sessi
     scope, cmap = _owner_company_map(db, user)
     count = 0
     for c in rows:
-        if _can_modify(c, user) and not c.deleted_at and _in_company(c, scope, cmap):
+        if _can_modify(c, user, db) and not c.deleted_at and _in_company(c, scope, cmap):
             c.deleted_at = _now()
             c.deleted_by = user["email"]
             count += 1
@@ -776,7 +944,7 @@ def bulk_delete(body: BulkIds, user: dict = Depends(get_current_user), db: Sessi
 @router.post("/credentials/{cred_id}/restore")
 def restore_credential(cred_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _get_cred(cred_id, db, user)
-    if not _can_modify(c, user):      # Oct 14 2026: anyone with the grant could recover anything
+    if not _can_modify(c, user, db):      # Oct 14 2026: anyone with the grant could recover anything
         raise HTTPException(403, "Only the owner, backup owner or an admin can recover this credential")
     if not c.deleted_at:
         raise HTTPException(400, "Credential is not in the trash")
@@ -790,7 +958,7 @@ def restore_credential(cred_id: str, user: dict = Depends(get_current_user), db:
 @router.delete("/credentials/{cred_id}/permanent")
 def purge_credential(cred_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _get_cred(cred_id, db, user)
-    if not _can_modify(c, user):
+    if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can permanently delete this")
     if not c.deleted_at:
         raise HTTPException(400, "Move the credential to the trash first")
@@ -812,15 +980,18 @@ def reveal_credential(cred_id: str, user: dict = Depends(get_current_user),
     c = _get_cred(cred_id, db, user)
     if c.deleted_at:
         raise HTTPException(400, "Credential is in the trash")
-    my_dept, grants = _access_ctx(user, db)
-    access = _access_for(c, user, my_dept, grants)
-    if access == "request":
+    access = _access_one(c, user, db)
+    if access in ("request", "view"):
         # The screen never calls reveal for a row it cannot read - it offers
         # Request Access (POST .../request) instead. Keep the gate anyway.
         raise HTTPException(403, {"code": "vault_access_required",
                                   "message": "Ask the owner for access to this credential."})
+    _require_critical_stepup(c, user, db)
     out = {"secret": _dec(c.secret_enc)}
-    if c.prev_secret_enc and access in ("admin", "owner", "backup"):
+    if c.totp_enc:
+        code, left = vault_totp.code_at(_dec(c.totp_enc))
+        out["totp"] = {"code": code, "left": left}
+    if c.prev_secret_enc and access in MANAGE:
         try:
             out["previousSecret"] = _dec(c.prev_secret_enc)
             out["prevRotatedAt"] = c.prev_rotated_at or ""
@@ -829,6 +1000,41 @@ def reveal_credential(cred_id: str, user: dict = Depends(get_current_user),
     _log(db, user, "Revealed", c.name, c.dept, c.id)
     db.commit()
     return out
+
+
+def _require_critical_stepup(c: models.VaultCredential, user: dict, db: Session) -> None:
+    """Settings > Security "Critical credentials need a fresh Microsoft sign-in"
+    (Oct 29 2026): on top of the text/email code, a Critical reveal or share
+    needs a live step-up session (routers/stepup.py) - the frontend catches the
+    code and runs the Entra challenge."""
+    if (c.tier or "Standard") != "Critical":
+        return
+    import security_config
+    if not security_config.get("vaultCriticalStepUp", db):
+        return
+    from routers.stepup import has_active_stepup
+    if has_active_stepup(db, user["email"]):
+        return
+    raise HTTPException(status_code=403, detail={
+        "code": "stepup_required",
+        "message": "This is a Critical credential - re-confirm your Microsoft sign-in to continue.",
+    })
+
+
+@router.get("/credentials/{cred_id}/totp")
+def current_totp(cred_id: str, user: dict = Depends(get_current_user),
+                 _otp: dict = Depends(require_vault_otp), db: Session = Depends(get_db)):
+    """The authenticator code right now, for whoever may open the credential -
+    the drawer refreshes it every 30 seconds while it is open; the reveal that
+    opened it is what the log records."""
+    c = _get_cred(cred_id, db, user)
+    if not c.totp_enc:
+        raise HTTPException(404, "This credential has no authenticator key")
+    if _access_one(c, user, db) in ("request", "view"):
+        raise HTTPException(403, {"code": "vault_access_required", "message": "Ask the owner for access to this credential."})
+    _require_critical_stepup(c, user, db)
+    code, left = vault_totp.code_at(_dec(c.totp_enc))
+    return {"code": code, "left": left}
 
 
 class RequestIn(BaseModel):
@@ -855,7 +1061,7 @@ def request_access(cred_id: str, body: RequestIn,
     if open_req:
         return {"requested": True, "pending": True}
     owner = (c.owner_email or "").lower()
-    duration_ms = max(60000, min(body.durationMs or 14400000, 7 * 86400000))
+    duration_ms = max(60000, min(body.durationMs or 14400000, MAX_SHARE_MS))
     db.add(models.VaultShareRequest(
         id=str(uuid.uuid4()), cred_id=c.id,
         requested_by_email=user["email"], shared_to_email=user["email"],
@@ -865,7 +1071,7 @@ def request_access(cred_id: str, body: RequestIn,
     _log(db, user, "Requested", c.name, c.dept, c.id)
     for who in {owner, (c.backup_owner_email or "").lower()} - {""}:
         _notify(db, type="vault_access", recipient=who,
-                title="Credential Vault - Access Request",
+                title="Credentials - Access Request",
                 body=f"{_display_name(user['email'], db)} asked for {body.durationLabel or '4 Hours'} of access to "
                      f"{c.name} ({c.dept}). Approve or deny it on the Approvals tab.",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": "approvals"})
@@ -887,35 +1093,55 @@ class ImportIn(BaseModel):
 
 @router.post("/import")
 def import_credentials(body: ImportIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Rows from the import wizard (Oct 29 2026: an Excel sheet, mapped on
+    screen). Each row may carry `backupOwner` and `audiences`; a row the vault
+    already holds (same name and username, live) is skipped, not doubled. The
+    importer owns every row. Returns what was imported and what was skipped."""
     _require_write(user, db)
-    created = 0
+    live = {(c.name.strip().lower(), (c.username or "").strip().lower()) for c in db.query(models.VaultCredential)
+            .filter(models.VaultCredential.deleted_at == "").all()}
+    known = {e for (e,) in db.query(models.NexusEmployee.work_email).all() if e}
+    known = {e.lower() for e in known}
+    created, skipped = [], []
     for r in body.rows or []:
         name = (r.get("name") or "").strip()
         secret = r.get("secret") or ""
+        username = (r.get("username") or "").strip()
         if not name or not secret:
             continue
-        db.add(models.VaultCredential(
+        if (name.lower(), username.lower() if username else "") in live:
+            skipped.append(name)
+            continue
+        backup = (r.get("backupOwner") or "").lower().strip()
+        row = models.VaultCredential(
             id=str(uuid.uuid4()),
             name=name,
             dept=(r.get("department") or "").strip(),
             type=r.get("type") if r.get("type") in TYPES else "Password",
-            username=(r.get("username") or "-").strip(),
+            username=username or "-",
             url=(r.get("url") or "").strip() if re.match(r"^https?://", (r.get("url") or "").strip(), re.I) else "",
             note=(r.get("note") or r.get("notes") or "").strip(),
             secret_enc=_enc(secret),
             secret_hash=_hash(secret),
             tier=r.get("tier") if r.get("tier") in TIERS else "Standard",
+            company_id=(r.get("companyId") or "").strip() or company_of(user["email"], db),
             owner_email=user["email"],
+            backup_owner_email=backup if backup in known and backup != user["email"] else "",
             strength=_eval_strength(secret),
+            breached=_breached(secret),
             rotated_at=_now(),
             created_at=_now(),
             created_by=user["email"],
-        ))
-        created += 1
+        )
+        db.add(row)
+        auds = VA.clean(r.get("audiences")) if r.get("audiences") is not None else ([{"kind": "department", "value": row.dept, "level": "open"}] if row.dept else [])
+        VA.replace(db, row.id, auds, user["email"])
+        live.add((name.lower(), username.lower() if username else ""))
+        created.append(name)
     if created:
-        _log(db, user, "Imported", f"{created} credentials", "-")
+        _log(db, user, "Imported", f"{len(created)} credentials", "-", detail=[{"field": "Names", "from": "", "to": ", ".join(created[:20]) + (" …" if len(created) > 20 else "")}])
     db.commit()
-    return {"imported": created}
+    return {"imported": len(created), "skipped": len(skipped), "skippedNames": skipped}
 
 
 # ── Ownership ────────────────────────────────────────────────────────────────
@@ -930,7 +1156,7 @@ def _transfer(db: Session, user: dict, c: models.VaultCredential, new_owner: str
     c.owner_email = new_owner
     _log(db, user, "Transferred", c.name, c.dept, c.id, detail=detail)
     _notify(db, type="vault_change", recipient=new_owner,
-            title="Credential Vault - You Are Now the Owner",
+            title="Credentials - You Are Now the Owner",
             body=f"{c.name} ({c.dept}) is now yours{note}. You approve its access requests and keep it rotated.",
             ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
 
@@ -946,7 +1172,7 @@ def transfer_credential(cred_id: str, body: TransferIn,
     The new owner must be someone in Nexus People (the curated list every
     people picker uses)."""
     c = _get_cred(cred_id, db, user)
-    if not _can_modify(c, user):
+    if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can transfer this credential")
     new_owner = (body.ownerEmail or "").lower().strip()
     if "@" not in new_owner or "." not in new_owner:
@@ -990,6 +1216,8 @@ def handover_person(db: Session, email: str, to_email: str, actor: str = "") -> 
                       models.VaultAccessGrant.expires_at > now).all()):
         g.expires_at = now
         out["grants"] += 1
+    db.query(models.VaultCredentialAudience).filter(models.VaultCredentialAudience.kind == "person",
+                                                     func.lower(models.VaultCredentialAudience.value) == leaver).delete(synchronize_session=False)
     for r in (db.query(models.VaultShareRequest)
               .filter(models.VaultShareRequest.status == "pending",
                       (models.VaultShareRequest.requested_by_email == leaver)
@@ -1003,8 +1231,13 @@ def handover_person(db: Session, email: str, to_email: str, actor: str = "") -> 
 
 
 # ── Sharing / approvals / grants ─────────────────────────────────────────────
+MAX_SHARE_MS = 180 * 86400000       # a custom range may run months (Oct 29 2026); presets stay 1h-7d
+
+
 class ShareIn(BaseModel):
-    recipientEmail: str = ""
+    recipientEmail: str = ""                 # one person (the old shape)
+    recipients: list[str] = []               # several people (Oct 29 2026)
+    departments: list[str] = []              # whole departments: "Name" or "companyId:Name"
     durationMs: int = 14400000
     durationLabel: str = "4 Hours"
 
@@ -1012,36 +1245,62 @@ class ShareIn(BaseModel):
 @router.post("/credentials/{cred_id}/share")
 def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_current_user),
                      _otp: dict = Depends(require_vault_otp), db: Session = Depends(get_db)):
-    """Owner, backup owner or admin gives someone timed access (Neil, Oct 14
-    2026: Share is for owners; anyone else asks with .../request). Requires a
-    fresh SMS/Email OTP verification (require_vault_otp), same as reveal -
-    sharing a secret is as sensitive as viewing it. The recipient still needs
-    the vault grant to open the screen."""
+    """Owner, backup owner, department head or admin gives timed access (Neil,
+    Oct 14 2026: Share is for owners; anyone else asks with .../request) - to
+    one person, several people, or every active person in whole departments
+    (Oct 29 2026), each for the same time. Requires a fresh SMS/Email code
+    (require_vault_otp), same as reveal - sharing a secret is as sensitive as
+    viewing it. Recipients still need the vault grant to open the screen."""
     c = _get_cred(cred_id, db, user)
     if c.deleted_at:
         raise HTTPException(400, "Credential is in the trash")
-    if not _can_modify(c, user):
+    if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can share this credential")
-    recipient = (body.recipientEmail or "").lower().strip()
-    if "@" not in recipient or "." not in recipient:
-        raise HTTPException(400, "A valid recipient email address is required")
-    if not (db.query(models.NexusEmployee.id)
-            .filter(func.lower(models.NexusEmployee.work_email) == recipient).first()):
-        raise HTTPException(400, "Share with someone in Nexus People")
-    duration_ms = max(60000, min(body.durationMs or 3600000, 7 * 86400000))
+    _require_critical_stepup(c, user, db)
+    everyone = [e for e in db.query(models.NexusEmployee).all() if e.work_email]
+    people = {(e.work_email or "").lower(): e for e in everyone}
+    wanted = {(body.recipientEmail or "").lower().strip()} | {(r or "").lower().strip() for r in body.recipients}
+    wanted.discard("")
+    for w in wanted:
+        if "@" not in w or "." not in w:
+            raise HTTPException(400, "A valid recipient email address is required")
+        if w not in people:
+            raise HTTPException(400, "Share with someone in Nexus People")
+    owner_co = company_of(c.owner_email or "", db)
+    for d in body.departments:
+        co, name = VA.split_dept(d)
+        want = co or owner_co
+        # Every row, not the dict: a person with two People records (one per
+        # company) is in a department through either of them.
+        members = [(e.work_email or "").lower() for e in everyone
+                   if (e.department or "").strip().lower() == name.lower() and (e.status or "active").lower() == "active"
+                   and not (e.deleted_at or "") and (not want or (e.company or "") == want)]
+        if not members:
+            raise HTTPException(400, f"Nobody active in {name} to share with")
+        wanted |= set(members)
+    wanted -= {user["email"], (c.owner_email or "").lower()}
+    if not wanted:
+        raise HTTPException(400, "Pick who to share it with")
+    duration_ms = max(60000, min(body.durationMs or 3600000, MAX_SHARE_MS))
     expires = (datetime.now(timezone.utc) + timedelta(milliseconds=duration_ms)).isoformat()
-    db.add(models.VaultAccessGrant(
-        id=str(uuid.uuid4()), cred_id=c.id, granted_to=recipient,
-        granted_by=user["email"], granted_at=_now(), expires_at=expires,
-    ))
-    _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": recipient},
+    now = _now()
+    names = []
+    for who in sorted(wanted):
+        live = _active_grant(c.id, who, db)
+        if live:
+            live.expires_at = max(live.expires_at, expires)      # a longer share extends, never shortens
+        else:
+            db.add(models.VaultAccessGrant(id=str(uuid.uuid4()), cred_id=c.id, granted_to=who,
+                                           granted_by=user["email"], granted_at=now, expires_at=expires))
+        names.append(_display_name(who, db))
+        _notify(db, type="vault_access", recipient=who,
+                title="Credentials - Access Granted",
+                body=f"{_display_name(user['email'], db)} shared {c.name} with you for {body.durationLabel}. Open Credentials to view it.",
+                ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
+    _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": ", ".join(names[:12]) + (f" +{len(names) - 12}" if len(names) > 12 else "")},
                                                             {"field": "For", "from": "", "to": body.durationLabel or ""}])
-    _notify(db, type="vault_access", recipient=recipient,
-            title="Credential Vault - Access Granted",
-            body=f"{_display_name(user['email'], db)} shared {c.name} with you for {body.durationLabel}. Open the Credential Vault to view it.",
-            ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
-    return {"granted": True}
+    return {"granted": len(wanted)}
 
 
 @router.get("/requests")
@@ -1056,7 +1315,7 @@ def list_requests(user: dict = Depends(get_current_user), db: Session = Depends(
     scope, cmap = _owner_company_map(db, user)
     for r in rows:
         c = creds.get(r.cred_id)
-        if not _may_decide(r, c, user):
+        if not _may_decide(r, c, user, db):
             continue
         if c and not _in_company(c, scope, cmap):
             continue
@@ -1075,13 +1334,13 @@ def list_requests(user: dict = Depends(get_current_user), db: Session = Depends(
     return out
 
 
-def _may_decide(r: models.VaultShareRequest, c, user: dict) -> bool:
+def _may_decide(r: models.VaultShareRequest, c, user: dict, db: Session) -> bool:
     """Owner or admin (Neil: "either") - and the backup owner, who stands in for
     the owner everywhere else in this file. Legacy admin-queue rows (no owner)
     and rows whose credential is gone: owner_email match or admin."""
     if _is_admin(user) or r.owner_email == user["email"]:
         return True
-    return bool(c) and _can_modify(c, user)
+    return bool(c) and _can_modify(c, user, db)
 
 
 def _decide_request(req_id: str, user: dict, db: Session) -> models.VaultShareRequest:
@@ -1091,7 +1350,7 @@ def _decide_request(req_id: str, user: dict, db: Session) -> models.VaultShareRe
     c = db.get(models.VaultCredential, r.cred_id)
     if c is not None:
         _get_cred(c.id, db, user)       # 404 across the company wall
-    if not _may_decide(r, c, user):
+    if not _may_decide(r, c, user, db):
         raise HTTPException(403, "Only the credential's owner, backup owner or an admin can decide this")
     return r
 
@@ -1113,8 +1372,8 @@ def approve_request(req_id: str, user: dict = Depends(get_current_user), db: Ses
     _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": recipient},
                                                             {"field": "For", "from": "", "to": r.duration_label or ""}])
     _notify(db, type="vault_access", recipient=recipient,
-            title="Credential Vault - Access Approved",
-            body=f"{_display_name(user['email'], db)} approved {r.duration_label or 'temporary'} access to {c.name}. Open the Credential Vault to view it.",
+            title="Credentials - Access Approved",
+            body=f"{_display_name(user['email'], db)} approved {r.duration_label or 'temporary'} access to {c.name}. Open Credentials to view it.",
             ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
     return {"ok": True}
@@ -1130,7 +1389,7 @@ def deny_request(req_id: str, user: dict = Depends(get_current_user), db: Sessio
     _log(db, user, "Denied", c.name if c else "(deleted)", c.dept if c else "-", r.cred_id)
     if c and r.requested_by_email:
         _notify(db, type="vault_access", recipient=r.requested_by_email,
-                title="Credential Vault - Access Declined",
+                title="Credentials - Access Declined",
                 body=f"{_display_name(user['email'], db)} declined your request for {c.name} ({c.dept}).",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
@@ -1163,8 +1422,9 @@ def credential_access(cred_id: str, user: dict = Depends(get_current_user), db: 
     expiry; everyone else just gets the owners."""
     c = _get_cred(cred_id, db, user)
     out = {"owner": c.owner_email or "", "backupOwner": c.backup_owner_email or "",
-           "dept": c.dept or "", "tier": c.tier or "Standard", "grants": [], "pending": []}
-    if not _can_modify(c, user):
+           "dept": c.dept or "", "tier": c.tier or "Standard", "grants": [], "pending": [],
+           "heads": sorted(VA.heads_for(db, c)), "audiences": VA.labels(db, VA.rows_for(db, [c.id]).get(c.id, []))}
+    if not _can_modify(c, user, db):
         return out
     now = _now()
     for g in (db.query(models.VaultAccessGrant)
@@ -1188,7 +1448,7 @@ def revoke_grant(grant_id: str, user: dict = Depends(get_current_user), db: Sess
     if not g:
         raise HTTPException(404, "Grant not found")
     c = _get_cred(g.cred_id, db, user)
-    if not _can_modify(c, user):
+    if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can end this access")
     g.expires_at = _now()
     _log(db, user, "Revoked", c.name, c.dept, c.id, detail=[{"field": "Person", "from": "", "to": g.granted_to}])
@@ -1223,11 +1483,22 @@ def list_logs(user: dict = Depends(get_current_user), db: Session = Depends(get_
             .order_by(models.VaultAccessLog.created_at.desc())
             .limit(500).all())
     scope, cmap = _owner_company_map(db, user)
-    owners = ({c.id: (c.owner_email or "").lower() for c in db.query(models.VaultCredential).all()}
-              if scope is not None else {})
+    creds = db.query(models.VaultCredential).all()
+    owners = {c.id: (c.owner_email or "").lower() for c in creds} if scope is not None else {}
+    # Oct 29 2026: an employee used to see every reveal in the company - who
+    # opened the bank portal, and when. Now: admins see everything; everyone
+    # else sees their own actions and every action on a credential they
+    # manage (owner, backup owner, department head).
+    if _is_admin(user):
+        managed = None
+    else:
+        heads = VA.heads_map(db, creds)
+        managed = {c.id for c in creds if _can_modify(c, user) or user["email"] in heads.get(c.id, set())}
     out = []
     for r in rows:
         if r.loc == PERSONAL_LOG_MARK and r.actor_email != user["email"]:
+            continue
+        if managed is not None and r.actor_email != user["email"] and r.cred_id not in managed:
             continue
         if scope is not None:
             who = owners.get(r.cred_id) if r.cred_id and r.cred_id in owners else (r.actor_email or "").lower()
@@ -1237,6 +1508,7 @@ def list_logs(user: dict = Depends(get_current_user), db: Session = Depends(get_
             "id": r.id, "actor": r.actor_name or r.actor_email, "actorEmail": r.actor_email,
             "action": r.action, "cred": r.cred_name, "credId": r.cred_id,
             "dept": r.dept or "-", "loc": r.loc or "", "detail": r.detail,
+            "ip": r.ip or "", "userAgent": r.user_agent or "",
             "ts": _ms(r.created_at),
         })
     return out
@@ -1298,6 +1570,10 @@ def otp_verify(body: OtpVerifyIn, user: dict = Depends(get_current_user), db: Se
 
 
 # ── Personal vault (strictly owner-scoped - no admin bypass) ─────────────────
+# 10 characters (Oct 29 2026, was 6): the password is tried online, and the
+# lock routes now sit on the tight per-IP limit (middleware_hardening
+# SENSITIVE_PREFIXES) - an existing shorter password keeps working.
+PERSONAL_MIN_LEN = 10
 class PersonalAuthIn(BaseModel):
     password: str = ""
 
@@ -1330,8 +1606,8 @@ def personal_lock_setup(body: PersonalAuthIn, user: dict = Depends(get_current_u
     """First-time setup only - no OTP needed, the user is already signed into
     Nexus. Resetting a forgotten password goes through /personal/lock/reset
     instead (OTP-verified)."""
-    if len((body.password or "").strip()) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
+    if len((body.password or "").strip()) < PERSONAL_MIN_LEN:
+        raise HTTPException(400, f"Password must be at least {PERSONAL_MIN_LEN} characters")
     row = db.get(models.VaultPersonalAuth, user["email"])
     if row and row.password_hash:
         raise HTTPException(400, "A Personal Vault password is already set - use Forgot password to reset it.")
@@ -1368,8 +1644,8 @@ def personal_lock_forgot(body: OtpRequestIn, user: dict = Depends(get_current_us
 
 @router.post("/personal/lock/reset")
 def personal_lock_reset(body: PersonalResetIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    if len((body.newPassword or "").strip()) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
+    if len((body.newPassword or "").strip()) < PERSONAL_MIN_LEN:
+        raise HTTPException(400, f"Password must be at least {PERSONAL_MIN_LEN} characters")
     _consume_otp_challenge(db, body.challengeId, user["email"], "personal_reset", body.code)
     row = db.get(models.VaultPersonalAuth, user["email"])
     if not row:
@@ -1388,6 +1664,7 @@ class PersonalIn(BaseModel):
     secret: str = ""
     type: str = "Password"
     note: str = ""
+    url: str = ""
 
 
 @router.get("/personal")
@@ -1398,7 +1675,7 @@ def list_personal(user: dict = Depends(get_current_user), db: Session = Depends(
             .all())
     return [{
         "id": r.id, "name": r.name, "username": r.username or "-",
-        "type": r.type or "Password", "note": r.note or "",
+        "type": r.type or "Password", "note": r.note or "", "url": r.url or "",
         "strength": r.strength or "strong", "createdAt": _ms(r.created_at),
     } for r in rows]
 
@@ -1414,6 +1691,7 @@ def create_personal(body: PersonalIn, user: dict = Depends(get_current_user), db
         username=body.username.strip() or "-",
         type=body.type if body.type in TYPES else "Password",
         note=body.note.strip(),
+        url=_clean_url(body.url),
         secret_enc=_enc(body.secret),
         strength=_eval_strength(body.secret),
         created_at=_now(),
@@ -1435,6 +1713,7 @@ def update_personal(pid: str, body: PersonalIn, user: dict = Depends(get_current
     row.username = body.username.strip() or "-"
     row.type = body.type if body.type in TYPES else row.type
     row.note = body.note.strip()
+    row.url = _clean_url(body.url)
     if body.secret:
         row.secret_enc = _enc(body.secret)
         row.strength = _eval_strength(body.secret)
@@ -1499,13 +1778,38 @@ def rotation_reminders(db: Session) -> int:
             if _reminded_today(db, "vault_rotation", c.id, who):
                 continue
             _notify(db, type="vault_rotation", recipient=who,
-                    title="Credential Vault - Rotation Due" if "rotation" in lines[0] else "Credential Vault - Expiring",
+                    title="Credentials - Rotation Due" if "rotation" in lines[0] else "Credential Vault - Expiring",
                     body=f"{c.name} ({c.dept}): " + " and ".join(lines) + ". Open it to rotate the password.",
                     ref_id=c.id, actor=c.owner_email or who, action={"view": "credvault", "sub": f"cred-{c.id}"})
             sent += 1
     if sent:
         db.commit()
     return sent
+
+
+def breach_scan(db: Session) -> dict:
+    """The daily Have I Been Pwned pass (vault_breach.scan): one bell to the
+    owner and backup owner of a credential that just turned breached."""
+    def tell(who, c):
+        _notify(db, type="vault_breach", recipient=who,
+                title="Credentials - Password Found in a Breach",
+                body=f"The password for {c.name} ({c.dept}) appears in a known data breach. Change it on the site and rotate it here.",
+                ref_id=c.id, actor=c.owner_email or who, action={"view": "credvault", "sub": f"cred-{c.id}"})
+    return vault_breach.scan(db, _dec, tell)
+
+
+def run_daily_breach_scan() -> dict:
+    if job_switch.off("credvault_breach") or _fernet is None:   # Workflows > Automations switch
+        return {}
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        out = breach_scan(db)
+        if out.get("newly"):
+            print(f"[reminders] credential vault: {out['newly']} password(s) newly found in a breach")
+        return out
+    finally:
+        db.close()
 
 
 def run_daily_rotation_reminders() -> int:

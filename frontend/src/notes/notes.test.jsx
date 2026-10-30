@@ -67,7 +67,7 @@ describe('Notes page', () => {
       await act(async () => { vi.advanceTimersByTime(900); });
       await waitFor(() => expect(apiMock.noteUpdate).toHaveBeenCalledWith('note_1', expect.objectContaining({ rev: 3, title: 'Budget Review Q4' })));
       expect(await screen.findByRole('button', { name: 'Keep Mine' })).toBeTruthy();
-      expect(screen.getByText(/by bob@greensglobal.com/)).toBeTruthy();
+      expect(screen.getByText(/Bob Brown changed the same part while you were writing/)).toBeTruthy();
       apiMock.noteUpdate.mockResolvedValueOnce(note({ rev: 5, title: 'Budget Review Q4' }));
       fireEvent.click(screen.getByRole('button', { name: 'Keep Mine' }));
       await waitFor(() => expect(apiMock.noteUpdate).toHaveBeenLastCalledWith('note_1', expect.objectContaining({ rev: 4, title: 'Budget Review Q4' })));
