@@ -218,6 +218,10 @@
 
 /* ── the top-bar button ── */
 .nt-header-btn { position: relative; }
+/* Phones open Quick Note from the + menu's New Note instead (Neil, Oct 29
+   2026); the button stays mounted, hidden, so the panel and the
+   nexus:quick-note event still work there. */
+@media (max-width: 768px) { .nt-header-btn { display: none; } }
 
 /* ── Notes widget ── */
 .nt-w { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1 1 auto; }

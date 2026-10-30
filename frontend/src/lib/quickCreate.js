@@ -7,6 +7,9 @@
 //             QuickActionModals.jsx: the Tasks module's CreateTaskModal, the
 //             Ticket module's CreateTicketModal, the Outlook mail and event
 //             composers), opened in place over the current screen.
+//   run     - New Note opens Quick Note (notes/QuickNoteButton.jsx) through
+//             its `nexus:quick-note` event - on a phone the + menu is the
+//             only way in, the top-bar button is hidden there (Neil, Oct 29).
 //   go      - a { view, sub } the module answers by opening its own create
 //             dialog - "<thing>:new" style subs, the convention "purchase:new"
 //             started (Workday > Purchase Requests):
@@ -20,16 +23,18 @@
 // Kept off the menu on purpose (Neil, Oct 29 2026): 1:1s, Ask HR,
 // Reimbursements, Credentials, Purchase Requests, Send for Signature,
 // Workflows and Time Off - those start from their own modules.
-import { CheckSquare, FilePlus2, Package, Mail, CalendarPlus } from 'lucide-react';
+import { CheckSquare, NotebookPen, FilePlus2, Package, Mail, CalendarPlus } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { NAV, isNavItemVisible } from '../components/Sidebar';
 
 export const goTo = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }));
+export const openQuickNote = () => window.dispatchEvent(new CustomEvent('nexus:quick-note'));
 
 // Display order. `module` = the left-menu item the flow lives in; `level` =
 // the grant level that module's own New button needs.
 export const CREATE_ITEMS = [
   { key: 'task', group: 'Work', label: 'New Task', Icon: CheckSquare, module: 'tasks', compose: 'task' },
+  { key: 'note', group: 'Work', label: 'New Note', Icon: NotebookPen, module: 'dashboard', run: openQuickNote },
   { key: 'ticket', group: 'Work', label: 'New Ticket', Icon: TicketToken, module: 'support', compose: 'ticket' },
   { key: 'document', group: 'Work', label: 'New Document', Icon: FilePlus2, module: 'documents', go: ['documents', 'documents-new'] },
   { key: 'item', group: 'Requests', label: 'Request an Item', Icon: Package, module: 'inventory', go: ['inventory', 'catalog'] },
