@@ -216,8 +216,60 @@
 .nt-qn-foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--wk-line2); font-size: 12px; color: var(--muted); }
 .nt-qn-keys { margin-left: auto; }
 
+/* ── voice notes, videos, dictation (noteMedia.jsx) ── */
+.nt-media { position: relative; margin: .5em 0 .8em; max-width: 560px; }
+.nt-media audio { display: block; width: 100%; height: 44px; }
+.nt-media video { display: block; width: 100%; max-height: 420px; border-radius: 10px; background: #000; }
+.nt-media.ProseMirror-selectednode { outline: 2px solid var(--wk-green); outline-offset: 3px; border-radius: 10px; }
+.nt-media-x {
+  position: absolute; top: -8px; right: -8px; width: 26px; height: 26px; display: grid; place-items: center;
+  border: 1px solid var(--wk-line2); border-radius: 50%; background: var(--card); color: var(--muted); cursor: pointer;
+  opacity: 0; transition: opacity .15s;
+}
+.nt-media:hover .nt-media-x, .nt-media-x:focus-visible, .nt-media.ProseMirror-selectednode .nt-media-x { opacity: 1; }
+.nt-rec { display: flex; align-items: center; gap: 10px; padding: 7px 10px; margin-top: 6px; border-radius: 8px; background: var(--wk-hover); font-size: 13px; color: var(--ink); min-width: 0; }
+.nt-rec.is-bad { color: var(--wk-red, #e2445c); }
+.nt-rec-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-rec-text b { font-variant-numeric: tabular-nums; }
+.nt-rec-text i { color: var(--muted); }
+.nt-rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--wk-red, #e2445c); flex-shrink: 0; animation: nt-pulse 1.2s ease-in-out infinite; }
+.nt-rec.is-listening .nt-rec-dot { background: var(--wk-green); }
+@keyframes nt-pulse { 50% { opacity: .35; transform: scale(.8); } }
+@media (prefers-reduced-motion: reduce) { .nt-rec-dot { animation: none; } }
+.nt-rec-btn {
+  display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 11px; flex-shrink: 0; cursor: pointer;
+  border: 1px solid var(--wk-line2); border-radius: 7px; background: var(--card); color: var(--ink); font: inherit; font-size: 12.5px; font-weight: 600;
+}
+.nt-rec-btn.is-primary { background: var(--wk-green); border-color: var(--wk-green); color: #fff; }
+
+/* ── the phone formatting bar: rides on top of the keyboard ── */
+.nt-pb {
+  position: fixed; left: 0; right: 0; z-index: 4200; background: var(--card); border-top: 1px solid var(--wk-line2);
+  box-shadow: 0 -6px 18px rgba(17, 24, 39, .08); padding: 0 6px env(safe-area-inset-bottom);
+}
+.nt-pb .nt-rec { margin: 6px 4px 0; }
+.nt-pb .nt-rec-btn { height: 36px; }
+.nt-pb-main { display: flex; align-items: center; gap: 2px; }
+.nt-pb-main > .nt-pb-btn { border-left: 1px solid var(--wk-line2); border-radius: 0 10px 10px 0; }
+.nt-pb-row { display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; padding: 4px 0; flex: 1 1 auto; min-width: 0; }
+.nt-pb-row::-webkit-scrollbar { display: none; }
+.nt-pb-row.is-more { border-bottom: 1px solid var(--wk-line2); }
+.nt-pb-btn {
+  flex: 0 0 auto; width: 44px; height: 44px; display: grid; place-items: center; border: none; border-radius: 10px;
+  background: transparent; color: var(--ink); cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.nt-pb-btn:active:not(:disabled) { background: var(--wk-hover); }
+.nt-pb-btn.is-on { color: var(--wk-green); background: var(--wk-hover); }
+.nt-pb-btn.is-danger { color: #fff; background: var(--wk-red, #e2445c); }
+.nt-pb-btn:disabled { opacity: .3; }
+.nt-pb-sep { flex: 0 0 1px; height: 24px; background: var(--wk-line2); margin: 0 4px; }
+@media (max-width: 400px) { .nt-pb-btn { width: 39px; } .nt-pb-sep { margin: 0 2px; } }
+/* Room under the last line so the bar never covers what you are typing. */
+.nt-content.has-phonebar .nt-prose { padding-bottom: 140px; }
+
 /* ── the top-bar button ── */
 .nt-header-btn { position: relative; }
+/* Hidden on a phone - style.css, beside the header's Create menu (this file loads only with Notes). */
 
 /* ── Notes widget ── */
 .nt-w { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1 1 auto; }
@@ -256,4 +308,12 @@
   .nt-hist { flex-direction: column; }
   .nt-hist-list { flex: 0 0 auto; max-height: 34vh; border-right: none; border-bottom: 1px solid var(--wk-line2); }
   .nt-w-capture input { font-size: 16px; }
+  /* Lists a thumb can work: bigger boxes, a little more air between items. */
+  .nt-prose ul, .nt-prose ol { padding-left: 1.5em; }
+  .nt-prose li { margin: 0 0 .2em; }
+  .nt-prose ul[data-type="taskList"] { padding-left: 0; }
+  .nt-prose ul[data-type="taskList"] > li { gap: 10px; }
+  .nt-prose ul[data-type="taskList"] > li > label { margin-top: 2px; padding: 2px; }
+  .nt-prose ul[data-type="taskList"] > li > label input { width: 21px; height: 21px; }
+  .nt-media-x { opacity: 1; width: 32px; height: 32px; }
 }

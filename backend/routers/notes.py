@@ -67,7 +67,10 @@ _EMAIL = re.compile(r"^[^@\s<>\"]+@[^@\s<>\"]+$")
 # The saved-reply allowlist, plus: checklists (ul/li data-type, data-checked),
 # @mentions (span data-type="mention" data-id data-label), text alignment
 # (style text-align only), table spans. The checklist's own <label><input>
-# is presentation the editor rebuilds, so it is dropped.
+# is presentation the editor rebuilds, so it is dropped. Voice notes and
+# videos (Oct 29 2026, notes/noteMedia.jsx) are <audio>/<video> players whose
+# src is our own storage - rebuilt here with fixed attributes, children and
+# anything else dropped; one pointing anywhere else is removed.
 _NOTE_ATTRS = {
     "a": ("href", "title"),
     "img": ("src", "alt", "title"),
@@ -81,7 +84,14 @@ _ALIGN = re.compile(r"^text-align:\s*(left|center|right|justify);?$", re.I)
 _DATA_TYPES = {"taskList", "taskItem", "mention"}
 
 
+_MEDIA = {"audio": ' controls preload="metadata"', "video": ' controls playsinline preload="metadata"'}
+
+
 class _NoteSanitizer(_RichSanitizer):
+    def __init__(self):
+        super().__init__()
+        self._in_media = 0
+
     def _attrs(self, tag, attrs):
         allowed = _NOTE_ATTRS.get(tag, ())
         kept = []
@@ -110,7 +120,38 @@ class _NoteSanitizer(_RichSanitizer):
     def handle_starttag(self, tag, attrs):
         if tag in ("label", "input"):
             return
+        if tag in _MEDIA:
+            if self.drop_depth:
+                return
+            src = next(((v or "").strip() for k, v in attrs if (k or "").lower() == "src"), "")
+            if src and _own_image(src):
+                self.out.append(f'<{tag} src="{escape(src[:1000], quote=True)}"{_MEDIA[tag]}></{tag}>')
+            self._in_media += 1
+            return
+        if self._in_media:
+            if tag in ("source", "track"):
+                return      # a player's own children
+            self._in_media = 0   # an unclosed player never swallows the rest of the note
         super().handle_starttag(tag, attrs)
+
+    def handle_startendtag(self, tag, attrs):
+        if tag in _MEDIA:
+            self.handle_starttag(tag, attrs)
+            self.handle_endtag(tag)
+            return
+        super().handle_startendtag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        if tag in _MEDIA:
+            self._in_media = max(0, self._in_media - 1)
+            return
+        if self._in_media:
+            return
+        super().handle_endtag(tag)
+
+    def handle_data(self, data):
+        if not self._in_media:      # a player's fallback text
+            super().handle_data(data)
 
 
 def sanitize_note(body: str) -> str:

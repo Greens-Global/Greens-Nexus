@@ -29,28 +29,39 @@ function Status({ status, note }) {
   return <><Check size={12} aria-hidden="true" /> Saved{note.updatedAt ? ` · ${editedLabel(note.updatedAt)}` : ''}</>;
 }
 
-// Today has no scratchpad yet: the first words make it.
+// Today has no scratchpad yet: the first words (or a voice note or video)
+// make it. The hand-over to SyncedNote swaps the editor, so it waits while
+// this one is recording, listening or saving a clip - what changes
+// meanwhile goes into the note's local draft, which SyncedNote saves.
+export const hasContent = (html) => /<(audio|video)\b/i.test(html) || !!html.replace(/<[^>]+>/g, '').trim();
+
 function FirstWrite({ day, people, onMade }) {
   const latest = useRef('');
   const making = useRef(false);
+  const made = useRef(null);     // { id, rev, title } once the note exists
+  const busy = useRef(false);
   const [error, setError] = useState('');
+  const handOver = () => { if (made.current && !busy.current) onMade(made.current.id); };
   const onChange = async (html) => {
     latest.current = html;
-    if (making.current || !html.replace(/<[^>]+>/g, '').trim()) return;
+    if (made.current) { writeDraft(made.current.id, { ...made.current, body: html }); return; }
+    if (making.current || !hasContent(html)) return;
     making.current = true;
     try {
       const n = await api.noteCreate({ kind: 'daily', day, body: html });
+      made.current = { id: n.id, rev: n.rev, title: n.title };
       // Whatever was typed while it was being made is saved by the hand-over.
-      writeDraft(n.id, { rev: n.rev, title: n.title, body: latest.current });
-      onMade(n.id);
+      writeDraft(n.id, { ...made.current, body: latest.current });
+      handOver();
     } catch (e) {
       making.current = false;
       setError(e.message || 'Could not start today\'s scratchpad');
     }
   };
+  const onBusy = (b) => { busy.current = b; if (!b) handOver(); };
   return (<>
     {error && <ErrorBanner message={error} />}
-    <NoteEditor value="" onChange={onChange} people={people} compact autoFocus
+    <NoteEditor value="" onChange={onChange} onBusy={onBusy} people={people} compact autoFocus
       placeholder="Today's scratchpad. Type / for blocks, [ ] for a checklist." />
   </>);
 }

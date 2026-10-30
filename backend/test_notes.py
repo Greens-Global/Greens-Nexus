@@ -160,6 +160,30 @@ class NotesTest(unittest.TestCase):
         self.assertIn('href="https://greensglobal.com"', out)
         self.assertIn("Done", out)
 
+    def test_voice_notes_and_videos_kept_only_from_our_storage(self):
+        own = "https://store.supabase.co/storage/v1/object/public/task-files/notes/1-a.webm"
+        body = (f'<p>Before</p><audio src="{own}" controls autoplay onplay="x()"><source src="https://evil.example/a.mp3">'
+                'Your browser cannot play this</audio>'
+                f'<video src="{own.replace(".webm", ".mp4")}" controls playsinline loop></video>'
+                '<audio src="https://evil.example/b.mp3" controls></audio>'
+                '<video src="javascript:alert(1)"></video><p>After</p>')
+        with mock.patch.object(notes, "_own_image", lambda src: src.startswith("https://store.supabase.co/")):
+            out = self.make(body=body)["body"]
+        self.assertIn(f'<audio src="{own}" controls preload="metadata"></audio>', out)
+        self.assertIn('<video src="https://store.supabase.co/storage/v1/object/public/task-files/notes/1-a.mp4" '
+                      'controls playsinline preload="metadata"></video>', out)
+        for bad in ("evil.example", "javascript", "autoplay", "onplay", "loop", "<source", "cannot play"):
+            self.assertNotIn(bad, out)
+        self.assertEqual(out.count("<audio"), 1)
+        self.assertEqual(out.count("<video"), 1)
+        self.assertTrue(out.startswith("<p>Before</p>") and out.endswith("<p>After</p>"))
+        # An unclosed player does not swallow what follows it.
+        with mock.patch.object(notes, "_own_image", lambda src: True):
+            tail = self.make(body=f'<audio src="{own}"><p>Still here</p>')["body"]
+        self.assertIn("<p>Still here</p>", tail)
+        # A player is not words: the preview and search skip it.
+        self.assertEqual(notes.plain_text(out), "Before\nAfter")
+
     def test_plain_text_becomes_paragraphs(self):
         n = self.make(body="one\ntwo & three")
         self.assertEqual(n["body"], "<p>one</p><p>two &amp; three</p>")

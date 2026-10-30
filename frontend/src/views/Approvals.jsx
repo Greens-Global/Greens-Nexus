@@ -41,6 +41,14 @@ import { openNotificationTarget } from '../lib/openTarget';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { UNDO_MS, bulkAction, doneWord, runApproval, runsInline, waited } from '../lib/approvalActions';
 
+// How each decision button looks (Neil, 10/29/2026: "reject should be red
+// background, Review should be grey background"): the yes is the primary,
+// a no (Reject, Decline, Deny, No) is solid red, Review is filled grey and
+// anything else (Send Back, Request Changes) stays the plain secondary.
+const NO_KEYS = new Set(['reject', 'decline', 'deny', 'no']);
+const actClass = (a) => (a.tone === 'primary' ? 'primary-btn apv-btn apv-yes'
+  : NO_KEYS.has(a.key) ? 'apv-btn apv-no' : 'secondary-btn apv-btn');
+
 const FONT = 'Inter, sans-serif';
 const POLL_MS = 60000;
 
@@ -310,14 +318,54 @@ export default function Approvals({ activeSub, onSubChange }) {
         .apv-title { background: none; border: none; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
         .apv-title:hover { text-decoration: underline; }
         .apv-act button { font-size: 12.5px; padding: 6px 12px; white-space: nowrap; }
+        .apv-name { font-size: 13.5px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .apv-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
+        .apv-detail { font-size: 12.5px; color: var(--muted); margin-top: 2px; line-height: 1.4; overflow-wrap: anywhere; }
+        /* Reject and Review are not primary-btn / secondary-btn, so they get
+           the same box here (the Review panel's footer included). */
+        .apv-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 8px; }
+        .apv-no, .apv-review { padding: 7px 14px; font-size: 13px; line-height: 1.3; white-space: nowrap; }
+        .apv-no { background: var(--apv-red, #dc2626); color: #fff; border: 1px solid var(--apv-red, #dc2626); font-family: inherit; font-weight: 600; cursor: pointer; }
+        .apv-no:hover:not(:disabled) { filter: brightness(.92); }
+        .apv-review { background: color-mix(in srgb, var(--ink) 9%, var(--card)); color: var(--ink); border: 1px solid transparent; font-family: inherit; font-weight: 600; cursor: pointer; }
+        .apv-review:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 14%, var(--card)); }
+        .apv-no:focus-visible, .apv-review:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: 2px; }
         @media (max-width: 720px) {
-          .apv-row { grid-template-columns: 20px minmax(0, 1fr) auto; grid-template-areas: "pick who age" ". what what" ". prio prio" ". act act"; padding: 12px 14px; }
-          .apv-tools label { flex: 1 1 140px; }
-          .apv-tools select { flex: 1; min-width: 0; }
+          /* A phone card (Neil, 10/29/2026): who and the priority on top,
+             what they asked, how long it has waited, then a full-width row
+             of 44px decision buttons. High and Urgent carry a colored rule
+             down the left edge and a tinted priority label. */
+          .apv-row { grid-template-columns: 22px minmax(0, 1fr) auto; grid-template-areas: "pick who prio" ". what what" ". age age" "act act act";
+            gap: 8px 10px; align-items: start; padding: 14px 16px; }
+          .apv-row[data-priority="urgent"] { box-shadow: inset 4px 0 0 #dc2626; }
+          .apv-row[data-priority="high"] { box-shadow: inset 4px 0 0 #d97706; }
+          .apv-who, .apv-pick { min-height: 30px; }
+          .apv-pick input { width: 20px; height: 20px; }
+          .apv-name { font-size: 15px; }
+          .apv-title { font-size: 15px; }
+          .apv-detail { font-size: 13.5px; }
+          .apv-age { text-align: left; font-size: 12.5px !important; }
+          .apv-prio { align-self: center; }
+          .apv-prio .nx-prio { font-size: 13px; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--c) 13%, transparent); }
+          .apv-prio .nx-prio-loud { font-weight: 700; }
+          /* Priority and Sort side by side, each label over a full-width
+             44px box; 16px text so iOS does not zoom in on a tap. */
+          .apv-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+          .apv-search { grid-column: 1 / -1; min-width: 0; }
+          .apv-search input { font-size: 16px; min-height: 44px; }
+          .apv-tools label { flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
+          .apv-tools select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
           .apv-facts { grid-template-columns: minmax(0, 1fr); }
           .apv-facts > div:nth-child(odd) { border-bottom: none; padding-bottom: 0; }
-          .apv-act { justify-content: flex-start; }
-          .apv-act button { flex: 1 1 auto; }
+          /* Up to three decisions share a row; a fourth (Request Changes)
+             wraps to its own full-width line instead of spilling over. */
+          .apv-act { justify-content: stretch; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+          .apv-act button { flex: 1 1 92px; min-width: 0; min-height: 44px; padding: 0 10px; font-size: 14px; border-radius: 10px;
+            overflow: hidden; text-overflow: ellipsis; }
+          .apv-foot { flex-wrap: wrap; }
+          .apv-foot > span { display: none; }
+          .apv-foot button { flex: 1 1 92px; min-width: 0; min-height: 44px; justify-content: center; font-size: 14px; border-radius: 10px; }
+          .apv-foot .apv-open { flex-basis: 100%; }
         }
       `}</style>
 
@@ -491,18 +539,15 @@ function Row({ row, onAct, onReview, selectable, selected, onToggle }) {
       </div>
       <div className="apv-who" title={row.person?.name || ''}>
         <PersonMark person={row.person} size={30} />
-        <span style={{ fontSize: 13.5, fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {who || '-'}
-        </span>
+        <span className="apv-name">{who || '-'}</span>
       </div>
       <div className="apv-what">
-        <button type="button" className="apv-title" onClick={onReview} title="Review the details"
-          style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.35, display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%' }}>
+        <button type="button" className="apv-title" onClick={onReview} title="Review the details">
           <span style={{ overflowWrap: 'anywhere' }}>{row.title}</span>
           <ChevronRight size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
         </button>
         {(row.detail || row.forName) && (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4, overflowWrap: 'anywhere' }}>
+          <div className="apv-detail">
             {row.detail}
             {row.forName && <ForChip name={row.forName} />}
           </div>
@@ -516,12 +561,12 @@ function Row({ row, onAct, onReview, selectable, selected, onToggle }) {
         {waited(row.createdAt)}
       </div>
       <div className="apv-act">
-        <button type="button" className="secondary-btn" onClick={onReview}
+        <button type="button" className="apv-btn apv-review" onClick={onReview}
           aria-label={`Review: ${row.title}${who ? ` (${who})` : ''}`}>
           Review
         </button>
         {inline.map((a) => (
-          <button key={a.key} type="button" className={a.tone === 'primary' ? 'primary-btn' : 'secondary-btn'}
+          <button key={a.key} type="button" className={actClass(a)}
             aria-label={`${a.label}: ${row.title}${who ? ` (${who})` : ''}`} onClick={() => onAct(row, a)}>
             {a.label}
           </button>
@@ -545,16 +590,16 @@ function ReviewPanel({ row, kindLabel, onClose, onAct }) {
     ? step.label : mod ? `Open In ${mod}` : 'Open It In Its Module';
   const facts = row.facts || [];
   const footer = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: '100%' }}>
+    <div className="apv-foot" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: '100%' }}>
       {row.link?.view && (
-        <button type="button" className={inline.length ? 'secondary-btn' : 'primary-btn'} onClick={() => { onClose(); go(row.link); }}
+        <button type="button" className={`${inline.length ? 'apv-btn apv-review' : 'primary-btn'} apv-open`} onClick={() => { onClose(); go(row.link); }}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           {openLabel} <ArrowUpRight size={14} />
         </button>
       )}
       <span style={{ flex: 1 }} />
       {inline.slice().reverse().map((a) => (
-        <button key={a.key} type="button" className={a.tone === 'primary' ? 'primary-btn' : 'secondary-btn'} onClick={() => onAct(a)}>
+        <button key={a.key} type="button" className={actClass(a)} onClick={() => onAct(a)}>
           {a.label}
         </button>
       ))}
