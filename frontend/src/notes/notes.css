@@ -278,8 +278,6 @@
 /* Room under the last line so the bar never covers what you are typing. */
 .nt-content.has-phonebar .nt-prose { padding-bottom: 140px; }
 
-/* ── the top-bar button ── */
-.nt-header-btn { position: relative; }
 /* Hidden on a phone - style.css, beside the header's Create menu (this file loads only with Notes). */
 
 /* ── Notes widget ── */
