@@ -10,7 +10,7 @@ import {
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma, MoveRight,
-  History, Upload, HardDrive, Image as ImageIcon,
+  History, Upload, HardDrive, Image as ImageIcon, AudioLines,
 } from 'lucide-react';
 import MoveTaskModal from './MoveTaskModal';
 import MyDayToggle from './MyDayToggle';
@@ -18,6 +18,7 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { formulaEngineFor } from './formula';
 import { FormulaValue } from './FormulaColumn';
+import { isAudioAttachment } from './lib';
 import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, uploadTaskAttachmentVersion, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
@@ -1609,7 +1610,7 @@ function PendingAttachments({ files, setFiles }) {
         <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 8px 2px 2px', fontSize: 11.5, color: NX.dim }}>
           {f.type.startsWith('image/')
             ? <img src={URL.createObjectURL(f)} alt="" style={{ width: 18, height: 18, borderRadius: 4, objectFit: 'cover' }} />
-            : <Paperclip size={11} />}
+            : f.type.startsWith('audio/') ? <AudioLines size={11} aria-label="Voice Note" /> : <Paperclip size={11} />}
           <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
           <button type="button" onClick={() => remove(i)} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={11} /></button>
         </span>
@@ -2310,7 +2311,9 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
                 const href = a.dataUrl || a.url;
                 const thumb = a.kind === 'image' && href
                   ? <img src={href} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
-                  : <Paperclip size={13} style={{ color: NX.dim }} />;
+                  : isAudioAttachment(a)
+                    ? <AudioLines size={14} style={{ color: NX.primary }} aria-label="Voice Note" />
+                    : <Paperclip size={13} style={{ color: NX.dim }} />;
                 const nVersions = a.versionCount || 1;
                 const up = verUploads[a.id];
                 return (
