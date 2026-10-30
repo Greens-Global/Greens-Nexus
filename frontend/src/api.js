@@ -3240,6 +3240,14 @@ export const api = {
   perfActionUpdate: (id, data) => req(`/performance/actions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
   perfSettings: (company = "") => req(`/performance/settings?company=${encodeURIComponent(company || "")}`),
   perfSettingsSave: (data) => req("/performance/settings", { method: "PUT", body: JSON.stringify(data) }),
+  // KPI scorecards per department (Charmi, 10/30/2026) - routers/perf_scorecards.py.
+  perfScorecards: (company) => req(`/performance/scorecards?company=${encodeURIComponent(company || "")}`),
+  perfScorecardSave: (data) => req("/performance/scorecards", { method: "PUT", body: JSON.stringify(data) }),
+  perfScorecardRetire: (id) => req(`/performance/scorecards/${encodeURIComponent(id)}/retire`, { method: "POST" }),
+  perfMyScorecard: () => req("/performance/scorecards/current"),
+  perfKpis: (company) => req(`/performance/kpis?company=${encodeURIComponent(company || "")}`),
+  perfKpiCreate: (data) => req("/performance/kpis", { method: "POST", body: JSON.stringify(data) }),
+  perfKpiUpdate: (id, data) => req(`/performance/kpis/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
 
   // Performance review cycles (Neil, Oct 27 2026) - routers/perf_reviews.py.
   perfCycles: (company = "") => req(`/performance/cycles?company=${encodeURIComponent(company || "")}`),

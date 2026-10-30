@@ -178,6 +178,7 @@ const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSett
 const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
 // Performance (Oct 27 2026): the goal and 1:1 reminders, layered per company.
 const PerformanceReminderSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceReminderSettings })));
+const ScorecardSettings = lazy(() => import('../performance/Scorecards'));
 // Workflows (Oct 28 2026): the switches, ceilings, digest and pause - layered per company.
 const WorkflowsSettingsPanel = lazy(() => import('../workflows/WorkflowsSettings').then(m => ({ default: m.WorkflowsSettings })));
 // Holiday Policies (Oct 29 2026): the org face of the company holiday calendars.
@@ -533,6 +534,11 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
     sub: 'How long a goal kept by hand may go without an update before its owner is reminded, and the reminder the day before a 1:1 with an empty agenda. Review reminders go out by themselves.',
     keywords: 'performance goals check-in reminder one on one 1:1 agenda review rating okr objectives' },
+  // KPI scorecards per department (Charmi, 10/30/2026): a company's own, so a company face.
+  { id: 'performance-scorecards', subject: 'performance', face: 'company', scope: 'company', icon: Target, title: 'KPI Scorecards',
+    needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
+    sub: 'What each department is scored on and how much each KPI counts - Nexus-measured KPIs, manual ones rated with a reason, targets and caps. Changes apply from the first of next month.',
+    keywords: 'performance kpi scorecard weights targets bonus department metrics score' },
   // Workflows
   { id: 'workflows-config', subject: 'workflows', face: 'both', scope: 'layered', icon: Workflow, title: 'Workflow Settings', flush: true,
     needs: { role: 'administrator', grant: ['workflows', 'full'] },
@@ -1727,6 +1733,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'ops-unit-rules':       return <LazyPanelSection key={key} id={id} Panel={UnitRulesPanel} chrome={chrome} />;
       case 'app-ratings':          return <LazyPanelSection key={key} id={id} Panel={AppRatingsPanel} chrome={chrome} />;
       case 'employee-custom-fields': return <LazyPanelSection key={key} id={id} Panel={EmployeeCustomFieldsSettings} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'performance-scorecards': return <LazyPanelSection key={key} id={id} Panel={ScorecardSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'performance-reminders': return <LazyPanelSection key={key} id={id} Panel={PerformanceReminderSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'workflows-config':     return <LazyPanelSection key={key} id={id} Panel={WorkflowsSettingsPanel} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'holiday-policies':     return <LazyPanelSection key={key} id={id} Panel={HolidayPoliciesPanel} chrome={chrome} entities={entities} toastOk={toastOk} toastErr={toastErr} />;

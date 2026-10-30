@@ -7911,3 +7911,14 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .header-user-pill { padding: 5px; }
   .header-user-pill > svg:last-child { display: none; }
 }
+
+/* ── Settings > Performance > KPI Scorecards (Oct 30 2026) ─────────────────── */
+.perf-sc-head, .perf-sc-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px 84px 84px 84px 34px; gap: 8px; align-items: center; }
+.perf-sc-head { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); padding: 0 0 2px; }
+.perf-sc-row { padding: 6px 0; border-top: 1px solid var(--line); }
+.perf-sc-num { width: 100%; padding: 5px 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.perf-sc-src { margin-left: 6px; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--bg-secondary); color: var(--muted); vertical-align: 1px; }
+.perf-sc-src.manual { background: hsla(var(--color-orange), 0.14); color: hsl(var(--color-orange)); }
+.perf-sc-total { font-weight: 700; color: var(--bad-fg); }
+.perf-sc-total.is-ok { color: var(--ok-fg, hsl(var(--color-green))); }
+@media (max-width: 767px) { .perf-sc-head { display: none; } .perf-sc-row { grid-template-columns: 1fr 1fr; } .perf-sc-row > span:first-child { grid-column: 1 / -1; } }
