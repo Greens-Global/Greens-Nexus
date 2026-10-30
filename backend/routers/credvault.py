@@ -938,35 +938,53 @@ class ImportIn(BaseModel):
 
 @router.post("/import")
 def import_credentials(body: ImportIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Rows from the import wizard (Oct 29 2026: an Excel sheet, mapped on
+    screen). Each row may carry `backupOwner` and `audiences`; a row the vault
+    already holds (same name and username, live) is skipped, not doubled. The
+    importer owns every row. Returns what was imported and what was skipped."""
     _require_write(user, db)
-    created = 0
+    live = {(c.name.strip().lower(), (c.username or "").strip().lower()) for c in db.query(models.VaultCredential)
+            .filter(models.VaultCredential.deleted_at == "").all()}
+    known = {e for (e,) in db.query(models.NexusEmployee.work_email).all() if e}
+    known = {e.lower() for e in known}
+    created, skipped = [], []
     for r in body.rows or []:
         name = (r.get("name") or "").strip()
         secret = r.get("secret") or ""
+        username = (r.get("username") or "").strip()
         if not name or not secret:
             continue
-        db.add(models.VaultCredential(
+        if (name.lower(), username.lower() if username else "") in live:
+            skipped.append(name)
+            continue
+        backup = (r.get("backupOwner") or "").lower().strip()
+        row = models.VaultCredential(
             id=str(uuid.uuid4()),
             name=name,
             dept=(r.get("department") or "").strip(),
             type=r.get("type") if r.get("type") in TYPES else "Password",
-            username=(r.get("username") or "-").strip(),
+            username=username or "-",
             url=(r.get("url") or "").strip() if re.match(r"^https?://", (r.get("url") or "").strip(), re.I) else "",
             note=(r.get("note") or r.get("notes") or "").strip(),
             secret_enc=_enc(secret),
             secret_hash=_hash(secret),
             tier=r.get("tier") if r.get("tier") in TIERS else "Standard",
             owner_email=user["email"],
+            backup_owner_email=backup if backup in known and backup != user["email"] else "",
             strength=_eval_strength(secret),
             rotated_at=_now(),
             created_at=_now(),
             created_by=user["email"],
-        ))
-        created += 1
+        )
+        db.add(row)
+        auds = VA.clean(r.get("audiences")) if r.get("audiences") is not None else ([{"kind": "department", "value": row.dept, "level": "open"}] if row.dept else [])
+        VA.replace(db, row.id, auds, user["email"])
+        live.add((name.lower(), username.lower() if username else ""))
+        created.append(name)
     if created:
-        _log(db, user, "Imported", f"{created} credentials", "-")
+        _log(db, user, "Imported", f"{len(created)} credentials", "-", detail=[{"field": "Names", "from": "", "to": ", ".join(created[:20]) + (" …" if len(created) > 20 else "")}])
     db.commit()
-    return {"imported": created}
+    return {"imported": len(created), "skipped": len(skipped), "skippedNames": skipped}
 
 
 # ── Ownership ────────────────────────────────────────────────────────────────
@@ -1457,6 +1475,7 @@ class PersonalIn(BaseModel):
     secret: str = ""
     type: str = "Password"
     note: str = ""
+    url: str = ""
 
 
 @router.get("/personal")
@@ -1467,7 +1486,7 @@ def list_personal(user: dict = Depends(get_current_user), db: Session = Depends(
             .all())
     return [{
         "id": r.id, "name": r.name, "username": r.username or "-",
-        "type": r.type or "Password", "note": r.note or "",
+        "type": r.type or "Password", "note": r.note or "", "url": r.url or "",
         "strength": r.strength or "strong", "createdAt": _ms(r.created_at),
     } for r in rows]
 
@@ -1483,6 +1502,7 @@ def create_personal(body: PersonalIn, user: dict = Depends(get_current_user), db
         username=body.username.strip() or "-",
         type=body.type if body.type in TYPES else "Password",
         note=body.note.strip(),
+        url=_clean_url(body.url),
         secret_enc=_enc(body.secret),
         strength=_eval_strength(body.secret),
         created_at=_now(),
@@ -1504,6 +1524,7 @@ def update_personal(pid: str, body: PersonalIn, user: dict = Depends(get_current
     row.username = body.username.strip() or "-"
     row.type = body.type if body.type in TYPES else row.type
     row.note = body.note.strip()
+    row.url = _clean_url(body.url)
     if body.secret:
         row.secret_enc = _enc(body.secret)
         row.strength = _eval_strength(body.secret)

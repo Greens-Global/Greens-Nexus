@@ -1057,12 +1057,12 @@ export const DOCS = [
     ],
     walkthroughs: [
       {
-        title: 'Open a Shared Password',
+        title: 'Copy a Password From the List',
         steps: [
-          'Open Credentials and find the credential - search, pick a collection tab above the list (Owned by Me, Shared With Me, Favorites), or choose a department in the Department filter.',
-          'Click the row. The drawer shows the username, the masked password, the link and the notes.',
-          'Click Reveal. The first time in a while you confirm it is you with a code by text or email; after that the header says "Verified until" and reveals are instant.',
-          'Click Copy. Copies are logged, like reveals.',
+          'Open Credentials and go to My Logins (owners, department heads and admins land on Overview first). It lists every login you can open - your favorites first, then the ones you used lately, then the rest by department. Search by name, username or site.',
+          'Click User or Password on the row to copy it. The first time in a while you confirm it is you with a code by text or email; after that the header says "Verified until" and copies are instant.',
+          'Click Open to copy the password and open the sign-in page in a new tab; the username is in the message. The clipboard clears itself 30 seconds after a copy.',
+          'Click the name for everything else: the password itself, the link, notes, who has access and history. Copies and reveals are logged.',
         ],
       },
       {
@@ -1091,13 +1091,14 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Collections', desc: 'All Credentials, Owned by Me, Shared With Me, Favorites, Needs Attention and Trash, as tabs above the list. The Department, Type and Tier filters narrow it further.' },
+      { name: 'Everyday List', desc: 'The My Logins tab: only what you can open, favorites and recently used first, with User, Password and Open on every row. Logins you cannot open sit folded at the bottom with Request Access.' },
+      { name: 'Overview', desc: 'The first tab for owners, department heads and admins: the numbers (logins, needs attention, no backup owner, shared with you, awaiting approval), health by department, what rotates next, and Export to Excel of who can open what - never a password. Below it, the full list with its collections (All, Owned by Me, Shared With Me, Favorites, Needs Attention, No Backup Owner, Trash) and the Department, Type and Tier filters.' },
       { name: 'Drawer', desc: 'Everything about one credential: sign-in, link, notes, rotation, expiry, who has access, and its history.' },
       { name: 'Who Can Open It', desc: 'Set on each credential: its department, everyone at a company, an Access Group, or named people - each able to open the password or view only. Nothing set = its own department. Critical credentials ignore everything but named people.' },
       { name: 'Timed Sharing and Requests', desc: 'Owners share for 1 hour to 7 days; others request the same way. Access ends by itself.' },
       { name: 'Rotation and Expiry Reminders', desc: 'Owners and backup owners get a bell when a rotation is due or a key is about to expire. The previous password is kept for one rotation.' },
-      { name: 'Personal Vault', desc: 'Private, encrypted, locked with your own password. Reset it with a code if you forget it.' },
-      { name: 'Import and Trash', desc: 'Load credentials from a CSV with Add Credential > Import From CSV; removed ones sit in the Trash until recovered or deleted for good.' },
+      { name: 'Personal Vault', desc: 'Private, encrypted, locked with your own password (10 characters or more). Each row can carry a link, so Open copies the password and takes you to the site. Reset the vault password with a code if you forget it.' },
+      { name: 'Import and Trash', desc: 'Add Credential > Import From a Spreadsheet takes the Excel or CSV file you already keep: match its columns to ours (guessed from the headers), review what is missing and what the vault already holds, pick a fallback department, a backup owner and who can open them, and import. Removed credentials sit in the Trash until recovered or deleted for good.' },
       { name: 'Activity', desc: 'Your own actions and every action on the credentials you own or manage, searchable by person, credential, action and date. Admins see everything.' },
     ],
     manager: {

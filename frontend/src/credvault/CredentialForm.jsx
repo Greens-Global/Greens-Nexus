@@ -3,11 +3,12 @@
 // Tasks module's Modal (phone sheet, focus, unsaved-changes prompt) and its
 // PersonSelect (the curated Nexus People list).
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Upload, Download, CheckCircle2, AlertCircle, Share2, Send, Users, Building2, X, Eye, EyeOff } from "lucide-react";
+import { Upload, CheckCircle2, AlertCircle, Share2, Send, Users, Building2, X, Eye, EyeOff } from "lucide-react";
 import { api } from "../api";
 import { Modal, PersonSelect, DateField } from "../tasks/components";
-import { Field, PasswordField, TYPES, TIERS, parseCSV } from "./vaultShared";
-import { DURATIONS, ROTATION_CHOICES, audienceKey } from "./vaultModel";
+import { Field, PasswordField, TYPES, TIERS } from "./vaultShared";
+import { DURATIONS, ROTATION_CHOICES, audienceKey, siteOf } from "./vaultModel";
+import { FIELDS, guessMap, applyMap, validateRows, findDuplicates, toPayload } from "./importModel";
 
 const EMPTY = { name: "", dept: "", type: "Password", tier: "Standard", username: "", secret: "", url: "", note: "", owner: "", backupOwner: "", rotationMax: 90, expiresAt: "" };
 const deptAudience = (dept) => (dept ? [{ kind: "department", value: dept, level: "open", label: `Everyone in ${dept}` }] : []);
@@ -156,67 +157,157 @@ export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, 
   );
 }
 
-const TEMPLATE = `name,department,type,username,secret,tier,url,note
-Stripe Dashboard,Accounting,Password,pay@example.com,CHANGE-ME-1!,High,https://dashboard.stripe.com,Finance team login
-Jira,IT,Password,admin@example.com,CHANGE-ME-2!,Standard,https://example.atlassian.net,
-`;
+// ── Import (Oct 29 2026): the Excel sheet people actually have ─────────────
+// Four steps: pick the file (.xlsx, .xls or .csv), match its columns to our
+// fields (guessed from the headers, corrected on screen), review - what is
+// missing, what the vault already holds, the department to fall back to, a
+// backup owner and who can open them - then the result, with a nudge to
+// retire the spreadsheet. Passwords stay in the browser until Import.
+const STEP_TITLES = ["Choose the File", "Match the Columns", "Review", "Done"];
 
-export function ImportModal({ depts, onClose, onImport }) {
-  const [raw, setRaw] = useState("");
+export function ImportWizard({ depts, people, myEmail, existing = [], nameOf = (e) => e, onClose, onImport }) {
+  const [step, setStep] = useState(0);
+  const [file, setFile] = useState(null);
+  const [sheet, setSheet] = useState(null);            // { headers: [], rows: [[]] , sheets: [names], name }
+  const [map, setMap] = useState({});
+  const [defaultDept, setDefaultDept] = useState(depts[0] || "");
+  const [backupOwner, setBackupOwner] = useState("");
+  const [everyone, setEveryone] = useState(false);
+  const [companies, setCompanies] = useState([]);
+  const [companyId, setCompanyId] = useState("");
+  const [skipDups, setSkipDups] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null);
   const fileRef = useRef(null);
-  const rows = useMemo(() => {
-    if (!raw.trim()) return [];
-    return parseCSV(raw).map((r) => {
-      const errors = [];
-      if (!r.name) errors.push("name");
-      if (!r.department) errors.push("department");
-      if (r.type && !TYPES.includes(r.type)) errors.push("type");
-      if (r.tier && !TIERS.includes(r.tier)) errors.push("tier");
-      if (!r.secret) errors.push("secret");
-      return { data: { ...r, type: r.type || "Password", tier: r.tier || "Standard" }, valid: errors.length === 0, errors };
-    });
-  }, [raw]);
-  const valid = rows.filter((r) => r.valid);
-  const newDepts = [...new Set(valid.map((r) => r.data.department))].filter((d) => !depts.includes(d));
-  const downloadTemplate = () => {
-    const url = URL.createObjectURL(new Blob([TEMPLATE], { type: "text/csv" }));
-    const a = document.createElement("a"); a.href = url; a.download = "credential-vault-import.csv"; a.click(); URL.revokeObjectURL(url);
-  };
-  const onFile = (e) => { const f = e.target.files?.[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => setRaw(String(rd.result)); rd.readAsText(f); };
-  async function go() { setBusy(true); try { await onImport(valid.map((r) => r.data)); } finally { setBusy(false); } }
+  useEffect(() => { api.cvAudienceOptions().then((o) => { setCompanies(o?.companies || []); setCompanyId((o?.companies || [])[0]?.id || ""); }).catch(() => {}); }, []);
 
+  async function readFile(f) {
+    setError("");
+    try {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
+      if (!grid.length) { setError("The sheet is empty."); return; }
+      const headers = grid[0].map((h) => String(h ?? "").trim());
+      setSheet({ headers, rows: grid.slice(1), name: wb.SheetNames[0], sheets: wb.SheetNames.length });
+      setMap(guessMap(headers));
+      setFile(f);
+      setStep(1);
+    } catch { setError("Could not read that file. Save it as .xlsx or .csv and try again."); }
+  }
+  const mapped = useMemo(() => (sheet ? applyMap(sheet.rows, map) : []), [sheet, map]);
+  const reviewed = useMemo(() => findDuplicates(validateRows(mapped, { defaultDept }), existing), [mapped, defaultDept, existing]);
+  const ready = reviewed.filter((r) => r.ok && !(skipDups && r.duplicateOf));
+  const dups = reviewed.filter((r) => r.duplicateOf);
+  const bad = reviewed.filter((r) => !r.ok);
+  const mapOk = map.name != null && map.secret != null;
+
+  async function run() {
+    setBusy(true); setError("");
+    try {
+      const res = await onImport(ready.map((r) => toPayload(r, { backupOwner, everyone, companyId })));
+      setResult({ imported: res?.imported || 0, skipped: res?.skipped || 0, sent: ready.length, bad: bad.length, dups: skipDups ? dups.length : 0 });
+      setStep(3);
+    } catch (e) { setError(e?.message || "Import failed."); }
+    setBusy(false);
+  }
+  const Steps = (
+    <div className="cv-steps" aria-label="Steps">
+      {STEP_TITLES.map((t, i) => <span key={t} className={`cv-step${i === step ? " is-on" : i < step ? " is-done" : ""}`}>{i < step ? <CheckCircle2 size={13} /> : <span className="cv-step-n">{i + 1}</span>} {t}</span>)}
+    </div>
+  );
   return (
-    <Modal title="Import Credentials" onClose={onClose} isDirty={!!raw.trim()} onSave={valid.length ? go : undefined} width="clamp(560px, 62vw, 900px)"
+    <Modal title="Import Logins From a Spreadsheet" onClose={onClose} isDirty={step > 0 && step < 3} width="clamp(560px, 64vw, 920px)"
       footer={<>
-        <button type="button" className="cv-btn" onClick={onClose}>Cancel</button>
-        <button type="button" className="cv-btn" onClick={() => fileRef.current?.click()}><Upload size={14} /> Choose CSV</button>
-        <button type="button" className="cv-btn-dark" onClick={go} disabled={!valid.length || busy}>{busy ? "Importing…" : `Import ${valid.length || ""} Credential${valid.length === 1 ? "" : "s"}`}</button>
+        {error && <span style={{ color: "var(--cv-bad)", fontSize: 12.5, marginRight: "auto" }}>{error}</span>}
+        {step === 3 ? <button type="button" className="cv-btn-dark" onClick={onClose}>Done</button> : (<>
+          <button type="button" className="cv-btn" onClick={onClose}>Cancel</button>
+          {step > 0 && <button type="button" className="cv-btn" onClick={() => setStep(step - 1)}>Back</button>}
+          {step === 1 && <button type="button" className="cv-btn-dark" onClick={() => setStep(2)} disabled={!mapOk}>Review {mapped.length} Row{mapped.length === 1 ? "" : "s"}</button>}
+          {step === 2 && <button type="button" className="cv-btn-dark" onClick={run} disabled={busy || !ready.length}>{busy ? "Importing…" : `Import ${ready.length} Login${ready.length === 1 ? "" : "s"}`}</button>}
+        </>)}
       </>}>
-      <div className="cv-root" style={{ gap: 12, animation: "none" }}>
-        <p className="cv-hint">Columns: name, department, type, username, secret, tier, url, note. Type and tier are optional. You become the owner of every imported credential.</p>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" className="cv-btn" onClick={downloadTemplate}><Download size={14} /> Download Template</button>
-          <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onFile} style={{ display: "none" }} />
-        </div>
-        {rows.length > 0 && (
-          <div className="cv-list">
-            <div style={{ padding: "8px 12px", background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-color)", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
-              {valid.length} ready · {rows.length - valid.length} need fixing
-            </div>
-            <div className="cv-divide" style={{ maxHeight: 260, overflowY: "auto" }}>
-              {rows.map((r, i) => (
-                <div key={i} style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                  {r.valid ? <CheckCircle2 size={15} style={{ color: "var(--cv-ok)", flexShrink: 0 }} /> : <AlertCircle size={15} style={{ color: "var(--cv-bad)", flexShrink: 0 }} />}
-                  <span className="cv-truncate" style={{ fontWeight: 500, flex: 1 }}>{r.data.name || <span style={{ color: "var(--text-muted)" }}>- no name -</span>}</span>
-                  <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{r.data.department} · {r.data.tier}</span>
-                  {!r.valid && <span style={{ fontSize: 11.5, color: "var(--cv-bad)", flexShrink: 0 }}>check: {r.errors.join(", ")}</span>}
-                </div>
-              ))}
-            </div>
+      <div className="cv-root cv-form-stack" style={{ animation: "none" }}>
+        {Steps}
+        {step === 0 && (
+          <div className="cv-drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) readFile(f); }}>
+            <Upload size={26} style={{ opacity: .5 }} />
+            <strong>Drop your password spreadsheet here</strong>
+            <span className="cv-hint">Excel (.xlsx, .xls) or CSV. Any column names - you match them on the next step. The first sheet is read; passwords stay in your browser until you click Import.</span>
+            <button type="button" className="cv-btn-dark" onClick={() => fileRef.current?.click()}><Upload size={14} /> Choose File</button>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = ""; }} style={{ display: "none" }} />
           </div>
         )}
-        {newDepts.length > 0 && <div className="cv-callout tone-warn"><AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} /><span>New department name{newDepts.length > 1 ? "s" : ""}: {newDepts.join(", ")}. Only people whose People record uses the same spelling will be able to open these.</span></div>}
+        {step === 1 && sheet && (<>
+          <p className="cv-hint"><b>{file?.name}</b> · sheet "{sheet.name}"{sheet.sheets > 1 ? ` (first of ${sheet.sheets})` : ""} · {sheet.rows.length} row{sheet.rows.length === 1 ? "" : "s"}. Say which column holds what; Name and Password are needed.</p>
+          <div className="cv-map">
+            {FIELDS.map((f) => (
+              <label key={f.key} className="cv-map-row">
+                <span className="cv-map-label">{f.label}{f.required && <span style={{ color: "var(--cv-bad)" }}> *</span>}</span>
+                <select className="cv-ipt" value={map[f.key] ?? ""} onChange={(e) => setMap((m) => { const n = { ...m }; if (e.target.value === "") delete n[f.key]; else n[f.key] = Number(e.target.value); return n; })} aria-label={`Column for ${f.label}`}>
+                  <option value="">{f.required ? "- choose a column -" : "- not in the sheet -"}</option>
+                  {sheet.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
+                </select>
+                <span className="cv-map-sample">{map[f.key] != null ? String(sheet.rows[0]?.[map[f.key]] ?? "") : ""}</span>
+              </label>
+            ))}
+          </div>
+        </>)}
+        {step === 2 && (<>
+          <div className="cv-form-grid">
+            <Field label="Department When the Sheet Has None">
+              <select value={defaultDept} onChange={(e) => setDefaultDept(e.target.value)} className="cv-ipt">
+                <option value="">- none -</option>{depts.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </Field>
+            <Field label="Backup Owner for Every Login">
+              <PersonSelect value={backupOwner} onChange={(v) => setBackupOwner(v || "")} people={people.filter((p) => p.email !== myEmail)} placeholder="Nobody" />
+            </Field>
+          </div>
+          <Field label="Who Can Open Them">
+            <div className="cv-segment" style={{ gridTemplateColumns: "1fr 1fr" }}>
+              <button type="button" className={`cv-btn${!everyone ? " is-on" : ""}`} onClick={() => setEveryone(false)}>Each login's department</button>
+              <button type="button" className={`cv-btn${everyone ? " is-on" : ""}`} onClick={() => setEveryone(true)} disabled={!companies.length}>Everyone at {companies.length > 1 ? "a company" : companies[0]?.name || "the company"}</button>
+            </div>
+            {everyone && companies.length > 1 && (
+              <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="cv-ipt" style={{ marginTop: 8 }} aria-label="Company">{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+            )}
+          </Field>
+          <p className="cv-hint">You own every imported login. Change the owner, audience or tier on any of them afterwards.</p>
+          <div className="cv-import-summary">
+            <span className="cv-chip tone-ok"><CheckCircle2 size={12} /> {ready.length} ready</span>
+            {dups.length > 0 && (
+              <label className="cv-chip tone-warn" style={{ cursor: "pointer", gap: 6 }}>
+                <input type="checkbox" checked={skipDups} onChange={(e) => setSkipDups(e.target.checked)} style={{ margin: 0 }} /> skip {dups.length} already in the vault
+              </label>
+            )}
+            {bad.length > 0 && <span className="cv-chip tone-bad"><AlertCircle size={12} /> {bad.length} will be left out</span>}
+          </div>
+          <div className="cv-list" style={{ maxHeight: 300, overflowY: "auto" }}>
+            {reviewed.map((r) => (
+              <div key={r.line} className="cv-row" style={{ gridTemplateColumns: "22px minmax(0,1fr) auto", borderTop: "none", borderBottom: "1px solid var(--line)" }} data-import-row={r.line}>
+                {r.ok && !(skipDups && r.duplicateOf) ? <CheckCircle2 size={15} style={{ color: "var(--cv-ok)" }} /> : <AlertCircle size={15} style={{ color: r.ok ? "var(--cv-warn)" : "var(--cv-bad)" }} />}
+                <div className="cv-row-main">
+                  <div className="cv-name"><span>{r.name || <i style={{ color: "var(--text-muted)" }}>no name</i>}</span>{r.tier !== "Standard" && <span className="cv-chip cv-chip-xs">{r.tier}</span>}</div>
+                  <div className="cv-sub">{[r.dept, r.username, siteOf(r.url)].filter(Boolean).join(" · ") || "-"}</div>
+                </div>
+                <span className="cv-hint" style={{ textAlign: "right" }}>
+                  {r.problems.join(", ")}{r.duplicateOf ? `${r.problems.length ? " · " : ""}already in the vault as ${r.duplicateOf.name}` : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>)}
+        {step === 3 && result && (
+          <div className="cv-empty" style={{ padding: "28px 20px" }}>
+            <CheckCircle2 size={34} style={{ color: "var(--cv-ok)", display: "block", margin: "0 auto 10px" }} />
+            <strong>{result.imported} login{result.imported === 1 ? "" : "s"} imported</strong>
+            {result.skipped + result.dups > 0 ? `${result.skipped + result.dups} already in the vault were skipped. ` : ""}{result.bad > 0 ? `${result.bad} row${result.bad === 1 ? "" : "s"} had no name, password or department and were left out. ` : ""}
+            <p className="cv-hint" style={{ marginTop: 12 }}>They are in My Logins now, owned by you{backupOwner ? ` with ${nameOf(backupOwner)} as backup` : ""}. The spreadsheet can go: delete it, and tell the team the vault is the place from now on.</p>
+          </div>
+        )}
       </div>
     </Modal>
   );

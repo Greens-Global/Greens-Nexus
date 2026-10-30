@@ -403,7 +403,7 @@ class VaultHardeningTests(unittest.TestCase):
         r = self._as(OWNER).post("/credvault/import", json={"rows": [
             {"name": "Jira", "department": "IT", "type": "Password", "username": "u", "secret": "s3cret-Long-1!", "tier": "High",
              "url": "https://jira.example.com", "note": "Shared team login"}]})
-        self.assertEqual(r.json(), {"imported": 1})
+        self.assertEqual(r.json()["imported"], 1)         # Oct 29 2026: the import also reports what it skipped
         row = [c for c in self._as(OWNER).get("/credvault/credentials").json() if c["name"] == "Jira"][0]
         self.assertEqual((row["url"], row["note"], row["tier"]), ("https://jira.example.com", "Shared team login", "High"))
 
