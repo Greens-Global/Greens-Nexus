@@ -434,18 +434,41 @@ def _tier(tiers: list, years: int) -> float:
     return rate
 
 
-def bucket_of(name: str) -> str:
-    """Which balance a leave type / punch category draws from: vacation /
+def bucket_of(name: str, pol: dict | None = None) -> str:
+    """Which balance a leave type / punch category draws from. Vacation /
     PTO / annual leave -> vacation; sick, personal and medical -> sick (one
-    balance - "sick can also mean personal"). '' = unpaid, no balance."""
+    balance - "sick can also mean personal"). '' = unpaid, no balance.
+
+    Phase 1B: if a policy is given, each extra type's `drawFromReasons`
+    checks first - a punch whose category matches one of them lands in that
+    type's bucket. Keyword matching is the fallback for the built-in two."""
     n = (name or "").strip().lower()
     if not n:
         return ""
+    if pol:
+        for t in (pol.get("extraTypes") or []):
+            tid = (t.get("id") or "").strip()
+            reasons = [str(r or "").strip().lower() for r in (t.get("drawFromReasons") or [])]
+            if tid and any(r and r in n for r in reasons):
+                return tid
     if any(w in n for w in ("vacation", "pto", "paid time off", "annual")):
         return "vacation"
     if any(w in n for w in ("sick", "personal", "medical")):
         return "sick"
     return ""
+
+
+def all_buckets(db: Session, pols: dict | None = None) -> set:
+    """Every bucket name the ledger can carry: BUCKETS plus every extra type
+    id from every saved policy. Phase 1B uses this to validate ledger writes."""
+    pols = pols if pols is not None else policies(db)
+    out = set(BUCKETS)
+    for p in pols.values():
+        for t in (p.get("extraTypes") or []):
+            tid = (t.get("id") or "").strip()
+            if tid:
+                out.add(tid)
+    return out
 
 
 # ── The balance ─────────────────────────────────────────────────────────────
@@ -599,6 +622,61 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
                          and (float(sp.get("hours") or 0) > 0 or sick_total > 0)),
         "expiresOn": f"{today.year}-12-31",
     }
+    # Phase 1B: extra leave types (bereavement, floating_holiday, jury_duty,
+    # ...) from the policy. Each type's balance is its ledger-row sum within
+    # the cutover window; a lump method's annual grant is added once the
+    # waiting period is past, mirroring sick's shape (replaced by an opening
+    # import). upcoming / pending come from the policy's drawFromReasons.
+    extras_out = []
+    for t in (pol.get("extraTypes") or []):
+        tid = (t.get("id") or "").strip()
+        if not tid:
+            continue
+        type_rows = [r for r in rows if r.bucket == tid
+                     and (r.kind == "opening" or (r.effective_date or "") >= cut)
+                     and (r.effective_date or "") <= today.isoformat()]
+        total = sum(float(r.hours or 0) for r in type_rows)
+        type_eligible = emp is not None and (
+            not (t.get("eligibleTypes") or [])
+            or (getattr(emp, "employment_type", "") or "full_time") in (t.get("eligibleTypes") or [])
+        )
+        eligible_on = ""
+        grant = None
+        if type_eligible and start is not None and t.get("method") == "lump" and float(t.get("annualHours") or 0) > 0:
+            el = start + timedelta(days=int(t.get("waitingDays") or 0))
+            eligible_on = el.isoformat()
+            opening_rows = [r for r in type_rows if r.kind == "opening"]
+            replaced = bool(opening_rows) and el <= cut_d and today.year == cut_d.year
+            if el <= today and not replaced:
+                grant = {"date": max(el, date.fromisoformat(y0)).isoformat(),
+                         "hours": float(t["annualHours"])}
+                total += grant["hours"]
+        up = 0.0
+        pd = 0.0
+        reasons = [str(r or "").strip().lower() for r in (t.get("drawFromReasons") or [])]
+        if reasons:
+            for r in (db.query(models.TimeOffRequest)
+                      .filter(models.TimeOffRequest.employee_email == email,
+                              models.TimeOffRequest.status.in_(["approved", "pending"]),
+                              models.TimeOffRequest.end_date >= today.isoformat()).all()):
+                rt = (r.type or "").strip().lower()
+                if any(x and x in rt for x in reasons):
+                    hrs = request_hours(r, hpd)
+                    if r.status == "approved":
+                        up += hrs
+                    else:
+                        pd += hrs
+        extras_out.append({
+            "id": tid, "name": t.get("name") or tid, "paid": bool(t.get("paid", True)),
+            "method": t.get("method", "none"), "available": round(total, 2),
+            "upcoming": round(up, 2), "pending": round(pd, 2),
+            "grant": grant, "eligibleOn": eligible_on,
+            "eligible": bool(type_eligible and t.get("method") != "none"
+                             and (not eligible_on or eligible_on <= today.isoformat())),
+            "carriesOver": bool(t.get("carryoverMax") or 0),
+            "payoutOnTerm": bool(t.get("payoutOnTerm", False)),
+        })
+    out["extraTypes"] = extras_out
     if with_entries:
         out["entries"] = [entry_dict(r) for r in reversed(rows)][:200]
     return out
@@ -611,19 +689,29 @@ def entry_dict(r) -> dict:
 
 
 def available(db: Session, email: str, bucket: str) -> float | None:
-    """Hours left in one bucket, or None when balances aren't set up yet."""
+    """Hours left in one bucket, or None when balances aren't set up yet.
+    Phase 1B: extra types (bereavement, floating_holiday, ...) are read from
+    the `extraTypes` list on the balance payload."""
     b = balances(db, email)
-    if not b.get("live") or bucket not in b:
+    if not b.get("live"):
         return None
-    return float(b[bucket]["available"])
+    if bucket in b:
+        return float(b[bucket]["available"])
+    for t in (b.get("extraTypes") or []):
+        if t.get("id") == bucket:
+            return float(t["available"])
+    return None
 
 
 # ── Writing ─────────────────────────────────────────────────────────────────
 
 def add_entry(db: Session, email: str, bucket: str, hours: float, kind: str, day: str,
               note: str = "", by: str = "", ref_id: str = "") -> models.LeaveLedgerEntry:
-    if bucket not in BUCKETS:
-        raise ValueError("bucket must be vacation or sick")
+    """Phase 1B: `bucket` can be `vacation`, `sick`, or any extra type id a
+    saved policy defines (bereavement, floating_holiday, jury_duty, ...).
+    Anything else is refused."""
+    if bucket not in all_buckets(db):
+        raise ValueError(f"bucket must be a configured leave type, got {bucket!r}")
     row = models.LeaveLedgerEntry(id=str(uuid.uuid4()), employee_email=(email or "").strip().lower(),
                                   bucket=bucket, hours=round(float(hours), 4), kind=kind,
                                   effective_date=day, ref_id=ref_id, note=(note or "")[:300],
@@ -632,13 +720,21 @@ def add_entry(db: Session, email: str, bucket: str, hours: float, kind: str, day
     return row
 
 
-def set_opening(db: Session, email: str, vacation: float | None, sick: float | None, by: str) -> list:
-    """The one-time import: each given bucket's opening row is replaced."""
+def set_opening(db: Session, email: str, vacation: float | None, sick: float | None, by: str,
+                extras: dict | None = None) -> list:
+    """The one-time import: each given bucket's opening row is replaced.
+
+    Phase 1B: `extras={type_id: hours}` sets opening rows for extra leave
+    types too (bereavement / floating_holiday / jury_duty / ...). Each id
+    must be a configured bucket."""
     cut = cutover_for(db, email)
     if not cut:
         raise ValueError("Set the start date first.")
     out = []
-    for bucket, hours in (("vacation", vacation), ("sick", sick)):
+    pairs = [("vacation", vacation), ("sick", sick)]
+    for tid, hours in (extras or {}).items():
+        pairs.append((tid, hours))
+    for bucket, hours in pairs:
         if hours is None:
             continue
         (db.query(models.LeaveLedgerEntry)

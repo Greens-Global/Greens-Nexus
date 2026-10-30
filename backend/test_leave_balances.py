@@ -130,6 +130,35 @@ class LeaveBalanceTests(unittest.TestCase):
                   "carryoverMax", "payoutOnTerm", "eligibleTypes", "drawFromReasons"):
             self.assertIn(k, bereav)
 
+    def test_bucket_of_reads_extra_types_from_policy(self):
+        """Phase 1B: with a policy, a request's `type` matches any extra
+        type's drawFromReasons slug. Without a policy, keyword matching
+        is the fallback (unchanged)."""
+        pol = lb.policy_for(self.db, A)
+        self.assertEqual(lb.bucket_of("Bereavement", pol), "bereavement")
+        self.assertEqual(lb.bucket_of("funeral leave", pol), "bereavement")
+        self.assertEqual(lb.bucket_of("Floating Holiday", pol), "floating_holiday")
+        self.assertEqual(lb.bucket_of("Jury Duty", pol), "jury_duty")
+        self.assertEqual(lb.bucket_of("Vacation", pol), "vacation")
+        self.assertEqual(lb.bucket_of("Vacation"), "vacation")
+        self.assertEqual(lb.bucket_of("Bereavement"), "")
+
+    def test_extra_type_opening_balance_imports_and_shows(self):
+        """Phase 1B: set_opening accepts `extras`, add_entry allows extra
+        bucket names, and balances() surfaces them in `extraTypes`."""
+        self._cutover()
+        lb.set_opening(self.db, A, None, None, HR_EMAIL, extras={"bereavement": 16, "floating_holiday": 8})
+        self.db.commit()
+        b = lb.balances(self.db, A, today=TODAY)
+        extras = {t["id"]: t for t in b["extraTypes"]}
+        self.assertIn("bereavement", extras)
+        self.assertIn("floating_holiday", extras)
+        self.assertEqual(extras["bereavement"]["available"], 16.0)
+        self.assertEqual(lb.available(self.db, A, "bereavement"), 16.0)
+        self.assertEqual(lb.available(self.db, A, "floating_holiday"), 8.0)
+        with self.assertRaises(ValueError):
+            lb.add_entry(self.db, A, "wat_is_this", 1, "adjust", "2026-10-01")
+
     def test_extra_types_round_trip_through_save(self):
         """HR edits a policy and adds a comp_time type - it is persisted and
         validated. Fields outside the schema are dropped; bad ids are refused."""
