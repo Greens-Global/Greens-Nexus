@@ -1,5 +1,6 @@
-// The profile menu's Tools section (Neil, Oct 25 2026): Act As, then Build
-// Mode and Testing - one "Tools" label, no subheadings - each row shown only to
+// The profile menu's Tools section (Neil, Oct 25 2026): Insights (moved off
+// the left menu, Neil, Oct 29 2026), Act As, then Build Mode and Testing -
+// one "Tools" label, no subheadings - each row shown only to
 // people who can use it - the same checks the server enforces - and the
 // whole section absent for everyone else. Act As is a people finder inside
 // the menu (no modal, no screen): the menu swaps to it, nobody is listed
@@ -17,8 +18,10 @@ import { usePhotoMap } from '../lib/peoplePhotos';
 import { isTypingTarget } from '../lib/keys';
 import { formatTime } from '../lib/datetime';
 import { LoadingState } from './AsyncState';
+import InsightsChart from './icons/InsightsChart';
 
 const TESTING_NAV = NAV.find((item) => item.view === 'testing');
+const INSIGHTS_NAV = NAV.find((item) => item.view === 'bi');
 const SHOWN = 5;
 const FIELDS = ['title', 'department', 'company', 'site', 'roleLabel'];
 const RECENT_KEY = 'nexus:act-as-recent';
@@ -140,6 +143,8 @@ export function ToolsSection({ onClose, onOpenActAs }) {
   // role here is the target's, so the Exit card shows whatever it says.
   const canActAs = !actingAs && !isExternal && (!!can?.('manager') || !!myGrantedModules?.has('act-as'));
   const canTesting = !!TESTING_NAV && isNavItemVisible(TESTING_NAV, { isExternal, can, myGrantedModules, qaEnabled });
+  // The left menu's own rule for Insights, unchanged since it moved here.
+  const canInsights = !!INSIGHTS_NAV && isNavItemVisible(INSIGHTS_NAV, { isExternal, can, myGrantedModules });
   const support = canActAs || !!actingAs;
   const developer = buildMode.enabled || canTesting;
 
@@ -156,7 +161,7 @@ export function ToolsSection({ onClose, onOpenActAs }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [canActAs, onOpenActAs]);
 
-  if (!support && !developer) return null;
+  if (!canInsights && !support && !developer) return null;
 
   async function exit() {
     setStopping(true);
@@ -167,6 +172,13 @@ export function ToolsSection({ onClose, onOpenActAs }) {
     <div className="hud-tools" data-testid="tools-section">
       <div className="hud-divider" />
       <div className="hud-sec">Tools</div>
+      {canInsights && (
+        <button type="button" className="hud-item"
+          onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'bi' } })); }}>
+          <InsightsChart size={14} /> Insights
+          <span className="hud-end"><ChevronRight size={14} /></span>
+        </button>
+      )}
       {support && (
         <>
           {actingAs ? (

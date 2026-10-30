@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 
+// A computer: the browser can record a screen (Record Screen hides where it cannot - a phone, Oct 30 2026).
+if (!navigator.mediaDevices) Object.defineProperty(navigator, 'mediaDevices', { value: { getDisplayMedia: () => {} }, configurable: true });
+
 // Tickets, Oct 6 (Pranshu): the screen-recording area on Create a Ticket is its
 // own obvious card; the Conversation can record / attach again ("if the same
 // issue happens again there's no option to add a recording"); the list fits

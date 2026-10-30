@@ -363,6 +363,10 @@ def refresh_metric(db: Session, g: models.PerfGoal, today: Optional[str] = None)
     return True
 
 
+# A Done-or-Not goal still open once this share of its period is gone is At Risk.
+DONE_AT_RISK_SHARE = 0.85
+
+
 def computed_status(g: models.PerfGoal, today: Optional[str] = None, applies: bool = True) -> str:
     today = today or local_today()
     md = _metric_def(g)
@@ -390,6 +394,11 @@ def computed_status(g: models.PerfGoal, today: Optional[str] = None, applies: bo
         return "on_track"
     if ended:
         return "behind"
+    if g.measure == "done" and md is None:
+        # Done or Not has no halfway, so it cannot keep pace with the time
+        # gone: it read Behind from its second day. It is On Track until the
+        # last stretch of its period, then At Risk (Oct 29 2026).
+        return "at_risk" if share >= DONE_AT_RISK_SHARE else "on_track"
     expected = share * 100
     if p >= expected:
         return "on_track"

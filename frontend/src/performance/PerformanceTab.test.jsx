@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 
 // Workday > Performance and People > Performance, made simple (Oct 29 2026):
 // the employee page paints My Numbers, My Goals (computed status, Measured
@@ -137,6 +137,23 @@ describe('Workday > Performance', () => {
     await waitFor(() => expect(m.perfOneOnOne).toHaveBeenCalledWith('s1'));
   });
 
+  it('the shared notes take dictation (Oct 30 2026)', async () => {
+    let rec;
+    window.webkitSpeechRecognition = function SR() { rec = this; this.start = vi.fn(); this.stop = vi.fn(() => this.onend?.()); this.abort = vi.fn(); };
+    try {
+      m.perfMe.mockResolvedValue(CTX);
+      m.perfGoals.mockResolvedValue([]);
+      m.perfOneOnOnes.mockResolvedValue([SERIES]);
+      m.perfOneOnOne.mockResolvedValue({ ...SERIES, meetings: [{ id: 'm1', at: '2099-11-02T18:00:00Z', label: '11/02/2099 at 10:00 AM',
+        status: 'scheduled', sharedNotes: '', agenda: [], actions: [] }] });
+      render(<PerformanceTab focus={{ sub: 'performance:1on1:s1' }} />);
+      fireEvent.click(await screen.findByRole('button', { name: /Say the Shared Notes/ }));
+      await act(async () => { rec.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'wants to lead the Austin rollout' } }] }); });
+      expect(screen.getByLabelText('Shared Notes').value).toBe('Wants to lead the Austin rollout');
+      expect(screen.getByRole('button', { name: 'Save Notes' })).toBeTruthy();
+    } finally { delete window.webkitSpeechRecognition; }
+  });
+
   it('on a phone it is one column: goal cards and the team as rows, no header row', async () => {
     phone(true);
     m.perfMe.mockResolvedValue({ ...CTX, hasTeam: true, reports: [{ email: 'pat@x.com', name: 'Pat Test' }] });
@@ -203,7 +220,7 @@ describe('People > Performance', () => {
     render(<PerformanceAdmin />);
     expect(await screen.findByText('Grow 10%')).toBeTruthy();
     const everyone = screen.getByRole('region', { name: "Everyone's Goals" });
-    const titles = within(everyone).getAllByText(/one$/).map(n => n.textContent);
+    const titles = within(within(everyone).getByRole('list')).getAllByText(/one$/).map(n => n.textContent);
     expect(titles).toEqual(['Late one', 'Fine one']);
     fireEvent.click(screen.getByText('New Review Cycle'));
     const dialog = await screen.findByRole('dialog');

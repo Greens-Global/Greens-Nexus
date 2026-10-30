@@ -2438,6 +2438,10 @@ html { overflow-x: hidden; }
   input[type="search"], input[type="email"], input[type="tel"], input[type="url"], input[type="password"], textarea, select {
     font-size: 16px !important;
   }
+  /* ...and a rich-text editor zooms the same way: Quick Note's 14.5px
+     editor zoomed the page in on an iPhone, cutting the text off at the
+     right and throwing the keyboard bar off (Neil, Oct 30 2026). */
+  .ProseMirror[contenteditable="true"] { font-size: 16px; }
 
   /* ...but the OPEN list inherits that 16px, so a dropdown read a size larger
      than everything around it (Sagar, Sept 1 2026). The options carry the
@@ -6276,6 +6280,9 @@ body:has(.docs-root) { overflow-x: clip; }
 }
 @media (max-width: 900px) {
   .help-menu-btn { display: none; }
+  /* No button here on a phone, and the widget is full-screen: the empty
+     wrapper must not take a gap in the header row beside NEXUS. */
+  .help-menu-wrap { display: contents; }
   .help-widget {
     inset: 0; width: 100%; height: 100%; height: 100dvh;
     border-radius: 0; border: none; z-index: 1000;
@@ -6593,6 +6600,16 @@ body:has(.docs-root) { overflow-x: clip; }
 /* Its own animation, not a transition: the opening one holds 1fr, and a held
    animation value outranks any class change. */
 .feature-banner.is-closing { animation: fb-close .3s cubic-bezier(.4, 0, .2, 1) both; }
+/* A header over the whole app (Neil, Oct 30 2026): the bar runs the full
+   width of the window, across the left menu, instead of over the page alone.
+   It is fixed at the very top; the left menu, the page and its sticky header
+   start under it by its measured height (--nx-announce-h, set by
+   FeatureBanner on its row), and the full-height views already subtract the
+   same height. Above the menu, under every popup. */
+.feature-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 150; }
+.main-content { padding-top: var(--nx-announce-h, 0px); }
+.top-header { top: var(--nx-announce-h, 0px); }
+.sidebar { top: var(--nx-announce-h, 0px); height: calc(100vh - var(--nx-announce-h, 0px)); }
 @keyframes fb-open { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
 @keyframes fb-close { from { grid-template-rows: 1fr; opacity: 1; } to { grid-template-rows: 0fr; opacity: 0; } }
 /* One flash of light across the bar once it has settled - not a loop
@@ -7825,3 +7842,303 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .nx-ntf-row { grid-template-columns: 16px minmax(0, 1fr) 32px; }
   .nx-ntf-link { padding: 9px 0; margin-top: -2px; margin-bottom: -6px; }
 }
+/* Performance, flat (Oct 29 2026): goals are rows in one hairline list, not a
+   box each; the progress has its own column so the bars line up; a team row
+   bands and lights on hover; figures are counts with a dot, hairlines between. */
+.nx-perf-list { border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+.nx-perf-list > .nx-perf-row + .nx-perf-row { border-top: 1px solid var(--line); }
+.nx-perf-row { transition: background .12s; }
+.nx-perf-row:hover { background: color-mix(in srgb, var(--card), var(--ink) 3%); }
+.nx-perf-goal { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 240px) minmax(96px, auto); gap: 8px 18px; align-items: center;
+  width: 100%; min-height: 56px; padding: 11px 14px; border: none; background: transparent; text-align: left; cursor: pointer;
+  font-family: inherit; color: var(--ink); }
+.nx-perf-goal:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
+.nx-perf-prog { display: block; min-width: 0; }
+@media (max-width: 640px) {
+  .nx-perf-goal { grid-template-columns: minmax(0, 1fr) auto; }
+  .nx-perf-goal .nx-perf-prog { grid-column: 1 / -1; grid-row: 2; }
+}
+.nx-perf-trow { background: transparent; transition: background .12s; }
+.nx-perf-trow:nth-of-type(even) { background: color-mix(in srgb, var(--card), var(--ink) 2%); }
+.nx-perf-trow:hover { background: color-mix(in srgb, var(--card), var(--ink) 5%); }
+.nx-perf-trow:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
+.nx-perf-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.nx-perf-fig { display: grid; gap: 3px; align-content: start; padding: 10px 14px; background: var(--card); text-align: left; min-width: 0;
+  border: none; font-family: inherit; color: var(--ink); }
+.nx-perf-fig-btn { cursor: pointer; min-height: 56px; transition: background .12s, box-shadow .12s; }
+.nx-perf-fig-btn:hover { background: color-mix(in srgb, var(--card), var(--ink) 4%); }
+.nx-perf-fig-btn[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--rule, var(--wk-brand)); background: color-mix(in srgb, var(--card), var(--ink) 3%); }
+.nx-perf-fig-btn:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
+.nx-perf-fig-n { font-size: 20px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.nx-perf-fig-l { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.nx-perf-fig-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+/* Performance: feedback, kudos, plans, calibration (Oct 29 2026) - the
+   same flat hairline rows as the goals, no boxes inside boxes. */
+.nx-perf-fb { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%;
+  min-height: 52px; padding: 9px 12px; border: none; background: transparent; text-align: left; cursor: pointer;
+  font-family: inherit; color: var(--ink); }
+.nx-perf-fb:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
+.nx-perf-kudo { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px 12px; }
+.nx-perf-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: none;
+  border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; flex-shrink: 0; }
+.nx-perf-icon-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--card), var(--ink) 6%); color: var(--ink); }
+.nx-perf-icon-btn:disabled { opacity: .35; cursor: default; }
+.nx-perf-icon-btn:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 1px; }
+.nx-plan-exp { display: grid; grid-template-columns: 18px minmax(0, 1.2fr) minmax(0, 1fr) 36px; gap: 8px; align-items: start; }
+.nx-plan-line { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; }
+.nx-cal-col { min-width: 0; border-top: 2px solid var(--rule, var(--line)); padding-top: 8px; }
+.nx-cal-person { padding: 9px 0; border-top: 1px solid var(--line); min-width: 0; }
+@media (max-width: 640px) {
+  .nx-plan-exp { grid-template-columns: 18px minmax(0, 1fr) 36px; }
+  .nx-plan-exp > input + input { grid-column: 2; grid-row: 2; }
+  .nx-plan-line { grid-template-columns: 18px minmax(0, 1fr); }
+  .nx-plan-line > :last-child { grid-column: 2; justify-self: start; }
+}
+
+/* ── Header Create menu (Neil, Oct 29 2026; components/QuickCreate.jsx) ──
+   The "+" beside the search bar. Its panel is the profile menu's
+   (.header-user-dropdown / .hud-sec / .hud-item), a little wider, and
+   scrolls when the screen is short. On a phone it is a full-width sheet
+   under the header with 44px rows. */
+.qc-wrap { position: relative; }
+/* An action button, not another grey icon (Neil, Oct 30 2026): Nexus green
+   with a white "+", the same green as Notes' New Note, in both themes. */
+.icon-btn.qc-btn { background: #00a25b; color: #fff; }
+.icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] { background: #008a4c; }
+.icon-btn.qc-btn:active { background: #007a43; }
+.icon-btn.qc-btn:focus-visible { outline-offset: 2px; }
+.qc-btn:focus-visible, .qc-item:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
+.qc-item:focus { background: var(--sidebar-hover-bg); }
+.header-user-dropdown.qc-menu { width: 248px; max-height: calc(100dvh - 88px); overflow-y: auto; overscroll-behavior: contain; }
+@media (max-width: 900px) {
+  .qc-btn { width: 44px; height: 44px; }
+  /* The header's backdrop blur makes it the box "fixed" measures from, so
+     this pins to the header's bottom edge, full width with a gutter. */
+  .header-user-dropdown.qc-menu {
+    position: fixed; top: calc(100% + 6px); left: 8px; right: 8px; width: auto;
+    max-height: calc(100dvh - 140px - env(safe-area-inset-bottom));
+  }
+  .qc-menu .qc-item { min-height: 44px; font-size: 14px; }
+}
+/* The bell matches the header's other buttons (Neil, 10/29/2026: it read
+   smaller than the "+" and the photo beside it). Its size is inline in
+   components/NotificationBell.jsx (Visesh's file), hence !important here:
+   40px like .icon-btn on a computer, 44px like the "+" on a phone, where
+   the photo button grows to 44 too. */
+.header-right button[aria-label="Notifications"] { width: 40px !important; height: 40px !important; }
+.header-right button[aria-label="Notifications"] > svg { width: 18px !important; height: 18px !important; }
+@media (max-width: 900px) {
+  .header-right button[aria-label="Notifications"] { width: 44px !important; height: 44px !important; }
+}
+/* Three 44px buttons beside the centered NEXUS wordmark on a small phone. */
+@media (max-width: 640px) { .header-right { gap: 6px; } }
+/* Under 380px (360px Androids, zoomed iPhones) all three drop to 40px
+   together - still equal, and clear of the wordmark. */
+@media (max-width: 380px) {
+  .qc-btn { width: 40px; height: 40px; margin: 0; }
+  .header-right button[aria-label="Notifications"] { width: 40px !important; height: 40px !important; }
+  .header-right .header-user-pill { padding: 4px; }
+}
+/* 320px (a zoomed iPhone): a tighter wordmark and gap keep NEXUS off the "+". */
+@media (max-width: 340px) {
+  .header-right { gap: 4px; }
+  .header-brand { letter-spacing: 0.08em; font-size: 12px; padding: 8px 2px; transform: translateX(calc(-50% - 8px)); }
+  /* With a Back arrow the left side is full too: stay centered. */
+  .top-header:has(.header-back-mobile) .header-brand { transform: translateX(-50%); }
+}
+/* On a phone the Quick Note button leaves the top bar - the "+" offers New
+   Note under New Task (lib/quickCreate.js). Here, not in notes/notes.css:
+   that file loads only once Notes has opened. The button stays mounted, so
+   the shortcut and the nexus:quick-note event still open the panel. */
+@media (max-width: 900px) { .nt-header-btn { display: none; } }
+/* Room beside the centered NEXUS wordmark on a phone: the "+" takes a 40px
+   slot with a 44px hit area, and the profile pill is the avatar alone. */
+@media (max-width: 640px) {
+  .qc-btn { margin: 0 -2px; }
+  .header-user-pill { padding: 6px; }   /* 32px photo + 12 = 44, the "+" and the bell's size */
+  .header-user-pill > svg:last-child { display: none; }
+}
+
+/* ── Dashboard > Approvals (approvals/ApprovalsCenter.jsx, Oct 30 2026) ─────── */
+.apv-center { font-family: Inter, sans-serif; color: var(--ink); padding: 2px 0 48px; }
+.apv-head { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }
+.apv-tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--mist, var(--surface-2, #f1f3f8)); align-self: flex-start; }
+.apv-tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 14px; min-height: 34px; border: none; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.apv-tabs button.is-on { background: var(--card); color: var(--ink); box-shadow: var(--wk-shadow, 0 1px 2px rgba(16,24,40,.08)); }
+.apv-tabs button b { font-size: 12px; padding: 1px 7px; border-radius: 999px; background: var(--wk-brand-tint); color: var(--wk-brand); }
+.apv-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.apv-tile { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "ic n" "ic l"; column-gap: 12px; align-items: center; text-align: left; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); cursor: pointer; font: inherit; color: var(--ink); transition: border-color .15s, box-shadow .15s; }
+.apv-tile:hover { border-color: color-mix(in srgb, var(--c, var(--wk-brand)) 40%, var(--line)); }
+.apv-tile.is-on { border-color: var(--c, var(--wk-brand)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c, var(--wk-brand)) 14%, transparent); }
+.apv-tile[data-tone="brand"] { --c: var(--wk-brand); } .apv-tile[data-tone="red"] { --c: #dc2626; } .apv-tile[data-tone="amber"] { --c: #d97706; } .apv-tile[data-tone="green"] { --c: #16a34a; }
+.apv-tile-ic { grid-area: ic; width: 36px; height: 36px; border-radius: 10px; display: inline-grid; place-items: center; background: color-mix(in srgb, var(--c) 12%, transparent); color: var(--c); }
+.apv-tile-n { grid-area: n; font-size: 22px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.apv-tile-l { grid-area: l; font-size: 12px; font-weight: 600; color: var(--muted); }
+.apv-body { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
+.apv-body.is-wide { grid-template-columns: 220px minmax(0, 1fr) 360px; }
+.apv-rail { position: sticky; top: 72px; display: grid; gap: 14px; }
+.apv-rail-g { display: grid; gap: 2px; }
+.apv-rail-t { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 0 10px 6px; }
+.apv-rail-i { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 7px 10px; border: none; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; text-align: left; }
+.apv-rail-i span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-rail-i b { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.apv-rail-i:hover { background: var(--mist, var(--surface-2)); }
+.apv-rail-i.is-on { background: var(--wk-brand-tint); color: var(--wk-brand); font-weight: 700; }
+.apv-rail-i.is-on b { color: var(--wk-brand); }
+.apv-main { min-width: 0; display: grid; gap: 12px; }
+.apv-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.apv-search { position: relative; flex: 1 1 240px; min-width: 200px; }
+.apv-search input { width: 100%; padding-left: 32px; }
+.apv-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.apv-tools label { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.apv-tools select { width: auto; min-width: 130px; }
+.apv-keys-btn { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--muted); display: inline-grid; place-items: center; cursor: pointer; }
+.apv-keys-btn:hover { color: var(--ink); }
+.apv-active-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.apv-link { background: none; border: none; padding: 0; color: var(--wk-brand); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.apv-errors { font-size: 12.5px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.apv-card { border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+.apv-card + .apv-card { margin-top: 14px; }
+.apv-bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--surface-2, var(--card)); font-size: 13px; color: var(--muted); }
+.apv-bar span { flex: 1; min-width: 0; }
+.apv-bar input, .apv-pick input { width: 16px; height: 16px; margin: 0; accent-color: var(--wk-brand); cursor: pointer; }
+.apv-bar .primary-btn { font-size: 12.5px; padding: 6px 14px; white-space: nowrap; }
+.apv-section-h { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 16px; border: none; border-top: 1px solid var(--line); background: var(--surface-2, var(--card)); color: var(--ink); font: inherit; font-size: 12.5px; font-weight: 700; text-align: left; cursor: pointer; }
+.apv-section:first-child > .apv-section-h, .apv-card > .apv-section-h:first-child { border-top: none; }
+.apv-section-h.is-static { cursor: default; }
+.apv-section-h b { font-size: 12px; padding: 1px 7px; border-radius: 999px; background: var(--wk-brand-tint); color: var(--wk-brand); }
+.apv-section-h em { font-style: normal; font-weight: 500; color: var(--muted); margin-left: 4px; }
+.apv-section-h .apv-link { margin-left: auto; }
+.apv-chev { color: var(--muted); transition: transform .15s; }
+.apv-chev.is-open { transform: rotate(90deg); }
+.apv-own .apv-section-h { background: color-mix(in srgb, #7c3aed 6%, var(--card)); }
+.apv-row { display: grid; grid-template-columns: 20px minmax(150px, 210px) minmax(0, 1fr) 88px 70px auto; grid-template-areas: "pick who what prio age act"; gap: 6px 12px; align-items: center; padding: 11px 16px; border-top: 1px solid var(--line); background: var(--card); position: relative; }
+.apv-row.is-focused { background: var(--wk-brand-tint); box-shadow: inset 3px 0 0 var(--wk-brand); }
+.apv-row[data-priority="urgent"]:not(.is-focused) { box-shadow: inset 3px 0 0 #dc2626; }
+.apv-pick { grid-area: pick; display: flex; align-items: center; }
+.apv-who { grid-area: who; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.apv-who-t { min-width: 0; display: grid; }
+.apv-name { font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-sub { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-what { grid-area: what; min-width: 0; }
+.apv-title { background: none; border: none; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; font-size: 13.5px; font-weight: 600; line-height: 1.35; display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
+.apv-title span { overflow-wrap: anywhere; }
+.apv-title svg { color: var(--muted); flex-shrink: 0; }
+.apv-title:hover { text-decoration: underline; }
+.apv-detail { font-size: 12.5px; color: var(--muted); margin-top: 2px; line-height: 1.4; overflow-wrap: anywhere; }
+.apv-prio { grid-area: prio; font-size: 12.5px; }
+.apv-age { grid-area: age; text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.apv-age.is-slow { color: #d97706; font-weight: 600; }
+.apv-age.is-late { color: #dc2626; font-weight: 700; }
+.apv-act { grid-area: act; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.apv-act button { font-size: 12.5px; padding: 6px 12px; white-space: nowrap; }
+.apv-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 8px; }
+.apv-no, .apv-review { padding: 7px 14px; font-size: 13px; line-height: 1.3; white-space: nowrap; font-family: inherit; font-weight: 600; cursor: pointer; }
+.apv-no { background: var(--apv-red, #dc2626); color: #fff; border: 1px solid var(--apv-red, #dc2626); }
+.apv-no:hover:not(:disabled) { filter: brightness(.92); }
+.apv-review { background: color-mix(in srgb, var(--ink) 9%, var(--card)); color: var(--ink); border: 1px solid transparent; }
+.apv-review:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 14%, var(--card)); }
+.apv-no:focus-visible, .apv-review:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: 2px; }
+.apv-mark { border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--line); color: var(--muted); }
+.apv-empty { padding: 48px 20px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; background: var(--card); }
+.apv-empty-t { font-size: 16px; font-weight: 700; margin-top: 10px; }
+.apv-empty-d { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+.apv-detail-col { position: sticky; top: 72px; min-width: 0; }
+.apv-detail-card { display: flex; flex-direction: column; gap: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 16px; max-height: calc(100vh - 100px); overflow: auto; }
+.apv-detail-card.in-modal { border: none; padding: 0; max-height: none; flex: 1; min-height: 0; }
+.apv-detail-top { display: flex; align-items: center; justify-content: space-between; }
+.apv-detail-kind { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.apv-x { width: 28px; height: 28px; border-radius: 8px; border: none; background: transparent; color: var(--muted); display: inline-grid; place-items: center; cursor: pointer; }
+.apv-x:hover { background: var(--mist, var(--surface-2)); color: var(--ink); }
+.apv-detail-who { display: flex; align-items: center; gap: 12px; }
+.apv-detail-name { font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+.apv-detail-meta { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.apv-detail-title { margin: 0; font-size: 16px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.apv-detail-wait { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.apv-detail-text { margin: 0; font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.apv-facts { display: grid; grid-template-columns: minmax(110px, 150px) minmax(0, 1fr); border-top: 1px solid var(--line); align-content: start; }
+.apv-facts > div { padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; line-height: 1.5; }
+.apv-facts > div:nth-child(odd) { color: var(--muted); padding-right: 12px; }
+.apv-facts > div:nth-child(even) { color: var(--ink); font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere; }
+.apv-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; padding-top: 4px; }
+.apv-detail-empty { border: 1px dashed var(--line); border-radius: 12px; padding: 40px 20px; text-align: center; color: var(--muted); display: grid; gap: 8px; justify-items: center; font-size: 13.5px; }
+.apv-detail-empty small { font-size: 12px; line-height: 1.5; }
+.apv-keys { display: grid; gap: 8px; font-size: 13.5px; }
+.apv-keys > div { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 12px; }
+.apv-keys kbd { display: inline-block; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-2, var(--card)); font-family: ui-monospace, monospace; font-size: 12px; text-align: center; }
+.apv-keys p { margin: 8px 0 0; color: var(--muted); font-size: 12.5px; }
+.apv-hrow { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); }
+.apv-hwhat { min-width: 0; }
+.apv-htitle { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
+.apv-hwhen { font-size: 12px; color: var(--muted); white-space: nowrap; text-align: right; }
+.apv-hwhen span { display: block; }
+.apv-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1300; max-width: min(640px, calc(100vw - 32px)); display: flex; align-items: center; gap: 14px; padding: 10px 14px 10px 18px; border-radius: 10px; box-shadow: var(--shadow-lg); background: var(--ink); color: var(--paper); font-size: 13px; font-weight: 600; }
+.apv-toast.is-error { background: hsl(var(--color-red)); color: #fff; }
+.apv-toast > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.apv-toast-undo { background: none; border: none; color: hsl(var(--color-green)); font-weight: 800; font-size: 13px; cursor: pointer; padding: 2px 4px; font-family: inherit; }
+.apv-toast-open { background: none; border: none; color: inherit; text-decoration: underline; font-weight: 700; font-size: 13px; cursor: pointer; padding: 2px 4px; font-family: inherit; white-space: nowrap; }
+@media (max-width: 1180px) { .apv-body { grid-template-columns: 200px minmax(0, 1fr); } }
+@media (max-width: 760px) {
+  .apv-body { grid-template-columns: minmax(0, 1fr); }
+  .apv-tiles { grid-template-columns: 1fr 1fr; }
+  .apv-row { grid-template-columns: 22px minmax(0, 1fr) auto; grid-template-areas: "pick who prio" ". what what" ". age age" "act act act"; gap: 8px 10px; align-items: start; padding: 14px 16px; }
+  .apv-row[data-priority="urgent"] { box-shadow: inset 4px 0 0 #dc2626; }
+  .apv-row[data-priority="high"] { box-shadow: inset 4px 0 0 #d97706; }
+  .apv-pick input { width: 20px; height: 20px; }
+  .apv-name, .apv-title { font-size: 15px; }
+  .apv-detail { font-size: 13.5px; }
+  .apv-age { text-align: left; font-size: 12.5px; }
+  .apv-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .apv-search { grid-column: 1 / -1; min-width: 0; }
+  .apv-search input { font-size: 16px; min-height: 44px; }
+  .apv-tools label { flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
+  .apv-tools select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
+  .apv-facts { grid-template-columns: minmax(0, 1fr); }
+  .apv-facts > div:nth-child(odd) { border-bottom: none; padding-bottom: 0; }
+  .apv-act { justify-content: stretch; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .apv-act button { flex: 1 1 92px; min-width: 0; min-height: 44px; padding: 0 10px; font-size: 14px; border-radius: 10px; overflow: hidden; text-overflow: ellipsis; }
+  .apv-foot button { flex: 1 1 92px; min-width: 0; min-height: 44px; justify-content: center; font-size: 14px; border-radius: 10px; }
+  .apv-foot .apv-open { flex-basis: 100%; }
+  .apv-foot > span { display: none; }
+}
+/* Voice anywhere (components/DictateButton.jsx, VoiceNoteButton.jsx; Neil,
+   Oct 30 2026). The mic sits beside or inside a text box; a voice note
+   shows a red dot and its clock while it records. */
+.nx-dictate { position: relative; display: inline-flex; flex-shrink: 0; }
+.nx-mic {
+  width: 32px; height: 32px; display: inline-grid; place-items: center; border: none; border-radius: 8px;
+  background: transparent; color: var(--muted, #676879); cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.nx-mic:hover { background: var(--wk-hover, rgba(0,0,0,.05)); color: var(--ink, #323338); }
+.nx-mic.is-on { background: var(--wk-red, #e2445c); color: #fff; animation: nx-mic-pulse 1.4s ease-in-out infinite; }
+@keyframes nx-mic-pulse { 50% { box-shadow: 0 0 0 5px rgba(226, 68, 92, .18); } }
+@media (prefers-reduced-motion: reduce) { .nx-mic.is-on { animation: none; } }
+.nx-dictate-live {
+  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 30; max-width: min(320px, 80vw); width: max-content;
+  padding: 6px 10px; border-radius: 8px; background: #111827; color: #fff; font: 500 12.5px/1.35 'Inter', system-ui, sans-serif;
+  box-shadow: 0 8px 24px rgba(0,0,0,.2); pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nx-dictate-live.is-bad { background: var(--wk-red, #e2445c); white-space: normal; }
+.nx-voice {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; flex-shrink: 0; cursor: pointer;
+  border: 1px solid var(--wk-line2, #e6e9ef); border-radius: 8px; background: var(--card, #fff); color: var(--ink, #323338);
+  font: 600 13px 'Inter', system-ui, sans-serif;
+}
+.nx-voice.is-compact { width: 34px; padding: 0; justify-content: center; }
+.nx-voice:disabled { opacity: .5; cursor: default; }
+.nx-rec {
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 10px; border-radius: 8px;
+  background: rgba(226, 68, 92, .08); color: var(--ink, #323338); font: 600 13px 'Inter', system-ui, sans-serif;
+}
+.nx-rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--wk-red, #e2445c); animation: nx-rec-pulse 1.2s ease-in-out infinite; }
+@keyframes nx-rec-pulse { 50% { opacity: .35; transform: scale(.8); } }
+@media (prefers-reduced-motion: reduce) { .nx-rec-dot { animation: none; } }
+.nx-rec-time { font-variant-numeric: tabular-nums; }
+.nx-rec-stop {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: none; border-radius: 6px;
+  background: var(--wk-red, #e2445c); color: #fff; font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.nx-rec-x { width: 26px; height: 26px; display: grid; place-items: center; border: none; border-radius: 6px; background: transparent; color: var(--muted, #676879); cursor: pointer; }
+.nx-rec-error { display: block; margin-top: 4px; font-size: 12px; color: var(--wk-red, #e2445c); }
+@media (max-width: 768px) { .nx-mic { width: 40px; height: 40px; } .nx-voice, .nx-rec { height: 40px; } }

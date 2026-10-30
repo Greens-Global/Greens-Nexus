@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, within, waitFor } from '@testing-library/react';
 
-// Render-smoke for Approvals (/approvals): every state paints something
+// Render-smoke for Dashboard > Approvals (approvals/ApprovalsCenter.jsx): every state paints something
 // (loading, empty, a failing source, rows), the chips filter by kind with
 // counts, and a decision leaves at once, can be undone, and only then calls
 // the module's own endpoint - a refusal brings the row back.
 
 const approvalsInbox = vi.fn();
+const decided = vi.fn(() => Promise.resolve({ id: 'd1' }));
 const timeOffDecide = vi.fn();
 const decideReimbursement = vi.fn();
 const addTaskComment = vi.fn();
@@ -16,6 +17,8 @@ const hrApi = { timeOffHrDecide: vi.fn(), decideSalaryAdvance: vi.fn(), probatio
 vi.mock('../api', () => ({
   api: {
     approvalsInbox: (...a) => approvalsInbox(...a),
+    approvalsHistory: () => Promise.resolve({ days: 30, decidedToday: 0, decidedWeek: 2, avgWaitDays: 1.5, rows: [] }),
+    approvalsDecided: (...a) => decided(...a),
     timeOffDecide: (...a) => timeOffDecide(...a),
     decideReimbursement: (...a) => decideReimbursement(...a),
     addTaskComment: (...a) => addTaskComment(...a),
@@ -28,14 +31,14 @@ vi.mock('../api', () => ({
   },
 }));
 const prompt = vi.fn();
-vi.mock('../ui/dialog', () => ({ dialog: { prompt: (...a) => prompt(...a), confirm: vi.fn() } }));
+vi.mock('../ui/dialog', () => ({ dialog: { prompt: (...a) => prompt(...a), confirm: vi.fn(() => Promise.resolve(true)) } }));
 // The rows' profile pictures carry the person hover card, which reads the role.
 vi.mock('../contexts/RoleContext', async (importOriginal) => ({
   ...(await importOriginal()),
   useRole: () => ({ isExternal: false, can: () => false, myGrantedModules: new Set(), myEmail: 'me@greensglobal.com' }),
 }));
 
-const { default: Approvals } = await import('./Approvals');
+const { default: Approvals } = await import('./ApprovalsCenter');
 const { UNDO_MS, shortName, waited, runApproval, runsInline } = await import('../lib/approvalActions');
 
 const iso = (hoursAgo) => new Date(Date.now() - hoursAgo * 3600e3).toISOString();
@@ -91,6 +94,27 @@ describe('Approvals', () => {
     rerender(<Approvals activeSub="money" onSubChange={onSubChange} />);
     expect(screen.queryByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)')).toBeNull();
     expect(screen.getByText('Reimbursement - $142.50 (2 receipts)')).toBeTruthy();
+  });
+
+  // Neil, 10/29/2026: Reject is red, Review is grey, Approve stays the
+  // primary, and the priority is easy to see on each card.
+  it('draws Reject red, Review grey, Approve primary, and labels the priority', async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    render(<Approvals activeSub={null} onSubChange={() => {}} />);
+    await screen.findByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)');
+    const off = screen.getByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)').closest('.apv-row');
+    const btn = (row, name) => within(row).getByRole('button', { name: new RegExp(`^${name}:`) });
+    expect(btn(off, 'Reject').className).toContain('apv-no');
+    expect(btn(off, 'Review').className).toContain('apv-review');
+    expect(btn(off, 'Approve').className).toContain('primary-btn');
+    const money = screen.getByText('Reimbursement - $142.50 (2 receipts)').closest('.apv-row');
+    // Send Back is not a no: the plain secondary, never red.
+    expect(btn(money, 'Send Back').className).toContain('secondary-btn');
+    expect(btn(money, 'Send Back').className).not.toContain('apv-no');
+    // The urgent row says so in words, and carries the attribute the phone's colored rule keys on.
+    expect(money.getAttribute('data-priority')).toBe('urgent');
+    expect(within(money).getByText('Urgent').closest('.apv-prio')).toBeTruthy();
+    expect(within(off).getByText('Medium')).toBeTruthy();
   });
 
   it('shows a friendly empty state', async () => {
@@ -185,11 +209,12 @@ describe('Approvals', () => {
     expect(row.querySelector('img, [title], div')).toBeTruthy();   // the avatar sits in the row
     vi.useFakeTimers({ shouldAdvanceTime: true });
     fireEvent.click(within(row).getByRole('button', { name: /^Review:/ }));
-    const dlg = await screen.findByRole('dialog');
+    // On a wide screen (jsdom has no narrow media query) the detail sits beside the list; on a phone it is a popup.
+    const dlg = await screen.findByLabelText('Request details');
     expect(within(dlg).getByText('Priya Sharma')).toBeTruthy();
     expect(within(dlg).getByText('Family wedding in Pune')).toBeTruthy();
     fireEvent.click(within(dlg).getByRole('button', { name: 'Approve' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByText('Family wedding in Pune')).toBeNull();
     await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
     expect(timeOffDecide).toHaveBeenCalledWith('t1', { status: 'approved', note: '' });
   });
@@ -206,13 +231,15 @@ describe('Approvals', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     fireEvent.click(screen.getByRole('checkbox', { name: /^Select every request/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }));
-    expect(screen.queryByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)')).toBeNull();
+    // Two or more ask once (dialog.confirm, mocked to yes) before they leave the list.
+    await waitFor(() => expect(screen.queryByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)')).toBeNull());
     expect(screen.queryByText('Reimbursement - $142.50 (2 receipts)')).toBeNull();
     fireEvent.click(screen.getByText('Undo'));
     expect(screen.getByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)')).toBeTruthy();
     expect(screen.getByText('Reimbursement - $142.50 (2 receipts)')).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: /^Select every request/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }));
+    await waitFor(() => expect(screen.queryByText('Reimbursement - $142.50 (2 receipts)')).toBeNull());
     await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
     expect(timeOffDecide).toHaveBeenCalledWith('t1', { status: 'approved', note: '' });
     expect(decideReimbursement).toHaveBeenCalledWith('r1', { action: 'approve', note: '' });
@@ -228,7 +255,7 @@ describe('Approvals sorts and filters', () => {
     render(<Approvals />);
     await screen.findByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)');
     expect(titles()[0]).toMatch(/^Time Off/);
-    expect(document.querySelector('.apv-list .apv-row').className).toContain('nx-row-hover');
+    expect(document.querySelector('.apv-card .apv-row').className).toContain('nx-row-hover');
     fireEvent.change(screen.getByRole('combobox', { name: 'Sort approvals' }), { target: { value: 'priority' } });
     expect(titles().map((t) => t.split(' ')[0])).toEqual(['Reimbursement', 'Time', 'Time']);
     expect(titles()[2]).toMatch(/^Time Sheet Review/);

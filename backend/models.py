@@ -2359,6 +2359,12 @@ class TimePunch(Base):
     edit_status      = Column(String, default="")   # '' | pending | approved | rejected
     edit_reviewed_by = Column(String, default="")   # approver email
     edit_reviewed_at = Column(String, default="")
+    # What the employee asked for, kept after the decision (Neil, Oct 29 2026):
+    # pending_at is cleared on approve AND reject, so a rejected edit used to
+    # lose the time asked for. edit_note is the approver's note, which only
+    # ever reached the bell.
+    edit_requested_at = Column(String, default="")
+    edit_note        = Column(String, default="")
     # Add Time (Oct 14 2026): every punch a manager's batch wrote together
     # shares an id, so the batch can be undone as one.
     batch_id         = Column(String, default="", index=True)
@@ -4270,6 +4276,8 @@ class VaultCredential(Base):
     note               = Column(String, default="")
     prev_secret_enc    = Column(String, default="")
     prev_rotated_at    = Column(String, default="")
+    totp_enc           = Column(String, default="")           # authenticator key, Fernet (vault_totp.py, Oct 29 2026)
+    company_id         = Column(String, default="")           # home company (HrEntity id, Oct 29 2026) - grouping and the Overview filter; the wall follows the owner
 
 
 class VaultPersonalCredential(Base):
@@ -4284,6 +4292,7 @@ class VaultPersonalCredential(Base):
     note        = Column(String, default="")
     secret_enc  = Column(String, default="")
     strength    = Column(String, default="strong")
+    url         = Column(String, default="")           # the sign-in page (Oct 29 2026) - Open from My Logins
     created_at  = Column(String, default="")
 
 
@@ -4329,6 +4338,8 @@ class VaultAccessLog(Base):
     dept        = Column(String, default="")
     detail      = Column(JSON, nullable=True)                 # [{field,from,to}] for edits
     loc         = Column(String, default="")
+    ip          = Column(String, default="")                  # where from (Oct 29 2026) - the request's client address
+    user_agent  = Column(String, default="")
     created_at  = Column(String, default="", index=True)
 
 
@@ -8918,7 +8929,9 @@ class PerfReviewCycle(Base):
     """A review cycle HR runs for one company: who is in it, the deadlines,
     the questions, and the rating scale and company values it was launched
     with (copied from Settings > Performance, so a later settings change
-    never rewrites a running cycle). No calibration, no 9-box (Neil)."""
+    never rewrites a running cycle). No 9-box (Neil); calibration added
+    Oct 29 2026 (Neil: "add all the bigger features") - HR moves a rating
+    with a reason before it is shared (perf_reviews.calibrate)."""
     __tablename__ = "hr_perf_review_cycles"
     id            = Column(String, primary_key=True)                   # uuid
     company_id    = Column(String, default="", index=True)             # HrEntity.id
@@ -8987,6 +9000,11 @@ class PerfReview(Base):
     employee_comment     = Column(Text, default="")
     reminded             = Column(JSON, default=dict)                  # {launch, soonSelf, dueSelf, soonMgr, dueMgr: ISO}
     removed_at           = Column(String, default="")
+    # Calibration (Oct 29 2026): the manager's own rating when HR moved it
+    # ('' = never moved), who moved it and when; the reason is in history.
+    calibrated_from      = Column(String, default="")
+    calibrated_by        = Column(String, default="")
+    calibrated_at        = Column(String, default="")
 
 
 class ExtraTimeClaim(Base):
@@ -9385,6 +9403,191 @@ class KbPhotoReview(Base):
     decided_at   = Column(String, default="")
     note         = Column(String, default="")
     created_at   = Column(String, default="")
+
+
+# ── Performance: feedback, kudos, improvement plans (Neil, Oct 29 2026) ──────
+# "add all the bigger features": peer feedback, kudos, improvement plans and
+# calibration. perf_feedback.py / perf_plans.py are the rules,
+# routers/perf_feedback.py the API. New tables - explicit RLS lines in
+# main.py's Postgres list, on top of the _enable_rls_everywhere sweep.
+
+class PerfFeedback(Base):
+    """One ask for feedback about one person from one colleague. Asked about
+    yourself = yours (you and the giver read it). Asked by a manager or HR
+    about someone = for their reporting chain and HR - never the person."""
+    __tablename__ = "hr_perf_feedback"
+    id            = Column(String, primary_key=True)                    # uuid
+    company_id    = Column(String, default="", index=True)              # the subject's company
+    subject_email = Column(String, nullable=False, index=True)          # who the feedback is about
+    giver_email   = Column(String, nullable=False, index=True)          # who is asked
+    requested_by  = Column(String, default="", index=True)
+    review_id     = Column(String, default="")                          # hr_perf_reviews.id when asked for a review
+    private       = Column(Boolean, default=False)                      # True = chain + HR only
+    note          = Column(Text, default="")                            # the ask
+    answers       = Column(JSON, default=dict)                          # {well, better}
+    status        = Column(String, default="requested", index=True)     # requested | submitted | declined | canceled
+    decline_note  = Column(Text, default="")
+    requested_at  = Column(String, default="")
+    submitted_at  = Column(String, default="")
+    closed_at     = Column(String, default="")                          # declined / canceled
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class PerfKudos(Base):
+    """A thank-you from one colleague to another, seen by everyone in the
+    recipient's company. Never deleted - the sender or HR hides it."""
+    __tablename__ = "hr_perf_kudos"
+    id          = Column(String, primary_key=True)                      # uuid
+    company_id  = Column(String, default="", index=True)                # the recipient's company
+    from_email  = Column(String, nullable=False, index=True)
+    to_email    = Column(String, nullable=False, index=True)
+    message     = Column(Text, default="")
+    created_at  = Column(String, default="", index=True)
+    hidden_at   = Column(String, default="")
+    hidden_by   = Column(String, default="")
+
+
+class PerfPlan(Base):
+    """An improvement plan: what has to change, how it is measured, the
+    support given, and the dates. The manager drafts it, HR starts it (the
+    probation rule: a manager recommends, HR++ finalizes), the employee
+    reads and acknowledges it, check-ins are added, HR closes it with an
+    outcome. Seen by the employee once started, their manager, whoever
+    drafted it and HR for the company - not the rest of the chain."""
+    __tablename__ = "hr_perf_plans"
+    id               = Column(String, primary_key=True)                 # uuid
+    company_id       = Column(String, default="", index=True)
+    employee_email   = Column(String, nullable=False, index=True)
+    manager_email    = Column(String, default="", index=True)           # Reports To when it was drafted
+    created_by       = Column(String, default="")
+    title            = Column(String, default="")
+    reason           = Column(Text, default="")                         # why the plan
+    expectations     = Column(JSON, default=list)                       # [{id, text, measure, result: '' | met | not}]
+    support          = Column(Text, default="")                         # what the company will do to help
+    start_on         = Column(String, default="")                       # YYYY-MM-DD
+    end_on           = Column(String, default="")                       # YYYY-MM-DD
+    status           = Column(String, default="draft", index=True)      # draft | proposed | active | closed
+    outcome          = Column(String, default="")                       # met | not_met | canceled
+    outcome_note     = Column(Text, default="")
+    checkins         = Column(JSON, default=list)                       # [{id, at, by, note}]
+    history          = Column(JSON, default=list)                       # [{at, by, action, note}]
+    started_at       = Column(String, default="")
+    started_by       = Column(String, default="")
+    acknowledged_at  = Column(String, default="")
+    employee_comment = Column(Text, default="")
+    closed_at        = Column(String, default="")
+    closed_by        = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class NexusNote(Base):
+    """A note in Dashboard > Notes (Neil, Oct 29 2026, routers/notes.py): the
+    scratchpad that follows a person around Nexus. Private to its owner unless
+    shared with named Nexus People (shared_with, a JSON list of {email, can}
+    with can = read | edit). kind 'daily' is the one scratchpad note per owner
+    per day that Quick Note and the dashboard widget write to. `rev` goes up on
+    every save - a save made from an older rev is refused with the server copy
+    (409). body is sanitized HTML, `text` its plain words for search and list
+    previews. Trash is trashed_at; only the owner deletes forever, and only
+    from the Trash. New table - create_all builds it; RLS line in main.py's
+    Postgres list."""
+    __tablename__ = "nexus_notes"
+    id          = Column(String, primary_key=True)   # note_ + hex
+    owner_email = Column(String, nullable=False, index=True)
+    kind        = Column(String, default="note")      # note | daily
+    title       = Column(String, default="")
+    body        = Column(Text, default="")
+    text        = Column(Text, default="")
+    day         = Column(String, default="", index=True)   # YYYY-MM-DD the note belongs to
+    tags        = Column(Text, default="[]")          # JSON list of strings
+    color       = Column(String, default="")          # a label key, '' = none
+    pinned      = Column(Boolean, default=False)
+    shared_with = Column(Text, default="[]")          # JSON list of {email, can}
+    trashed_at  = Column(String, default="")
+    rev         = Column(Integer, default=1)
+    updated_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+    # Working together (Neil, Oct 30 2026): who has seen which rev (JSON
+    # {email: rev}, the list's Updated dot); live co-typing's Yjs state
+    # (base64, '' = rebuild from body), its epoch (a new one each rebuild, so
+    # an older session's edits are refused) and the per-note AES key editors
+    # encrypt the realtime channel with (rotated when an editor leaves).
+    seen        = Column(Text, default="{}")
+    ydoc        = Column(Text, default="")
+    yepoch      = Column(String, default="")
+    collab_key  = Column(String, default="")
+
+
+class NexusNoteVersion(Base):
+    """An earlier copy of a note (routers/notes.py): taken before a save when
+    the last copy is more than ten minutes old, and before a restore; the
+    newest 25 per note are kept. New table - create_all builds it; RLS line in
+    main.py's Postgres list."""
+    __tablename__ = "nexus_note_versions"
+    id         = Column(String, primary_key=True)   # nv_ + hex
+    note_id    = Column(String, nullable=False, index=True)
+    title      = Column(String, default="")
+    body       = Column(Text, default="")
+    rev        = Column(Integer, default=0)
+    saved_by   = Column(String, default="")
+    created_at = Column(String, default="")
+
+
+class NexusNotePresence(Base):
+    """Who has a note open right now (routers/notes.py, Oct 30 2026): one row
+    per person and note, refreshed by the open note's heartbeat every few
+    seconds and counted only while younger than 45 seconds. In the database
+    (not in memory) so every API worker sees the same people. New table -
+    create_all builds it; RLS line in main.py's Postgres list."""
+    __tablename__ = "nexus_note_presence"
+    note_id = Column(String, primary_key=True)
+    email   = Column(String, primary_key=True)
+    state   = Column(String, default="viewing")   # viewing | editing
+    at      = Column(String, default="")          # ISO time of the last beat
+
+
+class VaultCredentialAudience(Base):
+    """Who may open a company credential besides its owners (Credentials,
+    Oct 29 2026 - vault_access.py). kind 'company' (value = HrEntity id, '' =
+    every company), 'department' (name), 'group' (NexusGroup id) or 'person'
+    (work email); level 'open' reveals the password, 'view' sees the row,
+    username and link only. A credential with no rows keeps the Oct 14 rule:
+    its own department opens it unless the tier is Critical."""
+    __tablename__ = "vault_credential_audiences"
+    id         = Column(String, primary_key=True)
+    cred_id    = Column(String, default="", index=True)
+    kind       = Column(String, default="department")
+    value      = Column(String, default="")
+    level      = Column(String, default="open")
+    created_at = Column(String, default="")
+    created_by = Column(String, default="")
+
+
+class ApprovalDecision(Base):
+    """What someone decided from Dashboard > Approvals (Oct 30 2026): one row
+    per decision the inbox sent to a module and the module accepted (the
+    browser posts it right after - routers/approvals.py). The module's own
+    record stays the truth; this is the decider's own History and the
+    "decided today / this week" figures. Never a second approval path."""
+    __tablename__ = "approval_decisions"
+    id            = Column(String, primary_key=True)                   # uuid
+    decider_email = Column(String, nullable=False, index=True)
+    kind          = Column(String, default="")                         # the inbox row kind (time_off, reimbursement...)
+    item_id       = Column(String, default="")
+    group_key     = Column(String, default="")                         # the inbox chip (timeoff, money...)
+    action        = Column(String, default="")                         # approve | reject | accept | ...
+    note          = Column(Text, default="")
+    title         = Column(String, default="")
+    person_email  = Column(String, default="", index=True)
+    person_name   = Column(String, default="")
+    department    = Column(String, default="")
+    company_id    = Column(String, default="", index=True)
+    waited_days   = Column(Integer, default=0)                         # how long it had waited when decided
+    for_email     = Column(String, default="")                         # the delegator, when decided as a stand-in
+    decided_at    = Column(String, default="", index=True)
 
 
 class CubbyTaskLink(Base):

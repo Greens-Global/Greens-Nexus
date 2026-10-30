@@ -45,7 +45,7 @@ from database import get_db
 from notify_company import notification_company
 import scoped_settings
 from auth import (get_current_user, require_level_or_module, require_administrator,
-                  require_module_grant, require_level_or_modules, _module_level, _LEVELS,
+                  require_module_grant, _module_level, _LEVELS,
                   _MODULE_LEVEL_RANK)
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
                     AgentDevice, AgentPairing, AgentRelease, LiveSession, Shift, ShiftGroup, ShiftGroupMember,
@@ -94,12 +94,17 @@ require_team_write = require_level_or_module(3, "hr", "editor")
 # sidebar/route visibility.
 require_tracking      = require_module_grant("employee-tracking", "viewer")
 require_tracking_full = require_module_grant("employee-tracking", "full")
-# Read surfaces the monitoring dashboard SHARES with the manager audience (top
-# apps/coverage/alerts): keep managers + HR-grant AND additively admit an
-# Employee-Tracking grant, so a granted non-manager can use them too. A superset
-# of require_team_read - never narrows it.
-require_tracking_read       = require_level_or_modules(3, [("hr", "viewer"), ("employee-tracking", "viewer")])
-require_tracking_read_write = require_level_or_modules(3, [("hr", "editor"), ("employee-tracking", "full")])
+# Monitoring data is Workforce Analytics' alone (Neil, 10/29/2026: "only
+# those who should have access to it" - it moved into Team, which everyone
+# has). Coverage, top apps, app ratings, alerts, saved views, the location
+# trail, punch locations and the crew map used to be shared with every
+# manager and HR grant (their team, or the whole company for an unrestricted
+# HR grant); now they take the Employee Tracking grant or administrator, like
+# the screen. The viewer's team scope (_visible_emails) still applies on top.
+# Give a manager the grant to restore their view. The names stay so the
+# routes read as before.
+require_tracking_read       = require_tracking
+require_tracking_read_write = require_tracking_full
 
 
 def _schedulers(g) -> list:
@@ -3809,11 +3814,25 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     return _pr_dict(req)
 
 
+def _with_deciders(db: Session, rows: list) -> list:
+    """Adds `decidedByName` - who approved or rejected each request, by name,
+    so the history reads "Approved by Miranda Lee" (Neil, Oct 29 2026)."""
+    names: dict = {}
+    for r in rows:
+        em = (r.get("decidedBy") or "").strip().lower()
+        if em and em not in names:
+            names[em] = _display_name(db, em)
+        r["decidedByName"] = names.get(em, "")
+    return rows
+
+
 @router.get("/punch-requests/mine")
 def my_punch_requests(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # 100, not 50: the employee's Past Requests reads back further than the
+    # current period (Neil, Oct 29 2026 - what was asked stays visible).
     rows = (db.query(PunchRequest).filter(PunchRequest.employee_email == user["email"])
-            .order_by(PunchRequest.created_at.desc()).limit(50).all())
-    return [_pr_dict(r) for r in rows]
+            .order_by(PunchRequest.created_at.desc()).limit(100).all())
+    return _with_deciders(db, [_pr_dict(r) for r in rows])
 
 
 def _my_request(db: Session, req_id: str, email: str) -> PunchRequest:
@@ -3877,13 +3896,27 @@ def dismiss_decided_punch_requests(user: dict = Depends(get_current_user), db: S
 
 
 @router.get("/punch-requests")
-def list_punch_requests(status: str = "pending", user: dict = Depends(require_approval_read),
-                        db: Session = Depends(get_db)):
-    """Approver review queue - team-scoped, so a manager sees only their reports'."""
+def list_punch_requests(status: str = "pending", from_: str = Query("", alias="from"), to: str = "",
+                        user: dict = Depends(require_approval_read), db: Session = Depends(get_db)):
+    """Approver review queue - team-scoped, so a manager sees only their reports'.
+    `status=decided` is the history (Neil, Oct 29 2026): every approved or
+    rejected request - what the employee asked, who decided, the note -
+    without the copies closed as duplicates; `from` / `to` (YYYY-MM-DD)
+    bound it by the day the punch is for."""
+    # Called directly too (approvals_inbox, tests): an unset `from` is the
+    # Query default object there, not a string.
+    from_ = from_ if isinstance(from_, str) else ""
     visible = _visible_emails(db, user)
     q = db.query(PunchRequest)
-    if status:
+    if status == "decided":
+        q = q.filter(PunchRequest.status.in_(("approved", "rejected")),
+                     ~func.coalesce(PunchRequest.decision_note, "").like("Duplicate of%"))
+    elif status:
         q = q.filter(PunchRequest.status == status)
+    if from_:
+        q = q.filter(PunchRequest.local_date >= from_)
+    if to:
+        q = q.filter(PunchRequest.local_date <= to)
     if visible is not None:
         if not visible:
             return []
@@ -3892,7 +3925,8 @@ def list_punch_requests(status: str = "pending", user: dict = Depends(require_ap
     # on your manager / HR, so they leave your approver queue. History stays.
     if status == "pending":
         q = q.filter(PunchRequest.employee_email != (user.get("email") or "").lower())
-    rows = [_pr_dict(r) for r in q.order_by(PunchRequest.created_at.desc()).limit(200).all()]
+    order = PunchRequest.decided_at.desc() if status == "decided" else PunchRequest.created_at.desc()
+    rows = _with_deciders(db, [_pr_dict(r) for r in q.order_by(order).limit(500 if status == "decided" else 200).all()])
     meta = _people_meta(db, [r["employeeEmail"] for r in rows])
     zones: dict = {}
     for r in rows:
@@ -4563,6 +4597,9 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
                    f"Your edited {row.kind} punch time was not approved; your time sheet is unchanged."
                    + (f" Reason: {note}" if note else ""),
                    ref_id=row.id, action={"view": "timeclock", "sub": "timesheet"})
+    # Kept after the decision, whichever way it went (Neil, Oct 29 2026).
+    row.edit_requested_at = (row.pending_at or "")[:19]
+    row.edit_note = note[:500]
     row.pending_at = ""
     row.edit_status = decision
     row.edit_reviewed_by, row.edit_reviewed_at = user["email"], now
@@ -6011,7 +6048,7 @@ def track_clock(body: TrackClockIn, request: Request, dev: AgentDevice = Depends
 
 
 @router.get("/track/live")
-def track_live(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+def track_live(user: dict = Depends(require_tracking_read), db: Session = Depends(get_db)):
     """Latest ping per currently-tracked team member - the live crew map. Scoped
     to the viewer's team (whole company for HR/admins). Self-heals: a session
     whose last ping is older than the idle window is closed and dropped, so a
@@ -6110,7 +6147,7 @@ def geofence_punches(email: str = "", start: str = "", end: str = "",
 
 
 @router.get("/locations")
-def team_locations(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+def team_locations(user: dict = Depends(require_tracking_read), db: Session = Depends(get_db)):
     """Each employee's LATEST punch location, for the Locations map. Scoped to the
     viewer's team (whole company for HR/admins). A punch carries lat/lng even when
     the geofence can't judge it (no site, or a coarse desktop fix), so this shows
@@ -6188,7 +6225,7 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
 
 
 @router.get("/track/path")
-def track_path(email: str, date: str, user: dict = Depends(require_team_read),
+def track_path(email: str, date: str, user: dict = Depends(require_tracking_read),
                db: Session = Depends(get_db)):
     """Ordered breadcrumb for one employee on one local date - the map replay."""
     em = email.strip().lower()
@@ -10726,6 +10763,13 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          # shown (Miranda, Oct 20).
                          "pendingAt": p.pending_at or "", "editStatus": p.edit_status or "",
                          "editReason": p.edit_reason or "",
+                         # The employee's edit and its decision, after the fact
+                         # (Neil, Oct 29 2026): asked for what, when, decided by
+                         # whom, with the note.
+                         "editRequestedAt": getattr(p, "edit_requested_at", "") or "",
+                         "editedBy": _who(p.edited_by), "editedAt": p.edited_at or "",
+                         "editReviewedBy": _who(p.edit_reviewed_by), "editReviewedAt": p.edit_reviewed_at or "",
+                         "editNote": getattr(p, "edit_note", "") or "",
                          # The record's tag: the card and the PDF say "Entered By HR
                          # From Record" with the reason (recordBatches has the rest).
                          **({"entrySource": _RECORD_SOURCE, "batchId": p.batch_id or "",
@@ -11423,10 +11467,13 @@ def list_screenshots(date: str = "", email: str = "",
 
 @router.get("/team-screenshots")
 def team_screenshots(date: str = "", email: str = "",
-                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """Manager-scoped screenshot gallery - same shape as the admin /screenshots but
-    limited to the caller's visible team (their reports), so a level-3 manager can
-    review their own team without company-wide access."""
+                     user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
+    """Screenshot gallery limited to the caller's visible team - same shape as
+    /screenshots. Screenshots are Workforce Analytics' alone (Neil, 10/29/2026:
+    "only those who should have access"): the Employee Tracking grant (or
+    administrator), like /screenshots - no longer any manager or HR-viewer
+    grant, which reached the whole company's frames through here. No screen
+    calls it today."""
     visible = _visible_emails(db, user)   # None = whole company (admin/HR grant)
     day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     q = db.query(TimeScreenshot).filter(TimeScreenshot.local_date == day)

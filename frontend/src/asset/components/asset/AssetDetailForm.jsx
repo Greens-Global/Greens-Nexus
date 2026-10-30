@@ -187,7 +187,7 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
     <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
       {/* Flat rail (Neil, 10/28/2026): the look is .gt-toc-item in
           asset-styles.scoped.css - a hairline, the current section in ink. */}
-      <nav className="gt-toc" aria-label="On This Page" style={{ position: 'sticky', top: 64, flexShrink: 0, width: 178, display: 'flex', flexDirection: 'column' }}>
+      <nav className="gt-toc" aria-label="On This Page" style={{ position: 'sticky', top: 'calc(64px + var(--nx-announce-h, 0px))', flexShrink: 0, width: 178, display: 'flex', flexDirection: 'column' }}>
         <div style={{ ...labelStyle, fontWeight: 600, color: 'var(--text-primary)', padding: '2px 12px 10px' }}>On This Page</div>
         {nav.map(([key, title]) => (
           <button

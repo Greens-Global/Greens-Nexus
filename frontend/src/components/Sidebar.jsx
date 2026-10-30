@@ -70,7 +70,12 @@ export const NAV = [
   // `grants`: a 'workforce-scorecard' grant alone also opens it (the Scorecard
   // tab only - TimeTrackingAdmin hides the monitoring tabs without the
   // employee-tracking grant). Neil, 10/10.
-  { view: "employee-tracking", code: "EMP", label: "Workforce Analytics",  icon: MonitorDot,   minRole: 'supervisor', grants: ['employee-tracking', 'workforce-scorecard'] },
+  // menuOnly (Neil, Oct 29 2026): no longer on the left menu - it is Team >
+  // Workforce Analytics, a tab only its grant holders see
+  // (lib/workforceAccess.js). The entry stays for the header search, the
+  // guide and Insights, which find it by this rule; its old view id is
+  // redirected into Team (App.jsx workforceRedirect).
+  { view: "employee-tracking", code: "EMP", label: "Workforce Analytics",  icon: MonitorDot,   minRole: 'supervisor', grants: ['employee-tracking', 'workforce-scorecard'], menuOnly: true, inTeam: true },
   // Team (Neil, Oct 13 2026): everything about the people you work with -
   // the Contact directory (moved out of Support) and the group's Shifts; your
   // OWN shifts moved to Workday > My Shifts. The view id stays 'shifts' (the
@@ -78,20 +83,21 @@ export const NAV = [
   // Schedule and Requests; the backend enforces the same line
   // (routers/timeclock.py require_shift_manage).
   {
-    view: "shifts", code: "TEAM", label: "Team", icon: Handshake,
+    // `grants`: internal staff all have Team; an external (B2B guest) sees it
+    // only through a Workforce Analytics grant, and then that tab alone.
+    view: "shifts", code: "TEAM", label: "Team", icon: Handshake, grants: ['shifts', 'employee-tracking', 'workforce-scorecard'],
     sub: [
       { subview: "shifts",   label: "Shifts",           icon: CalendarClock },
       { subview: "schedule", label: "Schedule",         icon: Calendar,      minRole: 'manager' },
       // Requests = the manager's inbox (Charmi, 09/30); staff ask in Workday >
       // Time Off, and shift types / groups live in Settings > Global Settings.
       { subview: "requests", label: "Requests",         icon: ClipboardList, minRole: 'manager' },
-      { subview: "contact",  label: "Company Directory", icon: Contact },
+      { subview: "contact",  label: "Directory", icon: Contact },
     ],
   },
-  // Approvals (Neil, Oct 27 2026): everything waiting on your decision,
-  // across modules (views/Approvals.jsx). Everyone - an employee has swaps
-  // and signatures too; its count is the Approvals registry's total.
-  { view: "approvals", code: "APR", label: "Approvals", icon: Inbox },
+  // Approvals (Neil, Oct 27 2026) lived here until Oct 30 2026; it is now the
+  // Approvals tab of Dashboard (approvals/ApprovalsCenter.jsx). The view id
+  // still resolves - App.jsx remaps it - and its count rides on Dashboard.
   { divider: true },
   // Tasks + Tickets are grant-driven like every other module (Aug 10): they
   // only appear when an Access Group / job role grants them (most job roles
@@ -213,7 +219,10 @@ export const NAV = [
   },
   // BI board (Neil, Sep 14): cross-module KPIs, sortable/filterable, reusing
   // the same widget-grid engine as Dashboard - see dashboard/useDashboards.js.
-  { view: "bi", code: "INS", label: "Insights", icon: InsightsChart, minRole: 'supervisor' },
+  // menuOnly (Neil, Oct 29 2026): opened from the profile menu's Tools
+  // section, like Testing - off the rail and the phone menu; the 'bi' view,
+  // its grant and header search are unchanged.
+  { view: "bi", code: "INS", label: "Insights", icon: InsightsChart, minRole: 'supervisor', menuOnly: true },
   { divider: true },
   // Help Center (Neil, Oct 13 2026; was Support): Submit a Ticket,
   // Documentation and the Knowledge Base & Training. View id stays 'support'.

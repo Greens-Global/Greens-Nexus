@@ -825,7 +825,8 @@ def render(first_name: str, report: dict, scope_label: str, logo_url: str, cfg: 
                   for i, (lab, n, c) in enumerate(tiles))
     sections = []
     by_band = {k: [r for r in report["people"] if r["band"] == k] for k in BANDS}
-    url = f"{app_url()}/employee-tracking/scorecard?week={report['weekStart']}"
+    # Team > Workforce Analytics > Scorecard (moved out of its own module, Oct 29 2026).
+    url = f"{app_url()}/team/analytics:scorecard?week={report['weekStart']}"
     for key in ("absent", "well_below", "below", "on_track"):
         rows = by_band[key]
         if not rows:

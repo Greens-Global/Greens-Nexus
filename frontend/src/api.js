@@ -1741,6 +1741,8 @@ export const api = {
   // Punch-fix requests: employee asks, approver (HR/manager) approves/rejects
   timePunchRequestCreate: (data) => req('/timeclock/punch-requests', { method: 'POST', body: JSON.stringify(data) }),
   timeMyPunchRequests:    () => req('/timeclock/punch-requests/mine'),
+  // Approved and rejected requests in a range - Time Admin's Decided view (Oct 29 2026).
+  timeDecidedPunchRequests: (from = '', to = '') => req(`/timeclock/punch-requests?status=decided${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`),
   timePunchRequests:      (status) => req(`/timeclock/punch-requests?status=${status || 'pending'}`),
   // Employee self-edit of a punch time (applies to display now, to pay only on approval)
   timePunchEditCreate:    (data)     => req('/timeclock/punch-edits', { method: 'POST', body: JSON.stringify(data) }),
@@ -1963,6 +1965,8 @@ export const api = {
   // the identity-check window, edit a personal credential.
   cvRequest:        (id, body)   => req(`/credvault/credentials/${id}/request`, { method: 'POST', body: JSON.stringify(body || {}) }),
   cvAccess:         (id)         => req(`/credvault/credentials/${id}/access`),
+  cvAudienceOptions: ()          => req('/credvault/audience-options'),
+  cvTotp:           (id)         => req(`/credvault/credentials/${id}/totp`),
   cvRevokeGrant:    (grantId)    => req(`/credvault/grants/${grantId}`, { method: 'DELETE' }),
   cvOtpStatus:      ()           => req('/credvault/otp/status'),
   cvPersonalUpdate: (id, body)   => req(`/credvault/personal/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -3153,6 +3157,8 @@ export const api = {
   // modules - {rows, counts, groups, groupLabels, errors, total}. The
   // decisions go to each module's own endpoint (lib/approvalActions.js).
   approvalsInbox: () => req("/approvals/inbox"),
+  approvalsHistory: (days = 30) => req(`/approvals/history?days=${encodeURIComponent(days)}`),
+  approvalsDecided: (data) => req("/approvals/decided", { method: "POST", body: JSON.stringify(data) }),
   // HR letters (Neil, Oct 27 2026, routers/hr_letters.py): employees request
   // them from My HR, HR for their company issues them through Nexus Sign.
   hrLetterTypes: () => req('/letter-requests/types'),
@@ -3185,6 +3191,11 @@ export const api = {
   updateHeadcount: (id, data) => req(`/hiring/headcount/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   submitHeadcount: (id) => req(`/hiring/headcount/${encodeURIComponent(id)}/submit`, { method: 'POST' }),
   decideHeadcount: (id, decision, note = '') => req(`/hiring/headcount/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify({ decision, note }) }),
+  // Off for every company until Settings > Hiring & Onboarding turns it on (Neil, Oct 30 2026).
+  headcountSettings: (company) => req(`/hiring/headcount/settings?company=${encodeURIComponent(company || '')}`),
+  headcountSaveSettings: (company, on) => req('/hiring/headcount/settings', { method: 'PUT', body: JSON.stringify({ company, on: !!on }) }),
+  // A Draft opening started by hand - only where Headcount Requests are off.
+  createOpening: (data) => req('/hiring/openings', { method: 'POST', body: JSON.stringify(data) }),
   listOpenings: () => req('/hiring/openings'),
   updateOpening: (id, data) => req(`/hiring/openings/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   openingPosting: (id) => req(`/hiring/openings/${encodeURIComponent(id)}/posting`),
@@ -3338,6 +3349,48 @@ export const api = {
   // The person's own training-email switch (Profile > Email Settings, WP 2.4)
   getKbMyEmailPref:    ()     => req("/kb-reminder-settings/mine"),
   updateKbMyEmailPref: (data) => req("/kb-reminder-settings/mine", { method: "PUT", body: JSON.stringify(data) }),
+  // Performance: peer feedback, kudos, improvement plans, calibration (Neil,
+  // Oct 29 2026) - routers/perf_feedback.py and routers/perf_reviews.py.
+  perfFeedbackList: (person = "") => req(`/performance/feedback${person ? `?person=${encodeURIComponent(person)}` : ""}`),
+  perfFeedback: (id) => req(`/performance/feedback/${encodeURIComponent(id)}`),
+  perfFeedbackAsk: (data) => req("/performance/feedback", { method: "POST", body: JSON.stringify(data) }),
+  perfFeedbackAnswer: (id, data) => req(`/performance/feedback/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
+  perfFeedbackDecline: (id, note = "") => req(`/performance/feedback/${encodeURIComponent(id)}/decline`, { method: "POST", body: JSON.stringify({ note }) }),
+  perfFeedbackCancel: (id) => req(`/performance/feedback/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  perfKudos: ({ scope = "company", person = "", company = "" } = {}) =>
+    req(`/performance/kudos?${new URLSearchParams({ scope, person, company }).toString()}`),
+  perfKudosGive: (data) => req("/performance/kudos", { method: "POST", body: JSON.stringify(data) }),
+  perfKudosHide: (id) => req(`/performance/kudos/${encodeURIComponent(id)}/hide`, { method: "POST" }),
+  perfPlans: ({ person = "", company = "" } = {}) => req(`/performance/plans?${new URLSearchParams({ person, company }).toString()}`),
+  perfPlan: (id) => req(`/performance/plans/${encodeURIComponent(id)}`),
+  perfPlanCreate: (data) => req("/performance/plans", { method: "POST", body: JSON.stringify(data) }),
+  perfPlanUpdate: (id, data) => req(`/performance/plans/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  perfPlanAct: (id, action, data = {}) => req(`/performance/plans/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(data) }),
+  perfCalibration: (cycleId) => req(`/performance/cycles/${encodeURIComponent(cycleId)}/calibration`),
+  perfCalibrate: (reviewId, rating, note) => req(`/performance/reviews/${encodeURIComponent(reviewId)}/calibrate`, { method: "POST", body: JSON.stringify({ rating, note }) }),
+  // Notes - Dashboard > Notes, Quick Note, the Notes widget (Neil, Oct 29
+  // 2026; routers/notes.py). A PATCH carries the rev it was read with; a 409
+  // brings the server copy back in err.detail.note.
+  notesList: (params = {}) => req(`/notes?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")).toString()}`),
+  noteGet: (id) => req(`/notes/${encodeURIComponent(id)}`),
+  noteCreate: (data) => req("/notes", { method: "POST", body: JSON.stringify(data) }),
+  noteUpdate: (id, data) => req(`/notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  noteDaily: (day) => req(`/notes/daily?day=${encodeURIComponent(day)}`),
+  noteDailyAppend: (day, text) => req("/notes/daily/append", { method: "POST", body: JSON.stringify({ day, text }) }),
+  noteTrash: (id) => req(`/notes/${encodeURIComponent(id)}/trash`, { method: "POST" }),
+  noteRestore: (id) => req(`/notes/${encodeURIComponent(id)}/restore`, { method: "POST" }),
+  noteDeleteForever: (id) => req(`/notes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  noteShare: (id, email, can = "read") => req(`/notes/${encodeURIComponent(id)}/share`, { method: "PUT", body: JSON.stringify({ email, can }) }),
+  noteUnshare: (id, email) => req(`/notes/${encodeURIComponent(id)}/share/${encodeURIComponent(email)}`, { method: "DELETE" }),
+  noteVersions: (id) => req(`/notes/${encodeURIComponent(id)}/versions`),
+  noteRestoreVersion: (id, versionId) => req(`/notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`, { method: "POST" }),
+  // Working together (Oct 30 2026): the open note's heartbeat (who else is
+  // here, and its rev), and for a shared note's editors the live co-typing
+  // key, channel and shared state, seeded once (409 = someone else did).
+  notePresence: (id, state) => req(`/notes/${encodeURIComponent(id)}/presence`, { method: "POST", body: JSON.stringify({ state }) }),
+  noteCollab: (id) => req(`/notes/${encodeURIComponent(id)}/collab`),
+  noteCollabSeed: (id, data) => req(`/notes/${encodeURIComponent(id)}/collab/seed`, { method: "POST", body: JSON.stringify(data) }),
+  noteCollabReset: (id) => req(`/notes/${encodeURIComponent(id)}/collab/reset`, { method: "POST" }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

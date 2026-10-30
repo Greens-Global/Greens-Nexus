@@ -3,6 +3,8 @@ import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useWorkforceView } from './workforce/viewContext';
+import { useRole } from '../contexts/RoleContext';
+import { canOpenWorkforceAnalytics } from '../lib/workforceAccess';
 
 // Disclosed-monitoring tamper / coverage alerts: people who are clocked in
 // while their agent has gone quiet (killed, uninstalled, offline), so evasion
@@ -67,11 +69,20 @@ export function MonitoringAlertsPanel() {
   );
 }
 
-// One line for the Time screen: how many, and the way to the list.
+// One line for the Time screen: how many, and the way to the list. Alerts
+// are monitoring data, so the line exists only for the Employee Tracking
+// grant (or administrator) - the server refuses everyone else (Neil,
+// 10/29/2026), and it never asks for them.
 export function MonitoringAlertsLine({ canOpen = true }) {
+  const role = useRole();
+  if (!role?.canAccessModule?.('employee-tracking', 'administrator', 'viewer')) return null;
+  return <AlertsLine canOpen={canOpen && canOpenWorkforceAnalytics(role)} />;
+}
+
+function AlertsLine({ canOpen }) {
   const alerts = useMonitoringAlerts();
   if (!alerts.length) return null;
-  const go = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'employee-tracking', sub: 'coverage' } }));
+  const go = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'analytics:coverage' } }));
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12, fontSize: 12.5, color: 'var(--muted)' }}>
       <AlertTriangle size={14} style={{ color: RED, flexShrink: 0 }} />

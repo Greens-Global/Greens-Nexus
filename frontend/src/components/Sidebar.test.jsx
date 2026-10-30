@@ -53,6 +53,12 @@ describe('Sidebar', () => {
     expect(screen.queryByText('Master portal')).toBeNull();
   });
 
+  it('Insights is not on the rail - it opens from the profile menu Tools (Neil, Oct 29 2026)', () => {
+    mount();
+    expect(screen.queryByText('Insights')).toBeNull();
+    expect(screen.getByText('Help Center')).toBeTruthy();
+  });
+
   it('collapsed: the edge tab reads Expand and the rail is icons only', () => {
     const { container } = mount({ collapsed: true });
     expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeTruthy();

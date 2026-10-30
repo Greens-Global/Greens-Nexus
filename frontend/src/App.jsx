@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, addressFor } from './lib/routes';
+import { workforceRedirect, WORKFORCE_GRANTS } from './lib/workforceAccess';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 import { loginRequest } from "./authConfig";
@@ -85,11 +86,9 @@ const TimeClock           = lazy(() => import("./views/TimeClock"));
 const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
 const Egnyte              = lazy(() => import("./views/Egnyte"));
-const EmployeeTracking    = lazy(() => import("./components/TimeTrackingAdmin"));
 const Shifts              = lazy(() => import("./views/Shifts"));
 const MyBriefing          = lazy(() => import("./views/MyBriefing"));
 const WhatsNew            = lazy(() => import("./tasks/ChangelogView"));   // What's New as a page (Oct 12)
-const Approvals           = lazy(() => import("./views/Approvals"));       // everything waiting on my decision (Neil, Oct 27 2026)
 const Workflows           = lazy(() => import("./views/Workflows"));       // cross-module automations (Oct 28 2026)
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
@@ -145,13 +144,11 @@ const VIEW_MIN_ROLES = {
   // Global Admin always reach it, others only via an explicit Access Group
   // grant on 'admin-console'.
   'admin-console':      'supervisor',
-  // Employee Tracking (monitoring) module - IT Admin + Global Admin ONLY. The
-  // Grant-driven (Aug 13): IT Admin / Global Admin always reach it; below that it
-  // opens ONLY via an explicit Access-Group/job-role grant on 'employee-tracking'
-  // (not a plain supervisor/manager role). Backend endpoints gate on the same
-  // grant (require_tracking / require_tracking_full in timeclock.py). Keep the
-  // module in RoleContext MODULES and this value non-'administrator' so grants work.
-  'employee-tracking':  'supervisor',
+  // 'employee-tracking' (Workforce Analytics) is no longer a view: it is a
+  // Team tab (Oct 29 2026, see workforceRedirect) gated by the same grants in
+  // lib/workforceAccess.js; the backend endpoints still check them
+  // (require_tracking* in timeclock.py). Keep both grants in RoleContext
+  // MODULES so Access Groups can still give them.
   'testing':            'supervisor',   // dev-only module; grant-driven for testers below supervisor
   'credvault':          'supervisor',
   // Egnyte reads are open to any signed-in user server-side, but the backend
@@ -169,7 +166,11 @@ const VIEW_MIN_ROLES = {
 const VIEW_GRANT = {};
 // Views that OTHER grants also open (any one is enough): a 'workforce-scorecard'
 // grant alone reaches Workforce Analytics for its Scorecard tab (Neil, 10/10).
-const VIEW_ALT_GRANTS = { 'employee-tracking': ['workforce-scorecard'] };
+// Team opens for an external (B2B guest) account through a Workforce
+// Analytics grant - Team is otherwise internal-only for them - and then
+// shows that one tab alone (views/Shifts.jsx). Internal staff have Team
+// anyway; the tab itself gates on lib/workforceAccess.js (Oct 29 2026).
+const VIEW_ALT_GRANTS = { shifts: WORKFORCE_GRANTS };
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
@@ -395,14 +396,12 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault activeSub={activeSub} onSubChange={onSubChange} />;
     case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
-    case "employee-tracking":  return <EmployeeTracking initialSub={activeSub} module />;
     case "shifts":             return <Shifts activeSub={activeSub} onSubChange={onSubChange} />;
     case "legal":              return <Legal activeSub={activeSub} onSubChange={onSubChange} />;
     // Old links to the two separate pages open their tab of Legal.
     case "privacy-policy":     return <Legal activeSub="privacy" onSubChange={(sub) => onNavigate("legal", sub)} />;
     case "terms-conditions":   return <Legal activeSub="terms" onSubChange={(sub) => onNavigate("legal", sub)} />;
     case "briefing":           return <MyBriefing />;
-    case "approvals":          return <Approvals activeSub={activeSub} onSubChange={onSubChange} />;
     case "workflows":          return <Workflows activeSub={activeSub} onSubChange={onSubChange} />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
@@ -433,7 +432,7 @@ function parsePath() {
   if (raw === 'tasks' && segs[1] === 'tickets') return { view: 'tickets', sub: null };
   // Locations folded into Employee Tracking as a tab (Aug 31) - old
   // bookmarks/links to the standalone /locations page land on that tab.
-  if (raw === 'locations') return { view: 'employee-tracking', sub: 'locations' };
+  if (raw === 'locations') return { view: 'shifts', sub: 'analytics:locations' };
   // Manager Dashboard no longer has its own tab (Sep 3, see the note above on
   // VIEW_MIN_ROLES) - old bookmarks/links to the standalone /manager-dashboard
   // page just land on plain Dashboard, where any manager-tier widgets they had
@@ -444,6 +443,9 @@ function parsePath() {
   // effect below writes it as /links rather than /dashboard/links. The old
   // /external-links and /dashboard/external-links forms still land there.
   if (raw === 'links' || raw === 'external-links') return { view: 'dashboard', sub: 'links' };
+  // Approvals folded into Dashboard as a tab (Pranshu, Oct 30 2026): /approvals
+  // and /approvals/<kind or history> land on Dashboard > Approvals.
+  if (raw === 'approvals') return { view: 'dashboard', sub: segs[1] ? `approvals:${segs[1]}` : 'approvals' };
   if (raw === 'dashboard' && segs[1] === 'external-links') return { view: 'dashboard', sub: 'links' };
   // The old Nexus Access Manager (/admin) was retired Sep 26 - Settings >
   // Global Settings > Access does the same job; old links land there.
@@ -457,6 +459,8 @@ function parsePath() {
   // and navigates there once the pin is fetched. Dashboard in the meantime.
   if (raw === 'dev-notes') return { view: 'dashboard', sub: null };
   const view = PATH_TO_VIEW[raw] || raw;
+  const workforce = workforceRedirect(view, segs[1] || null);
+  if (workforce) return workforce;
   // Purchase Requisition moved to Workday (Neil, Oct 22 2026): the old
   // /purchase page and Item Management's Purchase Requests tab land on
   // Workday > Purchase Requests (/purchase/new opens the form).
@@ -485,7 +489,6 @@ const DEFAULT_SUBS = {
   marketing:         "marketing-ads",
   accounting:        "overview",
   egnyte:            "browse",
-  "employee-tracking": "coverage",
   shifts:            "shifts",    // Team opens on the group's Shifts; Contact is last (Oct 15 2026)
   // Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
   // id lands on its own natural tab so the URL is meaningful from the first
@@ -722,11 +725,16 @@ function MainApp() {
     // 'external-links' folded into Dashboard as a tab (Sep 3) - same
     // reasoning. The tab key is 'links' (Sep 22); the old key still maps.
     if (view === 'external-links' || view === 'links') { view = 'dashboard'; sub = 'links'; }
+    // Approvals -> Dashboard > Approvals (Oct 30 2026); bells and old links keep working.
+    if (view === 'approvals') { view = 'dashboard'; sub = sub ? `approvals:${sub}` : 'approvals'; }
     if (view === 'dashboard' && sub === 'external-links') sub = 'links';
     // Retired Nexus Access Manager -> Settings > Access (see parsePath).
     if (view === 'admin') { view = 'admin-console'; sub = 'access'; }
     // Contact Directory -> Team > Contact, My Shifts -> Workday (see parsePath).
     if (view === 'directory') { view = 'shifts'; sub = 'contact'; }
+    // Workforce Analytics -> Team > Workforce Analytics (see parsePath).
+    const workforce = workforceRedirect(view, sub);
+    if (workforce) ({ view, sub } = workforce);
     // Purchase Requisition -> Workday > Purchase Requests (see parsePath).
     const moved = purchaseRedirect(view, sub);
     if (moved) ({ view, sub } = moved);

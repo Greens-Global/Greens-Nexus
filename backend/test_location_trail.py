@@ -65,7 +65,8 @@ class LocationTrail(unittest.TestCase):
         auth.invalidate_role_cache()
         self.db = database.SessionLocal()
         for m in (models.TimePunch, models.NexusEmployee, models.HrEntity, models.NexusRole,
-                  models.NexusSetting, models.TrackPing, models.TrackSession, models.TrackConsent):
+                  models.NexusSetting, models.TrackPing, models.TrackSession, models.TrackConsent,
+                  models.NexusGroupMember, models.NexusGroup):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=CO_ON, name="Trail Co"))
         self.db.add(models.HrEntity(id=CO_OFF, name="Free Co"))
@@ -77,6 +78,10 @@ class LocationTrail(unittest.TestCase):
                                              manager_email=boss))
         for email, role in ((MGR, "manager"), (MGR2, "manager"), (ADMIN, "administrator")):
             self.db.add(models.NexusRole(email=email, role=role, assigned_by="test"))
+        # The trail is Workforce Analytics' (Neil, 10/29/2026): MGR holds the
+        # Employee Tracking grant; MGR2 is a plain manager without it.
+        self.db.add(models.NexusGroup(id="trail-wa", name="Trail WA", allowed_modules="employee-tracking:viewer"))
+        self.db.add(models.NexusGroupMember(group_id="trail-wa", email=MGR))
         self.db.commit()
         auth.invalidate_role_cache()
         self._as(EMP)
@@ -229,7 +234,7 @@ class LocationTrail(unittest.TestCase):
                     f"/timeclock/location-trail/day?email={EMP}&date={self._today()}",
                     f"/timeclock/location-trail/day?email={OTHER}&date={self._today()}",
                     "/timeclock/location-trail/live"):
-            self.assertEqual(self.client.get(url).status_code, 401, url)      # require_tracking_read
+            self.assertIn(self.client.get(url).status_code, (401, 403), url)   # require_tracking_read
 
     def test_manager_reads_own_team_only(self):
         self._seed_trail(EMP)
@@ -244,6 +249,14 @@ class LocationTrail(unittest.TestCase):
         self.assertEqual(r.status_code, 403, r.text)
         live = self.client.get("/timeclock/location-trail/live").json()["crew"]
         self.assertEqual([c["email"] for c in live], [EMP])
+
+    def test_a_manager_without_the_grant_reads_no_trail(self):
+        # Neil, 10/29/2026: monitoring data is for Workforce Analytics grant
+        # holders only - their own team included.
+        self._seed_trail(OTHER)
+        self._as(MGR2)
+        for url in ("/timeclock/location-trail/live", f"/timeclock/location-trail/day?email={OTHER}&date={self._today()}"):
+            self.assertEqual(self.client.get(url).status_code, 403, url)
 
     def test_admin_reads_everyone(self):
         self._seed_trail(EMP)

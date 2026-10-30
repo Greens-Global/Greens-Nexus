@@ -18,6 +18,7 @@ import {
 // The help topic's optional "Which one?" level (Neil, Oct 1 2026).
 import { HELP_SUBTOPIC_KEY } from './ticketMeta';
 import { uploadTicketEvidence } from './evidenceUpload';
+import { mediaKind } from '../lib/voice';
 import { useFrequentCollaborators } from '../tasks/frequentPeople';
 
 // Desktop list-view column layout - the single source of truth for widths,
@@ -164,9 +165,10 @@ export function ticketRights(t, myEmail, privileged) {
 // always would have). Bucket must exist on the Supabase project - public,
 // same as Testing's qa-evidence - create `ticket-evidence` there.
 function attachmentKindOf(f) {
-  if (f.type.startsWith('image/')) return 'image';
-  if (f.type.startsWith('video/')) return 'video';
-  return 'doc';
+  if ((f.type || '').startsWith('image/')) return 'image';
+  // A voice note plays in the attachment viewer (Neil, Oct 30 2026); the
+  // extension decides for an iPhone clip that came with no type.
+  return mediaKind(f) || 'doc';
 }
 
 // Posts one file to a ticket - the ticket must already exist (attachments are

@@ -2,9 +2,11 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Scale } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
+import QuickNoteButton from "../notes/QuickNoteButton";
 import { HeaderOverflowTabs, TabGroupButton, useHeaderTabs } from "./ModuleTabs";
 import TabInk from "./TabInk";
 import MyProfileModal from "./MyProfileModal";
+import QuickCreate from "./QuickCreate";   // the "+" Create menu (Oct 29 2026)
 
 // ?emailSettings=1 - the "Email Settings" link in task emails; it opens
 // Profile on its Email Settings section (Neil, Oct 13 2026). Read when this
@@ -369,11 +371,16 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
       <div className="header-right">
         {searchBar}
-        {/* "?" Help menu: search the guide, help with this page, then Contact
-            Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
-        <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
+        {/* Create (Neil, Oct 29 2026): the "+" beside the search bar starts a
+            task, a ticket, a request... from any screen - components/QuickCreate.jsx. */}
+        <QuickCreate />
+        <QuickNoteButton />{/* Quick Note: today's scratchpad from any screen, Ctrl+Alt+N (notes/, Oct 29 2026) */}
         {buildMode.enabled && buildMode.on && <BuildModeChip onClick={buildMode.toggle} />}
         <NotificationBell onNavigate={onNavigate} />
+        {/* "?" Help menu: search the guide, help with this page, then Contact
+            Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx.
+            Right beside the profile, not between + and Quick Note (Neil, Oct 30 2026). */}
+        <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
 
         {/* User profile pill */}
         <div className="header-user-wrap" ref={dropRef}>
