@@ -7,12 +7,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
   X, Copy, Check, Eye, EyeOff, ExternalLink, Pencil, Trash2, RefreshCw, Share2, KeyRound, Star,
-  ShieldAlert, Clock, UserMinus, Lock, Send,
+  ShieldAlert, Clock, UserMinus, Lock, Send, ShieldCheck,
 } from "lucide-react";
 import { api } from "../api";
 import { useDialogFocus, trapTab } from "../lib/useDialogFocus";
 import { formatDate, formatDateTime } from "../lib/datetime";
-import { TeamsIcon, agoLabel, actionStyle } from "./vaultShared";
+import { TeamsIcon, agoLabel, actionStyle, Pager } from "./vaultShared";
 import { ACCESS_LABEL, ACCESS_TONE, healthFlags, rotationDaysLeft, rotationDueDate, timeLeft } from "./vaultModel";
 import { Monogram } from "./vaultCards";
 
@@ -23,6 +23,30 @@ function CopyButton({ text, onCopied, title = "Copy", disabled = false }) {
       onClick={() => { try { navigator.clipboard?.writeText(text); } catch { /* clipboard blocked */ } setDone(true); setTimeout(() => setDone(false), 1400); onCopied?.(); }}>
       {done ? <Check size={14} style={{ color: "var(--cv-ok)" }} /> : <Copy size={14} />}
     </button>
+  );
+}
+
+// The authenticator code (Oct 29 2026): comes with the reveal, counts down,
+// and fetches the next one when it rolls over while the drawer is open.
+function TotpRow({ credId, first, onCopied }) {
+  const [totp, setTotp] = useState(first);
+  const [left, setLeft] = useState(first.left);
+  useEffect(() => { setTotp(first); setLeft(first.left); }, [first]);
+  useEffect(() => {
+    const t = setInterval(() => setLeft((n) => n - 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    if (left > 0) return;
+    api.cvTotp(credId).then((r) => { setTotp(r); setLeft(r.left); }).catch(() => setLeft(30));
+  }, [left, credId]);
+  return (
+    <div className="cv-field" data-totp="">
+      <span className="cv-field-label">Code</span>
+      <span className="cv-field-value cv-mono is-open" style={{ letterSpacing: ".18em", fontWeight: 700 }}>{totp.code.slice(0, 3)} {totp.code.slice(3)}</span>
+      <span className="cv-hint" style={{ minWidth: 60, textAlign: "right" }}>{Math.max(0, left)}s</span>
+      <div className="cv-field-actions"><CopyButton text={totp.code} title="Copy Code" onCopied={onCopied} /></div>
+    </div>
   );
 }
 
@@ -56,7 +80,11 @@ export function CredentialDetail({
   }
 
   const left = rotationDaysLeft(cred);
-  const history = logs.filter((e) => e.credId === cred.id).slice(0, 25);
+  // History, 10 a page (Pranshu, Oct 29 2026).
+  const allHistory = logs.filter((e) => e.credId === cred.id);
+  const [histPage, setHistPage] = useState(1);
+  const histPages = Math.max(1, Math.ceil(allHistory.length / 10));
+  const history = allHistory.slice((histPage - 1) * 10, histPage * 10);
 
   return (
     <div className={`cv-detail${sheet ? " is-sheet" : ""}`} role={sheet ? undefined : "region"} aria-label={sheet ? undefined : cred.name}>
@@ -86,12 +114,14 @@ export function CredentialDetail({
           {/* Sign-in */}
           <section className="cv-section">
             <div className="cv-section-title">Sign-In</div>
-            {cred.canReveal ? (<>
+            {(cred.canReveal || cred.access === "view") && (
               <div className="cv-field">
                 <span className="cv-field-label">Username</span>
                 <span className="cv-field-value" title={cred.username}>{cred.username || "-"}</span>
                 <div className="cv-field-actions"><CopyButton text={cred.username} title="Copy Username" /></div>
               </div>
+            )}
+            {cred.canReveal ? (<>
               <div className="cv-field">
                 <span className="cv-field-label">Password</span>
                 <span className={`cv-field-value cv-mono ${revealed ? "is-open" : "is-secret"}`}>{revealed ? revealed.secret : "••••••••••"}</span>
@@ -102,6 +132,8 @@ export function CredentialDetail({
                   <CopyButton text={revealed?.secret} title="Copy Password" disabled={!revealed} onCopied={onCopiedSecret} />
                 </div>
               </div>
+              {revealed?.totp && <TotpRow credId={cred.id} first={revealed.totp} onCopied={onCopiedSecret} />}
+              {!revealed && cred.hasTotp && !inTrash && <p className="cv-hint" style={{ marginTop: -4 }}><ShieldCheck size={11} style={{ verticalAlign: -1 }} /> This login has two-step sign-in: Reveal also shows the current authenticator code.</p>}
               {revealed?.previousSecret && (
                 <div className="cv-field" style={{ background: "var(--bg-secondary)" }}>
                   <span className="cv-field-label">Previous</span>
@@ -118,8 +150,8 @@ export function CredentialDetail({
               <div className="cv-callout tone-info">
                 <KeyRound size={15} style={{ flexShrink: 0, marginTop: 1 }} />
                 <span>
-                  {cred.tier === "Critical" ? "This is a Critical credential. " : "This credential belongs to another department. "}
-                  Ask {nameOf(cred.owner)} for timed access - they or an admin approve it, and it appears here when they do.
+                  {cred.access === "view" ? "You can see this login but not its password. " : cred.tier === "Critical" ? "This is a Critical credential. " : "This credential is not shared with you. "}
+                  Ask {nameOf(cred.owner)} for timed access - they, the department head or an admin approve it, and it appears here when they do.
                 </span>
               </div>
             )}
@@ -150,8 +182,17 @@ export function CredentialDetail({
               {cred.owner && cred.owner !== myEmail && <a href={`https://teams.microsoft.com/l/chat/0/0?users=${cred.owner}`} target="_blank" rel="noopener noreferrer" title={`Chat with ${nameOf(cred.owner)} on Teams`} style={{ display: "flex" }}><TeamsIcon size={18} /></a>}
             </div>
             {cred.backupOwner && <div className="cv-person"><span>{nameOf(cred.backupOwner)} <span className="cv-muted">· Backup Owner</span></span></div>}
-            {cred.dept && cred.tier !== "Critical" && <div className="cv-person"><span>Everyone in {cred.dept} <span className="cv-muted">· Department</span></span></div>}
-            {cred.tier === "Critical" && <div className="cv-person"><span className="cv-muted">Critical: only the owners, admins and people given timed access can open this.</span></div>}
+            {access?.heads?.filter((h) => h !== cred.owner && h !== cred.backupOwner).map((h) => (
+              <div className="cv-person" key={h}><span>{nameOf(h)} <span className="cv-muted">· Department Head</span></span></div>
+            ))}
+            {/* Who may open it (Oct 29 2026): the audience rows, or the old department rule when there are none. */}
+            {(cred.audiences || []).filter((a) => cred.tier !== "Critical" || a.kind === "person").map((a) => (
+              <div className="cv-person" key={`${a.kind}:${a.value}`}>
+                <span>{a.kind === "person" ? nameOf(a.value) : a.label} <span className="cv-muted">· {a.level === "view" ? "View only" : a.kind === "person" ? "Can open" : "Everyone in it can open"}</span></span>
+              </div>
+            ))}
+            {!(cred.audiences || []).length && cred.dept && cred.tier !== "Critical" && <div className="cv-person"><span>Everyone in {cred.dept} <span className="cv-muted">· Department</span></span></div>}
+            {cred.tier === "Critical" && <div className="cv-person"><span className="cv-muted">Critical: only the owners, the department head, admins, the people named here and people given timed access can open this.</span></div>}
             {access?.grants?.map((g) => (
               <div className="cv-person" key={g.id}>
                 <span>{g.name} <span className="cv-muted">· <Clock size={11} style={{ verticalAlign: -1 }} /> {timeLeft(g.expiresAt - now)} left</span></span>
@@ -170,13 +211,14 @@ export function CredentialDetail({
           {/* History */}
           <section className="cv-section">
             <div className="cv-section-title">History</div>
-            {history.length === 0 ? <p className="cv-hint">Nothing logged yet.</p> : (
+            {allHistory.length === 0 ? <p className="cv-hint">Nothing logged yet.</p> : (
               <div className="cv-history">
                 {history.map((e) => (
                   <div key={e.id}>
                     <div className="cv-history-row">
                       <b>{e.actor}</b>
                       <span style={{ ...actionStyle(e.action), borderRadius: 6, padding: "0 6px", fontSize: 11.5, fontWeight: 500 }}>{e.action}</span>
+                      {e.ip ? <span className="cv-muted" title={e.userAgent || ""} style={{ fontSize: 11 }}>from {e.ip}</span> : null}
                       <time title={formatDateTime(e.ts)}>{agoLabel(e.ts)}</time>
                     </div>
                     {Array.isArray(e.detail) && e.detail.length > 0 && (
@@ -188,6 +230,7 @@ export function CredentialDetail({
                 ))}
               </div>
             )}
+            <Pager page={histPage} pages={histPages} total={allHistory.length} size={10} onPage={setHistPage} compact />
           </section>
         </div>
 

@@ -12,6 +12,7 @@ import { cleanName, emailToName } from '../lib/utils';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { Spinner } from './AsyncState';
+import DictateButton from './DictateButton';
 
 // ── Beginning / End-of-day / Break message ────────────────────────────────────
 // BOD on first punch-in, EOD on punch-out, BREAK when stepping away. The message
@@ -145,6 +146,17 @@ export function eodWindowStart(status, now = new Date()) {
 // Phones skip the BOD/EOD message far more than desktop users do, so on a
 // mobile viewport the "Skip" escape hatch (and the ack-to-skip checkbox that
 // only exists to gate it) is hidden entirely - the message must be sent.
+// Dictating a list (Neil, Oct 30 2026): each spoken phrase is its own line,
+// capitalized, under whatever is already there - the post reads one task per line.
+export function addSpokenLine(list, phrase) {
+  const said = String(phrase || '').trim();
+  if (!said) return list;
+  const line = said.charAt(0).toUpperCase() + said.slice(1);
+  const kept = String(list || '').replace(/\s+$/, '');
+  return kept ? `${kept}\n${line}` : line;
+}
+const LABEL_ROW = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5 };
+
 const isMobileViewport = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
 
 export default function BodModal({ mode = 'bod', required = false, onSent, onSkip, onClose, toastOk, toastErr }) {
@@ -185,6 +197,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   // Location tag beside the time (Pranshu, 10/14): Remote / the site / Off-Site
   // Punch. Started on open so the GPS wait overlaps the typing, not the send.
   const whereRef = useRef(null);
+  const messageRef = useRef(null);
   useEffect(() => {
     if (mode !== 'bod' && mode !== 'eod') return;
     // Oct 20 (some posts had no tag): BOD and EOD both get the full wait and
@@ -358,14 +371,20 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
 
         <div style={{ padding: '16px 22px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto' }}>
           <div className={M.reasonOnly ? 'nx-fill' : undefined}>
-            <label style={FL}>{M.msgLabel}</label>
-            <textarea className="form-input" rows={2} value={message} onChange={e => setMessage(e.target.value)}
+            <div style={LABEL_ROW}>
+              <label style={{ ...FL, marginBottom: 0 }}>{M.msgLabel}</label>
+              <DictateButton target={messageRef} title="Say It" />
+            </div>
+            <textarea ref={messageRef} aria-label={M.msgLabel} className="form-input" rows={2} value={message} onChange={e => setMessage(e.target.value)}
               placeholder={M.msgPlaceholder} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
           </div>
           {!M.reasonOnly && (
             <div className="nx-fill">
-              <label style={FL}>{M.tasksLabel}</label>
-              <textarea className="form-input" rows={4} value={tasks} onChange={e => setTasks(e.target.value)}
+              <div style={LABEL_ROW}>
+                <label style={{ ...FL, marginBottom: 0 }}>{M.tasksLabel}</label>
+                <DictateButton onText={(t) => setTasks((prev) => addSpokenLine(prev, t))} title="Say Each Task" />
+              </div>
+              <textarea aria-label={M.tasksLabel} className="form-input" rows={4} value={tasks} onChange={e => setTasks(e.target.value)}
                 placeholder={M.tasksPlaceholder} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
               {/* Says where the text came from, so nobody wonders who typed it,
                   and offers it back if they cleared it or the box was already
@@ -387,8 +406,11 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
           )}
           {mode === 'eod' && (
             <div className="nx-fill">
-              <label style={FL}>Pending tasks (one per line)</label>
-              <textarea className="form-input" rows={3} value={pending} onChange={e => setPending(e.target.value)}
+              <div style={LABEL_ROW}>
+                <label style={{ ...FL, marginBottom: 0 }}>Pending tasks (one per line)</label>
+                <DictateButton onText={(t) => setPending((prev) => addSpokenLine(prev, t))} title="Say Each Pending Task" />
+              </div>
+              <textarea aria-label="Pending tasks" className="form-input" rows={3} value={pending} onChange={e => setPending(e.target.value)}
                 placeholder="Anything still open - leave empty to skip this section"
                 style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
               {pendingSugg && !pending.trim() ? (

@@ -501,3 +501,19 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
     </Modal>
   );
 }
+
+// Previous / Next over a list (Oct 29 2026): Activity shows 20 a page, a
+// credential's History 10. Says where you are; hidden when one page is enough.
+export function Pager({ page, pages, total, size, onPage, compact = false }) {
+  if (pages <= 1) return null;
+  const from = (page - 1) * size + 1, to = Math.min(total, page * size);
+  return (
+    <div className="cv-pager" data-pager="">
+      <span className="cv-hint">{from}-{to} of {total}</span>
+      <span style={{ flex: 1 }} />
+      <button type="button" className="cv-btn" style={compact ? { padding: "3px 9px", fontSize: 12 } : undefined} onClick={() => onPage(page - 1)} disabled={page <= 1}>Previous</button>
+      <span className="cv-hint" style={{ padding: "0 6px" }}>{page} / {pages}</span>
+      <button type="button" className="cv-btn" style={compact ? { padding: "3px 9px", fontSize: 12 } : undefined} onClick={() => onPage(page + 1)} disabled={page >= pages}>Next</button>
+    </div>
+  );
+}
