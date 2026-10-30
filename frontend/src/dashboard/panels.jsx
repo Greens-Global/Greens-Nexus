@@ -35,6 +35,43 @@ const Card = ({ title, sub, action, children }) => (
 const fmtDate = (iso) => formatDateTime(iso, '-');
 
 // ── Pending approvals (REAL - ported from ManagerDashboard "Pending Actions") ──
+// Waiting On You (Oct 30 2026): the Approvals registry's rows - what the
+// person decides, then their own to-dos - with the way to Dashboard >
+// Approvals. Reads the same inbox the tab reads; decides nothing here.
+export function ApprovalsInboxPanel() {
+  const [box, setBox] = useState(null);
+  const load = useCallback(() => api.approvalsInbox().then(r => setBox(r && Array.isArray(r.rows) ? r : { rows: [] })).catch(() => setBox({ rows: [], failed: true })), []);
+  useEffect(() => { load(); return pollWhileVisible(load, 60000); }, [load]);
+  const rows = box?.rows || [];
+  const decide = rows.filter(r => r.scope !== 'act');
+  const own = rows.filter(r => r.scope === 'act');
+  const total = rows.reduce((t, r) => t + (r.count || 1), 0);
+  const open = () => navigate('dashboard', 'approvals');
+  const Line = ({ r }) => (
+    <button type="button" onClick={open} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 10, alignItems: 'center', width: '100%', textAlign: 'left', padding: '8px 0', border: 'none', borderTop: '1px solid var(--line)', background: 'none', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--ink)' }}>
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
+        <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[r.person?.name, r.department && r.department !== 'No Department' ? r.department : ''].filter(Boolean).join(' · ')}</span>
+      </span>
+      <span style={{ fontSize: 12, color: r.priority === 'urgent' ? 'hsl(var(--color-red))' : 'var(--muted)', whiteSpace: 'nowrap' }}>{r.priority === 'urgent' ? 'Urgent' : ''}</span>
+    </button>
+  );
+  return (
+    <Card title="Waiting On You" sub="Decisions and to-dos from every module, oldest first"
+      action={<button type="button" className="secondary-btn" onClick={open} style={{ fontSize: 12, padding: '4px 10px' }}>{total ? `Open Approvals (${total})` : 'Open Approvals'}</button>}>
+      {box === null ? <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Loading...</div>
+        : box.failed ? <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Could not load your approvals.</div>
+        : !rows.length ? <div style={{ border: '1px dashed var(--line)', borderRadius: 8, padding: '16px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>Nothing waiting on you.</div>
+        : (<>
+          {decide.slice(0, 5).map(r => <Line key={r.key} r={r} />)}
+          {own.length > 0 && <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', margin: '10px 0 2px' }}>Yours To Do</div>}
+          {own.slice(0, 3).map(r => <Line key={r.key} r={r} />)}
+          {rows.length > 8 && <div style={{ fontSize: 12, color: 'var(--muted)', paddingTop: 8 }}>+{rows.length - 8} more in Approvals</div>}
+        </>)}
+    </Card>
+  );
+}
+
 export function ApprovalsPanel({ phone = false }) {
   const { accounts } = useMsal();
   const myName = accounts[0]?.name ?? 'Manager';

@@ -690,6 +690,13 @@ async def reminders_loop():
             await asyncio.to_thread(hr_probation.run_daily)
         except Exception as e:
             print(f"[reminders] probation loop error: {e}")
+        # Approvals waiting over 3 days (Oct 30 2026): one bell per approver,
+        # rewritten daily while true, closed when clear (approvals_nudge.py).
+        try:
+            import approvals_nudge
+            await asyncio.to_thread(approvals_nudge.run_daily)
+        except Exception as e:
+            print(f"[reminders] approvals nudge loop error: {e}")
         # Records Audit: missing details / expired documents, one bell per company.
         try:
             import hr_record_audit

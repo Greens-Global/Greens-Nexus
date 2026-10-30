@@ -15,7 +15,7 @@ Jul 28); craft bar monday.com.
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import {
-  ArrowUpRight, CheckCircle2, CheckSquare, ChevronRight,
+  ArrowUpRight, CheckCircle2, CheckSquare, ChevronRight, ClipboardCheck,
   Package, PenLine, Ticket, Users,
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
@@ -226,12 +226,16 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
   // (lib/useTimeStatus - one request for both, and for the floating timer).
   const { status } = useTimeStatus();
   const [sigs, setSigs] = useState([]);
+  // Dashboard > Approvals (Oct 30 2026): the decisions waiting on this person
+  // lead the attention queue and get their own number when there are any.
+  const [inbox, setInbox] = useState(null);
   const [teamKpis, setTeamKpis] = useState(null);
   // Which quick-action composer is open, if any. Null renders nothing and the
   // chunk is never fetched.
   const [composing, setComposing] = useState(null);
   useEffect(() => {
     api.mySignatures().then(r => setSigs(Array.isArray(r) ? r : (r?.requests || r?.items || []))).catch(() => {});
+    api.approvalsInbox?.()?.then?.(r => setInbox(r && Array.isArray(r.rows) ? r : null))?.catch?.(() => {});
     if (can('supervisor')) api.dashKpis('team').then(r => setTeamKpis(r?.kpis || null)).catch(() => {});
   }, [can]);
 
@@ -246,14 +250,26 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
   const allActionable = unread.filter(n => n.action && !n.actioned);
   const actionable = allActionable.slice(0, 6);
   const pendingSigs = sigs.length;
+  const decisions = useMemo(() => (inbox?.rows || []).filter(r => r.scope !== 'act'), [inbox]);
+  const decisionsTotal = decisions.reduce((t, r) => t + (r.count || 1), 0);
+  const stale = inbox?.aging?.over3 || 0;
   // Everything that needs you, not just the rows that fit: the count, the
   // summary sentence and the "+N more" row all say the real number.
-  const attentionTotal = pendingSigs + allActionable.length;
+  const attentionTotal = pendingSigs + allActionable.length + decisionsTotal;
 
   // "Needs your attention": signatures first (hard blockers), then actionable
   // unread notifications.
   const queue = useMemo(() => {
     const rows = [];
+    // Decisions first: they hold someone else up. Three rows, oldest waiting first (the server's order).
+    decisions.slice(0, 3).forEach(r => rows.push({
+      key: `apv-${r.key}`,
+      pill: 'Approve', tone: (r.priority === 'urgent' || r.priority === 'high') ? 'red' : 'orange',
+      title: r.title,
+      sub: [r.person?.name, r.department && r.department !== 'No Department' ? r.department : ''].filter(Boolean).join(' · ') || 'Waiting on your decision',
+      time: timeAgo(r.createdAt),
+      go: () => navTo('dashboard', 'approvals'),
+    }));
     sigs.slice(0, 3).forEach(s => rows.push({
       key: `sig-${s.id ?? s.packet_id ?? Math.random()}`,
       pill: 'Sign', tone: 'green',
@@ -276,13 +292,14 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
       go: () => { markRead?.(n.id); if (n.action?.view) navTo(n.action.view, n.action.sub); },
     }));
     return rows.slice(0, 7);
-  }, [sigs, actionable, markRead]);
+  }, [decisions, sigs, actionable, markRead]);
 
   const hiddenCount = Math.max(0, attentionTotal - queue.length);
   // Where the rest live: the bell holds every notification; signatures are
   // on My HR. Notifications left out first, since there are usually more.
   const hiddenNotifs = allActionable.length - queue.filter(r => r.key.startsWith('ntf-')).length;
-  const viewAll = () => { if (hiddenNotifs > 0 && openPanel) openPanel(); else navTo('myhr'); };
+  const hiddenDecisions = decisionsTotal - queue.filter(r => r.key.startsWith('apv-')).length;
+  const viewAll = () => { if (hiddenDecisions > 0) navTo('dashboard', 'approvals'); else if (hiddenNotifs > 0 && openPanel) openPanel(); else navTo('myhr'); };
 
   const summary = attentionTotal > 0
     ? <>You have <b>{attentionTotal} item{attentionTotal === 1 ? '' : 's'}</b> that need your attention today.</>
@@ -293,6 +310,8 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
     { label: 'Checked-Out Items', value: kpis.my_checkouts, sub: 'With you right now', chip: 'orange', Icon: Package, go: () => navTo('inventory', 'checkouts') },
     { label: 'My Equipment', value: kpis.my_assignments, sub: 'Permanently assigned', chip: 'brand', Icon: Users, go: () => navTo('inventory') },
     { label: 'Signatures Needed', value: pendingSigs, sub: 'Waiting on you', chip: 'green', Icon: PenLine, go: () => navTo('myhr') },
+    // Only an approver gets a fifth number - an employee's board keeps its four.
+    ...(decisionsTotal > 0 || inbox?.who?.canApprove ? [{ label: 'Approvals', value: decisionsTotal, sub: stale ? `${stale} waiting over 3 days` : 'Waiting on your decision', chip: stale ? 'red' : 'orange', Icon: ClipboardCheck, go: () => navTo('dashboard', 'approvals') }] : []),
   ];
 
   return (

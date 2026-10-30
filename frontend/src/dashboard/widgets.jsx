@@ -40,6 +40,7 @@ const PunchTile = lazy(() => import('./essentials/PunchTile.jsx'));
 const PunchIcon = lazy(() => import('./essentials/PunchTile.jsx').then(m => ({ default: m.PunchIcon })));
 
 const ApprovalsPanel    = lazyPanel('ApprovalsPanel');
+const ApprovalsInboxPanel = lazyPanel('ApprovalsInboxPanel');   // Waiting On You (Oct 30 2026)
 const WhoHasWhatPanel   = lazyPanel('WhoHasWhatPanel');
 const TeamTimePanel     = lazyPanel('TeamTimePanel');
 const CalendarPanel     = lazyPanel('CalendarPanel');
@@ -1092,6 +1093,9 @@ export const WIDGETS = {
   'time-off':        { title: 'Time Off to Review', cat: 'Team', icon: CalendarClock, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'time_off_pending' }} />, minRole: 'manager', compact: true },
 
   // ── Panels ported from the old Overview / Team Analytics screens ──
+  // Dashboard > Approvals on the board (Oct 30 2026): everyone may add it - an
+  // employee sees their own to-dos, an approver the decisions waiting on them.
+  'approvals-inbox': { title: 'Waiting On You',   cat: 'Workday',   icon: ClipboardList, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 8 }, render: ApprovalsInboxPanel },
   approvals:       { title: 'Pending Approvals',  cat: 'Team',      icon: ClipboardList, size: { w: 8, h: 5 }, limits: { minW: 6, minH: 4, maxW: 12, maxH: 8 }, render: ApprovalsPanel,    minRole: 'manager' },
   'who-has-what':  { title: 'Who Has What',       cat: 'Team',      icon: HandCoins,     size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: WhoHasWhatPanel,   minRole: 'supervisor' },
   // Phone: the whole Time Admin lives in this tile, so it gets a real

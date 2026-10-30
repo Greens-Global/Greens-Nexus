@@ -179,6 +179,27 @@ class InboxCase(unittest.TestCase):
         self.assertEqual(self.client.get("/approvals/history").json()["rows"], [])    # never someone else's
         self.assertIn("approvals", self._counts(MGR)["dashboard"] if "dashboard" in self._counts(MGR) else {"approvals": 0})
 
+    def test_stale_nudge_bells_the_approver_and_clears(self):
+        import approvals_nudge as an
+        self.assertEqual(an.approvers(self.db) & {MGR, HRC, EMP}, {MGR, HRC})            # managers and the HR contact, never a plain employee
+        self._time_off("to-stale", EMP, created=(date.today() - timedelta(days=9)).isoformat() + "T08:00:00+00:00")
+        self.db.commit()
+        self.assertEqual(an.nudge_one(self.db, MGR), 1)
+        self.db.commit()
+        bell = self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == MGR, models.NexusNotification.ref_id == an.KEY).one()
+        self.assertEqual(bell.title, "Approvals Waiting On You")
+        self.assertIn("1 approval has waited over 3 days", bell.body)
+        self.assertIn("(the oldest 9 days)", bell.body)
+        self.assertEqual(bell.priority, 1)                                                 # a week or more: the yellow bar
+        self.assertEqual(an.nudge_one(self.db, MGR), 1)                                   # a second day rewrites the same bell
+        self.assertEqual(self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == MGR, models.NexusNotification.ref_id == an.KEY).count(), 1)
+        self.db.query(models.TimeOffRequest).filter(models.TimeOffRequest.id == "to-stale").update({"status": "approved"})
+        self.db.commit()
+        self.assertEqual(an.nudge_one(self.db, MGR), 0)                                   # cleared: the bell is closed in place
+        self.db.commit()
+        self.assertTrue(self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == MGR, models.NexusNotification.ref_id == an.KEY).one().actioned)
+        self.assertEqual(an.nudge_one(self.db, DEE), 0)                                   # nothing waiting, nothing written
+
     # ── The registry ────────────────────────────────────────────────────────
 
     def test_sources_merge_oldest_first_and_counts_agree_with_the_nav(self):
