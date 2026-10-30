@@ -28,7 +28,10 @@ export function visibleSubs(view, role) {
   const entry = SUBMENUS[view];
   if (!entry) return null;
   const list = Array.isArray(entry) ? entry : (role?.can?.('manager') ? entry.manager : entry.employee);
-  return list.filter((s) => !s.grants || s.grants.some((g) => !!role?.canAccessModule?.(g, 'administrator', 'viewer')));
+  const mayOpen = (s) => !!s.grants && s.grants.some((g) => !!role?.canAccessModule?.(g, 'administrator', 'viewer'));
+  // An external (B2B guest) gets only the granted tabs - in Team, Workforce
+  // Analytics alone (views/Shifts.jsx draws the same).
+  return list.filter((s) => (role?.isExternal ? mayOpen(s) : !s.grants || mayOpen(s)));
 }
 
 export const SUBMENUS = {

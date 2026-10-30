@@ -37,6 +37,11 @@ describe('Workforce Analytics access', () => {
     expect(teamSubs(person({ tier: 5 }))).toContain('Workforce Analytics');
   });
 
+  it('an external guest is offered only the tab their grant opens', () => {
+    expect(teamSubs({ ...person({ grants: ['employee-tracking'] }), isExternal: true })).toEqual(['Workforce Analytics']);
+    expect(teamSubs({ ...person(), isExternal: true })).toEqual([]);
+  });
+
   it('is off the left menu, and its old addresses land on the Team tab', () => {
     expect(NAV.find((n) => n.view === 'employee-tracking')?.menuOnly).toBe(true);
     expect(workforceRedirect('employee-tracking', null)).toEqual({ view: 'shifts', sub: 'analytics' });

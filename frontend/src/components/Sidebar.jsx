@@ -75,7 +75,7 @@ export const NAV = [
   // (lib/workforceAccess.js). The entry stays for the header search, the
   // guide and Insights, which find it by this rule; its old view id is
   // redirected into Team (App.jsx workforceRedirect).
-  { view: "employee-tracking", code: "EMP", label: "Workforce Analytics",  icon: MonitorDot,   minRole: 'supervisor', grants: ['employee-tracking', 'workforce-scorecard'], menuOnly: true },
+  { view: "employee-tracking", code: "EMP", label: "Workforce Analytics",  icon: MonitorDot,   minRole: 'supervisor', grants: ['employee-tracking', 'workforce-scorecard'], menuOnly: true, inTeam: true },
   // Team (Neil, Oct 13 2026): everything about the people you work with -
   // the Contact directory (moved out of Support) and the group's Shifts; your
   // OWN shifts moved to Workday > My Shifts. The view id stays 'shifts' (the
@@ -83,7 +83,9 @@ export const NAV = [
   // Schedule and Requests; the backend enforces the same line
   // (routers/timeclock.py require_shift_manage).
   {
-    view: "shifts", code: "TEAM", label: "Team", icon: Handshake,
+    // `grants`: internal staff all have Team; an external (B2B guest) sees it
+    // only through a Workforce Analytics grant, and then that tab alone.
+    view: "shifts", code: "TEAM", label: "Team", icon: Handshake, grants: ['shifts', 'employee-tracking', 'workforce-scorecard'],
     sub: [
       { subview: "shifts",   label: "Shifts",           icon: CalendarClock },
       { subview: "schedule", label: "Schedule",         icon: Calendar,      minRole: 'manager' },

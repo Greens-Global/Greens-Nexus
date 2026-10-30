@@ -11454,10 +11454,13 @@ def list_screenshots(date: str = "", email: str = "",
 
 @router.get("/team-screenshots")
 def team_screenshots(date: str = "", email: str = "",
-                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """Manager-scoped screenshot gallery - same shape as the admin /screenshots but
-    limited to the caller's visible team (their reports), so a level-3 manager can
-    review their own team without company-wide access."""
+                     user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
+    """Screenshot gallery limited to the caller's visible team - same shape as
+    /screenshots. Screenshots are Workforce Analytics' alone (Neil, 10/29/2026:
+    "only those who should have access"): the Employee Tracking grant (or
+    administrator), like /screenshots - no longer any manager or HR-viewer
+    grant, which reached the whole company's frames through here. No screen
+    calls it today."""
     visible = _visible_emails(db, user)   # None = whole company (admin/HR grant)
     day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     q = db.query(TimeScreenshot).filter(TimeScreenshot.local_date == day)

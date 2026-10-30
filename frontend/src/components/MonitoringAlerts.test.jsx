@@ -10,6 +10,9 @@ const alerts = [
   { email: 'b@greensglobal.com', name: 'Amy Bolanos', reason: 'No agent reporting', detail: 'Clocked in with no enrolled agent and no recent capture.', severity: 'high' },
 ];
 vi.mock('../api', () => ({ api: { timeMonitoringAlerts: vi.fn(async () => ({ alerts })) } }));
+// Who is looking: a Workforce Analytics grant holder unless a test says not.
+const who = { grants: ['employee-tracking'] };
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ canAccessModule: (m) => who.grants.includes(m) }) }));
 
 import { MonitoringAlertsLine, MonitoringAlertsPanel } from './MonitoringAlerts';
 import { api } from '../api';
@@ -28,6 +31,17 @@ describe('monitoring alerts', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View in Workforce Analytics' }));
     window.removeEventListener('nexus:navigate', on);
     expect(seen).toEqual([{ view: 'shifts', sub: 'analytics:coverage' }]);   // Team > Workforce Analytics (Oct 29 2026)
+  });
+
+  it('offers no link to someone who cannot open Workforce Analytics', async () => {
+    who.grants = [];
+    try {
+      render(<MonitoringAlertsLine />);
+      expect(await screen.findByText('2 monitoring alerts')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'View in Workforce Analytics' })).toBeNull();
+    } finally {
+      who.grants = ['employee-tracking'];
+    }
   });
 
   it('lists everyone on Workforce Analytics once it is opened', async () => {

@@ -85,13 +85,14 @@ export function useNexusSearch(query, { enabled = true } = {}) {
   // the role it reads instead).
   const screens = useMemo(() => {
     if (!live) return [];
-    const visible = NAV.filter(i => !i.divider && isNavItemVisible(i, { isExternal, can, myGrantedModules, qaEnabled }));
+    // `inTeam` (Workforce Analytics): listed once, as Team's tab below.
+    const visible = NAV.filter(i => !i.divider && !i.inTeam && isNavItemVisible(i, { isExternal, can, myGrantedModules, qaEnabled }));
     const out = [];
     for (const item of visible) {
       out.push({ view: item.view, sub: null, label: item.label, context: null });
       // The phone menu's own rule, so a gated tab (Team > Workforce
       // Analytics) is never listed for someone who cannot open it.
-      const subs = visibleSubs(item.view, { can, canAccessModule });
+      const subs = visibleSubs(item.view, { can, canAccessModule, isExternal });
       if (subs) for (const s of subs) out.push({ view: item.view, sub: s.sub, label: s.label, context: item.label });
     }
     return out;

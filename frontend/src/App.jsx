@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, addressFor } from './lib/routes';
-import { workforceRedirect } from './lib/workforceAccess';
+import { workforceRedirect, WORKFORCE_GRANTS } from './lib/workforceAccess';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 import { loginRequest } from "./authConfig";
@@ -167,9 +167,11 @@ const VIEW_MIN_ROLES = {
 const VIEW_GRANT = {};
 // Views that OTHER grants also open (any one is enough): a 'workforce-scorecard'
 // grant alone reaches Workforce Analytics for its Scorecard tab (Neil, 10/10).
-// (Workforce Analytics, the one entry, became a Team tab on Oct 29 2026 and
-// gates itself - lib/workforceAccess.js.)
-const VIEW_ALT_GRANTS = {};
+// Team opens for an external (B2B guest) account through a Workforce
+// Analytics grant - Team is otherwise internal-only for them - and then
+// shows that one tab alone (views/Shifts.jsx). Internal staff have Team
+// anyway; the tab itself gates on lib/workforceAccess.js (Oct 29 2026).
+const VIEW_ALT_GRANTS = { shifts: WORKFORCE_GRANTS };
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the

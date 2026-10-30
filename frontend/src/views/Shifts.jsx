@@ -64,23 +64,30 @@ export default function Shifts({ activeSub, onSubChange }) {
   const canAnalytics = canOpenWorkforceAnalytics(role);
   const [keepsRoles, setKeepsRoles] = useState(false);
   useEffect(() => {
+    if (role.isExternal) return;   // a guest sees the Workforce Analytics tab alone
     Promise.resolve().then(() => api.getRoleChecklistRoles())
       .then(r => setKeepsRoles((r?.roles || []).length > 0)).catch(() => {});
-  }, []);
+  }, [role.isExternal]);
   const [headcount, setHeadcount] = useState({ show: false, waiting: 0 });
   useEffect(() => {
+    if (role.isExternal) return;
     Promise.resolve().then(() => api.headcountMeta())
       .then(m => setHeadcount({ show: !!m?.showTab, waiting: m?.waiting || 0 })).catch(() => {});
-  }, []);
-  const tabs = TABS.filter(([key, , , managerOnly]) => (canManage || !managerOnly) && (key !== 'role-checklists' || keepsRoles)
-    && (key !== 'headcount' || headcount.show) && (key !== 'analytics' || canAnalytics));
+  }, [role.isExternal]);
+  // An external (B2B guest) account reaches Team only through a Workforce
+  // Analytics grant (App.jsx VIEW_ALT_GRANTS) and sees that tab alone -
+  // never the group's shifts or the company directory.
+  const tabs = role.isExternal
+    ? TABS.filter(([key]) => key === 'analytics' && canAnalytics)
+    : TABS.filter(([key, , , managerOnly]) => (canManage || !managerOnly) && (key !== 'role-checklists' || keepsRoles)
+      && (key !== 'headcount' || headcount.show) && (key !== 'analytics' || canAnalytics));
   // A weather advisory's bell deep-links to one day of one group:
   // sub = "schedule:YYYY-MM-DD:<group id>" (Weather Call, Oct 2026). The tab
   // is the part before the first colon; the rest is where to land.
   const [subKey, focusDate = '', focusGroup = ''] = String(activeSub || '').split(':');
   // Workforce Analytics reads the part after the colon as its own tab:
   // "analytics:scorecard" (the Monday email), "analytics:coverage" (alerts).
-  const tab = tabs.some(([k]) => k === subKey) ? subKey : 'shifts';
+  const tab = tabs.some(([k]) => k === subKey) ? subKey : (tabs[0]?.[0] || '');
   const focus = tab === 'schedule' && /^\d{4}-\d{2}-\d{2}$/.test(focusDate) ? { date: focusDate, groupId: focusGroup } : null;
   // A publish or nudge bell's "mine:confirm:<publish id>" (Shifts Phase 3a)
   // is your OWN week, so App.jsx sends it to Workday's My Schedule (Oct 15).
@@ -148,8 +155,10 @@ export default function Shifts({ activeSub, onSubChange }) {
         : tab === 'role-checklists' ? <Suspense fallback={<SkeletonBlocks count={3} height={56} />}><RoleChecklists toastOk={toastOk} toastErr={toastErr} /></Suspense>
         : tab === 'analytics' ? <Suspense fallback={<SkeletonBlocks count={4} height={96} />}><WorkforceAnalytics initialSub={focusDate || undefined} embedded onTab={(id) => onSubChange?.(`analytics:${id}`)} /></Suspense>
         : tab === 'headcount' ? <Suspense fallback={<SkeletonBlocks count={3} height={56} />}><HeadcountRequests toastOk={toastOk} toastErr={toastErr} /></Suspense>
-          : <ShiftRequestsPage inbox={requests.inbox} timeoff={requests.timeoff} loading={requests.loading} error={requests.error}
-            onRetry={requests.reload} onChanged={requests.reload} toastOk={toastOk} toastErr={toastErr} />}
+        // Named, never the fall-through: a tab nobody may see renders nothing.
+        : tab === 'requests' ? <ShiftRequestsPage inbox={requests.inbox} timeoff={requests.timeoff} loading={requests.loading} error={requests.error}
+            onRetry={requests.reload} onChanged={requests.reload} toastOk={toastOk} toastErr={toastErr} />
+        : null}
 
       {toast && (
         <div role="status" style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>

@@ -3,6 +3,8 @@ import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useWorkforceView } from './workforce/viewContext';
+import { useRole } from '../contexts/RoleContext';
+import { canOpenWorkforceAnalytics } from '../lib/workforceAccess';
 
 // Disclosed-monitoring tamper / coverage alerts: people who are clocked in
 // while their agent has gone quiet (killed, uninstalled, offline), so evasion
@@ -67,16 +69,19 @@ export function MonitoringAlertsPanel() {
   );
 }
 
-// One line for the Time screen: how many, and the way to the list.
+// One line for the Time screen: how many, and the way to the list. The link
+// is only for people who can open Workforce Analytics (a Team tab only its
+// grant holders see, Oct 29 2026) - for anyone else it would land on Shifts.
 export function MonitoringAlertsLine({ canOpen = true }) {
   const alerts = useMonitoringAlerts();
+  const mayOpen = canOpenWorkforceAnalytics(useRole());
   if (!alerts.length) return null;
   const go = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'analytics:coverage' } }));
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12, fontSize: 12.5, color: 'var(--muted)' }}>
       <AlertTriangle size={14} style={{ color: RED, flexShrink: 0 }} />
       <span><strong style={{ color: 'var(--ink)' }}>{alerts.length} monitoring {alerts.length === 1 ? 'alert' : 'alerts'}</strong> - clocked in with a quiet agent</span>
-      {canOpen && (
+      {canOpen && mayOpen && (
         <button type="button" onClick={go} style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: 'var(--wk-brand)', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>
           View in Workforce Analytics
         </button>
