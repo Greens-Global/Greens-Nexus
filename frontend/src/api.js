@@ -3244,6 +3244,8 @@ export const api = {
   perfScorecards: (company) => req(`/performance/scorecards?company=${encodeURIComponent(company || "")}`),
   perfScorecardSave: (data) => req("/performance/scorecards", { method: "PUT", body: JSON.stringify(data) }),
   perfScorecardRetire: (id) => req(`/performance/scorecards/${encodeURIComponent(id)}/retire`, { method: "POST" }),
+  perfScorecardCopySource: (company, sourceId) => req(`/performance/scorecards/copy-source/${encodeURIComponent(sourceId)}?company=${encodeURIComponent(company || "")}`),
+  perfSharedScorecardSave: (data) => req("/performance/scorecards/shared", { method: "PUT", body: JSON.stringify(data) }),
   perfMyScorecard: () => req("/performance/scorecards/current"),
   perfKpis: (company) => req(`/performance/kpis?company=${encodeURIComponent(company || "")}`),
   perfKpiCreate: (data) => req("/performance/kpis", { method: "POST", body: JSON.stringify(data) }),

@@ -9532,13 +9532,18 @@ class PerfKpi(Base):
 
 
 class PerfScorecard(Base):
-    """One department's scorecard, one VERSION: in force from effective_from
-    (the first of a month) to effective_to ('' = open). A change to a running
-    version becomes a new row starting next month."""
+    """A JOB ROLE's scorecard, one VERSION (kind 'role': in force from
+    effective_from, the first of a month, to effective_to, '' = open; a change
+    to a running version becomes a new row starting next month) - or a SHARED
+    set (kind 'shared', role_id '', named) HR keeps to copy from, edited in
+    place. company_id '' on a shared set = every company may copy it."""
     __tablename__ = "hr_perf_scorecards"
     id             = Column(String, primary_key=True)              # uuid
     company_id     = Column(String, default="", index=True)
-    department     = Column(String, default="", index=True)
+    kind           = Column(String, default="role")                # role | shared
+    role_id        = Column(String, default="", index=True)        # NexusGroup.id (is_job_role) for kind 'role'
+    name           = Column(String, default="")                    # the role's name at save, or the shared set's name
+    copied_from    = Column(String, default="")                    # "Role: X" / "Shared set: Y" when it started as a copy
     version        = Column(Integer, default=1)
     effective_from = Column(String, default="")                    # YYYY-MM-01
     effective_to   = Column(String, default="")                    # YYYY-MM-DD, '' = open
