@@ -314,7 +314,18 @@ const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE
 // editor rides the TipTap already in the bundle; @tiptap/extension-list was
 // installed, now declared). A local build read 15647 KB with all of it in.
 // App code only, no new dependency. Needs Neil's OK with the release.
-const TOTAL_KB     = 15900 + (NX_SRC_ON ? 350 : 0);
+// Oct 30 2026: 15900 -> 16200. dev itself read about 15890 KB on CI after the
+// Oct 30 merges (Credentials #852-#856, the voice-notes batch #872), so any
+// PR tipped it: the KPI Scorecards PR (#864) measured 15924 KB and the
+// Approvals inbox PR (#870) 15907 KB. The Performance stack on top (#865 the
+// monthly score, #866 bonus plans and runs, #867 the run controls) and the
+// Approvals stack (#871 the Dashboard tab, #873 the home card and nudge) are
+// each their own lazy chunks, roughly +120 KB together; this cap sums every
+// shipped file, so lazy loading cannot lower it. Same lines in #864 and #870
+// so the second to merge does not conflict. App code only, no new
+// dependency. Pranshu asked for the raise on 10/30 (needs Neil's OK with
+// the release, as every raise here has).
+const TOTAL_KB     = 16200 + (NX_SRC_ON ? 350 : 0);
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a
