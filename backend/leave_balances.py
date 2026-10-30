@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
@@ -38,6 +39,66 @@ import models
 POLICIES_KEY = "leave.policies"
 CUTOVER_KEY = "leave.cutover"
 BUCKETS = ("vacation", "sick")
+
+# Phase 1A of the Benefit Accrual roadmap (10/26/2026 plan doc). The ledger
+# today has two first-class buckets - vacation and sick (BUCKETS). The plan
+# calls for configurable leave types per policy (bereavement, jury duty,
+# floating holidays, parental leave, comp time, ...). This file introduces
+# the DATA for those types on each policy without changing the balance
+# engine's behaviour; Phase 1B wires them into balances(), add_entry() and
+# bucket_of(). Each extra type carries:
+#   id              short slug, drawn against this id on the ledger
+#   name            display name
+#   paid            true | false
+#   method          per_hour | per_period | lump | anniversary | tracked_only | none
+#   waitingDays     days of employment before this type unlocks (0 = immediate)
+#   annualHours     a lump method's grant per calendar year; 0 for others
+#   balanceCapHours cap on the running balance (0 = uncapped)
+#   carryoverMax    hours a year-end may carry over (0 = none, -1 = unlimited)
+#   payoutOnTerm    true = owed at offboarding, in hours; false = forfeited
+#   eligibleTypes   list from _EMP_TYPES; empty means the policy's own list
+#   drawFromReasons short slugs the TimeOffRequest.type / timecard category
+#                   match against to draw from this bucket. Phase 1B's
+#                   bucket_of() reads this; today bucket_of() still uses
+#                   keyword matching.
+EXTRA_TYPE_METHODS = ("per_hour", "per_period", "lump", "anniversary", "tracked_only", "none")
+EXTRA_TYPE_DEFAULTS = {
+    "us-ca": [
+        {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
+         "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["bereavement", "funeral"]},
+        {"id": "floating_holiday", "name": "Floating Holiday", "paid": True, "method": "lump",
+         "waitingDays": 90, "annualHours": 16, "balanceCapHours": 16,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["floating holiday", "floater"]},
+        {"id": "jury_duty", "name": "Jury Duty", "paid": True, "method": "tracked_only",
+         "waitingDays": 0, "annualHours": 0, "balanceCapHours": 0,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["jury", "jury duty"]},
+    ],
+    "us-other": [
+        {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
+         "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["bereavement", "funeral"]},
+        {"id": "floating_holiday", "name": "Floating Holiday", "paid": True, "method": "lump",
+         "waitingDays": 90, "annualHours": 16, "balanceCapHours": 16,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["floating holiday", "floater"]},
+        {"id": "jury_duty", "name": "Jury Duty", "paid": True, "method": "tracked_only",
+         "waitingDays": 0, "annualHours": 0, "balanceCapHours": 0,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["jury", "jury duty"]},
+    ],
+    "in": [
+        {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
+         "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["bereavement", "funeral"]},
+    ],
+    "none": [],
+}
 
 # The call (Oct 19 2026). Hours throughout; `unit` is only how it is shown.
 DEFAULT_POLICIES = {
@@ -169,8 +230,14 @@ def clear_cutover(db: Session, company_id: str) -> bool:
 
 
 def policies(db: Session) -> dict:
-    """Every policy by id - HR's saved copy over the defaults."""
+    """Every policy by id - HR's saved copy over the defaults. Phase 1A: every
+    returned policy also carries `extraTypes` (bereavement / floating holiday /
+    jury duty on the US policies, bereavement on IN). A saved policy with its
+    own `extraTypes` wins; a saved policy with none inherits the defaults."""
     out = copy.deepcopy(DEFAULT_POLICIES)
+    for pid, extras in EXTRA_TYPE_DEFAULTS.items():
+        if pid in out:
+            out[pid]["extraTypes"] = copy.deepcopy(extras)
     raw = _setting(db, POLICIES_KEY)
     if raw:
         try:
@@ -180,6 +247,11 @@ def policies(db: Session) -> dict:
         for pid, p in (saved or {}).items():
             if isinstance(p, dict):
                 out[pid] = {**out.get(pid, {}), **p, "id": pid}
+                if "extraTypes" not in p and pid in EXTRA_TYPE_DEFAULTS:
+                    # HR saved a policy before Phase 1A - inherit the new types.
+                    out[pid]["extraTypes"] = copy.deepcopy(EXTRA_TYPE_DEFAULTS[pid])
+    for pid, pol in out.items():
+        pol.setdefault("extraTypes", [])
     return out
 
 
@@ -220,9 +292,56 @@ def clean_policy(pid: str, p: dict) -> dict:
         vac = {"method": vac_in["method"], "tiers": tiers}
         if vac["method"] == "per_hour":
             vac["baseHoursPerYear"] = _num(vac_in.get("baseHoursPerYear", 2080), 1, 5000)
+    extras = _clean_extra_types(p.get("extraTypes") or [])
     return {"id": pid, "name": name, "unit": unit,
             "hoursPerDay": _num(p.get("hoursPerDay", 8), 1, 24),
-            "eligibleTypes": types, "sick": sick, "vacation": vac}
+            "eligibleTypes": types, "sick": sick, "vacation": vac,
+            "extraTypes": extras}
+
+
+_EXTRA_ID = re.compile(r"^[a-z0-9][a-z0-9_]{0,39}$")
+
+
+def _clean_extra_types(items: list) -> list:
+    """Phase 1A: validate a policy's extra leave types. Each entry becomes a
+    clean dict with every field present. Unknown keys are dropped; a bad entry
+    raises ValueError. Returns [] when nothing is given."""
+    out: list = []
+    seen: set = set()
+    for i, raw in enumerate(items or []):
+        if not isinstance(raw, dict):
+            raise ValueError("Each extra leave type is an object.")
+        tid = str(raw.get("id") or "").strip().lower()[:40]
+        if not _EXTRA_ID.match(tid or ""):
+            raise ValueError("Each extra leave type needs an id (letters, numbers, underscores).")
+        if tid in BUCKETS:
+            raise ValueError(f"'{tid}' is already a built-in bucket.")
+        if tid in seen:
+            raise ValueError(f"Duplicate extra leave type id: {tid}.")
+        seen.add(tid)
+        method = raw.get("method") if raw.get("method") in EXTRA_TYPE_METHODS else "none"
+        name = str(raw.get("name") or "").strip()[:80] or tid.replace("_", " ").title()
+        emps = [t for t in (raw.get("eligibleTypes") or []) if t in _EMP_TYPES]
+        reasons: list[str] = []
+        for r in (raw.get("drawFromReasons") or []):
+            s = str(r or "").strip().lower()[:60]
+            if s and s not in reasons:
+                reasons.append(s)
+        try:
+            annual = _num(raw.get("annualHours", 0), 0, 5000)
+            cap = _num(raw.get("balanceCapHours", 0), 0, 5000)
+            carry = _num(raw.get("carryoverMax", 0), -1, 5000)
+            waiting = int(_num(raw.get("waitingDays", 0), 0, 3650))
+        except ValueError as e:
+            raise ValueError(f"Extra type {tid}: {e}")
+        out.append({
+            "id": tid, "name": name, "paid": bool(raw.get("paid", True)),
+            "method": method, "waitingDays": waiting,
+            "annualHours": annual, "balanceCapHours": cap,
+            "carryoverMax": carry, "payoutOnTerm": bool(raw.get("payoutOnTerm", False)),
+            "eligibleTypes": emps, "drawFromReasons": reasons,
+        })
+    return out
 
 
 def save_policies(db: Session, incoming: dict, by: str) -> dict:
