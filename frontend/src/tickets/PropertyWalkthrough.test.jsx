@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react';
 
 // Property Walkthrough (Neil, 10/05): many lines, one submit, one batch_id.
 // Opened from a property, the property is fixed (Pranshu, 10/06).
@@ -22,7 +22,8 @@ vi.mock('../api', () => {
   };
   return { api: new Proxy({}, { get: (_, k) => named[k] || empty }) };
 });
-vi.mock('./evidenceUpload', () => ({ uploadTicketEvidence: vi.fn(() => Promise.resolve('https://x.supabase.co/storage/v1/object/public/ticket-evidence/p.jpg')) }));
+const uploadTicketEvidence = vi.fn(() => Promise.resolve('https://x.supabase.co/storage/v1/object/public/ticket-evidence/p.jpg'));
+vi.mock('./evidenceUpload', () => ({ uploadTicketEvidence }));
 
 const { default: PropertyWalkthrough } = await import('./PropertyWalkthrough');
 const { HELP_TOPICS } = await import('./ticketMeta');
@@ -148,5 +149,59 @@ describe('Batch Create', () => {
     expect((await screen.findByRole('tab', { name: 'Batch Create' })).getAttribute('aria-selected')).toBe('true');
     fireEvent.click(screen.getByRole('tab', { name: 'Create a Ticket' }));
     expect(onSingle).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Voice (Neil, Oct 30 2026): a line takes voice notes and videos, uploaded
+// at once like photos, kept in the draft by URL and filed as clips.
+describe('Batch Create by voice', () => {
+  const VOICE = 'https://x.supabase.co/storage/v1/object/public/ticket-evidence/audio-1-abc.m4a';
+  function withMic(run) {
+    const realMd = navigator.mediaDevices; const realMR = window.MediaRecorder;
+    Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop() {} }] })) }, configurable: true });
+    window.MediaRecorder = function MR() { this.mimeType = 'audio/mp4'; this.start = vi.fn(); this.stop = vi.fn(() => { this.ondataavailable({ data: new Blob(['x']) }); this.onstop(); }); };
+    window.MediaRecorder.isTypeSupported = (m) => m === 'audio/mp4';
+    return run().finally(() => {
+      Object.defineProperty(navigator, 'mediaDevices', { value: realMd, configurable: true });
+      window.MediaRecorder = realMR;
+    });
+  }
+
+  it('records a voice note on a line, keeps it in the draft and files it as a clip', () => withMic(async () => {
+    uploadTicketEvidence.mockResolvedValueOnce(VOICE);
+    render(<PropertyWalkthrough onClose={vi.fn()} property={GST} />);
+    await screen.findByText('Facilities');
+    await fill(1, 'Leak by the boiler');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Record a Voice Note' })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Stop/ })); });
+    expect(uploadTicketEvidence).toHaveBeenLastCalledWith(expect.any(File), 'audio');
+    expect(await screen.findByRole('button', { name: 'Remove Voice Note' })).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('nexus:walkthrough-draft')).lines[0].clips)
+      .toEqual([expect.objectContaining({ url: VOICE, kind: 'audio', status: 'done' })]));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Create 1 Ticket/ })); });
+    expect(createTicketWalkthrough.mock.calls[0][0].lines[0].clips).toEqual([VOICE]);
+  }));
+
+  it('brings a saved voice note back with the draft', async () => {
+    localStorage.setItem('nexus:walkthrough-draft', JSON.stringify({
+      batchId: '11111111-1111-4111-8111-111111111111', propertyId: 'gst', deptId: 'd-fac', savedAt: new Date().toISOString(),
+      lines: [{ key: 'k1', subject: 'Leak', application: 'Painting', otherText: '', priority: 'medium', type: 'incident', location: '',
+        description: '', photos: [], clips: [{ id: 'c1', url: VOICE, kind: 'audio', status: 'done' }, { id: 'c2', url: '', kind: 'video', status: 'uploading' }] }],
+    }));
+    render(<PropertyWalkthrough onClose={vi.fn()} property={GST} />);
+    expect(await screen.findByText(/Voice Note 1/)).toBeTruthy();
+    expect(screen.queryByText(/Video 2/)).toBeNull();                 // mid-upload: gone with its File
+  });
+
+  it('refuses a video over the limit with the reason, nothing uploaded', async () => {
+    render(<PropertyWalkthrough onClose={vi.fn()} property={GST} />);
+    await screen.findByText('Facilities');
+    await fill(1, 'Cracked slab');
+    const big = new File(['x'], 'walk.mov', { type: 'video/quicktime' });
+    Object.defineProperty(big, 'size', { value: 80 * 1024 * 1024 });
+    uploadTicketEvidence.mockClear();
+    fireEvent.change(screen.getByLabelText('Add a video to issue 1'), { target: { files: [big] } });
+    expect(await screen.findByText(/That video is 80 MB/)).toBeTruthy();
+    expect(uploadTicketEvidence).not.toHaveBeenCalled();
   });
 });

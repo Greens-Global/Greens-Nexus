@@ -244,6 +244,21 @@ class PropertyTicketTests(unittest.TestCase):
         self.assertFalse(out["replayed"])
         self.assertNotIn(MANAGER, out["tickets"][0]["watcherIds"])
 
+    def test_a_lines_voice_notes_and_videos_become_attachments(self):
+        base = W._EVIDENCE_PREFIX or "https://store.example/ticket-evidence/"
+        out, _ = self._walk([self._line("Leak by the boiler", images=[base + "image-1.jpg"],
+                                        clips=[base + "audio-1.m4a", base + "video-1.mov", base + "audio-2.webm"])])
+        rows = (self.db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == out["tickets"][0]["id"])
+                .order_by(models.TaskAttachment.name).all())
+        self.assertEqual([(r.name, r.kind) for r in rows],
+                         [("Photo 1", "image"), ("Video 1", "video"), ("Voice Note 1", "audio"), ("Voice Note 2", "audio")])
+        with self.assertRaises(HTTPException) as cm:            # a clip must be in the evidence bucket
+            self._walk([self._line("x", clips=["data:audio/mp4;base64,AAAA"])])
+        self.assertEqual(cm.exception.detail["lines"][0]["field"], "clips")
+        with self.assertRaises(HTTPException) as cm:
+            self._walk([self._line("x", clips=[base + f"audio-{i}.m4a" for i in range(W.MAX_CLIPS_PER_LINE + 1)])])
+        self.assertEqual(cm.exception.detail["lines"][0]["field"], "clips")
+
     def test_one_bad_line_files_nothing_and_names_the_line(self):
         with self.assertRaises(HTTPException) as cm:
             self._walk([self._line("Fine"), self._line("", "Painting"), self._line("No topic", "")])

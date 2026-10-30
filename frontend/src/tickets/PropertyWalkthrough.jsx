@@ -3,6 +3,10 @@
 // the property. Built for a phone at the property:
 //   - Enter on a title starts the next line (the "line by line" feel).
 //   - Photos upload the moment they are taken; Create waits for them.
+//   - Voice too (Neil, Oct 30 2026): a mic types the issue, the location
+//     and the details as you say them, and each line takes up to three
+//     voice notes or videos, uploaded at once like the photos and filed as
+//     the ticket's attachments.
 //   - The whole walkthrough is a draft on this device (localStorage) with the
 //     same batch_id until it is filed, so a reload or a dead spot loses
 //     nothing, and a retry after a lost response can never file twice (the
@@ -21,7 +25,7 @@
 // the property is optional and any team can take the batch. Opened as the
 // second tab of Submit a Ticket (`onSingle` switches back to one ticket).
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, ImagePlus, Plus, Trash2, Copy, X, CheckCircle2, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
+import { Camera, ImagePlus, Plus, Trash2, Copy, X, CheckCircle2, ChevronDown, ChevronUp, RotateCcw, AudioLines, Video, Loader2 } from 'lucide-react';
 import { api } from '../api';
 import { filesFromPaste } from '../tasks/lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
@@ -40,9 +44,13 @@ import { PropertySelect } from './PropertySelect';
 import { useTicketProperties, propertyLabel, groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import CreateModeTabs from './CreateModeTabs';
 import { dialog } from '../ui/dialog';
+import DictateButton from '../components/DictateButton';
+import VoiceNoteButton from '../components/VoiceNoteButton';
+import { checkMedia, mediaKind, withType } from '../lib/voice';
 
 const MAX_LINES = 50;
 const MAX_PHOTOS = 6;
+const MAX_CLIPS = 3;   // voice notes and videos a line (the server's MAX_CLIPS_PER_LINE)
 const DRAFT_KEY = 'nexus:walkthrough-draft';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -53,10 +61,10 @@ const newBatchId = () => (globalThis.crypto?.randomUUID?.()
   })).toLowerCase();
 const blankLine = (base = {}) => ({
   key: uid(), subject: '', application: '', otherText: '', priority: base.priority || 'medium',
-  type: base.type || 'incident', location: '', description: '', photos: [], more: false,
+  type: base.type || 'incident', location: '', description: '', photos: [], clips: [], more: false,
 });
 const topicOf = (l) => (l.application === OTHER_TOPIC ? l.otherText.trim() : l.application);
-const hasContent = (l) => !!(l.subject.trim() || topicOf(l) || l.description.trim() || l.photos.length);
+const hasContent = (l) => !!(l.subject.trim() || topicOf(l) || l.description.trim() || l.photos.length || (l.clips || []).length);
 
 // Storage can be missing (private mode, blocked site data) - the form works without it.
 function readDraft() { try { const raw = localStorage.getItem(DRAFT_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; } }
@@ -64,9 +72,12 @@ function writeDraft(d) {
   try { if (d) localStorage.setItem(DRAFT_KEY, JSON.stringify(d)); else localStorage.removeItem(DRAFT_KEY); }
   catch { /* storage unavailable - nothing to do */ }
 }
-// Only finished uploads survive a reload; a photo mid-upload is gone with its File.
+// Only finished uploads survive a reload; a photo or clip mid-upload is gone with its File.
 const revive = (lines) => (lines || []).map((l) => ({ ...blankLine(), ...l, key: l.key || uid(),
-  photos: (l.photos || []).filter((p) => p.status === 'done' && p.url).map((p) => ({ ...p, preview: p.url })) }));
+  photos: (l.photos || []).filter((p) => p.status === 'done' && p.url).map((p) => ({ ...p, preview: p.url })),
+  clips: (l.clips || []).filter((c) => c.status === 'done' && c.url) }));
+// A field's mic types where that field's cursor is (the boxes live in a ref map per line).
+const fieldRef = (map, key) => ({ get current() { return map.current[key] || null; } });
 
 export default function PropertyWalkthrough({ onClose, property = null, onDone = null, onSingle = null }) {
   useTicketConfig();                                     // help topics + type switches from the server
@@ -92,8 +103,10 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   const [formError, setFormError] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
-  const filesRef = useRef({});                         // photo id -> File, for Retry
+  const filesRef = useRef({});                         // photo / clip id -> File, for Retry
   const titleRefs = useRef({});
+  const locationRefs = useRef({});
+  const detailRefs = useRef({});
   const focusKey = useRef(null);
 
   // Any team takes a batch (Batch Create, Oct 13 2026). Opened from a
@@ -130,7 +143,9 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
     if (!lines.some(hasContent)) return;
     writeDraft({
       batchId, propertyId, deptId, unconfirmed, savedAt: new Date().toISOString(),
-      lines: lines.map(({ photos, ...l }) => ({ ...l, photos: photos.filter((p) => p.status === 'done').map(({ id, url, name, status }) => ({ id, url, name, status })) })),
+      lines: lines.map(({ photos, clips = [], ...l }) => ({ ...l,
+        photos: photos.filter((p) => p.status === 'done').map(({ id, url, name, status }) => ({ id, url, name, status })),
+        clips: clips.filter((c) => c.status === 'done').map(({ id, url, kind, status }) => ({ id, url, kind, status })) })),
     });
   }, [batchId, propertyId, deptId, lines, done, offer, unconfirmed]);
 
@@ -156,7 +171,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   const duplicate = (key) => {
     if (lines.length >= MAX_LINES) return;
     const src = lines.find((l) => l.key === key);
-    const copy = { ...src, key: uid(), photos: [] };
+    const copy = { ...src, key: uid(), photos: [], clips: [] };
     focusKey.current = copy.key;
     setLines((ls) => { const i = ls.findIndex((l) => l.key === key); return [...ls.slice(0, i + 1), copy, ...ls.slice(i + 1)]; });
   };
@@ -187,8 +202,36 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
     upload(key, photo, file);
   };
 
+  // Voice notes and videos: the same straight-away upload as the photos.
+  const setClip = (key, id, p) => setLines((ls) => ls.map((l) => (l.key !== key ? l : {
+    ...l, clips: (l.clips || []).map((c) => (c.id === id ? { ...c, ...p } : c)) })));
+  const uploadClip = (key, clip, file) => {
+    filesRef.current[clip.id] = file;
+    // "audio-" / "video-" in the name tells the server which it is (a .webm can be either).
+    uploadTicketEvidence(withType(file), clip.kind)
+      .then((url) => setClip(key, clip.id, { url, status: 'done' }))
+      .catch(() => setClip(key, clip.id, { status: 'failed' }));
+  };
+  const addClip = (key, file) => {
+    if (!file) return;
+    const line = lines.find((l) => l.key === key);
+    if (!line || (line.clips || []).length >= MAX_CLIPS) return;
+    const bad = checkMedia(file);
+    if (bad) { setErrors((e) => ({ ...e, [key]: { ...e[key], clips: bad } })); return; }
+    const clip = { id: uid(), kind: mediaKind(file), status: 'uploading', url: '' };
+    patch(key, { clips: [...(line.clips || []), clip] });
+    clearErr(key, 'clips');
+    uploadClip(key, clip, file);
+  };
+  const retryClip = (key, clip) => {
+    const file = filesRef.current[clip.id];
+    if (!file) return;
+    setClip(key, clip.id, { status: 'uploading' });
+    uploadClip(key, clip, file);
+  };
+
   const filled = lines.filter(hasContent);
-  const uploading = filled.some((l) => l.photos.some((p) => p.status === 'uploading'));
+  const uploading = filled.some((l) => l.photos.some((p) => p.status === 'uploading') || (l.clips || []).some((c) => c.status === 'uploading'));
 
   const validate = () => {
     const errs = {};
@@ -197,6 +240,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
       if (!l.subject.trim()) e.subject = 'Describe the issue.';
       if (!topicOf(l)) e.application = 'Pick what it is.';
       if (l.photos.some((p) => p.status === 'failed')) e.photos = 'A photo did not upload - retry or remove it.';
+      if ((l.clips || []).some((c) => c.status === 'failed')) e.clips = 'A voice note or video did not upload - retry or remove it.';
       if (Object.keys(e).length) errs[l.key] = e;
     }
     return errs;
@@ -207,7 +251,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
     setFormError('');
     if (!deptId) { setFormError('Pick the team that will handle these.'); return; }
     if (!filled.length) { setFormError('Add at least one issue.'); return; }
-    if (uploading) { setFormError('Photos are still uploading - this takes a moment on a slow connection.'); return; }
+    if (uploading) { setFormError('Photos and clips are still uploading - this takes a moment on a slow connection.'); return; }
     const errs = validate();
     setErrors(errs);
     if (Object.keys(errs).length) {
@@ -225,6 +269,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
           subject: l.subject.trim(), application: topicOf(l), priority: l.priority, type: l.type,
           location: l.location.trim(), description: l.description.trim(),
           images: l.photos.filter((p) => p.status === 'done').map((p) => p.url),
+          clips: (l.clips || []).filter((c) => c.status === 'done').map((c) => c.url),
         })),
       });
       writeDraft(null);
@@ -419,6 +464,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
                   onChange={(e) => { patch(l.key, { subject: e.target.value }); clearErr(l.key, 'subject'); }}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addLine(l.key); } }}
                   style={{ ...inputStyle, flex: 1, fontFamily: FONT, ...(err(l, 'subject') ? { borderColor: NX.red } : null) }} />
+                <DictateButton target={fieldRef(titleRefs, l.key)} title="Say the Issue" />
                 <button type="button" title="Duplicate line" aria-label="Duplicate line" onClick={() => duplicate(l.key)} style={{ ...btn('ghost'), padding: 6 }}><Copy size={15} /></button>
                 <button type="button" title="Remove line" aria-label="Remove line" onClick={() => remove(l.key)} style={{ ...btn('ghost'), padding: 6, color: NX.dim }}><Trash2 size={15} /></button>
               </div>
@@ -441,8 +487,12 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
                 </div>
                 <div>
                   <label style={labelStyle}>Location</label>
-                  <input value={l.location} list={unitsListId} maxLength={120} placeholder="Unit, building or area"
-                    onChange={(e) => patch(l.key, { location: e.target.value })} style={{ ...inputStyle, fontFamily: FONT }} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <input ref={(el) => { locationRefs.current[l.key] = el; }} value={l.location} list={unitsListId} maxLength={120} placeholder="Unit, building or area"
+                      aria-label={`Location for issue ${i + 1}`}
+                      onChange={(e) => patch(l.key, { location: e.target.value })} style={{ ...inputStyle, flex: 1, minWidth: 0, fontFamily: FONT }} />
+                    <DictateButton target={fieldRef(locationRefs, l.key)} title="Say the Location" />
+                  </div>
                 </div>
               </div>
 
@@ -480,13 +530,44 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
               </div>
               {err(l, 'photos') && <div style={requiredHint}>{err(l, 'photos')}</div>}
 
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                {(l.clips || []).map((c, k) => (
+                  <span key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 4px 0 10px', borderRadius: 8, fontSize: 12.5,
+                    border: `1px solid ${c.status === 'failed' ? NX.red : NX.border}`, background: NX.surface2, color: NX.ink }}>
+                    {c.status === 'uploading' ? <Loader2 size={14} className="spin" aria-hidden="true" />
+                      : c.kind === 'video' ? <Video size={14} aria-hidden="true" /> : <AudioLines size={14} aria-hidden="true" />}
+                    {c.kind === 'video' ? 'Video' : 'Voice Note'} {k + 1}
+                    {c.status === 'uploading' && <span style={{ color: NX.dim }}>Uploading…</span>}
+                    {c.status === 'failed' && (
+                      <button type="button" title="Retry upload" aria-label="Retry upload" onClick={() => retryClip(l.key, c)}
+                        style={{ ...btn('ghost'), padding: 4, color: NX.red }}><RotateCcw size={14} /></button>
+                    )}
+                    <button type="button" title={c.kind === 'video' ? 'Remove Video' : 'Remove Voice Note'} aria-label={c.kind === 'video' ? 'Remove Video' : 'Remove Voice Note'}
+                      onClick={() => patch(l.key, { clips: l.clips.filter((x) => x.id !== c.id) })} style={{ ...btn('ghost'), padding: 4, color: NX.dim }}><X size={14} /></button>
+                  </span>
+                ))}
+                {(l.clips || []).length < MAX_CLIPS && (<>
+                  <VoiceNoteButton onFile={(f) => addClip(l.key, f)} />
+                  <label style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12.5, gap: 6, cursor: 'pointer' }}>
+                    <Video size={15} /> Video
+                    <input type="file" accept="video/*" capture="environment" style={{ display: 'none' }} aria-label={`Add a video to issue ${i + 1}`}
+                      onChange={(e) => { addClip(l.key, e.target.files?.[0]); e.target.value = ''; }} />
+                  </label>
+                </>)}
+              </div>
+              {err(l, 'clips') && <div style={requiredHint}>{err(l, 'clips')}</div>}
+
               <button type="button" onClick={() => patch(l.key, { more: !l.more })} style={{ ...btn('ghost'), padding: '4px 0', marginTop: 6, fontSize: 12.5, color: NX.dim, gap: 4 }}>
                 {l.more ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {l.more ? 'Hide Details' : 'Add Details'}
               </button>
               {l.more && (
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 200px', gap: 10, marginTop: 6 }}>
-                  <textarea value={l.description} rows={3} maxLength={4000} placeholder="Anything the team should know - size, how bad, access notes"
-                    onChange={(e) => patch(l.key, { description: e.target.value })} style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+                    <textarea ref={(el) => { detailRefs.current[l.key] = el; }} value={l.description} rows={3} maxLength={4000}
+                      placeholder="Anything the team should know - size, how bad, access notes" aria-label={`Details for issue ${i + 1}`}
+                      onChange={(e) => patch(l.key, { description: e.target.value })} style={{ ...inputStyle, flex: 1, minWidth: 0, resize: 'vertical', fontFamily: FONT }} />
+                    <DictateButton target={fieldRef(detailRefs, l.key)} title="Say the Details" />
+                  </div>
                   <div>
                     <label style={labelStyle}>Type</label>
                     <TicketSelect value={l.type} onChange={(v) => patch(l.key, { type: v })} options={typeOptions} />

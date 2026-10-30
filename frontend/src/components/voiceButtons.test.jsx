@@ -18,13 +18,21 @@ function Box({ initial = '' }) {
 
 describe('insertAtCursor', () => {
   it('spaces and capitalizes like a sentence', () => {
-    const el = document.createElement('textarea');
+    const el = document.body.appendChild(document.createElement('textarea'));
+    el.focus();
     el.value = 'Call Bob.'; el.setSelectionRange(9, 9);
     insertAtCursor(el, 'then the vendor');
     expect(el.value).toBe('Call Bob. Then the vendor');
     el.value = 'Call  today'; el.setSelectionRange(5, 5);
     insertAtCursor(el, 'Bob');
     expect(el.value).toBe('Call Bob today');
+    el.remove();
+  });
+  it('a box the person is not in takes the words at the end, not before a saved draft', () => {
+    const el = document.createElement('textarea');
+    el.value = 'Poured the north footings.'; el.setSelectionRange(0, 0);
+    insertAtCursor(el, 'rebar passed');
+    expect(el.value).toBe('Poured the north footings. Rebar passed');
   });
 });
 
