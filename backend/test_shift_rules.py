@@ -70,6 +70,18 @@ class EvaluateTests(unittest.TestCase):
         out = shift_rules.evaluate([_s("a", MON, "09:00", "13:00"), _s("b", MON, "12:00", "16:00")], CFG)
         self.assertEqual(out, {})
 
+    def test_a_split_shift_is_one_workday_not_a_rest_break(self):
+        # 7-11a and 4-8p the same day: the 5 hours between are not "rest".
+        out = shift_rules.evaluate([_s("a", MON, "07:00", "11:00"), _s("b", MON, "16:00", "20:00")], CFG)
+        self.assertEqual(out, {})
+        # Rest is measured from the day's LAST part to the next workday.
+        out = shift_rules.evaluate([_s("a", MON, "07:00", "11:00"), _s("b", MON, "16:00", "20:00"),
+                                    _s("c", TUE, "05:00", "09:00")], CFG)
+        self.assertEqual(out, {"c": ["Only 9h 00m rest before this shift (10h minimum)."]})
+        out = shift_rules.evaluate([_s("a", MON, "07:00", "11:00"), _s("b", MON, "16:00", "20:00"),
+                                    _s("c", TUE, "07:00", "11:00")], CFG)
+        self.assertEqual(out, {})
+
     def test_a_shift_crossing_midnight(self):
         out = shift_rules.evaluate([_s("n", MON, "22:00", "06:00"), _s("d", TUE, "08:00", "16:00")], CFG)
         self.assertEqual(out, {"d": ["Only 2h 00m rest before this shift (10h minimum)."]})
@@ -91,11 +103,11 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(shift_rules.evaluate(shifts, CFG, "ca"), {"a": ["10h 00m scheduled this day (over 8h is overtime)."]})
         self.assertEqual(shift_rules.evaluate(shifts, CFG, "federal"), {})
         self.assertEqual(shift_rules.evaluate(shifts, CFG, "none"), {})
-        # Two shifts on one day add up; both carry the warning.
+        # Two shifts on one day add up; both carry the warning (and a same-day
+        # split is one workday, so no rest warning between its parts).
         out = shift_rules.evaluate([_s("a", MON, "06:00", "11:00", 300), _s("b", MON, "14:00", "18:30", 270)], CFG)
         self.assertEqual(out, {"a": ["9h 30m scheduled this day (over 8h is overtime)."],
-                               "b": ["Only 3h 00m rest before this shift (10h minimum).",
-                                     "9h 30m scheduled this day (over 8h is overtime)."]})
+                               "b": ["9h 30m scheduled this day (over 8h is overtime)."]})
 
     def test_weekly_overtime_lands_on_the_shifts_past_the_line(self):
         shifts = [_s(d, d, "08:00", "17:00", 540) for d in (MON, TUE, WED, THU, FRI)]   # 45h
