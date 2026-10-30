@@ -114,6 +114,45 @@ class LeaveBalanceTests(unittest.TestCase):
         self.assertNotIn("vacation", b)
         self.assertIsNone(lb.available(self.db, A, "sick"))
 
+    def test_extra_types_default_on_every_us_policy(self):
+        """Phase 1A: US-CA / US-Other / IN carry the new types in the policy
+        payload. Phase 1B will plug them into bucket_of() and balances() -
+        for now the data just has to be present and clean."""
+        pols = lb.policies(self.db)
+        for pid in ("us-ca", "us-other", "in", "none"):
+            self.assertIn("extraTypes", pols[pid])
+        ids = {t["id"] for t in pols["us-ca"]["extraTypes"]}
+        self.assertEqual(ids, {"bereavement", "floating_holiday", "jury_duty"})
+        self.assertEqual([t["id"] for t in pols["in"]["extraTypes"]], ["bereavement"])
+        self.assertEqual(pols["none"]["extraTypes"], [])
+        bereav = next(t for t in pols["us-ca"]["extraTypes"] if t["id"] == "bereavement")
+        for k in ("paid", "method", "waitingDays", "annualHours", "balanceCapHours",
+                  "carryoverMax", "payoutOnTerm", "eligibleTypes", "drawFromReasons"):
+            self.assertIn(k, bereav)
+
+    def test_extra_types_round_trip_through_save(self):
+        """HR edits a policy and adds a comp_time type - it is persisted and
+        validated. Fields outside the schema are dropped; bad ids are refused."""
+        pols = lb.policies(self.db)
+        us_ca = {**pols["us-ca"]}
+        us_ca["extraTypes"] = us_ca["extraTypes"] + [{
+            "id": "comp_time", "name": "Comp Time", "paid": True, "method": "per_hour",
+            "waitingDays": 0, "annualHours": 0, "balanceCapHours": 80,
+            "carryoverMax": -1, "payoutOnTerm": True, "eligibleTypes": ["full_time"],
+            "drawFromReasons": ["comp", "comp time"], "junk": "ignored"}]
+        lb.save_policies(self.db, {"us-ca": us_ca}, HR_EMAIL)
+        self.db.commit()
+        after = lb.policies(self.db)["us-ca"]["extraTypes"]
+        self.assertIn("comp_time", {t["id"] for t in after})
+        ct = next(t for t in after if t["id"] == "comp_time")
+        self.assertNotIn("junk", ct)
+        self.assertEqual(ct["drawFromReasons"], ["comp", "comp time"])
+        self.assertEqual(ct["carryoverMax"], -1)
+        with self.assertRaises(ValueError):
+            lb.save_policies(self.db, {"us-ca": {**us_ca, "extraTypes": [{"id": "vacation", "method": "lump"}]}}, HR_EMAIL)
+        with self.assertRaises(ValueError):
+            lb.save_policies(self.db, {"us-ca": {**us_ca, "extraTypes": [{"id": "BAD ID", "method": "lump"}]}}, HR_EMAIL)
+
     def test_policy_by_country_and_rule(self):
         self.assertEqual(lb.policy_for(self.db, A)["id"], "us-ca")
         self.assertEqual(lb.policy_for(self.db, IN)["id"], "in")
