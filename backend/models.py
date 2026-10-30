@@ -9556,3 +9556,27 @@ class VaultCredentialAudience(Base):
     level      = Column(String, default="open")
     created_at = Column(String, default="")
     created_by = Column(String, default="")
+
+
+class ApprovalDecision(Base):
+    """What someone decided from Dashboard > Approvals (Oct 30 2026): one row
+    per decision the inbox sent to a module and the module accepted (the
+    browser posts it right after - routers/approvals.py). The module's own
+    record stays the truth; this is the decider's own History and the
+    "decided today / this week" figures. Never a second approval path."""
+    __tablename__ = "approval_decisions"
+    id            = Column(String, primary_key=True)                   # uuid
+    decider_email = Column(String, nullable=False, index=True)
+    kind          = Column(String, default="")                         # the inbox row kind (time_off, reimbursement...)
+    item_id       = Column(String, default="")
+    group_key     = Column(String, default="")                         # the inbox chip (timeoff, money...)
+    action        = Column(String, default="")                         # approve | reject | accept | ...
+    note          = Column(Text, default="")
+    title         = Column(String, default="")
+    person_email  = Column(String, default="", index=True)
+    person_name   = Column(String, default="")
+    department    = Column(String, default="")
+    company_id    = Column(String, default="", index=True)
+    waited_days   = Column(Integer, default=0)                         # how long it had waited when decided
+    for_email     = Column(String, default="")                         # the delegator, when decided as a stand-in
+    decided_at    = Column(String, default="", index=True)
