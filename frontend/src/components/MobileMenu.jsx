@@ -46,12 +46,12 @@ export const SUBMENUS = {
       { sub: 'schedule', label: 'Schedule' },
       { sub: 'requests', label: 'Requests' },
       { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
-      { sub: 'contact', label: 'Company Directory' },
+      { sub: 'contact', label: 'Directory' },
     ],
     employee: [
       { sub: 'shifts', label: 'Shifts' },
       { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
-      { sub: 'contact', label: 'Company Directory' },
+      { sub: 'contact', label: 'Directory' },
     ],
   },
   inventory: {

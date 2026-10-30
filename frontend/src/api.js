@@ -1959,6 +1959,8 @@ export const api = {
   // the identity-check window, edit a personal credential.
   cvRequest:        (id, body)   => req(`/credvault/credentials/${id}/request`, { method: 'POST', body: JSON.stringify(body || {}) }),
   cvAccess:         (id)         => req(`/credvault/credentials/${id}/access`),
+  cvAudienceOptions: ()          => req('/credvault/audience-options'),
+  cvTotp:           (id)         => req(`/credvault/credentials/${id}/totp`),
   cvRevokeGrant:    (grantId)    => req(`/credvault/grants/${grantId}`, { method: 'DELETE' }),
   cvOtpStatus:      ()           => req('/credvault/otp/status'),
   cvPersonalUpdate: (id, body)   => req(`/credvault/personal/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -3183,6 +3185,11 @@ export const api = {
   updateHeadcount: (id, data) => req(`/hiring/headcount/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   submitHeadcount: (id) => req(`/hiring/headcount/${encodeURIComponent(id)}/submit`, { method: 'POST' }),
   decideHeadcount: (id, decision, note = '') => req(`/hiring/headcount/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify({ decision, note }) }),
+  // Off for every company until Settings > Hiring & Onboarding turns it on (Neil, Oct 30 2026).
+  headcountSettings: (company) => req(`/hiring/headcount/settings?company=${encodeURIComponent(company || '')}`),
+  headcountSaveSettings: (company, on) => req('/hiring/headcount/settings', { method: 'PUT', body: JSON.stringify({ company, on: !!on }) }),
+  // A Draft opening started by hand - only where Headcount Requests are off.
+  createOpening: (data) => req('/hiring/openings', { method: 'POST', body: JSON.stringify(data) }),
   listOpenings: () => req('/hiring/openings'),
   updateOpening: (id, data) => req(`/hiring/openings/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   openingPosting: (id) => req(`/hiring/openings/${encodeURIComponent(id)}/posting`),
@@ -3371,6 +3378,13 @@ export const api = {
   noteUnshare: (id, email) => req(`/notes/${encodeURIComponent(id)}/share/${encodeURIComponent(email)}`, { method: "DELETE" }),
   noteVersions: (id) => req(`/notes/${encodeURIComponent(id)}/versions`),
   noteRestoreVersion: (id, versionId) => req(`/notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`, { method: "POST" }),
+  // Working together (Oct 30 2026): the open note's heartbeat (who else is
+  // here, and its rev), and for a shared note's editors the live co-typing
+  // key, channel and shared state, seeded once (409 = someone else did).
+  notePresence: (id, state) => req(`/notes/${encodeURIComponent(id)}/presence`, { method: "POST", body: JSON.stringify({ state }) }),
+  noteCollab: (id) => req(`/notes/${encodeURIComponent(id)}/collab`),
+  noteCollabSeed: (id, data) => req(`/notes/${encodeURIComponent(id)}/collab/seed`, { method: "POST", body: JSON.stringify(data) }),
+  noteCollabReset: (id) => req(`/notes/${encodeURIComponent(id)}/collab/reset`, { method: "POST" }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

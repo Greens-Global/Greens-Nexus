@@ -403,7 +403,7 @@ class VaultHardeningTests(unittest.TestCase):
         r = self._as(OWNER).post("/credvault/import", json={"rows": [
             {"name": "Jira", "department": "IT", "type": "Password", "username": "u", "secret": "s3cret-Long-1!", "tier": "High",
              "url": "https://jira.example.com", "note": "Shared team login"}]})
-        self.assertEqual(r.json(), {"imported": 1})
+        self.assertEqual(r.json()["imported"], 1)         # Oct 29 2026: the import also reports what it skipped
         row = [c for c in self._as(OWNER).get("/credvault/credentials").json() if c["name"] == "Jira"][0]
         self.assertEqual((row["url"], row["note"], row["tier"]), ("https://jira.example.com", "Shared team login", "High"))
 
@@ -489,7 +489,10 @@ class VaultHardeningTests(unittest.TestCase):
 
     def test_a_department_named_personal_is_not_mistaken_for_the_personal_vault(self):
         self._create(name="Shared Thing", dept="Personal")
-        self.assertIn("Shared Thing", [e["cred"] for e in self._logs(PEER)])
+        # Oct 29 2026: the log is scoped (own actions + what you manage), so an
+        # admin is the seat that sees every company row - the point here is only
+        # that a department called Personal is not treated as the Personal Vault.
+        self.assertIn("Shared Thing", [e["cred"] for e in self._logs(ADMIN)])
 
     def test_an_admin_behind_a_company_wall_cannot_decide_another_companys_request(self):
         far = self._create(name="Far", who=FAR, backupOwner="", tier="Critical")

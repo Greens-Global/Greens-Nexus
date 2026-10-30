@@ -1,7 +1,7 @@
 // TicketAttachments - split out of TicketsView.jsx (Oct 2026); the code below
 // moved verbatim, see TicketsView.jsx for the module overview.
 import { useEffect, useState } from 'react';
-import { Paperclip, X, Download, ShieldAlert, Play } from 'lucide-react';
+import { Paperclip, X, Download, ShieldAlert, Play, AudioLines } from 'lucide-react';
 import { api } from '../api';
 import { filesFromPaste } from '../tasks/lib';
 import { NX, FONT, btn } from '../tasks/theme';
@@ -29,6 +29,12 @@ function AttachmentViewer({ att, onClose }) {
     <img src={att.url} alt={att.name} style={{ maxWidth: '92vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 8 }} />
   ) : att.kind === 'video' ? (
     <video src={att.url} controls autoPlay style={{ maxWidth: '92vw', maxHeight: '78vh', borderRadius: 8, background: '#000' }} />
+  ) : att.kind === 'audio' ? (
+    // A voice note (Neil, Oct 30 2026) plays here instead of a download card.
+    <div style={{ background: NX.surface, borderRadius: 14, padding: '26px 28px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, width: 'min(440px, 86vw)' }}>
+      <AudioLines size={30} style={{ color: NX.primary }} aria-hidden="true" />
+      <audio src={att.url} controls autoPlay preload="metadata" style={{ width: '100%' }} aria-label={`Play ${att.name}`} />
+    </div>
   ) : isPdf ? (
     <iframe src={att.url} title={att.name} style={{ width: '92vw', height: '78vh', border: 'none', borderRadius: 8, background: '#fff' }} />
   ) : (
@@ -158,6 +164,10 @@ function TicketAttachments({ ticketId, ticketType, canDelete = false }) {
                       </>
                     ) : a.kind === 'video' ? (
                       <Play size={22} style={{ color: NX.faint }} />
+                    ) : a.kind === 'audio' ? (
+                      <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: NX.dim, fontSize: 11.5, fontWeight: 600 }}>
+                        <AudioLines size={24} style={{ color: NX.primary }} aria-hidden="true" />Voice Note
+                      </span>
                     ) : (
                       <Paperclip size={22} style={{ color: NX.faint }} />
                     )}

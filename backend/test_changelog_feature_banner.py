@@ -145,6 +145,13 @@ class AnnouncementTests(_Case):
         r = T.get_released_since(since=build, user=ME, db=self.db)
         self.assertEqual((r["counts"], r["total"]), ({"Bug Fix": 1, "New Feature": 1}, 2))
 
+    def test_the_weekly_bar_lists_its_updates_for_the_popup(self):
+        self._entry("Fix this week", ago(days=2), type_="Bug Fix")
+        self._entry("Feature this week", ago(days=1))
+        r = self._banner()
+        self.assertTrue(r["show"])
+        self.assertEqual([i["title"] for i in r["items"]], ["Feature this week", "Fix this week"])
+
     def test_released_since_lists_the_updates_for_the_popup(self):
         build = ago(hours=1)
         self._entry("In the running build", ago(hours=3))

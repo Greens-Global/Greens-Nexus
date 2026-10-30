@@ -2438,6 +2438,10 @@ html { overflow-x: hidden; }
   input[type="search"], input[type="email"], input[type="tel"], input[type="url"], input[type="password"], textarea, select {
     font-size: 16px !important;
   }
+  /* ...and a rich-text editor zooms the same way: Quick Note's 14.5px
+     editor zoomed the page in on an iPhone, cutting the text off at the
+     right and throwing the keyboard bar off (Neil, Oct 30 2026). */
+  .ProseMirror[contenteditable="true"] { font-size: 16px; }
 
   /* ...but the OPEN list inherits that 16px, so a dropdown read a size larger
      than everything around it (Sagar, Sept 1 2026). The options carry the
@@ -8083,3 +8087,43 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .apv-foot .apv-open { flex-basis: 100%; }
   .apv-foot > span { display: none; }
 }
+/* Voice anywhere (components/DictateButton.jsx, VoiceNoteButton.jsx; Neil,
+   Oct 30 2026). The mic sits beside or inside a text box; a voice note
+   shows a red dot and its clock while it records. */
+.nx-dictate { position: relative; display: inline-flex; flex-shrink: 0; }
+.nx-mic {
+  width: 32px; height: 32px; display: inline-grid; place-items: center; border: none; border-radius: 8px;
+  background: transparent; color: var(--muted, #676879); cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.nx-mic:hover { background: var(--wk-hover, rgba(0,0,0,.05)); color: var(--ink, #323338); }
+.nx-mic.is-on { background: var(--wk-red, #e2445c); color: #fff; animation: nx-mic-pulse 1.4s ease-in-out infinite; }
+@keyframes nx-mic-pulse { 50% { box-shadow: 0 0 0 5px rgba(226, 68, 92, .18); } }
+@media (prefers-reduced-motion: reduce) { .nx-mic.is-on { animation: none; } }
+.nx-dictate-live {
+  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 30; max-width: min(320px, 80vw); width: max-content;
+  padding: 6px 10px; border-radius: 8px; background: #111827; color: #fff; font: 500 12.5px/1.35 'Inter', system-ui, sans-serif;
+  box-shadow: 0 8px 24px rgba(0,0,0,.2); pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nx-dictate-live.is-bad { background: var(--wk-red, #e2445c); white-space: normal; }
+.nx-voice {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; flex-shrink: 0; cursor: pointer;
+  border: 1px solid var(--wk-line2, #e6e9ef); border-radius: 8px; background: var(--card, #fff); color: var(--ink, #323338);
+  font: 600 13px 'Inter', system-ui, sans-serif;
+}
+.nx-voice.is-compact { width: 34px; padding: 0; justify-content: center; }
+.nx-voice:disabled { opacity: .5; cursor: default; }
+.nx-rec {
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 10px; border-radius: 8px;
+  background: rgba(226, 68, 92, .08); color: var(--ink, #323338); font: 600 13px 'Inter', system-ui, sans-serif;
+}
+.nx-rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--wk-red, #e2445c); animation: nx-rec-pulse 1.2s ease-in-out infinite; }
+@keyframes nx-rec-pulse { 50% { opacity: .35; transform: scale(.8); } }
+@media (prefers-reduced-motion: reduce) { .nx-rec-dot { animation: none; } }
+.nx-rec-time { font-variant-numeric: tabular-nums; }
+.nx-rec-stop {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: none; border-radius: 6px;
+  background: var(--wk-red, #e2445c); color: #fff; font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.nx-rec-x { width: 26px; height: 26px; display: grid; place-items: center; border: none; border-radius: 6px; background: transparent; color: var(--muted, #676879); cursor: pointer; }
+.nx-rec-error { display: block; margin-top: 4px; font-size: 12px; color: var(--wk-red, #e2445c); }
+@media (max-width: 768px) { .nx-mic { width: 40px; height: 40px; } .nx-voice, .nx-rec { height: 40px; } }

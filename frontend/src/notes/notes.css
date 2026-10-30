@@ -312,7 +312,7 @@
   .nt-actions { order: 1; flex: 1 0 calc(100% - 52px); justify-content: flex-end; }
   .nt-head-rule { order: 2; }
   .nt-title { order: 3; flex: 1 1 calc(100% - 13px); font-size: 20px; }
-  .nt-prose { font-size: 16px; }
+  .nt-prose, .nt-editor.is-compact .nt-prose { font-size: 16px; }   /* under 16px, iOS zooms the page in */
   .nt-tb-btn { width: 38px; height: 38px; }
   .nt-qn { width: 100vw; border-left: none; }
   .nt-qn-keys { display: none; }
@@ -327,4 +327,38 @@
   .nt-prose ul[data-type="taskList"] > li > label { margin-top: 2px; padding: 2px; }
   .nt-prose ul[data-type="taskList"] > li > label input { width: 21px; height: 21px; }
   .nt-media-x { opacity: 1; width: 32px; height: 32px; }
+}
+
+/* ── working together (Oct 30 2026) ── */
+.nt-presence { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 500; }
+.nt-presence-dots { display: inline-flex; }
+.nt-presence-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wk-green); box-shadow: 0 0 0 2px var(--card); margin-right: -2px; }
+.nt-presence.is-live .nt-presence-dot { animation: nt-live 2s ease-in-out infinite; }
+@keyframes nt-live { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .nt-presence.is-live .nt-presence-dot { animation: none; } }
+.nt-unseen { width: 8px; height: 8px; border-radius: 50%; background: var(--wk-blue, #2563eb); display: inline-block; }
+.nt-share-level { height: 36px; border: 1px solid var(--wk-line2); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; font-size: 13px; padding: 0 8px; flex-shrink: 0; }
+/* Someone else's caret while co-typing (TipTap CollaborationCaret). */
+.nt-prose .collaboration-carets__caret { position: relative; margin: 0 -1px; border-left: 2px solid; border-right: 0; word-break: normal; pointer-events: none; }
+.nt-prose .collaboration-carets__label {
+  position: absolute; top: -1.35em; left: -2px; padding: 1px 6px; border-radius: 4px 4px 4px 0; white-space: nowrap; user-select: none;
+  color: #fff; font: 600 11px/1.4 'Inter', system-ui, sans-serif; pointer-events: none;
+}
+/* A clash: both sides of just the parts both people changed. */
+.nt-clash { flex-direction: column; align-items: stretch; gap: 10px; }
+.nt-clash-item { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: start; padding-top: 10px; border-top: 1px solid var(--wk-line2); }
+.nt-clash-side { min-width: 0; font-size: 13.5px; }
+.nt-clash-side > small { display: block; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.nt-clash-side .nt-prose { min-height: 0; padding: 0; font-size: 13.5px; }
+.nt-clash-pick { display: flex; flex-direction: column; gap: 2px; }
+.nt-clash-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Version History's changes: added green, removed struck through in red. */
+.nt-hist-who { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+.nt-diff ins, .nt-diff .nt-diff-add { background: rgba(0, 133, 77, .12); color: inherit; text-decoration: none; border-radius: 3px; }
+.nt-diff del, .nt-diff .nt-diff-del { background: rgba(226, 68, 92, .1); color: var(--wk-red, #e2445c); text-decoration: line-through; border-radius: 3px; }
+.nt-diff .nt-diff-add, .nt-diff .nt-diff-del { padding: 2px 6px; margin: 2px -6px; }
+.nt-diff .nt-diff-mod { margin: .5em 0; }
+@media (max-width: 768px) {
+  .nt-clash-item { grid-template-columns: 1fr; }
+  .nt-clash-pick { flex-direction: row; }
 }

@@ -14,12 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Placeholder from '@tiptap/extension-placeholder';
-import Highlight from '@tiptap/extension-highlight';
-import TextAlign from '@tiptap/extension-text-align';
-import { TaskList, TaskItem } from '@tiptap/extension-list';
-import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
+import { buildExtensions } from './noteExtensions';
 import {
   Undo2, Redo2, Bold, Italic, Underline, Strikethrough, Highlighter, Code, Heading1, Heading2, Heading3,
   List, ListOrdered, ListChecks, IndentIncrease, IndentDecrease, Quote, SquareCode, AlignLeft, AlignCenter,
@@ -29,8 +24,9 @@ import {
 import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
+import { useKeyboardInset, keyboardUp } from '../lib/useVisualViewport';
 import {
-  EDITED, NoteAudio, NoteVideo, mediaKind, checkMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
+  EDITED, mediaKind, checkMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
   canRecord, canDictate, clock,
 } from './noteMedia';
 
@@ -51,23 +47,6 @@ const SLASH = [
   { key: 'divider', label: 'Divider', hint: 'A horizontal rule', icon: Minus, keys: 'hr line rule', run: (c) => c.setHorizontalRule() },
   { key: 'date', label: "Today's Date", hint: 'Insert the date', icon: CalendarDays, keys: 'today now', run: (c) => c.insertContent(`${formatDate(new Date())} `) },
 ];
-
-function buildExtensions(placeholder) {
-  return [
-    StarterKit.configure({
-      heading: { levels: [1, 2, 3] },
-      link: { openOnClick: false, autolink: true, HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' } },
-    }),
-    Highlight,
-    TextAlign.configure({ types: ['heading', 'paragraph'] }),
-    TaskList,
-    TaskItem.configure({ nested: true }),
-    Table.configure({ resizable: false }),
-    TableRow, TableHeader, TableCell,
-    Placeholder.configure({ placeholder }),
-    NoteAudio, NoteVideo,
-  ];
-}
 
 function Btn({ icon: Icon, label, active, disabled, onClick }) {
   return (
@@ -91,22 +70,6 @@ function PBtn({ icon: Icon, label, active, disabled, danger, onClick, children }
       <Icon size={19} strokeWidth={1.9} aria-hidden="true" />{children}
     </button>
   );
-}
-
-// How far the on-screen keyboard pushes up from the bottom (iOS does not
-// shrink the page for it, so a fixed bar would sit behind it).
-function useKeyboardInset(active) {
-  const [inset, setInset] = useState(0);
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!active || !vv) { setInset(0); return undefined; }
-    const on = () => setInset(Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)));
-    on();
-    vv.addEventListener('resize', on);
-    vv.addEventListener('scroll', on);
-    return () => { vv.removeEventListener('resize', on); vv.removeEventListener('scroll', on); };
-  }, [active]);
-  return inset;
 }
 
 // Recording, listening, saving a clip or a problem with one: one line.
@@ -156,11 +119,14 @@ function MediaStatus({ voice, dictation, busy, error, onDismiss }) {
 
 export default function NoteEditor({
   value, onChange, readOnly = false, people, placeholder = "Write anything. Type / for blocks, @ to mention someone.",
-  onMakeTask, autoFocus = false, toolbar = true, compact = false, onBusy,
+  onMakeTask, autoFocus = false, toolbar = true, compact = false, onBusy, collab = null, onRemoteChange,
 }) {
   const [menu, setMenu] = useState(null);   // { kind: 'slash'|'mention', query, from, index }
   const [link, setLink] = useState(null);   // { href } while the link bar is open
   const changeRef = useRef(onChange);
+  const collabRef = useRef(collab);
+  const remoteRef = useRef(onRemoteChange);
+  useEffect(() => { remoteRef.current = onRemoteChange; collabRef.current = collab; });
   useEffect(() => { changeRef.current = onChange; }, [onChange]);
   const scanRef = useRef(() => {});
   const keyRef = useRef(() => false);
@@ -179,8 +145,10 @@ export default function NoteEditor({
 
   const editor = useEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    extensions: useMemo(() => buildExtensions(placeholder), []),
-    content: value || '',
+    // With `collab` (a live co-typing session, useNoteCollab) the shared
+    // document owns the words; the parent remounts this editor per session.
+    extensions: useMemo(() => buildExtensions(placeholder, collab), []),
+    ...(collab ? {} : { content: value || '' }),
     editable: !readOnly,
     autofocus: autoFocus ? 'end' : false,
     shouldRerenderOnTransaction: true,
@@ -188,7 +156,10 @@ export default function NoteEditor({
     // it marks its own transaction (noteMedia.jsx MediaView).
     onUpdate: ({ editor: ed, transaction }) => {
       if (transaction?.getMeta(EDITED)) touched.current = true;
-      if (touched.current) changeRef.current?.(ed.getHTML());
+      // Someone else's typing arriving live is theirs to save, not ours.
+      const theirs = collabRef.current?.isRemote(transaction);
+      if (touched.current && !theirs) changeRef.current?.(ed.getHTML());
+      else if (theirs) remoteRef.current?.(ed.getHTML());
       scanRef.current(ed);
     },
     onSelectionUpdate: ({ editor: ed }) => scanRef.current(ed),
@@ -295,13 +266,24 @@ export default function NoteEditor({
   const showPhoneBar = phone && toolbar && !readOnly && (focused || live || !!busy || !!err);
   const inset = useKeyboardInset(showPhoneBar);
 
-  // A different note (or a server copy taken over) replaces the content;
-  // guarded on equality so it never fights typing.
+  // A different note (or a server copy taken over - someone else's save
+  // re-read in place) replaces the content; guarded on equality so it never
+  // fights typing, and the cursor stays where it was. Not while co-typing:
+  // the shared document brings other people's words itself.
   useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
+    if (!editor || editor.isDestroyed || collabRef.current) return;
     const next = value || '';
-    if (next !== editor.getHTML()) editor.commands.setContent(next, { emitUpdate: false });
+    if (next === editor.getHTML()) return;
+    const { from, to } = editor.state.selection;
+    const focused = editor.isFocused;
+    editor.commands.setContent(next, { emitUpdate: false });
+    if (focused) {
+      const size = editor.state.doc.content.size;
+      try { editor.commands.setTextSelection({ from: Math.min(from, size), to: Math.min(to, size) }); } catch { /* past the end */ }
+    }
   }, [value, editor]);
+  // The live session reads the words to save from this editor.
+  useEffect(() => { if (editor && collab) collab.bindEditor(editor); }, [editor, collab]);
 
   const items = useMemo(() => {
     if (!menu) return [];
@@ -471,7 +453,7 @@ export default function NoteEditor({
           onChange={(ev) => { const f = ev.target.files?.[0]; ev.target.value = ''; if (f) addMedia(f); }} />
       )}
       {showPhoneBar && e && createPortal(
-        <div className="nt-pb" role="toolbar" aria-label="Formatting" style={{ bottom: inset }}>
+        <div className="nt-pb" role="toolbar" aria-label="Formatting" style={{ bottom: inset, ...(inset && keyboardUp() ? { paddingBottom: 0 } : null) }}>
           <MediaStatus voice={voice} dictation={dictation} busy={busy} error={err} onDismiss={clearErr} />
           {more && (
             <div className="nt-pb-row is-more">

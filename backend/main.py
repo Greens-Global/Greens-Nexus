@@ -1371,6 +1371,13 @@ def _run_migrations():
             "ALTER TABLE shift_groups ADD COLUMN open_shifts INTEGER DEFAULT 0",
             "ALTER TABLE shift_groups ADD COLUMN department VARCHAR DEFAULT ''",
             "ALTER TABLE shift_group_members ADD COLUMN source VARCHAR DEFAULT ''",
+            # Credentials (Oct 29 2026): a link on a Personal Vault row. models.VaultPersonalCredential.
+            "ALTER TABLE vault_personal_credentials ADD COLUMN url VARCHAR DEFAULT ''",
+            # Credentials security pass (Oct 29 2026): authenticator key, where a reveal came from.
+            "ALTER TABLE vault_credentials ADD COLUMN totp_enc VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_access_logs ADD COLUMN ip VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_access_logs ADD COLUMN user_agent VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_credentials ADD COLUMN company_id VARCHAR DEFAULT ''",
             # Performance, made simple (Oct 29) - see the Postgres list. models.PerfGoal / PerfReview.
             "ALTER TABLE hr_perf_goals ADD COLUMN metric_key VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_goals ADD COLUMN period_start VARCHAR DEFAULT ''",
@@ -1402,6 +1409,11 @@ def _run_migrations():
             "ALTER TABLE hr_perf_reviews ADD COLUMN calibrated_from VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_reviews ADD COLUMN calibrated_by VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_reviews ADD COLUMN calibrated_at VARCHAR DEFAULT ''",
+            # Notes working together (Oct 30) - see the Postgres list. models.NexusNote.
+            "ALTER TABLE nexus_notes ADD COLUMN seen TEXT DEFAULT '{}'",
+            "ALTER TABLE nexus_notes ADD COLUMN ydoc TEXT DEFAULT ''",
+            "ALTER TABLE nexus_notes ADD COLUMN yepoch VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_notes ADD COLUMN collab_key VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3283,6 +3295,16 @@ def _run_migrations():
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS open_shifts INTEGER DEFAULT 0",
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
         "ALTER TABLE shift_group_members ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT ''",
+        # Credentials (Oct 29 2026): the sign-in link on a Personal Vault row, so
+        # My Logins can open it. models.VaultPersonalCredential.
+        "ALTER TABLE vault_personal_credentials ADD COLUMN IF NOT EXISTS url VARCHAR DEFAULT ''",
+        # Credentials security pass (Oct 29 2026): the authenticator key a shared
+        # login carries (vault_totp.py) and where a reveal came from.
+        # models.VaultCredential / VaultAccessLog.
+        "ALTER TABLE vault_credentials ADD COLUMN IF NOT EXISTS totp_enc VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_access_logs ADD COLUMN IF NOT EXISTS ip VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_access_logs ADD COLUMN IF NOT EXISTS user_agent VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_credentials ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         # Performance, made simple (Neil, Oct 29 2026): a goal measured by a
         # Nexus number over its own period, Proposed until approved; a review's
         # 4-word rating, goal scores, Ready for Promotion, the employee's
@@ -3345,6 +3367,14 @@ def _run_migrations():
         # RLS. models.NexusNote / NexusNoteVersion.
         "ALTER TABLE nexus_notes ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE nexus_note_versions ENABLE ROW LEVEL SECURITY",
+        # Notes working together (Neil 10/30/2026): seen revs, the live
+        # co-typing state and key, and who has a note open - one new table,
+        # explicit RLS. models.NexusNote / NexusNotePresence.
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS seen TEXT DEFAULT '{}'",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS ydoc TEXT DEFAULT ''",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS yepoch VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS collab_key VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_note_presence ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3939,6 +3969,12 @@ def _startup_seeds():
             n = rehash_secret_hashes(db)
             if n:
                 print(f"[startup] credential vault: rehashed {n} reuse hash(es) with the keyed scheme")
+            # Key rotation (Oct 29 2026): rows written under an older key in
+            # NEXUS_VAULT_KEYS are rewritten under the newest one.
+            from routers.credvault import rotate_vault_keys
+            n = rotate_vault_keys(db)
+            if n:
+                print(f"[startup] credential vault: re-encrypted {n} secret(s) under the current key")
         finally:
             db.close()
     except Exception as e:

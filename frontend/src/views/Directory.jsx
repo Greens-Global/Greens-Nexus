@@ -324,7 +324,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
               </button>
             )}
             {canExportCsv && data && filtered.length > 0 && (
-              <button type="button" onClick={() => downloadText(`contact-directory-${new Date().toISOString().slice(0, 10)}.csv`, csvOf(filtered), 'text/csv')} className="dir-tool" style={{
+              <button type="button" onClick={() => downloadText(`directory-${new Date().toISOString().slice(0, 10)}.csv`, csvOf(filtered), 'text/csv')} className="dir-tool" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
                 border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 12.5, fontWeight: 600,
               }} title={`Export the ${filtered.length} people shown as CSV`}>
@@ -335,7 +335,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
       , toolsTarget) : null) : (
       <div className="view-header" style={{ flexWrap: 'wrap', gap: 10 }}>
         <div className="view-title-group">
-          <h2>Contact Directory</h2>
+          <h2>Directory</h2>
           <p>{data ? `${people.length} ${people.length === 1 ? 'person' : 'people'}` : 'Find and reach anyone in the company'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -365,7 +365,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
             </button>
           )}
           {canExportCsv && data && filtered.length > 0 && (
-            <button type="button" onClick={() => downloadText(`contact-directory-${new Date().toISOString().slice(0, 10)}.csv`, csvOf(filtered), 'text/csv')} className="dir-tool" style={{
+            <button type="button" onClick={() => downloadText(`directory-${new Date().toISOString().slice(0, 10)}.csv`, csvOf(filtered), 'text/csv')} className="dir-tool" style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
               border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 12.5, fontWeight: 600,
             }} title={`Export the ${filtered.length} people shown as CSV`}>
