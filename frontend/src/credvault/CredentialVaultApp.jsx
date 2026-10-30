@@ -10,12 +10,15 @@
    that. Company secrets arrive through explicit reveal calls behind the
    SMS/Email code gate (VaultOtpModal), one code per window ("Verified until
    <time>" in the header), and are held in memory for the open detail only.
-   Tabs: Vault, Personal, Approvals, Activity. Deep links arrive as
-   `activeSub` (vaultModel.parseSub) from the bell and the header search. */
+   Tabs (Oct 29 2026): My Logins (the everyday list - what I can open, copy
+   from the row, Open the site), Personal, Overview (the company numbers and
+   the audit table, for owners, heads and admins), Approvals, Activity. Deep
+   links arrive as `activeSub` (vaultModel.parseSub) from the bell and the
+   header search; a credential link lands in My Logins with it open. */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyRound, ShieldCheck, Shield, Search, Plus, Upload, Star, Trash2, Users, ChevronRight, ChevronDown, X,
-  CheckCircle2, XCircle, History, Lock, Building2, RefreshCw, Inbox, LayoutList,
+  CheckCircle2, XCircle, History, Lock, Inbox, LayoutList, LayoutDashboard,
 } from "lucide-react";
 import { api } from "../api";
 import { dialog } from "../ui/dialog";
@@ -29,16 +32,19 @@ import { usePeople, useClickOutside } from "../tasks/components";
 import { VaultOtpModal, DEFAULT_DEPTS, TYPES, TIERS, agoLabel, actionStyle } from "./vaultShared";
 import {
   ACCESS_LABEL, ACCESS_TONE, collectionsFor, filterCredentials, sortCredentials, healthFlags, healthTone,
-  parseSub, verifiedLabel, readFavorites, writeFavorites, logMatches, live,
+  parseSub, verifiedLabel, readFavorites, writeFavorites, logMatches, live, readRecents, noteRecent, siteOf,
 } from "./vaultModel";
-import { KpiTile, StatCard, DeptBars, RotationList, Monogram } from "./vaultCards";
+import { Monogram } from "./vaultCards";
+import MyLogins from "./MyLogins";
+import Overview from "./Overview";
 import CredentialSheet, { CredentialDetail } from "./CredentialDrawer";
 import { CredentialForm, ImportModal, ShareModal, RequestModal } from "./CredentialForm";
 import PersonalVault from "./PersonalVault";
 import "./credvault.css";
 
 const LOG_ACTIONS = ["All", "Revealed", "Copied", "Created", "Edited", "Shared", "Requested", "Denied", "Revoked", "Transferred", "Removed", "Recovered", "Imported", "Offboarded"];
-const TAB_KEYS = ["all", "mine", "shared", "favorites", "attention", "trash"];
+const TAB_KEYS = ["all", "mine", "shared", "favorites", "attention", "nobackup", "trash"];
+const CLIP_SECONDS = 30;       // a copied password is wiped from the clipboard after this
 
 export default function CredentialVaultApp({ activeSub }) {
   const { myEmail, can, canAccessModule } = useRole();
@@ -68,7 +74,8 @@ export default function CredentialVaultApp({ activeSub }) {
   }, [refresh]);
 
   // ── ui state ────────────────────────────────────────────────────────────
-  const [tab, setTab] = useState("vault");
+  const [tab, setTab] = useState("logins");
+  const landed = useRef(false);
   const personalSeen = useRef(false);
   if (tab === "personal") personalSeen.current = true;
   const [collection, setCollection] = useState("all");
@@ -80,6 +87,11 @@ export default function CredentialVaultApp({ activeSub }) {
   const [selectedId, setSelectedId] = useState(null);
   const [checked, setChecked] = useState(() => new Set());
   const [favorites, setFavorites] = useState(readFavorites);
+  const [recents, setRecents] = useState(readRecents);
+  const [loginQuery, setLoginQuery] = useState("");
+  const [done, setDone] = useState("");                    // "<id>:u" | "<id>:p" - the row button that just copied
+  const [clipLeft, setClipLeft] = useState(0);
+  const clipTimer = useRef(null);
   const [revealed, setRevealed] = useState(null);          // { id, secret, previousSecret?, prevRotatedAt? }
   const [form, setForm] = useState(null);                  // { cred | null }
   const [importOpen, setImportOpen] = useState(false);
@@ -110,7 +122,7 @@ export default function CredentialVaultApp({ activeSub }) {
   const applySub = useCallback((sub) => {
     const { tab: t, credId, collection: col, create } = parseSub(sub);
     if (!t) return;
-    setTab(t);
+    setTab(t === "vault" ? (credId ? "logins" : "overview") : t);
     if (col) setCollection(col);
     if (credId) { setCollection("all"); setFDept(""); setSelectedId(credId); }
     if (create && canWrite) setForm({ cred: null });
@@ -143,10 +155,33 @@ export default function CredentialVaultApp({ activeSub }) {
   const checkedEditable = rows.filter((c) => checked.has(c.id) && c.canEdit && !c.deletedAt);
   const visibleLog = useMemo(() => logs.filter((e) => logMatches(e, logFilter)), [logs, logFilter]);
   const sharedWithMe = countOf("shared");
+  const canManage = isAdmin || creds.some((c) => c.canEdit);
+  // The landing tab is decided once the list is in: Overview for owners,
+  // heads and admins - unless a deep link already picked a place.
+  useEffect(() => {
+    if (loading || landed.current) return;
+    landed.current = true;
+    if (canManage && !parseSub(activeSub).tab) setTab("overview");
+  }, [loading, canManage, activeSub]);
+  useEffect(() => {
+    if (!clipLeft) return undefined;
+    const t = setTimeout(() => setClipLeft((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [clipLeft]);
 
   // Closing the detail drops the revealed secret with it.
   function closeDetail() { setSelectedId(null); setRevealed(null); }
-  function open(id) { setSelectedId(id); setTab("vault"); }
+  function open(id) { setSelectedId(id); setTab((t) => (t === "overview" ? t : "logins")); }
+  // The clipboard: write, say so on the row, and wipe it after CLIP_SECONDS
+  // so a password does not sit there all afternoon (Bitwarden's default).
+  async function clip(text, key) {
+    try { await navigator.clipboard?.writeText(text); } catch { /* blocked */ }
+    setDone(key); setTimeout(() => setDone((d) => (d === key ? "" : d)), 1600);
+    clearTimeout(clipTimer.current);
+    setClipLeft(CLIP_SECONDS);
+    clipTimer.current = setTimeout(() => { navigator.clipboard?.writeText("").catch?.(() => {}); setClipLeft(0); }, CLIP_SECONDS * 1000);
+  }
+  function used(id) { setRecents(noteRecent(id)); }
 
   // ── the code gate ───────────────────────────────────────────────────────
   // One verified code opens a window (Settings > Security); inside it every
@@ -177,7 +212,31 @@ export default function CredentialVaultApp({ activeSub }) {
       api.cvLogs().then(setLogs).catch(() => {});
     } catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not reveal.", "info"); }
   }
-  function copiedSecret(c) { api.cvCopied(c.id).then(() => api.cvLogs().then(setLogs)).catch(() => {}); flash("Password copied. This was logged."); }
+  function copiedSecret(c) { used(c.id); api.cvCopied(c.id).then(() => api.cvLogs().then(setLogs)).catch(() => {}); flash("Password copied. This was logged."); }
+  function copyUser(c) { clip(c.username, `${c.id}:u`); used(c.id); }
+  // Copy Password from the row: reveal (behind the code gate), copy, log - the
+  // password is never shown and never kept.
+  function copyPassword(c) {
+    gated(async () => {
+      try { const res = await api.cvReveal(c.id); await clip(res.secret, `${c.id}:p`); copiedSecret(c); }
+      catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not copy.", "info"); }
+    });
+  }
+  // Open: copy the password, then open the site - the username is in the
+  // toast, so signing in is paste, type, done. (The clipboard cannot be
+  // written once the new tab takes focus, so the copy comes first.)
+  function openSite(c) {
+    const site = siteOf(c.url);
+    gated(async () => {
+      try {
+        const res = await api.cvReveal(c.id);
+        await clip(res.secret, `${c.id}:p`);
+        used(c.id); api.cvCopied(c.id).then(() => api.cvLogs().then(setLogs)).catch(() => {});
+        window.open(c.url, "_blank", "noopener,noreferrer");
+        flash(`Password copied - paste it on ${site}.${c.username && c.username !== "-" ? ` Username: ${c.username}` : ""}`);
+      } catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not open.", "info"); }
+    });
+  }
 
   async function saveCredential(f) {
     if (form?.cred) {
@@ -246,12 +305,16 @@ export default function CredentialVaultApp({ activeSub }) {
 
   if (loading) return <div style={{ padding: "16px 0" }}><SkeletonBlocks count={6} height={52} /></div>;
 
+  // Overview leads for the people who have it (Pranshu, Oct 29 2026: the
+  // numbers first, then the list); everyone else opens on My Logins.
   const tabs = [
-    { key: "vault", label: "Vault", Icon: KeyRound },
+    ...(canManage ? [{ key: "overview", label: "Overview", Icon: LayoutDashboard }] : []),
+    { key: "logins", label: "My Logins", Icon: KeyRound },
     { key: "personal", label: "Personal", Icon: Lock },
     ...((isAdmin || requests.length || tab === "approvals" || creds.some((c) => c.canEdit)) ? [{ key: "approvals", label: "Approvals", Icon: Inbox, badge: requests.length || null }] : []),
     { key: "activity", label: "Activity", Icon: History },
   ];
+  if (tab === "overview" && !canManage) setTab("logins");
   const editableInView = rows.filter((c) => c.canEdit && !c.deletedAt);
   const allChecked = editableInView.length > 0 && editableInView.every((c) => checked.has(c.id));
   const detailProps = selected && {
@@ -301,22 +364,30 @@ export default function CredentialVaultApp({ activeSub }) {
         <div className="cv-callout tone-warn"><span>Could not load the vault.</span><button type="button" className="secondary-btn" style={{ marginLeft: "auto" }} onClick={() => refresh().catch(() => setLoadError(true))}>Retry</button></div>
       )}
 
-      {tab === "vault" && (<>
-        {/* ── stat strip ── */}
-        <div className="cv-stats">
-          <div className="cv-kpis">
-            <KpiTile solid label="Credentials" value={liveRows.length} sub={`${deptsInUse.length} department${deptsInUse.length === 1 ? "" : "s"}`} onGo={() => { pickCollection("all"); listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} goTitle="See every credential" />
-            <KpiTile label="Needs Attention" value={attention} tone={attention ? "warn" : undefined} sub={attention ? "weak, reused, overdue or expiring" : "nothing to fix"} onGo={() => pickCollection("attention")} goTitle="Show what needs attention" />
-            <KpiTile label="Shared With Me" value={sharedWithMe} sub={sharedWithMe ? "timed access, ends by itself" : "no shared access right now"} onGo={() => pickCollection("shared")} goTitle="Show what was shared with me" />
-            <KpiTile label="Awaiting Approval" value={requests.length} tone={requests.length ? "warn" : undefined} sub={requests.length ? "requests for you to decide" : "no requests waiting"} onGo={tabs.some((t) => t.key === "approvals") ? () => setTab("approvals") : undefined} goTitle="Open Approvals" />
-          </div>
-          <StatCard Icon={Building2} title="By Department" meta={`${deptsInUse.length} total`}>
-            <DeptBars rows={liveRows} depts={deptsInUse} active={fDept} onPick={(d) => { setCollection("all"); setFDept((cur) => (cur === d ? "" : d)); }} />
-          </StatCard>
-          <StatCard Icon={RefreshCw} title="Rotates Next" meta="soonest first">
-            <RotationList rows={liveRows} onPick={open} />
-          </StatCard>
+      {tab === "logins" && (
+        <div className={`wkc cv-directory cv-master is-logins${isMobile ? " is-mobile" : ""}`}>
+          <MyLogins rows={creds} depts={deptsInUse} favorites={favorites} recents={recents} query={loginQuery} onQuery={setLoginQuery}
+            selectedId={selectedId} now={now} nameOf={nameOf} done={done} clipLeft={clipLeft}
+            onOpen={open} onToggleFavorite={toggleFavorite} onCopyUser={copyUser} onCopyPassword={copyPassword} onOpenSite={openSite} onRequest={setRequestFor} />
+          {!isMobile && (
+            <div className="cv-pane">
+              {selected ? <CredentialDetail key={selected.id} {...detailProps} /> : (
+                <div className="cv-pane-empty">
+                  <KeyRound size={30} style={{ opacity: .25, display: "block", margin: "0 auto 10px" }} />
+                  <div className="cv-pane-empty-title">Copy from the row, or open a login</div>
+                  <div>User and Password copy straight from the list; Open copies the password and opens the site. Click a name for everything else.</div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
+      )}
+
+      {tab === "overview" && canManage && (<>
+        <Overview rows={liveRows} depts={deptsInUse} attention={attention} sharedWithMe={sharedWithMe} requests={requests.length} fDept={fDept} nameOf={nameOf}
+          onPickDept={(d) => { setCollection("all"); setFDept((cur) => (cur === d ? "" : d)); listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+          onPickCollection={(k) => { pickCollection(k); listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+          onOpen={open} onApprovals={tabs.some((t) => t.key === "approvals") ? () => setTab("approvals") : undefined} />
 
         {/* ── directory card ── */}
         <div className="wkc cv-directory" ref={listRef}>
@@ -345,7 +416,7 @@ export default function CredentialVaultApp({ activeSub }) {
           <div className="cv-dir-tabs scroll-tabs" role="tablist" aria-label="Collections">
             {TAB_KEYS.map((key) => {
               const c = collections.find((x) => x.key === key); if (!c) return null;
-              const Icon = { all: LayoutList, mine: KeyRound, shared: Users, favorites: Star, attention: ShieldCheck, trash: Trash2 }[key];
+              const Icon = { all: LayoutList, mine: KeyRound, shared: Users, favorites: Star, attention: ShieldCheck, nobackup: Users, trash: Trash2 }[key];
               return (
                 <button key={key} type="button" role="tab" aria-selected={collection === key} className={`cv-dir-tab${collection === key ? " is-active" : ""}`} onClick={() => pickCollection(key)}>
                   <Icon size={13} /> {c.label} <span className="cv-dir-tab-n">{c.count}</span>
@@ -374,7 +445,7 @@ export default function CredentialVaultApp({ activeSub }) {
               {rows.length === 0 && (
                 <div className="cv-empty">
                   <KeyRound size={28} style={{ opacity: .25, display: "block", margin: "0 auto 10px" }} />
-                  <strong>{collection === "trash" ? "The trash is empty" : query || fDept ? "No credentials match" : collection === "shared" ? "Nothing shared with you right now" : collection === "favorites" ? "No favorites yet" : collection === "attention" ? "All clear" : "No credentials here yet"}</strong>
+                  <strong>{collection === "trash" ? "The trash is empty" : query || fDept ? "No credentials match" : collection === "shared" ? "Nothing shared with you right now" : collection === "favorites" ? "No favorites yet" : collection === "attention" ? "All clear" : collection === "nobackup" ? "Every login has a backup owner" : "No credentials here yet"}</strong>
                   {collection === "favorites" ? "Star a credential to keep it at hand." : collection === "attention" ? "Nothing you can open is weak, reused, overdue or expiring." : query || fDept ? "Try another name, username, link, owner or department." : canWrite && collection !== "trash" ? "Add one, or import a CSV." : ""}
                 </div>
               )}

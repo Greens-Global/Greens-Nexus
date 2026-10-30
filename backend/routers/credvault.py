@@ -1457,6 +1457,7 @@ class PersonalIn(BaseModel):
     secret: str = ""
     type: str = "Password"
     note: str = ""
+    url: str = ""
 
 
 @router.get("/personal")
@@ -1467,7 +1468,7 @@ def list_personal(user: dict = Depends(get_current_user), db: Session = Depends(
             .all())
     return [{
         "id": r.id, "name": r.name, "username": r.username or "-",
-        "type": r.type or "Password", "note": r.note or "",
+        "type": r.type or "Password", "note": r.note or "", "url": r.url or "",
         "strength": r.strength or "strong", "createdAt": _ms(r.created_at),
     } for r in rows]
 
@@ -1483,6 +1484,7 @@ def create_personal(body: PersonalIn, user: dict = Depends(get_current_user), db
         username=body.username.strip() or "-",
         type=body.type if body.type in TYPES else "Password",
         note=body.note.strip(),
+        url=_clean_url(body.url),
         secret_enc=_enc(body.secret),
         strength=_eval_strength(body.secret),
         created_at=_now(),
@@ -1504,6 +1506,7 @@ def update_personal(pid: str, body: PersonalIn, user: dict = Depends(get_current
     row.username = body.username.strip() or "-"
     row.type = body.type if body.type in TYPES else row.type
     row.note = body.note.strip()
+    row.url = _clean_url(body.url)
     if body.secret:
         row.secret_enc = _enc(body.secret)
         row.strength = _eval_strength(body.secret)
