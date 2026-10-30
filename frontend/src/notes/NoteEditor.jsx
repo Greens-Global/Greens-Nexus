@@ -30,7 +30,7 @@ import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import {
-  NoteAudio, NoteVideo, mediaKind, checkMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
+  EDITED, NoteAudio, NoteVideo, mediaKind, checkMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
   canRecord, canDictate, clock,
 } from './noteMedia';
 
@@ -136,7 +136,10 @@ function MediaStatus({ voice, dictation, busy, error, onDismiss }) {
     return (
       <div className="nt-rec" role="status">
         <Loader2 size={14} className="spin" aria-hidden="true" />
-        <span className="nt-rec-text">Saving {busy.kind === 'video' ? 'video' : 'voice note'}{busy.progress ? ` ${Math.round(busy.progress * 100)}%` : '…'}</span>
+        <span className="nt-rec-text">
+          Saving {busy.kind === 'video' ? 'video' : 'voice note'}{busy.progress ? ` ${Math.round(busy.progress * 100)}%` : '…'}
+          {busy.waiting ? ` - ${busy.waiting} more waiting` : ''}
+        </span>
       </div>
     );
   }
@@ -153,7 +156,7 @@ function MediaStatus({ voice, dictation, busy, error, onDismiss }) {
 
 export default function NoteEditor({
   value, onChange, readOnly = false, people, placeholder = "Write anything. Type / for blocks, @ to mention someone.",
-  onMakeTask, autoFocus = false, toolbar = true, compact = false,
+  onMakeTask, autoFocus = false, toolbar = true, compact = false, onBusy,
 }) {
   const [menu, setMenu] = useState(null);   // { kind: 'slash'|'mention', query, from, index }
   const [link, setLink] = useState(null);   // { href } while the link bar is open
@@ -181,7 +184,13 @@ export default function NoteEditor({
     editable: !readOnly,
     autofocus: autoFocus ? 'end' : false,
     shouldRerenderOnTransaction: true,
-    onUpdate: ({ editor: ed }) => { if (touched.current) changeRef.current?.(ed.getHTML()); scanRef.current(ed); },
+    // A click inside a player (its Remove) fires no key or input event, so
+    // it marks its own transaction (noteMedia.jsx MediaView).
+    onUpdate: ({ editor: ed, transaction }) => {
+      if (transaction?.getMeta(EDITED)) touched.current = true;
+      if (touched.current) changeRef.current?.(ed.getHTML());
+      scanRef.current(ed);
+    },
     onSelectionUpdate: ({ editor: ed }) => scanRef.current(ed),
     editorProps: {
       attributes: { class: 'nt-prose', 'aria-label': 'Note text', role: 'textbox', 'aria-multiline': 'true' },
@@ -226,17 +235,24 @@ export default function NoteEditor({
   }, [editor]);
 
   // One clip at a time: check, upload with progress, then put the player
-  // where the cursor was when it started.
+  // where the cursor was when it started - moved along with any typing done
+  // during the upload. A clip that arrives meanwhile waits its turn.
+  const queue = useRef([]);
+  const uploading = useRef(false);
   const addMedia = async (file) => {
-    if (!editor || editor.isDestroyed || readOnly || busy) return;
+    if (!editor || editor.isDestroyed || readOnly) return;
     const bad = checkMedia(file);
     if (bad) { setMediaErr(bad); return; }
+    if (uploading.current) { queue.current.push(file); setBusy((b) => (b ? { ...b, waiting: queue.current.length } : b)); return; }
+    uploading.current = true;
     const kind = mediaKind(file);
-    const at = editor.state.selection.to;
+    let at = editor.state.selection.to;
+    const follow = ({ transaction }) => { at = transaction.mapping.map(at); };
+    editor.on('transaction', follow);
     setMediaErr('');
-    setBusy({ kind, progress: 0 });
+    setBusy({ kind, progress: 0, waiting: queue.current.length });
     try {
-      const src = await uploadNoteMedia(file, (p) => setBusy({ kind, progress: p }));
+      const src = await uploadNoteMedia(file, (p) => setBusy((b) => ({ ...(b || {}), kind, progress: p })));
       if (editor.isDestroyed) return;
       touched.current = true;
       editor.chain().insertContentAt(Math.min(at, editor.state.doc.content.size),
@@ -244,7 +260,11 @@ export default function NoteEditor({
     } catch (err) {
       setMediaErr(`Could not save the ${kind === 'video' ? 'video' : 'voice note'}: ${err?.message || 'try again'}.`.replace(/\.\.$/, '.'));
     } finally {
-      setBusy(null);
+      editor.off('transaction', follow);
+      uploading.current = false;
+      const next = queue.current.shift();
+      if (next && !editor.isDestroyed) mediaRef.current(next);
+      else setBusy(null);
     }
   };
   useEffect(() => { mediaRef.current = addMedia; });
@@ -261,6 +281,12 @@ export default function NoteEditor({
   const recordOk = canRecord();
   const dictateOk = canDictate();
   const live = voice.recording || dictation.listening;
+  // Recording, listening or saving a clip: the parent must not swap this
+  // editor out from under it (Quick Note's first-write hand-over).
+  const onBusyRef = useRef(onBusy);
+  useEffect(() => { onBusyRef.current = onBusy; }, [onBusy]);
+  const working = live || !!busy;
+  useEffect(() => { onBusyRef.current?.(working); }, [working]);
   const err = mediaErr || voice.error || dictation.error;
   const clearErr = () => { setMediaErr(''); voice.setError(''); dictation.setError(''); };
   const toggleVoice = () => { clearErr(); if (voice.recording) voice.stop(); else voice.start(); };
@@ -407,8 +433,8 @@ export default function NoteEditor({
           {dictateOk && <Btn icon={Mic} label={dictation.listening ? 'Stop Dictating' : 'Dictate - type what you say'} active={dictation.listening}
             disabled={voice.recording} onClick={toggleDictate} />}
           {recordOk && <Btn icon={AudioLines} label={voice.recording ? 'Stop and Save the Voice Note' : 'Record a Voice Note'} active={voice.recording}
-            disabled={dictation.listening || !!busy} onClick={toggleVoice} />}
-          <Btn icon={Clapperboard} label="Add a Video" disabled={live || !!busy} onClick={pickVideo} />
+            disabled={dictation.listening} onClick={toggleVoice} />}
+          <Btn icon={Clapperboard} label="Add a Video" disabled={live} onClick={pickVideo} />
           {onMakeTask && (<>
             <Sep />
             <button type="button" className="nt-tb-text" tabIndex={-1} title="Make a task from the selection or the current line"
@@ -479,8 +505,8 @@ export default function NoteEditor({
             {dictateOk && <PBtn icon={Mic} label={dictation.listening ? 'Stop Dictating' : 'Dictate'} active={dictation.listening} danger={dictation.listening}
               disabled={voice.recording} onClick={toggleDictate} />}
             {recordOk && <PBtn icon={AudioLines} label={voice.recording ? 'Stop and Save the Voice Note' : 'Record a Voice Note'} active={voice.recording}
-              danger={voice.recording} disabled={dictation.listening || !!busy} onClick={toggleVoice} />}
-            <PBtn icon={Clapperboard} label="Add a Video" disabled={live || !!busy} onClick={pickVideo} />
+              danger={voice.recording} disabled={dictation.listening} onClick={toggleVoice} />}
+            <PBtn icon={Clapperboard} label="Add a Video" disabled={live} onClick={pickVideo} />
           </div>
           {/* Aa stays put at the right edge; the row beside it scrolls if it must. */}
           <PBtn icon={CaseSensitive} label="More Formatting" active={more} onClick={() => setMore((m) => !m)} />

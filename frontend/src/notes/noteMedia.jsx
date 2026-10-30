@@ -21,6 +21,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { storeTaskFile } from '../tasks/lib';
 
+// Transaction meta: a change the person made that came with no key or input
+// event (Remove on a player). NoteEditor saves on it.
+export const EDITED = 'noteEdited';
+
 export const MEDIA_MAX = { audio: 25 * 1024 * 1024, video: 50 * 1024 * 1024 };
 export const VOICE_MAX_SEC = 15 * 60;   // a voice note stops by itself at 15 minutes
 
@@ -50,11 +54,25 @@ export function checkMedia(file) {
   return '';
 }
 
+const TYPE_BY_EXT = {
+  mov: 'video/quicktime', mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm',
+  m4a: 'audio/mp4', mp3: 'audio/mpeg', aac: 'audio/aac', ogg: 'audio/ogg', opus: 'audio/ogg', wav: 'audio/wav', weba: 'audio/webm',
+};
+
+/** The file with a real content type: iOS can hand over a .mov with none,
+ *  and storage would then serve it as a download instead of a video. */
+export function withType(file) {
+  if (file.type) return file;
+  const ext = (file.name || '').split('.').pop()?.toLowerCase();
+  const type = TYPE_BY_EXT[ext];
+  return type ? new File([file], file.name, { type, lastModified: file.lastModified }) : file;
+}
+
 /** Upload one clip; resolves to the URL the note shows. Throws a readable Error. */
 export async function uploadNoteMedia(file, onProgress) {
   const bad = checkMedia(file);
   if (bad) throw new Error(bad);
-  const url = await storeTaskFile(file, onProgress, 'notes', MEDIA_MAX[mediaKind(file)]);
+  const url = await storeTaskFile(withType(file), onProgress, 'notes', MEDIA_MAX[mediaKind(file)]);
   if (!url) throw new Error('Could not save that clip. Try again.');
   return url;
 }
@@ -65,9 +83,14 @@ export function mediaFiles(list) {
 }
 
 // ── the two nodes ─────────────────────────────────────────────────────────
-function MediaView({ node, deleteNode, editor }) {
+function MediaView({ node, editor, getPos }) {
   const { src } = node.attrs;
   const video = node.type.name === 'noteVideo';
+  const remove = () => {
+    const pos = getPos();
+    if (typeof pos !== 'number') return;
+    editor.chain().setMeta(EDITED, true).deleteRange({ from: pos, to: pos + node.nodeSize }).run();
+  };
   return (
     <NodeViewWrapper className={`nt-media ${video ? 'is-video' : 'is-audio'}`} contentEditable={false} data-drag-handle="">
       {video
@@ -75,7 +98,7 @@ function MediaView({ node, deleteNode, editor }) {
         : <audio src={src} controls preload="metadata" />}
       {editor.isEditable && (
         <button type="button" className="nt-media-x" aria-label={video ? 'Remove Video' : 'Remove Voice Note'}
-          title={video ? 'Remove Video' : 'Remove Voice Note'} onClick={deleteNode}>
+          title={video ? 'Remove Video' : 'Remove Voice Note'} onClick={remove}>
           <X size={14} aria-hidden="true" />
         </button>
       )}
@@ -99,7 +122,9 @@ export const NoteAudio = mediaNode('noteAudio', 'audio', {});
 export const NoteVideo = mediaNode('noteVideo', 'video', { playsinline: '' });
 
 // ── recording a voice note ────────────────────────────────────────────────
-const VOICE_TYPES = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg'];
+// MP4 first: it plays on every phone and computer (an older iPhone cannot
+// play WebM); browsers that cannot record it fall through to WebM / Ogg.
+const VOICE_TYPES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg'];
 
 export const canRecord = () => typeof window !== 'undefined' && !!window.MediaRecorder && !!navigator.mediaDevices?.getUserMedia;
 
@@ -120,18 +145,23 @@ export function useVoiceRecorder(onDone) {
   const [error, setError] = useState('');
   const rec = useRef(null);
   const keep = useRef(true);
+  const starting = useRef(false);   // waiting on the microphone permission
+  const mounted = useRef(true);
   const doneRef = useRef(onDone);
   useEffect(() => { doneRef.current = onDone; }, [onDone]);
-
-  const release = () => {
-    try { rec.current?.stream?.getTracks().forEach((t) => t.stop()); } catch { /* already stopped */ }
-  };
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const start = useCallback(async () => {
-    if (rec.current) return;
+    // A second tap while the permission prompt is up must not open a second
+    // microphone that nothing would ever close.
+    if (rec.current || starting.current) return;
+    starting.current = true;
     setError('');
+    let stream = null;
+    const release = () => { try { stream?.getTracks().forEach((t) => t.stop()); } catch { /* already stopped */ } };
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mounted.current) { release(); return; }   // the note closed while asking
       const mime = VOICE_TYPES.find((m) => window.MediaRecorder.isTypeSupported?.(m)) || '';
       const r = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       const chunks = [];
@@ -139,8 +169,8 @@ export function useVoiceRecorder(onDone) {
       r.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
       r.onstop = () => {
         release();
-        rec.current = null;
-        setRecording(false);
+        if (rec.current === r) rec.current = null;
+        if (mounted.current) setRecording(false);
         if (!keep.current || !chunks.length) return;
         const type = (r.mimeType || mime || 'audio/webm').split(';')[0];
         const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
@@ -153,11 +183,13 @@ export function useVoiceRecorder(onDone) {
     } catch (e) {
       release();
       rec.current = null;
-      setError(micError(e));
+      if (mounted.current) setError(micError(e));
+    } finally {
+      starting.current = false;
     }
   }, []);
 
-  const stop = useCallback(() => { try { rec.current?.stop(); } catch { release(); rec.current = null; setRecording(false); } }, []);
+  const stop = useCallback(() => { try { rec.current?.stop(); } catch { rec.current = null; setRecording(false); } }, []);
   const cancel = useCallback(() => { keep.current = false; stop(); }, [stop]);
 
   useEffect(() => {
@@ -169,8 +201,13 @@ export function useVoiceRecorder(onDone) {
     return () => clearInterval(t);
   }, [recording, stop]);
 
-  // Leaving the note mid-recording keeps nothing and frees the microphone.
-  useEffect(() => () => { keep.current = false; try { rec.current?.stop(); } catch { /* gone */ } release(); }, []);
+  // Leaving the note mid-recording keeps nothing and frees the microphone
+  // (the recorder's onstop stops the tracks).
+  useEffect(() => () => {
+    keep.current = false;
+    const r = rec.current;
+    try { r?.stop(); } catch { try { r?.stream?.getTracks().forEach((t) => t.stop()); } catch { /* gone */ } }
+  }, []);
 
   return { recording, seconds, error, setError, start, stop, cancel };
 }
@@ -195,6 +232,7 @@ export function useDictation(onText) {
   const [interim, setInterim] = useState('');
   const [error, setError] = useState('');
   const rec = useRef(null);
+  const typed = useRef(new Set());   // final results already typed, by index
   const textRef = useRef(onText);
   useEffect(() => { textRef.current = onText; }, [onText]);
 
@@ -206,12 +244,18 @@ export function useDictation(onText) {
     r.continuous = true;
     r.interimResults = true;
     r.lang = navigator.language || 'en-US';
+    typed.current = new Set();
+    // Chrome on Android hands back earlier final results again (resultIndex
+    // 0 each time); each one is typed once.
     r.onresult = (e) => {
       let live = '';
       for (let i = e.resultIndex; i < e.results.length; i += 1) {
         const res = e.results[i];
         const said = res[0]?.transcript || '';
-        if (res.isFinal) { if (said.trim()) textRef.current?.(said.trim()); } else live += said;
+        if (!res.isFinal) { live += said; continue; }
+        if (typed.current.has(i)) continue;
+        typed.current.add(i);
+        if (said.trim()) textRef.current?.(said.trim());
       }
       setInterim(live.trim());
     };

@@ -9,7 +9,9 @@ const storeTaskFile = vi.hoisted(() => vi.fn());
 vi.mock('../tasks/lib', () => ({ storeTaskFile }));
 
 import NoteEditor from './NoteEditor';
-import { mediaKind, checkMedia, MEDIA_MAX } from './noteMedia';
+import { mediaKind, checkMedia, MEDIA_MAX, withType, useVoiceRecorder } from './noteMedia';
+import { hasContent } from './QuickNotePanel';
+import { renderHook } from '@testing-library/react';
 
 // jsdom has no layout: ProseMirror measures the caret when a toolbar button focuses the editor.
 const rect = { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 };
@@ -95,6 +97,64 @@ describe('NoteEditor media', () => {
     expect(screen.getByRole('status').textContent).toContain('the vend');
     await act(async () => { rec.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'the vendor tomorrow' } }] }); });
     expect(onChange.mock.calls.at(-1)[0]).toContain('the vendor tomorrow');
+  });
+});
+
+describe('review fixes', () => {
+  it('an iPhone .mov with no type uploads as a video', () => {
+    expect(withType(file('IMG_1.MOV', '', 10)).type).toBe('video/quicktime');
+    expect(withType(file('a.mp4', 'video/mp4', 10)).type).toBe('video/mp4');
+  });
+
+  it('a scratchpad that is only a voice note is still worth making', () => {
+    expect(hasContent(`<audio src="${SRC}.m4a" controls></audio>`)).toBe(true);
+    expect(hasContent('<p></p>')).toBe(false);
+  });
+
+  it('removing a player saves, even as the first change', async () => {
+    const onChange = vi.fn();
+    const { container } = render(<NoteEditor value={`<p>Hi</p><audio src="${SRC}.m4a" controls preload="metadata"></audio>`} onChange={onChange} />);
+    await waitFor(() => expect(container.querySelector('audio')).toBeTruthy());
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Remove Voice Note' })); });
+    expect(onChange).toHaveBeenCalled();
+    expect(onChange.mock.calls.at(-1)[0]).not.toContain('<audio');
+  });
+
+  it('a second clip during an upload waits its turn instead of vanishing', async () => {
+    let finish;
+    storeTaskFile.mockImplementationOnce(() => new Promise((r) => { finish = r; })).mockResolvedValueOnce(`${SRC}-2.mp4`);
+    const onChange = vi.fn();
+    const { container } = render(<NoteEditor value="<p>x</p>" onChange={onChange} />);
+    const input = container.querySelector('input[type="file"][accept="video/*"]');
+    await act(async () => { fireEvent.change(input, { target: { files: [file('one.mp4', 'video/mp4', 10)] } }); });
+    await act(async () => { fireEvent.change(input, { target: { files: [file('two.mp4', 'video/mp4', 10)] } }); });
+    expect(screen.getByRole('status').textContent).toContain('1 more waiting');
+    await act(async () => { finish(`${SRC}-1.mp4`); });
+    await waitFor(() => expect(storeTaskFile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(onChange.mock.calls.at(-1)[0]).toContain(`${SRC}-2.mp4`));
+    expect(onChange.mock.calls.at(-1)[0]).toContain(`${SRC}-1.mp4`);
+  });
+
+  it('a double tap on Record opens the microphone once, and a closed note frees it', async () => {
+    let grant;
+    const stopTrack = vi.fn();
+    const gum = vi.fn(() => new Promise((r) => { grant = r; }));
+    const realMd = navigator.mediaDevices;
+    const realMR = window.MediaRecorder;
+    Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: gum }, configurable: true });
+    window.MediaRecorder = function MR() { this.start = vi.fn(); this.stop = vi.fn(); };
+    window.MediaRecorder.isTypeSupported = () => false;
+    try {
+      const { result, unmount } = renderHook(() => useVoiceRecorder(() => {}));
+      act(() => { result.current.start(); result.current.start(); });
+      expect(gum).toHaveBeenCalledTimes(1);
+      unmount();
+      await act(async () => { grant({ getTracks: () => [{ stop: stopTrack }] }); });
+      expect(stopTrack).toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(navigator, 'mediaDevices', { value: realMd, configurable: true });
+      window.MediaRecorder = realMR;
+    }
   });
 });
 

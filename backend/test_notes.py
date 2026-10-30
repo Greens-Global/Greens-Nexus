@@ -177,6 +177,10 @@ class NotesTest(unittest.TestCase):
         self.assertEqual(out.count("<audio"), 1)
         self.assertEqual(out.count("<video"), 1)
         self.assertTrue(out.startswith("<p>Before</p>") and out.endswith("<p>After</p>"))
+        # An unclosed player does not swallow what follows it.
+        with mock.patch.object(notes, "_own_image", lambda src: True):
+            tail = self.make(body=f'<audio src="{own}"><p>Still here</p>')["body"]
+        self.assertIn("<p>Still here</p>", tail)
         # A player is not words: the preview and search skip it.
         self.assertEqual(notes.plain_text(out), "Before\nAfter")
 

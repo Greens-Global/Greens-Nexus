@@ -129,7 +129,9 @@ class _NoteSanitizer(_RichSanitizer):
             self._in_media += 1
             return
         if self._in_media:
-            return          # <source>, <track> and the like inside a player
+            if tag in ("source", "track"):
+                return      # a player's own children
+            self._in_media = 0   # an unclosed player never swallows the rest of the note
         super().handle_starttag(tag, attrs)
 
     def handle_startendtag(self, tag, attrs):

@@ -321,7 +321,10 @@ export default function Approvals({ activeSub, onSubChange }) {
         .apv-name { font-size: 13.5px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .apv-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
         .apv-detail { font-size: 12.5px; color: var(--muted); margin-top: 2px; line-height: 1.4; overflow-wrap: anywhere; }
-        .apv-btn { justify-content: center; border-radius: 8px; }
+        /* Reject and Review are not primary-btn / secondary-btn, so they get
+           the same box here (the Review panel's footer included). */
+        .apv-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 8px; }
+        .apv-no, .apv-review { padding: 7px 14px; font-size: 13px; line-height: 1.3; white-space: nowrap; }
         .apv-no { background: var(--apv-red, #dc2626); color: #fff; border: 1px solid var(--apv-red, #dc2626); font-family: inherit; font-weight: 600; cursor: pointer; }
         .apv-no:hover:not(:disabled) { filter: brightness(.92); }
         .apv-review { background: color-mix(in srgb, var(--ink) 9%, var(--card)); color: var(--ink); border: 1px solid transparent; font-family: inherit; font-weight: 600; cursor: pointer; }
@@ -354,11 +357,14 @@ export default function Approvals({ activeSub, onSubChange }) {
           .apv-tools select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
           .apv-facts { grid-template-columns: minmax(0, 1fr); }
           .apv-facts > div:nth-child(odd) { border-bottom: none; padding-bottom: 0; }
-          .apv-act { justify-content: stretch; flex-wrap: nowrap; gap: 8px; margin-top: 4px; }
-          .apv-act button { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 10px; font-size: 14px; border-radius: 10px; }
+          /* Up to three decisions share a row; a fourth (Request Changes)
+             wraps to its own full-width line instead of spilling over. */
+          .apv-act { justify-content: stretch; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+          .apv-act button { flex: 1 1 92px; min-width: 0; min-height: 44px; padding: 0 10px; font-size: 14px; border-radius: 10px;
+            overflow: hidden; text-overflow: ellipsis; }
           .apv-foot { flex-wrap: wrap; }
           .apv-foot > span { display: none; }
-          .apv-foot button { flex: 1 1 0; min-width: 0; min-height: 44px; justify-content: center; font-size: 14px; border-radius: 10px; }
+          .apv-foot button { flex: 1 1 92px; min-width: 0; min-height: 44px; justify-content: center; font-size: 14px; border-radius: 10px; }
           .apv-foot .apv-open { flex-basis: 100%; }
         }
       `}</style>
