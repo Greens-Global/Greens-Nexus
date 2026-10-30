@@ -25,7 +25,7 @@ import ScheduleDay from './shifts/ScheduleDay';
 import ScheduleMonth from './shifts/ScheduleMonth';
 import SchedulePhone from './shifts/SchedulePhone';
 import ShiftPanel, { HistoryList } from './shifts/ShiftPanel';
-import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, shiftShortText, sectionKey, teamColor, dayFullyOff, addDaysIso, parseIso, conflictMap, coverageFor, todayIso, adherenceLine, DEFAULT_SHIFT_COLOR, flagOf, FLAG_KINDS, FLAG_ORDER } from './shifts/shiftLib';
+import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, shiftShortText, sectionKey, teamColor, dayFullyOff, addDaysIso, parseIso, conflictMap, coverageFor, todayIso, adherenceLine, flagOf, FLAG_KINDS, FLAG_ORDER } from './shifts/shiftLib';
 
 // ── The schedule (Microsoft Teams "Shifts" style, rebuilt Oct 2026) ────────
 // This file is the container: it owns the data, the API calls and the
@@ -1131,18 +1131,6 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
     reveal(el);
     pulseTimer.current = setTimeout(() => setPulseCells(null), 1500);
   }, [pendingJump, data, start]);   // the cell appears once the week's rows do  // eslint-disable-line react-hooks/exhaustive-deps
-  // The type key under the grid (Neil, Oct 30 2026): every code on screen
-  // with its color and name, since the blocks print only the code.
-  const typeKey = (() => {
-    if (view === 'month') return [];
-    const m = new Map();
-    shown.forEach((s) => {
-      if (!s.code || m.has(s.code)) return;
-      const p = presets.find((x) => x.id === s.shiftId);
-      m.set(s.code, { code: s.code, name: p?.name || s.shiftName || '', color: p?.color || s.color || DEFAULT_SHIFT_COLOR });
-    });
-    return [...m.values()].sort((a, b) => a.code.localeCompare(b.code));
-  })();
   // "N To Review" (Neil, Oct 30 2026): one line ABOVE the grid, grouped by
   // kind (Overtime / Time Off / Availability / Rest ...); each kind jumps to
   // its first shift, and Review List opens one line per warning.
@@ -1318,16 +1306,8 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       )}
       </div>
       )}
-      {data && (typeKey.length > 0 || teamZoneLabel) && (
-        <div data-type-key="" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 16px', fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>
-          {typeKey.map((t) => (
-            <span key={t.code} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: t.color, flexShrink: 0 }} />
-              <strong style={{ color: t.color, fontWeight: 700 }}>{t.code}</strong>{t.name && t.name !== t.code ? <span>{t.name}</span> : null}
-            </span>
-          ))}
-          {teamZoneLabel && <span>Times in {teamZoneLabel}</span>}
-        </div>
+      {data && teamZoneLabel && (
+        <div data-zone-note="" style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>
       )}
       {phone && data && teamFacts.length > 0 && (
         <div data-team-facts="" style={{ display: 'grid', gap: 6, marginTop: 12, fontSize: 12.5, color: 'var(--muted)' }}>{teamFacts.map((f, i) => <div key={i} style={{ minWidth: 0 }}>{f}</div>)}</div>

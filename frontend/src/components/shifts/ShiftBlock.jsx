@@ -1,8 +1,9 @@
 // The one shift block (calm pass, Neil, Oct 30 2026). On the card's own
 // background with a hairline border - no tint, no bar, no badge:
 //   line 1  a dot in the shift type's color, the time ("8:30a - 5:30p",
-//           "+1" when it ends the next day), the type's short code at the
-//           right in the type's color.
+//           "+1" when it ends the next day), the type's NAME at the right
+//           in the type's color - never its code (Neil's Oct 28 walk-through,
+//           c2db7392; reaffirmed Oct 30 2026).
 //   line 2  only when something needs saying, in words: "New", "Edited
 //           · was 8:00a - 4:30p" or "Removed" while a change is not shared
 //           (the block is dashed until then); an attendance EXCEPTION
@@ -50,10 +51,9 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const zone = s.timeZone || s.timezone || '';
   const otherZone = zoneDiffers(zone, teamZone);
   const unpaid = unpaidLabel(s);
-  const code = s.code || '';
   // The label (hover and accessible name): the shift's own, else its shift
-  // type's name - never a repeat of the code ("GSV" named "GSV" shows once).
-  const ownLabel = s.label && s.label !== code ? s.label : '';
+  // type's name. Codes stay off the grid (Neil, Oct 28 / Oct 30 2026).
+  const ownLabel = s.label || '';
   const typeName = s.shiftName || '';
   const label = ownLabel || typeName;
   // On the block only a label that says something the type does not.
@@ -66,7 +66,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const weather = s.weatherStatus === 'cancelled' ? 'Cancelled for weather (unpaid)' : s.weatherStatus === 'delayed' ? 'Start delayed for weather'
     : s.weatherStatus === 'shortened' ? 'Ending early for weather' : s.weatherStatus === 'moved' ? 'Moved for weather' : s.weatherStatus === 'kept' ? 'Weather call: going ahead' : '';
   const cancelled = s.weatherStatus === 'cancelled';
-  const title = [`${shiftTimeText(s)}${code ? ` · ${code}` : ''}${label ? ` · ${label}` : ''}`, actText, weather, st.title, was ? `Team sees ${shiftTimeText(s.was)}` : '', unpaid, s.note,
+  const title = [`${shiftTimeText(s)}${label ? ` · ${label}` : ''}`, actText, weather, st.title, was ? `Team sees ${shiftTimeText(s.was)}` : '', unpaid, s.note,
     ...(s.activities || []).map((a) => `${a.start && a.end ? `${shiftTimeText(a)} ` : ''}${a.label || 'Activity'}${a.paid === false ? ' (unpaid)' : ''}`),
     otherZone ? `Times in ${zoneOptionLabel(zone)}` : '', ...(s.conflicts || [])].filter(Boolean).join('\n');
   const interactive = !!onOpen;
@@ -75,7 +75,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   // One word per kind of flag, at most two on the block ("+1" says more).
   const flags = [];
   if (warn) for (const c of s.conflicts) { const f = flagOf(c); if (!flags.some((x) => x.kind === f.kind)) flags.push(f); }
-  const share = (compact ? 11 : 9.5) - (otherZone ? 1.3 : 0) - (code ? 0.8 : 0);
+  const share = (compact ? 11 : 9.5) - (otherZone ? 1.3 : 0) - (typeName ? 0.8 : 0);
   const overnight = nextDay(s);
   const sep = <span aria-hidden="true" style={{ color: 'var(--muted)' }}> · </span>;
   const parts = [];
@@ -91,7 +91,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const unshared = !!state;
   return (
     <div data-shift={s.id} data-conflict={warn ? '' : undefined} data-unshared={state || undefined} data-weather-status={s.weatherStatus || undefined} role={interactive ? 'button' : undefined} tabIndex={interactive ? (tabIndex ?? 0) : undefined}
-      aria-label={interactive ? `${open ? 'Open shift' : 'Shift'} ${shiftTimeText(s)}${code ? ` ${code}` : ''}${label ? ` ${label}` : ''}${st.tag ? `, ${st.tag}` : ''}${act ? `, ${actualWord(act.status)}` : ''}${weather ? `, ${weather.toLowerCase()}` : ''}${warn ? `, ${s.conflicts.length === 1 ? '1 warning' : `${s.conflicts.length} warnings`}: ${s.conflicts.join('; ')}` : ''}` : undefined}
+      aria-label={interactive ? `${open ? 'Open shift' : 'Shift'} ${shiftTimeText(s)}${label ? ` ${label}` : ''}${st.tag ? `, ${st.tag}` : ''}${act ? `, ${actualWord(act.status)}` : ''}${weather ? `, ${weather.toLowerCase()}` : ''}${warn ? `, ${s.conflicts.length === 1 ? '1 warning' : `${s.conflicts.length} warnings`}: ${s.conflicts.join('; ')}` : ''}` : undefined}
       title={title} className={`sched-chip${className ? ` ${className}` : ''}`}
       onClick={interactive ? (e) => { e.stopPropagation(); (onSelect || onOpen)(e, s); } : undefined}
       onDoubleClick={interactive && onSelect ? (e) => { e.stopPropagation(); onOpen(e, s); } : undefined}
@@ -109,7 +109,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
         <span aria-hidden="true" data-type-dot="" style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
         <span style={{ whiteSpace: 'nowrap', flexShrink: 0, textDecoration: s.pendingDelete || cancelled ? 'line-through' : undefined }}>{shiftShortText(s)}{overnight && <span style={{ fontSize: '0.8em', color: 'var(--muted)', fontWeight: 600 }}> +1</span>}</span>
         {otherZone && <span title={`Times in ${zoneOptionLabel(zone)}`} style={{ fontSize: '0.8em', fontWeight: 600, color: 'var(--muted)', flexShrink: 0 }}>{tzAbbrev(zone)}</span>}
-        {code && <span data-type-code="" style={{ marginLeft: 'auto', fontSize: '0.82em', fontWeight: 700, color, flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{code}</span>}
+        {typeName && <span data-type-name="" style={{ marginLeft: 'auto', fontSize: '0.82em', fontWeight: 600, color, flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{typeName}</span>}
       </div>
       {parts.length > 0 && (
         <div data-shift-words="" style={{ ...LINE, fontSize: compact ? 10 : 10.5, lineHeight: 1.35, marginTop: 1 }}>

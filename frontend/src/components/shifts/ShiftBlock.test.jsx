@@ -16,19 +16,19 @@ const block = () => document.querySelector('[data-shift="s1"]');
 const words = () => document.querySelector('[data-shift-words]');
 
 describe('ShiftBlock', () => {
-  it('reads a dot, the time and the type code - nothing else for a plain shared shift', () => {
+  it('reads a dot, the time and the type name - nothing else for a plain shared shift', () => {
     const { unmount } = render(<ShiftBlock shift={shift} onOpen={() => {}} />);
     expect(word()).toBeNull();
     expect(words()).toBeNull();
-    expect(block().textContent).toBe('8:00a - 5:00p' + 'GST');
+    expect(block().textContent).toBe('8:00a - 5:00p' + 'General Shift');
     expect(block().querySelector('[data-type-dot]').style.background).toBe('rgb(37, 99, 235)');
-    expect(block().querySelector('[data-type-code]').style.color).toBe('rgb(37, 99, 235)');
+    expect(block().querySelector('[data-type-name]').style.color).toBe('rgb(37, 99, 235)');
     // No tint: the block sits on the card.
     expect(block().style.background).toBe('var(--card)');
     unmount();
     render(<ShiftBlock shift={shift} onOpen={() => {}} actual={{ status: 'upcoming' }} />);
     expect(word()).toBeNull();
-    expect(block().getAttribute('aria-label')).toBe('Shift 8:00 AM - 5:00 PM GST General Shift');
+    expect(block().getAttribute('aria-label')).toBe('Shift 8:00 AM - 5:00 PM General Shift');
   });
   it('shows a label only when it differs from the type name, and +1 for an overnight end', () => {
     const { rerender } = render(<ShiftBlock shift={{ ...shift, label: 'General Shift' }} onOpen={() => {}} />);
@@ -74,13 +74,13 @@ describe('ShiftBlock', () => {
     ['exempt', null, 'Exempt'],
   ])('shows attendance only as an exception word (%s)', (status, shown, name) => {
     render(<ShiftBlock shift={shift} onOpen={() => {}} actual={{ shiftId: 's1', status, lateMin: 14, earlyMin: 60 }} />);
-    expect(block().getAttribute('aria-label')).toBe(`Shift 8:00 AM - 5:00 PM GST General Shift, ${name}`);
+    expect(block().getAttribute('aria-label')).toBe(`Shift 8:00 AM - 5:00 PM General Shift, ${name}`);
     if (shown) {
       expect(word().getAttribute('data-actual')).toBe(status);
       expect(word().textContent).toBe(shown);
     } else {
       expect(word()).toBeNull();
-      expect(block().textContent).toBe('8:00a - 5:00pGST');
+      expect(block().textContent).toBe('8:00a - 5:00pGeneral Shift');
     }
     expect(document.querySelector('[data-actual-sheet]')).toBeNull();
   });
@@ -138,6 +138,6 @@ describe('ShiftBlock', () => {
     expect(word().textContent).toBe('On Now');
     expect(word().style.color).toBe('hsl(var(--color-green))');
     expect(block().getAttribute('title')).toContain(`In progress since ${at('2026-10-12T15:04:00')}`);
-    expect(block().getAttribute('aria-label')).toBe('Shift 8:00 AM - 5:00 PM GST General Shift, In Progress');
+    expect(block().getAttribute('aria-label')).toBe('Shift 8:00 AM - 5:00 PM General Shift, In Progress');
   });
 });
