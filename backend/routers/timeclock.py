@@ -9315,12 +9315,20 @@ def _weekend_pay(daily: float, worked_min: int, full_hours: float, currency: str
     return round(max(floor, _WEEKEND_MULT * daily * hours / full_hours), 2)
 
 
+SALARIED_FULL_MIN = 4 * 60        # a salaried weekday is a full day from 4 h worked
+SALARIED_HALF_MIN = 150           # a half day from 2.5 h; absent below that
+
+
 def _attendance_bands(full_hours: float) -> tuple:
-    """(FULL_MIN, HALF_MIN) in minutes: a full day is worked >= full_day_hours
-    minus 60 min (an hour short is not pinged), a half day is >= 4 h and
-    under that, absent below 4 h (Charmi, Sep 30)."""
-    full_min = max(0, int(round(float(full_hours or 8) * 60)) - 60)
-    return full_min, min(4 * 60, full_min)
+    """(FULL_MIN, HALF_MIN) in minutes for a FIXED-salary employee's weekday:
+    a full day is worked >= 4 h, a half day >= 2.5 h and under that, absent
+    below 2.5 h (Neil / Charmi via Sagar, Oct 31 2026 - replaces the Sep 30
+    rule of full-day hours minus an hour / 4 h; the Time Sheet no longer
+    prints the bands). Only guarded by a shorter full day, so the half band
+    never sits above the full one. India contractors never read this: their
+    8 h / 4 h credits are india_contractor_pay's."""
+    full_min = min(SALARIED_FULL_MIN, max(0, int(round(float(full_hours or 8) * 60))))
+    return full_min, min(SALARIED_HALF_MIN, full_min)
 
 
 def _fixed_card(db: Session, em: str, anchor: str) -> dict:

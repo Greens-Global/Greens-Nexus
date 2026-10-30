@@ -247,6 +247,12 @@ keep the diff minimal.
   still counted in `workedMin` (the attested total) - SwipeClock parity
   (Charmi, Sep 21). No separate leave-hours table; approved time-off
   requests are NOT auto-punched.
+- Salaried (fixed monthly pay) day bands (Neil / Charmi via Sagar, Oct 31
+  2026, `timeclock._attendance_bands`): a past weekday is a full day from
+  4 h worked, a half day (half the daily rate docked) from 2.5 h, absent
+  (the day docked) below - whatever the person's full-day hours. The Time
+  Sheet no longer prints a "Bands:" line; the day statuses say the result.
+  India contractors never use these (8 h / 4 h credits, `india_contractor_pay`).
 
 - Task emails are BATCHED (Neil, Sep 24): an event that can wait goes into
   `task_email_queue`, and `task_notify.flush_batches` (every minute, inside
@@ -484,6 +490,26 @@ keep the diff minimal.
   `workflow_events`, `workflow_runs`, `workflow_run_steps`,
   `workflow_waits`, `workflow_approvals`, `workflow_subject_marks`) need RLS
   on dev and prod - run `get_advisors` after each release.
+
+- **Cubby tasks in Nexus Tasks (Neil, Oct 30 2026, `backend/cubby_tasks.py`,
+  Settings > Operations > Cubby Tasks).** After each 15-minute Cubby sync
+  (`cubby_sync.run_claimed` calls `cubby_tasks.after_sync`), every open
+  Cubby task becomes ONE Nexus task linked by Cubby's id (`tasks.cubby_task_id`
+  + `cubby_task_links`): in the facility's project from the Settings map
+  (no project = skipped and counted, never guessed), assigned to the people
+  Cubby has it assigned to - the assignee is NOT in Cubby's API, it comes from
+  Cubby's reporting warehouse (`cubby_warehouse.task_rows` / `manager_rows`,
+  names matched to Nexus people by work email); a group-assigned or
+  unassigned task goes to the project alone. ONE WAY for content: a task
+  made in Nexus never goes to Cubby; only Cubby's own fields (title,
+  description, due date) refresh, and only once Cubby's `updatedAt` moved.
+  Done both ways for Cubby tasks only: closed in Cubby closes it here;
+  closed or reopened in Nexus by ANY path is queued by the before_flush hook
+  (`cubby_tasks.wire`, in `database.py`) and sent by `cubby_task_push_loop`
+  through `ops_cubby_push.set_task_status` behind ITS OWN "Close Tasks in
+  Cubby" switch (default OFF; never the rate-and-rent Push to Cubby switch).
+  Every Nexus write goes through `routers.tasks._create_task` / `update_task`
+  as the facility project's owner - never a second write path.
 
 ## Asana — removed (Sep 2026)
 
