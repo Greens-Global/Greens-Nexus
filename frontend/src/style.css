@@ -6600,6 +6600,16 @@ body:has(.docs-root) { overflow-x: clip; }
 /* Its own animation, not a transition: the opening one holds 1fr, and a held
    animation value outranks any class change. */
 .feature-banner.is-closing { animation: fb-close .3s cubic-bezier(.4, 0, .2, 1) both; }
+/* A header over the whole app (Neil, Oct 30 2026): the bar runs the full
+   width of the window, across the left menu, instead of over the page alone.
+   It is fixed at the very top; the left menu, the page and its sticky header
+   start under it by its measured height (--nx-announce-h, set by
+   FeatureBanner on its row), and the full-height views already subtract the
+   same height. Above the menu, under every popup. */
+.feature-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 150; }
+.main-content { padding-top: var(--nx-announce-h, 0px); }
+.top-header { top: var(--nx-announce-h, 0px); }
+.sidebar { top: var(--nx-announce-h, 0px); height: calc(100vh - var(--nx-announce-h, 0px)); }
 @keyframes fb-open { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
 @keyframes fb-close { from { grid-template-rows: 1fr; opacity: 1; } to { grid-template-rows: 0fr; opacity: 0; } }
 /* One flash of light across the bar once it has settled - not a loop
