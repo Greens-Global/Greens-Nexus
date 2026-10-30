@@ -19,6 +19,7 @@ import { Node, mergeAttributes } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { X } from 'lucide-react';
 import { storeTaskFile } from '../tasks/lib';
+import { isOwnImageUrl } from '../lib/storageView';
 import { MEDIA_MAX, checkMedia, mediaKind, withType } from '../lib/voice';
 
 // The recorder, dictation and the clip limits live in lib/voice.js so every
@@ -46,8 +47,14 @@ export function mediaFiles(list) {
 }
 
 // ── the two nodes ─────────────────────────────────────────────────────────
+// While co-typing, a clip arrives from the shared document, not through the
+// server's sanitizer: play it only from our own storage (lib/storageView).
+const live = (editor) => editor.extensionManager.extensions.some((e) => e.name === 'collaboration');
+const playable = (editor, src) => !live(editor) || (isOwnImageUrl(src) && !/^data:/i.test(src));
+
 function MediaView({ node, editor, getPos }) {
-  const { src } = node.attrs;
+  const { src: raw } = node.attrs;
+  const src = playable(editor, raw) ? raw : '';
   const video = node.type.name === 'noteVideo';
   const remove = () => {
     const pos = getPos();

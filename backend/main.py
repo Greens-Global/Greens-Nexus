@@ -1402,6 +1402,11 @@ def _run_migrations():
             "ALTER TABLE hr_perf_reviews ADD COLUMN calibrated_from VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_reviews ADD COLUMN calibrated_by VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_reviews ADD COLUMN calibrated_at VARCHAR DEFAULT ''",
+            # Notes working together (Oct 30) - see the Postgres list. models.NexusNote.
+            "ALTER TABLE nexus_notes ADD COLUMN seen TEXT DEFAULT '{}'",
+            "ALTER TABLE nexus_notes ADD COLUMN ydoc TEXT DEFAULT ''",
+            "ALTER TABLE nexus_notes ADD COLUMN yepoch VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_notes ADD COLUMN collab_key VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3345,6 +3350,14 @@ def _run_migrations():
         # RLS. models.NexusNote / NexusNoteVersion.
         "ALTER TABLE nexus_notes ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE nexus_note_versions ENABLE ROW LEVEL SECURITY",
+        # Notes working together (Neil 10/30/2026): seen revs, the live
+        # co-typing state and key, and who has a note open - one new table,
+        # explicit RLS. models.NexusNote / NexusNotePresence.
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS seen TEXT DEFAULT '{}'",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS ydoc TEXT DEFAULT ''",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS yepoch VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS collab_key VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_note_presence ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

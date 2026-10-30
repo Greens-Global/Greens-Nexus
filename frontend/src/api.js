@@ -3374,6 +3374,12 @@ export const api = {
   noteUnshare: (id, email) => req(`/notes/${encodeURIComponent(id)}/share/${encodeURIComponent(email)}`, { method: "DELETE" }),
   noteVersions: (id) => req(`/notes/${encodeURIComponent(id)}/versions`),
   noteRestoreVersion: (id, versionId) => req(`/notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`, { method: "POST" }),
+  // Working together (Oct 30 2026): the open note's heartbeat (who else is
+  // here, and its rev), and for a shared note's editors the live co-typing
+  // key, channel and shared state, seeded once (409 = someone else did).
+  notePresence: (id, state) => req(`/notes/${encodeURIComponent(id)}/presence`, { method: "POST", body: JSON.stringify({ state }) }),
+  noteCollab: (id) => req(`/notes/${encodeURIComponent(id)}/collab`),
+  noteCollabSeed: (id, data) => req(`/notes/${encodeURIComponent(id)}/collab/seed`, { method: "POST", body: JSON.stringify(data) }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with
