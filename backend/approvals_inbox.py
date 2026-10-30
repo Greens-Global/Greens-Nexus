@@ -54,6 +54,18 @@ returns, Tasks team and member requests, role changes, vendor and customer
 changes, Credential Vault share requests, Knowledge Base reviews, construction
 daily logs and HR packets to verify.
 
+Two scopes (Pranshu, Oct 30 2026 - "approvals are for Managers++"): a row is
+`scope="decide"` when someone else asked and the caller rules on it (the
+default), or `scope="act"` when it is the caller's OWN to-do - a document or
+Time Sheet to sign, an item to accept, a teammate's swap, their own review or
+plan to acknowledge, a feedback ask. Dashboard > Approvals lists the first
+as Approvals and the second under Yours To Do, so Neil's one-screen rule
+(Oct 27) still holds and an employee with nothing to decide sees only their
+own items. Every row also carries the requester's department and company
+(enrich) so HR and administrators can group what they see; collect() sums
+them in `departments` / `companies`, and `who` says what kind of approver
+the caller is.
+
 To add one: write the function here with @source, give its row
 `kind` an entry in frontend/src/lib/approvalActions.js (which endpoint each
 action key calls), and, if it should count on a module's tab too, read
@@ -150,7 +162,7 @@ def _iso(v) -> str:
 
 def row(kind: str, rid: str, *, person_email: str = "", person_name: str = "", title: str, detail: str = "",
         created_at="", actions=(), link: dict | None = None, count: int = 1, for_name: str = "",
-        facts=(), priority: str = "", due: str = "") -> dict:
+        facts=(), priority: str = "", due: str = "", scope: str = "decide") -> dict:
     """One inbox line, the same shape for every source.
 
     `facts` (Neil, 10/28/2026: Review "gives them additional detail") are
@@ -163,7 +175,7 @@ def row(kind: str, rid: str, *, person_email: str = "", person_name: str = "", t
     ticket); `due` is the day the decision matters by (leave starts, a
     document expires, a letter is needed). collect() turns what is missing
     into one priority for every row - see _priority."""
-    return {"key": f"{kind}:{rid}", "kind": kind, "id": rid,
+    return {"key": f"{kind}:{rid}", "kind": kind, "id": rid, "scope": "act" if scope == "act" else "decide",
             "priority": (priority or "").strip().lower(), "due": (due or "")[:10],
             "person": {"email": (person_email or "").lower(), "name": person_name or person_email or ""},
             "title": title, "detail": detail or "", "createdAt": _iso(created_at),
@@ -229,6 +241,7 @@ def collect(db: Session, user: dict, only=None) -> dict:
         for r in got:
             r["source"], r["group"] = s.key, s.group
             r["priority"] = _priority(r)
+            enrich(db, ctx, user, r)
         counts[s.key] = sum(r["count"] for r in got)
         rows += got
     # Oldest waiting first: an approval queue is first come, first served, and
@@ -236,10 +249,90 @@ def collect(db: Session, user: dict, only=None) -> dict:
     # starts soon, a pay period about to close). Undated rows go last.
     rows.sort(key=lambda r: (r["createdAt"] or "9999", r["key"]))
     groups: dict = {}
+    scopes = {"decide": 0, "act": 0}
+    departments: dict = {}
+    companies: dict = {}
     for r in rows:
         groups[r["group"]] = groups.get(r["group"], 0) + r["count"]
-    return {"rows": rows, "counts": counts, "groups": groups, "errors": errors,
-            "total": sum(counts.values())}
+        scopes[r["scope"]] += r["count"]
+        if r["scope"] == "decide":
+            departments[r["department"]] = departments.get(r["department"], 0) + r["count"]
+            companies[r["company"]] = companies.get(r["company"], 0) + r["count"]
+    return {"rows": rows, "counts": counts, "groups": groups, "scopes": scopes, "departments": departments,
+            "companies": companies, "companyNames": _company_names(db, ctx), "errors": errors,
+            "total": sum(counts.values()), "who": who(db, user, ctx, rows), "aging": aging(rows)}
+
+
+# ── Who the caller is, and how long things wait ──────────────────────────────
+
+def _people(db: Session, ctx: dict) -> dict:
+    """{email: {name, department, company, title}} for everyone in People - one
+    query per collect(), shared by every source (replaces the names-only map)."""
+    if "people" not in ctx:
+        out = {}
+        for e in db.query(models.NexusEmployee).all():
+            em = (e.work_email or "").lower()
+            if em:
+                out[em] = {"name": f"{e.first_name or ''} {e.last_name or ''}".strip() or em,
+                           "department": (e.department or "").strip(), "company": (e.company or "").strip(),
+                           "title": (e.job_title or "").strip(), "manager": (e.manager_email or "").lower(),
+                           "active": (e.status or "active") not in ("inactive", "offboarded")}
+        ctx["people"] = out
+    return ctx["people"]
+
+
+def _company_names(db: Session, ctx: dict) -> dict:
+    if "company_names" not in ctx:
+        ctx["company_names"] = {e.id: e.name or e.id for e in db.query(models.HrEntity).all()}
+    return ctx["company_names"]
+
+
+def enrich(db: Session, ctx: dict, user: dict, r: dict) -> None:
+    """The requester's department and company on the row (the caller's own
+    for a row with no one person, so grouping never loses a row)."""
+    people = _people(db, ctx)
+    p = people.get(r["person"]["email"]) or people.get(_me(user)) or {}
+    r["department"] = p.get("department") or "No Department"
+    r["company"] = p.get("company") or ""
+    r["companyName"] = _company_names(db, ctx).get(r["company"], r["company"]) if r["company"] else "No Company"
+    r["personTitle"] = p.get("title") or ""
+
+
+def who(db: Session, user: dict, ctx: dict, rows: list) -> dict:
+    """What kind of approver the caller is: a manager (people report to them),
+    HR (performance.hr_reach - the HR contact, administrators and Full HR
+    grants), a Global Admin, or named on a request (any `decide` row). The
+    Approvals tab shows for anyone with canApprove; everyone else sees only
+    Yours To Do when they have one."""
+    import auth
+    import performance as perf
+    me = _me(user)
+    people = _people(db, ctx)
+    is_manager = any(p["manager"] == me and p["active"] for p in people.values() if me)
+    reach = perf.hr_reach(db, user) if me else False
+    is_admin = bool(me) and auth.is_global_admin(user, db)
+    named = any(r["scope"] == "decide" for r in rows)
+    return {"isManager": is_manager, "isHr": reach is not False, "hrEveryCompany": reach is None,
+            "isAdmin": is_admin, "isNamedApprover": named,
+            "canApprove": is_manager or reach is not False or is_admin or named,
+            "department": (people.get(me) or {}).get("department") or "",
+            "company": (people.get(me) or {}).get("company") or ""}
+
+
+def aging(rows: list, today: date | None = None) -> dict:
+    """How long the `decide` rows have waited: the oldest, the average, and how
+    many are over 3 and over 7 days - the inbox's health strip."""
+    today = today or datetime.now(timezone.utc).date()
+    waits = []
+    for r in rows:
+        if r["scope"] != "decide" or not r.get("createdAt"):
+            continue
+        try:
+            waits.append(max(0, (today - datetime.fromisoformat(r["createdAt"]).date()).days))
+        except ValueError:
+            continue
+    return {"oldestDays": max(waits) if waits else 0, "avgDays": round(sum(waits) / len(waits), 1) if waits else 0,
+            "over3": sum(1 for w in waits if w >= 3), "over7": sum(1 for w in waits if w >= 7), "counted": len(waits)}
 
 
 # ── Shared lookups ───────────────────────────────────────────────────────────
@@ -265,8 +358,7 @@ def _approver(db: Session, user: dict, ctx: dict) -> dict:
 
 def _names(db: Session, ctx: dict) -> dict:
     if "names" not in ctx:
-        from routers.shift_requests import _names as shift_names
-        ctx["names"] = shift_names(db)
+        ctx["names"] = {em: p["name"] for em, p in _people(db, ctx).items()}
     return ctx["names"]
 
 
@@ -478,7 +570,7 @@ def _timesheets_to_sign(db: Session, user: dict, ctx: dict) -> list:
         detail = f"Approved by {s['agreedBy']}." if s.get("agreedBy") else ""
         out.append(row("timesheet_sign", s["partyId"] or s["id"], person_email=s["employeeEmail"],
                        person_name="You" if own else s.get("name") or "", title=title, detail=detail,
-                       created_at=s.get("agreedAt"), actions=(a_open("Review & Sign"),),
+                       created_at=s.get("agreedAt"), actions=(a_open("Review & Sign"),), scope="act",
                        link={"view": "myhr", "sub": "timesheet"},
                        facts=(("Pay Period", span), ("Approved By", s.get("agreedBy") or ""))))
     return out
@@ -499,7 +591,7 @@ def _documents_to_sign(db: Session, user: dict, ctx: dict) -> list:
         out.append(row("nexus_sign", r["partyId"], person_email=sender, person_name=_name(db, ctx, sender) if sender else "",
                        title=r.get("title") or "Document To Sign",
                        detail=f"Expires {_us_day(r['expiresOn'])}." if r.get("expiresOn") else "",
-                       created_at=r.get("createdAt"), actions=(a_open("Review & Sign"),),
+                       created_at=r.get("createdAt"), actions=(a_open("Review & Sign"),), scope="act",
                        link={"view": "myhr", "sub": f"sign:{r['partyId']}"}, due=r.get("expiresOn") or "",
                        facts=(("Document", r.get("title") or ""),
                               ("Sent By", _name(db, ctx, sender) if sender else ""),
@@ -611,7 +703,7 @@ def _shift_swaps_for_me(db: Session, user: dict, ctx: dict) -> list:
               .order_by(R.created_at).all()):
         out.append(row("shift_peer", r.id, person_email=r.requester_email, person_name=_name(db, ctx, r.requester_email),
                        title=_shift_title(db, ctx, r, mine=True), detail=_short(r.note or ""),
-                       created_at=r.created_at, actions=(A_ACCEPT, A_DECLINE),
+                       created_at=r.created_at, actions=(A_ACCEPT, A_DECLINE), scope="act",
                        link={"view": "myhr", "sub": "timeoff"},
                        facts=(("Request", _shift_title(db, ctx, r, mine=True)), ("Note", r.note or ""),
                               ("Next", "A manager approves it after you accept."))))
@@ -1126,7 +1218,7 @@ def _assignments_to_accept(db: Session, user: dict, ctx: dict) -> list:
         out.append(row("assignment_accept", a.id, person_email=by, person_name=a.assigned_by or _name(db, ctx, by),
                        title=f"Accept Item - {a.item_name or 'Item'}",
                        detail=f"Assigned to you by {a.assigned_by or _name(db, ctx, by)}." if (a.assigned_by or by) else "",
-                       created_at=a.created_at, actions=(A_ACCEPT, A_DECLINE),
+                       created_at=a.created_at, actions=(A_ACCEPT, A_DECLINE), scope="act",
                        link={"view": "inventory", "sub": "permanent"},
                        facts=(("Item", a.item_name or ""), ("Assigned By", a.assigned_by or (_name(db, ctx, by) if by else "")),
                               ("Next", "It becomes yours to look after once you accept."))))
@@ -1541,7 +1633,7 @@ def _perf_reviews(db: Session, user: dict, ctx: dict) -> list:
         created = r.shared_at if kind == "acknowledge" else r.manager_submitted_at if kind == "share" else r.created_at
         out.append(row("perf_review", f"{r.id}:{kind}", person_email="" if mine else r.employee_email,
                        person_name="" if mine else _name(db, ctx, r.employee_email),
-                       title=f"{title} - {c.name}", detail=detail, created_at=created,
+                       title=f"{title} - {c.name}", detail=detail, created_at=created, scope="act" if mine else "decide",
                        actions=(a_open(label),), link={"view": "myhr", "sub": f"performance:review:{r.id}"},
                        due=due, facts=(("Review", c.name), ("Due", _us_day(due) if due else ""))))
     return out
@@ -1591,7 +1683,7 @@ def _perf_feedback(db: Session, user: dict, ctx: dict) -> list:
         out.append(row("perf_feedback", f.id, person_email=f.subject_email, person_name=_name(db, ctx, f.subject_email),
                        title="Feedback Requested", for_name=_name(db, ctx, f.requested_by),
                        detail=f"{_name(db, ctx, f.requested_by)} asked for your feedback about {about}.",
-                       created_at=f.requested_at, actions=(a_open("Answer"),),
+                       created_at=f.requested_at, actions=(a_open("Answer"),), scope="act",
                        link={"view": "myhr", "sub": f"performance:feedback:{f.id}"},
                        facts=(("Asked By", _name(db, ctx, f.requested_by)), ("Note", f.note or ""))))
     return out
@@ -1615,7 +1707,7 @@ def _perf_plans(db: Session, user: dict, ctx: dict) -> list:
         mine = kind == "acknowledge"
         out.append(row("perf_plan", f"{p.id}:{kind}", person_email="" if mine else p.employee_email,
                        person_name="" if mine else _name(db, ctx, p.employee_email), title=title, detail=detail,
-                       created_at=p.started_at if kind == "acknowledge" else p.updated_at,
+                       created_at=p.started_at if kind == "acknowledge" else p.updated_at, scope="act" if mine else "decide",
                        actions=(a_open(label),), link={"view": "myhr", "sub": f"performance:plan:{p.id}"},
                        due=p.end_on if kind == "close" else "",
                        facts=(("Plan", p.title or ""), ("Ends", _us_day(p.end_on) if p.end_on else ""))))
