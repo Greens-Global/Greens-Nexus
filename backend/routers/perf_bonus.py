@@ -56,7 +56,27 @@ class PlanIn(BaseModel):
     payoutAtThreshold: float = 50
     maxPayout: float = 100
     adjustMax: float = pb.ADJUST_MAX_DEFAULT
+    reviewWeight: float = 0
     active: bool = True
+
+
+@router.get("/plans/{pid}/history")
+def plan_history(pid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _me(user)
+    p = db.get(models.PerfBonusPlan, pid)
+    if not p:
+        raise HTTPException(404, "Plan not found")
+    _require_hr(db, user, p.company_id)
+    return pb.plan_history(db, pid)
+
+
+@router.get("/readiness")
+def readiness(company: str = "", period: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Before a run: who would be on it and which manual KPIs are still unrated."""
+    _me(user)
+    cid = _company(db, company)
+    _require_hr(db, user, cid)
+    return pb.readiness(db, cid, period)
 
 
 @router.put("/plans")
@@ -106,6 +126,37 @@ def _run(db: Session, user: dict, rid: str):
 def get_run(rid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     _me(user)
     return pb.run_out(db, _run(db, user, rid), True)
+
+
+class RunPatch(BaseModel):
+    budget: Optional[float] = None
+    clearBudget: bool = False
+    notes: Optional[str] = None
+
+
+@router.put("/runs/{rid}")
+def update_run(rid: str, body: RunPatch, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _me(user)
+    run = _run(db, user, rid)
+    pb.set_budget(db, run, "" if body.clearBudget else body.budget, body.notes)
+    db.commit()
+    return pb.run_out(db, run, True)
+
+
+class ReviewedIn(BaseModel):
+    emails: list = []
+
+
+@router.post("/runs/{rid}/reviewed")
+def mark_reviewed(rid: str, body: ReviewedIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A manager marks their people's lines Looks Right."""
+    _me(user)
+    run = db.get(models.PerfBonusRun, rid)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    n = pb.mark_reviewed(db, user, run, body.emails)
+    db.commit()
+    return {"reviewed": n}
 
 
 class LineIn(BaseModel):

@@ -9597,6 +9597,7 @@ class PerfBonusPlan(Base):
     payout_at_threshold = Column(Float, default=50)                        # % of target at the threshold
     max_payout          = Column(Float, default=100)                       # % of target; > 100 = stretch for over-target
     adjust_max          = Column(Float, default=20)                        # a manager's +/- % bound
+    review_weight       = Column(Float, default=0)                         # % of the score taken from the latest review rating (0 = KPIs only)
     active              = Column(Integer, default=1)
     created_at          = Column(String, default="")
     updated_by          = Column(String, default="")
@@ -9614,6 +9615,7 @@ class PerfBonusRun(Base):
     period_end   = Column(String, default="")
     status       = Column(String, default="review", index=True)
     line_count   = Column(Integer, default=0)
+    budget       = Column(Float, nullable=True)                            # HR's pool for the run; over it = a flag, never a block
     notes        = Column(Text, default="")
     created_by   = Column(String, default="")
     created_at   = Column(String, default="")
@@ -9632,7 +9634,11 @@ class PerfBonusLine(Base):
     role_name       = Column(String, default="")
     department      = Column(String, default="")
     manager_email   = Column(String, default="", index=True)
-    score           = Column(Float, nullable=True)                         # period average; None = unscored
+    score           = Column(Float, nullable=True)                         # what the payout reads: the KPI score, or its blend with the review
+    kpi_score       = Column(Float, nullable=True)                         # period average of the monthly KPI scores
+    review_score    = Column(Float, nullable=True)                         # the latest completed review's rating as 0..100, when the plan blends it
+    reviewed_by     = Column(String, default="")                           # the manager who said the line looks right (or adjusted it)
+    reviewed_at     = Column(String, default="")
     over_target     = Column(Float, default=0)
     measured_weight = Column(Float, default=0)
     months_scored   = Column(Integer, default=0)
@@ -9650,3 +9656,14 @@ class PerfBonusLine(Base):
     computed_amount = Column(Float, default=0)
     final_amount    = Column(Float, default=0)
     bonus_id        = Column(String, default="")                           # the TimecardBonus once paid
+
+
+class PerfBonusPlanLog(Base):
+    """Every save of a bonus plan, as saved (perf_bonus.save_plan) - the plan
+    row is edited in place, this is its history."""
+    __tablename__ = "hr_perf_bonus_plan_log"
+    id         = Column(String, primary_key=True)
+    plan_id    = Column(String, nullable=False, index=True)
+    snapshot   = Column(JSON, default=dict)
+    changed_by = Column(String, default="")
+    changed_at = Column(String, default="")
