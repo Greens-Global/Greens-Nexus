@@ -6276,6 +6276,9 @@ body:has(.docs-root) { overflow-x: clip; }
 }
 @media (max-width: 900px) {
   .help-menu-btn { display: none; }
+  /* No button here on a phone, and the widget is full-screen: the empty
+     wrapper must not take a gap in the header row beside NEXUS. */
+  .help-menu-wrap { display: contents; }
   .help-widget {
     inset: 0; width: 100%; height: 100%; height: 100dvh;
     border-radius: 0; border: none; z-index: 1000;
@@ -7899,6 +7902,32 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   }
   .qc-menu .qc-item { min-height: 44px; font-size: 14px; }
 }
+/* The bell matches the header's other buttons (Neil, 10/29/2026: it read
+   smaller than the "+" and the photo beside it). Its size is inline in
+   components/NotificationBell.jsx (Visesh's file), hence !important here:
+   40px like .icon-btn on a computer, 44px like the "+" on a phone, where
+   the photo button grows to 44 too. */
+.header-right button[aria-label="Notifications"] { width: 40px !important; height: 40px !important; }
+.header-right button[aria-label="Notifications"] > svg { width: 18px !important; height: 18px !important; }
+@media (max-width: 900px) {
+  .header-right button[aria-label="Notifications"] { width: 44px !important; height: 44px !important; }
+}
+/* Three 44px buttons beside the centered NEXUS wordmark on a small phone. */
+@media (max-width: 640px) { .header-right { gap: 6px; } }
+/* Under 380px (360px Androids, zoomed iPhones) all three drop to 40px
+   together - still equal, and clear of the wordmark. */
+@media (max-width: 380px) {
+  .qc-btn { width: 40px; height: 40px; margin: 0; }
+  .header-right button[aria-label="Notifications"] { width: 40px !important; height: 40px !important; }
+  .header-right .header-user-pill { padding: 4px; }
+}
+/* 320px (a zoomed iPhone): a tighter wordmark and gap keep NEXUS off the "+". */
+@media (max-width: 340px) {
+  .header-right { gap: 4px; }
+  .header-brand { letter-spacing: 0.08em; font-size: 12px; padding: 8px 2px; transform: translateX(calc(-50% - 8px)); }
+  /* With a Back arrow the left side is full too: stay centered. */
+  .top-header:has(.header-back-mobile) .header-brand { transform: translateX(-50%); }
+}
 /* On a phone the Quick Note button leaves the top bar - the "+" offers New
    Note under New Task (lib/quickCreate.js). Here, not in notes/notes.css:
    that file loads only once Notes has opened. The button stays mounted, so
@@ -7908,6 +7937,6 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    slot with a 44px hit area, and the profile pill is the avatar alone. */
 @media (max-width: 640px) {
   .qc-btn { margin: 0 -2px; }
-  .header-user-pill { padding: 5px; }
+  .header-user-pill { padding: 6px; }   /* 32px photo + 12 = 44, the "+" and the bell's size */
   .header-user-pill > svg:last-child { display: none; }
 }
