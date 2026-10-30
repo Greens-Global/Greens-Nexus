@@ -348,7 +348,8 @@ HEADCOUNT_STATUSES = [("draft", "Draft"), ("awaiting_approval", "Awaiting Approv
 
 
 def _headcount_visible(db, user, row) -> bool:
-    if not user:
+    from routers.hiring import headcount_on
+    if not user or not headcount_on(db, row.company or ""):     # off for the company (Neil, Oct 30 2026)
         return False
     me = (user.get("email") or "").strip().lower()
     if _is_admin(user) or me == (row.requested_by or "").lower() or me in _emails(*(row.dept_approvers or [])):
