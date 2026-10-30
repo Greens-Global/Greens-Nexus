@@ -5,23 +5,30 @@
 // saves itself (useNoteSync: autosave, local draft, rev check), and carries
 // pin, a color rule, tags, sharing with Nexus People, version history,
 // Markdown export, print / PDF and Make a Task. On a phone the list comes
-// first and a note opens full screen. The sub is `notes` or `notes:<id>`, so
-// a link to one note (the share bell) opens it.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+// first and a note opens in the Quick Note sheet over it (PhoneSheet). The
+// sub is `notes` or `notes:<id>`, so a link to one note (the share bell)
+// opens it.
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ChevronLeft, ChevronRight, Search, X, Plus, Upload, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
-  Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, ArrowLeft, Link as LinkIcon, Palette,
+  Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, Link as LinkIcon, Palette,
   RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useIsMobile } from '../lib/useIsMobile';
 import { formatDate, formatDateTime } from '../lib/datetime';
-import { Modal, DateField, usePeople, Avatar } from '../tasks/components';
+import { Modal, DateField, usePeople, Avatar, useEscapeLayer } from '../tasks/components';
+import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
+import { useScrollLock } from '../lib/useScrollLock';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { matchPeople } from '../lib/peopleSearch';
 import NoteEditor from './NoteEditor';
 import { useNoteSync } from './useNoteSync';
+import { useNoteCollab, collabEligible } from './useNoteCollab';
+import { diffNotes } from './notesMerge';
+import { safeHtml } from './noteSafeHtml';
 import { createTaskFrom, openTask } from './notesTasks';
 import {
   NOTE_COLORS, colorCss, localDay, monthOf, shiftMonth, monthLabel, dayHeading, groupByDay, noteTitle, htmlToText,
@@ -59,14 +66,84 @@ function useToast() {
   return [show, node];
 }
 
-function StatusLine({ status, note }) {
+function StatusLine({ status, note, merged, nameOf }) {
   const [, tick] = useState(0);
   useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 30000); return () => clearInterval(t); }, []);
   if (status === 'saving') return <span className="nt-status"><Loader2 size={13} className="spin" aria-hidden="true" /> Saving…</span>;
   if (status === 'dirty') return <span className="nt-status">Unsaved changes</span>;
   if (status === 'error') return <span className="nt-status is-bad"><CloudOff size={13} aria-hidden="true" /> Not saved yet - kept on this device, retrying when you type</span>;
   if (status === 'conflict') return <span className="nt-status is-warn">Changed somewhere else</span>;
+  if (merged && status === 'saved') return <span className="nt-status"><Check size={13} aria-hidden="true" /> Saved · merged with {nameOf ? nameOf(merged) : merged}'s changes</span>;
   return <span className="nt-status"><Check size={13} aria-hidden="true" /> Saved{note?.updatedAt ? ` · ${editedLabel(note.updatedAt)}` : ''}</span>;
+}
+
+// Who else has the note open (Oct 30 2026): the live channel's carets when
+// co-typing, else the server's heartbeat. "Live" when edits arrive as typed.
+function PresenceLine({ people, peers, live, nameOf }) {
+  const seen = new Map();
+  (peers || []).forEach((u) => { if (u?.name) seen.set(u.name, { name: u.name, color: u.color, state: 'editing' }); });
+  (people || []).forEach((p) => {
+    const name = nameOf(p.email);
+    if (!seen.has(name)) seen.set(name, { name, state: p.state });
+  });
+  const list = [...seen.values()];
+  if (!list.length && !live) return null;
+  const first = list[0];
+  const text = !list.length ? 'Live'
+    : list.length === 1 ? `${first.name} is ${first.state === 'editing' ? 'editing' : 'viewing'}`
+      : `${first.name} and ${list.length - 1} ${list.length === 2 ? 'other' : 'others'} are here`;
+  return (
+    <span className={`nt-presence${live ? ' is-live' : ''}`} title={list.map((u) => `${u.name} - ${u.state === 'editing' ? 'Editing' : 'Viewing'}`).join('\n') || 'Edits show up as they are typed'}>
+      <span className="nt-presence-dots" aria-hidden="true">
+        {list.slice(0, 3).map((u) => <span key={u.name} className="nt-presence-dot" style={u.color ? { background: u.color } : undefined} />)}
+        {!list.length && <span className="nt-presence-dot" />}
+      </span>
+      {text}{live && list.length ? ' · Live' : ''}
+    </span>
+  );
+}
+
+// Both people changed the same part (Oct 30 2026): only those parts are
+// asked about, each side by side; everything else is already merged.
+function ClashPanel({ conflict, who, onResolve }) {
+  const [choices, setChoices] = useState({});
+  const [titleChoice, setTitleChoice] = useState('mine');
+  const n = conflict.clashes.length + (conflict.titleClash ? 1 : 0);
+  const pick = (k, v) => setChoices((c) => ({ ...c, [k]: v }));
+  const Choice = ({ on, set, both }) => (
+    <div className="nt-clash-pick" role="radiogroup" aria-label="Which words to keep">
+      {[['mine', 'Keep Mine'], ['theirs', 'Use Theirs'], ...(both ? [['both', 'Keep Both']] : [])].map(([v, label]) => (
+        <button key={v} type="button" role="radio" aria-checked={(on || 'mine') === v} className={`nt-view${(on || 'mine') === v ? ' is-on' : ''}`} onClick={() => set(v)}>{label}</button>
+      ))}
+    </div>
+  );
+  return (
+    <div className="nt-banner nt-clash" role="alert">
+      <span className="nt-banner-text">
+        {who} changed the same {n === 1 ? 'part' : `${n} parts`} while you were writing. Everything else is merged - choose for {n === 1 ? 'this part' : 'these parts'}. Your words are kept on this device until you do.
+      </span>
+      {conflict.titleClash && (
+        <div className="nt-clash-item">
+          <div className="nt-clash-side"><small>Yours</small><div>{conflict.titleClash.mine || 'Untitled Note'}</div></div>
+          <div className="nt-clash-side"><small>Theirs</small><div>{conflict.titleClash.theirs || 'Untitled Note'}</div></div>
+          <Choice on={titleChoice} set={setTitleChoice} />
+        </div>
+      )}
+      {conflict.clashes.map((c, k) => (
+        <div key={k} className="nt-clash-item">
+          {/* Both read back through the editor's schema (noteSafeHtml): "Yours" may hold words typed live that never reached the server's sanitizer. */}
+          <div className="nt-clash-side"><small>Yours</small><div className="nt-prose" dangerouslySetInnerHTML={{ __html: (c.mine.length && safeHtml(c.mine.join(''))) || '<p><i>Removed</i></p>' }} /></div>
+          <div className="nt-clash-side"><small>Theirs</small><div className="nt-prose" dangerouslySetInnerHTML={{ __html: (c.theirs.length && safeHtml(c.theirs.join(''))) || '<p><i>Removed</i></p>' }} /></div>
+          <Choice on={choices[k]} set={(v) => pick(k, v)} both={!!(c.mine.length && c.theirs.length)} />
+        </div>
+      ))}
+      <div className="nt-clash-actions">
+        <button type="button" className="nt-text-btn is-primary" onClick={() => onResolve(choices, titleChoice)}>Save Choices</button>
+        <button type="button" className="nt-text-btn" onClick={() => onResolve({}, 'mine')}>Keep Mine</button>
+        <button type="button" className="nt-text-btn" onClick={() => onResolve(Object.fromEntries(conflict.clashes.map((_, k) => [k, 'theirs'])), 'theirs')}>Use Theirs</button>
+      </div>
+    </div>
+  );
 }
 
 function Popover({ open, onClose, children, label }) {
@@ -113,6 +190,7 @@ function ShareDialog({ note, onClose, onChanged }) {
   const people = usePeople();
   const { myEmail } = useRole();
   const [q, setQ] = useState('');
+  const [level, setLevel] = useState('read');   // what the next person shared may do
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const shared = useMemo(() => note.sharedWith || [], [note.sharedWith]);
@@ -127,12 +205,18 @@ function ShareDialog({ note, onClose, onChanged }) {
       footer={<button type="button" className="nt-text-btn" onClick={onClose}>Done</button>}>
       <div className="nt-dialog-body">
         <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
-          Share with people in Nexus People. They get one notice and find the note under Shared. Can Read sees it; Can Edit also changes the title and text. Pin, color, tags and the Trash stay yours.
+          Share with people in Nexus People. They get one notice and find the note under Shared. Can Read sees it; Can Edit also writes in it with you - live, with each other's cursors - and every change is kept in Version History under the name of whoever made it. Pin, color, tags and the Trash stay yours.
         </div>
         {error && <ErrorBanner message={error} />}
-        <div className="nt-search" style={{ maxWidth: 'none' }}>
-          <Search size={15} aria-hidden="true" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find someone by name or email" aria-label="Find someone" autoFocus />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="nt-search" style={{ maxWidth: 'none', flex: '1 1 auto' }}>
+            <Search size={15} aria-hidden="true" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find someone by name or email" aria-label="Find someone" autoFocus />
+          </div>
+          <select className="nt-share-level" value={level} onChange={(e) => setLevel(e.target.value)} aria-label="What they may do">
+            <option value="read">Can Read</option>
+            <option value="edit">Can Edit</option>
+          </select>
         </div>
         {q && (
           <div className="nt-people" style={{ flex: '0 0 auto', maxHeight: 240 }}>
@@ -142,7 +226,7 @@ function ShareDialog({ note, onClose, onChanged }) {
                 <Avatar email={p.email} name={p.name} size={26} />
                 <span className="nt-person-name">{p.name}<small>{p.email}</small></span>
                 <button type="button" className="nt-text-btn" disabled={busy === p.email}
-                  onClick={() => act(p.email, () => api.noteShare(note.id, p.email, 'read')).then(() => setQ(''))}>Share</button>
+                  onClick={() => act(p.email, () => api.noteShare(note.id, p.email, level)).then(() => setQ(''))}>Share</button>
               </div>
             ))}
           </div>
@@ -169,11 +253,23 @@ function ShareDialog({ note, onClose, onChanged }) {
   );
 }
 
-function HistoryDialog({ note, canRestore, onClose, onRestored }) {
+function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
   const [pick, setPick] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState('changes');   // changes | version | now
+  // A copy is the note as its author left it; its changes are against the copy before it.
+  const shown = useMemo(() => {
+    if (!pick || !rows) return null;
+    if (show === 'version') return null;
+    const i = rows.findIndex((r) => r.id === pick.id);
+    // The note now may be words typed live (never through the server's
+    // sanitizer): both sides are read back through the schema first.
+    if (show === 'now') return diffNotes(safeHtml(pick.body), safeHtml(note.body || ''));
+    const older = rows[i + 1];
+    return older ? diffNotes(older.body, pick.body) : null;
+  }, [pick, rows, show, note.body]);
   useEffect(() => {
     let alive = true;
     api.noteVersions(note.id).then((r) => { if (alive) { setRows(r || []); setPick((r || [])[0] || null); } })
@@ -193,7 +289,7 @@ function HistoryDialog({ note, canRestore, onClose, onRestored }) {
       <div className="nt-dialog-body">
         {error && <ErrorBanner message={error} />}
         {rows === null && !error && <SkeletonBlocks count={3} height={56} />}
-        {rows && rows.length === 0 && <div className="nt-empty"><strong>No earlier versions yet</strong>A copy is kept when you come back to a note after ten minutes or more, so earlier wording is never lost.</div>}
+        {rows && rows.length === 0 && <div className="nt-empty"><strong>No earlier versions yet</strong>A copy is kept when you come back to a note after ten minutes or more, and whenever someone else starts writing in it, so you can see who changed what. Every copy from the last day stays; older ones thin out to one an hour, and after a week to one a day.</div>}
         {rows && rows.length > 0 && (
           <div className="nt-hist nx-fill">
             <div className="nt-hist-list" role="listbox" aria-label="Versions">
@@ -201,15 +297,25 @@ function HistoryDialog({ note, canRestore, onClose, onRestored }) {
                 <button key={v.id} type="button" role="option" aria-selected={pick?.id === v.id}
                   className={`nt-hist-row${pick?.id === v.id ? ' is-on' : ''}`} onClick={() => setPick(v)}>
                   {formatDateTime(v.createdAt)}
-                  <small>{v.words} words · {v.savedBy}</small>
+                  <small>{nameOf ? nameOf(v.savedBy) : v.savedBy} · {v.words} words</small>
                 </button>
               ))}
             </div>
             <div className="nt-hist-view">
               {pick && (<>
-                <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{pick.title || noteTitle(note)}</div>
-                {/* Sanitized on the server when it was saved (routers/notes.py). */}
-                <div className="nt-prose" style={{ minHeight: 0, padding: 0 }} dangerouslySetInnerHTML={{ __html: pick.body }} />
+                <div className="nt-qn-switch" role="tablist" aria-label="What to show" style={{ padding: '0 0 0', marginBottom: 10 }}>
+                  {[['changes', 'Changes'], ['version', 'This Version'], ['now', 'Compare With Now']].map(([k, label]) => (
+                    <button key={k} type="button" role="tab" aria-selected={show === k} className={`nt-view${show === k ? ' is-on' : ''}`} onClick={() => setShow(k)}>{label}</button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{pick.title || noteTitle(note)}</div>
+                <div className="nt-hist-who">
+                  {show === 'now' ? 'This copy against the note now: green is what has been added since, struck through what has gone.'
+                    : show === 'changes' ? (shown ? `What ${nameOf ? nameOf(pick.savedBy) : pick.savedBy} changed: ${[shown.changed && `${shown.changed} edited`, shown.added && `${shown.added} added`, shown.removed && `${shown.removed} removed`].filter(Boolean).join(', ') || 'nothing in the words'}.` : `The first copy kept - written by ${nameOf ? nameOf(pick.savedBy) : pick.savedBy}.`)
+                      : `As ${nameOf ? nameOf(pick.savedBy) : pick.savedBy} left it.`}
+                </div>
+                {/* Sanitized on the server when it was saved (routers/notes.py); the diff wraps it and escapes the words it rebuilds. */}
+                <div className="nt-prose nt-diff" style={{ minHeight: 0, padding: 0 }} dangerouslySetInnerHTML={{ __html: shown ? shown.html : pick.body }} />
               </>)}
             </div>
           </div>
@@ -235,10 +341,61 @@ function ShortcutsPop({ open, onClose }) {
   );
 }
 
+// On a phone a note opens the way Quick Note does (Neil, Oct 29 2026): the
+// same full-screen sheet as "+" > New Note, over the list, which stays where
+// it was scrolled. The note's actions ride in the sheet's head, the save
+// status in its foot; closing it (or Back) is the list again.
+function PhoneSheet({ title, sub, color, actions, foot, onClose, children }) {
+  const ref = useRef(null);
+  useEscapeLayer(onClose);
+  useDialogFocus(ref);
+  useScrollLock(true);
+  return createPortal(
+    <>
+      <div className="nt-qn-overlay is-page" onClick={onClose} aria-hidden="true" />
+      <aside ref={ref} className="nt-qn is-page" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onKeyDown={dialogKeyDown}>
+        <div className="nt-qn-head">
+          {color && <span className="nt-head-rule" style={{ background: color }} aria-hidden="true" />}
+          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+            <div className="nt-qn-title">{title}</div>
+            {sub && <div className="nt-qn-sub">{sub}</div>}
+          </div>
+          {actions}
+          <button type="button" className="nt-icon-btn" aria-label="Close Note" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="nt-qn-body">{children}</div>
+        {foot && <div className="nt-qn-foot" aria-live="polite">{foot}</div>}
+      </aside>
+    </>,
+    document.body,
+  );
+}
+
+// The live editor could not render the shared state: hand the note back to
+// the ordinary editor (collab.fail drops the state on the server, and the
+// saved words show) instead of letting the crash blank the whole view.
+class LiveBoundary extends Component {
+  constructor(props) { super(props); this.state = { crashed: false }; }
+  static getDerivedStateFromError() { return { crashed: true }; }
+  componentDidCatch() { this.props.onCrash?.(); }
+  render() { return this.state.crashed ? <div style={{ paddingTop: 14 }}><SkeletonBlocks count={3} height={56} /></div> : this.props.children; }
+}
+
 // The open note.
 function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail }) {
-  const sync = useNoteSync(id, { onSaved });
+  const collabRef = useRef(null);
+  const sync = useNoteSync(id, { onSaved, collabRef });
   const { note, status, conflict, restored } = sync;
+  const nameOf = useCallback((email) => {
+    const e = (email || '').toLowerCase();
+    if (e && e === (myEmail || '').toLowerCase()) return 'You';
+    return (people || []).find((p) => p.email === e)?.name || email || 'Someone';
+  }, [people, myEmail]);
+  // A shared note's editors type together live (useNoteCollab).
+  const eligible = collabEligible(note);
+  const myName = (people || []).find((p) => p.email === (myEmail || '').toLowerCase())?.name || myEmail;
+  const collab = useNoteCollab(id, { enabled: eligible, me: myEmail, name: myName });
+  useEffect(() => { collabRef.current = collab; }, [collab]);
   const [menu, setMenu] = useState('');      // '' | 'color' | 'more'
   const [dialog, setDialog] = useState('');  // '' | 'share' | 'history'
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -273,18 +430,17 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     );
   }
   if (status === 'loading' || (!note && status !== 'missing' && status !== 'error')) {
-    return <div className="nt-pane"><div className="nt-doc"><SkeletonBlocks count={1} height={36} /><div style={{ height: 14 }} /><SkeletonBlocks count={3} height={70} /></div></div>;
+    const skeleton = <div className="nt-doc"><SkeletonBlocks count={1} height={36} /><div style={{ height: 14 }} /><SkeletonBlocks count={3} height={70} /></div>;
+    return isPhone ? <PhoneSheet title="Note" onClose={onBack}>{skeleton}</PhoneSheet> : <div className="nt-pane">{skeleton}</div>;
   }
   if (!note) {
-    return (
-      <div className="nt-pane">
-        {isPhone && <div className="nt-bar"><button type="button" className="nt-icon-btn" aria-label="Back to notes" onClick={onBack}><ArrowLeft size={18} /></button></div>}
-        <div className="nt-empty" style={{ margin: 'auto' }}>
-          <strong>{status === 'missing' ? 'This note is not available' : 'Could not open this note'}</strong>
-          {status === 'missing' ? 'It may have been deleted, or it is no longer shared with you.' : 'Check your connection and pick it again.'}
-        </div>
+    const empty = (
+      <div className="nt-empty" style={{ margin: 'auto' }}>
+        <strong>{status === 'missing' ? 'This note is not available' : 'Could not open this note'}</strong>
+        {status === 'missing' ? 'It may have been deleted, or it is no longer shared with you.' : 'Check your connection and pick it again.'}
       </div>
     );
+    return isPhone ? <PhoneSheet title="Note" onClose={onBack}>{empty}</PhoneSheet> : <div className="nt-pane">{empty}</div>;
   }
 
   const trashed = !!note.trashedAt;
@@ -323,16 +479,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     } catch (e) { toast(e.message || 'Could not create the task'); }
   };
 
-  return (
-    <div className="nt-pane">
-      <div className="nt-pane-scroll">
-        <div className="nt-doc">
-          <div className="nt-head">
-            {isPhone && <button type="button" className="nt-icon-btn" aria-label="Back to notes" onClick={onBack} style={{ marginLeft: -8 }}><ArrowLeft size={18} /></button>}
-            <span className="nt-head-rule" style={{ background: colorCss(note.color) }} aria-hidden="true" />
-            <input ref={titleRef} className="nt-title" value={note.title || ''} readOnly={readOnly} maxLength={200}
-              placeholder={note.kind === 'daily' ? 'Daily Scratchpad' : 'Untitled Note'} aria-label="Note title"
-              onChange={(e) => sync.edit({ title: e.target.value })} />
+  const actions = (
             <div className="nt-actions">
               {mine && !trashed && (
                 <button type="button" className={`nt-icon-btn${note.pinned ? ' is-on' : ''}`} aria-pressed={note.pinned}
@@ -374,7 +521,20 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                 </Popover>
               </span>
             </div>
-          </div>
+  );
+
+  const doc = (
+        <div className="nt-doc">
+          {/* The sheet already says Daily Scratchpad - as in Quick Note, no empty title box under it. */}
+          {!(isPhone && note.kind === 'daily' && !note.title) && (
+            <div className="nt-head">
+              <span className="nt-head-rule" style={{ background: colorCss(note.color) }} aria-hidden="true" />
+              <input ref={titleRef} className="nt-title" value={note.title || ''} readOnly={readOnly} maxLength={200}
+                placeholder={note.kind === 'daily' ? 'Daily Scratchpad' : 'Untitled Note'} aria-label="Note title"
+                onChange={(e) => sync.edit({ title: e.target.value })} />
+              {!isPhone && actions}
+            </div>
+          )}
 
           <div className="nt-meta">
             {mine && !trashed ? (
@@ -388,7 +548,11 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                 Shared with {note.sharedWith.length} {note.sharedWith.length === 1 ? 'person' : 'people'}
               </button>
             )}
-            {!readOnly && <StatusLine status={status} note={note} />}
+            {note.editedBy && note.editedBy !== (myEmail || '').toLowerCase() && note.updatedAt && (
+              <span>Edited by {nameOf(note.editedBy)} {editedLabel(note.updatedAt).replace(/^edited /i, '')}</span>
+            )}
+            <PresenceLine people={sync.people} peers={collab.peers} live={collab.live} nameOf={nameOf} />
+            {!readOnly && !isPhone && <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} />}
           </div>
 
           <TagEditor tags={note.tags || []} disabled={!mine || trashed} onChange={(tags) => sync.setMeta({ tags })} />
@@ -407,23 +571,46 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             </div>
           )}
           {conflict && (
-            <div className="nt-banner" role="alert">
-              <span className="nt-banner-text">This note was changed {conflict.updatedBy && conflict.updatedBy !== myEmail ? `by ${conflict.updatedBy}` : 'in another window'} while you were writing. Your words are kept on this device until you choose.</span>
-              <button type="button" className="nt-text-btn is-primary" onClick={sync.keepMine}>Keep Mine</button>
-              <button type="button" className="nt-text-btn" onClick={sync.takeTheirs}>Use Theirs</button>
-            </div>
+            <ClashPanel key={conflict.server?.rev} conflict={conflict} onResolve={sync.resolve}
+              who={conflict.server?.updatedBy && conflict.server.updatedBy !== (myEmail || '').toLowerCase() ? nameOf(conflict.server.updatedBy) : 'Another window'} />
           )}
           {restored && !conflict && (
             <div className="nt-banner is-info" role="status"><span className="nt-banner-text">Unsaved words from your last visit were put back and are being saved.</span></div>
           )}
 
-          <NoteEditor value={note.body || ''} readOnly={readOnly} people={people}
-            onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : makeTask} />
+          {eligible && collab.phase !== 'ready' && collab.phase !== 'failed'
+            ? <div style={{ paddingTop: 14 }}><SkeletonBlocks count={3} height={56} /></div>
+            : collab.phase === 'ready'
+              ? (
+                <LiveBoundary key={`live:${collab.epoch}`} onCrash={collab.fail}>
+                  <NoteEditor collab={collab} readOnly={readOnly} people={people}
+                    onChange={(html) => sync.edit({ body: html })} onRemoteChange={sync.seeRemote} onMakeTask={readOnly ? undefined : makeTask} />
+                </LiveBoundary>
+              )
+              : <NoteEditor key="saved" value={note.body || ''} readOnly={readOnly} people={people}
+                  onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : makeTask} />}
         </div>
-      </div>
+  );
+  const dialogs = (<>
       {dialog === 'share' && <ShareDialog note={note} onClose={() => setDialog('')} onChanged={(n) => { sync.replace(n); onSaved?.(n); }} />}
-      {dialog === 'history' && <HistoryDialog note={note} canRestore={!readOnly} onClose={() => setDialog('')}
+      {dialog === 'history' && <HistoryDialog note={note} canRestore={!readOnly} onClose={() => setDialog('')} nameOf={nameOf}
         onRestored={(n) => { sync.replace(n, true); onSaved?.(n); toast('Version restored - the note as it was is kept in the history'); }} />}
+  </>);
+
+  if (isPhone) {
+    return (
+      <PhoneSheet title={note.kind === 'daily' ? 'Daily Scratchpad' : 'Note'} onClose={onBack} actions={actions} color={note.color ? colorCss(note.color) : ''}
+        sub={[note.day ? formatDate(note.day) : '', !mine ? `Shared by ${note.owner}` : ''].filter(Boolean).join(' · ')}
+        foot={readOnly ? <span>{trashed ? 'In the Trash' : 'Read Only'}</span> : <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} />}>
+        {doc}
+        {dialogs}
+      </PhoneSheet>
+    );
+  }
+  return (
+    <div className="nt-pane">
+      <div className="nt-pane-scroll">{doc}</div>
+      {dialogs}
     </div>
   );
 }
@@ -450,6 +637,10 @@ export default function NotesPage({ activeSub, onSubChange }) {
   const fileRef = useRef(null);
 
   const selectedId = (activeSub || '').startsWith('notes:') ? activeSub.slice(6) : '';
+  // Opening a note is looking at it: its Updated dot goes (the server marks it seen too).
+  useEffect(() => {
+    if (selectedId) setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === selectedId && x.unseen ? { ...x, unseen: false } : x)) } : d));
+  }, [selectedId, data?.notes?.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const select = useCallback((id) => onSubChange?.(id ? `notes:${id}` : 'notes'), [onSubChange]);
 
   useEffect(() => { const t = setTimeout(() => setQ(qLive.trim()), 250); return () => clearTimeout(t); }, [qLive]);
@@ -499,12 +690,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
     const onKey = (e) => {
       const tag = (e.target?.tagName || '').toLowerCase();
       const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable;
-      if (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); searchRef.current?.focus(); }
+      const inDialog = !!e.target?.closest?.('[role="dialog"]') || (isPhone && !!selectedId);
+      if (e.key === '/' && !typing && !inDialog && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); searchRef.current?.focus(); }
       if (e.key === 'Escape' && full && !typing) setFull(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [full]);
+  }, [full, isPhone, selectedId]);
 
   // Drag the list's edge to size it (kept per browser).
   const startDrag = (e) => {
@@ -521,13 +713,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
   };
 
   const groups = useMemo(() => groupByDay(data?.notes || []), [data]);
-  const showList = isPhone ? !selectedId : listOpen && !full;
+  const showList = isPhone || (listOpen && !full);
   const showPane = isPhone ? !!selectedId : true;
   const counts = data?.counts || {};
 
   return (
     <div className={`nt-page${full ? ' is-full' : ''}`}>
-      {(!isPhone || !selectedId) && !full && (
+      {!full && (
         <div className="nt-bar">
           {!isPhone && (
             <button type="button" className="nt-icon-btn" aria-label={listOpen ? 'Hide the list' : 'Show the list'} title={listOpen ? 'Hide the List' : 'Show the List'}
@@ -596,6 +788,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
                       <span className="nt-row-top">
                         <span className="nt-row-title">{noteTitle(n)}</span>
                         <span className="nt-row-icons">
+                          {n.unseen && n.id !== selectedId && <span className="nt-unseen" role="img" aria-label="Updated since you last looked" title={`Updated by ${n.editedBy || 'someone'} since you last looked`} />}
                           {n.pinned && <Pin size={13} aria-label="Pinned" />}
                           {(n.shared || !n.mine) && <Users size={13} aria-label={n.mine ? 'Shared' : 'Shared with you'} />}
                         </span>

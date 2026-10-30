@@ -4268,6 +4268,8 @@ class VaultCredential(Base):
     note               = Column(String, default="")
     prev_secret_enc    = Column(String, default="")
     prev_rotated_at    = Column(String, default="")
+    totp_enc           = Column(String, default="")           # authenticator key, Fernet (vault_totp.py, Oct 29 2026)
+    company_id         = Column(String, default="")           # home company (HrEntity id, Oct 29 2026) - grouping and the Overview filter; the wall follows the owner
 
 
 class VaultPersonalCredential(Base):
@@ -4282,6 +4284,7 @@ class VaultPersonalCredential(Base):
     note        = Column(String, default="")
     secret_enc  = Column(String, default="")
     strength    = Column(String, default="strong")
+    url         = Column(String, default="")           # the sign-in page (Oct 29 2026) - Open from My Logins
     created_at  = Column(String, default="")
 
 
@@ -4327,6 +4330,8 @@ class VaultAccessLog(Base):
     dept        = Column(String, default="")
     detail      = Column(JSON, nullable=True)                 # [{field,from,to}] for edits
     loc         = Column(String, default="")
+    ip          = Column(String, default="")                  # where from (Oct 29 2026) - the request's client address
+    user_agent  = Column(String, default="")
     created_at  = Column(String, default="", index=True)
 
 
@@ -9497,6 +9502,15 @@ class NexusNote(Base):
     updated_by  = Column(String, default="")
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
+    # Working together (Neil, Oct 30 2026): who has seen which rev (JSON
+    # {email: rev}, the list's Updated dot); live co-typing's Yjs state
+    # (base64, '' = rebuild from body), its epoch (a new one each rebuild, so
+    # an older session's edits are refused) and the per-note AES key editors
+    # encrypt the realtime channel with (rotated when an editor leaves).
+    seen        = Column(Text, default="{}")
+    ydoc        = Column(Text, default="")
+    yepoch      = Column(String, default="")
+    collab_key  = Column(String, default="")
 
 
 class NexusNoteVersion(Base):
@@ -9512,6 +9526,36 @@ class NexusNoteVersion(Base):
     rev        = Column(Integer, default=0)
     saved_by   = Column(String, default="")
     created_at = Column(String, default="")
+
+
+class NexusNotePresence(Base):
+    """Who has a note open right now (routers/notes.py, Oct 30 2026): one row
+    per person and note, refreshed by the open note's heartbeat every few
+    seconds and counted only while younger than 45 seconds. In the database
+    (not in memory) so every API worker sees the same people. New table -
+    create_all builds it; RLS line in main.py's Postgres list."""
+    __tablename__ = "nexus_note_presence"
+    note_id = Column(String, primary_key=True)
+    email   = Column(String, primary_key=True)
+    state   = Column(String, default="viewing")   # viewing | editing
+    at      = Column(String, default="")          # ISO time of the last beat
+
+
+class VaultCredentialAudience(Base):
+    """Who may open a company credential besides its owners (Credentials,
+    Oct 29 2026 - vault_access.py). kind 'company' (value = HrEntity id, '' =
+    every company), 'department' (name), 'group' (NexusGroup id) or 'person'
+    (work email); level 'open' reveals the password, 'view' sees the row,
+    username and link only. A credential with no rows keeps the Oct 14 rule:
+    its own department opens it unless the tier is Critical."""
+    __tablename__ = "vault_credential_audiences"
+    id         = Column(String, primary_key=True)
+    cred_id    = Column(String, default="", index=True)
+    kind       = Column(String, default="department")
+    value      = Column(String, default="")
+    level      = Column(String, default="open")
+    created_at = Column(String, default="")
+    created_by = Column(String, default="")
 
 
 # ── Performance: KPI scorecards per department (Oct 30 2026, perf_scorecards.py)

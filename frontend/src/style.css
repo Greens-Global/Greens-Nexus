@@ -6276,6 +6276,9 @@ body:has(.docs-root) { overflow-x: clip; }
 }
 @media (max-width: 900px) {
   .help-menu-btn { display: none; }
+  /* No button here on a phone, and the widget is full-screen: the empty
+     wrapper must not take a gap in the header row beside NEXUS. */
+  .help-menu-wrap { display: contents; }
   .help-widget {
     inset: 0; width: 100%; height: 100%; height: 100dvh;
     border-radius: 0; border: none; z-index: 1000;
@@ -7899,6 +7902,32 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   }
   .qc-menu .qc-item { min-height: 44px; font-size: 14px; }
 }
+/* The bell matches the header's other buttons (Neil, 10/29/2026: it read
+   smaller than the "+" and the photo beside it). Its size is inline in
+   components/NotificationBell.jsx (Visesh's file), hence !important here:
+   40px like .icon-btn on a computer, 44px like the "+" on a phone, where
+   the photo button grows to 44 too. */
+.header-right button[aria-label="Notifications"] { width: 40px !important; height: 40px !important; }
+.header-right button[aria-label="Notifications"] > svg { width: 18px !important; height: 18px !important; }
+@media (max-width: 900px) {
+  .header-right button[aria-label="Notifications"] { width: 44px !important; height: 44px !important; }
+}
+/* Three 44px buttons beside the centered NEXUS wordmark on a small phone. */
+@media (max-width: 640px) { .header-right { gap: 6px; } }
+/* Under 380px (360px Androids, zoomed iPhones) all three drop to 40px
+   together - still equal, and clear of the wordmark. */
+@media (max-width: 380px) {
+  .qc-btn { width: 40px; height: 40px; margin: 0; }
+  .header-right button[aria-label="Notifications"] { width: 40px !important; height: 40px !important; }
+  .header-right .header-user-pill { padding: 4px; }
+}
+/* 320px (a zoomed iPhone): a tighter wordmark and gap keep NEXUS off the "+". */
+@media (max-width: 340px) {
+  .header-right { gap: 4px; }
+  .header-brand { letter-spacing: 0.08em; font-size: 12px; padding: 8px 2px; transform: translateX(calc(-50% - 8px)); }
+  /* With a Back arrow the left side is full too: stay centered. */
+  .top-header:has(.header-back-mobile) .header-brand { transform: translateX(-50%); }
+}
 /* On a phone the Quick Note button leaves the top bar - the "+" offers New
    Note under New Task (lib/quickCreate.js). Here, not in notes/notes.css:
    that file loads only once Notes has opened. The button stays mounted, so
@@ -7908,9 +7937,51 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    slot with a 44px hit area, and the profile pill is the avatar alone. */
 @media (max-width: 640px) {
   .qc-btn { margin: 0 -2px; }
-  .header-user-pill { padding: 5px; }
+  .header-user-pill { padding: 6px; }   /* 32px photo + 12 = 44, the "+" and the bell's size */
   .header-user-pill > svg:last-child { display: none; }
 }
+
+/* Voice anywhere (components/DictateButton.jsx, VoiceNoteButton.jsx; Neil,
+   Oct 30 2026). The mic sits beside or inside a text box; a voice note
+   shows a red dot and its clock while it records. */
+.nx-dictate { position: relative; display: inline-flex; flex-shrink: 0; }
+.nx-mic {
+  width: 32px; height: 32px; display: inline-grid; place-items: center; border: none; border-radius: 8px;
+  background: transparent; color: var(--muted, #676879); cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.nx-mic:hover { background: var(--wk-hover, rgba(0,0,0,.05)); color: var(--ink, #323338); }
+.nx-mic.is-on { background: var(--wk-red, #e2445c); color: #fff; animation: nx-mic-pulse 1.4s ease-in-out infinite; }
+@keyframes nx-mic-pulse { 50% { box-shadow: 0 0 0 5px rgba(226, 68, 92, .18); } }
+@media (prefers-reduced-motion: reduce) { .nx-mic.is-on { animation: none; } }
+.nx-dictate-live {
+  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 30; max-width: min(320px, 80vw); width: max-content;
+  padding: 6px 10px; border-radius: 8px; background: #111827; color: #fff; font: 500 12.5px/1.35 'Inter', system-ui, sans-serif;
+  box-shadow: 0 8px 24px rgba(0,0,0,.2); pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nx-dictate-live.is-bad { background: var(--wk-red, #e2445c); white-space: normal; }
+.nx-voice {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; flex-shrink: 0; cursor: pointer;
+  border: 1px solid var(--wk-line2, #e6e9ef); border-radius: 8px; background: var(--card, #fff); color: var(--ink, #323338);
+  font: 600 13px 'Inter', system-ui, sans-serif;
+}
+.nx-voice.is-compact { width: 34px; padding: 0; justify-content: center; }
+.nx-voice:disabled { opacity: .5; cursor: default; }
+.nx-rec {
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 10px; border-radius: 8px;
+  background: rgba(226, 68, 92, .08); color: var(--ink, #323338); font: 600 13px 'Inter', system-ui, sans-serif;
+}
+.nx-rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--wk-red, #e2445c); animation: nx-rec-pulse 1.2s ease-in-out infinite; }
+@keyframes nx-rec-pulse { 50% { opacity: .35; transform: scale(.8); } }
+@media (prefers-reduced-motion: reduce) { .nx-rec-dot { animation: none; } }
+.nx-rec-time { font-variant-numeric: tabular-nums; }
+.nx-rec-stop {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: none; border-radius: 6px;
+  background: var(--wk-red, #e2445c); color: #fff; font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.nx-rec-x { width: 26px; height: 26px; display: grid; place-items: center; border: none; border-radius: 6px; background: transparent; color: var(--muted, #676879); cursor: pointer; }
+.nx-rec-error { display: block; margin-top: 4px; font-size: 12px; color: var(--wk-red, #e2445c); }
+@media (max-width: 768px) { .nx-mic { width: 40px; height: 40px; } .nx-voice, .nx-rec { height: 40px; } }
+
 
 /* ── Settings > Performance > KPI Scorecards (Oct 30 2026) ─────────────────── */
 .perf-sc-head, .perf-sc-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px 84px 84px 84px 34px; gap: 8px; align-items: center; }
