@@ -5,8 +5,9 @@ import {
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
-import { formatHHMM, formatTime, formatWeekday } from '../lib/datetime';
-import { WEATHER_DEFAULT, sky, TONE } from './weatherLib';
+import { formatDate, formatHHMM, formatTime, formatWeekday } from '../lib/datetime';
+import { Modal } from '../tasks/components';
+import { WEATHER_DEFAULT, sky, TONE, rainStart, isWet } from './weatherLib';
 
 // ── Weather widget (Neil, Sep 29: "a weather widget for the main screen ...
 // people can add based on their location. make it great.") ────────────────
@@ -17,6 +18,12 @@ import { WEATHER_DEFAULT, sky, TONE } from './weatherLib';
 // It grows with its tile: compact (temp + today's range), then details and a
 // 12-hour strip, then the 7-day outlook with range bars. Tinted by the sky it
 // shows - sun, night, cloud, rain, snow, storm - in both themes.
+//
+// Oct 31 2026 (Neil's call of 10/30: "this is the weather today, the high
+// low, if it is going to rain an icon of the rain ... click it, hourly for
+// today ... and the 10 day"): the face says when rain starts ("Rain from
+// 2 PM"), and the whole tile opens the Forecast popup - today hour by hour,
+// then the next ten days with rain amount and wind. The tiers above stay.
 
 const HERE_KEY = 'nexus.weather.here';   // last known coords, so a revisit paints at once
 const REFRESH_MS = 15 * 60 * 1000;
@@ -96,6 +103,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
   const [busy, setBusy] = useState(false);
   const [placeName, setPlaceName] = useState('');
   const [searching, setSearching] = useState(false);   // the picker has a query: give it the room
+  const [open, setOpen] = useState(false);              // the Forecast popup
 
   // Resolve WHERE: a picked city is fixed; "my location" asks the browser.
   useEffect(() => {
@@ -159,11 +167,20 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
     ? [where.name, where.countryCode === 'US' ? where.region : (where.country || where.region)].filter(Boolean).join(', ')
     : (placeName || 'Your Location');   // only ever set for "my location"
 
+  // With a forecast the whole tile is the way into the popup (Enter / Space
+  // too); the Refresh button stops the click so it stays a refresh.
+  const openable = !!data;
   const shell = (children) => (
     <div ref={ref} className="dash-card" aria-label="Weather"
+      role={openable ? 'button' : undefined} tabIndex={openable ? 0 : undefined}
+      title={openable ? 'Open the forecast' : undefined}
+      onClick={openable ? () => setOpen(true) : undefined}
+      onKeyDown={openable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(true); } } : undefined}
       style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative',
+        cursor: openable ? 'pointer' : undefined,
         backgroundImage: data ? `linear-gradient(160deg, rgba(${rgb},0.16) 0%, rgba(${rgb},0.05) 55%, transparent 100%)` : undefined }}>
       {children}
+      {open && data && <ForecastPopup title={title} data={data} onClose={() => setOpen(false)} />}
     </div>
   );
 
@@ -202,6 +219,13 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
 
   const c = data.current, t = data.today, u = data.units;
   const HeroIcon = s.Icon;
+  const rain = rainStart(data.hourly);
+  // "Rain now · 60%" / "Rain from 2 PM · 60%" - the one line a crew reads.
+  const rainLine = rain && (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: '#2563eb', whiteSpace: 'nowrap' }} aria-label="Rain">
+      <Umbrella size={12} /> {rain === data.hourly[0] ? 'Rain now' : `Rain from ${hourLabel(rain.time)}`}{rain.precipChance != null ? ` · ${rain.precipChance}%` : ''}
+    </div>
+  );
   const header = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
       {where.fixed ? <MapPin size={13} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} /> : <Navigation size={12} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} />}
@@ -209,7 +233,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
         style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
       {/* A 36px target on a phone; the negative margin keeps the header line
           its desktop height so the size tiers still hold. */}
-      <button type="button" onClick={load} disabled={busy} title="Refresh" aria-label="Refresh weather"
+      <button type="button" onClick={(e) => { e.stopPropagation(); load(); }} disabled={busy} title="Refresh" aria-label="Refresh weather"
         style={{ border: 'none', background: 'none', cursor: busy ? 'default' : 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           ...(phone ? { width: 36, height: 36, padding: 0, margin: '-9px -10px -9px auto' } : { marginLeft: 'auto', padding: 2 }) }}>
         <RefreshCw size={12} style={busy ? { animation: 'spin 1s linear infinite' } : undefined} />
@@ -229,6 +253,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
             <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {s.text} · H {deg(t.high)} L {deg(t.low)}
             </div>
+            {rainLine}
           </div>
         </div>
       </div>,
@@ -261,8 +286,9 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
             <span style={{ fontSize: 40, fontWeight: 800, lineHeight: 1, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</span>
             <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{s.text}</span>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-            Feels like {deg(c.feelsLike)} · H {deg(t.high)} · L {deg(t.low)}
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span>Feels like {deg(c.feelsLike)} · H {deg(t.high)} · L {deg(t.low)}</span>
+            {rainLine}
           </div>
         </div>
       </div>
@@ -280,10 +306,10 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
         ))}
       </div>
 
-      {/* Next 12 hours */}
+      {/* The next hours (the API sends a day; the strip scrolls) */}
       {tier === 'full' && hours.length > 0 && (
         // Its own quiet scroller - .scroll-tabs paints a paper band on phones.
-        <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, flexShrink: 0, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }} aria-label="Next 12 hours">
+        <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, flexShrink: 0, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }} aria-label="Hourly">
           {hours.map((h, i) => {
             const hs = sky(h.code, h.isDay);
             return (
@@ -330,6 +356,102 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
         </div>
       )}
     </div>,
+  );
+}
+
+// The Forecast popup (Neil, 10/30/2026): today hour by hour, then the next
+// ten days - each with its sky, the chance and amount of rain and the wind,
+// the facts a crew plans a work window on. Read only; the tile's refresh
+// keeps it current.
+function ForecastPopup({ title, data, onClose }) {
+  const c = data.current, t = data.today, u = data.units;
+  const s = sky(c.code, c.isDay);
+  const hours = data.hourly || [];
+  const days = data.daily || [];
+  const lo = Math.min(...days.map((d) => d.low)), hi = Math.max(...days.map((d) => d.high));
+  const span = Math.max(1, hi - lo);
+  const rgb = TONE[s.tone];
+  const amount = (v) => (v == null || v < 0.005 ? '' : `${v < 1 ? v.toFixed(2).replace(/^0/, '') : v.toFixed(1)} ${u.precip}`);
+  const rain = rainStart(hours);
+  const h3 = { fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', margin: '0 0 8px' };
+  return (
+    <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <Modal title={`Forecast - ${title}`} onClose={onClose}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minHeight: 0 }}>
+          {/* Now */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px', borderRadius: 12, background: `rgba(${rgb},0.10)` }}>
+            <s.Icon size={52} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.5} />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 40, fontWeight: 800, lineHeight: 1, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</span>
+                <span style={{ fontSize: 15, fontWeight: 700 }}>{s.text}</span>
+                <span style={{ fontSize: 13, color: 'var(--muted)' }}>H {deg(t.high)} · L {deg(t.low)} · Feels like {deg(c.feelsLike)}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)', marginTop: 6 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Wind size={12} /> {Math.round(c.wind ?? 0)} {u.wind} {compass(c.windDir)}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Droplets size={12} /> {Math.round(c.humidity ?? 0)}%</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#2563eb', fontWeight: 700 }}>
+                  <Umbrella size={12} /> {rain ? (rain === hours[0] ? 'Rain now' : `Rain from ${hourLabel(rain.time)}`) : 'No rain expected today'}
+                </span>
+                {t.sunrise && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunrise size={12} /> {clock12(t.sunrise)}</span>}
+                {t.sunset && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunset size={12} /> {clock12(t.sunset)}</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* Today, hour by hour */}
+          <div>
+            <div style={h3}>Today, Hour By Hour</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))', gap: 4 }} aria-label="Today, hour by hour">
+              {hours.map((h, i) => {
+                const hs = sky(h.code, h.isDay);
+                const wet = isWet(h.code) || (h.precipChance ?? 0) >= 40;
+                return (
+                  <div key={h.time} style={{ textAlign: 'center', padding: '8px 4px', borderRadius: 10, background: i === 0 ? `rgba(${rgb},0.14)` : wet ? 'rgba(37,99,235,0.07)' : 'var(--card)', border: '1px solid var(--wk-line2)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{i === 0 ? 'Now' : hourLabel(h.time)}</div>
+                    <hs.Icon size={18} style={{ color: `rgb(${TONE[hs.tone]})`, margin: '5px auto 3px', display: 'block' }} strokeWidth={1.8} />
+                    <div style={{ fontSize: 13.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(h.temp)}</div>
+                    <div style={{ fontSize: 10.5, fontWeight: 600, color: '#2563eb', minHeight: 13 }}>{(h.precipChance ?? 0) >= 20 ? `${h.precipChance}%` : ''}</div>
+                    <div style={{ fontSize: 10, color: 'var(--muted)', minHeight: 12 }}>{amount(h.precip)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* The next ten days */}
+          <div className="nx-fill" style={{ minHeight: 0 }}>
+            <div style={h3}>Next {days.length} Days</div>
+            <div style={{ display: 'flex', flexDirection: 'column' }} aria-label="Next 10 Days">
+              {days.map((d, i) => {
+                const ds = sky(d.code, true);
+                const left = ((d.low - lo) / span) * 100, width = Math.max(4, ((d.high - d.low) / span) * 100);
+                const wet = isWet(d.code) || (d.precipChance ?? 0) >= 40;
+                return (
+                  <div key={d.date} style={{ display: 'grid', gridTemplateColumns: 'minmax(96px, 1.2fr) 24px minmax(90px, 1.3fr) 72px 40px minmax(80px, 2fr) 40px 70px', alignItems: 'center', gap: 8, padding: '8px 4px', borderTop: i ? '1px solid var(--line)' : 'none', background: wet ? 'rgba(37,99,235,0.04)' : 'transparent' }}>
+                    <span style={{ fontSize: 13, fontWeight: i === 0 ? 800 : 600, whiteSpace: 'nowrap' }}>{dayLabel(d.date, i)} <span style={{ color: 'var(--muted)', fontWeight: 500, fontSize: 12 }}>{formatDate(d.date)}</span></span>
+                    <ds.Icon size={18} style={{ color: `rgb(${TONE[ds.tone]})` }} strokeWidth={1.8} />
+                    <span style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ds.text}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: (d.precipChance ?? 0) >= 20 ? '#2563eb' : 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      {(d.precipChance ?? 0) >= 20 || amount(d.precipSum) ? `${d.precipChance ?? 0}%` + (amount(d.precipSum) ? ` · ${amount(d.precipSum)}` : '') : 'Dry'}
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{deg(d.low)}</span>
+                    <span style={{ position: 'relative', height: 6, borderRadius: 99, background: 'var(--mist)' }}>
+                      <span style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: 0, bottom: 0, borderRadius: 99, background: 'linear-gradient(90deg, #38bdf8, #fbbf24 70%, #f97316)' }} />
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{deg(d.high)}</span>
+                    <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
+                      {d.windMax != null && <><Wind size={11} /> {Math.round(d.windMax)} {u.wind}</>}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          {data.fetchedAt && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Updated {formatTime(data.fetchedAt)} · Open-Meteo</div>}
+        </div>
+      </Modal>
+    </div>
   );
 }
 

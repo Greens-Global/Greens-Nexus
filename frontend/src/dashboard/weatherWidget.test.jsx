@@ -52,7 +52,27 @@ describe('Weather widget', () => {
     expect(screen.getByText(/Feels like 69°/)).toBeTruthy();
     expect(await screen.findByText('Escondido, CA')).toBeTruthy();
     expect(weather).toHaveBeenCalledWith(33.12, -117.09, 'imperial');
-    expect(screen.getByLabelText('Next 12 hours').textContent).toContain('Now');
+    expect(screen.getByLabelText('Hourly').textContent).toContain('Now');
+    // The face says when the rain starts (the 3 PM hour is rain at 40%).
+    expect(screen.getByLabelText('Rain').textContent).toContain('Rain from 3 PM · 40%');
+  });
+
+  it('opens the Forecast popup: today hour by hour, then the next days (Neil, 10/30/2026)', async () => {
+    geolocation({ latitude: 33.12, longitude: -117.09 });
+    render(<WeatherWidget config={{ mode: 'here' }} />);
+    await screen.findByText('67°');
+    expect(screen.queryByText(/Next 1 Days/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Weather/ }));
+    expect(await screen.findByText('Today, Hour By Hour')).toBeTruthy();
+    expect(screen.getByLabelText('Today, hour by hour').textContent).toContain('3 PM');
+    expect(screen.getByLabelText('Next 10 Days').textContent).toContain('Today');
+    expect(screen.getByLabelText('Next 10 Days').textContent).toContain('26%');
+    // Refresh on the tile is still a refresh, not a second popup.
+    fireEvent.click(screen.getByLabelText('Close'));
+    expect(screen.queryByText('Today, Hour By Hour')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Refresh weather'));
+    expect(screen.queryByText('Today, Hour By Hour')).toBeNull();
+    expect(weather).toHaveBeenCalledTimes(2);
   });
 
   it('offers a city when location is turned off, and keeps the pick', async () => {

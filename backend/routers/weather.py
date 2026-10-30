@@ -73,11 +73,20 @@ def _shape(raw: dict, units: str) -> dict:
     now_hour = (cur.get("time") or "")[:13]   # "2026-09-29T19"
     times = hourly.get("time") or []
     start = next((i for i, t in enumerate(times) if t[:13] >= now_hour), 0)
+    def col(block, key, i):
+        v = block.get(key)
+        return v[i] if v is not None and i < len(v) else None
+
+    # Oct 31 2026 (Neil's call of 10/30): a full day of hours and ten days,
+    # each with the rain amount and the wind, so a crew can plan the work
+    # window, not only see the sky.
     hours = [{"time": times[i], "temp": hourly["temperature_2m"][i], "code": hourly["weather_code"][i],
-              "isDay": bool(hourly["is_day"][i]), "precipChance": hourly["precipitation_probability"][i]}
-             for i in range(start, min(start + 12, len(times)))]
+              "isDay": bool(hourly["is_day"][i]), "precipChance": hourly["precipitation_probability"][i],
+              "precip": col(hourly, "precipitation", i), "wind": col(hourly, "wind_speed_10m", i)}
+             for i in range(start, min(start + 24, len(times)))]
     days = [{"date": d, "high": daily["temperature_2m_max"][i], "low": daily["temperature_2m_min"][i],
-             "code": daily["weather_code"][i], "precipChance": daily["precipitation_probability_max"][i]}
+             "code": daily["weather_code"][i], "precipChance": daily["precipitation_probability_max"][i],
+             "precipSum": col(daily, "precipitation_sum", i), "windMax": col(daily, "wind_speed_10m_max", i)}
             for i, d in enumerate(daily.get("time") or [])]
     def first(k):
         return (daily.get(k) or [None])[0]
@@ -101,25 +110,31 @@ def _shape(raw: dict, units: str) -> dict:
     }
 
 
-@router.get("")
-def forecast(lat: float, lon: float, units: str = Query("imperial", pattern="^(imperial|metric)$"),
-             user: dict = Depends(get_current_user)):
-    """Current conditions, the next 12 hours and 7 days, in the location's
-    own time zone."""
+def forecast_for(lat: float, lon: float, units: str = "imperial") -> dict:
+    """The shaped forecast for a point - the route below and the Construction
+    site weather (construction_weather.py) share this one cache."""
     la, lo = _coords(lat, lon)
     metric = units == "metric"
     params = {
-        "latitude": la, "longitude": lo, "timezone": "auto", "forecast_days": 7,
+        "latitude": la, "longitude": lo, "timezone": "auto", "forecast_days": 10,
         "current": "temperature_2m,apparent_temperature,relative_humidity_2m,is_day,precipitation,"
                    "weather_code,wind_speed_10m,wind_direction_10m",
-        "hourly": "temperature_2m,precipitation_probability,weather_code,is_day",
+        "hourly": "temperature_2m,precipitation_probability,precipitation,weather_code,is_day,wind_speed_10m",
         "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,"
-                 "sunrise,sunset,uv_index_max",
+                 "precipitation_sum,wind_speed_10m_max,sunrise,sunset,uv_index_max",
         "temperature_unit": "celsius" if metric else "fahrenheit",
         "wind_speed_unit": "kmh" if metric else "mph",
         "precipitation_unit": "mm" if metric else "inch",
     }
     return _cached(("fc", la, lo, units), _FORECAST_TTL, lambda: _shape(_get(_FORECAST_URL, params), units))
+
+
+@router.get("")
+def forecast(lat: float, lon: float, units: str = Query("imperial", pattern="^(imperial|metric)$"),
+             user: dict = Depends(get_current_user)):
+    """Current conditions, the next 24 hours and 10 days, in the location's
+    own time zone."""
+    return forecast_for(lat, lon, units)
 
 
 @router.get("/places")

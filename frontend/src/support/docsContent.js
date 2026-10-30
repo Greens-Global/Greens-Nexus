@@ -187,7 +187,7 @@ export const DOCS = [
       { name: 'View Picker', desc: 'Switch between Home, your own saved views and department views.' },
       { name: 'Customize', desc: 'Edit mode: Add Widget, drag to arrange, resize, Auto-Fit, Save and Done.' },
       { name: '"..." View Menu', tour: 'View options', desc: 'Rename View, Set as My Default, Make Home My Default, Save as New View, Publish to Department, Delete View.' },
-      { name: 'Widget Gallery', desc: 'Metrics (KPI Stat), Workday (Time Clock, Action Required, My Work, My Time, My Requests, Due Back Soon, Coming Up), Actions (Action Tile, Quick Actions), Navigation (Shortcut Tile), Links (Quick Links, Links Folder, Favorites, My Personal Links), Live (Notifications, Calendar, Weather, Announcements), Utility (Clock & Greeting, Notes), plus Team widgets and, for Accounting users, Find a Transaction.' },
+      { name: 'Widget Gallery', desc: 'Metrics (KPI Stat), Workday (Time Clock, Action Required, My Work, My Time, My Requests, Due Back Soon, Coming Up), Actions (Action Tile, Quick Actions), Navigation (Shortcut Tile), Links (Quick Links, Links Folder, Favorites, My Personal Links), Live (Notifications, Calendar, Weather - click the tile for today hour by hour and the next 10 days, Announcements), Utility (Clock & Greeting, Notes), plus Team widgets and, for Accounting users, Find a Transaction.' },
       { name: 'Links Tab', desc: 'Every company and personal web link. Search, filter by category, department or company, pin, favorite, sort into folders, and switch between tile and list view.' },
       { name: 'Personal Links', desc: 'A link you add is visible only to you. Company-wide links are managed by admins through Manage Links.' },
     ],

@@ -24,6 +24,17 @@ export function sky(code, isDay = true) {
   if (c >= 95) return { text: c === 95 ? 'Thunderstorms' : 'Storms & Hail', Icon: CloudLightning, tone: 'storm' };
   return { text: '-', Icon: Cloud, tone: 'cloud' };
 }
+// Wet skies: rain, snow or storm codes - what stops outdoor work.
+export const isWet = (code) => ['rain', 'snow', 'storm'].includes(sky(code, true).tone);
+
+// The first hour in the strip when rain is likely (a wet sky or at least
+// RAIN_CHANCE percent), or null for a dry day. The widget's face says "Rain
+// from 2 PM" from this (Neil, 10/30/2026: the rain is what a crew needs to see).
+export const RAIN_CHANCE = 40;
+export function rainStart(hours = []) {
+  return hours.find((h) => isWet(h.code) || (h.precipChance ?? 0) >= RAIN_CHANCE) || null;
+}
+
 // Accent per sky; the card wash is this at low alpha, so it reads in both themes.
 export const TONE = {
   sun: '245,158,11', night: '99,102,241', cloud: '100,116,139', fog: '148,163,184',
