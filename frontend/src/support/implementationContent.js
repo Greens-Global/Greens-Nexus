@@ -443,7 +443,7 @@ export const IMPL_PHASES = [
         'Switch on each company to watch (off by default), check the rain thresholds and quiet hours, and click Check Now.',
         'Confirm Weather Calls is on for the outdoor departments only (Settings > Companies > the company > Departments). People in other departments on the same group are never on the call.',
       ]},
-      { title: 'Build and Publish the First Schedule', where: 'Team > Schedule', view: 'shifts', sub: 'schedule', items: [
+      { title: 'Build and Publish the First Schedule', where: 'Team > Shift Planner', view: 'shifts', sub: 'schedule', items: [
         'Fill a week or month per team (Fill Automatically), copy it forward (Copy Week), then Save & Share - Review shows every change and rule warning first.',
       ]},
       { title: 'Test Day Messages', where: 'Workday (as a test person)', view: 'myhr', items: [

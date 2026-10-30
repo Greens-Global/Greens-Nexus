@@ -38,7 +38,7 @@ const WorkforceAnalytics = lazy(() => import('../components/TimeTrackingAdmin'))
 // Contact last (Pranshu, Oct 15 2026); Team opens on Shifts.
 const TABS = [
   ['shifts', 'Shifts', CalendarClock, false],
-  ['schedule', 'Schedule', CalendarDays, true],
+  ['schedule', 'Shift Planner', CalendarDays, true],
   ['requests', 'Requests', Inbox, true],
   ['analytics', 'Workforce Analytics', MonitorDot, false],
   // A role's own checklist steps, for department heads (Neil, Oct 19) - only
@@ -50,7 +50,7 @@ const TABS = [
 const SUBTITLE = {
   contact: 'Find and reach anyone in the company',
   shifts: "Your group's week",
-  schedule: "Build, share and adjust the team's schedule",
+  schedule: "Plan the team's shifts, then share them",
   requests: "Decide your team's time off, swaps, offers and open-shift requests",
   'role-checklists': "The extra onboarding, promotion, offboarding and leave steps your department's roles need",
   headcount: 'Ask to hire, and approve the requests waiting on you',

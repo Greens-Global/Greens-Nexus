@@ -30,10 +30,10 @@ describe('Workforce Analytics access', () => {
 
   it('the phone menu and the header search list the Team tab only for them', () => {
     expect(teamSubs(person())).toEqual(['Shifts', 'Directory']);
-    expect(teamSubs(person({ tier: 3 }))).toEqual(['Shifts', 'Schedule', 'Requests', 'Directory']);
+    expect(teamSubs(person({ tier: 3 }))).toEqual(['Shifts', 'Shift Planner', 'Requests', 'Directory']);
     expect(teamSubs(person({ grants: ['workforce-scorecard'] }))).toEqual(['Shifts', 'Workforce Analytics', 'Directory']);
     expect(teamSubs(person({ tier: 3, grants: ['employee-tracking'] })))
-      .toEqual(['Shifts', 'Schedule', 'Requests', 'Workforce Analytics', 'Directory']);
+      .toEqual(['Shifts', 'Shift Planner', 'Requests', 'Workforce Analytics', 'Directory']);
     expect(teamSubs(person({ tier: 5 }))).toContain('Workforce Analytics');
   });
 
