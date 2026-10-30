@@ -71,7 +71,7 @@ export function MonitoringAlertsPanel() {
 export function MonitoringAlertsLine({ canOpen = true }) {
   const alerts = useMonitoringAlerts();
   if (!alerts.length) return null;
-  const go = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'employee-tracking', sub: 'coverage' } }));
+  const go = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'analytics:coverage' } }));
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12, fontSize: 12.5, color: 'var(--muted)' }}>
       <AlertTriangle size={14} style={{ color: RED, flexShrink: 0 }} />

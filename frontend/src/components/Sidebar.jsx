@@ -70,7 +70,12 @@ export const NAV = [
   // `grants`: a 'workforce-scorecard' grant alone also opens it (the Scorecard
   // tab only - TimeTrackingAdmin hides the monitoring tabs without the
   // employee-tracking grant). Neil, 10/10.
-  { view: "employee-tracking", code: "EMP", label: "Workforce Analytics",  icon: MonitorDot,   minRole: 'supervisor', grants: ['employee-tracking', 'workforce-scorecard'] },
+  // menuOnly (Neil, Oct 29 2026): no longer on the left menu - it is Team >
+  // Workforce Analytics, a tab only its grant holders see
+  // (lib/workforceAccess.js). The entry stays for the header search, the
+  // guide and Insights, which find it by this rule; its old view id is
+  // redirected into Team (App.jsx workforceRedirect).
+  { view: "employee-tracking", code: "EMP", label: "Workforce Analytics",  icon: MonitorDot,   minRole: 'supervisor', grants: ['employee-tracking', 'workforce-scorecard'], menuOnly: true },
   // Team (Neil, Oct 13 2026): everything about the people you work with -
   // the Contact directory (moved out of Support) and the group's Shifts; your
   // OWN shifts moved to Workday > My Shifts. The view id stays 'shifts' (the

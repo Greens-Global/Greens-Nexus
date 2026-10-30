@@ -12,7 +12,7 @@ vi.mock('../contexts/RoleContext', () => ({
 vi.mock('../contexts/InventoryContext', () => ({ useInventory: () => ({ items: [{ id: 'i1', name: 'Hilti Drill', itemType: 'Tool', status: 'checked_out', ownershipType: 'transient' }], checkouts: [] }) }));
 vi.mock('../contexts/RequisitionContext', () => ({ useRequisitions: () => ({ requisitions: [] }) }));
 vi.mock('./Sidebar', () => ({ NAV: [{ view: 'tickets', label: 'Tickets' }], isNavItemVisible: () => true }));
-vi.mock('./MobileMenu', () => ({ SUBMENUS: {} }));
+vi.mock('./MobileMenu', () => ({ SUBMENUS: {}, visibleSubs: () => null }));
 
 const { default: GlobalSearch } = await import('./GlobalSearch');
 afterEach(cleanup);

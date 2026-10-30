@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, addressFor } from './lib/routes';
+import { workforceRedirect } from './lib/workforceAccess';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 import { loginRequest } from "./authConfig";
@@ -85,7 +86,6 @@ const TimeClock           = lazy(() => import("./views/TimeClock"));
 const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
 const Egnyte              = lazy(() => import("./views/Egnyte"));
-const EmployeeTracking    = lazy(() => import("./components/TimeTrackingAdmin"));
 const Shifts              = lazy(() => import("./views/Shifts"));
 const MyBriefing          = lazy(() => import("./views/MyBriefing"));
 const WhatsNew            = lazy(() => import("./tasks/ChangelogView"));   // What's New as a page (Oct 12)
@@ -145,13 +145,11 @@ const VIEW_MIN_ROLES = {
   // Global Admin always reach it, others only via an explicit Access Group
   // grant on 'admin-console'.
   'admin-console':      'supervisor',
-  // Employee Tracking (monitoring) module - IT Admin + Global Admin ONLY. The
-  // Grant-driven (Aug 13): IT Admin / Global Admin always reach it; below that it
-  // opens ONLY via an explicit Access-Group/job-role grant on 'employee-tracking'
-  // (not a plain supervisor/manager role). Backend endpoints gate on the same
-  // grant (require_tracking / require_tracking_full in timeclock.py). Keep the
-  // module in RoleContext MODULES and this value non-'administrator' so grants work.
-  'employee-tracking':  'supervisor',
+  // 'employee-tracking' (Workforce Analytics) is no longer a view: it is a
+  // Team tab (Oct 29 2026, see workforceRedirect) gated by the same grants in
+  // lib/workforceAccess.js; the backend endpoints still check them
+  // (require_tracking* in timeclock.py). Keep both grants in RoleContext
+  // MODULES so Access Groups can still give them.
   'testing':            'supervisor',   // dev-only module; grant-driven for testers below supervisor
   'credvault':          'supervisor',
   // Egnyte reads are open to any signed-in user server-side, but the backend
@@ -169,7 +167,9 @@ const VIEW_MIN_ROLES = {
 const VIEW_GRANT = {};
 // Views that OTHER grants also open (any one is enough): a 'workforce-scorecard'
 // grant alone reaches Workforce Analytics for its Scorecard tab (Neil, 10/10).
-const VIEW_ALT_GRANTS = { 'employee-tracking': ['workforce-scorecard'] };
+// (Workforce Analytics, the one entry, became a Team tab on Oct 29 2026 and
+// gates itself - lib/workforceAccess.js.)
+const VIEW_ALT_GRANTS = {};
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
@@ -395,7 +395,6 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault activeSub={activeSub} onSubChange={onSubChange} />;
     case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
-    case "employee-tracking":  return <EmployeeTracking initialSub={activeSub} module />;
     case "shifts":             return <Shifts activeSub={activeSub} onSubChange={onSubChange} />;
     case "legal":              return <Legal activeSub={activeSub} onSubChange={onSubChange} />;
     // Old links to the two separate pages open their tab of Legal.
@@ -433,7 +432,7 @@ function parsePath() {
   if (raw === 'tasks' && segs[1] === 'tickets') return { view: 'tickets', sub: null };
   // Locations folded into Employee Tracking as a tab (Aug 31) - old
   // bookmarks/links to the standalone /locations page land on that tab.
-  if (raw === 'locations') return { view: 'employee-tracking', sub: 'locations' };
+  if (raw === 'locations') return { view: 'shifts', sub: 'analytics:locations' };
   // Manager Dashboard no longer has its own tab (Sep 3, see the note above on
   // VIEW_MIN_ROLES) - old bookmarks/links to the standalone /manager-dashboard
   // page just land on plain Dashboard, where any manager-tier widgets they had
@@ -457,6 +456,8 @@ function parsePath() {
   // and navigates there once the pin is fetched. Dashboard in the meantime.
   if (raw === 'dev-notes') return { view: 'dashboard', sub: null };
   const view = PATH_TO_VIEW[raw] || raw;
+  const workforce = workforceRedirect(view, segs[1] || null);
+  if (workforce) return workforce;
   // Purchase Requisition moved to Workday (Neil, Oct 22 2026): the old
   // /purchase page and Item Management's Purchase Requests tab land on
   // Workday > Purchase Requests (/purchase/new opens the form).
@@ -485,7 +486,6 @@ const DEFAULT_SUBS = {
   marketing:         "marketing-ads",
   accounting:        "overview",
   egnyte:            "browse",
-  "employee-tracking": "coverage",
   shifts:            "shifts",    // Team opens on the group's Shifts; Contact is last (Oct 15 2026)
   // Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
   // id lands on its own natural tab so the URL is meaningful from the first
@@ -727,6 +727,9 @@ function MainApp() {
     if (view === 'admin') { view = 'admin-console'; sub = 'access'; }
     // Contact Directory -> Team > Contact, My Shifts -> Workday (see parsePath).
     if (view === 'directory') { view = 'shifts'; sub = 'contact'; }
+    // Workforce Analytics -> Team > Workforce Analytics (see parsePath).
+    const workforce = workforceRedirect(view, sub);
+    if (workforce) ({ view, sub } = workforce);
     // Purchase Requisition -> Workday > Purchase Requests (see parsePath).
     const moved = purchaseRedirect(view, sub);
     if (moved) ({ view, sub } = moved);

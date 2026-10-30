@@ -27,7 +27,7 @@ describe('monitoring alerts', () => {
     expect(screen.queryByText('Arnav Kapoor')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'View in Workforce Analytics' }));
     window.removeEventListener('nexus:navigate', on);
-    expect(seen).toEqual([{ view: 'employee-tracking', sub: 'coverage' }]);
+    expect(seen).toEqual([{ view: 'shifts', sub: 'analytics:coverage' }]);   // Team > Workforce Analytics (Oct 29 2026)
   });
 
   it('lists everyone on Workforce Analytics once it is opened', async () => {

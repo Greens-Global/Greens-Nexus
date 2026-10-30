@@ -524,7 +524,7 @@ class ScanTests(_Case):
         self.assertEqual(m["subject"], "Workforce Scorecard - Week of 10/05/2026")
         self.assertIn("Raj", m["html"])
         self.assertIn("Absent", m["html"])
-        self.assertIn("/employee-tracking/scorecard?week=2026-10-05", m["html"])
+        self.assertIn("/team/analytics:scorecard?week=2026-10-05", m["html"])
         self.assertIn("your direct reports", m["html"])
         self.assertIn("Sam", m["html"])                    # listed under Not Scored
         self.assertIn("No schedule", m["html"])

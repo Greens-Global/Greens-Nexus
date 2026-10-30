@@ -437,8 +437,8 @@ export const DOCS = [
   {
     id: 'workforce-analytics', name: 'Workforce Analytics', group: 'My Desk', icon: 'MonitorDot', view: 'employee-tracking',
     tagline: 'Live coverage, activity, the weekly hours Scorecard, punch locations and company computers.',
-    where: 'Left menu > Workforce Analytics',
-    access: 'IT Admin and Global Admin, or anyone given the Workforce Analytics grant. The Scorecard tab alone opens with the Workforce Scorecard grant.',
+    where: 'Team > Workforce Analytics',
+    access: 'IT Admin and Global Admin, or anyone given the Workforce Analytics grant. The Scorecard tab alone opens with the Workforce Scorecard grant. Team is everyone\'s module, but its Workforce Analytics tab shows only for these people - a manager without a grant does not see it.',
     purpose: 'Workforce Analytics is the disclosed monitoring dashboard. It shows who is working right now, where each person last punched from, activity on enrolled company computers and screenshots taken under the company policy. Employees are told about it before they first clock in.',
     gains: [
       'Know at a glance who is working, on break or not clocked in.',
@@ -449,7 +449,7 @@ export const DOCS = [
       {
         title: 'See Who Is Working Now',
         steps: [
-          'Open Workforce Analytics from the left menu. You land on Coverage.',
+          'Open Team and pick the Workforce Analytics tab (only people with the grant see it). You land on Coverage.',
           'Filter by company, department, country or site status to narrow the list.',
           'Click a person to see their day. With a full grant, you can also watch their screen live.',
         ],
