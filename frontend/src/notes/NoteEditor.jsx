@@ -24,6 +24,7 @@ import {
 import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
+import { useKeyboardInset, keyboardUp } from '../lib/useVisualViewport';
 import {
   EDITED, mediaKind, checkMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
   canRecord, canDictate, clock,
@@ -69,22 +70,6 @@ function PBtn({ icon: Icon, label, active, disabled, danger, onClick, children }
       <Icon size={19} strokeWidth={1.9} aria-hidden="true" />{children}
     </button>
   );
-}
-
-// How far the on-screen keyboard pushes up from the bottom (iOS does not
-// shrink the page for it, so a fixed bar would sit behind it).
-function useKeyboardInset(active) {
-  const [inset, setInset] = useState(0);
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!active || !vv) { setInset(0); return undefined; }
-    const on = () => setInset(Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)));
-    on();
-    vv.addEventListener('resize', on);
-    vv.addEventListener('scroll', on);
-    return () => { vv.removeEventListener('resize', on); vv.removeEventListener('scroll', on); };
-  }, [active]);
-  return inset;
 }
 
 // Recording, listening, saving a clip or a problem with one: one line.
@@ -468,7 +453,7 @@ export default function NoteEditor({
           onChange={(ev) => { const f = ev.target.files?.[0]; ev.target.value = ''; if (f) addMedia(f); }} />
       )}
       {showPhoneBar && e && createPortal(
-        <div className="nt-pb" role="toolbar" aria-label="Formatting" style={{ bottom: inset }}>
+        <div className="nt-pb" role="toolbar" aria-label="Formatting" style={{ bottom: inset, ...(inset && keyboardUp() ? { paddingBottom: 0 } : null) }}>
           <MediaStatus voice={voice} dictation={dictation} busy={busy} error={err} onDismiss={clearErr} />
           {more && (
             <div className="nt-pb-row is-more">
