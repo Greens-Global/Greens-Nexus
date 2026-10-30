@@ -54,6 +54,29 @@ describe('leave balances', () => {
     expect(screen.getByText(/Use by 12\/31\/2026/)).toBeTruthy();
   });
 
+  it('renders extra leave types alongside vacation and sick (Phase 1C)', () => {
+    const withExtras = {
+      ...BAL,
+      extraTypes: [
+        { id: 'bereavement', name: 'Bereavement', paid: true, method: 'lump',
+          available: 24, upcoming: 0, pending: 0, grant: null, eligibleOn: '2024-06-01',
+          eligible: true, carriesOver: false, payoutOnTerm: false },
+        { id: 'floating_holiday', name: 'Floating Holiday', paid: true, method: 'lump',
+          available: 0, upcoming: 0, pending: 0, grant: null, eligibleOn: '2024-08-30',
+          eligible: false, carriesOver: false, payoutOnTerm: false },
+        { id: 'jury_duty', name: 'Jury Duty', paid: true, method: 'tracked_only',
+          available: 0, upcoming: 0, pending: 0, grant: null, eligibleOn: '',
+          eligible: true, carriesOver: false, payoutOnTerm: false },
+      ],
+    };
+    render(<LeaveBalanceCard balance={withExtras} />);
+    expect(screen.getByText('Bereavement')).toBeTruthy();
+    expect(screen.getByText('24 h')).toBeTruthy();
+    expect(screen.getByText('Jury Duty')).toBeTruthy();
+    expect(screen.getByText('As taken')).toBeTruthy();
+    expect(screen.queryByText('Floating Holiday')).toBeNull();
+  });
+
   it('warns when a request is bigger than the balance', () => {
     render(<RequestBalanceHint balance={BAL} type="vacation" hours={8} />);
     expect(screen.getByText(/the part over your balance would be unpaid/)).toBeTruthy();

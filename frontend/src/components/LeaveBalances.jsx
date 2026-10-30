@@ -36,6 +36,22 @@ export function fmtLeave(hours, policy) {
 }
 
 const LABEL = { vacation: 'Vacation', sick: 'Sick / Personal' };
+
+// Phase 1C: hint under an extra leave type (bereavement, floating_holiday,
+// jury_duty, parental_leave, comp_time, ...). The backend's balances() payload
+// already carries method / eligibleOn / grant for the lump types, so this is
+// just presentation.
+function extraTypeHint(t) {
+  if (!t) return '';
+  if (t.method === 'none') return 'Not part of your policy.';
+  if (t.method === 'tracked_only') return 'Days you take are logged. No balance to run down.';
+  if (!t.eligible && t.eligibleOn) return `Starts ${day(t.eligibleOn)}.`;
+  if (t.method === 'lump') return t.carriesOver ? 'Granted at the start of each year.' : 'Granted each year. Use it or lose it.';
+  if (t.method === 'per_hour') return 'Earned per hour you work.';
+  if (t.method === 'anniversary') return 'Added on each work anniversary.';
+  if (t.method === 'per_period') return 'Added each pay period.';
+  return '';
+}
 const KIND = { opening: 'Opening Balance', accrual: 'Earned', used: 'Used', adjust: 'Adjustment',
   expire: 'Expired At Year End', carryover: 'Carried Over' };
 
@@ -108,6 +124,32 @@ export function LeaveBalanceCard({ balance }) {
             </div>
           );
         })}
+        {/* Phase 1C: extra leave types the policy carries (bereavement,
+            floating holiday, jury duty, ...). Tracked-only types (jury
+            duty) always render so the person knows the day is covered.
+            Lump / per_hour / anniversary types render once they have a
+            balance, grant, or upcoming / pending time. */}
+        {(balance.extraTypes || []).filter(t => (
+          t && (t.method === 'tracked_only'
+                || (t.available || 0) > 0 || (t.upcoming || 0) > 0 || (t.pending || 0) > 0
+                || t.grant || t.eligible)
+        )).map(t => (
+          <div key={t.id} style={{ border: '1px solid var(--wk-line2)', borderRadius: 12, padding: '11px 13px', background: 'var(--mist)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+              {t.name}{!t.paid && ' (unpaid)'}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', margin: '2px 0' }}>
+              {t.method === 'tracked_only' ? 'As taken' : fmtLeave(t.available, pol)}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{extraTypeHint(t)}</div>
+            {(t.upcoming > 0 || t.pending > 0) && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                {t.upcoming > 0 && <>{fmtLeave(t.upcoming, pol)} approved and coming up. </>}
+                {t.pending > 0 && <>{fmtLeave(t.pending, pol)} waiting for approval.</>}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
