@@ -3381,7 +3381,7 @@ export function CompanyDepartments({ entity, toastOk, toastErr }) {
     <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
       <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
         Departments for <strong>{entity.name}</strong>. These are the only choices when picking a department for someone in this company.
-        The department head is the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Contact Directory.
+        The department head is the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Directory.
         The head and the backup both get the HR, IT and Accounting steps of every checklist, so set a backup for anyone who can be out.
         Weather Calls: rain advisories and weather calls apply only to the people of departments with it on - on for Construction by default.
       </p>
