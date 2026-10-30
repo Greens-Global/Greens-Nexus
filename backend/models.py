@@ -4269,6 +4269,7 @@ class VaultCredential(Base):
     prev_secret_enc    = Column(String, default="")
     prev_rotated_at    = Column(String, default="")
     totp_enc           = Column(String, default="")           # authenticator key, Fernet (vault_totp.py, Oct 29 2026)
+    company_id         = Column(String, default="")           # home company (HrEntity id, Oct 29 2026) - grouping and the Overview filter; the wall follows the owner
 
 
 class VaultPersonalCredential(Base):

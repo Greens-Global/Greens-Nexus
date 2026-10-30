@@ -21,20 +21,20 @@ export async function exportAudit(rows, nameOf) {
 
 const Num = ({ n, tone = "bad" }) => <td className={`num ${n ? `tone-${tone}` : "tone-zero"}`}>{n}</td>;
 
-export default function Overview({ rows, depts, attention, sharedWithMe, requests, fDept, onPickDept, onPickCollection, onOpen, onApprovals, nameOf, canExport = true }) {
+export default function Overview({ rows, depts, attention, sharedWithMe, requests, fDept, onPickDept, onPickCollection, onOpen, onApprovals, nameOf, canExport = true, everyone = false }) {
   const noBackup = rows.filter((c) => !c.backupOwner).length;
   const health = healthByDept(rows);
   return (
     <div className="cv-overview" data-overview="">
       <div className="cv-kpis is-five" style={{ marginBottom: 14 }}>
-        <KpiTile solid label="Logins" value={rows.length} sub={`${depts.length} department${depts.length === 1 ? "" : "s"}`} onGo={() => onPickCollection("all")} goTitle="See every login" />
+        <KpiTile solid label={everyone ? "Logins" : "Logins You Manage"} value={rows.length} sub={`${depts.length} department${depts.length === 1 ? "" : "s"}`} onGo={() => onPickCollection(everyone ? "all" : "mine")} goTitle={everyone ? "See every login" : "See the logins you own or manage"} />
         <KpiTile label="Needs Attention" value={attention} tone={attention ? "warn" : undefined} sub={attention ? "weak, reused, overdue or expiring" : "nothing to fix"} onGo={() => onPickCollection("attention")} goTitle="Show what needs attention" />
         <KpiTile label="No Backup Owner" value={noBackup} tone={noBackup ? "warn" : undefined} sub={noBackup ? "stranded if the owner leaves" : "every login has a backup"} onGo={() => onPickCollection("nobackup")} goTitle="Show logins with no backup owner" />
         <KpiTile label="Shared With Me" value={sharedWithMe} sub={sharedWithMe ? "timed access, ends by itself" : "no shared access right now"} onGo={() => onPickCollection("shared")} goTitle="Show what was shared with me" />
         <KpiTile label="Awaiting Approval" value={requests} tone={requests ? "warn" : undefined} sub={requests ? "requests for you to decide" : "no requests waiting"} onGo={onApprovals} goTitle="Open Approvals" />
       </div>
       <div className="cv-stats" style={{ gridTemplateColumns: "minmax(0, 1.6fr) minmax(280px, 1fr) minmax(280px, 1fr)" }}>
-        <StatCard Icon={ShieldCheck} title="Health by Department" meta={canExport ? (
+        <StatCard Icon={ShieldCheck} title={everyone ? "Health by Department" : "Health of Your Logins"} meta={canExport ? (
           <button type="button" className="cv-btn" style={{ padding: "3px 9px", fontSize: 12 }} onClick={() => exportAudit(rows, nameOf)} title="Who can open what, and the health per department - no passwords"><Download size={13} /> Export to Excel</button>
         ) : null}>
           {health.length === 0 ? <p className="cv-hint">No logins yet.</p> : (

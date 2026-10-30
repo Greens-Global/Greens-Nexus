@@ -56,6 +56,10 @@ def _iso(sec=0):
     return (datetime.now(timezone.utc) + timedelta(seconds=sec)).isoformat()
 
 
+def _ms_from_now(sec=0):
+    return int((datetime.now(timezone.utc) + timedelta(seconds=sec)).timestamp() * 1000)
+
+
 class VaultAccessTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
@@ -269,6 +273,58 @@ class VaultAccessTests(unittest.TestCase):
         self.assertEqual(self._row(ACCT, rows["Procore"]["id"])["access"], "company")
         self.assertEqual(rows["Wi-Fi Guest"]["audiences"][0]["label"], "Everyone in IT")
         self.assertEqual(len([c for c in rows.values() if c["name"] == "Zoom Admin"]), 1)
+
+    def test_departments_can_be_named_per_company_and_several_at_once(self):
+        db = database.SessionLocal()
+        db.add(models.HrEntity(id="co-b", name="Greens Nexus"))
+        db.add(models.NexusEmployee(id="e-b", first_name="Bo", last_name="T", work_email="bo.b@greensglobal.com", company="co-b", department="IT", status="active", deleted_at=""))
+        db.add(models.NexusGroupMember(group_id="g-vault", email="bo.b@greensglobal.com"))
+        db.commit(); db.close()
+        cache.module_grants.invalidate()
+        # IT at company A and Accounting at company A - not IT at Greens Nexus.
+        cid = self._create(companyId=CO, audiences=[{"kind": "department", "value": f"{CO}:IT"}, {"kind": "department", "value": f"{CO}:Accounting"}])
+        self.assertEqual(self._row(OWNER, cid)["companyId"], CO)
+        self.assertEqual(self._row(PEER, cid)["access"], "department")
+        self.assertEqual(self._row(ACCT, cid)["access"], "department")
+        self.assertEqual(self._row("bo.b@greensglobal.com", cid)["access"], "request")
+        self.assertEqual([a["label"] for a in self._row(OWNER, cid)["audiences"]], ["Everyone in IT at Greens", "Everyone in Accounting at Greens"])
+        # Several companies at once; "" = every company.
+        two = self._create(name="Shared Wi-Fi", audiences=[{"kind": "company", "value": CO}, {"kind": "company", "value": "co-b"}])
+        self.assertEqual(self._row("bo.b@greensglobal.com", two)["access"], "company")
+        self.assertEqual(self._row(OPS, two)["access"], "company")
+        every = self._create(name="Handbook", audiences=[{"kind": "company", "value": ""}])
+        self.assertEqual(self._row("bo.b@greensglobal.com", every)["access"], "company")
+        self.assertEqual(self._row(OWNER, every)["audiences"][0]["label"], "Everyone, every company")
+
+    def test_share_with_several_people_or_a_department_shows_until_it_expires(self):
+        cid = self._create(audiences=[])                       # nobody but the owners
+        self._otp(OWNER)
+        r = self._as(OWNER).post(f"/credvault/credentials/{cid}/share", json={"recipients": [ACCT, OPS], "departments": ["IT"], "durationMs": 3600000, "durationLabel": "1 Hour"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["granted"], 5)               # Accounting, Ops, and IT's Peer, Head and Admin (not the owner)
+        for who in (ACCT, OPS, PEER, HEAD):
+            row = self._row(who, cid)
+            self.assertIn(row["access"], ("shared", "head"), who)
+            self.assertTrue(row["canReveal"])
+        self.assertTrue(self._row(ACCT, cid)["grantUntil"])
+        logs = self._as(OWNER).get("/credvault/logs").json()
+        shared = next(e for e in logs if e["action"] == "Shared")
+        self.assertIn("With", [d["field"] for d in shared["detail"]])
+        # A custom range may run beyond seven days.
+        r = self._as(OWNER).post(f"/credvault/credentials/{cid}/share", json={"recipients": [ACCT], "durationMs": 30 * 86400000, "durationLabel": "Until 11/28/2026"})
+        self.assertEqual(r.status_code, 200)
+        self.assertGreater(self._row(ACCT, cid)["grantUntil"], _ms_from_now(20 * 86400))
+        # When the time runs out the login leaves their list: back to Request Access.
+        db = database.SessionLocal()
+        for g in db.query(models.VaultAccessGrant).filter_by(cred_id=cid, granted_to=OPS).all():
+            g.expires_at = _iso(-5)
+        db.commit(); db.close()
+        self.assertEqual(self._row(OPS, cid)["access"], "request")
+        self.assertFalse(self._row(OPS, cid)["canReveal"])
+        self.assertEqual(self._reveal(OPS, cid), 403)
+        # Nobody picked, or someone outside Nexus: refused.
+        self.assertEqual(self._as(OWNER).post(f"/credvault/credentials/{cid}/share", json={"durationMs": 3600000}).status_code, 400)
+        self.assertEqual(self._as(OWNER).post(f"/credvault/credentials/{cid}/share", json={"recipients": ["x@gmail.com"], "durationMs": 3600000}).status_code, 400)
 
     def test_offboarding_removes_a_leavers_person_audience(self):
         from routers.credvault import handover_person

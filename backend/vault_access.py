@@ -9,7 +9,8 @@ AUDIENCE rows (models.VaultCredentialAudience):
 
   kind        value                      who it admits
   company     HrEntity id ('' = any)     every active person in that company
-  department  department name            every active person in it (owner's company)
+  department  "name" or "companyId:name" every active person in that department - of the
+                                         named company, else of the owner's company
   group       NexusGroup id              the Access Group's members
   person      work email                 that one person, for good (a grant is timed)
 
@@ -72,12 +73,22 @@ def rows_for(db, cred_ids) -> dict:
     return out
 
 
+def split_dept(value: str) -> tuple:
+    """A department row's value: "companyId:Name" -> (companyId, name); "Name" -> ("", name)."""
+    v = (value or "").strip()
+    if ":" in v:
+        co, _, name = v.partition(":")
+        return co.strip(), name.strip()
+    return "", v
+
+
 def _matches(row, ctx: dict) -> bool:
     v = (row.value or "").strip()
     if row.kind == "company":
         return v == ANY_COMPANY or (ctx["company"] and v == ctx["company"])
     if row.kind == "department":
-        return bool(ctx["dept"]) and v.lower() == ctx["dept"]
+        co, name = split_dept(v)
+        return bool(ctx["dept"]) and name.lower() == ctx["dept"] and (not co or ctx["company"] == co)
     if row.kind == "group":
         return v in ctx["groups"]
     if row.kind == "person":
@@ -174,7 +185,8 @@ def labels(db, rows) -> list:
         if r.kind == "company":
             label = f"Everyone at {companies.get(r.value, '')}" if r.value else "Everyone, every company"
         elif r.kind == "department":
-            label = f"Everyone in {r.value}"
+            co, name = split_dept(r.value)
+            label = f"Everyone in {name}" + (f" at {companies.get(co, '')}" if co else "")
         elif r.kind == "group":
             label = groups.get(r.value, "Access Group")
         else:
@@ -202,8 +214,10 @@ def openers(db, cred, rows) -> set:
         if r.kind == "company":
             emails |= {e.work_email.lower() for e in people if not v or (e.company or "") == v}
         elif r.kind == "department":
+            co, name = split_dept(v)
+            want = co or owner_co
             emails |= {e.work_email.lower() for e in people
-                       if (e.department or "").strip().lower() == v.lower() and (not owner_co or (e.company or "") == owner_co)}
+                       if (e.department or "").strip().lower() == name.lower() and (not want or (e.company or "") == want)}
         elif r.kind == "group":
             emails |= {m for (m,) in db.query(models.NexusGroupMember.email).filter(models.NexusGroupMember.group_id == v).all()}
         elif r.kind == "person":

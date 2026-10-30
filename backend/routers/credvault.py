@@ -36,7 +36,7 @@ import graph_mail
 import models
 from database import get_db
 from auth import (get_current_user, require_module_grant, _module_level, _MODULE_LEVEL_RANK,
-                  company_scope, company_ok, company_of_email_map)
+                  company_scope, company_ok, company_of_email_map, company_of)
 from notify_company import notification_company
 import job_switch
 import vault_access as VA
@@ -644,7 +644,7 @@ def _cred_dict(c: models.VaultCredential, reused: bool, shared_with: int,
     # "view" (Oct 29 2026): the row, username, link and notes - never the password.
     can_see = access != "request"
     return {
-        "id": c.id, "name": c.name, "dept": c.dept or "", "type": c.type or "Password",
+        "id": c.id, "name": c.name, "dept": c.dept or "", "companyId": c.company_id or "", "type": c.type or "Password",
         # The username is half of a login: only for people who can see the other half.
         "username": (c.username or "") if can_see else "",
         "url": c.url or "", "tier": c.tier or "Standard",
@@ -692,6 +692,7 @@ class CredentialIn(BaseModel):
     # otpauth:// link; "" = unchanged on an edit; clearTotp removes it.
     totpSecret: str = ""
     clearTotp: bool = False
+    companyId: str = ""          # home company (HrEntity id); "" on a create = the owner's company
 
 
 def _clean_url(v: str) -> str:
@@ -795,6 +796,7 @@ def create_credential(body: CredentialIn, user: dict = Depends(get_current_user)
         secret_hash=_hash(body.secret),
         totp_enc=_enc(_clean_totp(body.totpSecret)) if _clean_totp(body.totpSecret) else "",
         tier=body.tier if body.tier in TIERS else "Standard",
+        company_id=(body.companyId or "").strip() or company_of(user["email"], db),
         owner_email=user["email"],
         backup_owner_email=(body.backupOwner or "").lower().strip(),
         strength=_eval_strength(body.secret),
@@ -836,6 +838,9 @@ def update_credential(cred_id: str, body: CredentialIn,
     if body.dept and body.dept != c.dept:
         changed.append({"field": "Department", "from": c.dept or "-", "to": body.dept})
         c.dept = body.dept
+    if body.companyId and body.companyId != (c.company_id or ""):
+        changed.append({"field": "Company", "from": c.company_id or "-", "to": body.companyId})
+        c.company_id = body.companyId
     if body.type != c.type and body.type in TYPES:
         changed.append({"field": "Type", "from": c.type, "to": body.type})
         c.type = body.type
@@ -1056,7 +1061,7 @@ def request_access(cred_id: str, body: RequestIn,
     if open_req:
         return {"requested": True, "pending": True}
     owner = (c.owner_email or "").lower()
-    duration_ms = max(60000, min(body.durationMs or 14400000, 7 * 86400000))
+    duration_ms = max(60000, min(body.durationMs or 14400000, MAX_SHARE_MS))
     db.add(models.VaultShareRequest(
         id=str(uuid.uuid4()), cred_id=c.id,
         requested_by_email=user["email"], shared_to_email=user["email"],
@@ -1119,6 +1124,7 @@ def import_credentials(body: ImportIn, user: dict = Depends(get_current_user), d
             secret_enc=_enc(secret),
             secret_hash=_hash(secret),
             tier=r.get("tier") if r.get("tier") in TIERS else "Standard",
+            company_id=(r.get("companyId") or "").strip() or company_of(user["email"], db),
             owner_email=user["email"],
             backup_owner_email=backup if backup in known and backup != user["email"] else "",
             strength=_eval_strength(secret),
@@ -1225,8 +1231,13 @@ def handover_person(db: Session, email: str, to_email: str, actor: str = "") -> 
 
 
 # ── Sharing / approvals / grants ─────────────────────────────────────────────
+MAX_SHARE_MS = 180 * 86400000       # a custom range may run months (Oct 29 2026); presets stay 1h-7d
+
+
 class ShareIn(BaseModel):
-    recipientEmail: str = ""
+    recipientEmail: str = ""                 # one person (the old shape)
+    recipients: list[str] = []               # several people (Oct 29 2026)
+    departments: list[str] = []              # whole departments: "Name" or "companyId:Name"
     durationMs: int = 14400000
     durationLabel: str = "4 Hours"
 
@@ -1234,37 +1245,62 @@ class ShareIn(BaseModel):
 @router.post("/credentials/{cred_id}/share")
 def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_current_user),
                      _otp: dict = Depends(require_vault_otp), db: Session = Depends(get_db)):
-    """Owner, backup owner or admin gives someone timed access (Neil, Oct 14
-    2026: Share is for owners; anyone else asks with .../request). Requires a
-    fresh SMS/Email OTP verification (require_vault_otp), same as reveal -
-    sharing a secret is as sensitive as viewing it. The recipient still needs
-    the vault grant to open the screen."""
+    """Owner, backup owner, department head or admin gives timed access (Neil,
+    Oct 14 2026: Share is for owners; anyone else asks with .../request) - to
+    one person, several people, or every active person in whole departments
+    (Oct 29 2026), each for the same time. Requires a fresh SMS/Email code
+    (require_vault_otp), same as reveal - sharing a secret is as sensitive as
+    viewing it. Recipients still need the vault grant to open the screen."""
     c = _get_cred(cred_id, db, user)
     if c.deleted_at:
         raise HTTPException(400, "Credential is in the trash")
     if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can share this credential")
     _require_critical_stepup(c, user, db)
-    recipient = (body.recipientEmail or "").lower().strip()
-    if "@" not in recipient or "." not in recipient:
-        raise HTTPException(400, "A valid recipient email address is required")
-    if not (db.query(models.NexusEmployee.id)
-            .filter(func.lower(models.NexusEmployee.work_email) == recipient).first()):
-        raise HTTPException(400, "Share with someone in Nexus People")
-    duration_ms = max(60000, min(body.durationMs or 3600000, 7 * 86400000))
+    everyone = [e for e in db.query(models.NexusEmployee).all() if e.work_email]
+    people = {(e.work_email or "").lower(): e for e in everyone}
+    wanted = {(body.recipientEmail or "").lower().strip()} | {(r or "").lower().strip() for r in body.recipients}
+    wanted.discard("")
+    for w in wanted:
+        if "@" not in w or "." not in w:
+            raise HTTPException(400, "A valid recipient email address is required")
+        if w not in people:
+            raise HTTPException(400, "Share with someone in Nexus People")
+    owner_co = company_of(c.owner_email or "", db)
+    for d in body.departments:
+        co, name = VA.split_dept(d)
+        want = co or owner_co
+        # Every row, not the dict: a person with two People records (one per
+        # company) is in a department through either of them.
+        members = [(e.work_email or "").lower() for e in everyone
+                   if (e.department or "").strip().lower() == name.lower() and (e.status or "active").lower() == "active"
+                   and not (e.deleted_at or "") and (not want or (e.company or "") == want)]
+        if not members:
+            raise HTTPException(400, f"Nobody active in {name} to share with")
+        wanted |= set(members)
+    wanted -= {user["email"], (c.owner_email or "").lower()}
+    if not wanted:
+        raise HTTPException(400, "Pick who to share it with")
+    duration_ms = max(60000, min(body.durationMs or 3600000, MAX_SHARE_MS))
     expires = (datetime.now(timezone.utc) + timedelta(milliseconds=duration_ms)).isoformat()
-    db.add(models.VaultAccessGrant(
-        id=str(uuid.uuid4()), cred_id=c.id, granted_to=recipient,
-        granted_by=user["email"], granted_at=_now(), expires_at=expires,
-    ))
-    _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": recipient},
+    now = _now()
+    names = []
+    for who in sorted(wanted):
+        live = _active_grant(c.id, who, db)
+        if live:
+            live.expires_at = max(live.expires_at, expires)      # a longer share extends, never shortens
+        else:
+            db.add(models.VaultAccessGrant(id=str(uuid.uuid4()), cred_id=c.id, granted_to=who,
+                                           granted_by=user["email"], granted_at=now, expires_at=expires))
+        names.append(_display_name(who, db))
+        _notify(db, type="vault_access", recipient=who,
+                title="Credentials - Access Granted",
+                body=f"{_display_name(user['email'], db)} shared {c.name} with you for {body.durationLabel}. Open Credentials to view it.",
+                ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
+    _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": ", ".join(names[:12]) + (f" +{len(names) - 12}" if len(names) > 12 else "")},
                                                             {"field": "For", "from": "", "to": body.durationLabel or ""}])
-    _notify(db, type="vault_access", recipient=recipient,
-            title="Credentials - Access Granted",
-            body=f"{_display_name(user['email'], db)} shared {c.name} with you for {body.durationLabel}. Open Credentials to view it.",
-            ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
-    return {"granted": True}
+    return {"granted": len(wanted)}
 
 
 @router.get("/requests")

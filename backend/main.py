@@ -1377,6 +1377,7 @@ def _run_migrations():
             "ALTER TABLE vault_credentials ADD COLUMN totp_enc VARCHAR DEFAULT ''",
             "ALTER TABLE vault_access_logs ADD COLUMN ip VARCHAR DEFAULT ''",
             "ALTER TABLE vault_access_logs ADD COLUMN user_agent VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_credentials ADD COLUMN company_id VARCHAR DEFAULT ''",
             # Performance, made simple (Oct 29) - see the Postgres list. models.PerfGoal / PerfReview.
             "ALTER TABLE hr_perf_goals ADD COLUMN metric_key VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_goals ADD COLUMN period_start VARCHAR DEFAULT ''",
@@ -3303,6 +3304,7 @@ def _run_migrations():
         "ALTER TABLE vault_credentials ADD COLUMN IF NOT EXISTS totp_enc VARCHAR DEFAULT ''",
         "ALTER TABLE vault_access_logs ADD COLUMN IF NOT EXISTS ip VARCHAR DEFAULT ''",
         "ALTER TABLE vault_access_logs ADD COLUMN IF NOT EXISTS user_agent VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_credentials ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         # Performance, made simple (Neil, Oct 29 2026): a goal measured by a
         # Nexus number over its own period, Proposed until approved; a review's
         # 4-word rating, goal scores, Ready for Promotion, the employee's
