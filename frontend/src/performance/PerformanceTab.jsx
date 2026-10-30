@@ -17,6 +17,7 @@ import { Segmented } from './MyNumbers';
 import { StatusLabel } from '../components/StatusLabel';
 import { GOAL_STATUS, card, cardHead, HD, LBL, muted, parsePerfSub } from './lib';
 import Figures from './Figures';
+import { scoreColor } from './Score';
 import { NX } from '../tasks/theme';
 import { FeedbackCard } from './Feedback';
 import { KudosCard } from './Kudos';
@@ -46,12 +47,12 @@ export function TeamTable({ team, onOpen, filtered = false }) {
   const phone = useIsMobile('(max-width: 760px)');
   if (!team) return <SkeletonBlocks count={3} height={64} />;
   if (!team.length) return <div style={muted}>{filtered ? 'Nobody on your team matches - pick the figure again to show everyone.' : 'Nobody reports to you in Nexus People.'}</div>;
-  const cols = 'minmax(0, 1.6fr) minmax(0, 1.7fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr)';
+  const cols = 'minmax(0, 1.6fr) minmax(0, 0.6fr) minmax(0, 1.7fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr)';
   return (
     <div role="table" aria-label="My Team" style={{ display: 'grid' }}>
       {!phone && (
         <div role="row" style={{ display: 'grid', gridTemplateColumns: cols, gap: 12, padding: '6px 10px', ...LBL }}>
-          <span role="columnheader">Person</span><span role="columnheader">Numbers This Quarter</span>
+          <span role="columnheader">Person</span><span role="columnheader">Score</span><span role="columnheader">Numbers This Quarter</span>
           <span role="columnheader">Goals</span><span role="columnheader">Review</span><span role="columnheader">Next 1:1</span>
         </div>
       )}
@@ -68,6 +69,8 @@ export function TeamTable({ team, onOpen, filtered = false }) {
             </span>
             {p.goals?.proposed > 0 && <StatusLabel label={`${p.goals.proposed} to Approve`} color="#2563eb" size="sm" />}
           </span>
+          <span role="cell" title={p.score == null ? 'No score this month' : `${p.score} out of 100 this month`}
+            style={{ fontSize: 17, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: scoreColor(p.score) }}>{p.score == null ? '-' : p.score}</span>
           <span role="cell" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', minWidth: 0 }}>
             {(p.numbers || []).length ? p.numbers.map(n => (
               <span key={n.key} style={{ minWidth: 0 }}>
@@ -127,7 +130,10 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
 
   const loadOneOnOnes = useCallback(() => api.perfOneOnOnes().then(setOneOnOnes).catch(() => setOneOnOnes([])), []);
   const loadReviews = useCallback(() => api.perfReviews().then(setReviews).catch(() => setReviews({ mine: [], team: [] })), []);
-  const loadTeam = useCallback(() => api.perfTeam().then(setTeam).catch(() => setTeam([])), []);
+  // The month's score rides along on each row (perf_scores); a failed score read leaves the column blank.
+  const loadTeam = useCallback(() => Promise.all([api.perfTeam(), api.perfTeamScores().catch(() => [])])
+    .then(([rows, scores]) => setTeam(rows.map(p => ({ ...p, score: (Array.isArray(scores) ? scores : []).find(s => s.email === (p.email || '').toLowerCase())?.score ?? null }))))
+    .catch(() => setTeam([])), []);
   const loadCtx = useCallback(() => api.perfMe().then(setCtx).catch(e => setErr(e?.message || 'Could not load Performance.')), []);
   useEffect(() => { loadCtx(); loadOneOnOnes(); loadReviews(); }, [loadCtx, loadOneOnOnes, loadReviews]);
   const hasTeam = !!ctx?.hasTeam;

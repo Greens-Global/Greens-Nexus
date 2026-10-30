@@ -7922,3 +7922,8 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .perf-sc-total { font-weight: 700; color: var(--bad-fg); }
 .perf-sc-total.is-ok { color: var(--ok-fg, hsl(var(--color-green))); }
 @media (max-width: 767px) { .perf-sc-head { display: none; } .perf-sc-row { grid-template-columns: 1fr 1fr; } .perf-sc-row > span:first-child { grid-column: 1 / -1; } }
+
+/* My Score (Performance, Oct 30 2026): one row per KPI with its attainment bar. */
+.nx-perf-score-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 14px; padding: 10px 0; border-top: 1px solid var(--line); align-items: center; }
+.nx-perf-score-bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.nx-perf-score-bar > span { display: block; height: 100%; border-radius: 2px; transition: width .3s; }

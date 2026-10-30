@@ -8,6 +8,7 @@ import { Target, ClipboardCheck } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import MyNumbers from './MyNumbers';
+import ScoreCard from './Score';
 import { GoalList, GoalFormModal, GoalDetailModal, AddGoalButton } from './Goals';
 import { ReviewList, ReviewModal } from './Reviews';
 import { card, cardHead, HD, LBL, muted } from './lib';
@@ -111,6 +112,7 @@ export default function PersonPerformance({ ctx, email = '', name = '', reviews 
   return (
     <div style={{ display: 'grid', gap: 14, minWidth: 0 }}>
       <MyNumbers email={self ? '' : email} title={self ? 'My Numbers' : `${first ? `${first}'s` : 'Their'} Numbers`} />
+      <ScoreCard email={self ? '' : email} title={self ? 'My Score' : `${first ? `${first}'s` : 'Their'} Score`} canRate={!self} toastOk={toastOk} toastErr={toastErr} />
       {aside ? (
         <div style={{ display: 'grid', gridTemplateColumns: wide ? 'minmax(0, 3fr) minmax(0, 2fr)' : 'minmax(0, 1fr)', gap: 14, alignItems: 'start' }}>
           <div style={{ display: 'grid', gap: 14, minWidth: 0 }}>{main}</div>

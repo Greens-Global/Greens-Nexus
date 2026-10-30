@@ -9565,3 +9565,19 @@ class PerfScorecardKpi(Base):
     threshold    = Column(Float, default=0)
     cap          = Column(Float, default=0)
     position     = Column(Integer, default=0)
+
+
+class PerfKpiRating(Base):
+    """A manager's (or HR's) rating of a MANUAL KPI for one person and month,
+    with the written reason (perf_scores.rate). One row per person, KPI and
+    month; rating again replaces it."""
+    __tablename__ = "hr_perf_kpi_ratings"
+    id         = Column(String, primary_key=True)                  # uuid
+    company_id = Column(String, default="", index=True)
+    email      = Column(String, nullable=False, index=True)
+    kpi_key    = Column(String, nullable=False)
+    period     = Column(String, nullable=False, index=True)        # YYYY-MM
+    value      = Column(Float, default=0)
+    reason     = Column(Text, default="")
+    rated_by   = Column(String, default="")
+    rated_at   = Column(String, default="")
