@@ -345,10 +345,15 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
     Object.values(data?.holidays || {}).forEach((byDate) => Object.keys(byDate).forEach((d) => s.add(d)));
     return s;
   }, [data]);
+  // The day header names the holiday (Neil, Oct 30 2026); two companies on
+  // screen with different holidays that day show both names.
   const holidayNames = useMemo(() => {
     const m = {};
-    Object.values(data?.holidays || {}).forEach((byDate) => Object.entries(byDate).forEach(([d, h]) => { m[d] = h?.name || 'Holiday'; }));
-    return m;
+    Object.values(data?.holidays || {}).forEach((byDate) => Object.entries(byDate).forEach(([d, h]) => {
+      const n = h?.name || 'Holiday';
+      (m[d] ||= []).includes(n) || m[d].push(n);
+    }));
+    return Object.fromEntries(Object.entries(m).map(([d, ns]) => [d, ns.join(' / ')]));
   }, [data]);
   // The row that rules a cell: the one for THAT date (Phase 3b) wins over
   // the weekday pattern, as in conflictMap and the server's check.
@@ -1287,7 +1292,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       <div key={`${start}|${view}|${team}`} className={`${reduce ? '' : slide > 0 ? 'm-slide-next' : slide < 0 ? 'm-slide-prev' : 'm-fade'} ${panel ? 'm-dim' : 'm-undim'}`}>
       {phone && view !== 'month' && groupBy !== 'shift' ? (
         <SchedulePhone single={single} emptyNote={emptyNote} days={days} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} usualOf={usualOf}
-          notes={notes} weather={weather} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
+          notes={notes} weather={weather} holidayDates={holidayDates} holidayNames={holidayNames} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
           rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} dragId={drag?.id} collapsed={collapsed} copied={copied} on={gridOn}
           actualOf={actuals ? actualOf : null} />
       ) : view === 'day' ? (
@@ -1302,7 +1307,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
           onOpen={(s) => openShiftEditor(s, s.email, s.date)} />
       ) : (
         <WeekGrid days={days} compact={compact} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} availOn={availOn} usualOf={usualOf}
-          notes={notes} weather={weather} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
+          notes={notes} weather={weather} holidayDates={holidayDates} holidayNames={holidayNames} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
           rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} weekMin={weekMin} overWeeks={overWeeks}
           copied={copied} dropKey={dropKey} dragId={drag?.id} isCollapsed={(k) => collapsed.has(k)} on={managing ? weekOn : gridOn} selected={sel}
           dragProps={dragProps} personDragProps={personDragProps} dropProps={dropProps} dropStyle={dropStyle} hoverCell={hoverCell} hoverShift={hoverShift} clickable={clickable}

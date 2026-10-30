@@ -9338,7 +9338,8 @@ def _company_holidays_for_employee(db: Session, em: str, start: str, end: str) -
     # Eve): ONE answer - the stronger type, both names - whichever row was
     # saved last (holiday_policies.merge_day, Oct 29 2026 review).
     import holiday_policies
-    return holiday_policies.holidays_by_date(rows, emp.country)
+    country = holiday_policies.person_country(emp, holiday_policies.company_countries(db, [emp.company]).get(emp.company, ""))
+    return holiday_policies.holidays_by_date(rows, country)
 
 
 def _company_holidays_for_many(db: Session, people: dict, start: str, end: str) -> dict:
@@ -9355,12 +9356,14 @@ def _company_holidays_for_many(db: Session, people: dict, start: str, end: str) 
                       HrCompanyHoliday.date >= start, HrCompanyHoliday.date <= end).all()):
         by_company.setdefault(r.company_id, []).append(r)
     import holiday_policies
+    home = holiday_policies.company_countries(db, by_company.keys())
     out = {}
     for em, e in people.items():
         rows = by_company.get(e.company) if e is not None and e.company else None
         if not rows:
             continue
-        h = holiday_policies.holidays_by_date(rows, e.country)   # one answer per date (merge_day)
+        # One answer per date (merge_day), for their own country else the company's.
+        h = holiday_policies.holidays_by_date(rows, holiday_policies.person_country(e, home.get(e.company, "")))
         if h:
             out[em] = h
     return out

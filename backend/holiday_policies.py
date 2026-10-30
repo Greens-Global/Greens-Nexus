@@ -92,6 +92,25 @@ def row_countries(r) -> list:
     return [c.strip().upper() for c in str(_field(r, "country_code") or "").split(",") if c.strip()]
 
 
+def company_countries(db: Session, company_ids) -> dict:
+    """{company id: its country (upper case)} for person_country."""
+    ids = [c for c in set(company_ids or []) if c]
+    if not ids:
+        return {}
+    return {e.id: (e.country or "").strip().upper()
+            for e in db.query(HrEntity).filter(HrEntity.id.in_(ids)).all()}
+
+
+def person_country(emp, company_country: str = "") -> str:
+    """The country a person's holidays follow: their own, else their
+    company's (Neil, Oct 30 2026 - three people with no country on their
+    record were missing Thanksgiving, a US-picked holiday, while their
+    colleagues had it). The Workforce Scorecard's `_effective_country` is
+    the same rule."""
+    own = (getattr(emp, "country", "") or "").strip().upper() if emp is not None else ""
+    return own or (company_country or "").strip().upper()
+
+
 def applies_to(r, country) -> bool:
     """A public holiday applies only to the countries it was picked for; a
     typed-in one (no countries) to everyone."""

@@ -172,7 +172,7 @@ export function DayHeader({ d, stats, isToday, isHol, note, weather = null, onWe
           {compact ? d.getDate() : dayShort(d)}
           {month && !compact && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)' }}>{month}</span>}
         </button>
-        {isHol && !compact && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', ...ELLIPSIS }}>Holiday</span>}
+        {isHol && !compact && <span title={typeof isHol === 'string' ? isHol : 'Holiday'} style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', ...ELLIPSIS }}>{typeof isHol === 'string' ? isHol : 'Holiday'}</span>}
         <span style={{ flex: 1 }} />
         <WeatherChip w={weather} compact={compact} onClick={onWeather} />
         {noteIcon}
@@ -277,7 +277,7 @@ export function CoverageChip({ c, compact = false, onShort }) {
 }
 
 export default function WeekGrid({ days, compact = false, sections, byCell, openCells, offOn, holOn = () => null, availOn = () => null, usualOf = () => null,
-  notes = {}, weather = {}, holidayDates = new Set(), me = '', prefs = {}, teamZone = '', canManage = false,
+  notes = {}, weather = {}, holidayDates = new Set(), holidayNames = {}, me = '', prefs = {}, teamZone = '', canManage = false,
   rowEditable = () => false, empWeekMin, dayStats, weekMin, overWeeks = () => [], copied = null, dropKey = '', dragId = '',
   isCollapsed = () => false, on = null, dragProps = () => ({}), personDragProps = null, dropProps = () => ({}), dropStyle = () => ({}),
   hoverCell = () => ({}), hoverShift = () => ({}), clickable = (fn) => fn, onNowOf = () => false, blockChildren = null, selected = null,
@@ -384,7 +384,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
       {days.map((d, i) => {
         const ds = isoDate(d);
         return (
-          <DayHeader key={ds} data-today={ds === today ? '' : undefined} d={d} stats={{ ...dayStats(d), first: i === 0, ...(showHours ? null : { min: undefined }) }} isToday={ds === today} isHol={holidayDates.has(ds)} note={notes[ds]} weather={weather[ds]} onWeather={on?.weather && weather[ds] ? () => on.weather(ds) : null}
+          <DayHeader key={ds} data-today={ds === today ? '' : undefined} d={d} stats={{ ...dayStats(d), first: i === 0, ...(showHours ? null : { min: undefined }) }} isToday={ds === today} isHol={holidayDates.has(ds) ? (holidayNames[ds] || 'Holiday') : ''} note={notes[ds]} weather={weather[ds]} onWeather={on?.weather && weather[ds] ? () => on.weather(ds) : null}
             canManage={canManage} compact={compact} coarse={coarse} onOpen={on ? () => on.openDay(ds) : undefined} onNote={on ? () => on.noteEdit(ds) : undefined}
             coverage={headCover ? <CoverageChip c={headCover[i]} compact={compact} onShort={onCoverage} /> : null}
             style={{ gridRow: hr, gridColumn: i + 2, position: 'sticky', top: 0, zIndex: 3, background: solid(colBg(d, today)) }} />
