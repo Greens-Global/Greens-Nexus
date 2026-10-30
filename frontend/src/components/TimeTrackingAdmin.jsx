@@ -620,7 +620,10 @@ function ActivityInsights() {
   );
 }
 
-export default function TimeTrackingAdmin({ initialSub = 'coverage', module = false }) {
+// `embedded`: a tab of Team (Neil, Oct 29 2026), under Team's own title -
+// no heading of its own, the saved-views picker kept at the right; `onTab`
+// puts the inner tab in the address (team/analytics:<tab>).
+export default function TimeTrackingAdmin({ initialSub = 'coverage', module = false, embedded = false, onTab }) {
   const { canAccessModule } = useRole();
   // The tabs this person's grants open; a scorecard-only grant sees just that one.
   const tabs = MON_SUBTABS.filter(t => canAccessModule(t.grant, 'administrator', 'viewer'));
@@ -644,7 +647,7 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
 
   return (
     <WorkforceViewProvider value={views.ctx}>
-    <div style={module
+    <div style={module || embedded
       ? { fontFamily: 'Inter,sans-serif', animation: 'fadeIn var(--transition-normal) ease-in-out' }
       : { fontFamily: 'Inter,sans-serif', maxWidth: 640, margin: '0 auto' }}>
       {module && (
@@ -656,6 +659,9 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
           {canTrack && <WorkforceViewBar state={views} />}
         </div>
       )}
+      {embedded && canTrack && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}><WorkforceViewBar state={views} /></div>
+      )}
       <style>{`@keyframes nexusDotPulse {
         0% { box-shadow: 0 0 0 0 currentColor; }
         70% { box-shadow: 0 0 0 5px transparent; }
@@ -666,7 +672,7 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
       {/* Sub-tabs so the monitoring screen isn't one long scroll. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: module ? 18 : 0, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
         {tabs.map(t => (
-          <button key={t.id} onClick={() => { if (t.id === 'screenshots') setShotReq({ email: '', date: '' }); setSub(t.id); }}
+          <button key={t.id} onClick={() => { if (t.id === 'screenshots') setShotReq({ email: '', date: '' }); setSub(t.id); onTab?.(t.id); }}
             style={{ padding: '8px 14px', border: 'none', background: 'none', cursor: 'pointer',
               fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: sub === t.id ? 700 : 500,
               color: sub === t.id ? 'hsl(var(--color-green))' : 'var(--muted)',

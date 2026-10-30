@@ -45,7 +45,7 @@ from database import get_db
 from notify_company import notification_company
 import scoped_settings
 from auth import (get_current_user, require_level_or_module, require_administrator,
-                  require_module_grant, require_level_or_modules, _module_level, _LEVELS,
+                  require_module_grant, _module_level, _LEVELS,
                   _MODULE_LEVEL_RANK)
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
                     AgentDevice, AgentPairing, AgentRelease, LiveSession, Shift, ShiftGroup, ShiftGroupMember,
@@ -94,12 +94,17 @@ require_team_write = require_level_or_module(3, "hr", "editor")
 # sidebar/route visibility.
 require_tracking      = require_module_grant("employee-tracking", "viewer")
 require_tracking_full = require_module_grant("employee-tracking", "full")
-# Read surfaces the monitoring dashboard SHARES with the manager audience (top
-# apps/coverage/alerts): keep managers + HR-grant AND additively admit an
-# Employee-Tracking grant, so a granted non-manager can use them too. A superset
-# of require_team_read - never narrows it.
-require_tracking_read       = require_level_or_modules(3, [("hr", "viewer"), ("employee-tracking", "viewer")])
-require_tracking_read_write = require_level_or_modules(3, [("hr", "editor"), ("employee-tracking", "full")])
+# Monitoring data is Workforce Analytics' alone (Neil, 10/29/2026: "only
+# those who should have access to it" - it moved into Team, which everyone
+# has). Coverage, top apps, app ratings, alerts, saved views, the location
+# trail, punch locations and the crew map used to be shared with every
+# manager and HR grant (their team, or the whole company for an unrestricted
+# HR grant); now they take the Employee Tracking grant or administrator, like
+# the screen. The viewer's team scope (_visible_emails) still applies on top.
+# Give a manager the grant to restore their view. The names stay so the
+# routes read as before.
+require_tracking_read       = require_tracking
+require_tracking_read_write = require_tracking_full
 
 
 def _schedulers(g) -> list:
@@ -6043,7 +6048,7 @@ def track_clock(body: TrackClockIn, request: Request, dev: AgentDevice = Depends
 
 
 @router.get("/track/live")
-def track_live(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+def track_live(user: dict = Depends(require_tracking_read), db: Session = Depends(get_db)):
     """Latest ping per currently-tracked team member - the live crew map. Scoped
     to the viewer's team (whole company for HR/admins). Self-heals: a session
     whose last ping is older than the idle window is closed and dropped, so a
@@ -6142,7 +6147,7 @@ def geofence_punches(email: str = "", start: str = "", end: str = "",
 
 
 @router.get("/locations")
-def team_locations(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+def team_locations(user: dict = Depends(require_tracking_read), db: Session = Depends(get_db)):
     """Each employee's LATEST punch location, for the Locations map. Scoped to the
     viewer's team (whole company for HR/admins). A punch carries lat/lng even when
     the geofence can't judge it (no site, or a coarse desktop fix), so this shows
@@ -6220,7 +6225,7 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
 
 
 @router.get("/track/path")
-def track_path(email: str, date: str, user: dict = Depends(require_team_read),
+def track_path(email: str, date: str, user: dict = Depends(require_tracking_read),
                db: Session = Depends(get_db)):
     """Ordered breadcrumb for one employee on one local date - the map replay."""
     em = email.strip().lower()
@@ -11454,10 +11459,13 @@ def list_screenshots(date: str = "", email: str = "",
 
 @router.get("/team-screenshots")
 def team_screenshots(date: str = "", email: str = "",
-                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """Manager-scoped screenshot gallery - same shape as the admin /screenshots but
-    limited to the caller's visible team (their reports), so a level-3 manager can
-    review their own team without company-wide access."""
+                     user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
+    """Screenshot gallery limited to the caller's visible team - same shape as
+    /screenshots. Screenshots are Workforce Analytics' alone (Neil, 10/29/2026:
+    "only those who should have access"): the Employee Tracking grant (or
+    administrator), like /screenshots - no longer any manager or HR-viewer
+    grant, which reached the whole company's frames through here. No screen
+    calls it today."""
     visible = _visible_emails(db, user)   # None = whole company (admin/HR grant)
     day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     q = db.query(TimeScreenshot).filter(TimeScreenshot.local_date == day)

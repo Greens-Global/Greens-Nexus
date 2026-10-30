@@ -128,6 +128,15 @@ class ScopeGapTests(unittest.TestCase):
         self.assertEqual(self._people(LEAD), {p["email"]: p["count"] for p in
                                               timeclock.team_screenshots(date=DAY, email="", user=LEAD, db=self.db)["people"]})
 
+    def test_screenshot_galleries_need_the_tracking_grant(self):
+        # Neil, 10/29/2026: screenshots are Workforce Analytics' alone. Both
+        # galleries take the Employee Tracking grant - never a plain manager
+        # or an HR-viewer grant (/team-screenshots used to admit both, and an
+        # unrestricted HR grant reached the whole company's frames).
+        for path in ("/screenshots", "/team-screenshots"):
+            route = next(r for r in timeclock.router.routes if getattr(r, "path", "").endswith(path))
+            self.assertIn(timeclock.require_tracking, [d.call for d in route.dependant.dependencies], path)
+
     def test_frames_of_someone_outside_the_team_are_refused(self):
         with self.assertRaises(HTTPException) as cm:
             timeclock.list_screenshots(date=DAY, email=B_EMP["email"], user=LEAD, db=self.db)

@@ -8,8 +8,15 @@ import { render, screen, fireEvent } from '@testing-library/react';
 // Settings > Global Settings > Shifts) and no employee New Request here
 // (that is Workday > Time Off).
 
-const role = { level: 1 };
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: (r) => role.level >= ({ manager: 3 }[r] ?? 1) }) }));
+const role = { level: 1, grants: new Set(), external: false };
+const ADMIN = 5;
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({
+  isExternal: role.external,
+  can: (r) => role.level >= ({ manager: 3, administrator: ADMIN }[r] ?? 1),
+  // RoleContext's rule: the role tier, else a grant at the level asked for.
+  canAccessModule: (m, minRole) => role.level >= ({ administrator: ADMIN }[minRole] ?? 1) || role.grants.has(m),
+}) }));
+vi.mock('../components/TimeTrackingAdmin', () => ({ default: ({ initialSub, embedded }) => <div>Workforce Analytics on {initialSub || 'its first tab'}{embedded ? ' (embedded)' : ''}</div> }));
 const shiftRequestsInbox = vi.fn();
 const timeOffList = vi.fn();
 vi.mock('../api', () => ({ api: { shiftRequestsInbox: (...a) => shiftRequestsInbox(...a), timeOffList: (...a) => timeOffList(...a) } }));
@@ -22,6 +29,8 @@ const Shifts = (await import('./Shifts')).default;
 const tabNames = () => screen.getAllByRole('tab').map((t) => t.textContent.trim());
 
 beforeEach(() => {
+  role.grants = new Set();
+  role.external = false;
   shiftRequestsInbox.mockReset().mockResolvedValue({ pending: [{ id: 'p1', kind: 'swap' }], recent: [], waitingOnPeer: [] });
   timeOffList.mockReset().mockResolvedValue([{ id: 't1', canDecide: true }, { id: 't2', canDecide: false }]);
 });
@@ -78,5 +87,52 @@ describe('Team module', () => {
     shiftRequestsInbox.mockRejectedValue(new Error('API error 500'));
     render(<Shifts activeSub="requests" onSubChange={() => {}} />);
     expect(await screen.findByText('Requests page (error)')).toBeTruthy();
+  });
+  // Workforce Analytics moved into Team (Neil, Oct 29 2026). Team is
+  // everyone's, so the tab is only for administrators and the people given
+  // the Workforce Analytics or Workforce Scorecard grant - never a plain
+  // manager - and its address (a bell, the Monday email) falls back to
+  // Shifts for anyone else.
+  it('shows Workforce Analytics only to its grant holders and administrators', async () => {
+    role.level = 1;
+    const { unmount } = render(<Shifts activeSub="analytics:scorecard" onSubChange={vi.fn()} />);
+    expect(tabNames()).not.toContain('Workforce Analytics');
+    expect(screen.getByText('Group week')).toBeTruthy();
+    expect(screen.queryByText(/Workforce Analytics on/)).toBeNull();
+    unmount();
+
+    role.level = 3;   // a manager with no grant: still no tab, nothing loaded
+    const m = render(<Shifts activeSub="analytics" onSubChange={vi.fn()} />);
+    expect(tabNames()).not.toContain('Workforce Analytics');
+    expect(screen.queryByText(/Workforce Analytics on/)).toBeNull();
+    m.unmount();
+
+    role.level = 1; role.grants = new Set(['workforce-scorecard']);   // Scorecard grant alone
+    const e = render(<Shifts activeSub="analytics:scorecard" onSubChange={vi.fn()} />);
+    expect(tabNames()).toContain('Workforce Analytics');
+    expect(await screen.findByText('Workforce Analytics on scorecard (embedded)')).toBeTruthy();
+    e.unmount();
+
+    role.level = 3; role.grants = new Set(['employee-tracking']);
+    const g = render(<Shifts activeSub={null} onSubChange={vi.fn()} />);
+    expect(tabNames()).toEqual(['Shifts', 'Schedule', 'Requests', 'Workforce Analytics', 'Company Directory']);
+    g.unmount();
+
+    role.level = ADMIN; role.grants = new Set();
+    render(<Shifts activeSub="analytics" onSubChange={vi.fn()} />);
+    expect(await screen.findByText('Workforce Analytics on its first tab (embedded)')).toBeTruthy();
+  });
+  it('gives an external guest with the grant that one tab, and nothing of Team else', async () => {
+    role.level = 1; role.external = true; role.grants = new Set(['employee-tracking']);
+    const { unmount } = render(<Shifts activeSub="contact" onSubChange={vi.fn()} />);
+    expect(tabNames()).toEqual(['Workforce Analytics']);
+    expect(await screen.findByText('Workforce Analytics on its first tab (embedded)')).toBeTruthy();
+    expect(screen.queryByText(/Directory/)).toBeNull();
+    expect(screen.queryByText('Group week')).toBeNull();
+    unmount();
+    role.grants = new Set();   // a guest without it: no tab, no content, no manager page
+    render(<Shifts activeSub="requests" onSubChange={vi.fn()} />);
+    expect(screen.queryAllByRole('tab')).toEqual([]);
+    expect(screen.queryByText(/Requests page|Group week|Workforce Analytics on/)).toBeNull();
   });
 });
