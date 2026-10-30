@@ -219,7 +219,9 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
     const bad = checkMedia(file);
     if (bad) { setErrors((e) => ({ ...e, [key]: { ...e[key], clips: bad } })); return; }
     const clip = { id: uid(), kind: mediaKind(file), status: 'uploading', url: '' };
-    patch(key, { clips: [...(line.clips || []), clip] });
+    // From the latest lines, not this render's: a recording that stops as a
+    // video is picked must not overwrite the other.
+    setLines((ls) => ls.map((l) => (l.key !== key || (l.clips || []).length >= MAX_CLIPS ? l : { ...l, clips: [...(l.clips || []), clip] })));
     clearErr(key, 'clips');
     uploadClip(key, clip, file);
   };
