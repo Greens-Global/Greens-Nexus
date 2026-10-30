@@ -1,12 +1,18 @@
 // TicketEvidence - split out of TicketsView.jsx (Oct 2026); the code below
 // moved verbatim, see TicketsView.jsx for the module overview.
 import { useRef, useState } from 'react';
-import { Paperclip, X, Image as ImageIcon, Video, Upload as UploadIcon, Mic, CircleDot } from 'lucide-react';
+import { Paperclip, X, Image as ImageIcon, Video, Upload as UploadIcon, Mic, CircleDot, AudioLines } from 'lucide-react';
 import { startScreenRecording, primeReturnCue } from '../lib/screenRecorder';
 import { NX, btn } from '../tasks/theme';
 import { dialog as appDialog } from '../ui/dialog';
 import { Spinner } from '../components/AsyncState';
 import AnchoredMenu from '../components/AnchoredMenu';
+import VoiceNoteButton from '../components/VoiceNoteButton';
+import { mediaKind } from '../lib/voice';
+
+// Screen recording needs getDisplayMedia, which no phone browser has - the
+// button only promised something that could not start there.
+const canRecordScreen = () => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
 
 // Shared Record + Upload control - a screen recording (optionally with mic
 // narration) or a plain file picker. `onFile(file)` gets a plain File each
@@ -17,7 +23,9 @@ import AnchoredMenu from '../components/AnchoredMenu';
 // at the foot of the form - same actions, same recording flow.
 // `quiet` (the Create a Ticket form, Oct 28 2026 - Neil: calm intake): plain
 // text buttons in the bar under the description, the record dot the only red.
-function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange, compact = false, quiet = false }) {
+// `voiceNote` (Neil, Oct 30 2026): a Voice Note button beside them - the clip
+// reaches `onFile` like any picked file.
+function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange, compact = false, quiet = false, voiceNote = true }) {
   const fileRef = useRef(null);
   const [menu, setMenu] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -59,7 +67,7 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-      {showRecord && (
+      {showRecord && canRecordScreen() && (
         <div style={{ position: 'relative' }}>
           {/* Record is the featured action here - a screen recording tells us
               more about a broken workflow than a paragraph of description
@@ -106,17 +114,22 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
       </button>
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
         onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ''; files.forEach(onFile); }} />
+      {voiceNote && (
+        <VoiceNoteButton onFile={onFile} disabled={disabled}
+          style={quiet ? { border: 'none', background: 'transparent', height: 'auto', padding: '5px 8px', fontSize: 12.5 } : { height: 30, fontSize: 12.5 }} />
+      )}
     </div>
   );
 }
 
 // Pending-attachment chip for the create-ticket form (local File, not yet uploaded).
 function PendingFileChip({ file, onRemove }) {
-  const isVideo = file.type.startsWith('video/');
-  const isImage = file.type.startsWith('image/');
+  const isVideo = mediaKind(file) === 'video';
+  const isAudio = mediaKind(file) === 'audio';
+  const isImage = (file.type || '').startsWith('image/');
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 9px 3px 8px', fontSize: 12 }}>
-      {isVideo ? <Video size={13} style={{ color: NX.dim }} /> : isImage ? <ImageIcon size={13} style={{ color: NX.dim }} /> : <Paperclip size={13} style={{ color: NX.dim }} />}
+      {isVideo ? <Video size={13} style={{ color: NX.dim }} /> : isAudio ? <AudioLines size={13} style={{ color: NX.dim }} /> : isImage ? <ImageIcon size={13} style={{ color: NX.dim }} /> : <Paperclip size={13} style={{ color: NX.dim }} />}
       <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
       <button type="button" onClick={onRemove} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
     </span>
