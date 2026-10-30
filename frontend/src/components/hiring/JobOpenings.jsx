@@ -13,8 +13,13 @@
 //
 // Pay: the range and the public pay toggle (off by default) are Pay &
 // Benefits only - the server refuses anyone else.
+//
+// Headcount Requests are off per company until Settings turns them on (Neil,
+// Oct 30 2026). For a company with them off HR starts an opening by hand
+// (New Opening, `directCompanies` from GET /hiring/headcount/meta); where
+// they are on, an opening still comes only from an approved request.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Briefcase, Copy, ExternalLink, Share2, Megaphone, Save } from 'lucide-react';
+import { Briefcase, Copy, ExternalLink, Share2, Megaphone, Save, Plus } from 'lucide-react';
 import { api } from '../../api';
 import { Modal, DateField, PersonSelect } from '../../tasks/components';
 import { StatusLabel } from '../StatusLabel';
@@ -43,12 +48,13 @@ async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
-export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFilterPipeline }) {
+export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFilterPipeline, directCompanies = [], onCreated }) {
   const [rows, setRows] = useState(null);
   const [links, setLinks] = useState([]);
   const [loadErr, setLoadErr] = useState(false);
   const [openId, setOpenId] = useState(null);
   const [show, setShow] = useState('active');
+  const [starting, setStarting] = useState(false);
 
   const load = useCallback(() => {
     setLoadErr(false);
@@ -71,14 +77,17 @@ export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFi
               className={show === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 12.5, padding: '5px 12px' }}>{label}</button>
           ))}
         </div>
-        <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>New openings come from approved headcount requests.</span>
+        {directCompanies.length > 0
+          ? <button type="button" className="primary-btn" onClick={() => setStarting(true)}
+            style={{ marginLeft: 'auto', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> New Opening</button>
+          : <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>New openings come from approved headcount requests.</span>}
       </div>
 
       {shown.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
           <Briefcase size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
           <div style={{ fontSize: 14, fontWeight: 600 }}>No job openings yet.</div>
-          <div style={{ fontSize: 12.5, marginTop: 4 }}>An approved headcount request becomes a Draft opening here.</div>
+          <div style={{ fontSize: 12.5, marginTop: 4 }}>{directCompanies.length > 0 ? 'Start one with New Opening.' : 'An approved headcount request becomes a Draft opening here.'}</div>
         </div>
       ) : (
         <div role="list" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -118,6 +127,8 @@ export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFi
         </div>
       )}
 
+      {starting && <NewOpening companies={directCompanies} toastErr={toastErr} onClose={() => setStarting(false)}
+        onCreated={(o) => { setStarting(false); setRows(prev => [o, ...(prev || [])]); setOpenId(o.id); onCreated?.(); toastOk?.('Draft opening started - add the description and where the job is, then open it.'); }} />}
       {open && <OpeningEditor o={open} canSeePay={canSeePay} onClose={() => setOpenId(null)} toastOk={toastOk} toastErr={toastErr}
         onSaved={u => setRows(prev => prev.map(x => (x.id === u.id ? u : x)))} />}
     </div>
@@ -275,6 +286,50 @@ export function OpeningEditor({ o, canSeePay, onClose, onSaved, toastOk, toastEr
             placeholder={'What the job is, what they will do, what they bring.\n\nA blank line starts a new paragraph.\n- Lines starting with a dash\n- become a bulleted list'}
             style={{ width: '100%', fontFamily: 'Inter,sans-serif', fontSize: 13, lineHeight: 1.55 }} />}
       </div>
+    </Modal>
+  );
+}
+
+// Start a Draft opening by hand - only for a company with Headcount Requests
+// off (the server refuses the rest). The editor opens on it right after.
+function NewOpening({ companies, onClose, onCreated, toastErr }) {
+  const [f, setF] = useState({ company: companies[0]?.id || '', title: '', department: '', employment_type: 'full_time', seats: 1 });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+  const dirty = !!(f.title.trim() || f.department.trim());
+  const create = async () => {
+    if (!f.title.trim()) { toastErr?.('Give the opening a job title.'); return; }
+    setBusy(true);
+    try { onCreated(await api.createOpening({ ...f, title: f.title.trim(), seats: Number(f.seats) || 1 })); }
+    catch (e) { toastErr?.(e?.message || 'Could not start the opening.'); setBusy(false); }
+  };
+  const footer = (<>
+    <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+    <button type="button" className="primary-btn" disabled={busy || !f.title.trim()} onClick={create}>{busy ? 'Starting…' : 'Start Opening'}</button>
+  </>);
+  return (
+    <Modal title="New Opening" onClose={onClose} footer={footer} isDirty={dirty} onSave={create}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 12, alignContent: 'start' }}>
+        {companies.length > 1 && (
+          <div><label style={FL} htmlFor="new-op-company">Company</label>
+            <select id="new-op-company" className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select></div>
+        )}
+        <div><label style={FL} htmlFor="new-op-title">Job Title *</label>
+          <input id="new-op-title" className="form-input" style={{ width: '100%' }} value={f.title} maxLength={200} autoFocus
+            onChange={e => set('title', e.target.value)} placeholder="e.g. Site Supervisor" /></div>
+        <div><label style={FL} htmlFor="new-op-dept">Department</label>
+          <input id="new-op-dept" className="form-input" style={{ width: '100%' }} value={f.department} maxLength={120} onChange={e => set('department', e.target.value)} /></div>
+        <div><label style={FL} htmlFor="new-op-type">Employment Type</label>
+          <select id="new-op-type" className="form-input" style={{ width: '100%' }} value={f.employment_type} onChange={e => set('employment_type', e.target.value)}>
+            <option value="full_time">Full-Time</option><option value="part_time">Part-Time</option><option value="contractor">Contractor</option>
+            <option value="intern">Intern</option><option value="temporary">Temporary</option>
+          </select></div>
+        <div><label style={FL} htmlFor="new-op-seats">Seats</label>
+          <input id="new-op-seats" type="number" min={1} max={100} className="form-input" style={{ width: '100%' }} value={f.seats} onChange={e => set('seats', e.target.value)} /></div>
+      </div>
+      <div style={{ ...hint, marginTop: 12 }}>It starts as a Draft. Add the description, pay and where the job is in the opening, then open it on the careers page.</div>
     </Modal>
   );
 }

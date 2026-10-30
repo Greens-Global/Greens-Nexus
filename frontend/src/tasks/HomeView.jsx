@@ -19,6 +19,7 @@ import { NX, FONT, btn, PRIORITY_META } from './theme';
 import { useIsMobile, DateField, notPast } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import AnchoredMenu from '../components/AnchoredMenu';
+import DictateButton from '../components/DictateButton';
 import { useTableValue, whenTablePrefsLoaded } from './tableCols';
 import { api } from '../api';
 import UpdatesCard from './HomeUpdates';
@@ -558,6 +559,7 @@ export default function HomeView({ onNavigate }) {
               // focus too, and must not save).
               onBlur={(e) => { const to = e.relatedTarget; if (to && !createRowRef.current?.contains(to) && !to.closest?.('[data-nx-calendar]')) commitCreate(false); }}
               placeholder="Write a task name" className="nx-inline-edit" style={{ flex: 1, minWidth: 0, border: 'none', fontFamily: FONT, fontSize: 13, color: NX.ink }} />
+            <DictateButton target={titleRef} title="Dictate the Task Name" style={{ width: 28, height: 28 }} size={14} />
             {/* DateField, never a native date box (it follows the computer's
                 region). A picked date puts the cursor back in the title, so
                 Enter saves. */}

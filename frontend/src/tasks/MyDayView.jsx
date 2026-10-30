@@ -17,6 +17,7 @@ import { projectLook } from './projectLook';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import AnchoredMenu from '../components/AnchoredMenu';
+import DictateButton from '../components/DictateButton';
 
 const card = { background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12 };
 
@@ -59,6 +60,7 @@ function QuickAdd({ onAdd }) {
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
         placeholder="Add a task for today" aria-label="Add a task for today" maxLength={500}
         style={{ ...inputStyle, border: 'none', padding: '6px 2px', background: 'transparent', fontSize: 14 }} />
+      {!busy && <DictateButton target={ref} title="Dictate a Task" />}
       {title.trim() && (
         <button type="button" onClick={submit} disabled={busy} style={{ ...btn('primary'), padding: '5px 12px', fontSize: 12.5, flexShrink: 0 }}>
           {busy ? 'Adding...' : 'Add'}
