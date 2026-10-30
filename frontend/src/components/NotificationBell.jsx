@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight, Sparkles, ArrowRight, Flag, Award, PenLine, Users, BookOpen, Unlock } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight, Sparkles, ArrowRight, Flag, Award, PenLine, Users, BookOpen, Unlock, Camera } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
@@ -76,6 +76,8 @@ const TYPE_META = {
   kb_page_request:      { icon: HelpCircle,  label: 'Page Requested',         color: 'var(--color-blue)'   },
   kb_request_done:      { icon: CheckCircle, label: 'Page Request Done',      color: 'var(--color-green)'  },
   kb_sign_declined:     { icon: XCircle,     label: 'Policy Signature Declined', color: 'var(--color-red)'  },
+  kb_session_invite:    { icon: Users,       label: 'Training Session',       color: 'var(--color-blue)'   },
+  kb_photo_review:      { icon: Camera,      label: 'Photo to Review',        color: 'var(--color-orange)' },
   time_missed_out:      { icon: Clock,       label: 'Missing clock-out',    color: 'var(--color-orange)' },
   time_overtime:        { icon: Clock,       label: 'Overtime',             color: 'var(--color-orange)' },
   // The week's What's New, kept here for anyone who dismissed the bar (Oct 12).

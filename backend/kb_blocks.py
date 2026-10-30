@@ -28,6 +28,7 @@ BLOCK_TYPES = {
     "horizontalRule", "hardBreak", "codeBlock", "table", "tableRow", "tableHeader",
     "tableCell", "image", "checklist", "checkItem", "steps", "step", "callout",
     "video", "embedPage", "text", "doc",
+    "file",   # an attachment (WP 5.2): a PDF form, spreadsheet or manual in kb-media
 }
 MARK_TYPES = {"bold", "italic", "underline", "strike", "code", "link", "highlight"}
 CALLOUT_KINDS = ("warning", "tip", "note", "safety")
@@ -88,6 +89,12 @@ def table(headers: list[str], rows: list[list[str]]) -> dict:
 
 def image(src: str, alt: str = "") -> dict:
     return {"type": "image", "attrs": {"src": src, "alt": alt or ""}}
+
+
+def file_block(url: str, name: str, size: int = 0, mime: str = "") -> dict:
+    """An attachment (WP 5.2, Oct 29 2026): the file lives in the private
+    kb-media bucket; the page keeps its canonical URL, name and size."""
+    return {"type": "file", "attrs": {"url": url, "name": name or "File", "size": int(size or 0), "mime": mime or ""}}
 
 
 def video(url: str, title: str = "") -> dict:
@@ -152,6 +159,8 @@ def node_text(node: dict) -> str:
     """The text inside one node, paragraphs joined with newlines."""
     if node.get("type") == "text":
         return node.get("text") or ""
+    if node.get("type") == "file":   # an attachment is found by its name
+        return f"Attachment: {(node.get('attrs') or {}).get('name') or ''}"
     out: list[str] = []
     for c in node.get("content") or []:
         if not isinstance(c, dict):
@@ -303,7 +312,19 @@ def sanitize(d: Any, image_ok=None) -> dict:
             url = str(attrs_in.get("url") or "")
             if not url.startswith("https://"):
                 return []
-            attrs = {"url": url[:500], "title": str(attrs_in.get("title") or "")[:200]}
+            attrs = {"url": url[:1000], "title": str(attrs_in.get("title") or "")[:200],
+                     # WP 5.10: "file" = uploaded to kb-media and played in the page; "link" = YouTube, Loom...
+                     "kind": "file" if attrs_in.get("kind") == "file" else "link"}
+        elif t == "file":
+            url = attrs_in.get("url")
+            if not ok_img(url):          # the same storage-URL rule as images: never a data: blob
+                return []
+            try:
+                size = max(0, int(attrs_in.get("size") or 0))
+            except (TypeError, ValueError):
+                size = 0
+            attrs = {"url": url[:1000], "name": str(attrs_in.get("name") or "File")[:200], "size": size,
+                     "mime": str(attrs_in.get("mime") or "")[:100]}
         elif t == "embedPage":
             did = str(attrs_in.get("docId") or "")
             if not did:
@@ -334,7 +355,7 @@ def sanitize(d: Any, image_ok=None) -> dict:
         n = {"type": t}
         if attrs:
             n["attrs"] = attrs
-        if t in ("horizontalRule", "hardBreak", "image", "video", "embedPage"):
+        if t in ("horizontalRule", "hardBreak", "image", "video", "embedPage", "file"):
             return [n]
         # containers need at least one child the schema accepts
         if t == "steps":

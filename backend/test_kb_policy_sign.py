@@ -189,6 +189,13 @@ class PolicySignCase(unittest.TestCase):
         self.assertEqual(sorted(r.status for r in old), ["completed", "voided", "voided"])
         self.assertEqual(kps.state_for(self.db, self._doc(), ANN)["status"], "pending")
 
+    def test_a_policy_not_live_yet_asks_nobody(self):
+        d = self._doc()
+        d.live_from = kb_core.add_days(kb_core.today(), 5)      # WP 5.8
+        self.db.commit()
+        self.assertEqual(kps.run(self.db), 0)
+        self.assertFalse(kb_core.signoff_state(self.db, self._doc(), ANN)["required"])
+
     def test_off_sends_nothing(self):
         from unittest import mock
         with mock.patch.object(kb_core, "NEXUS_SIGN_FOR_POLICIES", False):

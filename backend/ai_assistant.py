@@ -312,7 +312,7 @@ def _search_knowledge_base(user: dict, db: Session, query: str = "", **_args) ->
     import kb_search
     if not query.strip():
         return {"results": []}
-    pages = kb_access.wall_rows(db.query(models.KbDocument).filter(models.KbDocument.status == "approved").all(), user, db)
+    pages = kb_access.readable(db.query(models.KbDocument).filter(models.KbDocument.status == "approved").all(), user, db)   # wall + readers (WP 5.3)
     by_id = {d.id: d for d in pages}
     hits = kb_search.search(db, pages, query, limit=3)["results"]
     return {

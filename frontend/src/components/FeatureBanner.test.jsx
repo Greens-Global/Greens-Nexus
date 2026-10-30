@@ -155,16 +155,32 @@ describe('a new version, in the same bar', () => {
     expect(api.dismissFeatureBanner).not.toHaveBeenCalled();
   });
 
-  it("See What's New loads the new version straight onto What's New", async () => {
+  it("See What's New opens the new version's updates in a popup - no reload (Oct 29 2026)", async () => {
     build.stale = true;
-    api.getReleasedSince.mockResolvedValue({ counts: { Improvement: 2 }, total: 2 });
+    api.getReleasedSince.mockResolvedValue({ counts: { Improvement: 1, 'Bug Fix': 2 }, total: 4, items: [
+      { id: 'a', title: 'Faster Shift Grid', type: 'Improvement', module: 'Shifts', summary: 'Loads in half the time.' },
+      { id: 'b', title: 'Toolbar Fix', type: 'Bug Fix', module: 'Shifts', summary: '' },
+      { id: 'c', title: 'Photo Fix', type: 'Bug Fix', module: 'HR', summary: '' },
+    ] });
     const assign = vi.fn();
+    const reload = vi.fn();
     const original = window.location;
-    Object.defineProperty(window, 'location', { configurable: true, value: { ...original, assign } });
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...original, assign, reload } });
     try {
       mount();
       fireEvent.click(await screen.findByRole('button', { name: "See What's New" }));
-      expect(assign).toHaveBeenCalledWith('/whats-new');
+      const dialog = screen.getByRole('dialog', { name: "What's New in This Version" });
+      expect(dialog.textContent).toContain('1 Improvement');
+      expect(dialog.textContent).toContain('Faster Shift Grid');
+      expect(dialog.textContent).toContain('2 Bug Fixes');
+      expect(dialog.textContent).toContain('And 1 more');
+      expect(assign).not.toHaveBeenCalled();
+      expect(reload).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: 'Later' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: "See What's New" }));
+      fireEvent.click(screen.getByRole('button', { name: /Reload Now/ }));
+      expect(reload).toHaveBeenCalled();
     } finally {
       Object.defineProperty(window, 'location', { configurable: true, value: original });
     }

@@ -430,13 +430,15 @@ const GROUPS = [
     keywords: 'intacct employee codes nightly sync automatic payroll' },
   // Workforce Analytics
   { id: 'app-ratings', subject: 'analytics', face: 'org', scope: 'org', icon: MonitorDot, title: 'App & Website Ratings',
-    needs: { role: 'manager', grant: [['hr', 'editor'], ['employee-tracking', 'full']] },
+    // Workforce Analytics' own (Neil, 10/29/2026): the full Employee Tracking
+    // grant, as /timeclock/ratings now demands - no longer any manager or HR editor.
+    needs: { role: 'administrator', grant: ['employee-tracking', 'full'] },
     sub: 'Every application and website seen on company computers, rated productive, neutral or unproductive - the split the Workforce Analytics dashboard shows.',
     keywords: 'apps websites ratings productive neutral unproductive workforce analytics activity' },
-  // Moved out of Shift Settings (Oct 25): managers see the trail in Workforce Analytics.
+  // Moved out of Shift Settings (Oct 25): Workforce Analytics grant holders see the trail (Oct 29 2026).
   { id: 'location-trail', subject: 'analytics', face: 'both', scope: 'layered', icon: MapPinned, title: 'Location Trail', part: 'trail', flush: true,
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
-    sub: 'Share each person\'s location while they are clocked in, for managers in Workforce Analytics. Off unless turned on.',
+    sub: 'Share each person\'s location while they are clocked in, for Workforce Analytics grant holders. Off unless turned on.',
     keywords: 'location trail gps clocked in live position map workforce analytics privacy shifts' },
   { id: 'company-policy', subject: 'analytics', face: 'company', scope: 'company', icon: MonitorDot, title: 'Workforce Analytics Policy',
     needs: { role: 'administrator', grant: ['employee-tracking', 'full'] },

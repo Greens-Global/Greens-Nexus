@@ -626,7 +626,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const [busy, setBusy] = useState(false);
   const [stepLocked, setStepLocked] = useState(false);   // payroll $ needs a fresh step-up
   const [exceptions, setExceptions] = useState([]);      // per-employee missing/exception counts (sidebar)
-  const [showRaw, setShowRaw] = useState(false);         // SwipeClock's "Show Unrounded Times"
+  const [showRawPick, setShowRaw] = useState(false);     // SwipeClock's "Show Unrounded Times"
+  // Only a card whose company rounds punches has unrounded times to show.
+  const rounds = !!data?.rounding?.enabled;
+  const showRaw = showRawPick && rounds;
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
   // Your own timesheet reads in your own zone, so a time you type is the time
   // you mean (Oct 13). After useDisplayTz, so its listener hears the switch.
@@ -1573,8 +1576,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             times. The pay rules that used to sit here (rounding, auto-lunch,
             CA paid breaks) are company settings under Settings > Global
             Settings > Time Clock, and the OT rule + rate are set on the
-            person's Pay & Benefits tab - never on the timecard (Charmi, Sep 30). */}
-        <TimecardOptions showRaw={showRaw} setShowRaw={setShowRaw} />
+            person's Pay & Benefits tab - never on the timecard (Charmi, Sep 30).
+            With rounding off the raw time IS the time, so there is nothing
+            to show and no button (Neil, Oct 29 2026). */}
+        {rounds && <TimecardOptions showRaw={showRaw} setShowRaw={setShowRaw} />}
       </div>
 
       {/* The employee's own sheet leads with what they have to do (Neil, Oct
@@ -2007,8 +2012,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           body: 'Bi-weekly, Sunday to Saturday - the SAME calendar as SwipeClock (current period 7/26–8/8), so the two cards always cover identical days. Arrows move one period; click the dates to pick one. Pick it first - every employee you open stays on it.' },
         { target: 'pr-table', title: 'The time sheet - same columns as SwipeClock',
           body: 'Date, Edit, In, Out, Deducted Time, Category, Total Hours, OT (1.5× and, past 12 hours in California, 2×), Location, Pay Rate and Wage. A shift with a break reads as punch pairs, like SwipeClock - one row from the clock-in to the break, the next from the break end to the clock-out, each with its own hours - and a thin line between them gives the length and times of the break. Hrs/Day shows the total for the day on its last row. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Add Note in the toolbar leaves a note on a day; it reads on the line under that day. Weekly total rows appear after each week.' },
-        { target: 'pr-rounding', title: 'Options: rounded vs raw times',
-          body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
+        ...(rounds ? [{ target: 'pr-rounding', title: 'Options: rounded vs raw times',
+          body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' }] : []),
         { target: 'pr-edit', title: 'Fix punches here',
           body: 'Edit on a row opens that shift - set the real in/out, location and Type, or delete a punch; on a row that starts where a break ended (or on the break line itself) it fixes or deletes the break. Add on any row adds Regular, Break, Sick, Vacation or Personal time for someone. Originals stay on record with who changed what, like SwipeClock\'s audit log.' },
         { target: 'pr-summary', title: 'Totals, in both formats',
@@ -2581,7 +2586,15 @@ const punchHistory = (meta, rounded) => !meta ? '' : [
     + (rounded && t12(rounded) !== t12(meta.at) ? ` - counted as ${t12(rounded)} (rounded)` : ''),
   [meta.source, meta.site, meta.ip ? `IP ${meta.ip}` : ''].filter(Boolean).join(' · '),
   meta.manual && meta.createdBy ? `Entered by ${meta.createdBy} on ${_z(meta.createdAt)}` : '',
-  meta.adjustedAt ? `Changed by ${meta.adjustedBy} on ${_z(meta.adjustedAt)}${meta.originalAt ? ` - was ${t12s(meta.originalAt)}` : ''}${meta.adjustNote ? `: ${meta.adjustNote}` : ''}` : '',
+  // An approved employee edit stamps adjustedAt with no adjustedBy - the
+  // decision line below says who, so this one says only what it was.
+  meta.adjustedAt ? `Changed ${meta.adjustedBy ? `by ${meta.adjustedBy} ` : ''}on ${_z(meta.adjustedAt)}${meta.originalAt ? ` - was ${t12s(meta.originalAt)}` : ''}${meta.adjustNote ? `: ${meta.adjustNote}` : ''}` : '',
+  // The employee's own edit and what became of it (Neil, Oct 29 2026): what
+  // they asked for stays here after an approval or a rejection.
+  (meta.editStatus === 'approved' || meta.editStatus === 'rejected') && meta.editRequestedAt
+    ? `${meta.editedBy || 'The employee'} asked for ${t12s(meta.editRequestedAt)}${meta.editedAt ? ` on ${_z(meta.editedAt)}` : ''}${meta.editReason ? ` - "${meta.editReason}"` : ''}` : '',
+  (meta.editStatus === 'approved' || meta.editStatus === 'rejected') && meta.editReviewedAt
+    ? `${meta.editStatus === 'approved' ? 'Approved' : 'Rejected'}${meta.editReviewedBy ? ` by ${meta.editReviewedBy}` : ''} on ${_z(meta.editReviewedAt)}${meta.editNote ? `: ${meta.editNote}` : ''}` : '',
 ].filter(Boolean).join('\n');
 
 function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, locateEmail, onLocate }) {

@@ -39,10 +39,15 @@ const HR_TAB = { key: 'documents-hr-records', label: 'HR Records', Icon: Users }
 // pattern as the Task, Ticket and Support tours' own ids.
 const DOCUMENTS_TOUR_ID = 'documents';
 
+// The header's Create menu (Oct 29 2026): "documents-new" is My Documents with
+// its New Document dialog open, "documents-esign-send" is Nexus Sign with the
+// Send for Signature wizard open; the address then goes back to the tab.
+const CREATE_SUBS = { 'documents-new': 'documents-browse', 'documents-esign-send': 'documents-esign' };
+
 export default function Documents({ activeSub, onSubChange }) {
   // Deep-links: 'documents-esign' / 'documents-esign-requests' both live on the
   // E-Sign tab - ESign reads the raw activeSub to pick its own sub-tab.
-  const navSub = String(activeSub || '').startsWith('documents-esign') ? 'documents-esign' : activeSub;
+  const navSub = CREATE_SUBS[activeSub] || (String(activeSub || '').startsWith('documents-esign') ? 'documents-esign' : activeSub);
   // HR Records shows only when the caller may read People (the probe 200s).
   const [hrAccess, setHrAccess] = useState(false);
   useEffect(() => {
@@ -57,6 +62,15 @@ export default function Documents({ activeSub, onSubChange }) {
   // bool) so a second click while already on that tab still re-triggers it.
   const [browseCreateSignal, setBrowseCreateSignal] = useState(0);
   const [templateCreateSignal, setTemplateCreateSignal] = useState(0);
+  const [createSeenSub, setCreateSeenSub] = useState(null);
+  if (activeSub !== createSeenSub) {
+    setCreateSeenSub(activeSub);
+    if (CREATE_SUBS[activeSub] === 'documents-browse') setBrowseCreateSignal(n => n + 1);
+  }
+  useEffect(() => {
+    if (CREATE_SUBS[activeSub]) onSubChange?.(CREATE_SUBS[activeSub]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSub]);
 
   // When a PDF is open in the PDF Editor tab, the editor goes full-bleed
   // (App.jsx hides the Nexus header). Hide Documents' own title + tab strip too

@@ -108,12 +108,13 @@ export default function CredentialVaultApp({ activeSub }) {
   // Deep links: the bell / header search set `activeSub`; a repeat click on the
   // same destination arrives as a window event while the sub does not change.
   const applySub = useCallback((sub) => {
-    const { tab: t, credId, collection: col } = parseSub(sub);
+    const { tab: t, credId, collection: col, create } = parseSub(sub);
     if (!t) return;
     setTab(t);
     if (col) setCollection(col);
     if (credId) { setCollection("all"); setFDept(""); setSelectedId(credId); }
-  }, []);
+    if (create && canWrite) setForm({ cred: null });
+  }, [canWrite]);
   useEffect(() => { applySub(activeSub); }, [activeSub, applySub]);
   useEffect(() => {
     const h = (e) => { if (e.detail?.view === "credvault") applySub(e.detail.sub); };

@@ -10,6 +10,7 @@ import { useActionCounts, moduleCount, countText, countDetail } from '../lib/use
 import NavCount from './NavCount';
 import NavMore from './NavMore';
 import { useOffscreenCounts } from '../lib/useOffscreenCounts';
+import { WORKFORCE_GRANTS } from '../lib/workforceAccess';
 
 // Sub-screens per module - the same sub ids the views' tab strips use, so a
 // tap deep-links exactly where the in-page tab would. Modules absent here
@@ -18,19 +19,38 @@ import { useOffscreenCounts } from '../lib/useOffscreenCounts';
 // visit two taps and only ever reached Reports; a tap now lands on the first
 // tab the person may see (Overview, or Reports for entity-limited readers),
 // exactly like the desktop sidebar, with the tab strip pinned under the header.
+/**
+ * The sub-screens of `view` this person may open - the phone menu and the
+ * header search both read this, so a gated tab (one with `grants`) is never
+ * listed for someone without one of them. `role` is useRole().
+ */
+export function visibleSubs(view, role) {
+  const entry = SUBMENUS[view];
+  if (!entry) return null;
+  const list = Array.isArray(entry) ? entry : (role?.can?.('manager') ? entry.manager : entry.employee);
+  const mayOpen = (s) => !!s.grants && s.grants.some((g) => !!role?.canAccessModule?.(g, 'administrator', 'viewer'));
+  // An external (B2B guest) gets only the granted tabs - in Team, Workforce
+  // Analytics alone (views/Shifts.jsx draws the same).
+  return list.filter((s) => (role?.isExternal ? mayOpen(s) : !s.grants || mayOpen(s)));
+}
+
 export const SUBMENUS = {
   // Team (Neil, Oct 13 2026): Contact and the group's Shifts for everyone;
   // managers add the Schedule and the Requests inbox (Charmi, 09/30). Your
   // own week is Workday > My Shifts.
+  // Workforce Analytics (Oct 29 2026) carries `grants`: shown only to the
+  // people lib/workforceAccess.js names, whichever list it is in.
   shifts: {
     manager: [
       { sub: 'shifts', label: 'Shifts' },
       { sub: 'schedule', label: 'Schedule' },
       { sub: 'requests', label: 'Requests' },
+      { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
       { sub: 'contact', label: 'Company Directory' },
     ],
     employee: [
       { sub: 'shifts', label: 'Shifts' },
+      { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
       { sub: 'contact', label: 'Company Directory' },
     ],
   },
@@ -106,7 +126,8 @@ export const SUBMENUS = {
 // over the left-slid menu (adidas criss-cross); back slides it out again.
 export default function MobileMenu({ open, onClose, onNavigate, activeView, theme, onThemeToggle }) {
   const { instance, accounts } = useMsal();
-  const { myRole, can, myGrantedModules, isExternal } = useRole();
+  const role = useRole();
+  const { myRole, can, myGrantedModules, isExternal } = role;
   const counts = useActionCounts();
   const account  = accounts[0];
   const name     = account?.name ?? 'User';
@@ -137,12 +158,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
     setTimeout(onClose, 340);
   };
 
-  const subsFor = view => {
-    const entry = SUBMENUS[view];
-    if (!entry) return null;
-    if (Array.isArray(entry)) return entry;
-    return can?.('manager') ? entry.manager : entry.employee; // inventory
-  };
+  const subsFor = view => visibleSubs(view, role);
 
   // Mirror the sidebar's icon rendering (lucide component or custom SVG path)
   // so menu rows carry the SAME left icon - Neil: icons on the left help people

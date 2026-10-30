@@ -6276,6 +6276,9 @@ body:has(.docs-root) { overflow-x: clip; }
 }
 @media (max-width: 900px) {
   .help-menu-btn { display: none; }
+  /* No button here on a phone, and the widget is full-screen: the empty
+     wrapper must not take a gap in the header row beside NEXUS. */
+  .help-menu-wrap { display: contents; }
   .help-widget {
     inset: 0; width: 100%; height: 100%; height: 100dvh;
     border-radius: 0; border: none; z-index: 1000;
@@ -7824,4 +7827,116 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .nx-ntf-x { opacity: .55; width: 38px; height: 38px; margin: -6px -6px 0 0; }
   .nx-ntf-row { grid-template-columns: 16px minmax(0, 1fr) 32px; }
   .nx-ntf-link { padding: 9px 0; margin-top: -2px; margin-bottom: -6px; }
+}
+/* Performance, flat (Oct 29 2026): goals are rows in one hairline list, not a
+   box each; the progress has its own column so the bars line up; a team row
+   bands and lights on hover; figures are counts with a dot, hairlines between. */
+.nx-perf-list { border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+.nx-perf-list > .nx-perf-row + .nx-perf-row { border-top: 1px solid var(--line); }
+.nx-perf-row { transition: background .12s; }
+.nx-perf-row:hover { background: color-mix(in srgb, var(--card), var(--ink) 3%); }
+.nx-perf-goal { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 240px) minmax(96px, auto); gap: 8px 18px; align-items: center;
+  width: 100%; min-height: 56px; padding: 11px 14px; border: none; background: transparent; text-align: left; cursor: pointer;
+  font-family: inherit; color: var(--ink); }
+.nx-perf-goal:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
+.nx-perf-prog { display: block; min-width: 0; }
+@media (max-width: 640px) {
+  .nx-perf-goal { grid-template-columns: minmax(0, 1fr) auto; }
+  .nx-perf-goal .nx-perf-prog { grid-column: 1 / -1; grid-row: 2; }
+}
+.nx-perf-trow { background: transparent; transition: background .12s; }
+.nx-perf-trow:nth-of-type(even) { background: color-mix(in srgb, var(--card), var(--ink) 2%); }
+.nx-perf-trow:hover { background: color-mix(in srgb, var(--card), var(--ink) 5%); }
+.nx-perf-trow:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
+.nx-perf-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.nx-perf-fig { display: grid; gap: 3px; align-content: start; padding: 10px 14px; background: var(--card); text-align: left; min-width: 0;
+  border: none; font-family: inherit; color: var(--ink); }
+.nx-perf-fig-btn { cursor: pointer; min-height: 56px; transition: background .12s, box-shadow .12s; }
+.nx-perf-fig-btn:hover { background: color-mix(in srgb, var(--card), var(--ink) 4%); }
+.nx-perf-fig-btn[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--rule, var(--wk-brand)); background: color-mix(in srgb, var(--card), var(--ink) 3%); }
+.nx-perf-fig-btn:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
+.nx-perf-fig-n { font-size: 20px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.nx-perf-fig-l { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.nx-perf-fig-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+/* Performance: feedback, kudos, plans, calibration (Oct 29 2026) - the
+   same flat hairline rows as the goals, no boxes inside boxes. */
+.nx-perf-fb { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%;
+  min-height: 52px; padding: 9px 12px; border: none; background: transparent; text-align: left; cursor: pointer;
+  font-family: inherit; color: var(--ink); }
+.nx-perf-fb:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
+.nx-perf-kudo { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px 12px; }
+.nx-perf-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: none;
+  border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; flex-shrink: 0; }
+.nx-perf-icon-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--card), var(--ink) 6%); color: var(--ink); }
+.nx-perf-icon-btn:disabled { opacity: .35; cursor: default; }
+.nx-perf-icon-btn:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 1px; }
+.nx-plan-exp { display: grid; grid-template-columns: 18px minmax(0, 1.2fr) minmax(0, 1fr) 36px; gap: 8px; align-items: start; }
+.nx-plan-line { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; }
+.nx-cal-col { min-width: 0; border-top: 2px solid var(--rule, var(--line)); padding-top: 8px; }
+.nx-cal-person { padding: 9px 0; border-top: 1px solid var(--line); min-width: 0; }
+@media (max-width: 640px) {
+  .nx-plan-exp { grid-template-columns: 18px minmax(0, 1fr) 36px; }
+  .nx-plan-exp > input + input { grid-column: 2; grid-row: 2; }
+  .nx-plan-line { grid-template-columns: 18px minmax(0, 1fr); }
+  .nx-plan-line > :last-child { grid-column: 2; justify-self: start; }
+}
+
+/* ── Header Create menu (Neil, Oct 29 2026; components/QuickCreate.jsx) ──
+   The "+" beside the search bar. Its panel is the profile menu's
+   (.header-user-dropdown / .hud-sec / .hud-item), a little wider, and
+   scrolls when the screen is short. On a phone it is a full-width sheet
+   under the header with 44px rows. */
+.qc-wrap { position: relative; }
+.qc-btn[aria-expanded="true"] { background: var(--mist); }
+.qc-btn:focus-visible, .qc-item:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
+.qc-item:focus { background: var(--sidebar-hover-bg); }
+.header-user-dropdown.qc-menu { width: 248px; max-height: calc(100dvh - 88px); overflow-y: auto; overscroll-behavior: contain; }
+@media (max-width: 900px) {
+  .qc-btn { width: 44px; height: 44px; }
+  /* The header's backdrop blur makes it the box "fixed" measures from, so
+     this pins to the header's bottom edge, full width with a gutter. */
+  .header-user-dropdown.qc-menu {
+    position: fixed; top: calc(100% + 6px); left: 8px; right: 8px; width: auto;
+    max-height: calc(100dvh - 140px - env(safe-area-inset-bottom));
+  }
+  .qc-menu .qc-item { min-height: 44px; font-size: 14px; }
+}
+/* The bell matches the header's other buttons (Neil, 10/29/2026: it read
+   smaller than the "+" and the photo beside it). Its size is inline in
+   components/NotificationBell.jsx (Visesh's file), hence !important here:
+   40px like .icon-btn on a computer, 44px like the "+" on a phone, where
+   the photo button grows to 44 too. */
+.header-right button[aria-label="Notifications"] { width: 40px !important; height: 40px !important; }
+.header-right button[aria-label="Notifications"] > svg { width: 18px !important; height: 18px !important; }
+@media (max-width: 900px) {
+  .header-right button[aria-label="Notifications"] { width: 44px !important; height: 44px !important; }
+}
+/* Three 44px buttons beside the centered NEXUS wordmark on a small phone. */
+@media (max-width: 640px) { .header-right { gap: 6px; } }
+/* Under 380px (360px Androids, zoomed iPhones) all three drop to 40px
+   together - still equal, and clear of the wordmark. */
+@media (max-width: 380px) {
+  .qc-btn { width: 40px; height: 40px; margin: 0; }
+  .header-right button[aria-label="Notifications"] { width: 40px !important; height: 40px !important; }
+  .header-right .header-user-pill { padding: 4px; }
+}
+/* 320px (a zoomed iPhone): a tighter wordmark and gap keep NEXUS off the "+". */
+@media (max-width: 340px) {
+  .header-right { gap: 4px; }
+  .header-brand { letter-spacing: 0.08em; font-size: 12px; padding: 8px 2px; transform: translateX(calc(-50% - 8px)); }
+  /* With a Back arrow the left side is full too: stay centered. */
+  .top-header:has(.header-back-mobile) .header-brand { transform: translateX(-50%); }
+}
+/* On a phone the Quick Note button leaves the top bar - the "+" offers New
+   Note under New Task (lib/quickCreate.js). Here, not in notes/notes.css:
+   that file loads only once Notes has opened. The button stays mounted, so
+   the shortcut and the nexus:quick-note event still open the panel. */
+@media (max-width: 900px) { .nt-header-btn { display: none; } }
+/* Room beside the centered NEXUS wordmark on a phone: the "+" takes a 40px
+   slot with a 44px hit area, and the profile pill is the avatar alone. */
+@media (max-width: 640px) {
+  .qc-btn { margin: 0 -2px; }
+  .header-user-pill { padding: 6px; }   /* 32px photo + 12 = 44, the "+" and the bell's size */
+  .header-user-pill > svg:last-child { display: none; }
 }

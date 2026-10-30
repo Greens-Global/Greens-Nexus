@@ -148,17 +148,21 @@ def _without_meal_flags(out: dict) -> dict:
 
 def _without_color_flags(out: dict) -> dict:
     """The payroll grid's color banding (Oct 19 2026) adds "clock" / "byHr" to
-    each punchMeta entry - display only, no pay; not part of this feature."""
+    each punchMeta entry - display only, no pay; not part of this feature.
+    So does the punch edit history (Oct 29 2026): who asked for what, who
+    decided, the note."""
+    shown_only = ("clock", "byHr", "editRequestedAt", "editedBy", "editedAt",
+                  "editReviewedBy", "editReviewedAt", "editNote")
     for k, v in list(out.items()):
         if not k.startswith(("card", "fixed")):
             continue
         c = json.loads(v)
         meta = c.get("punchMeta") or {}
-        if not any("clock" in m or "byHr" in m for m in meta.values()):
+        if not any(f in m for m in meta.values() for f in shown_only):
             continue
         for m in meta.values():
-            m.pop("clock", None)
-            m.pop("byHr", None)
+            for f in shown_only:
+                m.pop(f, None)
         out[k] = json.dumps(c, sort_keys=True)
     return out
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Monitor, Globe, Activity, Clock, Zap, TrendingUp, ChevronDown, Coffee, Users, Trophy, SlidersHorizontal, X } from 'lucide-react';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
+import { useRole } from '../contexts/RoleContext';
 
 // ── Time Insights - workforce activity analytics ──────────────────────────────
 // Powered by the desktop agent's foreground-app + URL + activity samples
@@ -238,6 +239,9 @@ export default function TimeInsights({ start, end, people = [] }) {
   const [err, setErr] = useState('');
   const [rateOpen, setRateOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  // Rating apps changes the split for the whole company: the full Employee
+  // Tracking grant or administrator, as PUT /timeclock/ratings demands.
+  const canRate = !!useRole()?.canAccessModule?.('employee-tracking', 'administrator', 'full');
 
   useEffect(() => {
     setData(null); setErr('');
@@ -275,10 +279,12 @@ export default function TimeInsights({ start, end, people = [] }) {
         <ChevronDown size={14} style={{ position: 'absolute', right: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
       </div>
       <span style={{ flex: 1, fontSize: 11.5, color: 'var(--muted)', minWidth: 120 }}>Captured by the Nexus desktop agent while clocked in.</span>
-      <button className="secondary-btn" onClick={() => setRateOpen(true)}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-        <SlidersHorizontal size={13} /> Rate apps &amp; URLs
-      </button>
+      {canRate && (
+        <button className="secondary-btn" onClick={() => setRateOpen(true)}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+          <SlidersHorizontal size={13} /> Rate apps &amp; URLs
+        </button>
+      )}
     </div>
     </>
   );

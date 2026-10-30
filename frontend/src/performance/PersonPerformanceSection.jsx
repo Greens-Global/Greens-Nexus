@@ -6,6 +6,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import PersonPerformance from './PersonPerformance';
+import { FeedbackCard } from './Feedback';
+import { PlanCard } from './Plans';
 import { HD } from './lib';
 
 export default function PersonPerformanceSection({ email, name, toastOk, toastErr }) {
@@ -31,7 +33,12 @@ export default function PersonPerformanceSection({ email, name, toastOk, toastEr
     <div style={{ display: 'grid', gap: 10 }} data-testid="profile-performance">
       <span style={{ ...HD, fontSize: 15 }}>Performance</span>
       <PersonPerformance ctx={ctx} email={email} name={name} reviews={reviews} canAdd={reportsToMe || ctx.isHr}
-        toastOk={toastOk} toastErr={toastErr} />
+        toastOk={toastOk} toastErr={toastErr} extra={(ctx.email || '') === (email || '').toLowerCase() ? null : (
+          <>
+            <PlanCard email={email} name={name} canStart={reportsToMe || ctx.isHr} toastOk={toastOk} toastErr={toastErr} />
+            <FeedbackCard ctx={ctx} email={email} name={name} toastOk={toastOk} toastErr={toastErr} />
+          </>
+        )} />
     </div>
   );
 }

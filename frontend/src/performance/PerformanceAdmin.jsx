@@ -10,6 +10,8 @@ import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { GoalList, GoalFormModal, GoalDetailModal, AddGoalButton } from './Goals';
 import ReviewCycles from './ReviewCycles';
 import { GOAL_STATUS, card, cardHead, HD, LBL, muted } from './lib';
+import Figures from './Figures';
+import { PlansAdmin } from './Plans';
 
 const STATUS_FILTER = ['behind', 'at_risk', 'on_track', 'done', 'no_data'];
 const ATTENTION = { behind: 0, at_risk: 1, no_data: 2, on_track: 3, done: 4 };
@@ -57,6 +59,7 @@ export default function PerformanceAdmin({ toastOk, toastErr }) {
         </label>
       )}
       <ReviewCycles company={company} companies={ctx.hrCompanies || []} toastOk={toastOk} toastErr={toastErr} />
+      <PlansAdmin company={company} toastOk={toastOk} toastErr={toastErr} />
       <section style={card} aria-label="Company and Department Goals">
         <div style={cardHead}>
           <span className="wkc-chip"><Target size={14} /></span>
@@ -73,14 +76,13 @@ export default function PerformanceAdmin({ toastOk, toastErr }) {
           <span style={HD}>Everyone&apos;s Goals</span>
           <span style={{ ...muted, marginLeft: 'auto' }}>Behind and At Risk first</span>
         </div>
+        {/* The counts are the status filter (Oct 29 2026): one look says
+            how the company is doing, one click narrows the list. */}
+        <div style={{ marginBottom: 12 }}>
+          <Figures label="Filter by Status" value={status} onPick={setStatus}
+            items={STATUS_FILTER.map(k => ({ key: k, n: counts[k] || 0, label: GOAL_STATUS[k].label, color: GOAL_STATUS[k].color }))} />
+        </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end', marginBottom: 12 }}>
-          <label style={{ display: 'grid', gap: 4 }}>
-            <span style={LBL}>Status</span>
-            <select className="form-input" value={status} onChange={e => setStatus(e.target.value)} aria-label="Status" style={{ fontSize: 16 }}>
-              <option value="">Any Status</option>
-              {STATUS_FILTER.map(k => <option key={k} value={k}>{GOAL_STATUS[k].label} ({counts[k] || 0})</option>)}
-            </select>
-          </label>
           <label style={{ display: 'grid', gap: 4, flex: '1 1 200px' }}>
             <span style={LBL}>Search</span>
             <span style={{ position: 'relative', display: 'flex' }}>

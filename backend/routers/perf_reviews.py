@@ -378,6 +378,30 @@ def acknowledge_review(rid: str, body: AckIn, request: Request, user: dict = Dep
     return {"signPartyId": party, "review": _review_out(db, user, rid)}
 
 
+# ── Calibration (HR, Oct 29 2026) ────────────────────────────────────────────
+
+class CalibrateIn(BaseModel):
+    rating: str
+    note: Optional[str] = ""
+
+
+@router.get("/cycles/{cid}/calibration")
+def calibration(cid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Every finished review of the cycle by its Overall Rating."""
+    _me(user)
+    c = _cycle_or_404(db, user, cid)
+    return pr.calibration_board(db, user, c)
+
+
+@router.post("/reviews/{rid}/calibrate")
+def calibrate_review(rid: str, body: CalibrateIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _me(user)
+    r, cycle, _a = _locked(db, user, rid)
+    pr.calibrate(db, user, r, cycle, (body.rating or "").strip(), body.note or "")
+    db.commit()
+    return pr.calibration_board(db, user, cycle)
+
+
 # ── Settings of the first build (the 1-5 scale and the company values) ──────
 # Reviews no longer read them (one 4-word rating, no values - Oct 29 2026);
 # the stored settings stay, and so do these two routes for anyone who has

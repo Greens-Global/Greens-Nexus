@@ -23,7 +23,7 @@ function CollectionSettings({ col, onClose, onSaved }) {
   };
   const byId = Object.fromEntries(col.pages.map((p) => [p.id, p]));
   return (
-    <Modal title={`${col.name} Settings`} onClose={onClose} footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={onClose}>Cancel</button><button type="button" className="kb-btn pri" disabled={busy} onClick={save}>Save</button></div>}>
+    <Modal title={`${col.name} Settings`} onClose={onClose} footer={<div className="kb" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={onClose}>Cancel</button><button type="button" className="kb-btn pri" disabled={busy} onClick={save}>Save</button></div>}>
       <div className="kb" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 18 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="kb-field"><label>Name</label><input className="kb-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>

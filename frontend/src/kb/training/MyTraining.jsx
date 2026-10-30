@@ -7,6 +7,7 @@ import AsyncSection from '../../components/AsyncState';
 import { Chip, SectionHead, Stat, TrainingChip } from '../components/Chips';
 import { useToast, errText } from '../components/Toast';
 import { goKb, fmtDate, trainingColor, plural } from '../lib';
+import MyCompliance from './MyCompliance';
 
 export function CourseRow({ c, onOpen }) {
   const open = () => (onOpen ? onOpen(c) : goKb('course', c.id));
@@ -52,16 +53,16 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
     <div className="kb-page">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <h1 className="kb-h1" style={{ margin: 0, fontSize: 24 }}>Training</h1>
-        {me?.can_author && (
-          <div className="kb-seg">
-            <button type="button" className={seg === 'me' ? 'on' : ''} onClick={() => setSeg('me')}>My Training</button>
-            <button type="button" className={seg === 'courses' ? 'on' : ''} onClick={() => setSeg('courses')}>Courses</button>
-            <button type="button" onClick={() => goKb('compliance')}>Compliance</button>
-          </div>
-        )}
+        {/* Everyone has their own compliance (Oct 30 2026); Courses is for authors. */}
+        <div className="kb-seg">
+          <button type="button" className={seg === 'me' ? 'on' : ''} onClick={() => setSeg('me')}>My Training</button>
+          {me?.can_author && <button type="button" className={seg === 'courses' ? 'on' : ''} onClick={() => setSeg('courses')}>Courses</button>}
+          <button type="button" className={seg === 'compliance' ? 'on' : ''} onClick={() => setSeg('compliance')}>Compliance</button>
+        </div>
         {seg === 'courses' && me?.can_author && <button type="button" className="kb-btn pri" style={{ marginLeft: 'auto' }} onClick={() => goKb('builder', 'new')}><Plus />New Course</button>}
       </div>
 
+      {seg === 'compliance' && <MyCompliance me={me} />}
       {seg === 'me' && (
         <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
           {data && (

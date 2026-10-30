@@ -203,7 +203,7 @@ describe('People > Performance', () => {
     render(<PerformanceAdmin />);
     expect(await screen.findByText('Grow 10%')).toBeTruthy();
     const everyone = screen.getByRole('region', { name: "Everyone's Goals" });
-    const titles = within(everyone).getAllByText(/one$/).map(n => n.textContent);
+    const titles = within(within(everyone).getByRole('list')).getAllByText(/one$/).map(n => n.textContent);
     expect(titles).toEqual(['Late one', 'Fine one']);
     fireEvent.click(screen.getByText('New Review Cycle'));
     const dialog = await screen.findByRole('dialog');
