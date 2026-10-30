@@ -22,6 +22,7 @@ import re
 import secrets as _secrets
 import uuid
 from datetime import datetime, timezone, timedelta
+from types import SimpleNamespace
 
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, HTTPException
@@ -36,6 +37,7 @@ from auth import (get_current_user, require_module_grant, _module_level, _MODULE
                   company_scope, company_ok, company_of_email_map)
 from notify_company import notification_company
 import job_switch
+import vault_access as VA
 
 router = APIRouter(
     prefix="/credvault",
@@ -462,14 +464,17 @@ def _get_cred(cred_id: str, db: Session, user: dict | None = None) -> models.Vau
     return row
 
 
-def _can_modify(cred: models.VaultCredential, user: dict) -> bool:
-    """The owner, the backup owner - or an admin. Until Oct 14 2026 an admin could
+def _can_modify(cred: models.VaultCredential, user: dict, db: Session | None = None) -> bool:
+    """The owner, the backup owner, the head or backup head of its department
+    (Oct 29 2026, with `db`) - or an admin. Until Oct 14 2026 an admin could
     purge a credential from the trash but not edit, delete, recover or re-own
     it, so an entry whose owner had left could never be touched again."""
     email = user["email"]
-    return (_is_admin(user)
+    if (_is_admin(user)
             or email == (cred.owner_email or "").lower()
-            or email == (cred.backup_owner_email or "").lower())
+            or email == (cred.backup_owner_email or "").lower()):
+        return True
+    return db is not None and email in VA.heads_for(db, cred)
 
 
 # Multi-company walls (auth.company_scope): a company credential belongs to its
@@ -516,7 +521,14 @@ def _my_grants(user: dict, db: Session) -> dict:
     return {g.cred_id: g.expires_at for g in rows}
 
 
-def _access_for(c: models.VaultCredential, user: dict, my_dept: str, grants: dict) -> str:
+MANAGE = ("admin", "owner", "backup", "head")
+# What a row reports in `access`: the manage roles, then a live grant, then the
+# audience that admits the person (vault_access.audience_access), else
+# "view" (sees it, never the password) or "request".
+
+
+def _access_for(c: models.VaultCredential, user: dict, ctx: dict, grants: dict,
+                heads: set | None = None, rows: list | None = None) -> str:
     email = user["email"]
     if _is_admin(user):
         return "admin"
@@ -524,31 +536,37 @@ def _access_for(c: models.VaultCredential, user: dict, my_dept: str, grants: dic
         return "owner"
     if email == (c.backup_owner_email or "").lower():
         return "backup"
+    if heads and email in heads:
+        return "head"
     if c.id in grants:
         return "shared"
-    if my_dept and (c.dept or "").strip().lower() == my_dept and (c.tier or "Standard") != "Critical":
-        return "department"
-    return "request"
+    return VA.audience_access(c, rows or [], ctx) or "request"
 
 
 def _access_ctx(user: dict, db: Session) -> tuple:
-    return _my_department(user, db), _my_grants(user, db)
+    return VA.person_ctx(db, user["email"]), _my_grants(user, db)
+
+
+def _access_one(c: models.VaultCredential, user: dict, db: Session) -> str:
+    ctx, grants = _access_ctx(user, db)
+    return _access_for(c, user, ctx, grants, VA.heads_for(db, c), VA.rows_for(db, [c.id]).get(c.id, []))
 
 
 def _can_reveal(c: models.VaultCredential, user: dict, db: Session) -> bool:
-    my_dept, grants = _access_ctx(user, db)
-    return _access_for(c, user, my_dept, grants) != "request"
+    return _access_one(c, user, db) not in ("request", "view")
 
 
 def _cred_dict(c: models.VaultCredential, reused: bool, shared_with: int,
-               access: str = "owner", grant_until: str = "") -> dict:
-    can_reveal = access != "request"
+               access: str = "owner", grant_until: str = "", audiences: list | None = None) -> dict:
+    can_reveal = access not in ("request", "view")
+    # "view" (Oct 29 2026): the row, username, link and notes - never the password.
+    can_see = access != "request"
     return {
         "id": c.id, "name": c.name, "dept": c.dept or "", "type": c.type or "Password",
         # The username is half of a login: only for people who can see the other half.
-        "username": (c.username or "") if can_reveal else "",
+        "username": (c.username or "") if can_see else "",
         "url": c.url or "", "tier": c.tier or "Standard",
-        "note": (c.note or "") if can_reveal else "",
+        "note": (c.note or "") if can_see else "",
         "owner": c.owner_email or "", "backupOwner": c.backup_owner_email or "",
         # Health and rotation facts say which passwords are weak, reused or
         # stale - exactly the list an attacker wants - so they stay with the
@@ -564,8 +582,9 @@ def _cred_dict(c: models.VaultCredential, reused: bool, shared_with: int,
         "prevRotatedAt": (c.prev_rotated_at or "") if can_reveal else "",
         "sharedWith": shared_with, "deletedAt": _ms(c.deleted_at) or None,
         "createdAt": _ms(c.created_at),
-        "access": access, "canReveal": can_reveal, "canEdit": access in ("admin", "owner", "backup"),
+        "access": access, "canReveal": can_reveal, "canEdit": access in MANAGE,
         "grantUntil": _ms(grant_until) if grant_until else None,
+        "audiences": audiences or [],
     }
 
 
@@ -583,6 +602,9 @@ class CredentialIn(BaseModel):
     customExpiry: bool = False
     note: str = ""
     expiresAt: str = ""          # YYYY-MM-DD hard expiry (API keys, certificates), "" = none
+    # Who may open it (vault_access): [{kind, value, level}]. Omitted on an
+    # edit = unchanged; omitted on a create = the credential's own department.
+    audiences: list[dict] | None = None
 
 
 def _clean_url(v: str) -> str:
@@ -626,19 +648,28 @@ def list_credentials(user: dict = Depends(get_current_user), db: Session = Depen
     grant_counts: dict = {}
     for g in grants:
         grant_counts[g.cred_id] = grant_counts.get(g.cred_id, 0) + 1
-    my_dept, mine = _access_ctx(user, db)
+    ctx, mine = _access_ctx(user, db)
+    heads = VA.heads_map(db, rows)
+    auds = VA.rows_for(db, [c.id for c in rows])
     out = []
     for c in rows:
-        access = _access_for(c, user, my_dept, mine)
-        if c.deleted_at and access not in ("admin", "owner", "backup"):
+        access = _access_for(c, user, ctx, mine, heads.get(c.id), auds.get(c.id))
+        if c.deleted_at and access not in MANAGE:
             continue
         out.append(_cred_dict(
             c,
             reused=bool(not c.deleted_at and c.secret_hash and hash_counts.get(c.secret_hash, 0) > 1),
             shared_with=1 + grant_counts.get(c.id, 0),
             access=access, grant_until=mine.get(c.id, ""),
+            audiences=VA.labels(db, auds.get(c.id, [])),
         ))
     return out
+
+
+@router.get("/audience-options")
+def audience_options(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Companies, departments and Access Groups the form can give a credential to."""
+    return VA.options(db, company_scope(user, db))
 
 
 @router.post("/credentials")
@@ -671,12 +702,14 @@ def create_credential(body: CredentialIn, user: dict = Depends(get_current_user)
         created_by=user["email"],
     )
     db.add(row)
+    auds = VA.clean(body.audiences) if body.audiences is not None else ([{"kind": "department", "value": row.dept, "level": "open"}] if row.dept else [])
+    VA.replace(db, row.id, auds, user["email"])
     _log(db, user, "Created", row.name, row.dept, row.id)
     # Only the backup owner is told (Oct 14 2026). Every add used to broadcast
     # to every manager's bell - noise nobody acted on; the activity log has it.
     if row.backup_owner_email and row.backup_owner_email != user["email"]:
         _notify(db, type="vault_change", recipient=row.backup_owner_email,
-                title="Credential Vault - You Are a Backup Owner",
+                title="Credentials - You Are a Backup Owner",
                 body=f"{_display_name(user['email'], db)} added {row.name} ({row.dept}) and named you its backup owner.",
                 ref_id=row.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{row.id}"})
     db.commit()
@@ -687,7 +720,7 @@ def create_credential(body: CredentialIn, user: dict = Depends(get_current_user)
 def update_credential(cred_id: str, body: CredentialIn,
                       user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _get_cred(cred_id, db, user)
-    if not _can_modify(c, user):
+    if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can edit this credential")
     changed = []
     if body.tier in TIERS and body.tier != (c.tier or "Standard"):
@@ -729,7 +762,26 @@ def update_credential(cred_id: str, body: CredentialIn,
         c.strength = _eval_strength(body.secret)
         c.breached = False
         c.rotated_at = _now()
+    if body.audiences is not None:
+        before = VA.labels(db, VA.rows_for(db, [c.id]).get(c.id, []))
+        new = VA.clean(body.audiences)
+        if [(a["kind"], a["value"], a["level"]) for a in before] != [(a["kind"], a["value"], a["level"]) for a in new]:
+            VA.replace(db, c.id, new, user["email"])
+            # autoflush is off: label the cleaned rows, not a re-query that cannot see them yet.
+            after = VA.labels(db, [SimpleNamespace(**r) for r in new])
+            changed.append({"field": "Who can open", "from": ", ".join(a["label"] for a in before) or "-",
+                            "to": ", ".join(a["label"] for a in after) or "-"})
     _log(db, user, "Edited", c.name, c.dept, c.id, detail=changed or None)
+    if any(d["field"] == "Password" for d in changed):
+        # Everyone who can open it hears the password changed (Oct 29 2026) -
+        # the bell says so and opens the credential; the password itself never
+        # travels in a notification.
+        rows = VA.rows_for(db, [c.id]).get(c.id, [])
+        for who in VA.openers(db, c, rows) - {user["email"]}:
+            _notify(db, type="vault_change", recipient=who,
+                    title="Credentials - Password Changed",
+                    body=f"{_display_name(user['email'], db)} changed the password for {c.name} ({c.dept}). Open it to copy the new one.",
+                    ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
     return {"ok": True}
 
@@ -738,14 +790,14 @@ def update_credential(cred_id: str, body: CredentialIn,
 def delete_credential(cred_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Soft delete → Trash."""
     c = _get_cred(cred_id, db, user)
-    if not _can_modify(c, user):
+    if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can remove this credential")
     c.deleted_at = _now()
     c.deleted_by = user["email"]
     _log(db, user, "Removed", c.name, c.dept, c.id)
     for who in {(c.owner_email or "").lower(), (c.backup_owner_email or "").lower()} - {"", user["email"]}:
         _notify(db, type="vault_change", recipient=who,
-                title="Credential Vault - Moved to the Trash",
+                title="Credentials - Moved to the Trash",
                 body=f"{_display_name(user['email'], db)} moved {c.name} ({c.dept}) to the trash. It can be recovered from there.",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": "trash"})
     db.commit()
@@ -762,7 +814,7 @@ def bulk_delete(body: BulkIds, user: dict = Depends(get_current_user), db: Sessi
     scope, cmap = _owner_company_map(db, user)
     count = 0
     for c in rows:
-        if _can_modify(c, user) and not c.deleted_at and _in_company(c, scope, cmap):
+        if _can_modify(c, user, db) and not c.deleted_at and _in_company(c, scope, cmap):
             c.deleted_at = _now()
             c.deleted_by = user["email"]
             count += 1
@@ -776,7 +828,7 @@ def bulk_delete(body: BulkIds, user: dict = Depends(get_current_user), db: Sessi
 @router.post("/credentials/{cred_id}/restore")
 def restore_credential(cred_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _get_cred(cred_id, db, user)
-    if not _can_modify(c, user):      # Oct 14 2026: anyone with the grant could recover anything
+    if not _can_modify(c, user, db):      # Oct 14 2026: anyone with the grant could recover anything
         raise HTTPException(403, "Only the owner, backup owner or an admin can recover this credential")
     if not c.deleted_at:
         raise HTTPException(400, "Credential is not in the trash")
@@ -790,7 +842,7 @@ def restore_credential(cred_id: str, user: dict = Depends(get_current_user), db:
 @router.delete("/credentials/{cred_id}/permanent")
 def purge_credential(cred_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _get_cred(cred_id, db, user)
-    if not _can_modify(c, user):
+    if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can permanently delete this")
     if not c.deleted_at:
         raise HTTPException(400, "Move the credential to the trash first")
@@ -812,15 +864,14 @@ def reveal_credential(cred_id: str, user: dict = Depends(get_current_user),
     c = _get_cred(cred_id, db, user)
     if c.deleted_at:
         raise HTTPException(400, "Credential is in the trash")
-    my_dept, grants = _access_ctx(user, db)
-    access = _access_for(c, user, my_dept, grants)
-    if access == "request":
+    access = _access_one(c, user, db)
+    if access in ("request", "view"):
         # The screen never calls reveal for a row it cannot read - it offers
         # Request Access (POST .../request) instead. Keep the gate anyway.
         raise HTTPException(403, {"code": "vault_access_required",
                                   "message": "Ask the owner for access to this credential."})
     out = {"secret": _dec(c.secret_enc)}
-    if c.prev_secret_enc and access in ("admin", "owner", "backup"):
+    if c.prev_secret_enc and access in MANAGE:
         try:
             out["previousSecret"] = _dec(c.prev_secret_enc)
             out["prevRotatedAt"] = c.prev_rotated_at or ""
@@ -865,7 +916,7 @@ def request_access(cred_id: str, body: RequestIn,
     _log(db, user, "Requested", c.name, c.dept, c.id)
     for who in {owner, (c.backup_owner_email or "").lower()} - {""}:
         _notify(db, type="vault_access", recipient=who,
-                title="Credential Vault - Access Request",
+                title="Credentials - Access Request",
                 body=f"{_display_name(user['email'], db)} asked for {body.durationLabel or '4 Hours'} of access to "
                      f"{c.name} ({c.dept}). Approve or deny it on the Approvals tab.",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": "approvals"})
@@ -930,7 +981,7 @@ def _transfer(db: Session, user: dict, c: models.VaultCredential, new_owner: str
     c.owner_email = new_owner
     _log(db, user, "Transferred", c.name, c.dept, c.id, detail=detail)
     _notify(db, type="vault_change", recipient=new_owner,
-            title="Credential Vault - You Are Now the Owner",
+            title="Credentials - You Are Now the Owner",
             body=f"{c.name} ({c.dept}) is now yours{note}. You approve its access requests and keep it rotated.",
             ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
 
@@ -946,7 +997,7 @@ def transfer_credential(cred_id: str, body: TransferIn,
     The new owner must be someone in Nexus People (the curated list every
     people picker uses)."""
     c = _get_cred(cred_id, db, user)
-    if not _can_modify(c, user):
+    if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can transfer this credential")
     new_owner = (body.ownerEmail or "").lower().strip()
     if "@" not in new_owner or "." not in new_owner:
@@ -990,6 +1041,8 @@ def handover_person(db: Session, email: str, to_email: str, actor: str = "") -> 
                       models.VaultAccessGrant.expires_at > now).all()):
         g.expires_at = now
         out["grants"] += 1
+    db.query(models.VaultCredentialAudience).filter(models.VaultCredentialAudience.kind == "person",
+                                                     func.lower(models.VaultCredentialAudience.value) == leaver).delete(synchronize_session=False)
     for r in (db.query(models.VaultShareRequest)
               .filter(models.VaultShareRequest.status == "pending",
                       (models.VaultShareRequest.requested_by_email == leaver)
@@ -1020,7 +1073,7 @@ def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_curre
     c = _get_cred(cred_id, db, user)
     if c.deleted_at:
         raise HTTPException(400, "Credential is in the trash")
-    if not _can_modify(c, user):
+    if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can share this credential")
     recipient = (body.recipientEmail or "").lower().strip()
     if "@" not in recipient or "." not in recipient:
@@ -1037,8 +1090,8 @@ def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_curre
     _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": recipient},
                                                             {"field": "For", "from": "", "to": body.durationLabel or ""}])
     _notify(db, type="vault_access", recipient=recipient,
-            title="Credential Vault - Access Granted",
-            body=f"{_display_name(user['email'], db)} shared {c.name} with you for {body.durationLabel}. Open the Credential Vault to view it.",
+            title="Credentials - Access Granted",
+            body=f"{_display_name(user['email'], db)} shared {c.name} with you for {body.durationLabel}. Open Credentials to view it.",
             ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
     return {"granted": True}
@@ -1056,7 +1109,7 @@ def list_requests(user: dict = Depends(get_current_user), db: Session = Depends(
     scope, cmap = _owner_company_map(db, user)
     for r in rows:
         c = creds.get(r.cred_id)
-        if not _may_decide(r, c, user):
+        if not _may_decide(r, c, user, db):
             continue
         if c and not _in_company(c, scope, cmap):
             continue
@@ -1075,13 +1128,13 @@ def list_requests(user: dict = Depends(get_current_user), db: Session = Depends(
     return out
 
 
-def _may_decide(r: models.VaultShareRequest, c, user: dict) -> bool:
+def _may_decide(r: models.VaultShareRequest, c, user: dict, db: Session) -> bool:
     """Owner or admin (Neil: "either") - and the backup owner, who stands in for
     the owner everywhere else in this file. Legacy admin-queue rows (no owner)
     and rows whose credential is gone: owner_email match or admin."""
     if _is_admin(user) or r.owner_email == user["email"]:
         return True
-    return bool(c) and _can_modify(c, user)
+    return bool(c) and _can_modify(c, user, db)
 
 
 def _decide_request(req_id: str, user: dict, db: Session) -> models.VaultShareRequest:
@@ -1091,7 +1144,7 @@ def _decide_request(req_id: str, user: dict, db: Session) -> models.VaultShareRe
     c = db.get(models.VaultCredential, r.cred_id)
     if c is not None:
         _get_cred(c.id, db, user)       # 404 across the company wall
-    if not _may_decide(r, c, user):
+    if not _may_decide(r, c, user, db):
         raise HTTPException(403, "Only the credential's owner, backup owner or an admin can decide this")
     return r
 
@@ -1113,8 +1166,8 @@ def approve_request(req_id: str, user: dict = Depends(get_current_user), db: Ses
     _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": recipient},
                                                             {"field": "For", "from": "", "to": r.duration_label or ""}])
     _notify(db, type="vault_access", recipient=recipient,
-            title="Credential Vault - Access Approved",
-            body=f"{_display_name(user['email'], db)} approved {r.duration_label or 'temporary'} access to {c.name}. Open the Credential Vault to view it.",
+            title="Credentials - Access Approved",
+            body=f"{_display_name(user['email'], db)} approved {r.duration_label or 'temporary'} access to {c.name}. Open Credentials to view it.",
             ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
     return {"ok": True}
@@ -1130,7 +1183,7 @@ def deny_request(req_id: str, user: dict = Depends(get_current_user), db: Sessio
     _log(db, user, "Denied", c.name if c else "(deleted)", c.dept if c else "-", r.cred_id)
     if c and r.requested_by_email:
         _notify(db, type="vault_access", recipient=r.requested_by_email,
-                title="Credential Vault - Access Declined",
+                title="Credentials - Access Declined",
                 body=f"{_display_name(user['email'], db)} declined your request for {c.name} ({c.dept}).",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
@@ -1163,8 +1216,9 @@ def credential_access(cred_id: str, user: dict = Depends(get_current_user), db: 
     expiry; everyone else just gets the owners."""
     c = _get_cred(cred_id, db, user)
     out = {"owner": c.owner_email or "", "backupOwner": c.backup_owner_email or "",
-           "dept": c.dept or "", "tier": c.tier or "Standard", "grants": [], "pending": []}
-    if not _can_modify(c, user):
+           "dept": c.dept or "", "tier": c.tier or "Standard", "grants": [], "pending": [],
+           "heads": sorted(VA.heads_for(db, c)), "audiences": VA.labels(db, VA.rows_for(db, [c.id]).get(c.id, []))}
+    if not _can_modify(c, user, db):
         return out
     now = _now()
     for g in (db.query(models.VaultAccessGrant)
@@ -1188,7 +1242,7 @@ def revoke_grant(grant_id: str, user: dict = Depends(get_current_user), db: Sess
     if not g:
         raise HTTPException(404, "Grant not found")
     c = _get_cred(g.cred_id, db, user)
-    if not _can_modify(c, user):
+    if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can end this access")
     g.expires_at = _now()
     _log(db, user, "Revoked", c.name, c.dept, c.id, detail=[{"field": "Person", "from": "", "to": g.granted_to}])
@@ -1223,11 +1277,22 @@ def list_logs(user: dict = Depends(get_current_user), db: Session = Depends(get_
             .order_by(models.VaultAccessLog.created_at.desc())
             .limit(500).all())
     scope, cmap = _owner_company_map(db, user)
-    owners = ({c.id: (c.owner_email or "").lower() for c in db.query(models.VaultCredential).all()}
-              if scope is not None else {})
+    creds = db.query(models.VaultCredential).all()
+    owners = {c.id: (c.owner_email or "").lower() for c in creds} if scope is not None else {}
+    # Oct 29 2026: an employee used to see every reveal in the company - who
+    # opened the bank portal, and when. Now: admins see everything; everyone
+    # else sees their own actions and every action on a credential they
+    # manage (owner, backup owner, department head).
+    if _is_admin(user):
+        managed = None
+    else:
+        heads = VA.heads_map(db, creds)
+        managed = {c.id for c in creds if _can_modify(c, user) or user["email"] in heads.get(c.id, set())}
     out = []
     for r in rows:
         if r.loc == PERSONAL_LOG_MARK and r.actor_email != user["email"]:
+            continue
+        if managed is not None and r.actor_email != user["email"] and r.cred_id not in managed:
             continue
         if scope is not None:
             who = owners.get(r.cred_id) if r.cred_id and r.cred_id in owners else (r.actor_email or "").lower()
@@ -1298,6 +1363,10 @@ def otp_verify(body: OtpVerifyIn, user: dict = Depends(get_current_user), db: Se
 
 
 # ── Personal vault (strictly owner-scoped - no admin bypass) ─────────────────
+# 10 characters (Oct 29 2026, was 6): the password is tried online, and the
+# lock routes now sit on the tight per-IP limit (middleware_hardening
+# SENSITIVE_PREFIXES) - an existing shorter password keeps working.
+PERSONAL_MIN_LEN = 10
 class PersonalAuthIn(BaseModel):
     password: str = ""
 
@@ -1330,8 +1399,8 @@ def personal_lock_setup(body: PersonalAuthIn, user: dict = Depends(get_current_u
     """First-time setup only - no OTP needed, the user is already signed into
     Nexus. Resetting a forgotten password goes through /personal/lock/reset
     instead (OTP-verified)."""
-    if len((body.password or "").strip()) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
+    if len((body.password or "").strip()) < PERSONAL_MIN_LEN:
+        raise HTTPException(400, f"Password must be at least {PERSONAL_MIN_LEN} characters")
     row = db.get(models.VaultPersonalAuth, user["email"])
     if row and row.password_hash:
         raise HTTPException(400, "A Personal Vault password is already set - use Forgot password to reset it.")
@@ -1368,8 +1437,8 @@ def personal_lock_forgot(body: OtpRequestIn, user: dict = Depends(get_current_us
 
 @router.post("/personal/lock/reset")
 def personal_lock_reset(body: PersonalResetIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    if len((body.newPassword or "").strip()) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
+    if len((body.newPassword or "").strip()) < PERSONAL_MIN_LEN:
+        raise HTTPException(400, f"Password must be at least {PERSONAL_MIN_LEN} characters")
     _consume_otp_challenge(db, body.challengeId, user["email"], "personal_reset", body.code)
     row = db.get(models.VaultPersonalAuth, user["email"])
     if not row:
@@ -1499,7 +1568,7 @@ def rotation_reminders(db: Session) -> int:
             if _reminded_today(db, "vault_rotation", c.id, who):
                 continue
             _notify(db, type="vault_rotation", recipient=who,
-                    title="Credential Vault - Rotation Due" if "rotation" in lines[0] else "Credential Vault - Expiring",
+                    title="Credentials - Rotation Due" if "rotation" in lines[0] else "Credential Vault - Expiring",
                     body=f"{c.name} ({c.dept}): " + " and ".join(lines) + ". Open it to rotate the password.",
                     ref_id=c.id, actor=c.owner_email or who, action={"view": "credvault", "sub": f"cred-{c.id}"})
             sent += 1

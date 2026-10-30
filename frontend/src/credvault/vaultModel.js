@@ -5,10 +5,14 @@
 import { formatDate, formatTime } from "../lib/datetime";
 
 export const ACCESS_LABEL = {
-  admin: "Admin", owner: "Owner", backup: "Backup Owner", shared: "Shared With You",
-  department: "Your Department", request: "Request Access",
+  admin: "Admin", owner: "Owner", backup: "Backup Owner", head: "Department Head", shared: "Shared With You",
+  department: "Your Department", company: "Your Company", group: "Your Group", person: "Shared With You",
+  view: "View Only", request: "Request Access",
 };
-export const ACCESS_TONE = { admin: "info", owner: "info", backup: "info", shared: "ok", department: "ok", request: "muted" };
+export const ACCESS_TONE = { admin: "info", owner: "info", backup: "info", head: "info", shared: "ok", department: "ok", company: "ok", group: "ok", person: "ok", view: "muted", request: "muted" };
+// Who may open a credential (vault_access.py): the form's rows and the drawer's list.
+export const AUDIENCE_LEVELS = [["open", "Can open the password"], ["view", "View only - sees the login, never the password"]];
+export const audienceKey = (a) => `${a.kind}:${(a.value || "").toLowerCase()}`;
 
 export const DURATIONS = [
   { key: "1h", label: "1 Hour", ms: 3600000 }, { key: "4h", label: "4 Hours", ms: 14400000 },

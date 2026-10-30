@@ -86,12 +86,14 @@ export function CredentialDetail({
           {/* Sign-in */}
           <section className="cv-section">
             <div className="cv-section-title">Sign-In</div>
-            {cred.canReveal ? (<>
+            {(cred.canReveal || cred.access === "view") && (
               <div className="cv-field">
                 <span className="cv-field-label">Username</span>
                 <span className="cv-field-value" title={cred.username}>{cred.username || "-"}</span>
                 <div className="cv-field-actions"><CopyButton text={cred.username} title="Copy Username" /></div>
               </div>
+            )}
+            {cred.canReveal ? (<>
               <div className="cv-field">
                 <span className="cv-field-label">Password</span>
                 <span className={`cv-field-value cv-mono ${revealed ? "is-open" : "is-secret"}`}>{revealed ? revealed.secret : "••••••••••"}</span>
@@ -118,8 +120,8 @@ export function CredentialDetail({
               <div className="cv-callout tone-info">
                 <KeyRound size={15} style={{ flexShrink: 0, marginTop: 1 }} />
                 <span>
-                  {cred.tier === "Critical" ? "This is a Critical credential. " : "This credential belongs to another department. "}
-                  Ask {nameOf(cred.owner)} for timed access - they or an admin approve it, and it appears here when they do.
+                  {cred.access === "view" ? "You can see this login but not its password. " : cred.tier === "Critical" ? "This is a Critical credential. " : "This credential is not shared with you. "}
+                  Ask {nameOf(cred.owner)} for timed access - they, the department head or an admin approve it, and it appears here when they do.
                 </span>
               </div>
             )}
@@ -150,8 +152,17 @@ export function CredentialDetail({
               {cred.owner && cred.owner !== myEmail && <a href={`https://teams.microsoft.com/l/chat/0/0?users=${cred.owner}`} target="_blank" rel="noopener noreferrer" title={`Chat with ${nameOf(cred.owner)} on Teams`} style={{ display: "flex" }}><TeamsIcon size={18} /></a>}
             </div>
             {cred.backupOwner && <div className="cv-person"><span>{nameOf(cred.backupOwner)} <span className="cv-muted">· Backup Owner</span></span></div>}
-            {cred.dept && cred.tier !== "Critical" && <div className="cv-person"><span>Everyone in {cred.dept} <span className="cv-muted">· Department</span></span></div>}
-            {cred.tier === "Critical" && <div className="cv-person"><span className="cv-muted">Critical: only the owners, admins and people given timed access can open this.</span></div>}
+            {access?.heads?.filter((h) => h !== cred.owner && h !== cred.backupOwner).map((h) => (
+              <div className="cv-person" key={h}><span>{nameOf(h)} <span className="cv-muted">· Department Head</span></span></div>
+            ))}
+            {/* Who may open it (Oct 29 2026): the audience rows, or the old department rule when there are none. */}
+            {(cred.audiences || []).filter((a) => cred.tier !== "Critical" || a.kind === "person").map((a) => (
+              <div className="cv-person" key={`${a.kind}:${a.value}`}>
+                <span>{a.kind === "person" ? nameOf(a.value) : a.label} <span className="cv-muted">· {a.level === "view" ? "View only" : a.kind === "person" ? "Can open" : "Everyone in it can open"}</span></span>
+              </div>
+            ))}
+            {!(cred.audiences || []).length && cred.dept && cred.tier !== "Critical" && <div className="cv-person"><span>Everyone in {cred.dept} <span className="cv-muted">· Department</span></span></div>}
+            {cred.tier === "Critical" && <div className="cv-person"><span className="cv-muted">Critical: only the owners, the department head, admins, the people named here and people given timed access can open this.</span></div>}
             {access?.grants?.map((g) => (
               <div className="cv-person" key={g.id}>
                 <span>{g.name} <span className="cv-muted">· <Clock size={11} style={{ verticalAlign: -1 }} /> {timeLeft(g.expiresAt - now)} left</span></span>
