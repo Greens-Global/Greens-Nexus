@@ -226,7 +226,10 @@ def my_score(person: str = "", month: str = "", user: dict = Depends(get_current
     who = (person or me).strip().lower()
     if who != me and not perf.can_see_person(db, user, who):
         raise HTTPException(404, "Person not found")
-    return ps.score(db, who, month)
+    out = ps.score(db, who, month)
+    import perf_bonus
+    out["bonusPlan"] = perf_bonus.plan_summary(db, (out.get("role") or {}).get("id", ""), out.get("score"), out.get("overTarget") or 0, who, out.get("end") or "")
+    return out
 
 
 @router.get("/score/team")
