@@ -266,6 +266,12 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
   const who = data?.who || {};
   const seesAll = !!(who.isHr || who.isAdmin);
   const effectiveGroupBy = groupBy || (seesAll ? 'department' : 'kind');
+  // All in the rail with the list by department: every department starts
+  // folded, like the Schedule's All Teams; a click opens one (Pranshu, Oct 31
+  // 2026). `collapsed` then holds the departments opened instead.
+  const foldAll = kind === 'all' && effectiveGroupBy === 'department';
+  const isOpen = (key) => (foldAll ? collapsed.has(key) : !collapsed.has(key));
+  useEffect(() => { setCollapsed(new Set()); }, [kind, effectiveGroupBy]);
   const counts = useMemo(() => {
     const c = { all: 0 };
     decideRows.forEach((r) => { const n = r.count || 1; c.all += n; c[r.group] = (c[r.group] || 0) + n; });
@@ -294,7 +300,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
   const errors = data?.errors || [];
   const aging = data?.aging || {};
   const urgent = decideRows.filter((r) => r.priority === 'urgent').reduce((t, r) => t + (r.count || 1), 0);
-  const ordered = useMemo(() => [...sections.flatMap((s) => (collapsed.has(s.key) ? [] : s.rows)), ...shownAct], [sections, collapsed, shownAct]);
+  const ordered = useMemo(() => [...sections.flatMap((s) => (isOpen(s.key) ? s.rows : [])), ...shownAct], [sections, collapsed, shownAct]);   // eslint-disable-line react-hooks/exhaustive-deps
   const focused = ordered.find((r) => r.key === focusKey) || null;
   const detailRow = reviewing || (wide ? focused : null);
 
@@ -439,14 +445,14 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
             {sections.map((s) => (
               <div key={s.key} className="apv-section">
                 {effectiveGroupBy !== 'none' && (
-                  <button type="button" className="apv-section-h" onClick={() => setCollapsed((c) => { const n = new Set(c); if (n.has(s.key)) n.delete(s.key); else n.add(s.key); return n; })} aria-expanded={!collapsed.has(s.key)}>
-                    <ChevronRight size={14} className={`apv-chev${collapsed.has(s.key) ? '' : ' is-open'}`} />
+                  <button type="button" className="apv-section-h" onClick={() => setCollapsed((c) => { const n = new Set(c); if (n.has(s.key)) n.delete(s.key); else n.add(s.key); return n; })} aria-expanded={isOpen(s.key)}>
+                    <ChevronRight size={14} className={`apv-chev${isOpen(s.key) ? ' is-open' : ''}`} />
                     <span>{s.label}</span>
                     <b>{s.rows.reduce((t, r) => t + (r.count || 1), 0)}</b>
                     {s.oldest >= 3 && <StatusLabel label={`Oldest ${s.oldest}d`} color={s.oldest >= 7 ? '#dc2626' : '#d97706'} size="sm" />}
                   </button>
                 )}
-                {!collapsed.has(s.key) && s.rows.map((r) => (
+                {isOpen(s.key) && s.rows.map((r) => (
                   <Row key={r.key} row={r} onAct={decide} onReview={() => setReviewing(r)} focused={focusKey === r.key} onFocus={() => setFocusKey(r.key)}
                     selectable={!!bulkAction(r)} selected={selected.has(r.key)} onToggle={() => toggle(r.key)} showDept={effectiveGroupBy !== 'department' && seesAll} />
                 ))}
