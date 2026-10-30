@@ -12,8 +12,6 @@ import { Plus } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { ModalLoading } from './AsyncState';
 import { visibleCreates, groupCreates, goTo } from '../lib/quickCreate';
-import { useIsMobile } from '../lib/useIsMobile';
-import { PHONE_QUERY } from '../lib/keys';
 
 const QuickActionModal = lazy(() => import('../dashboard/QuickActionModals.jsx'));
 
@@ -25,8 +23,7 @@ export default function QuickCreate() {
   const btnRef = useRef(null);
   const menuRef = useRef(null);
 
-  const phone = useIsMobile(PHONE_QUERY);
-  const items = visibleCreates(role, phone);
+  const items = visibleCreates(role);
   const groups = groupCreates(items);
 
   const close = useCallback((refocus) => {

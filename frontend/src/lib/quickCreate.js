@@ -17,9 +17,10 @@
 // for the module it lands in, plus the grant level that module's own New
 // button asks for when a row sets `level` (canAccessModule).
 //
-// On a phone (the header's 900px breakpoint) the Quick Note button leaves the
-// top bar and New Note sits under New Task instead (Neil, Oct 29 2026): it
-// opens the same Quick Note panel through the `nexus:quick-note` event.
+// New Note sits under New Task on every screen (Neil, Oct 29 2026 for the
+// phone, Oct 30 for the web too): it opens the Quick Note panel through the
+// `nexus:quick-note` event. On a phone (the header's 900px breakpoint) it is
+// the only way in - the Quick Note button leaves the top bar there.
 //
 // Kept off the menu on purpose (Neil, Oct 29 2026): 1:1s, Ask HR,
 // Reimbursements, Credentials, Purchase Requests, Send for Signature,
@@ -31,11 +32,10 @@ import { NAV, isNavItemVisible } from '../components/Sidebar';
 export const goTo = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }));
 
 // Display order. `module` = the left-menu item the flow lives in; `level` =
-// the grant level that module's own New button needs; `phoneOnly` = offered on
-// a phone only.
+// the grant level that module's own New button needs.
 export const CREATE_ITEMS = [
   { key: 'task', group: 'Work', label: 'New Task', Icon: CheckSquare, module: 'tasks', compose: 'task' },
-  { key: 'note', group: 'Work', label: 'New Note', Icon: NotebookPen, module: 'dashboard', phoneOnly: true,
+  { key: 'note', group: 'Work', label: 'New Note', Icon: NotebookPen, module: 'dashboard',
     run: () => window.dispatchEvent(new CustomEvent('nexus:quick-note')) },
   { key: 'ticket', group: 'Work', label: 'New Ticket', Icon: TicketToken, module: 'support', compose: 'ticket' },
   { key: 'document', group: 'Work', label: 'New Document', Icon: FilePlus2, module: 'documents', go: ['documents', 'documents-new'] },
@@ -45,10 +45,9 @@ export const CREATE_ITEMS = [
   { key: 'event', group: 'Outlook', label: 'New Event', Icon: CalendarPlus, module: 'dashboard', compose: 'event' },
 ];
 
-/** The rows this person may use. `role` is useRole(); `phone` = the header's phone layout. */
-export function visibleCreates(role, phone = false) {
+/** The rows this person may use. `role` is useRole(). */
+export function visibleCreates(role) {
   return CREATE_ITEMS.filter((it) => {
-    if (it.phoneOnly && !phone) return false;
     const nav = NAV.find((n) => n.view === it.module);
     if (!nav || !isNavItemVisible(nav, role || {})) return false;
     if (it.level && !role?.canAccessModule?.(it.module, 'administrator', it.level)) return false;

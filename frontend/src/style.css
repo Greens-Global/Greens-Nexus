@@ -7888,7 +7888,12 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    scrolls when the screen is short. On a phone it is a full-width sheet
    under the header with 44px rows. */
 .qc-wrap { position: relative; }
-.qc-btn[aria-expanded="true"] { background: var(--mist); }
+/* An action button, not another grey icon (Neil, Oct 30 2026): Nexus green
+   with a white "+", the same green as Notes' New Note, in both themes. */
+.icon-btn.qc-btn { background: #00a25b; color: #fff; }
+.icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] { background: #008a4c; }
+.icon-btn.qc-btn:active { background: #007a43; }
+.icon-btn.qc-btn:focus-visible { outline-offset: 2px; }
 .qc-btn:focus-visible, .qc-item:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
 .qc-item:focus { background: var(--sidebar-hover-bg); }
 .header-user-dropdown.qc-menu { width: 248px; max-height: calc(100dvh - 88px); overflow-y: auto; overscroll-behavior: contain; }
