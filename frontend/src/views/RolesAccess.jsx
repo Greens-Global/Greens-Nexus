@@ -9,6 +9,7 @@ import { RoleChangeModal } from '../components/HrPersonActions';
 import { RoleChangeRequestCard, RoleHistory } from '../components/RoleChangeRequests';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
+import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import { usePeopleDirectory } from '../lib/queries';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
@@ -495,10 +496,12 @@ export default function RolesAccess({ embedded = false }) {
     try { await api.unassignJobRole(selected.id, email, reason); toastOk(`Removed ${nameOf(email)} from “${selected.name}”.`); loadRoles(); }
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
+  // Delete group is held on the card (Hold to confirm, Neil, Oct 30 2026):
+  // one group, so no dialog; a refusal rewinds the button with the reason and
+  // the list re-reads once the check has shown (onDone).
   async function onDeleteGroup(g) {
-    if (!await dialog.confirm(`Delete group "${g.name}"?${g.member_count ? ` ${g.member_count} people are in it and will lose that access.` : ''}`, { title: 'Delete group', confirmText: 'Delete', danger: true })) return;
-    try { await api.deleteGroup(g.id); toastOk(`Deleted "${g.name}".`); loadGroups(); }
-    catch (e) { toastErr(e?.message || 'Could not delete group.'); }
+    try { await api.deleteGroup(g.id); toastOk(`Deleted "${g.name}".`); }
+    catch (e) { throw new Error(e?.message || 'Could not delete group.'); }
   }
 
   const openDuplicate = r => setEditing({ ...r, id: undefined, member_count: 0, members: [],
@@ -748,7 +751,8 @@ export default function RolesAccess({ embedded = false }) {
                         : null}
                     <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{(g.members || []).length} {(g.members || []).length === 1 ? 'person' : 'people'}</span>
                     <button className="secondary-btn" style={{ padding: '5px 9px' }} onClick={() => setEditGroup(g)} title="Edit group"><Pencil size={13} /></button>
-                    <button className="secondary-btn" style={{ padding: '5px 9px' }} onClick={() => onDeleteGroup(g)} title="Delete group"><Trash2 size={13} /></button>
+                    <HoldButton size="sm" label="Delete" doneLabel="Deleted" ariaLabel={`Delete group ${g.name}`} onConfirm={() => onDeleteGroup(g)} onDone={() => loadGroups()}
+                      fallbackMessage={`Delete group "${g.name}"?${g.member_count ? ` ${g.member_count} people are in it and will lose that access.` : ''}`} />
                   </div>
                   <div style={{ marginTop: 7, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>{bundleSummary(g.allowed_modules)}</div>
                   {(g.members || []).filter(inFilter).length > 0 && (
@@ -873,10 +877,20 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
     try { await api.addGroupMembers(g.id, [person]); toastOk(`Added ${nameOf(person)} to “${g.name}”.`); refresh(); }
     catch (e) { toastErr(e?.message || 'Could not add to group.'); }
   }
+  // Remove from group is held on the chip (Hold to confirm, Neil, Oct 30
+  // 2026): one membership, so no dialog; Undo puts them back through the same
+  // add call; the card re-reads once the check has shown (onDone).
   async function removeFromGroup(g) {
-    if (!await dialog.confirm(`Remove ${nameOf(person)} from "${g.name}"? They lose that extra access; their job-role baseline is untouched.`, { title: 'Remove from group', confirmText: 'Remove', danger: true })) return;
-    try { await api.removeGroupMember(g.id, person); toastOk(`Removed ${nameOf(person)} from “${g.name}”.`); refresh(); }
-    catch (e) { toastErr(e?.message || 'Could not remove.'); }
+    const who = person;
+    try { await api.removeGroupMember(g.id, who); toastOk(`Removed ${nameOf(who)} from “${g.name}”.`); }
+    catch (e) { throw new Error(e?.message || 'Could not remove.'); }
+    return {
+      undoMessage: `Removed ${nameOf(who)} from “${g.name}”.`,
+      undo: async () => {
+        try { await api.addGroupMembers(g.id, [who]); toastOk(`Added ${nameOf(who)} to “${g.name}”.`); refresh(); }
+        catch (e) { toastErr(e?.message || 'Could not add to group.'); }
+      },
+    };
   }
   // Per-person tier OVERRIDE: sets this individual's seniority tier directly and
   // pins it, so two people in the SAME job role can hold different tiers and a
@@ -1058,10 +1072,10 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
               {(eff.extra_groups || []).map(g => (
                 <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 6px 4px 12px', borderRadius: 999, border: '1px dashed var(--line-strong,var(--line))', fontSize: 12, fontWeight: 600 }}>
                   + {g.name}
-                  <button onClick={() => removeFromGroup(g)} title={`Remove from ${g.name}`} aria-label={`Remove from ${g.name}`}
-                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 17, height: 17, borderRadius: '50%', padding: 0 }}>
-                    <X size={12} />
-                  </button>
+                  <HoldButton size="sm" label="Remove" doneLabel="Removed" icon={X} ariaLabel={`Remove from ${g.name}`}
+                    onConfirm={() => removeFromGroup(g)} onDone={() => refresh()}
+                    fallbackMessage={`Remove ${nameOf(person)} from "${g.name}"? They lose that extra access; their job-role baseline is untouched.`}
+                    style={{ height: 24, padding: '0 9px', borderRadius: 999, fontSize: 11.5 }} />
                 </span>
               ))}
               {(eff.extra_groups || []).length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>None</span>}
@@ -1246,16 +1260,23 @@ export function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastEr
     } catch (e) { toastErr(e?.message || 'Could not save the approver.'); }
     setBusy('');
   }
+  // Overwriting every member's manager is a major action: the dialog says
+  // what is overwritten and its button is a held one (Hold to confirm, Neil,
+  // Oct 30 2026) that waits for the server, staying open with the reason.
   async function applyAll() {
     if (!val) return;
-    if (!await dialog.confirm(`Set ${nameOf(val)} as manager/time sheet approver for all ${role.member_count} people in "${role.name}"? This overwrites their current manager; individual cards can be changed afterwards.`, { title: 'Set approver for whole role', confirmText: 'Set for all' })) return;
-    setBusy('apply');
-    try {
-      const r = await api.applyJobRoleManager(role.id, val);
-      toastOk(`${nameOf(val)} is now the approver for ${r.updated} ${r.updated === 1 ? 'person' : 'people'} in “${role.name}”.`);
-      onSaved();
-    } catch (e) { toastErr(e?.message || 'Could not apply to members.'); }
-    setBusy('');
+    await dialog.confirm(`Set ${nameOf(val)} as manager/time sheet approver for all ${role.member_count} people in "${role.name}"? This overwrites their current manager; individual cards can be changed afterwards.`, {
+      title: 'Set Approver For Whole Role', confirmText: 'Set For All', doneText: 'Set', hold: true, holdMs: HOLD_MAJOR_MS,
+      onConfirm: async () => {
+        setBusy('apply');
+        try {
+          const r = await api.applyJobRoleManager(role.id, val);
+          toastOk(`${nameOf(val)} is now the approver for ${r.updated} ${r.updated === 1 ? 'person' : 'people'} in “${role.name}”.`);
+          onSaved();
+        } catch (e) { throw new Error(e?.message || 'Could not apply to members.'); }
+        finally { setBusy(''); }
+      },
+    });
   }
 
   return (
