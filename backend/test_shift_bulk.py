@@ -42,6 +42,7 @@ C = "shiftbulk.c@greensglobal.com"     # NOT in the group
 GROUP = "grp-shiftbulk"
 GRANT = "grant-shiftbulk"
 SHIFT = "shift-shiftbulk"
+COMPANY = "co-shiftbulk"
 
 
 class ShiftBulkTests(unittest.TestCase):
@@ -104,6 +105,7 @@ class ShiftBulkTests(unittest.TestCase):
             db.query(models.Shift).filter(models.Shift.id == SHIFT).delete(synchronize_session=False)
             db.query(models.ScheduledShift).filter(models.ScheduledShift.employee_email.like("shiftbulk.%")).delete(synchronize_session=False)
             db.query(models.TimeOffRequest).filter(models.TimeOffRequest.employee_email.like("shiftbulk.%")).delete(synchronize_session=False)
+            db.query(models.HrCompanyHoliday).filter(models.HrCompanyHoliday.company_id == COMPANY).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -146,6 +148,65 @@ class ShiftBulkTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["replaced"], 1)               # B's Monday replaced
         self.assertEqual(self._sched(B)["2026-08-24"].start_hhmm, "09:00")
+
+    def _holidays(self):
+        """A and B work for COMPANY: Thu 08/27 is a holiday there, Wed 08/26 an
+        optional one (people may work it). C is at no company."""
+        db = database.SessionLocal()
+        try:
+            for em in (A, B):
+                db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == em).update({"company": COMPANY})
+            db.add(models.HrCompanyHoliday(id="hol-shiftbulk-thu", company_id=COMPANY, date="2026-08-27",
+                                           name="Founders Day", type="mandatory", country_code=""))
+            db.add(models.HrCompanyHoliday(id="hol-shiftbulk-wed", company_id=COMPANY, date="2026-08-26",
+                                           name="Onam", type="optional", country_code=""))
+            db.commit()
+        finally:
+            db.close()
+
+    def test_fill_leaves_company_holidays_empty(self):
+        # Neil, Oct 30 2026: Fill Automatically must not need fixing by hand
+        # around holidays.
+        self._holidays()
+        r = self.client.post("/timeclock/schedule/bulk", json={
+            "group_id": GROUP, "shift_id": SHIFT,
+            "start_date": "2026-08-24", "end_date": "2026-08-28", "weekdays": [0, 1, 2, 3, 4]})
+        self.assertEqual(r.status_code, 200, r.text)
+        d = r.json()
+        self.assertEqual(d["holidaySkipped"], 2)                 # A's and B's Thursday
+        self.assertEqual(d["created"], 6)                        # A: Mon Tue Wed Fri; B: Wed Fri
+        self.assertNotIn("2026-08-27", self._sched(A))
+        self.assertIn("2026-08-26", self._sched(A))              # an optional holiday is still a workday
+        self.assertNotIn("2026-08-27", self._sched(B))
+
+    def test_fill_may_still_cover_holidays_when_asked(self):
+        self._holidays()
+        r = self.client.post("/timeclock/schedule/bulk", json={
+            "emails": [A], "shift_id": SHIFT, "start_date": "2026-08-27", "end_date": "2026-08-27",
+            "skip_holidays": False})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["created"], r.json()["holidaySkipped"]), (1, 0))
+        self.assertIn("2026-08-27", self._sched(A))
+
+    def test_copy_skips_a_holiday_on_the_target_day(self):
+        # Last week's Thursday is copied forward onto this week's holiday.
+        self._holidays()
+        db = database.SessionLocal()
+        try:
+            for day in ("2026-08-19", "2026-08-20"):
+                db.add(models.ScheduledShift(id=f"src-a-{day}", employee_email=A, work_date=day, shift_id=SHIFT,
+                                             start_hhmm="09:00", end_hhmm="17:00", label="Day", published=1))
+            db.commit()
+        finally:
+            db.close()
+        r = self.client.post("/timeclock/schedule/copy", json={
+            "source_start": "2026-08-17", "source_end": "2026-08-23", "target_start": "2026-08-24",
+            "emails": [A], "include_open": False})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["created"], r.json()["holidaySkipped"]), (1, 1))
+        a = self._sched(A)
+        self.assertIn("2026-08-26", a)                           # Wednesday copied (optional holiday)
+        self.assertNotIn("2026-08-27", a)                        # Thursday is the holiday
 
     def test_group_only_never_touches_non_member(self):
         self.client.post("/timeclock/schedule/bulk", json={

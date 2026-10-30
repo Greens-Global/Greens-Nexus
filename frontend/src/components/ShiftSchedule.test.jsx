@@ -1047,7 +1047,7 @@ describe('Share, copy, clear, discard', () => {
     fireEvent.click(screen.getByText('Copy Shifts'));
     await waitFor(() => expect(timeSchedCopy).toHaveBeenCalledWith({
       source_start: monday, source_end: plusDays(monday, 6), target_start: plusDays(monday, 7), weeks: 1,
-      include_open: true, include_notes: true, include_activities: true, skip_timeoff: true, overwrite: false, include_timeoff: true,
+      include_open: true, include_notes: true, include_activities: true, skip_timeoff: true, skip_holidays: true, overwrite: false, include_timeoff: true,
     }));
     await waitFor(() => expect(toastOk).toHaveBeenCalledWith(expect.stringMatching(/^Copied 4 shifts to .* as drafts · kept 1 existing\. Share to send them\.$/)));
   });

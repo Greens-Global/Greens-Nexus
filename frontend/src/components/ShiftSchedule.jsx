@@ -597,17 +597,20 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
     const before = new Set((data?.scheduled || []).map((x) => x.id));
     setBusy(true);
     try {
-      let made = 0;
+      let made = 0, holidays = 0;
       for (const b of batches) {
         const r = await api.timeSchedBulk({ shift_id: b.p.id, emails: b.emails, start_date: from, end_date: to, weekdays: presetWeekdays(b.p),
-          skip_timeoff: opts.skip_timeoff ?? true, overwrite: !!opts.overwrite });
+          skip_timeoff: opts.skip_timeoff ?? true, skip_holidays: opts.skip_holidays ?? true, overwrite: !!opts.overwrite });
         made += Number(r?.created) || 0;
+        holidays += Number(r?.holidaySkipped) || 0;
       }
       const next = await api.timeSchedule(start, end);
       if (next) setData(next);
       const set = new Set(emails);
       const ids = (next?.scheduled || []).filter((x) => !before.has(x.id) && set.has(x.email) && x.published === false).map((x) => x.id);
-      const msg = made ? `Placed ${made} shift${made === 1 ? '' : 's'} from usual hours for ${who}.` : `Nothing to fill - every usual day for ${who} already has a shift or time off.`;
+      const off = holidays ? ` Left ${holidays} company holiday${holidays === 1 ? '' : 's'} empty.` : '';
+      const msg = made ? `Placed ${made} shift${made === 1 ? '' : 's'} from usual hours for ${who}.${off}`
+        : `Nothing to fill - every usual day for ${who} already has a shift, time off or a company holiday.`;
       // A fill that replaced shifts cannot be put back by deleting what it made.
       offerUndo(msg, ids.length && !opts.overwrite ? async () => { for (const id of ids) await api.timeSchedDelete(id); } : null);
       opts.after?.();
@@ -615,7 +618,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
     finally { setBusy(false); }
   }
   const copyLastWeek = (g) => run(() => api.timeSchedCopy({ source_start: addDaysIso(start, -7), source_end: addDaysIso(start, -1), target_start: start, weeks: 1,
-    include_open: !g?.id, include_notes: true, include_activities: true, skip_timeoff: true, overwrite: false, include_timeoff: false, ...(g?.id ? { group_id: g.id } : {}) }), {
+    include_open: !g?.id, include_notes: true, include_activities: true, skip_timeoff: true, skip_holidays: true, overwrite: false, include_timeoff: false, ...(g?.id ? { group_id: g.id } : {}) }), {
     ok: (r) => (r?.created ? `Copied ${r.created} shift${r.created === 1 ? '' : 's'} from last week as drafts. Share to send them.` : 'Last week had no shifts to copy.'),
     fail: 'Could not copy last week.' });
   const recolor = (s, color) => run(() => api.timeSchedUpdate(s.id, { employee_email: s.email, work_date: s.date, shift_id: s.shiftId, start_hhmm: s.start, end_hhmm: s.end,
@@ -638,6 +641,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       if (r.replaced) bits.push(`replaced ${r.replaced}`);
       if (r.skipped) bits.push(`kept ${r.skipped} existing`);
       if (r.timeoffSkipped) bits.push(`skipped ${r.timeoffSkipped} on time off`);
+      if (r.holidaySkipped) bits.push(`skipped ${r.holidaySkipped} on company holidays`);
       if (r.timeoffCopied) bits.push(`${r.timeoffCopied} time-off request${r.timeoffCopied !== 1 ? 's' : ''} to approve in Requests`);
       return `${bits.join(' · ')}. Share to send them.`;
     }, fail: 'Could not copy the schedule.', after: () => setOpen('') });
@@ -645,7 +649,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
     ok: (r) => { const bits = []; if (r.removed) bits.push(`${r.removed} draft${r.removed !== 1 ? 's' : ''} removed`); if (r.pending) bits.push(`${r.pending} shared shift${r.pending !== 1 ? 's' : ''} marked for removal until you share`); return bits.length ? `${bits.join(' · ')}.` : 'There were no shifts to clear.'; },
     fail: 'Could not clear the schedule.', after: () => setOpen('') });
   const bulkAssign = (payload) => run(() => api.timeSchedBulk(payload), {
-    ok: (r) => { const bits = [`Placed ${r.created} shift${r.created !== 1 ? 's' : ''} across ${r.people} ${r.people === 1 ? 'person' : 'people'}`]; if (r.replaced) bits.push(`replaced ${r.replaced}`); if (r.skipped) bits.push(`kept ${r.skipped} existing`); if (r.timeoffSkipped) bits.push(`skipped ${r.timeoffSkipped} on time off`); return `${bits.join(' · ')}.`; },
+    ok: (r) => { const bits = [`Placed ${r.created} shift${r.created !== 1 ? 's' : ''} across ${r.people} ${r.people === 1 ? 'person' : 'people'}`]; if (r.replaced) bits.push(`replaced ${r.replaced}`); if (r.skipped) bits.push(`kept ${r.skipped} existing`); if (r.timeoffSkipped) bits.push(`skipped ${r.timeoffSkipped} on time off`); if (r.holidaySkipped) bits.push(`skipped ${r.holidaySkipped} on company holidays`); return `${bits.join(' · ')}.`; },
     fail: 'Could not fill the schedule.', after: () => setOpen('') });
   // Fill Automatically: each person's usual hours, or one shift type for all.
   const fillAuto = (payload) => (payload.usual
