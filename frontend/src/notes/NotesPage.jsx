@@ -569,7 +569,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             ? <div style={{ paddingTop: 14 }}><SkeletonBlocks count={3} height={56} /></div>
             : collab.phase === 'ready'
               ? <NoteEditor key={`live:${collab.epoch}`} collab={collab} readOnly={readOnly} people={people}
-                  onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : makeTask} />
+                  onChange={(html) => sync.edit({ body: html })} onRemoteChange={sync.seeRemote} onMakeTask={readOnly ? undefined : makeTask} />
               : <NoteEditor key="saved" value={note.body || ''} readOnly={readOnly} people={people}
                   onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : makeTask} />}
         </div>

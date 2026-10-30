@@ -351,8 +351,10 @@ def _snapshot(db: Session, n: models.NexusNote, me: str, force: bool = False) ->
             age = datetime.now(timezone.utc) - datetime.fromisoformat(last.created_at)
         except ValueError:
             age = VERSION_GAP
-        before = (n.updated_by or n.owner_email or "").lower()
-        new_author = before != me and not (last.saved_by == before and age < AUTHOR_GAP)
+        # A new author keeps their predecessor's words - unless a copy was
+        # kept only minutes ago (two people co-typing would otherwise keep
+        # one at every turn).
+        new_author = (n.updated_by or n.owner_email or "").lower() != me and age >= AUTHOR_GAP
         if age < VERSION_GAP and not new_author:
             return
     if last and last.body == (n.body or "") and last.title == (n.title or ""):
@@ -773,14 +775,22 @@ def note_presence(note_id: str, body: PresenceIn, user: dict = Depends(get_curre
     people = [{"email": r.email, "state": r.state}
               for r in db.query(P).filter(P.note_id == n.id, P.at >= cutoff).all()
               if r.email != me and r.email in allowed]
-    return {"people": people, "rev": n.rev or 1, "updatedBy": n.updated_by or "",
-            "updatedAt": n.updated_at or "", "yepoch": n.yepoch or "", "trashed": bool(n.trashed_at)}
+    out = {"people": people, "rev": n.rev or 1, "updatedBy": n.updated_by or "",
+           "updatedAt": n.updated_at or "", "yepoch": n.yepoch or "", "trashed": bool(n.trashed_at)}
+    if can != "read" and n.collab_key:
+        out["keyTag"] = _key_tag(n)     # a live session on an older key moves to the new one
+    return out
 
 
 # ── co-typing ──────────────────────────────────────────────────────────────
 def _rotate_key(n: models.NexusNote) -> None:
     """A new channel key: whoever lost edit access can neither read nor write the live channel."""
     n.collab_key = base64.b64encode(secrets.token_bytes(32)).decode()
+
+
+def _key_tag(n: models.NexusNote) -> str:
+    """Which key is current, without giving it away (editors compare it with their session's)."""
+    return hashlib.sha256(f"tag:{n.collab_key}".encode()).hexdigest()[:12]
 
 
 def _channel(n: models.NexusNote) -> str:
@@ -809,7 +819,7 @@ def note_collab(note_id: str, user: dict = Depends(get_current_user), db: Sessio
     if not n.collab_key:
         _rotate_key(n)
         db.commit()
-    return {"key": n.collab_key, "channel": _channel(n), **_collab_state(n),
+    return {"key": n.collab_key, "channel": _channel(n), "keyTag": _key_tag(n), **_collab_state(n),
             "title": n.title or "", "body": n.body or ""}
 
 

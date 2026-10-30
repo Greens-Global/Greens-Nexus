@@ -198,6 +198,10 @@ describe('starting a live session', () => {
     expect(html).toContain('data-checked="true"');
     expect(html).toContain('<audio src="https://x.supabase.co/storage/v1/object/public/task-files/notes/a.m4a"');
     expect(html).toContain('href="mailto:bob@greensglobal.com"');
+    // A clip that came through the shared document plays only from our own
+    // storage (no Supabase project in tests, so this one stays silent).
+    await waitFor(() => expect(document.querySelector('.nt-media audio')).toBeTruthy());
+    expect(document.querySelector('.nt-media audio').getAttribute('src')).toBeFalsy();
   });
 
   it('the first browser seeds it, with a fresh epoch', async () => {

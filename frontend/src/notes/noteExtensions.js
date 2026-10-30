@@ -11,6 +11,21 @@ import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
 import { NoteAudio, NoteVideo } from './noteMedia';
 
+// Alignment read from a shared document has not been through parseHTML, so
+// the value is checked again on the way out: never anything but the four.
+const ALIGN = ['left', 'center', 'right', 'justify'];
+const SafeTextAlign = TextAlign.extend({
+  addGlobalAttributes() {
+    return (this.parent?.() || []).map((g) => ({
+      ...g,
+      attributes: Object.fromEntries(Object.entries(g.attributes).map(([k, a]) => [k, {
+        ...a,
+        renderHTML: (attrs) => (ALIGN.includes(attrs[k]) ? { style: `text-align: ${attrs[k]}` } : {}),
+      }])),
+    }));
+  },
+});
+
 export function buildExtensions(placeholder, collab = null) {
   return [
     StarterKit.configure({
@@ -19,7 +34,7 @@ export function buildExtensions(placeholder, collab = null) {
       ...(collab ? { undoRedo: false } : {}),
     }),
     Highlight,
-    TextAlign.configure({ types: ['heading', 'paragraph'] }),
+    SafeTextAlign.configure({ types: ['heading', 'paragraph'] }),
     TaskList,
     TaskItem.configure({ nested: true }),
     Table.configure({ resizable: false }),

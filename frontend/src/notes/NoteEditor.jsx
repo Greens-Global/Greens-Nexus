@@ -134,12 +134,14 @@ function MediaStatus({ voice, dictation, busy, error, onDismiss }) {
 
 export default function NoteEditor({
   value, onChange, readOnly = false, people, placeholder = "Write anything. Type / for blocks, @ to mention someone.",
-  onMakeTask, autoFocus = false, toolbar = true, compact = false, onBusy, collab = null,
+  onMakeTask, autoFocus = false, toolbar = true, compact = false, onBusy, collab = null, onRemoteChange,
 }) {
   const [menu, setMenu] = useState(null);   // { kind: 'slash'|'mention', query, from, index }
   const [link, setLink] = useState(null);   // { href } while the link bar is open
   const changeRef = useRef(onChange);
   const collabRef = useRef(collab);
+  const remoteRef = useRef(onRemoteChange);
+  useEffect(() => { remoteRef.current = onRemoteChange; collabRef.current = collab; });
   useEffect(() => { changeRef.current = onChange; }, [onChange]);
   const scanRef = useRef(() => {});
   const keyRef = useRef(() => false);
@@ -172,6 +174,7 @@ export default function NoteEditor({
       // Someone else's typing arriving live is theirs to save, not ours.
       const theirs = collabRef.current?.isRemote(transaction);
       if (touched.current && !theirs) changeRef.current?.(ed.getHTML());
+      else if (theirs) remoteRef.current?.(ed.getHTML());
       scanRef.current(ed);
     },
     onSelectionUpdate: ({ editor: ed }) => scanRef.current(ed),

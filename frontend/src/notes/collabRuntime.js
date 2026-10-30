@@ -7,7 +7,7 @@
 // Wire (every payload sealed with the note's AES-GCM key, collabCrypto.js;
 // tagged with the session epoch so an older session's edits are ignored):
 //   0 update   - a Yjs update typed here
-//   1 hello    - my state vector; answer with what I lack (2) and yours (3)
+//   1 hello    - my state vector; answer with what I lack (2), yours (3) and your caret (4)
 //   2 diff     - a Yjs update answering 1 or 3
 //   3 vector   - your state vector; answer with what you lack (2)
 //   4 presence - a y-protocols awareness update (who and where the caret is)
@@ -105,7 +105,12 @@ export function connect({ supabase, channelName, key, epoch, doc, awareness, hoo
     const type = msg[0], data = msg.subarray(1);
     try {
       if (type === 0 || type === 2) Y.applyUpdate(doc, data, REMOTE);
-      else if (type === 1) { send(2, Y.encodeStateAsUpdate(doc, data)); send(3, Y.encodeStateVector(doc)); }
+      else if (type === 1) {
+        // A newcomer: what it lacks, what we lack, and who is here.
+        send(2, Y.encodeStateAsUpdate(doc, data));
+        send(3, Y.encodeStateVector(doc));
+        send(4, encodeAwarenessUpdate(awareness, [awareness.clientID]));
+      }
       else if (type === 3) send(2, Y.encodeStateAsUpdate(doc, data));
       else if (type === 4) applyAwarenessUpdate(awareness, data, REMOTE);
     } catch { /* a malformed update is dropped */ }

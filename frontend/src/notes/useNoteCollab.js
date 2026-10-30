@@ -78,7 +78,7 @@ export function useNoteCollab(noteId, { enabled, me, name }) {
         };
         awareness.on('change', others);
         const extensions = rt.collabExtensions(doc, awareness, user);
-        setSession({ rt, doc, awareness, epoch: st.yepoch, extensions });
+        setSession({ rt, doc, awareness, epoch: st.yepoch, keyTag: st.keyTag || '', extensions });
         setPhase('ready');
         // No realtime here: the saves still carry the shared state.
         if (!supabase) return;
@@ -120,6 +120,7 @@ export function useNoteCollab(noteId, { enabled, me, name }) {
   return useMemo(() => ({
     phase, live, peers, restart, bindEditor,
     epoch: session?.epoch || '',
+    keyTag: session?.keyTag || '',
     extensions: session?.extensions || null,
     isRemote: session ? session.rt.isRemote : () => false,
     getHtml: () => (editorRef.current && !editorRef.current.isDestroyed ? editorRef.current.getHTML() : null),

@@ -242,6 +242,8 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
         setPeople(Array.isArray(r.people) ? r.people : []);
         const c = live();
         if (c && r.yepoch !== c.epoch && !pending.current && !inFlight.current) { c.restart(); return; }
+        // The key moved on (an editor was removed): join the new channel.
+        if (c && r.keyTag && c.keyTag && r.keyTag !== c.keyTag) { c.restart(); return; }
         if (r.rev !== rev.current) refresh();
       } catch { /* next beat */ }
     };
@@ -270,6 +272,12 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
     setStatus('dirty');
     clearTimeout(timer.current);
     timer.current = setTimeout(() => saveRef.current(), SAVE_MS);
+  }, [put]);
+
+  // Someone else's words arriving live: shown (word count, list preview), never saved from here.
+  const seeRemote = useCallback((body) => {
+    const n = noteRef.current;
+    if (n && n.body !== body) put({ ...n, body });
   }, [put]);
 
   // Pin, color, tags, day: saved at once (with any typing still waiting).
@@ -319,6 +327,6 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
 
   return {
     note, status, conflict, restored, merged, people, collabPaused,
-    edit, setMeta, resolve, keepMine, takeTheirs, replace, refresh, flush: save,
+    edit, seeRemote, setMeta, resolve, keepMine, takeTheirs, replace, refresh, flush: save,
   };
 }

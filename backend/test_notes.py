@@ -318,11 +318,18 @@ class NotesTest(unittest.TestCase):
         # Bob again, minutes later: no new copy.
         n = self.client.patch(f"/notes/{n['id']}", json={"rev": n["rev"], "body": "<p>Bob again</p>"}).json()
         self.assertEqual(len(self.client.get(f"/notes/{n['id']}/versions").json()), 1)
-        # Amy takes over: Bob's words are kept under Bob's name.
+        # Amy straight back (co-typing turns): no copy at every turn.
         self.as_(AMY)
         n = self.client.patch(f"/notes/{n['id']}", json={"rev": n["rev"], "body": "<p>Amy back</p>"}).json()
+        self.assertEqual(len(self.client.get(f"/notes/{n['id']}/versions").json()), 1)
+        # Bob takes over a few minutes later: Amy's words are kept under Amy's name.
+        old = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
+        self.db.query(models.NexusNoteVersion).update({"created_at": old})
+        self.db.commit()
+        self.as_(BOB)
+        n = self.client.patch(f"/notes/{n['id']}", json={"rev": n["rev"], "body": "<p>Bob later</p>"}).json()
         vs = self.client.get(f"/notes/{n['id']}/versions").json()
-        self.assertEqual([(v["body"], v["savedBy"]) for v in vs][0], ("<p>Bob again</p>", BOB))
+        self.assertEqual([(v["body"], v["savedBy"]) for v in vs][0], ("<p>Amy back</p>", AMY))
 
     def test_updated_dot_for_someone_elses_change_until_opened(self):
         n = self.shared()
@@ -384,8 +391,14 @@ class NotesTest(unittest.TestCase):
         k2 = self.client.get(f"/notes/{n['id']}/collab").json()
         self.assertNotEqual(k2["key"], k1["key"])
         self.assertNotEqual(k2["channel"], k1["channel"])
+        tag = self.client.post(f"/notes/{n['id']}/presence", json={}).json()["keyTag"]
+        self.assertEqual(tag, k2["keyTag"])
         self.client.delete(f"/notes/{n['id']}/share/{CAT}")                                # an editor removed
         self.assertNotEqual(self.client.get(f"/notes/{n['id']}/collab").json()["key"], k2["key"])
+        # Live sessions learn the key moved on from the heartbeat; a reader is never told.
+        self.assertNotEqual(self.client.post(f"/notes/{n['id']}/presence", json={}).json()["keyTag"], tag)
+        self.as_(BOB)
+        self.assertNotIn("keyTag", self.client.post(f"/notes/{n['id']}/presence", json={}).json())
 
     def test_seed_once_then_saves_carry_the_epoch(self):
         n = self.shared()
