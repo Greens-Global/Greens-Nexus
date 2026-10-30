@@ -193,14 +193,16 @@ describe('AdminConsole', () => {
     cleanup();
 
     // The manager tier (own team, no grants): the groups a manager may save -
-    // task emails, the ticket desk, item types, app ratings, unit rules - and
-    // nothing that is a People route or an administrator's.
+    // task emails, the ticket desk, item types, unit rules - and nothing that
+    // is a People route, an administrator's, or Workforce Analytics' (app
+    // ratings take its full grant since Oct 29 2026 - monitoring data is for
+    // its grant holders only).
     asRole('manager', { hrTeam: true, hrScope: [] });
     render(<AdminConsole activeSub="access" onSubChange={() => {}} />);
-    for (const name of ['People & Access', 'Security', 'Branding & Email', 'Time & Pay', 'Companies', 'Locations', 'Hiring & Onboarding', 'Shifts & Scheduling']) {
+    for (const name of ['People & Access', 'Security', 'Branding & Email', 'Time & Pay', 'Companies', 'Locations', 'Hiring & Onboarding', 'Shifts & Scheduling', 'Workforce Analytics']) {
       expect(within(rail()).queryByRole('button', { name })).not.toBeInTheDocument();
     }
-    for (const name of ['Emails & Reminders', 'Tickets', 'Items & Equipment', 'Workforce Analytics', 'Operations']) {
+    for (const name of ['Emails & Reminders', 'Tickets', 'Items & Equipment', 'Operations']) {
       expect(within(rail()).getByRole('button', { name })).toBeInTheDocument();
     }
     // Falls back to the first subject it can show, with only its open group

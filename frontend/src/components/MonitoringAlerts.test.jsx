@@ -33,15 +33,18 @@ describe('monitoring alerts', () => {
     expect(seen).toEqual([{ view: 'shifts', sub: 'analytics:coverage' }]);   // Team > Workforce Analytics (Oct 29 2026)
   });
 
-  it('offers no link to someone who cannot open Workforce Analytics', async () => {
-    who.grants = [];
-    try {
-      render(<MonitoringAlertsLine />);
-      expect(await screen.findByText('2 monitoring alerts')).toBeTruthy();
-      expect(screen.queryByRole('button', { name: 'View in Workforce Analytics' })).toBeNull();
-    } finally {
-      who.grants = ['employee-tracking'];
+  it('is not shown, nor asked for, without the Employee Tracking grant', async () => {
+    // A plain manager, or someone with the Scorecard grant alone: alerts are
+    // monitoring data (Neil, 10/29/2026).
+    for (const grants of [[], ['workforce-scorecard']]) {
+      who.grants = grants;
+      const { container, unmount } = render(<MonitoringAlertsLine />);
+      await Promise.resolve();
+      expect(container.textContent).toBe('');
+      unmount();
     }
+    expect(api.timeMonitoringAlerts).not.toHaveBeenCalled();
+    who.grants = ['employee-tracking'];
   });
 
   it('lists everyone on Workforce Analytics once it is opened', async () => {

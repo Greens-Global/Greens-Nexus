@@ -69,19 +69,25 @@ export function MonitoringAlertsPanel() {
   );
 }
 
-// One line for the Time screen: how many, and the way to the list. The link
-// is only for people who can open Workforce Analytics (a Team tab only its
-// grant holders see, Oct 29 2026) - for anyone else it would land on Shifts.
+// One line for the Time screen: how many, and the way to the list. Alerts
+// are monitoring data, so the line exists only for the Employee Tracking
+// grant (or administrator) - the server refuses everyone else (Neil,
+// 10/29/2026), and it never asks for them.
 export function MonitoringAlertsLine({ canOpen = true }) {
+  const role = useRole();
+  if (!role?.canAccessModule?.('employee-tracking', 'administrator', 'viewer')) return null;
+  return <AlertsLine canOpen={canOpen && canOpenWorkforceAnalytics(role)} />;
+}
+
+function AlertsLine({ canOpen }) {
   const alerts = useMonitoringAlerts();
-  const mayOpen = canOpenWorkforceAnalytics(useRole());
   if (!alerts.length) return null;
   const go = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'analytics:coverage' } }));
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12, fontSize: 12.5, color: 'var(--muted)' }}>
       <AlertTriangle size={14} style={{ color: RED, flexShrink: 0 }} />
       <span><strong style={{ color: 'var(--ink)' }}>{alerts.length} monitoring {alerts.length === 1 ? 'alert' : 'alerts'}</strong> - clocked in with a quiet agent</span>
-      {canOpen && mayOpen && (
+      {canOpen && (
         <button type="button" onClick={go} style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: 'var(--wk-brand)', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>
           View in Workforce Analytics
         </button>
