@@ -155,11 +155,12 @@ describe('MyShifts week and group grid', () => {
     expect(me.textContent).not.toMatch(/Hrs/);
     expect(bob.textContent).not.toMatch(/Hrs/);
     const block = me.querySelector('[data-shift="mine1"]');
-    expect(block.textContent).toBe('9:00a - 5:00pFront Desk');       // the time, the label under it - no code (Oct 28 2026)
+    expect(block.textContent).toBe('9:00a - 5:00pGSTFront Desk');    // the time and the type code, the label under it (Neil, Oct 30 2026)
     expect(block.getAttribute('title')).toContain('Lunch 30m');          // the lunch is the hover title
     expect(block.textContent).not.toMatch(/PDT|PST/);                    // same zone as the team: no chip
-    expect(block.getAttribute('style')).not.toMatch(/border-left|inset/);          // no colored edge stripe (Neil, Oct 14): the tint carries the color
-    expect(block.style.background).toMatch(/rgba|color-mix|#/);
+    expect(block.getAttribute('style')).not.toMatch(/border-left|inset/);          // no colored edge stripe (Neil, Oct 14)
+    expect(block.style.background).toBe('var(--card)');                 // no tint: a dot carries the color (Oct 30 2026)
+    expect(block.querySelector('[data-type-dot]').style.background).toBe('rgb(37, 99, 235)');
     const grid = screen.getByRole('table', { name: 'Store schedule' });
     expect(grid.textContent).not.toContain('Hrs');
     expect(grid.textContent).not.toContain('Times in');
@@ -327,7 +328,7 @@ describe('MyShifts requests', () => {
     const block = await waitFor(() => { const el = document.querySelector('[data-shift="open1"]'); expect(el).toBeTruthy(); return el; });
     expect(block.closest('[data-member]').getAttribute('data-member')).toBe('open');
     expect(block.textContent).toContain('Early');
-    expect(block.textContent).toContain('×2');
+    expect(block.textContent).toContain('2 open');
     expect(screen.getAllByRole('button', { name: /Request the open shift/ })).toHaveLength(1);   // none on the past day
     fireEvent.click(screen.getByRole('button', { name: `Request the open shift on ${DAY}` }));
     await waitFor(() => expect(shiftRequestCreate).toHaveBeenCalledWith({ kind: 'open', shift_id: 'open1' }));

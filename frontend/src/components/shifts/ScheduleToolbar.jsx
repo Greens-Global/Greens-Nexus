@@ -1,17 +1,17 @@
-// The schedule toolbar (Oct 2026, Teams parity; reworked Oct 28 2026 after
-// Neil's walk-through): ONE row - [‹ date ›  Today] [Day Week Month] ......
-// [Fill Automatically] [Add] [Print] [⋯] | [Discard] [Save & Share N].
-// Discard shows only once there is something to discard; Customize, Export
-// to Excel and Import live under ⋯ with Copy Week, Clear Week, Requests and
-// Keyboard Shortcuts (Pranshu, Oct 29 2026: too many buttons). The date bar
-// leads on the left; the team picker is not here any more - it sits on its
-// own line right above the schedule, so the grid always says which team it
-// is. On a phone: [‹ date ›] [+] [⋯] over
-// [Team ▾] [Week ▾]; Save & Share, Discard, Fill, Import, Export and
-// Customize move under ⋯.
+// The Shift Planner toolbar (Oct 2026, Teams parity; reworked Oct 28 2026
+// after Neil's walk-through, and Oct 30 2026): ONE row at 1440px -
+// [‹ date ›  Today] [Day Week Month] ...... [Fill Automatically] [Add]
+// [Print] [⋯] | [Discard] [Save & Share N]. Print stays its own button
+// (Neil). Discard shows only once there is something to discard; Customize,
+// Export to Excel and Import live under ⋯ with Copy Week, Clear Week and
+// Keyboard Shortcuts - Requests has its own tab. The team picker and the
+// team's facts (hours, unshared changes, "0 of 17 Confirmed") sit on their
+// own line right above the schedule. On a phone: [‹ date ›] [+] [⋯] over
+// [Team ▾] [Week ▾]; Discard, Fill, Import, Export and Customize move under
+// ⋯ and Save & Share is a bar at the foot of the screen.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, Plus, Send, MoreHorizontal, Clock, CalendarRange, CalendarOff, StickyNote, Copy, Wand2, Trash2, Upload, Download, Printer, RotateCcw, Inbox, SlidersHorizontal, X, Search, Keyboard, ChevronDown, ChevronUp, AlertTriangle, CircleCheck, BellRing } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Send, MoreHorizontal, Clock, CalendarRange, CalendarOff, StickyNote, Copy, Wand2, Trash2, Upload, Download, Printer, RotateCcw, SlidersHorizontal, X, Search, Keyboard, ChevronDown, ChevronUp, AlertTriangle, CircleCheck, BellRing } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate, formatDateTime, formatWeekday, formatHHMM } from '../../lib/datetime';
 import { MenuButton, POP, HEAD, useAnchor, useDismissBoth } from './Menu';
@@ -40,7 +40,7 @@ const ARROW = { width: 30, height: 30, display: 'inline-flex', alignItems: 'cent
 const TODAY_BTN = { border: 'none', background: 'none', padding: '6px 8px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', borderRadius: 7, whiteSpace: 'nowrap' };
 
 export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, onJump, showToday = false, slide = 0, teamSwitcher = null, canManage, busy, ready,
-  unsharedCount = 0, onAdd, onShare, actions, phone = false, confirmations = null, onNudge = null }) {
+  unsharedCount = 0, onAdd, onShare, actions, phone = false }) {
   const viewName = VIEWS.find(([k]) => k === view)?.[1] || (view === 'twoweeks' ? 'Two Weeks' : 'Week');
   const addItems = [
     { key: 'shift', label: 'Shift', Icon: Clock, onClick: () => onAdd('shift') },
@@ -71,8 +71,6 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
     ...(canManage ? [
       { key: 'copy', label: 'Copy Week', Icon: Copy, onClick: actions.copy, disabled: !ready },
       { key: 'clear', label: 'Clear Week', Icon: Trash2, onClick: actions.clear, disabled: !ready },
-      'sep',
-      { key: 'requests', label: 'Requests', Icon: Inbox, onClick: actions.requests },
     ] : []),
     ...(!phone && actions.shortcuts ? ['sep', { key: 'keys', label: 'Keyboard Shortcuts', Icon: Keyboard, onClick: actions.shortcuts }] : []),
   ].filter((x, i, all) => x !== 'sep' || (i > 0 && i < all.length - 1 && all[i - 1] !== 'sep'));
@@ -89,12 +87,10 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
     <MenuButton label="" Icon={MoreHorizontal} items={moreItems} ariaLabel="More" align="right" width={220} style={{ padding: phone ? '7px 9px' : '6px 8px', height: phone ? 36 : undefined }}
       badge={phone && unsharedCount > 0 ? <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--wk-brand)', marginLeft: -4 }} /> : null} />
   ) : null;
-  // "5 Of 8 Confirmed" (Phase 3a): only when a share in view asked someone to confirm.
-  const confirmChip = canManage && confirmations && confirmations.total > 0 ? <ConfirmChip c={confirmations} onNudge={onNudge} compact={phone} /> : null;
   if (phone) {
     const viewItems = VIEWS.map(([k, label]) => ({ key: k, label, hint: (view === k || (k === 'week' && view === 'twoweeks')) ? '✓' : '', onClick: () => onView(k) }));
     return (
-      <div role="toolbar" aria-label="Schedule" style={{ marginBottom: 10, display: 'grid', gap: 8 }}>
+      <div role="toolbar" aria-label="Shift Planner" style={{ marginBottom: 10, display: 'grid', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           {dateNav}
           <div style={{ flex: 1 }} />
@@ -104,7 +100,6 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           {teamSwitcher}
           {!teamSwitcher && <div style={{ flex: 1 }} />}
-          {confirmChip}
           <MenuButton label={viewName} items={viewItems} ariaLabel="View" width={150} align="right" style={{ padding: '6px 10px', fontWeight: 700 }} />
         </div>
       </div>
@@ -112,7 +107,7 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
   }
   const BTN = { fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 };
   return (
-    <div role="toolbar" aria-label="Schedule" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap', rowGap: 10 }}>
+    <div role="toolbar" aria-label="Shift Planner" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap', rowGap: 10 }}>
       {dateNav}
       <div role="group" aria-label="View" style={{ display: 'inline-flex', border: '1px solid var(--line)', borderRadius: 9, overflow: 'hidden', background: 'var(--card)' }}>
         {VIEWS.map(([k, label]) => {
@@ -126,7 +121,6 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
       </div>
       <div style={{ flex: 1 }} />
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {confirmChip}
         {canManage && (
           <button type="button" className="secondary-btn" onClick={actions.fill} disabled={!ready} title="Place each person's usual hours across the dates you pick" style={BTN}>
             <Wand2 size={13} /> Fill Automatically
@@ -149,7 +143,7 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
             <button type="button" className={unsharedCount ? 'primary-btn' : 'secondary-btn'} onClick={onShare} disabled={busy || !ready}
               title={saveTitle} aria-label={`Save & Share${unsharedCount ? `, ${unsharedCount} unsaved` : ''}`} style={BTN}>
               <Send size={13} /> Save &amp; Share
-              {unsharedCount > 0 && <span style={{ fontSize: 10.5, fontWeight: 800, background: '#fff', color: 'var(--wk-brand)', borderRadius: 10, padding: '0 6px', minWidth: 18, textAlign: 'center' }}><RollingNumber value={unsharedCount} /></span>}
+              {unsharedCount > 0 && <span style={{ fontWeight: 800, paddingLeft: 7, marginLeft: 1, borderLeft: '1px solid rgba(255,255,255,0.45)', fontVariantNumeric: 'tabular-nums' }}><RollingNumber value={unsharedCount} /></span>}
             </button>
           </>
         )}
@@ -178,16 +172,25 @@ export function ConfirmChip({ c, onNudge, compact = false }) {
     setBusy(key);
     try { await onNudge(people); } finally { setBusy(''); }
   }
-  const label = `${c.confirmed} Of ${c.total} Confirmed`;
+  // Plain words on the team line (Neil, Oct 30 2026): "0 of 17 Confirmed ·
+  // Nudge" - no chip. The count opens the list; Nudge reminds everyone
+  // waiting who has not been nudged yet.
+  const label = `${c.confirmed} of ${c.total} Confirmed`;
+  const PLAIN = { border: 'none', background: 'none', padding: compact ? '12px 0' : '2px 0', fontFamily: 'inherit', fontSize: compact ? 12.5 : 12.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };
   return (
-    <span style={{ position: 'relative', display: 'inline-flex' }}>
+    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       <button ref={btnRef} type="button" data-confirm-chip="" onClick={() => setOpen((o) => !o)} aria-haspopup="dialog" aria-expanded={open} aria-label={label}
         title={all ? 'Everyone has confirmed the shared schedule' : `${c.pending.length} ${c.pending.length === 1 ? 'person has' : 'people have'} not confirmed the shared schedule yet`}
-        style={{ border: '1px solid transparent', borderRadius: 999, padding: compact ? '4px 9px' : '5px 10px', fontFamily: 'inherit', fontSize: compact ? 11.5 : 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
-          display: 'inline-flex', alignItems: 'center', gap: 5, height: compact ? 36 : undefined,
-          background: all ? 'hsla(var(--color-green),0.12)' : 'var(--wk-brand-tint)', color: all ? 'hsl(var(--color-green))' : 'var(--wk-brand)' }}>
-        <CircleCheck size={13} />{compact ? `${c.confirmed}/${c.total}` : label}
+        style={{ ...PLAIN, display: 'inline-flex', alignItems: 'center', gap: 5, color: all ? 'hsl(var(--color-green))' : 'var(--ink)' }}>
+        {all && <CircleCheck size={13} aria-hidden="true" />}{label}
       </button>
+      {!all && waiting.length > 0 && onNudge && (
+        <>
+          <span aria-hidden="true" style={{ color: 'var(--muted)' }}>·</span>
+          <button type="button" data-confirm-nudge="" onClick={() => send(waiting, 'all')} disabled={!!busy} title={`Remind the ${waiting.length === 1 ? 'person' : `${waiting.length} people`} who have not confirmed`}
+            style={{ ...PLAIN, color: 'var(--wk-brand)' }}>Nudge</button>
+        </>
+      )}
       {open && pos && createPortal(
         <div ref={listRef} role="dialog" aria-label="Schedule confirmations" style={{ ...POP, ...pos, zIndex: 1350, padding: '4px 0 8px', maxHeight: `calc(100vh - ${Math.round(pos.top) + 12}px)`, overflowY: 'auto' }}>
           <div style={HEAD}>{all ? 'Everyone Has Confirmed' : 'Not Confirmed Yet'}</div>

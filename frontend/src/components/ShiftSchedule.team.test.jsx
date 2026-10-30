@@ -117,7 +117,7 @@ describe('Team switcher', () => {
     await screen.findByText('Amy Adams');
     fireEvent.click(teamButton());
     const list = screen.getByRole('listbox', { name: 'Teams' });
-    expect(within(list).getByRole('option', { name: /^Front/ }).textContent).toContain('1 draft');
+    expect(within(list).getByRole('option', { name: /^Front/ }).textContent).toContain('1 unshared');
     expect(within(list).getByRole('option', { name: /^Back/ }).textContent).toContain('2 open');
     expect(within(list).getByRole('option', { name: /^Front/ }).textContent).toContain('1');   // its 1-9 shortcut
     fireEvent.keyDown(list, { key: 'ArrowDown' });
@@ -200,7 +200,7 @@ describe('Fill Automatically (Neil, Oct 28 2026)', () => {
     api.timeSchedBulk.mockResolvedValue({ created: 5 });
     render(<ShiftSchedule toastOk={vi.fn()} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(within(screen.getByRole('toolbar', { name: 'Schedule' })).getByRole('button', { name: /Fill Automatically/ }));
+    fireEvent.click(within(screen.getByRole('toolbar', { name: 'Shift Planner' })).getByRole('button', { name: /Fill Automatically/ }));
     const dlg = screen.getByRole('dialog', { name: 'Fill Automatically' });
     expect(within(dlg).getByRole('combobox', { name: 'Apply to' }).value).toBe('g1');            // Front, not the first group by chance
     expect(within(dlg).getByRole('combobox', { name: 'Shift' }).value).toBe('__usual');
@@ -217,7 +217,7 @@ describe('Fill Automatically (Neil, Oct 28 2026)', () => {
     api.timeSchedBulk.mockResolvedValue({ created: 10, people: 2 });
     render(<ShiftSchedule toastOk={vi.fn()} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(within(screen.getByRole('toolbar', { name: 'Schedule' })).getByRole('button', { name: /Fill Automatically/ }));
+    fireEvent.click(within(screen.getByRole('toolbar', { name: 'Shift Planner' })).getByRole('button', { name: /Fill Automatically/ }));
     const dlg = screen.getByRole('dialog', { name: 'Fill Automatically' });
     fireEvent.change(within(dlg).getByRole('combobox', { name: 'Shift' }), { target: { value: 'p1' } });
     fireEvent.click(within(dlg).getByRole('button', { name: 'Fill Schedule' }));
@@ -312,17 +312,45 @@ describe('Coverage and conflicts', () => {
     expect(document.querySelector('[data-coverage]')).toBeNull();
   });
 
-  it('dots a duplicate and an overlap, counts them in the corner, and the count goes to the first one', async () => {
+  it('names a duplicate and an overlap on the block, counts them To Review, and a kind goes to its first one', async () => {
     api.timeSchedule.mockResolvedValue(data([shift(), shift({ id: 's2', published: false }), shift({ id: 'b1', email: B, start: '20:00', end: '04:00' }),
       shift({ id: 'b2', email: B, date: plusDays(monday, 1), start: '02:00', end: '06:00' })]));
     render(<ShiftSchedule />);
     await screen.findByText('Amy Adams');
-    expect(document.querySelector('[data-shift="s1"] [data-conflict-dot]').getAttribute('aria-label')).toBe('Warning: Duplicate of another shift');
-    expect(document.querySelector('[data-shift="b1"] [data-conflict-dot]').getAttribute('aria-label')).toBe('Warning: Overlaps 2:00a - 6:00a');
-    const link = screen.getByRole('button', { name: /^4 conflicts$/ });
+    expect(document.querySelector('[data-shift="s1"] [data-flag]').textContent).toBe('Duplicate');
+    expect(document.querySelector('[data-shift="s1"]').getAttribute('aria-label')).toContain('1 warning: Duplicate of another shift');
+    expect(document.querySelector('[data-shift="b1"] [data-flag]').textContent).toBe('Overlap');
+    expect(document.querySelector('[data-shift="b1"]').getAttribute('aria-label')).toContain('1 warning: Overlaps 2:00a - 6:00a');
+    const review = screen.getByRole('region', { name: 'To review' });
+    expect(review.textContent).toMatch(/^4 To Review/);
     Element.prototype.scrollIntoView = vi.fn();
-    fireEvent.click(link);
+    fireEvent.click(review.querySelector('[data-review-kind="overlap"]'));
     expect(document.querySelector('[data-shift="s1"]').classList.contains('m-pulse')).toBe(true);
+  });
+});
+
+describe('The team line (Neil, Oct 30 2026)', () => {
+  it('says this team\'s unshared changes, every team\'s, and where the rest are - the total matches Save & Share', async () => {
+    api.timeSchedule.mockResolvedValue({ ...data([shift({ published: false }), shift({ id: 'c1', email: C, published: false })]), unsharedCount: 33,
+      unsharedByDate: { [monday]: 2, [plusDays(monday, 9)]: 29, [plusDays(monday, 40)]: 2 } });
+    render(<ShiftSchedule />);
+    await screen.findByText('Amy Adams');
+    const bar = document.querySelector('[data-team-bar]');
+    expect(bar.querySelector('[data-unshared-line]').textContent).toBe('1 Unshared On This Team · 33 across all teams (1 on other teams, 29 next week, 2 in other weeks)');
+    expect(screen.getByRole('button', { name: 'Save & Share, 33 unsaved' })).toBeTruthy();
+    // The picker says the same per team, in words - no pill.
+    fireEvent.click(teamButton());
+    expect(screen.getByRole('option', { name: /^Back/ }).textContent).toContain('1 unshared');
+  });
+  it('names only the teams on screen in the weather setup note', async () => {
+    api.timeSchedule.mockResolvedValue(data([shift()], { groups: [{ id: 'g1', name: 'Front', members: [A, B], canEdit: true, sortOrder: 0, workSiteId: 's1', siteLocated: true },
+      { id: 'g2', name: 'Back', members: [C], canEdit: true, sortOrder: 1, workSiteId: '' }] }));
+    render(<ShiftSchedule />);
+    await screen.findByText('Amy Adams');
+    expect(document.querySelector('[data-weather-setup]')).toBeNull();     // Front is on screen; Back has no site
+    pickTeam('Back');
+    await screen.findByText('Cat Cole');
+    expect(document.querySelector('[data-weather-setup]').textContent).toContain('Back has no work site');
   });
 });
 
@@ -413,17 +441,19 @@ describe('Excel-style selection and the conflicts list (Neil and Charmi, Oct 28 
     await waitFor(() => expect(api.timeSchedDelete).toHaveBeenCalledTimes(3));
   });
 
-  it('lists every conflict under the schedule in plain words, and a click shows the shift', async () => {
+  it('lists every conflict above the schedule in plain words, and a click shows the shift', async () => {
     api.timeSchedule.mockResolvedValue({ ...data([shift()]),
       availability: { [A]: [{ weekday: 0, kind: 'unavailable', start: '', end: '', note: '' }] } });
     render(<ShiftSchedule />);
     await screen.findByText('Amy Adams');
     const list = document.querySelector('[data-conflict-list]');
-    expect(list.textContent).toContain('Conflicts To Review (1)');
-    expect(list.textContent).toContain('Amy Adams -');
+    expect(list.textContent).toMatch(/^1 To Review/);
+    fireEvent.click(within(list).getByRole('button', { name: /Review List/ }));
+    expect(list.textContent).toContain('Amy Adams ·');
     expect(list.textContent).toContain('Scheduled on a day they marked as unavailable (Mon)');
-    fireEvent.click(within(list).getByRole('button'));
-    await waitFor(() => expect(cellOf(A).className).toContain('m-pulse-cell'));
+    Element.prototype.scrollIntoView = vi.fn();
+    fireEvent.click(within(list).getByRole('listitem').querySelector('button'));
+    expect(document.querySelector('[data-shift="s1"]').classList.contains('m-pulse')).toBe(true);
   });
 
   it('never warns about 40 hours for a contractor', async () => {

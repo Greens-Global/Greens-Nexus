@@ -7157,6 +7157,9 @@ def _sched_dict(row: ScheduledShift, presets: dict, effective: bool = False, tea
             "label": pend.get("label", row.label), "note": pend.get("note", row.note),
             "published": bool(row.published) and not pend and not removing,
             "hasChanges": bool(pend), "pendingDelete": removing,
+            # What the team sees now, for an edit not shared yet - the Shift
+            # Planner's block says "was 8:00a - 4:30p" (Oct 30 2026).
+            "was": {"start": row.start_hhmm, "end": row.end_hhmm, "label": row.label or ""} if pend else None,
             "openSlots": int(pend.get("openSlots", getattr(row, "open_slots", 0)) or 0),
             "weatherStatus": weather_status,
             "weatherDecisionId": getattr(row, "weather_decision_id", "") or "",
@@ -7556,6 +7559,12 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     weather = weather_watch.outlook_rows(db, start, end, group_ids)
 
     last = _last_publish(db) if can_write else {}
+    # Where the unshared changes are, per day (Oct 30 2026): the team line
+    # says "32 across all teams (29 next week)" without a second call.
+    unshared_by_date: dict = {}
+    if can_write:
+        for (d,) in _unshared_query(db, user).with_entities(ScheduledShift.work_date).all():
+            unshared_by_date[d] = unshared_by_date.get(d, 0) + 1
     return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
             "groups": groups, "scheduled": scheduled, "openShifts": open_shifts,
             "timeoff": timeoff, "holidays": holidays, "weather": weather,
@@ -7566,7 +7575,8 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
             # Teams "last shared" + the unshared count across the WHOLE
             # schedule, not just these dates (Oct 2, B4-31).
             "lastPublishedAt": (last.get("at") or "") if can_write else "",
-            "unsharedCount": _unshared_query(db, user).count() if can_write else 0,
+            "unsharedCount": sum(unshared_by_date.values()),
+            "unsharedByDate": unshared_by_date,
             # Shift settings and groups are company-wide switches
             # (_require_unscoped_team): offered only to those who can save them.
             # write_scope, not scope - every manager now READS everyone.
