@@ -2067,7 +2067,7 @@ export const DOCS = [
   {
     id: 'business-intelligence', name: 'Insights', group: 'Modules', icon: 'InsightsChart', view: 'bi',
     tagline: 'Company-wide numbers from every module, with what needs attention first.',
-    where: 'Left menu > Insights',
+    where: 'Profile menu > Tools > Insights',
     access: 'Supervisors and above with the Insights grant',
     purpose: 'Insights pulls the key numbers from across Nexus onto one board, counted exactly as each module counts them. Anything past its alert level - overdue, breached, unassigned, expiring - is listed first under Needs Attention; every module then gets its own card of counts. Click a count to see who or what is behind it.',
     gains: [
