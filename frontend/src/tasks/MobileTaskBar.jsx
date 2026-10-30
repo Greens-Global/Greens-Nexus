@@ -64,7 +64,9 @@ export function BottomSheet({ title, onClose, onBack, children }) {
         background: NX.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18,
         // A share of the VISIBLE height, so with the keyboard up the sheet
         // still fits above it and its body scrolls instead of hiding.
-        maxHeight: vv ? Math.round(vv.height * 0.92) : '82vh',
+        maxHeight: vv ? Math.round((vv.height - (vv.clear || 0)) * 0.92) : '82vh',
+        // Above iOS's floating keyboard strip; the backdrop still fills to the keyboard.
+        marginBottom: vv?.clear || 0,
         display: 'flex', flexDirection: 'column', boxShadow: '0 -12px 40px rgba(0,0,0,0.28)',
         // A border gives the sheet a visible edge in dark mode, where the surface
         // is close to the canvas and the drop shadow is invisible.

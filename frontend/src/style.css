@@ -2438,6 +2438,10 @@ html { overflow-x: hidden; }
   input[type="search"], input[type="email"], input[type="tel"], input[type="url"], input[type="password"], textarea, select {
     font-size: 16px !important;
   }
+  /* ...and a rich-text editor zooms the same way: Quick Note's 14.5px
+     editor zoomed the page in on an iPhone, cutting the text off at the
+     right and throwing the keyboard bar off (Neil, Oct 30 2026). */
+  .ProseMirror[contenteditable="true"] { font-size: 16px; }
 
   /* ...but the OPEN list inherits that 16px, so a dropdown read a size larger
      than everything around it (Sagar, Sept 1 2026). The options carry the
