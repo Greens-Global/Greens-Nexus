@@ -215,6 +215,17 @@
 .nt-qn-switch { display: flex; gap: 2px; padding: 6px 14px 0; border-bottom: 1px solid var(--wk-line2); }
 .nt-qn-foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--wk-line2); font-size: 12px; color: var(--muted); }
 .nt-qn-keys { margin-left: auto; }
+/* A note opened from the list on a phone (NotesPage PhoneSheet): the same
+   sheet, under the shared Modal (4000) so Share and Version History open
+   over it - level with the page's own full screen. */
+.nt-qn-overlay.is-page { z-index: 3500; }
+.nt-qn.is-page { z-index: 3501; }
+.nt-qn.is-page .nt-qn-body { padding: 0 14px 14px; }
+.nt-qn.is-page .nt-doc { padding: 12px 0 24px; min-height: 0; flex: 1 1 auto; }
+.nt-qn.is-page .nt-qn-head .nt-actions { order: 0; flex: 0 0 auto; justify-content: flex-start; }
+.nt-qn.is-page .nt-qn-title, .nt-qn.is-page .nt-qn-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The head's menus drop from the sheet's right edge, so Color never runs off a 320px screen. */
+.nt-qn.is-page .nt-qn-head .nt-pop { position: fixed; top: 62px; right: 10px; }
 
 /* ── voice notes, videos, dictation (noteMedia.jsx) ── */
 .nt-media { position: relative; margin: .5em 0 .8em; max-width: 560px; }

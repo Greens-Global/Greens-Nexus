@@ -5,19 +5,23 @@
 // saves itself (useNoteSync: autosave, local draft, rev check), and carries
 // pin, a color rule, tags, sharing with Nexus People, version history,
 // Markdown export, print / PDF and Make a Task. On a phone the list comes
-// first and a note opens full screen. The sub is `notes` or `notes:<id>`, so
-// a link to one note (the share bell) opens it.
+// first and a note opens in the Quick Note sheet over it (PhoneSheet). The
+// sub is `notes` or `notes:<id>`, so a link to one note (the share bell)
+// opens it.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ChevronLeft, ChevronRight, Search, X, Plus, Upload, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
-  Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, ArrowLeft, Link as LinkIcon, Palette,
+  Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, Link as LinkIcon, Palette,
   RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useIsMobile } from '../lib/useIsMobile';
 import { formatDate, formatDateTime } from '../lib/datetime';
-import { Modal, DateField, usePeople, Avatar } from '../tasks/components';
+import { Modal, DateField, usePeople, Avatar, useEscapeLayer } from '../tasks/components';
+import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
+import { useScrollLock } from '../lib/useScrollLock';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { matchPeople } from '../lib/peopleSearch';
 import NoteEditor from './NoteEditor';
@@ -235,6 +239,36 @@ function ShortcutsPop({ open, onClose }) {
   );
 }
 
+// On a phone a note opens the way Quick Note does (Neil, Oct 29 2026): the
+// same full-screen sheet as "+" > New Note, over the list, which stays where
+// it was scrolled. The note's actions ride in the sheet's head, the save
+// status in its foot; closing it (or Back) is the list again.
+function PhoneSheet({ title, sub, color, actions, foot, onClose, children }) {
+  const ref = useRef(null);
+  useEscapeLayer(onClose);
+  useDialogFocus(ref);
+  useScrollLock(true);
+  return createPortal(
+    <>
+      <div className="nt-qn-overlay is-page" onClick={onClose} aria-hidden="true" />
+      <aside ref={ref} className="nt-qn is-page" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onKeyDown={dialogKeyDown}>
+        <div className="nt-qn-head">
+          {color && <span className="nt-head-rule" style={{ background: color }} aria-hidden="true" />}
+          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+            <div className="nt-qn-title">{title}</div>
+            {sub && <div className="nt-qn-sub">{sub}</div>}
+          </div>
+          {actions}
+          <button type="button" className="nt-icon-btn" aria-label="Close Note" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="nt-qn-body">{children}</div>
+        {foot && <div className="nt-qn-foot" aria-live="polite">{foot}</div>}
+      </aside>
+    </>,
+    document.body,
+  );
+}
+
 // The open note.
 function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail }) {
   const sync = useNoteSync(id, { onSaved });
@@ -273,18 +307,17 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     );
   }
   if (status === 'loading' || (!note && status !== 'missing' && status !== 'error')) {
-    return <div className="nt-pane"><div className="nt-doc"><SkeletonBlocks count={1} height={36} /><div style={{ height: 14 }} /><SkeletonBlocks count={3} height={70} /></div></div>;
+    const skeleton = <div className="nt-doc"><SkeletonBlocks count={1} height={36} /><div style={{ height: 14 }} /><SkeletonBlocks count={3} height={70} /></div>;
+    return isPhone ? <PhoneSheet title="Note" onClose={onBack}>{skeleton}</PhoneSheet> : <div className="nt-pane">{skeleton}</div>;
   }
   if (!note) {
-    return (
-      <div className="nt-pane">
-        {isPhone && <div className="nt-bar"><button type="button" className="nt-icon-btn" aria-label="Back to notes" onClick={onBack}><ArrowLeft size={18} /></button></div>}
-        <div className="nt-empty" style={{ margin: 'auto' }}>
-          <strong>{status === 'missing' ? 'This note is not available' : 'Could not open this note'}</strong>
-          {status === 'missing' ? 'It may have been deleted, or it is no longer shared with you.' : 'Check your connection and pick it again.'}
-        </div>
+    const empty = (
+      <div className="nt-empty" style={{ margin: 'auto' }}>
+        <strong>{status === 'missing' ? 'This note is not available' : 'Could not open this note'}</strong>
+        {status === 'missing' ? 'It may have been deleted, or it is no longer shared with you.' : 'Check your connection and pick it again.'}
       </div>
     );
+    return isPhone ? <PhoneSheet title="Note" onClose={onBack}>{empty}</PhoneSheet> : <div className="nt-pane">{empty}</div>;
   }
 
   const trashed = !!note.trashedAt;
@@ -323,16 +356,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     } catch (e) { toast(e.message || 'Could not create the task'); }
   };
 
-  return (
-    <div className="nt-pane">
-      <div className="nt-pane-scroll">
-        <div className="nt-doc">
-          <div className="nt-head">
-            {isPhone && <button type="button" className="nt-icon-btn" aria-label="Back to notes" onClick={onBack} style={{ marginLeft: -8 }}><ArrowLeft size={18} /></button>}
-            <span className="nt-head-rule" style={{ background: colorCss(note.color) }} aria-hidden="true" />
-            <input ref={titleRef} className="nt-title" value={note.title || ''} readOnly={readOnly} maxLength={200}
-              placeholder={note.kind === 'daily' ? 'Daily Scratchpad' : 'Untitled Note'} aria-label="Note title"
-              onChange={(e) => sync.edit({ title: e.target.value })} />
+  const actions = (
             <div className="nt-actions">
               {mine && !trashed && (
                 <button type="button" className={`nt-icon-btn${note.pinned ? ' is-on' : ''}`} aria-pressed={note.pinned}
@@ -374,7 +398,20 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                 </Popover>
               </span>
             </div>
-          </div>
+  );
+
+  const doc = (
+        <div className="nt-doc">
+          {/* The sheet already says Daily Scratchpad - as in Quick Note, no empty title box under it. */}
+          {!(isPhone && note.kind === 'daily' && !note.title) && (
+            <div className="nt-head">
+              <span className="nt-head-rule" style={{ background: colorCss(note.color) }} aria-hidden="true" />
+              <input ref={titleRef} className="nt-title" value={note.title || ''} readOnly={readOnly} maxLength={200}
+                placeholder={note.kind === 'daily' ? 'Daily Scratchpad' : 'Untitled Note'} aria-label="Note title"
+                onChange={(e) => sync.edit({ title: e.target.value })} />
+              {!isPhone && actions}
+            </div>
+          )}
 
           <div className="nt-meta">
             {mine && !trashed ? (
@@ -388,7 +425,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                 Shared with {note.sharedWith.length} {note.sharedWith.length === 1 ? 'person' : 'people'}
               </button>
             )}
-            {!readOnly && <StatusLine status={status} note={note} />}
+            {!readOnly && !isPhone && <StatusLine status={status} note={note} />}
           </div>
 
           <TagEditor tags={note.tags || []} disabled={!mine || trashed} onChange={(tags) => sync.setMeta({ tags })} />
@@ -420,10 +457,27 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
           <NoteEditor value={note.body || ''} readOnly={readOnly} people={people}
             onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : makeTask} />
         </div>
-      </div>
+  );
+  const dialogs = (<>
       {dialog === 'share' && <ShareDialog note={note} onClose={() => setDialog('')} onChanged={(n) => { sync.replace(n); onSaved?.(n); }} />}
       {dialog === 'history' && <HistoryDialog note={note} canRestore={!readOnly} onClose={() => setDialog('')}
         onRestored={(n) => { sync.replace(n, true); onSaved?.(n); toast('Version restored - the note as it was is kept in the history'); }} />}
+  </>);
+
+  if (isPhone) {
+    return (
+      <PhoneSheet title={note.kind === 'daily' ? 'Daily Scratchpad' : 'Note'} onClose={onBack} actions={actions} color={note.color ? colorCss(note.color) : ''}
+        sub={[note.day ? formatDate(note.day) : '', !mine ? `Shared by ${note.owner}` : ''].filter(Boolean).join(' · ')}
+        foot={readOnly ? <span>{trashed ? 'In the Trash' : 'Read Only'}</span> : <StatusLine status={status} note={note} />}>
+        {doc}
+        {dialogs}
+      </PhoneSheet>
+    );
+  }
+  return (
+    <div className="nt-pane">
+      <div className="nt-pane-scroll">{doc}</div>
+      {dialogs}
     </div>
   );
 }
@@ -499,12 +553,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
     const onKey = (e) => {
       const tag = (e.target?.tagName || '').toLowerCase();
       const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable;
-      if (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); searchRef.current?.focus(); }
+      const inDialog = !!e.target?.closest?.('[role="dialog"]') || (isPhone && !!selectedId);
+      if (e.key === '/' && !typing && !inDialog && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); searchRef.current?.focus(); }
       if (e.key === 'Escape' && full && !typing) setFull(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [full]);
+  }, [full, isPhone, selectedId]);
 
   // Drag the list's edge to size it (kept per browser).
   const startDrag = (e) => {
@@ -521,13 +576,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
   };
 
   const groups = useMemo(() => groupByDay(data?.notes || []), [data]);
-  const showList = isPhone ? !selectedId : listOpen && !full;
+  const showList = isPhone || (listOpen && !full);
   const showPane = isPhone ? !!selectedId : true;
   const counts = data?.counts || {};
 
   return (
     <div className={`nt-page${full ? ' is-full' : ''}`}>
-      {(!isPhone || !selectedId) && !full && (
+      {!full && (
         <div className="nt-bar">
           {!isPhone && (
             <button type="button" className="nt-icon-btn" aria-label={listOpen ? 'Hide the list' : 'Show the list'} title={listOpen ? 'Hide the List' : 'Show the List'}
