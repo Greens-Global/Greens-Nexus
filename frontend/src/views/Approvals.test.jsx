@@ -93,6 +93,27 @@ describe('Approvals', () => {
     expect(screen.getByText('Reimbursement - $142.50 (2 receipts)')).toBeTruthy();
   });
 
+  // Neil, 10/29/2026: Reject is red, Review is grey, Approve stays the
+  // primary, and the priority is easy to see on each card.
+  it('draws Reject red, Review grey, Approve primary, and labels the priority', async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    render(<Approvals activeSub={null} onSubChange={() => {}} />);
+    await screen.findByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)');
+    const off = screen.getByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)').closest('.apv-row');
+    const btn = (row, name) => within(row).getByRole('button', { name: new RegExp(`^${name}:`) });
+    expect(btn(off, 'Reject').className).toContain('apv-no');
+    expect(btn(off, 'Review').className).toContain('apv-review');
+    expect(btn(off, 'Approve').className).toContain('primary-btn');
+    const money = screen.getByText('Reimbursement - $142.50 (2 receipts)').closest('.apv-row');
+    // Send Back is not a no: the plain secondary, never red.
+    expect(btn(money, 'Send Back').className).toContain('secondary-btn');
+    expect(btn(money, 'Send Back').className).not.toContain('apv-no');
+    // The urgent row says so in words, and carries the attribute the phone's colored rule keys on.
+    expect(money.getAttribute('data-priority')).toBe('urgent');
+    expect(within(money).getByText('Urgent').closest('.apv-prio')).toBeTruthy();
+    expect(within(off).getByText('Medium')).toBeTruthy();
+  });
+
   it('shows a friendly empty state', async () => {
     approvalsInbox.mockResolvedValue({ ...INBOX, rows: [], counts: {}, groups: {}, total: 0 });
     render(<Approvals />);
