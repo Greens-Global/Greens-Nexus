@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 
-const apiMock = vi.hoisted(() => ({ mySignatures: vi.fn(), dashKpis: vi.fn(), getLinkLayout: vi.fn(async () => ({ favorites: [] })), getExternalLinks: vi.fn(async () => []), getPersonalLinks: vi.fn(async () => []) }));
+const apiMock = vi.hoisted(() => ({ mySignatures: vi.fn(), dashKpis: vi.fn(), approvalsInbox: vi.fn(async () => ({ rows: [], aging: {}, who: {} })), getLinkLayout: vi.fn(async () => ({ favorites: [] })), getExternalLinks: vi.fn(async () => []), getPersonalLinks: vi.fn(async () => []) }));
 const openPanel = vi.hoisted(() => vi.fn());
 vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil Kadakia', username: 'neil@greensglobal.com' }] }) }));
@@ -34,6 +34,20 @@ describe('DeskHome attention queue', () => {
     expect(document.querySelector('.dk-count').textContent).toBe('12');
     fireEvent.click(screen.getByRole('button', { name: /View All \(12\)/ }));
     expect(openPanel).toHaveBeenCalledTimes(1);
+  });
+
+  it('decisions waiting lead the queue, count in the total and get their own number (Oct 30 2026)', async () => {
+    apiMock.mySignatures.mockResolvedValue([]);
+    apiMock.approvalsInbox.mockResolvedValueOnce({ who: { canApprove: true }, aging: { over3: 1 }, rows: [
+      { key: 'time_off:1', scope: 'decide', title: 'Time Off - 11/03/2026 (3 days)', person: { name: 'Erin Walsh' }, department: 'Accounting', priority: 'high', count: 1, createdAt: new Date(Date.now() - 4 * 86400e3).toISOString() },
+      { key: 'assignment_accept:2', scope: 'act', title: 'Accept Item - Laptop', person: { name: 'Max' }, count: 1, createdAt: new Date().toISOString() },
+    ] });
+    render(<DeskHome kpis={{}} notifications={[]} markRead={vi.fn()} />);
+    expect(await screen.findByText('Time Off - 11/03/2026 (3 days)')).toBeTruthy();
+    expect(screen.getByText('Erin Walsh · Accounting')).toBeTruthy();
+    expect(screen.queryByText('Accept Item - Laptop')).toBeNull();                     // their own to-do is not a decision
+    expect(screen.getByText('1 waiting over 3 days')).toBeTruthy();                   // the Approvals number's footnote
+    expect(screen.getByText(/You have/).textContent).toContain('1 item');
   });
 
   it('no View All row when everything fits; Title Case headings', async () => {
