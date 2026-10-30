@@ -241,13 +241,30 @@ export function insertAtCursor(el, text) {
   let words = sentenceStart ? text.charAt(0).toUpperCase() + text.slice(1) : text;
   if (before && !/\s$/.test(before)) words = ` ${words}`;
   if (after && !/^\s/.test(after)) words = `${words} `;
+  // A box with a length limit trims what was SAID, never what was already
+  // written after the cursor.
   const max = el.maxLength > 0 ? el.maxLength : Infinity;
-  const next = (before + words + after).slice(0, max);
+  const room = Math.max(0, max - before.length - after.length);
+  if (words.length > room) words = words.slice(0, room);
+  if (!words) return;
+  const next = before + words + after;
   valueSetter(el).call(el, next);
   el.dispatchEvent(new Event('input', { bubbles: true }));
   const caret = Math.min(next.length, before.length + words.length);
   try { el.setSelectionRange(caret, caret); } catch { /* an input type without a selection */ }
 }
 
+
+// ── a form waits for Stop ─────────────────────────────────────────────────
+/** What a form shows by its Create / Submit while a voice note records. */
+export const STOP_VOICE_FIRST = 'Stop the voice note first - it is still recording.';
+
+/** Calls onChange(recording) as it changes, and false when the recorder goes away. */
+export function useReportRecording(recording, onChange) {
+  const cb = useRef(onChange);
+  useEffect(() => { cb.current = onChange; }, [onChange]);
+  useEffect(() => { cb.current?.(recording); }, [recording]);
+  useEffect(() => () => { cb.current?.(false); }, []);
+}
 
 export const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;

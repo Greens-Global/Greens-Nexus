@@ -511,7 +511,9 @@ const GROUPS = [
   // Headcount Requests (Neil, Oct 30 2026): off for every company until it
   // turns them on - most small and midsize companies do not need them.
   { id: 'headcount-requests', subject: 'hiring', face: 'both', scope: 'company', icon: UserPlus, title: 'Headcount Requests', flush: true,
-    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    // What PUT /hiring/headcount/settings demands: HR++ (is_hr_approver) -
+    // switching it off takes waiting requests from their approvers.
+    needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
     sub: 'Managers ask to hire and the department line and HR approve, before there is a candidate. Off for every company until it is turned on here; while off, HR starts job openings directly.',
     keywords: 'headcount request hire approval new role opening requisition team department switch off on' },
   // HR letters (Neil, Oct 27 2026): an organization default a company may override.

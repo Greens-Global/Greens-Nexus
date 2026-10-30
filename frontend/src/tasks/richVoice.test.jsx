@@ -64,6 +64,31 @@ describe('RichDescription voice', () => {
     }
   });
 
+  it('Ctrl+Enter waits while a voice note records, and the parent hears it is recording', async () => {
+    const realMd = navigator.mediaDevices; const realMR = window.MediaRecorder;
+    Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop() {} }] })) }, configurable: true });
+    window.MediaRecorder = function MR() { this.mimeType = 'audio/mp4'; this.start = vi.fn(); this.stop = vi.fn(() => { this.ondataavailable({ data: new Blob(['x']) }); this.onstop(); }); };
+    window.MediaRecorder.isTypeSupported = (m) => m === 'audio/mp4';
+    try {
+      const onSubmit = vi.fn();
+      const onRec = vi.fn();
+      const { container } = render(<RichDescription value="<p>Done</p>" onChange={() => {}} onStageFiles={() => {}} onSubmit={onSubmit} onRecordingChange={onRec} />);
+      await act(async () => { fireEvent.mouseDown(screen.getByRole('button', { name: 'Record a Voice Note' })); });
+      expect(onRec).toHaveBeenLastCalledWith(true);
+      const pm = container.querySelector('.ProseMirror');
+      await act(async () => { fireEvent.keyDown(pm, { key: 'Enter', ctrlKey: true }); });
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(screen.getByText(/Stop the voice note first/)).toBeTruthy();
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Stop$/ })); });
+      expect(onRec).toHaveBeenLastCalledWith(false);
+      await act(async () => { fireEvent.keyDown(pm, { key: 'Enter', ctrlKey: true }); });
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(navigator, 'mediaDevices', { value: realMd, configurable: true });
+      window.MediaRecorder = realMR;
+    }
+  });
+
   it('no voice note button on a description (nothing to stage it into)', () => {
     render(<RichDescription value="" onChange={() => {}} />);
     expect(screen.queryByRole('button', { name: 'Record a Voice Note' })).toBeNull();

@@ -58,6 +58,7 @@ import {
 } from './ticketViewShared';
 import { HelpTopicField } from './HelpTopicField';
 import { RecordUploadButtons, PendingFileChip } from './TicketEvidence';
+import { STOP_VOICE_FIRST } from '../lib/voice';
 import { MapSpotIntake, dataUrlToFile } from './TicketMapSpot';
 
 // ── Create ───────────────────────────────────────────────────────────────────
@@ -301,6 +302,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // Stop pill and closed-and-discarded the form on any outside click. Hiding
   // the RENDER while this component stays mounted keeps every field intact.
   const [recActive, setRecActive] = useState(false);
+  // A voice note still recording: Create waits for Stop, or the clip is lost.
+  const [voiceRec, setVoiceRec] = useState(false);
   // Tell the draft stash whether this form is alive: on Stop it either lets
   // the mounted form reappear, or (form unmounted - the user navigated away
   // to reproduce the issue) routes the app back here to resume from the stash.
@@ -345,7 +348,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
 
   const hasPhoto = attachments.some((f) => (f.type || '').startsWith('image/'));
   const submit = async () => {
-    if (busy) return;
+    if (busy || voiceRec) return;
     if (missing.size) { setShowErrors(true); return; }
     // A marked spot asks for a photo - strongly, never a wall.
     if (mapSpot && !hasPhoto && !(await appDialog.confirm('A photo of the spot shows the maintenance team exactly what to fix. Create the ticket without one?',
@@ -741,7 +744,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           placeholder="What is happening? What were you doing, and what did you expect?" />
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 10px', marginTop: 6 }}>
           <RecordUploadButtons quiet showRecord={!NO_RECORDING_TYPES.includes(form.type)}
-            onFile={addFile} onRecordingChange={onRecChange} />
+            onFile={addFile} onRecordingChange={onRecChange} onVoiceRecordingChange={setVoiceRec} />
           {!isMobile && <span style={{ fontSize: 12, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>}
         </div>
         {attachments.length > 0 && (
@@ -936,7 +939,9 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           </label>
         )}
         <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
-        <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={submit} disabled={busy}>
+        {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red }}>{STOP_VOICE_FIRST}</span>}
+        <button style={{ ...btn('primary'), opacity: busy || voiceRec ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={submit} disabled={busy || voiceRec}
+          title={voiceRec ? STOP_VOICE_FIRST : undefined}>
           {!busy && <Send size={14} aria-hidden="true" />}
           {busy ? (fromTask ? 'Converting…' : 'Creating…') : (fromTask ? 'Convert to Ticket' : 'Create Ticket')}
         </button>

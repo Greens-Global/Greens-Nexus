@@ -193,6 +193,21 @@ describe('Batch Create by voice', () => {
     expect(screen.queryByText(/Video 2/)).toBeNull();                 // mid-upload: gone with its File
   });
 
+  it('Create waits while a voice note records, and the line takes no video meanwhile', () => withMic(async () => {
+    uploadTicketEvidence.mockClear();
+    uploadTicketEvidence.mockResolvedValueOnce(VOICE);
+    render(<PropertyWalkthrough onClose={vi.fn()} property={GST} />);
+    await screen.findByText('Facilities');
+    await fill(1, 'Leak by the boiler');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Record a Voice Note' })); });
+    expect(screen.getByRole('button', { name: /Create 1 Ticket/ }).disabled).toBe(true);
+    expect(screen.getByLabelText('Add a video to issue 1').disabled).toBe(true);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Stop/ })); });
+    expect(screen.getByRole('button', { name: /Create 1 Ticket/ }).disabled).toBe(false);
+    expect(screen.getByLabelText('Add a video to issue 1').disabled).toBe(false);
+    await waitFor(() => expect(uploadTicketEvidence).toHaveBeenCalledTimes(1));
+  }));
+
   it('refuses a video over the limit with the reason, nothing uploaded', async () => {
     render(<PropertyWalkthrough onClose={vi.fn()} property={GST} />);
     await screen.findByText('Facilities');

@@ -3,11 +3,17 @@
 // caller as a File (onFile) - the caller uploads it with its own attachments
 // to its own private bucket. Cancel throws it away. 15 minutes at most
 // (lib/voice.js). Browsers that cannot record get no button.
+//
+// onRecordingChange(bool) tells the form a clip is still recording, so its
+// Create / Submit waits for Stop: closing the form mid-recording throws the
+// clip away (useVoiceRecorder), and a voice note must never be lost without
+// a word (review, 10/30).
 import { AudioLines, Square, X } from 'lucide-react';
-import { canRecord, clock, useVoiceRecorder } from '../lib/voice';
+import { canRecord, clock, useVoiceRecorder, useReportRecording } from '../lib/voice';
 
-export default function VoiceNoteButton({ onFile, disabled, compact = false, className = '', style }) {
+export default function VoiceNoteButton({ onFile, onRecordingChange, disabled, compact = false, className = '', style }) {
   const v = useVoiceRecorder(onFile);
+  useReportRecording(v.recording, onRecordingChange);
   if (!canRecord()) return null;
   if (v.recording) {
     return (

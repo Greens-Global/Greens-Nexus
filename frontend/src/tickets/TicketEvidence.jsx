@@ -25,7 +25,10 @@ const canRecordScreen = () => typeof navigator !== 'undefined' && !!navigator.me
 // text buttons in the bar under the description, the record dot the only red.
 // `voiceNote` (Neil, Oct 30 2026): a Voice Note button beside them - the clip
 // reaches `onFile` like any picked file.
-function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange, compact = false, quiet = false, voiceNote = true }) {
+// onVoiceRecordingChange(bool): a voice note is recording - the form's Create /
+// Done waits for Stop (lib/voice.js STOP_VOICE_FIRST). Kept apart from
+// onRecordingChange, which steps the form aside for a SCREEN recording.
+function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange, onVoiceRecordingChange, compact = false, quiet = false, voiceNote = true }) {
   const fileRef = useRef(null);
   const [menu, setMenu] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -115,7 +118,7 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
         onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ''; files.forEach(onFile); }} />
       {voiceNote && (
-        <VoiceNoteButton onFile={onFile} disabled={disabled}
+        <VoiceNoteButton onFile={onFile} disabled={disabled} onRecordingChange={onVoiceRecordingChange}
           style={quiet ? { border: 'none', background: 'transparent', height: 'auto', padding: '5px 8px', fontSize: 12.5 } : { height: 30, fontSize: 12.5 }} />
       )}
     </div>

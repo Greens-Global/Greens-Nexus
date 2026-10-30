@@ -31,7 +31,9 @@ import { RecordUploadButtons } from './TicketEvidence';
 // The reply being written is the drawer's (`reply` / `onReplyChange`): it is
 // posted with the rest of the ticket's changes when Done is clicked, never on
 // its own - see TicketDrawer's `commit`.
-function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, canDelete = false, newSince, reply, onReplyChange, onDone, savedReplies = false, ticket = null, myEmail = '' }) {
+// onVoiceRecordingChange(bool): a voice note is recording under the reply - the
+// drawer's Done waits for Stop.
+function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, canDelete = false, newSince, reply, onReplyChange, onDone, onVoiceRecordingChange, savedReplies = false, ticket = null, myEmail = '' }) {
   const [rows, setRows] = useState(null);
   const [attaching, setAttaching] = useState(false);
   const [pickingReply, setPickingReply] = useState(false);
@@ -141,7 +143,7 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
         <RecordUploadButtons compact disabled={attaching} showRecord={!NO_RECORDING_TYPES.includes(ticketType)}
-          onFile={attach} onRecordingChange={returnToTicketAfterRecording(ticketId)} />
+          onFile={attach} onRecordingChange={returnToTicketAfterRecording(ticketId)} onVoiceRecordingChange={onVoiceRecordingChange} />
         {savedReplies && (
           <button type="button" onClick={() => setPickingReply(true)}
             style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>

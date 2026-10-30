@@ -28,6 +28,16 @@ describe('insertAtCursor', () => {
     expect(el.value).toBe('Call Bob today');
     el.remove();
   });
+  it('a length limit trims what was said, never the words after the cursor', () => {
+    const el = document.body.appendChild(document.createElement('input'));
+    el.maxLength = 20;
+    el.focus();
+    el.value = 'Gate at the yard'; el.setSelectionRange(4, 4);
+    insertAtCursor(el, 'north side');
+    expect(el.value).toBe('Gate nor at the yard');
+    expect(el.value.endsWith('at the yard')).toBe(true);
+    el.remove();
+  });
   it('a box the person is not in takes the words at the end, not before a saved draft', () => {
     const el = document.createElement('textarea');
     el.value = 'Poured the north footings.'; el.setSelectionRange(0, 0);
@@ -67,11 +77,16 @@ describe('VoiceNoteButton', () => {
     window.MediaRecorder.isTypeSupported = (m) => m === 'audio/mp4';
     try {
       const onFile = vi.fn();
-      render(<VoiceNoteButton onFile={onFile} />);
+      const onRec = vi.fn();
+      const { unmount } = render(<VoiceNoteButton onFile={onFile} onRecordingChange={onRec} />);
       await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Record a Voice Note' })); });
       expect(screen.getByText(/Recording 0:00/)).toBeTruthy();
+      expect(onRec).toHaveBeenLastCalledWith(true);           // the form's Create waits
       await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Stop/ })); });
       expect(mr.stop).toHaveBeenCalled();
+      expect(onRec).toHaveBeenLastCalledWith(false);
+      unmount();
+      expect(onRec).toHaveBeenLastCalledWith(false);
       expect(onFile.mock.calls[0][0].name).toMatch(/^voice-note-\d+\.m4a$/);
     } finally {
       Object.defineProperty(navigator, 'mediaDevices', { value: realMd, configurable: true });

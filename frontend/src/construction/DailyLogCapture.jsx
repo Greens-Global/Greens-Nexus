@@ -21,7 +21,7 @@ import {
 import { api } from '../api';
 import { uploadConstructionMedia, validate, kindOf, filesFromPaste } from './lib/upload';
 import { formatDate } from '../lib/datetime';
-import { useVoiceRecorder, clock } from '../lib/voice';
+import { useVoiceRecorder, clock, STOP_VOICE_FIRST } from '../lib/voice';
 import DictateButton from '../components/DictateButton';
 
 // One row per file the worker picked, tracked client-side until the server has
@@ -141,7 +141,9 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
     items.filter((i) => i.status === 'error').map((i) => i.error).filter(Boolean),
   )];
   const attached = items.filter((i) => i.status === 'done').length;
-  const canSubmit = !submitting && !pending && (attached > 0 || notes.trim().length > 0);
+  // A voice note still recording: Submit and Save & Close wait for Stop - the
+  // clip is only kept once it is stopped.
+  const canSubmit = !submitting && !pending && !recording && (attached > 0 || notes.trim().length > 0);
 
   // The typed half of the log. Media uploads itself the moment it is picked;
   // notes, crew and hours only exist in component state until this runs.
@@ -200,8 +202,8 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
           </div>
           {/* Saves too. An X that discards what was typed is the same data loss
               as the old Save & Close, just with less warning. */}
-          <button className="secondary-btn" onClick={saveAndClose} disabled={submitting}
-            style={{ padding: 8 }} title="Save and close"><X size={16} /></button>
+          <button className="secondary-btn" onClick={saveAndClose} disabled={submitting || recording}
+            style={{ padding: 8 }} title={recording ? STOP_VOICE_FIRST : 'Save and close'}><X size={16} /></button>
         </div>
 
         {(error || voice.error) && (
@@ -335,17 +337,18 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border-color)' }}>
           <div style={{ flex: 1, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-            {pending > 0 ? `Uploading ${pending}…`
+            {recording ? STOP_VOICE_FIRST
+              : pending > 0 ? `Uploading ${pending}…`
               : failed > 0 ? `${attached} attached, ${failed} failed`
                 : attached > 0 ? `${attached} attached` : 'Nothing attached yet'}
           </div>
-          <button className="secondary-btn" onClick={saveAndClose} disabled={submitting}>
+          <button className="secondary-btn" onClick={saveAndClose} disabled={submitting || recording}>
             {submitting ? 'Saving…' : 'Save & Close'}
           </button>
           {/* No inline background: .primary-btn already carries var(--pine) and
               dims itself at :disabled. */}
           <button className="primary-btn" onClick={submit} disabled={!canSubmit}
-            title={pending ? 'Wait for uploads to finish' : !canSubmit ? 'Attach something or write a note' : ''}>
+            title={recording ? STOP_VOICE_FIRST : pending ? 'Wait for uploads to finish' : !canSubmit ? 'Attach something or write a note' : ''}>
             <Send size={15} />{submitting ? 'Submitting…' : 'Submit'}
           </button>
         </div>

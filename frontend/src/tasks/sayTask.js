@@ -6,27 +6,39 @@
 // Rules, not AI: this runs on the device with no network call (AI stays
 // off - ai_switch.py). What it understands:
 //   Dates     today, tonight, this evening, tomorrow, day after tomorrow,
-//             <weekday> / this <weekday> / on <weekday> (the next one AFTER
-//             today - "Friday" said on a Friday is next week's), next
-//             <weekday> (that day in NEXT calendar week, Monday-Sunday),
-//             next week (next Monday), this week / end of the week (the
-//             coming Friday), end of the month, in N days / weeks (one to
-//             thirty, or digits; "a week", "a couple of days"), month + day
-//             ("November 3rd", "Nov 3", "the 3rd of November"), US numbers
-//             ("11/3", "11/3/2026"). A month + day already gone this year
-//             means next year; anything else in the past is ignored - due
-//             dates are never in the past (DateField noPast).
-//   Priority  urgent / urgently / emergency where they end a phrase
-//             ("fix the gate, urgent" - but "urgent care visit" stays the
-//             name), asap, as soon as possible, right away -> Urgent; high /
-//             medium (normal) / low priority.
+//             <weekday> / on <weekday> (the next one AFTER today - "Friday"
+//             said on a Friday is next week's), this <weekday> ("this
+//             Friday" said on a Friday is today), next <weekday> (that day
+//             in NEXT calendar week, Monday-Sunday), next week (next
+//             Monday), this week / end of the week (the coming Friday), end
+//             of the month, in N days / weeks (one to thirty, or digits; "a
+//             week", "a couple of days"), month + day ("November 3rd", "Nov
+//             3", "the 3rd of November"), US numbers ("11/3", "11/3/2026").
+//             A bare weekday, a month + day and a number date count only
+//             after due / by / on / before / until or where they end the
+//             phrase ("the leak Friday, high priority") - "the Monday
+//             meeting agenda" and "the March 3 invoice" are names ("this /
+//             coming / next <weekday>" always count). Dates are read first,
+//             so "lunch for May 5" is a date, not a person called May. A
+//             date already gone (this year's March 2 in October) is left in
+//             the name, never moved to next year - due dates are never in
+//             the past (DateField noPast).
+//   Priority  urgent / urgently where they end a phrase ("fix the gate,
+//             urgent" - but "urgent care visit" stays the name), "it's an
+//             emergency", asap, as soon as possible, right away -> Urgent;
+//             high / medium (normal) / low priority.
 //   Assignee  "for <name>", "assign(ed) (it) to <name>", "give it to
 //             <name>", chained with "and <name>"; "me" / "myself" is the
 //             speaker. A name counts only when it is a confident match in
 //             Nexus People: a full name, or a first name exactly one person
 //             has. Two people called Sam -> nobody is picked and the words
-//             stay in the name. A bare "to <name>" is NOT read as the
-//             assignee: "send the report to Bob" means Bob gets the report.
+//             stay in the name. A first name alone is not a person when it
+//             is a month or weekday word, is followed by a number, or names
+//             a place ("for Austin site", "for May 5"). A possessive ("for
+//             Sarah's birthday", "for Bob Smith's review") is what the task
+//             is about, not who does it. A bare "to <name>" is NOT read as
+//             the assignee: "send the report to Bob" means Bob gets the
+//             report.
 //   Openers   "remind me to", "I need to", "don't forget to", "add a task
 //             to"... are dropped from the name.
 // Every phrase it used is reported in `matched`, so the screen can show it
@@ -70,12 +82,14 @@ function dateOf(y, m, d) {
 function monthDay(today, m, d, y) {
   if (m < 0 || m > 11 || !d) return null;
   if (y) return dateOf(y < 100 ? 2000 + y : y, m, d);
-  const thisYear = dateOf(today.getFullYear(), m, d);
-  if (thisYear && thisYear >= today) return thisYear;
-  return dateOf(today.getFullYear() + 1, m, d);
+  // Said without a year it is this year's - one already gone is a slip,
+  // left in the name rather than moved to next year.
+  return dateOf(today.getFullYear(), m, d);
 }
 
-// [regex, (match, today) => Date | null] - the first that matches wins.
+// [regex, (match, today) => Date | null, strict] - the first that matches
+// wins. A strict rule counts only after due / by / on / before / until or
+// where it ends the phrase (see `placed`).
 const DATE_RULES = [
   [/\bday after tomorrow\b/, (_, t) => addDays(t, 2)],
   [/\b(?:today|tonight|this evening|this afternoon|this morning|end of (?:the )?day)\b/, (_, t) => t],
@@ -94,16 +108,30 @@ const DATE_RULES = [
     const dow = WEEKDAYS.indexOf(m[1]);
     return addDays(addDays(mondayOf(t), 7), (dow + 6) % 7);
   }],
-  [new RegExp(`\\b(?:this |coming |this coming )?(${WEEKDAYS.join('|')})\\b`), (m, t) => nextWeekday(t, WEEKDAYS.indexOf(m[1]))],
-  [new RegExp(`\\b${MONTH_RE}\\.? (\\d{1,2})(?:st|nd|rd|th)?(?:,? (\\d{4}))?\\b`), (m, t) => monthDay(t, monthIndex(m[1]), Number(m[2]), Number(m[3]) || 0)],
-  [new RegExp(`\\b(?:the )?(\\d{1,2})(?:st|nd|rd|th)? of ${MONTH_RE}\\b`), (m, t) => monthDay(t, monthIndex(m[2]), Number(m[1]), 0)],
-  [/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/, (m, t) => monthDay(t, Number(m[1]) - 1, Number(m[2]), Number(m[3]) || 0)],
+  // "this / coming <weekday>" always counts; a bare weekday is strict.
+  [new RegExp(`\\b(this coming |coming |this )(${WEEKDAYS.join('|')})\\b`), (m, t) => {
+    const dow = WEEKDAYS.indexOf(m[2]);
+    return m[1] === 'this ' && dow === t.getDay() ? t : nextWeekday(t, dow);
+  }],
+  [new RegExp(`\\b(${WEEKDAYS.join('|')})\\b`), (m, t) => nextWeekday(t, WEEKDAYS.indexOf(m[1])), true],
+  [new RegExp(`\\b${MONTH_RE}\\.? (\\d{1,2})(?:st|nd|rd|th)?(?:,? (\\d{4}))?\\b`), (m, t) => monthDay(t, monthIndex(m[1]), Number(m[2]), Number(m[3]) || 0), true],
+  [new RegExp(`\\b(?:the )?(\\d{1,2})(?:st|nd|rd|th)? of ${MONTH_RE}\\b`), (m, t) => monthDay(t, monthIndex(m[2]), Number(m[1]), 0), true],
+  [/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/, (m, t) => monthDay(t, Number(m[1]) - 1, Number(m[2]), Number(m[3]) || 0), true],
 ];
+
+// A strict date phrase: led by a due word, or ending the phrase.
+const STRONG_LEAD = /^(?:due|by|on|before|until)\b/;
+function placed(lower, m) {
+  if (STRONG_LEAD.test(m[0])) return true;
+  return /^\s*(?:[,.;:!?]|$)/.test(lower.slice(m.index + m[0].length));
+}
 
 const PRIORITY_RULES = [
   // "urgent" only where it ends a phrase ("fix the gate, urgent") - "urgent
   // care appointment" is a name.
-  [/\b(?:(?:it'?s|it is|this is|make it|with)\s+)?(?:(?:urgent(?:ly)?|emergency)(?=\s*$|\s*[,.;:!?]|\s+(?:for|by|due|on|and|before|please|today|tomorrow)\b)|asap|as soon as possible|right away)\b/, 'urgent'],
+  [/\b(?:(?:it'?s|it is|this is|make it|with)\s+)?(?:urgent(?:ly)?(?=\s*$|\s*[,.;:!?]|\s+(?:for|by|due|on|and|before|please|today|tomorrow)\b)|asap|as soon as possible|right away)\b/, 'urgent'],
+  // "emergency" alone is too often the subject ("call the emergency line").
+  [/\b(?:it'?s|it is|this is)\s+an?\s+emergency\b/, 'urgent'],
   [/\b(?:(?:it'?s|it is|this is|make it|with|as)\s+)?(?:an?\s+)?(?:high[- ]priority|priority high|top priority)\b/, 'high'],
   [/\b(?:(?:it'?s|it is|this is|make it|with|as)\s+)?(?:an?\s+)?(?:(?:medium|normal)[- ]priority|priority (?:medium|normal))\b/, 'medium'],
   [/\b(?:(?:it'?s|it is|this is|make it|with|as)\s+)?(?:an?\s+)?(?:low[- ]priority|priority low)\b/, 'low'],
@@ -129,6 +157,11 @@ function matchPerson(words, people) {
   return firsts.length > 1 ? { ambiguous: true } : null;
 }
 
+// A first name alone that is really a date or a place: "for May 5", "for
+// Friday", "for Austin site".
+const NOT_A_NAME = new RegExp(`^(?:${[...MONTHS, ...WEEKDAYS].join('|')})$`);
+const PLACE_WORDS = /^(?:site|office|store|shop|location|property|building|warehouse|branch|plant|yard|campus|facility|project|account|job|team|crew|area|unit)$/i;
+
 // One name at `text`'s start: { email, length } or null.
 function personAt(text, people, myEmail) {
   const tokens = text.match(/^\s*(\S+)(\s+\S+)?/);
@@ -141,19 +174,27 @@ function personAt(text, people, myEmail) {
   const hit = matchPerson(words, people);
   if (!hit || hit.ambiguous) return null;
   const last = bare(words[hit.used - 1]);
-  // A possessive ("for Sarah's birthday") is what the task is about.
+  // A possessive ("for Sarah's birthday", "for Bob Smith's review") is what
+  // the task is about.
   if (/'s$/i.test(last)) return null;
-  const end = hit.used === 2 ? text.indexOf(words[1]) + bare(words[1]).length : text.indexOf(words[0]) + bare(words[0]).length;
+  if (hit.used === 1 && words[1] && /'s$/i.test(bare(words[1]))
+    && people.some((p) => clean(p.name) === clean(`${bare(words[0])} ${bare(words[1]).replace(/'s$/i, '')}`))) return null;
+  if (hit.used === 1 && !/[.,!?;:]$/.test(words[0])) {
+    const next = bare(words[1] || '');
+    if (NOT_A_NAME.test(clean(words[0])) || /^\d/.test(next) || PLACE_WORDS.test(next)) return null;
+  }
+  const at0 = text.indexOf(words[0]);
+  const end = hit.used === 2 ? text.indexOf(words[1], at0 + words[0].length) + bare(words[1]).length : at0 + bare(words[0]).length;
   return { email: hit.person.email, length: end };
 }
 
-function findAssignees(text, people, myEmail) {
+function findAssignees(text, people, myEmail, free = () => true) {
   const re = /\b(?:for|assign(?:ed)?(?:\s+(?:it|this))?\s+to|give\s+(?:it|this)\s+to)\s+/gi;
   let m;
   while ((m = re.exec(text))) {
     let pos = m.index + m[0].length;
     const first = personAt(text.slice(pos), people, myEmail);
-    if (!first) continue;
+    if (!first || !free(m.index, pos + first.length)) continue;
     const emails = [first.email];
     pos += first.length;
     for (;;) {
@@ -190,9 +231,24 @@ export function parseSpokenTask(text, { people = [], today, myEmail = '', ignore
     out.matched.push({ kind, words: raw.slice(s, e).trim(), value });
   };
 
-  if (!skip.has('assignee')) {
-    const a = findAssignees(raw, people, myEmail);
-    if (a) { out.assigneeIds = a.emails; take('assignee', a.start, a.end, a.emails); }
+  // Dates first: "lunch for May 5" is a date, not a person called May.
+  if (!skip.has('date')) {
+    for (const [re, fn, strict] of DATE_RULES) {
+      const g = new RegExp(LEAD + re.source, 'g');
+      let m;
+      let hit = false;
+      while ((m = g.exec(lower))) {
+        if (!m[0]) { g.lastIndex += 1; continue; }
+        if (!free(m.index, m.index + m[0].length) || (strict && !placed(lower, m))) continue;
+        const d = fn(re.exec(m[0]), day);
+        if (!d || d < day) continue;
+        out.dueOn = iso(d);
+        take('date', m.index, m.index + m[0].length, out.dueOn);
+        hit = true;
+        break;
+      }
+      if (hit) break;
+    }
   }
   if (!skip.has('priority')) {
     for (const [re, value] of PRIORITY_RULES) {
@@ -200,16 +256,9 @@ export function parseSpokenTask(text, { people = [], today, myEmail = '', ignore
       if (m && free(m.index, m.index + m[0].length)) { out.priority = value; take('priority', m.index, m.index + m[0].length, value); break; }
     }
   }
-  if (!skip.has('date')) {
-    for (const [re, fn] of DATE_RULES) {
-      const m = new RegExp(LEAD + re.source, 'g').exec(lower);
-      if (!m || !free(m.index, m.index + m[0].length)) continue;
-      const d = fn(re.exec(m[0]), day);
-      if (!d || d < day) continue;
-      out.dueOn = iso(d);
-      take('date', m.index, m.index + m[0].length, out.dueOn);
-      break;
-    }
+  if (!skip.has('assignee')) {
+    const a = findAssignees(raw, people, myEmail, free);
+    if (a) { out.assigneeIds = a.emails; take('assignee', a.start, a.end, a.emails); }
   }
 
   let title = raw;

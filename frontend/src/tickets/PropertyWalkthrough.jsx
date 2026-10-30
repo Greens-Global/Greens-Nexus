@@ -46,7 +46,7 @@ import CreateModeTabs from './CreateModeTabs';
 import { dialog } from '../ui/dialog';
 import DictateButton from '../components/DictateButton';
 import VoiceNoteButton from '../components/VoiceNoteButton';
-import { checkMedia, mediaKind, withType } from '../lib/voice';
+import { checkMedia, mediaKind, withType, STOP_VOICE_FIRST } from '../lib/voice';
 
 const MAX_LINES = 50;
 const MAX_PHOTOS = 6;
@@ -205,32 +205,49 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   // Voice notes and videos: the same straight-away upload as the photos.
   const setClip = (key, id, p) => setLines((ls) => ls.map((l) => (l.key !== key ? l : {
     ...l, clips: (l.clips || []).map((c) => (c.id === id ? { ...c, ...p } : c)) })));
+  // A clip is admitted inside the lines updater (from the latest lines, so a
+  // recording that stops as a video is picked never overwrites the other and
+  // never exceeds MAX_CLIPS), and only a clip that made it onto a line is
+  // uploaded - by the effect below, which starts every 'uploading' clip it
+  // has the file for, once.
+  const startedRef = useRef(new Set());
   const uploadClip = (key, clip, file) => {
-    filesRef.current[clip.id] = file;
     // "audio-" / "video-" in the name tells the server which it is (a .webm can be either).
     uploadTicketEvidence(withType(file), clip.kind)
       .then((url) => setClip(key, clip.id, { url, status: 'done' }))
-      .catch(() => setClip(key, clip.id, { status: 'failed' }));
+      .catch(() => { startedRef.current.delete(clip.id); setClip(key, clip.id, { status: 'failed' }); });
   };
+  useEffect(() => {
+    for (const l of lines) {
+      for (const c of l.clips || []) {
+        const file = filesRef.current[c.id];
+        if (c.status !== 'uploading' || !file || startedRef.current.has(c.id)) continue;
+        startedRef.current.add(c.id);
+        uploadClip(l.key, c, file);
+      }
+    }
+  }, [lines]); // eslint-disable-line react-hooks/exhaustive-deps
   const addClip = (key, file) => {
     if (!file) return;
-    const line = lines.find((l) => l.key === key);
-    if (!line || (line.clips || []).length >= MAX_CLIPS) return;
     const bad = checkMedia(file);
     if (bad) { setErrors((e) => ({ ...e, [key]: { ...e[key], clips: bad } })); return; }
     const clip = { id: uid(), kind: mediaKind(file), status: 'uploading', url: '' };
-    // From the latest lines, not this render's: a recording that stops as a
-    // video is picked must not overwrite the other.
+    filesRef.current[clip.id] = file;
     setLines((ls) => ls.map((l) => (l.key !== key || (l.clips || []).length >= MAX_CLIPS ? l : { ...l, clips: [...(l.clips || []), clip] })));
     clearErr(key, 'clips');
-    uploadClip(key, clip, file);
   };
   const retryClip = (key, clip) => {
-    const file = filesRef.current[clip.id];
-    if (!file) return;
+    if (!filesRef.current[clip.id]) return;
     setClip(key, clip.id, { status: 'uploading' });
-    uploadClip(key, clip, file);
   };
+  // Lines with a voice note still recording: Create waits for Stop.
+  const [recording, setRecording] = useState(() => new Set());
+  const onLineRecording = (key) => (on) => setRecording((s) => {
+    if (on === s.has(key)) return s;
+    const next = new Set(s);
+    if (on) next.add(key); else next.delete(key);
+    return next;
+  });
 
   const filled = lines.filter(hasContent);
   const uploading = filled.some((l) => l.photos.some((p) => p.status === 'uploading') || (l.clips || []).some((c) => c.status === 'uploading'));
@@ -253,6 +270,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
     setFormError('');
     if (!deptId) { setFormError('Pick the team that will handle these.'); return; }
     if (!filled.length) { setFormError('Add at least one issue.'); return; }
+    if (recording.size) { setFormError(STOP_VOICE_FIRST); return; }
     if (uploading) { setFormError('Photos and clips are still uploading - this takes a moment on a slow connection.'); return; }
     const errs = validate();
     setErrors(errs);
@@ -408,7 +426,8 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
     <Modal title={title} onClose={onClose} footer={<>
       <button style={{ ...btn('ghost'), color: NX.dim }} onClick={discard}>Discard Batch</button>
       <span style={{ marginLeft: 'auto', fontSize: 12.5, color: NX.dim }}>{filled.length} line{filled.length === 1 ? '' : 's'}</span>
-      <button style={{ ...btn('primary'), opacity: busy || uploading ? 0.6 : 1 }} onClick={submit} disabled={busy}>
+      <button style={{ ...btn('primary'), opacity: busy || uploading || recording.size ? 0.6 : 1 }} onClick={submit} disabled={busy || recording.size > 0}
+        title={recording.size ? STOP_VOICE_FIRST : undefined}>
         {busy ? (unconfirmed ? 'Checking…' : 'Creating…')
           : unconfirmed ? 'Try Again'
             : filled.length ? `Create ${filled.length} Ticket${filled.length === 1 ? '' : 's'}` : 'Create Tickets'}
@@ -548,11 +567,15 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
                       onClick={() => patch(l.key, { clips: l.clips.filter((x) => x.id !== c.id) })} style={{ ...btn('ghost'), padding: 4, color: NX.dim }}><X size={14} /></button>
                   </span>
                 ))}
-                {(l.clips || []).length < MAX_CLIPS && (<>
-                  <VoiceNoteButton onFile={(f) => addClip(l.key, f)} />
-                  <label style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12.5, gap: 6, cursor: 'pointer' }}>
+                {((l.clips || []).length < MAX_CLIPS || recording.has(l.key)) && (<>
+                  <VoiceNoteButton onFile={(f) => addClip(l.key, f)} onRecordingChange={onLineRecording(l.key)} />
+                  {/* One clip at a time on a line: a video picked while the voice
+                      note records could fill the line and drop the recording. */}
+                  <label style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12.5, gap: 6, cursor: 'pointer',
+                    ...(recording.has(l.key) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>
                     <Video size={15} /> Video
                     <input type="file" accept="video/*" capture="environment" style={{ display: 'none' }} aria-label={`Add a video to issue ${i + 1}`}
+                      disabled={recording.has(l.key)}
                       onChange={(e) => { addClip(l.key, e.target.files?.[0]); e.target.value = ''; }} />
                   </label>
                 </>)}

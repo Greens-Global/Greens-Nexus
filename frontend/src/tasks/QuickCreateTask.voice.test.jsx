@@ -53,4 +53,26 @@ describe('QuickCreateTask voice', () => {
       window.MediaRecorder = realMR;
     }
   });
+
+  it('Create and Full Details wait while a voice note is still recording', async () => {
+    const realMd = navigator.mediaDevices; const realMR = window.MediaRecorder;
+    Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop() {} }] })) }, configurable: true });
+    window.MediaRecorder = function MR() { this.mimeType = 'audio/mp4'; this.start = vi.fn(); this.stop = vi.fn(() => { this.ondataavailable({ data: new Blob(['x']) }); this.onstop(); }); };
+    window.MediaRecorder.isTypeSupported = (m) => m === 'audio/mp4';
+    try {
+      render(<QuickCreateTask defaults={{ title: 'Check the gate', dueOn: '2099-01-01' }} onClose={() => {}} onFullDetails={() => {}} />);
+      const create = await screen.findByRole('button', { name: 'Create Task' });
+      expect(create.disabled).toBe(false);
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Record a Voice Note' })); });
+      expect(create.disabled).toBe(true);
+      expect(screen.getByRole('button', { name: 'Full Details' }).disabled).toBe(true);
+      expect(screen.getByText(/Stop the voice note first/)).toBeTruthy();
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Stop/ })); });
+      expect(create.disabled).toBe(false);
+      expect(screen.queryByText(/Stop the voice note first/)).toBeNull();
+    } finally {
+      Object.defineProperty(navigator, 'mediaDevices', { value: realMd, configurable: true });
+      window.MediaRecorder = realMR;
+    }
+  });
 });

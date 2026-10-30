@@ -251,7 +251,7 @@ class PropertyTicketTests(unittest.TestCase):
         rows = (self.db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == out["tickets"][0]["id"])
                 .order_by(models.TaskAttachment.name).all())
         self.assertEqual([(r.name, r.kind) for r in rows],
-                         [("Photo 1", "image"), ("Video 1", "video"), ("Voice Note 1", "audio"), ("Voice Note 2", "audio")])
+                         [("Photo 1", "image"), ("Video 1.mov", "video"), ("Voice Note 1.m4a", "audio"), ("Voice Note 2.webm", "audio")])
         with self.assertRaises(HTTPException) as cm:            # a clip must be in the evidence bucket
             self._walk([self._line("x", clips=["data:audio/mp4;base64,AAAA"])])
         self.assertEqual(cm.exception.detail["lines"][0]["field"], "clips")

@@ -19,6 +19,7 @@ import { NX, FONT, btn, input as inputStyle } from './theme';
 import AnchoredMenu from '../components/AnchoredMenu';
 import DictateButton from '../components/DictateButton';
 import VoiceNoteButton from '../components/VoiceNoteButton';
+import { STOP_VOICE_FIRST } from '../lib/voice';
 import SayIt from './SayIt';
 
 const fieldLabel = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 };
@@ -84,7 +85,10 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   const reqMissing = reqFields.filter((f) => isBlankValue(cfValues[f.id]));
   // Full Details carries the picked files too - a voice note must not vanish.
   const draft = () => ({ title: title.trim(), dueOn, assigneeIds, priority, customFieldValues: cfValues, files: files.map((it) => it.file) });
-  const canCreate = !!(title.trim() && assigneeIds.length && dueOn) && reqMissing.length === 0 && !busy;
+  // A voice note still recording: Create and Full Details wait for Stop, or
+  // the clip is lost.
+  const [voiceRec, setVoiceRec] = useState(false);
+  const canCreate = !!(title.trim() && assigneeIds.length && dueOn) && reqMissing.length === 0 && !busy && !voiceRec;
 
   const submit = async () => {
     if (!canCreate) return;
@@ -176,7 +180,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
           <button title="Add a Video" aria-label="Add a Video" onClick={() => videoRef.current?.click()} style={iconBtn()}><Video size={20} /></button>
           <button title="Attach File" aria-label="Attach File" onClick={() => attachRef.current?.click()} style={iconBtn()}><Paperclip size={20} /></button>
           <button title="Scan Text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()} style={iconBtn({ opacity: ocrBusy ? 0.5 : 1 })}><ScanText size={20} /></button>
-          <VoiceNoteButton compact onFile={(f) => pushFiles([f])} />
+          <VoiceNoteButton compact onFile={(f) => pushFiles([f])} onRecordingChange={setVoiceRec} />
           {ocrBusy
             ? <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>
             : <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>}
@@ -195,8 +199,9 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 2 }}>
-          <button onClick={() => onFullDetails(draft())} style={{ ...btn('ghost'), color: NX.blue, fontWeight: 600 }}>Full Details</button>
-          <button onClick={submit} disabled={!canCreate} style={{ ...btn('primary'), opacity: canCreate ? 1 : 0.55 }}>{busy ? 'Creating…' : 'Create Task'}</button>
+          <button onClick={() => onFullDetails(draft())} disabled={voiceRec} style={{ ...btn('ghost'), color: NX.blue, fontWeight: 600, opacity: voiceRec ? 0.55 : 1 }}>Full Details</button>
+          {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red, flex: 1, textAlign: 'center' }}>{STOP_VOICE_FIRST}</span>}
+          <button onClick={submit} disabled={!canCreate} title={voiceRec ? STOP_VOICE_FIRST : undefined} style={{ ...btn('primary'), opacity: canCreate ? 1 : 0.55 }}>{busy ? 'Creating…' : 'Create Task'}</button>
         </div>
       </div>
     </BottomSheet>

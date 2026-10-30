@@ -20,6 +20,7 @@ import RichDescription from './RichDescription';
 import AnchoredMenu from '../components/AnchoredMenu';
 import DictateButton from '../components/DictateButton';
 import VoiceNoteButton from '../components/VoiceNoteButton';
+import { STOP_VOICE_FIRST } from '../lib/voice';
 import SayIt from './SayIt';
 import LabelsEditor from './LabelsEditor';
 import { labelsInUse } from './labels';
@@ -245,7 +246,9 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const fieldRequired = (f) => (isEdit ? requiredByProjectsOf(f, fieldTask).length > 0 : isFieldRequiredIn(f, reqProject));
   const missingFields = isEdit ? [] : activeFields.filter(
     (f) => fieldRequired(f) && isBlankValue(form.customFieldValues[f.id]));
-  const canSubmit = missing.length === 0 && missingFields.length === 0 && !busy;
+  // A voice note still recording: Create waits for Stop, or the clip is lost.
+  const [voiceRec, setVoiceRec] = useState(false);
+  const canSubmit = missing.length === 0 && missingFields.length === 0 && !busy && !voiceRec;
   const showEstimate = taskTracksTime(
     { ...(editing || {}), projectId: lockedProjectId || form.projectId, projectIds: editing?.projectIds || [] },
     projects, tasks,
@@ -306,7 +309,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
               style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Paperclip size={20} /></button>
             <button type="button" title="Scan Text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()}
               style={{ ...btn('ghost'), padding: 7, color: NX.dim, opacity: ocrBusy ? 0.5 : 1 }}><ScanText size={20} /></button>
-            <VoiceNoteButton compact onFile={(f) => onFiles([f])} />
+            <VoiceNoteButton compact onFile={(f) => onFiles([f])} onRecordingChange={setVoiceRec} />
             {ocrBusy && <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>}
             {attachments.length > 0 && (
               <span style={{ fontSize: 12, color: NX.faint, marginLeft: 2 }}>{attachments.length}</span>
@@ -326,7 +329,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           </div>
         )}
         <button style={btn('ghost')} onClick={() => onClose(false)}>Cancel</button>
-        <button title={missing.length || missingFields.length ? `Fill in the required fields (marked *)${missingFields.length ? ` - ${missingFields.map((f) => f.name).join(', ')}` : ''}` : undefined}
+        {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red }}>{STOP_VOICE_FIRST}</span>}
+        <button title={voiceRec ? STOP_VOICE_FIRST : missing.length || missingFields.length ? `Fill in the required fields (marked *)${missingFields.length ? ` - ${missingFields.map((f) => f.name).join(', ')}` : ''}` : undefined}
           style={{ ...btn('primary'), opacity: !canSubmit ? 0.6 : 1 }} onClick={submit} disabled={!canSubmit}>
           {isEdit ? <><Save size={15} /> Save Changes</> : <><Plus size={15} /> Create Task</>}
         </button>
@@ -631,7 +635,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             ))}
             <button type="button" onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), fontSize: 12, padding: '6px 10px' }}><Paperclip size={13} /> Attach File</button>
             {/* A phone has it in the footer. */}
-            {!isMobile && <VoiceNoteButton onFile={(f) => onFiles([f])} />}
+            {!isMobile && <VoiceNoteButton onFile={(f) => onFiles([f])} onRecordingChange={setVoiceRec} />}
             <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
           </div>
         </div>

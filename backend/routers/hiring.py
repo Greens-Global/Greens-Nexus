@@ -310,8 +310,15 @@ def _company_choices(db: Session, user: dict) -> list:
 
 
 def _raise_choices(db: Session, user: dict) -> list:
-    """The caller's companies that have Headcount Requests turned on."""
-    return [e for e in _company_choices(db, user) if headcount_on(db, e.id)]
+    """The companies the caller may raise a request for: HR its HR scope, a
+    manager their OWN company only - and only where Headcount Requests are
+    turned on. A manager at a company that has them off never raises one
+    for another company (review, 10/30)."""
+    choices = _company_choices(db, user)
+    if not _hr_reader(db, user):
+        own = company_of(user, db)
+        choices = [e for e in choices if e.id == own]
+    return [e for e in choices if headcount_on(db, e.id)]
 
 
 def _next_code(db: Session) -> str:
@@ -326,8 +333,10 @@ def _apply(db: Session, user: dict, row: models.HrHeadcountRequest, body: Headco
     fields = body.model_dump(exclude_unset=True)
     if "company" in fields:
         cid = _clean(body.company, 64)
-        if cid not in {e.id for e in _company_choices(db, user)}:
-            raise HTTPException(400, "Pick one of your companies.")
+        if cid != (row.company or "") and cid not in {e.id for e in _raise_choices(db, user)}:
+            if cid in {e.id for e in _company_choices(db, user)} and not headcount_on(db, cid):
+                raise HTTPException(409, OFF_MESSAGE)
+            raise HTTPException(400, "Pick one of your companies that has Headcount Requests turned on.")
         if not headcount_on(db, cid):
             raise HTTPException(409, OFF_MESSAGE)
         row.company = cid
@@ -496,14 +505,16 @@ def _switch_company(db: Session, user: dict, company: str) -> str:
 @router.get("/headcount/settings")
 def headcount_settings(company: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     cid = _switch_company(db, user, company)
-    return {"company": cid, "on": headcount_on(db, cid), "canEdit": _hr_editor(db, user, cid)}
+    return {"company": cid, "on": headcount_on(db, cid), "canEdit": is_hr_approver(db, user, cid)}
 
 
 @router.put("/headcount/settings")
 def save_headcount_settings(body: SwitchIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     cid = _switch_company(db, user, body.company)
-    if not _hr_editor(db, user, cid):
-        raise HTTPException(403, "Only an administrator or HR with edit access for this company can change this.")
+    # Switching it off takes waiting requests away from their approvers, so it
+    # is for those who could approve them: HR++ (review, 10/30).
+    if not is_hr_approver(db, user, cid):
+        raise HTTPException(403, "Only an administrator, the company's HR contact or HR with Full access can change this.")
     scoped_settings.save(db, SWITCH_KEY, cid, {"on": bool(body.on)}, user["email"].lower())
     db.commit()
     return {"company": cid, "on": bool(body.on), "canEdit": True}
@@ -569,8 +580,11 @@ def create_headcount(body: HeadcountIn, user: dict = Depends(get_current_user), 
                                     salary_currency="USD", salary_period="year", dept_approvers=[], history=[],
                                     created_at=now, updated_at=now)
     if body.company is None:
+        # No silent pick of some other company: the caller's own, or say so.
         own = company_of(user, db)
-        body.company = own if headcount_on(db, own) else _raise_choices(db, user)[0].id
+        if own not in {e.id for e in _raise_choices(db, user)}:
+            raise HTTPException(409, "Headcount Requests are off for your company - pick a company that has them turned on.")
+        body.company = own
     _apply(db, user, row, body, creating=True)
     ho.history_add(row, user["email"], "created")
     db.add(row)

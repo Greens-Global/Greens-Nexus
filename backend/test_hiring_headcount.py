@@ -400,6 +400,36 @@ class HeadcountSwitchTests(HeadcountCase):
         out = hiring.save_headcount_settings(hiring.SwitchIn(company=ENT, on=False), user=HRC, db=self.db)
         self.assertFalse(out["on"])
 
+    def test_an_hr_editor_who_cannot_approve_cannot_switch_it(self):
+        # Holly edits People and is Hire Co's HR contact - not Other Co's: there
+        # she could not approve a request, so she cannot switch it either.
+        with self.assertRaises(HTTPException) as e:
+            hiring.save_headcount_settings(hiring.SwitchIn(company=OTHER, on=True), user=HRC, db=self.db)
+        self.assertEqual(e.exception.status_code, 403)
+        self.assertFalse(hiring.headcount_settings(company=OTHER, user=HRC, db=self.db)["canEdit"])
+        self.assertTrue(hiring.headcount_settings(company=ENT, user=HRC, db=self.db)["canEdit"])
+        # A Full People grant can (Pat), as can an administrator.
+        self.assertTrue(hiring.save_headcount_settings(hiring.SwitchIn(company=OTHER, on=True), user=PAYROLL, db=self.db)["on"])
+
+    def test_a_manager_raises_only_for_their_own_company(self):
+        # Hire Co (Maya's) off, Other Co on: Maya sees nothing and cannot raise
+        # one for Other Co - never a silent fallback to another company.
+        self._off()
+        hiring.save_headcount_settings(hiring.SwitchIn(company=OTHER, on=True), user=ADMIN, db=self.db)
+        meta = hiring.headcount_meta(user=MGR, db=self.db)
+        self.assertEqual((meta["canRaise"], meta["companies"], meta["showTab"]), (False, [], False))
+        for company in (OTHER, None):
+            with self.assertRaises(HTTPException) as e:
+                self._new(company=company)
+            self.assertEqual(e.exception.status_code, 409)
+        # HR whose own company is off must pick one that is on - no fallback.
+        with self.assertRaises(HTTPException) as e:
+            self._new(user=ADMIN, company=None)
+        self.assertEqual(e.exception.status_code, 409)
+        self.db.add(models.NexusGroup(id="role-any", name="Coordinator", department="Operations", is_job_role=1, company_id=""))
+        self.db.commit()
+        self.assertEqual(self._new(user=ADMIN, company=OTHER, role_id="role-any")["company"], OTHER)
+
     def test_off_company_starts_openings_by_hand_on_company_does_not(self):
         meta = hiring.headcount_meta(user=ADMIN, db=self.db)
         self.assertEqual([c["id"] for c in meta["directOpeningCompanies"]], [OTHER])

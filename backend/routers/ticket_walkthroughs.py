@@ -377,8 +377,11 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
                 voice += 1
             else:
                 video += 1
+            # The file's own extension rides on the name, so a download opens.
+            ext = leaf.rsplit(".", 1)[-1] if "." in leaf else ""
+            ext = f".{ext}" if re.fullmatch(r"[a-z0-9]{1,5}", ext) else ""
             db.add(models.TaskAttachment(id=gen_id(), task_id=t.id, size="",
-                                         name=f"Voice Note {voice}" if audio else f"Video {video}",
+                                         name=f"Voice Note {voice}{ext}" if audio else f"Video {video}{ext}",
                                          kind="audio" if audio else "video", url=url, added_at=now, added_by=me))
         log_activity(db, type="created", actor_email=me, entity_kind="ticket", entity_id=t.id,
                      entity_code=t.code, entity_title=t.subject,

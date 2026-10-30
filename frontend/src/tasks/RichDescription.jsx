@@ -28,7 +28,7 @@ import { useImageZoom } from './components';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { api } from '../api';
 import { matchPeople } from '../lib/peopleSearch';
-import { canDictate, useDictation, canRecord, useVoiceRecorder, clock, spokenAfter } from '../lib/voice';
+import { canDictate, useDictation, canRecord, useVoiceRecorder, clock, spokenAfter, useReportRecording, STOP_VOICE_FIRST } from '../lib/voice';
 
 // Highlight, as a local mark. @tiptap/extension-highlight would be a new
 // dependency for one mark; StarterKit already ships everything else the toolbar
@@ -100,6 +100,9 @@ export default function RichDescription({
   mentionPeople,
   // Ctrl/Cmd+Enter submit (comment composer).
   onSubmit,
+  // (recording) - a voice note is recording here; the composer's Post /
+  // Save waits for Stop (VoiceNoteButton's STOP_VOICE_FIRST).
+  onRecordingChange,
   placeholder = 'Add more detail…',
   toolbar = true,
 }) {
@@ -133,6 +136,10 @@ export default function RichDescription({
     if (text) ed.chain().insertContentAt(at, text).run();
   });
   const voice = useVoiceRecorder((file) => onStageFiles?.([file]));
+  useReportRecording(voice.recording, onRecordingChange);
+  const recordingRef = useRef(false);
+  const [waitForStop, setWaitForStop] = useState(false);
+  useEffect(() => { recordingRef.current = voice.recording; }, [voice.recording]);
   const dictateOk = canDictate();
   const voiceOk = !!onStageFiles && canRecord();
 
@@ -146,7 +153,10 @@ export default function RichDescription({
     editorProps: {
       handleKeyDown: (_view, event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && submitRef.current) {
-          event.preventDefault(); submitRef.current(); return true;
+          event.preventDefault();
+          // Posting now would leave the voice note behind.
+          if (recordingRef.current) { setWaitForStop(true); return true; }
+          submitRef.current(); return true;
         }
         return mentionKeyRef.current(event);
       },
@@ -371,6 +381,7 @@ export default function RichDescription({
           {voice.error || (<>
             <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: NX.red, flexShrink: 0 }} />
             <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>Recording a Voice Note {clock(voice.seconds)}</span>
+            {waitForStop && voice.recording && <span style={{ color: NX.red, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{STOP_VOICE_FIRST}</span>}
             <span style={{ flex: 1 }} />
             <button type="button" onClick={voice.stop}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 7, border: 'none', background: NX.red, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: FONT }}>
@@ -399,7 +410,7 @@ export default function RichDescription({
         )}
         {voiceOk && (
           <Btn icon={AudioLines} label={voice.recording ? 'Stop and Add the Voice Note' : 'Record a Voice Note'} active={voice.recording} danger
-            onClick={() => (voice.recording ? voice.stop() : voice.start())} />
+            onClick={() => { setWaitForStop(false); if (voice.recording) voice.stop(); else voice.start(); }} />
         )}
         {(dictateOk || voiceOk) && <Divider />}
         <span ref={addRef} style={{ display: 'inline-flex' }}>

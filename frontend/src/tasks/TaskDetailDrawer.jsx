@@ -63,6 +63,7 @@ import LabelsEditor from './LabelsEditor';
 import { labelsInUse } from './labels';
 import { FieldHistoryContext, useHistoryCtx } from './fieldHistoryContext';
 import { groupFieldChanges, historyFieldName } from './fieldHistory';
+import { STOP_VOICE_FIRST } from '../lib/voice';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const VIEW_ONLY_TITLE = 'You can view this task but not change it';
@@ -1807,6 +1808,8 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
   const { body, setBody, pending, setPending, assignTo, setAssignTo, clear: clearComment } = useCommentDraft(task.id);
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
+  // A voice note still recording in the box: Comment waits for Stop.
+  const [voiceRec, setVoiceRec] = useState(false);
   const people = usePeople();
   const [attachments, reloadAttachments] = useCommentAttachments(task.id);
   const uploads = useCommentUploads(task.id, reloadAttachments);
@@ -1876,6 +1879,7 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
           mentionPeople={people}
           minHeight={64}
           onStageFiles={(fs) => setPending((p) => [...p, ...fs])}
+          onRecordingChange={setVoiceRec}
         />
       </div>}
       <PendingAttachments files={pending} setFiles={setPending} />
@@ -1886,8 +1890,8 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
             Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
           </span>
           <AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} />
-          <button onClick={submit} disabled={isEmptyDoc(body) || busy}
-            style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1, flexShrink: 0 }}>
+          <button onClick={submit} disabled={isEmptyDoc(body) || busy || voiceRec} title={voiceRec ? STOP_VOICE_FIRST : undefined}
+            style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy || voiceRec) ? 0.5 : 1, flexShrink: 0 }}>
             {busy ? 'Posting…' : assignTo ? 'Assign Comment' : 'Comment'}
           </button>
         </div>
@@ -1974,6 +1978,8 @@ function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment
 // ── Comments ────────────────────────────────────────────────────────────────
 function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComment = null, canComment = true, canPin = true }) {
   const [comments, setComments] = useState(null);
+  // A voice note still recording in the box: Send waits for Stop.
+  const [voiceRec, setVoiceRec] = useState(false);
   const listRef = useRef(null);
   const focused = useRef(null);
   // Land on the comment the drawer was opened for, once its list is in: the
@@ -2019,7 +2025,7 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
       {canComment && <div data-nx-noguard onPaste={(e) => onPasteStage(e, setPending)}>
         <RichDescription value={body} onChange={setBody} onSubmit={submit}
           mentionPeople={people} minHeight={64}
-          onStageFiles={(fs) => setPending((p) => [...p, ...fs])} />
+          onStageFiles={(fs) => setPending((p) => [...p, ...fs])} onRecordingChange={setVoiceRec} />
         <PendingAttachments files={pending} setFiles={setPending} />
         <FailedUploads failed={uploads.failed} onRetry={uploads.retry} onDismiss={uploads.dismiss} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
@@ -2027,8 +2033,8 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
             Type <b>@</b> to mention someone - they'll get an email.
           </span>
           <span style={{ marginLeft: 'auto' }}><AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} /></span>
-          <button onClick={submit} disabled={isEmptyDoc(body)}
-            style={{ ...btn('primary'), opacity: isEmptyDoc(body) ? 0.5 : 1 }}>{assignTo ? 'Assign Comment' : 'Send'}</button>
+          <button onClick={submit} disabled={isEmptyDoc(body) || voiceRec} title={voiceRec ? STOP_VOICE_FIRST : undefined}
+            style={{ ...btn('primary'), opacity: isEmptyDoc(body) || voiceRec ? 0.5 : 1 }}>{assignTo ? 'Assign Comment' : 'Send'}</button>
         </div>
       </div>}
       {comments === null ? <LoadingState />

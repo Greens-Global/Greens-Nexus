@@ -10,6 +10,10 @@ const people = [
   { email: 'sam.lee@greensglobal.com', name: 'Sam Lee' },
   { email: 'sam.ortiz@greensglobal.com', name: 'Sam Ortiz' },
   { email: 'sarah@greensglobal.com', name: 'Sarah Diaz' },
+  { email: 'may@greensglobal.com', name: 'May Chen' },
+  { email: 'austin@greensglobal.com', name: 'Austin Reyes' },
+  { email: 'bsmith@greensglobal.com', name: 'Robert Smith' },
+  { email: 'ann@greensglobal.com', name: 'Anna Ann' },
 ];
 const say = (text, extra = {}) => parseSpokenTask(text, { people, today: TODAY, myEmail: 'neil@greensglobal.com', ...extra });
 
@@ -64,13 +68,15 @@ describe('dates', () => {
     expect(due('next Friday')).toBe('2026-11-06');          // Friday of next week
     expect(due('next Monday')).toBe('2026-11-02');
   });
-  it('month and day, US numbers, and a passed date moves to next year', () => {
+  it('month and day, US numbers; a date already gone this year is not moved to next year', () => {
     expect(due('on November 3rd')).toBe('2026-11-03');
     expect(due('Nov 3')).toBe('2026-11-03');
     expect(due('by the 15th of December')).toBe('2026-12-15');
     expect(due('due 11/3')).toBe('2026-11-03');
     expect(due('on 1/5/2027')).toBe('2027-01-05');
-    expect(due('on March 2')).toBe('2027-03-02');           // March 2026 has gone
+    expect(due('on March 2')).toBe('');                    // March 2026 has gone - a slip, not next year
+    expect(say('Pay the invoice on March 2').title).toBe('Pay the invoice on March 2');
+    expect(due('due 10/15')).toBe('');
     expect(due('on 2/30')).toBe('');                       // not a date
   });
   it('never sets a past date', () => {
@@ -80,6 +86,44 @@ describe('dates', () => {
     expect(say('Pay the invoice by the end of the week').title).toBe('Pay the invoice');
     expect(say('Pay the invoice the day after tomorrow').title).toBe('Pay the invoice');
     expect(say('Due Friday send the bid package').title).toBe('Send the bid package');
+  });
+});
+
+describe('review fixes (10/30): less eager, dates before people', () => {
+  it('a weekday or month inside the name stays the name', () => {
+    expect(say('Prepare the Monday meeting agenda')).toMatchObject({ title: 'Prepare the Monday meeting agenda', dueOn: '' });
+    expect(say('Review the March 3 invoice')).toMatchObject({ title: 'Review the March 3 invoice', dueOn: '' });
+    expect(say('Review the invoice by March 3')).toMatchObject({ title: 'Review the invoice by March 3', dueOn: '' });
+    expect(say('Review the invoice by Nov 3')).toMatchObject({ title: 'Review the invoice', dueOn: '2026-11-03' });
+  });
+  it('"this Friday" said on a Friday is today; a bare Friday is next week', () => {
+    const fri = (t) => parseSpokenTask(`Pay the invoice ${t}`, { people, today: '2026-10-30' }).dueOn;
+    expect(fri('this Friday')).toBe('2026-10-30');
+    expect(fri('on Friday')).toBe('2026-11-06');
+    expect(say('Book the crane this Saturday for Bob')).toMatchObject({ dueOn: '2026-10-31', assigneeIds: ['bob@greensglobal.com'] });
+  });
+  it('"for May 5" is a date, not a person called May; a month word alone is never a name', () => {
+    expect(say('Order lunch for May 5')).toMatchObject({ title: 'Order lunch for May 5', dueOn: '', assigneeIds: [] });   // May 5 has gone
+    expect(say('Order lunch for Nov 5')).toMatchObject({ title: 'Order lunch', dueOn: '2026-11-05', assigneeIds: [] });
+    expect(say('Order lunch for May 5 at noon').assigneeIds).toEqual([]);
+    expect(say('Call the vendor for May').assigneeIds).toEqual([]);
+    expect(say('Call the vendor for May Chen').assigneeIds).toEqual(['may@greensglobal.com']);
+  });
+  it('a first name followed by a place or a number is not the assignee', () => {
+    expect(say('Order parts for Austin site')).toMatchObject({ title: 'Order parts for Austin site', assigneeIds: [] });
+    expect(say('Order parts for Austin').assigneeIds).toEqual(['austin@greensglobal.com']);
+  });
+  it('a possessive full name is what the task is about', () => {
+    expect(say('Prepare for Robert Smith\'s review')).toMatchObject({ title: 'Prepare for Robert Smith\'s review', assigneeIds: [] });
+  });
+  it('a two-word name whose last name sits inside the first cuts the right words', () => {
+    const r = say('Walk the site for Anna Ann tomorrow');
+    expect(r.assigneeIds).toEqual(['ann@greensglobal.com']);
+    expect(r.title).toBe('Walk the site');
+  });
+  it('"emergency" is urgent only as "it\'s an emergency"', () => {
+    expect(say('Call the emergency line')).toMatchObject({ title: 'Call the emergency line', priority: '' });
+    expect(say('Fix the main, it\'s an emergency')).toMatchObject({ title: 'Fix the main', priority: 'urgent' });
   });
 });
 
