@@ -41,7 +41,8 @@ describe('PublicCareers', () => {
     await waitFor(() => expect(screen.getByText('Apply For This Job')).toBeTruthy(), { timeout: 5000 });
     expect(screen.getByText('Reconcile accounts').tagName).toBe('LI');
     expect(screen.getByText(/Applications close 12\/19\/2026/)).toBeTruthy();
-    const ld = document.head.querySelector('script[type="application/ld+json"]');
+    // The tag lands in an effect after the page renders; wait for it (flaked on CI 10/30).
+    const ld = await waitFor(() => { const t = document.head.querySelector('script[type="application/ld+json"]'); expect(t).toBeTruthy(); return t; });
     expect(JSON.parse(ld.textContent)['@type']).toBe('JobPosting');
 
     fireEvent.change(screen.getByLabelText('First Name *'), { target: { value: 'Jane' } });
