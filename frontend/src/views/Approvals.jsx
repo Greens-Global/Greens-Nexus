@@ -345,8 +345,13 @@ export default function Approvals({ activeSub, onSubChange }) {
           .apv-prio { align-self: center; }
           .apv-prio .nx-prio { font-size: 13px; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--c) 13%, transparent); }
           .apv-prio .nx-prio-loud { font-weight: 700; }
-          .apv-tools label { flex: 1 1 140px; }
-          .apv-tools select { flex: 1; min-width: 0; }
+          /* Priority and Sort side by side, each label over a full-width
+             44px box; 16px text so iOS does not zoom in on a tap. */
+          .apv-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+          .apv-search { grid-column: 1 / -1; min-width: 0; }
+          .apv-search input { font-size: 16px; min-height: 44px; }
+          .apv-tools label { flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
+          .apv-tools select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
           .apv-facts { grid-template-columns: minmax(0, 1fr); }
           .apv-facts > div:nth-child(odd) { border-bottom: none; padding-bottom: 0; }
           .apv-act { justify-content: stretch; flex-wrap: nowrap; gap: 8px; margin-top: 4px; }

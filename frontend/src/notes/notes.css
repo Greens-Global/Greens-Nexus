@@ -269,10 +269,7 @@
 
 /* ── the top-bar button ── */
 .nt-header-btn { position: relative; }
-/* On a phone it leaves the top bar: the header's "+" offers New Note
-   (lib/quickCreate.js). The button stays mounted, so Ctrl+Alt+N and the
-   nexus:quick-note event still open the panel. */
-@media (max-width: 900px) { .nt-header-btn { display: none; } }
+/* Hidden on a phone - style.css, beside the header's Create menu (this file loads only with Notes). */
 
 /* ── Notes widget ── */
 .nt-w { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1 1 auto; }
