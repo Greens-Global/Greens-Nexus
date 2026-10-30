@@ -75,6 +75,10 @@ class HeadcountCase(unittest.TestCase):
         self.db.add(models.NexusGroupMember(group_id="g-hr", email=HRC["email"]))
         self.db.add(models.NexusGroup(id="g-pay", name="Payroll", allowed_modules="hr_comp:viewer,hr:full"))
         self.db.add(models.NexusGroupMember(group_id="g-pay", email=PAYROLL["email"]))
+        # Off for every company until turned on (Oct 30 2026); these tests use Hire Co with it on.
+        self.db.query(models.NexusSetting).filter(models.NexusSetting.key.like(f"{hiring.SWITCH_KEY}%")).delete(
+            synchronize_session=False)
+        self.db.add(models.NexusSetting(key=f"{hiring.SWITCH_KEY}:{ENT}", value='{"on": true}'))
         self.db.commit()
         cache.module_grants.invalidate()
 
@@ -344,6 +348,70 @@ class OpeningTests(HeadcountCase):
                             user=OWNER, db=self.db)
         self.db.expire_all()
         self.assertEqual(self.db.query(models.HrJobOpening).filter_by(id=oid).first().status, "filled")
+
+
+class HeadcountSwitchTests(HeadcountCase):
+    """Off by default, per company (Neil, Oct 30 2026)."""
+
+    def _off(self, company=ENT):
+        hiring.save_headcount_settings(hiring.SwitchIn(company=company, on=False), user=ADMIN, db=self.db)
+
+    def test_off_by_default_for_a_company_never_turned_on(self):
+        self.assertFalse(hiring.headcount_on(self.db, OTHER))
+        self.assertFalse(hiring.headcount_on(self.db, ""))
+        self.assertTrue(hiring.headcount_on(self.db, ENT))
+
+    def test_off_hides_the_tab_and_refuses_new_requests(self):
+        self._off()
+        meta = hiring.headcount_meta(user=MGR, db=self.db)
+        self.assertFalse(meta["showTab"])
+        self.assertFalse(meta["canRaise"])
+        with self.assertRaises(HTTPException) as e:
+            self._new()
+        self.assertEqual(e.exception.status_code, 409)
+        self.assertIn("Settings > Hiring & Onboarding", e.exception.detail)
+
+    def test_on_for_one_company_only_shows_it_for_that_company(self):
+        meta = hiring.headcount_meta(user=ADMIN, db=self.db)
+        self.assertEqual([c["id"] for c in meta["companies"]], [ENT])
+        with self.assertRaises(HTTPException) as e:
+            self._new(user=ADMIN, company=OTHER)
+        self.assertEqual(e.exception.status_code, 409)
+
+    def test_a_waiting_request_drops_out_while_off_and_comes_back_on(self):
+        import approvals_inbox
+        rid = self._new()["id"]
+        self.assertTrue(any(r["id"] == rid for r in hiring.list_headcount(user=HEAD, db=self.db)))
+        self._off()
+        self.assertEqual(hiring.list_headcount(user=HEAD, db=self.db), [])
+        self.assertFalse(hiring.headcount_meta(user=HEAD, db=self.db)["showTab"])
+        self.assertEqual(approvals_inbox._headcount(self.db, HEAD, {}), [])
+        with self.assertRaises(HTTPException) as e:
+            self._decide(rid, HEAD)
+        self.assertEqual(e.exception.status_code, 409)
+        self.assertIsNotNone(self.db.get(models.HrHeadcountRequest, rid))       # kept, never deleted
+        hiring.save_headcount_settings(hiring.SwitchIn(company=ENT, on=True), user=ADMIN, db=self.db)
+        self.assertTrue(any(r["id"] == rid for r in hiring.list_headcount(user=HEAD, db=self.db)))
+
+    def test_only_hr_editors_flip_it(self):
+        with self.assertRaises(HTTPException) as e:
+            hiring.save_headcount_settings(hiring.SwitchIn(company=ENT, on=False), user=MGR, db=self.db)
+        self.assertEqual(e.exception.status_code, 403)
+        out = hiring.save_headcount_settings(hiring.SwitchIn(company=ENT, on=False), user=HRC, db=self.db)
+        self.assertFalse(out["on"])
+
+    def test_off_company_starts_openings_by_hand_on_company_does_not(self):
+        meta = hiring.headcount_meta(user=ADMIN, db=self.db)
+        self.assertEqual([c["id"] for c in meta["directOpeningCompanies"]], [OTHER])
+        op = hiring.create_opening(hiring.NewOpeningIn(company=OTHER, title="Site Supervisor", seats=2),
+                                   user=ADMIN, db=self.db)
+        self.assertEqual((op["status"], op["seats"], op["headcountId"]), ("draft", 2, ""))
+        with self.assertRaises(HTTPException) as e:
+            hiring.create_opening(hiring.NewOpeningIn(company=ENT, title="Clerk"), user=ADMIN, db=self.db)
+        self.assertEqual(e.exception.status_code, 409)
+        with self.assertRaises(HTTPException) as e:
+            hiring.create_opening(hiring.NewOpeningIn(company=OTHER, title="Clerk"), user=MGR, db=self.db)
+        self.assertEqual(e.exception.status_code, 403)
 
 
 if __name__ == "__main__":

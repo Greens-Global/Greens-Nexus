@@ -3181,6 +3181,11 @@ export const api = {
   updateHeadcount: (id, data) => req(`/hiring/headcount/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   submitHeadcount: (id) => req(`/hiring/headcount/${encodeURIComponent(id)}/submit`, { method: 'POST' }),
   decideHeadcount: (id, decision, note = '') => req(`/hiring/headcount/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify({ decision, note }) }),
+  // Off for every company until Settings > Hiring & Onboarding turns it on (Neil, Oct 30 2026).
+  headcountSettings: (company) => req(`/hiring/headcount/settings?company=${encodeURIComponent(company || '')}`),
+  headcountSaveSettings: (company, on) => req('/hiring/headcount/settings', { method: 'PUT', body: JSON.stringify({ company, on: !!on }) }),
+  // A Draft opening started by hand - only where Headcount Requests are off.
+  createOpening: (data) => req('/hiring/openings', { method: 'POST', body: JSON.stringify(data) }),
   listOpenings: () => req('/hiring/openings'),
   updateOpening: (id, data) => req(`/hiring/openings/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   openingPosting: (id) => req(`/hiring/openings/${encodeURIComponent(id)}/posting`),
