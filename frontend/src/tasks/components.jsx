@@ -5,10 +5,10 @@ import { useExit } from '../lib/motion';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
   ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus, Repeat,
-  LayoutGrid, List, FileText, Sheet } from 'lucide-react';
+  LayoutGrid, List, FileText, Sheet, AudioLines } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, btn, STATUS_META, input as inputStyle } from './theme';
-import { fmtDate, teamInProject, teamProjectIds } from './lib';
+import { fmtDate, teamInProject, teamProjectIds, isAudioAttachment } from './lib';
 import { rootZoom } from '../lib/utils';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { matchPeople } from '../lib/peopleSearch';
@@ -1655,7 +1655,8 @@ export function TaskCountBadges({ t, store, size = 12 }) {
 }
 
 // ── Attachment viewer ────────────────────────────────────────────────────────
-// In-app viewer (ported from the tickets module): images, videos and PDFs open
+// In-app viewer (ported from the tickets module): images, videos, voice notes
+// (Oct 30 2026) and PDFs open
 // over the drawer instead of a new tab; files with no inline renderer (docx,
 // xlsx…) get a clean download card rather than a broken embed. Escape is
 // captured so it closes the viewer without also closing the drawer underneath.
@@ -1670,9 +1671,17 @@ export function AttachmentViewer({ att, onClose }) {
   if (!att) return null;
   const probe = `${att.name || ''} ${att.url || ''}`;
   const isPdf = /\.pdf($|\?)/i.test(probe);
-  const isVideo = att.kind === 'video' || /\.(mp4|webm|mov|m4v)($|\?)/i.test(probe);
+  // A voice note first: a recorded .webm is audio, not a black video box.
+  const isAudio = isAudioAttachment(att);
+  const isVideo = !isAudio && (att.kind === 'video' || /\.(mp4|webm|mov|m4v)($|\?)/i.test(probe));
   const isImage = att.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)($|\?)/i.test(probe);
-  const body = isImage ? (
+  const body = isAudio ? (
+    <div style={{ background: NX.surface, borderRadius: 14, padding: '26px 28px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, width: 'min(440px, 86vw)', boxSizing: 'border-box' }}>
+      <AudioLines size={30} style={{ color: NX.primary }} aria-hidden="true" />
+      <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
+      <audio src={att.url} controls autoPlay preload="metadata" style={{ width: '100%' }} />
+    </div>
+  ) : isImage ? (
     <img src={att.url} alt={att.name} style={{ maxWidth: '92vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 8 }} />
   ) : isVideo ? (
     <video src={att.url} controls autoPlay style={{ maxWidth: '92vw', maxHeight: '78vh', borderRadius: 8, background: '#000' }} />

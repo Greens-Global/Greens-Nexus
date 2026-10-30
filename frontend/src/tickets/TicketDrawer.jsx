@@ -51,6 +51,7 @@ import { ApprovalChip, ApprovalPanel } from './TicketApproval';
 import { TicketActionDialog } from './TicketActionDialog';
 import { TicketTasks, TicketLinks, SatisfactionCard, CsatWidget } from './TicketDrawerCards';
 import { TicketConversation } from './TicketConversation';
+import { STOP_VOICE_FIRST } from '../lib/voice';
 import { TicketAttachments } from './TicketAttachments';
 import { TicketActivity } from './TicketActivity';
 
@@ -143,6 +144,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const [pending, setPending] = useState({});
   const [reply, setReply] = useState({ body: '', internal: false });
   const [saving, setSaving] = useState(false);
+  // A voice note recording under the reply: Done waits for Stop (the clip
+  // would be lost with the drawer).
+  const [voiceRec, setVoiceRec] = useState(false);
   useEffect(() => {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
     // Every company's departments, not just the viewer's own: a ticket is
@@ -437,7 +441,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // rating with everything else and closes the ticket.
   const confirmingClose = ownRequester && t.status === 'resolved' && pending.status === 'closed';
   const done = async () => {
-    if (saving) return;
+    if (saving || voiceRec) return;
     if (confirmingClose) { setDialog({ mode: 'confirm', viaDone: true }); return; }
     if (!dirty) { onClose(); return; }
     setSaving(true);
@@ -560,8 +564,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             Unsaved Changes
           </span>
         )}
-        <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1 }} onClick={done} disabled={saving}
-          title={dirty ? 'Save every change and send one update to the requester' : undefined}>
+        {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red }}>{STOP_VOICE_FIRST}</span>}
+        <button style={{ ...btn('primary'), opacity: saving || voiceRec ? 0.6 : 1 }} onClick={done} disabled={saving || voiceRec}
+          title={voiceRec ? STOP_VOICE_FIRST : dirty ? 'Save every change and send one update to the requester' : undefined}>
           {saving ? 'Saving…' : 'Done'}
         </button>
       </>
@@ -953,7 +958,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         </>)}
         {tab === 'conversation' && (
           <TicketConversation ticketId={t.id} ticketType={t.type} nameOf={nameOf} newSince={meIsRequester ? seenBefore : undefined}
-            reply={reply} onReplyChange={setReply} onDone={done}
+            reply={reply} onReplyChange={setReply} onDone={done} onVoiceRecordingChange={setVoiceRec}
             // The public-reply / internal-note switch is the desk's. The person
             // who raised the ticket just replies (Neil, Sep 30: "they should
             // not see public reply versus an internal note").

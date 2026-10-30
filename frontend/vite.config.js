@@ -190,6 +190,12 @@ export default defineConfig(({ command }) => ({
           // three.js (~700 KB) only loads for the 3D site model (Asset Management
           // property page / the public unit finder) - keep it off first paint.
           if (id.includes('node_modules/three/'))     return 'vendor-three';
+          // Live co-typing in Notes (Oct 30 2026): Yjs and its TipTap binding
+          // stay in the shared-note editor's own lazy chunk (no manual chunk:
+          // a named one pulls ProseMirror in with it and lands on first paint;
+          // in the catch-all they pushed vendor-react past its 1000KB budget).
+          if (/[\\/]node_modules[\\/](yjs|y-prosemirror|y-protocols|lib0)[\\/]/.test(id)
+            || /@tiptap[\\/](extension-collaboration|y-tiptap)/.test(id)) return undefined;
           if (id.includes('node_modules'))            return 'vendor-react';
         },
       },
