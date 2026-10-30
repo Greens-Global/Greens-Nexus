@@ -29,6 +29,8 @@ vi.mock('../api', () => ({ api: {
   getConstructionMedia: vi.fn(),
   startConstructionLog: vi.fn(),
   createConstructionProject: vi.fn(),
+  getConstructionWeather: vi.fn(),
+  weather: vi.fn(),
   reviewConstructionLog: vi.fn(),
   updateConstructionLog: vi.fn(),
   submitConstructionLog: vi.fn(),
@@ -68,6 +70,7 @@ const project = {
   phase: 'Foundation', percentComplete: 42, status: 'active',
   workerEmails: ['w@greensglobal.com'], managerEmails: ['m@greensglobal.com'],
   executiveEmails: [], targetFinishOn: '2026-12-01', archived: false,
+  latitude: 33.49, longitude: -117.15,
 };
 
 // Shaped from routers/construction.py log_to_dict - every field it returns,
@@ -93,6 +96,19 @@ beforeEach(() => {
     logsThisWeek: 3, projects: [project],
   });
   api.getConstructionLogs.mockResolvedValue([log]);
+  api.getConstructionWeather.mockResolvedValue({ units: 'imperial', sites: [
+    { projectId: 'p1', name: project.name, address: project.address, latitude: 33.49, longitude: -117.15,
+      weather: { units: { temp: '°F', wind: 'mph', precip: 'in' }, current: { time: '2026-10-31T06:00', temp: 52, code: 3, isDay: true, wind: 4 },
+        today: { high: 66, low: 50, precipChance: 80 }, daily: [], rainFrom: '2026-10-31T07:00', rainChance: 75, flag: 'rain', flagDetail: '75% chance of rain' } },
+    { projectId: 'p2', name: 'Fairfield', address: '', latitude: 0, longitude: 0, weather: null, reason: 'No map point yet - add the jobsite address.' },
+  ] });
+  api.weather.mockResolvedValue({ units: { temp: '°F', wind: 'mph', precip: 'in' },
+    current: { time: '2026-10-31T06:00', temp: 52, feelsLike: 50, humidity: 80, isDay: true, code: 61, wind: 4, windDir: 180 },
+    today: { high: 66, low: 50, precipChance: 80, sunrise: '2026-10-31T07:10', sunset: '2026-10-31T18:00' },
+    hourly: [{ time: '2026-10-31T06:00', temp: 52, code: 61, isDay: true, precipChance: 75, precip: 0.2 }],
+    daily: [{ date: '2026-10-31', high: 66, low: 50, code: 61, precipChance: 80, precipSum: 0.6, windMax: 9 },
+            { date: '2026-11-01', high: 70, low: 51, code: 2, precipChance: 5, precipSum: 0, windMax: 12 }],
+    fetchedAt: '2026-10-31T13:00:00Z' });
   api.getConstructionReviewQueue.mockResolvedValue([
     { ...log, projectName: project.name, mediaCount: 4, awaitingAi: false },
   ]);
@@ -106,6 +122,19 @@ beforeEach(() => {
 });
 
 describe('ConstructionDashboard', () => {
+  it('shows the weather at each site, the first wet hour and a flag; a tile opens its project (Neil, 10/30/2026)', async () => {
+    render(<ConstructionDashboard />);
+    const strip = await screen.findByLabelText('Weather at each site');
+    await waitFor(() => expect(strip.textContent).toContain('Rain from 7 AM · 75%'));
+    expect(strip.textContent).toContain('52°');
+    expect(strip.textContent).toContain('Rain');                                    // the red flag
+    expect(strip.textContent).toContain('No map point yet - add the jobsite address.');
+    fireEvent.click(screen.getByTitle(`Open ${project.name}`));
+    // The project's own card: its sky, its week, the full forecast a click away.
+    expect(await screen.findByLabelText('Site weather')).toBeTruthy();
+    await waitFor(() => expect(api.weather).toHaveBeenCalledWith(33.49, -117.15, 'imperial'));
+  });
+
   it('renders the overview once loaded', async () => {
     render(<ConstructionDashboard />);
     expect(screen.getByText('Construction Overview')).toBeInTheDocument();

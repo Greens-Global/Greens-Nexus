@@ -7,11 +7,13 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 const weather = vi.fn();
 const weatherPlaces = vi.fn();
 const weatherPlaceName = vi.fn();
+const getConstructionProjects = vi.fn();
 vi.mock('../api', () => ({
   api: {
     weather: (...a) => weather(...a),
     weatherPlaces: (...a) => weatherPlaces(...a),
     weatherPlaceName: (...a) => weatherPlaceName(...a),
+    getConstructionProjects: (...a) => getConstructionProjects(...a),
   },
 }));
 
@@ -40,6 +42,11 @@ beforeEach(() => {
   weather.mockReset().mockResolvedValue(FORECAST);
   weatherPlaces.mockReset().mockResolvedValue({ places: [{ name: 'Pune', region: 'Maharashtra', country: 'India', countryCode: 'IN', lat: 18.52, lon: 73.86 }] });
   weatherPlaceName.mockReset().mockResolvedValue({ name: 'Escondido, CA' });
+  getConstructionProjects.mockReset().mockResolvedValue([
+    { id: 'p1', name: 'GS Temecula', address: '41000 Main St, Temecula, CA', latitude: 33.49, longitude: -117.15, status: 'active' },
+    { id: 'p2', name: 'No Point Yet', address: 'Somewhere', latitude: 0, longitude: 0, status: 'active' },
+    { id: 'p3', name: 'Done', address: 'Old', latitude: 1, longitude: 1, status: 'complete' },
+  ]);
 });
 afterEach(() => { delete global.navigator.geolocation; });
 
@@ -104,10 +111,27 @@ describe('Weather widget', () => {
     expect(weatherPlaceName).not.toHaveBeenCalled();   // a picked city already has its name
   });
 
-  it('config needs a city only in city mode, and reads the sky right', () => {
+  it('follows a construction project - the jobsite is the place (Neil, 10/30/2026)', async () => {
+    render(<WeatherWidget config={{ mode: 'project', project: { id: 'p1', name: 'GS Temecula', lat: 33.49, lon: -117.15 } }} />);
+    await waitFor(() => expect(weather).toHaveBeenCalledWith(33.49, -117.15, 'imperial'));
+    expect(await screen.findByText('GS Temecula')).toBeTruthy();
+    expect(weatherPlaceName).not.toHaveBeenCalled();
+    // Configure: only active projects with a map point are offered.
+    const onChange = vi.fn();
+    render(<WeatherConfigFields config={{ mode: 'project' }} onChange={onChange} />);
+    expect(await screen.findByRole('option', { name: /GS Temecula/ })).toBeTruthy();
+    expect(screen.queryByText('No Point Yet')).toBeNull();
+    expect(screen.queryByText('Done')).toBeNull();
+    fireEvent.click(screen.getByRole('option', { name: /GS Temecula/ }));
+    expect(onChange).toHaveBeenCalledWith({ project: expect.objectContaining({ id: 'p1', lat: 33.49, lon: -117.15 }) });
+  });
+
+  it('config needs a city only in city mode, a project in project mode, and reads the sky right', () => {
     expect(weatherConfigValid({ mode: 'here' })).toBe(true);
     expect(weatherConfigValid({ mode: 'place' })).toBe(false);
     expect(weatherConfigValid({ mode: 'place', place: { lat: 1, lon: 1 } })).toBe(true);
+    expect(weatherConfigValid({ mode: 'project' })).toBe(false);
+    expect(weatherConfigValid({ mode: 'project', project: { lat: 1, lon: 1 } })).toBe(true);
     expect(sky(0, false).text).toBe('Clear');
     expect(sky(95).text).toBe('Thunderstorms');
     const onChange = vi.fn();

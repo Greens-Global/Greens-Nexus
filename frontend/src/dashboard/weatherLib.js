@@ -6,8 +6,11 @@ import {
 
 export const WEATHER_DEFAULT = { mode: 'here', units: 'imperial' };
 
-// Complete enough to add / save: a city mode needs a city.
-export const weatherConfigValid = (config) => ({ ...WEATHER_DEFAULT, ...config }).mode !== 'place' || !!config?.place;
+// Complete enough to add / save: a city mode needs a city, a project mode a project.
+export const weatherConfigValid = (config) => {
+  const mode = ({ ...WEATHER_DEFAULT, ...config }).mode;
+  return mode === 'place' ? !!config?.place : mode === 'project' ? !!config?.project : true;
+};
 
 // WMO weather codes (Open-Meteo) -> words, icon, tint.
 export function sky(code, isDay = true) {
@@ -24,6 +27,9 @@ export function sky(code, isDay = true) {
   if (c >= 95) return { text: c === 95 ? 'Thunderstorms' : 'Storms & Hail', Icon: CloudLightning, tone: 'storm' };
   return { text: '-', Icon: Cloud, tone: 'cloud' };
 }
+// "2026-09-28T20:00" (the place's own wall clock) -> "8 PM"
+export const hourLabel = (iso) => { const h = Number(iso.slice(11, 13)); return `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}`; };
+
 // Wet skies: rain, snow or storm codes - what stops outdoor work.
 export const isWet = (code) => ['rain', 'snow', 'storm'].includes(sky(code, true).tone);
 

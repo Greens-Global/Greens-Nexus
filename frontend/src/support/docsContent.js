@@ -1224,6 +1224,7 @@ export const DOCS = [
     purpose: 'Construction runs each jobsite. Field crews file daily logs from their phones (hours, crew size, notes, photos), and Nexus writes an AI summary for the project manager to review. RFIs, submittals and milestones track the paperwork and the schedule.',
     gains: [
       'Daily logs from the field without paperwork.',
+      'The weather at every jobsite - its own address, not yours - with the first wet hour and a red flag when rain, wind or heat puts the day at risk.',
       'Project managers see every site\'s progress in one dashboard.',
       'Questions (RFIs) and submittals are tracked with who has the ball.',
     ],

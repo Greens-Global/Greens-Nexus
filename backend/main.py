@@ -4464,6 +4464,11 @@ async def lifespan(app: FastAPI):
                 # up once, server-side, paced; the browser no longer calls Nominatim.
                 from asset_geocode import geocode_loop
                 _tasks.append(_a.create_task(geocode_loop()))
+                # Construction jobsites' weather points (Neil, 10/30/2026): the
+                # projects that predate project-based weather get their address
+                # placed once, through the same one-a-second pacer.
+                from construction_weather import backfill_loop
+                _tasks.append(_a.create_task(backfill_loop()))
             else:
                 print("[startup] asset-files migration and geocode loops skipped (not the deployed worker)")
         except Exception as e:

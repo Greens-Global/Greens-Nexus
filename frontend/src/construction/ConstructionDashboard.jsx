@@ -24,6 +24,7 @@ import Empty from './Empty';
 import ConstructionInbox from './ConstructionInbox';
 import ReviewQueue from './ReviewQueue';
 import Registers from './Registers';
+import { SiteWeatherStrip, SiteWeatherCard } from './SiteWeather';
 import { formatDate } from '../lib/datetime';
 
 function Stat({ label, value, helper }) {
@@ -76,6 +77,10 @@ function ProjectDetail({ project, onBack }) {
       </div>
 
       {error && <ErrorBanner message={error} onRetry={load} />}
+
+      {/* Project-based weather (Neil, 10/30/2026): this jobsite's own sky,
+          from its address - not the viewer's. */}
+      <SiteWeatherCard project={project} />
 
       {/* The daily logs and the weekly report moved to the Site Activity tab -
           they are the two things people open every day, and they were two levels
@@ -142,6 +147,7 @@ function NewProjectModal({ onClose, onCreated }) {
           <label className="form-label" style={{ marginTop: 14 }}>Address</label>
           <input className="form-input" value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Jobsite address" />
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: 6 }}>Nexus finds the jobsite on the map from this address, for its weather.</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
             <div>
               <label className="form-label">Phase</label>
@@ -216,6 +222,11 @@ export default function ConstructionDashboard() {
       </div>
 
       {canReview && <ReviewQueue />}
+
+      {/* Project-based weather (Neil, 10/30/2026): today at every active
+          jobsite, with the first wet hour and a red flag when the work is at
+          risk. A tile opens its project. */}
+      <SiteWeatherStrip onOpen={setOpenId} />
 
       <div style={CARD}>
         <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Active Projects</h3>

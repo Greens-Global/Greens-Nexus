@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Cloud, Wind, Droplets, Umbrella, SunMedium, Sunrise, Sunset, MapPin, Navigation, Search, RefreshCw, X,
+  Cloud, Wind, Droplets, Umbrella, SunMedium, Sunrise, Sunset, MapPin, Navigation, Search, RefreshCw, X, HardHat,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { formatDate, formatHHMM, formatTime, formatWeekday } from '../lib/datetime';
 import { Modal } from '../tasks/components';
-import { WEATHER_DEFAULT, sky, TONE, rainStart, isWet } from './weatherLib';
+import { WEATHER_DEFAULT, sky, TONE, rainStart, isWet, hourLabel } from './weatherLib';
 
 // ── Weather widget (Neil, Sep 29: "a weather widget for the main screen ...
 // people can add based on their location. make it great.") ────────────────
@@ -42,8 +42,6 @@ const FULL_MIN_H = 285;     // ... + the hourly strip (~272)
 const DAY_ROW_H = 27;
 
 const deg = (v) => (v == null ? '-' : `${Math.round(v)}°`);
-// "2026-09-28T20:00" (the place's own wall clock) -> "8 PM"
-const hourLabel = (iso) => { const h = Number(iso.slice(11, 13)); return `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}`; };
 // The place's own wall clock ("2026-09-28T06:40") -> "6:40 AM", never moved
 // into the viewer's zone.
 const clock12 = (iso) => (iso ? formatHHMM(iso.slice(11, 16)) : '');
@@ -91,12 +89,14 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
   const cfg = { ...WEATHER_DEFAULT, ...config };
   const units = cfg.units === 'metric' ? 'metric' : 'imperial';
   const [ref, box] = useBox();
-  // "My location": state (the browser answers later). A picked city: derived.
+  // "My location": state (the browser answers later). A picked city, or a
+  // construction project (Neil, 10/30/2026 - "GS Temecula"): derived.
   const [here, setHere] = useState(readHere);
-  const pickedLat = cfg.place?.lat, pickedLon = cfg.place?.lon;
-  const picked = useMemo(() => (cfg.mode === 'place' && cfg.place ? { ...cfg.place, fixed: true } : null),
+  const fixedPlace = cfg.mode === 'place' ? cfg.place : cfg.mode === 'project' ? cfg.project : null;
+  const pickedLat = fixedPlace?.lat, pickedLon = fixedPlace?.lon;
+  const picked = useMemo(() => (fixedPlace ? { ...fixedPlace, fixed: true } : null),
     [cfg.mode, pickedLat, pickedLon]); // eslint-disable-line react-hooks/exhaustive-deps
-  const where = cfg.mode === 'place' ? picked : here;
+  const where = cfg.mode === 'here' ? here : picked;
   const [locErr, setLocErr] = useState('');
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
@@ -107,7 +107,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
 
   // Resolve WHERE: a picked city is fixed; "my location" asks the browser.
   useEffect(() => {
-    if (cfg.mode === 'place') return undefined;
+    if (cfg.mode !== 'here') return undefined;
     let live = true, answered = false;
     const wait = setTimeout(() => { if (live && !answered && !readHere()) setLocErr('pending'); }, LOCATE_WAIT_MS);
     locate().then((p) => {
@@ -164,7 +164,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
   const s = data ? sky(data.current.code, data.current.isDay) : null;
   const rgb = TONE[s?.tone || 'cloud'];
   const title = where?.fixed
-    ? [where.name, where.countryCode === 'US' ? where.region : (where.country || where.region)].filter(Boolean).join(', ')
+    ? (cfg.mode === 'project' ? where.name : [where.name, where.countryCode === 'US' ? where.region : (where.country || where.region)].filter(Boolean).join(', '))
     : (placeName || 'Your Location');   // only ever set for "my location"
 
   // With a forecast the whole tile is the way into the popup (Enter / Space
@@ -188,7 +188,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
   // nothing cached. At 2x2 there are ~88px inside the card, so a small tile
   // drops the heading, says it in a few words, and hides even that while a
   // search is typed so the results have the room. ──
-  if (!where && (locErr || cfg.mode === 'place')) {
+  if (!where && (locErr || cfg.mode !== 'here')) {
     const small = box.h < MID_MIN_H || box.w < 250;
     const msg = locErr === 'denied'
       ? (small ? 'Location is off. Pick a city.' : 'Location is turned off for Nexus in this browser. Pick a city instead, or allow location and reload.')
@@ -363,7 +363,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
 // ten days - each with its sky, the chance and amount of rain and the wind,
 // the facts a crew plans a work window on. Read only; the tile's refresh
 // keeps it current.
-function ForecastPopup({ title, data, onClose }) {
+export function ForecastPopup({ title, data, onClose }) {
   const c = data.current, t = data.today, u = data.units;
   const s = sky(c.code, c.isDay);
   const hours = data.hourly || [];
@@ -518,6 +518,33 @@ export function CityPicker({ onPick, autoFocus = true, fill = false, phone = fal
   );
 }
 
+// The construction projects the person may see that have a map point - the
+// address placed by the server (construction_weather.py).
+function ProjectPicker({ onPick }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    let live = true;
+    (api.getConstructionProjects?.() || Promise.resolve([]))
+      .then((list) => { if (live) setRows((list || []).filter((p) => p.latitude && p.longitude && !p.archived && (p.status || 'active') === 'active')); })
+      .catch(() => { if (live) setRows([]); });
+    return () => { live = false; };
+  }, []);
+  if (rows === null) return <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading projects…</div>;
+  if (!rows.length) return <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No active construction project you can see has a map point yet. Add the jobsite address in Construction and it appears here.</div>;
+  return (
+    <div role="listbox" aria-label="Construction projects" className="dash-scroll" style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, maxHeight: 180, background: 'var(--card)' }}>
+      {rows.map((p) => (
+        <button key={p.id} type="button" role="option" aria-selected="false" onClick={() => onPick({ id: p.id, name: p.name, address: p.address || '', lat: p.latitude, lon: p.longitude })}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', boxSizing: 'border-box', border: 'none', borderTop: '1px solid var(--line)', background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+          <MapPin size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // Add / Configure fields: where, and which units.
 export function WeatherConfigFields({ config, onChange }) {
   const cfg = { ...WEATHER_DEFAULT, ...config };
@@ -541,10 +568,30 @@ export function WeatherConfigFields({ config, onChange }) {
             <input type="radio" name="wx-mode" checked={cfg.mode === 'place'} onChange={() => onChange({ mode: 'place' })} style={{ marginTop: 2 }} />
             <span>
               <span style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}><MapPin size={12} /> A City</span>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>An office, a job site, or wherever you like to keep an eye on.</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>An office, or wherever you like to keep an eye on.</span>
+            </span>
+          </label>
+          <label style={opt(cfg.mode === 'project')}>
+            <input type="radio" name="wx-mode" checked={cfg.mode === 'project'} onChange={() => onChange({ mode: 'project' })} style={{ marginTop: 2 }} />
+            <span>
+              <span style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}><HardHat size={12} /> A Construction Project</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>The weather at that jobsite's address, however far away it is.</span>
             </span>
           </label>
         </div>
+        {cfg.mode === 'project' && (
+          <div style={{ marginTop: 8 }}>
+            {cfg.project ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', border: '1px solid var(--wk-line2)', borderRadius: 10 }}>
+                <MapPin size={14} style={{ color: 'hsl(var(--color-blue))' }} />
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{cfg.project.name}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cfg.project.address}</span>
+                <button type="button" onClick={() => onChange({ project: null })} aria-label="Choose a different project"
+                  style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={14} /></button>
+              </div>
+            ) : <ProjectPicker onPick={(p) => onChange({ project: p })} />}
+          </div>
+        )}
         {cfg.mode === 'place' && (
           <div style={{ marginTop: 8 }}>
             {place ? (

@@ -2134,6 +2134,8 @@ export const api = {
   getConstructionProjects: () => req("/construction/projects"),
   createConstructionProject: (data) => req("/construction/projects", { method: "POST", body: JSON.stringify(data) }),
   updateConstructionProject: (id, data) => req(`/construction/projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // Project-based weather (Neil, 10/30/2026): every active jobsite's sky, see construction_weather.py
+  getConstructionWeather: (units = "imperial") => req(`/construction/weather?units=${units}`),
   getConstructionReviewQueue: () => req("/construction/review-queue"),
   getConstructionReports: (projectId) => req(`/construction/projects/${projectId}/reports`),
   generateConstructionReport: (projectId, data) => req(`/construction/projects/${projectId}/reports/generate`, { method: "POST", body: JSON.stringify(data) }),
