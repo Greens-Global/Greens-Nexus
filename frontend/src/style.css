@@ -7951,7 +7951,6 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    Note under New Task (lib/quickCreate.js). Here, not in notes/notes.css:
    that file loads only once Notes has opened. The button stays mounted, so
    the shortcut and the nexus:quick-note event still open the panel. */
-@media (max-width: 900px) { .nt-header-btn { display: none; } }
 /* Room beside the centered NEXUS wordmark on a phone: the "+" takes a 40px
    slot with a 44px hit area, and the profile pill is the avatar alone. */
 @media (max-width: 640px) {

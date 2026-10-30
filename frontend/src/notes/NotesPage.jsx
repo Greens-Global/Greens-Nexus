@@ -424,7 +424,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
         <div className="nt-empty" style={{ margin: 'auto' }}>
           <StickyNote size={28} aria-hidden="true" style={{ color: 'var(--wk-faint)', marginBottom: 8 }} />
           <strong>Pick a note or start a new one</strong>
-          Everything you write saves by itself and follows you to Quick Note in the top bar.
+          Everything you write saves by itself and follows you to Quick Note - New Note in the top bar's + menu.
         </div>
       </div>
     );
@@ -775,7 +775,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
               {data && groups.length === 0 && (
                 <div className="nt-empty">
                   <strong>{q ? 'No notes match' : view === 'trash' ? 'The Trash is empty' : view === 'shared' ? 'Nothing shared with you yet' : view === 'pinned' ? 'No pinned notes' : view === 'today' ? 'Nothing for today yet' : `No notes in ${monthLabel(month)}`}</strong>
-                  {q ? 'Try fewer words.' : view === 'all' || view === 'today' ? 'Start one with New Note, or jot something in Quick Note from the top bar.' : ''}
+                  {q ? 'Try fewer words.' : view === 'all' || view === 'today' ? 'Start one with New Note, or jot something in Quick Note from the + menu in the top bar.' : ''}
                 </div>
               )}
               {groups.map((g) => (
