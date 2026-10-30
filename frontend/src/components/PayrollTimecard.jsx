@@ -4,6 +4,7 @@ import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { useDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
 import { dialog } from '../ui/dialog';
+import HoldButton from '../ui/HoldButton';
 import { useWorkSites } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { takePendingOpen } from '../lib/pendingOpen';
@@ -795,27 +796,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const rateSplitText = (splits, key, fmt) => (splits || []).length > 1
     ? splits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmt(s[key])}` : `From ${formatDate(s.from)} at ${fmt(s[key])}`).join(' · ')
     : '';
-  // Approve + finalize share the SwipeClock exception gate: a period with a
-  // missing or unmatched punch is blocked (the paired total would be wrong), with
-  // an explicit "sign off anyway" override - the sign-off is on record either way.
-  async function signOff(call, verb, okMsg) {
-    setBusy(true);
-    try { await call(false); toastOk?.(okMsg); load(); }
-    catch (e) {
-      if (e?.detail?.code === 'unresolved_exceptions') {
-        setBusy(false);
-        const go = await dialog.confirm(e.detail.message,
-          { title: 'Unresolved punch exceptions', confirmText: `${verb} anyway`, danger: true });
-        if (!go) return;
-        setBusy(true);
-        try { await call(true); toastOk?.(`${okMsg} (exceptions overridden).`); load(); }
-        catch (e2) { toastErr?.(e2?.message || `Could not ${verb.toLowerCase()}.`); }
-      } else {
-        toastErr?.(e?.message || `Could not ${verb.toLowerCase()}.`);
-      }
-    }
-    setBusy(false);
-  }
 
   // Hourly nav MUST stay Sunday-anchored (SwipeClock parity). Step in whole
   // periods on the UTC series - snapPeriodUTC first, so a pStart left
@@ -885,10 +865,27 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
     || (em ? em.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '');
 
+  // Finalize Without Signatures (hidden behind LEGACY_FINALIZE) is held on
+  // the button (Hold to confirm, Neil, Oct 30 2026): one person's period, so
+  // no dialog first. It keeps the SwipeClock exception gate: a period with a
+  // missing or unmatched punch is blocked (the paired total would be wrong),
+  // with an explicit "Finalize anyway" override - the sign-off is on record
+  // either way. A refusal (or declining the override) rewinds the button with
+  // the reason; the card reloads once the check has shown (onDone). The
+  // button itself guards against a second run.
+  const finalizeMessage = `Finalize ${nameFor(email)}'s time sheet for ${periodLabel}? This locks all time records for the period - edits will need an unlock.`;
   async function finalize() {
-    if (!await dialog.confirm(`Finalize ${nameFor(email)}'s time sheet for ${periodLabel}? This locks all time records for the period - edits will need an unlock.`, { title: 'Finalize Time Sheet', confirmText: 'Finalize', danger: true })) return;
-    await signOff((allow) => api.timeFinalize({ email, start: perStart, end: perEnd, allow_exceptions: allow }),
-      'Finalize', 'Time sheet finalized - the period is locked.');
+    const call = (allow) => api.timeFinalize({ email, start: perStart, end: perEnd, allow_exceptions: allow });
+    const okMsg = 'Time sheet finalized - the period is locked.';
+    try { await call(false); toastOk?.(okMsg); return; }
+    catch (e) {
+      if (e?.detail?.code !== 'unresolved_exceptions') throw new Error(e?.message || 'Could not finalize.');
+      const go = await dialog.confirm(e.detail.message,
+        { title: 'Unresolved punch exceptions', confirmText: 'Finalize anyway', danger: true });
+      if (!go) throw new Error('Not finalized - the punch exceptions are still unresolved.');
+    }
+    try { await call(true); toastOk?.(`${okMsg} (exceptions overridden).`); }
+    catch (e2) { throw new Error(e2?.message || 'Could not finalize.'); }
   }
   async function unfinalize() {
     // HR / Global Admin only (Neil, Oct 22): only HR changes it until the employee signs it again.
@@ -1494,7 +1491,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
         periodNav={employeeSidebar ? null : periodNav(false)}
-        onFinalize={finalize} onUnfinalize={unfinalize}
+        onFinalize={finalize} finalizeMessage={finalizeMessage} onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
         setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard}
         adv={adv} me={myEmail} />
@@ -1946,8 +1943,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period to correct it - the employee signs it again"
                   style={{ fontSize: 12.5 }}>Unlock</button>)}
               {isAdmin && !fin && !ownCard && LEGACY_FINALIZE && (
-                <button className="secondary-btn" onClick={finalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
-                  style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
+                <HoldButton size="sm" label="Finalize Without Signatures" doneLabel="Finalized" icon={Lock} onConfirm={finalize} onDone={() => load()}
+                  disabled={busy} fallbackMessage={finalizeMessage} />)}
             </div>
             )}
           </div>
@@ -2047,7 +2044,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, periodNav, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false, adv = null, me = '' }) {
+function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, periodNav, onFinalize, finalizeMessage, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false, adv = null, me = '' }) {
   const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
@@ -2472,8 +2469,8 @@ function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameF
               {fin && data.review?.canUnlock && (
                 <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>)}
               {isAdmin && !fin && !ownCard && LEGACY_FINALIZE && (
-                <button className="secondary-btn" onClick={onFinalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
-                  style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
+                <HoldButton size="sm" label="Finalize Without Signatures" doneLabel="Finalized" icon={Lock} onConfirm={onFinalize} onDone={() => load()}
+                  disabled={busy} fallbackMessage={finalizeMessage} />)}
             </div>
           )}
         </div>
