@@ -24,6 +24,7 @@ import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY
 import { cfFieldId, taskFieldValue, fieldsForProject, taskAssignees, requiredFieldsFor, effectiveProjectId, withTaskFields, groupTasks } from '../lib';
 import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
+import DictateButton from '../../components/DictateButton';
 import { changedRecently } from '../recentChanges';
 import { statusesForProject } from '../TasksContext';
 import { Avatar, PriorityChip } from '../components';
@@ -680,11 +681,13 @@ function BoardMenu({ icon: Icon, label, ariaLabel, options, current, onPick }) {
 
 function AddCard({ onAdd, onCancel }) {
   const [title, setTitle] = useState('');
+  const ref = useRef(null);
   return (
     <div style={{ border: `1px solid ${NX.blue}`, borderRadius: 12, padding: 8, background: NX.surface }}>
-      <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onAdd(title); if (e.key === 'Escape') onCancel(); }}
-        placeholder="Task name" style={{ ...inputStyle, padding: '6px 8px', fontSize: 13, border: 'none' }} />
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 4 }}>
+      <input ref={ref} autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onAdd(title); if (e.key === 'Escape') onCancel(); }}
+        placeholder="Task name" aria-label="Task name" style={{ ...inputStyle, padding: '6px 8px', fontSize: 13, border: 'none' }} />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 4 }}>
+        <span style={{ marginRight: 'auto', display: 'flex' }}><DictateButton target={ref} title="Dictate the Task Name" style={{ width: 28, height: 28 }} size={14} /></span>
         <button onClick={onCancel} style={{ ...btn('ghost'), fontSize: 11, padding: '4px 8px' }}>Cancel</button>
         <button onClick={() => onAdd(title)} disabled={!title.trim()} style={{ ...btn('primary'), fontSize: 11, padding: '5px 10px', opacity: title.trim() ? 1 : 0.4 }}>Add</button>
       </div>
