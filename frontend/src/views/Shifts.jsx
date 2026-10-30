@@ -38,7 +38,7 @@ const WorkforceAnalytics = lazy(() => import('../components/TimeTrackingAdmin'))
 // Contact last (Pranshu, Oct 15 2026); Team opens on Shifts.
 const TABS = [
   ['shifts', 'Shifts', CalendarClock, false],
-  ['schedule', 'Schedule', CalendarDays, true],
+  ['schedule', 'Shift Planner', CalendarDays, true],
   ['requests', 'Requests', Inbox, true],
   ['analytics', 'Workforce Analytics', MonitorDot, false],
   // A role's own checklist steps, for department heads (Neil, Oct 19) - only
@@ -50,7 +50,7 @@ const TABS = [
 const SUBTITLE = {
   contact: 'Find and reach anyone in the company',
   shifts: "Your group's week",
-  schedule: "Build, share and adjust the team's schedule",
+  schedule: "Plan the team's shifts, then share them",
   requests: "Decide your team's time off, swaps, offers and open-shift requests",
   'role-checklists': "The extra onboarding, promotion, offboarding and leave steps your department's roles need",
   headcount: 'Ask to hire, and approve the requests waiting on you',
@@ -108,7 +108,6 @@ export default function Shifts({ activeSub, onSubChange }) {
   }, []);
   const toastOk = useCallback((msg) => show(msg, 'ok'), [show]);
   const toastErr = useCallback((msg) => show(msg, 'error'), [show]);
-  const openRequests = useCallback(() => onSubChange?.('requests'), [onSubChange]);
   // Leaving the Schedule with unshared changes asks first (Neil, Oct 28 2026).
   const goTab = (key) => (key !== tab && hasUnsavedWork() ? askToLeave().then((ok) => ok && onSubChange?.(key)) : onSubChange?.(key));
   // Where the Contact tab's Manage / Export buttons go: the right end of the tab row.
@@ -151,7 +150,7 @@ export default function Shifts({ activeSub, onSubChange }) {
 
       {tab === 'contact' ? <Suspense fallback={<SkeletonBlocks count={4} height={96} />}><Directory embedded toolsTarget={toolSlot} /></Suspense>
         : tab === 'shifts' ? <MyShifts part="team" />
-        : tab === 'schedule' ? <ShiftSchedule toastOk={toastOk} toastErr={toastErr} onOpenRequests={openRequests} focus={focus} />
+        : tab === 'schedule' ? <ShiftSchedule toastOk={toastOk} toastErr={toastErr} focus={focus} />
         : tab === 'role-checklists' ? <Suspense fallback={<SkeletonBlocks count={3} height={56} />}><RoleChecklists toastOk={toastOk} toastErr={toastErr} /></Suspense>
         : tab === 'analytics' ? <Suspense fallback={<SkeletonBlocks count={4} height={96} />}><WorkforceAnalytics initialSub={focusDate || undefined} embedded onTab={(id) => onSubChange?.(`analytics:${id}`)} /></Suspense>
         : tab === 'headcount' ? <Suspense fallback={<SkeletonBlocks count={3} height={56} />}><HeadcountRequests toastOk={toastOk} toastErr={toastErr} /></Suspense>

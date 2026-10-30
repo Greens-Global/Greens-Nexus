@@ -1,5 +1,5 @@
-import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
-import { CalendarPlus, Copy as CopyIcon, CalendarDays, Undo2, X as XIcon, CloudRain } from 'lucide-react';
+import { Fragment, useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
+import { CalendarPlus, Copy as CopyIcon, CalendarDays, Undo2, X as XIcon, CloudRain, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -14,18 +14,18 @@ import { ErrorBanner, SkeletonBlocks } from './AsyncState';
 import { ShiftTypeWeek, ImportModal, ShiftMenu, PersonMenu, ShiftDetails } from './ShiftScheduleExtras';
 import { printSchedule, DEFAULT_VIEW_PREFS } from './shiftScheduleLib';
 import { AddMembersModal, ReorderTeamsModal, TeamMenu } from './ShiftTeams';
-import { ScheduleToolbar, ShareDialog, DayNoteDialog, ViewOptionsDialog, MODAL_BACK, MODAL_CARD, DialogHead } from './shifts/ScheduleToolbar';
+import { ScheduleToolbar, ConfirmChip, ShareDialog, DayNoteDialog, ViewOptionsDialog, MODAL_BACK, MODAL_CARD, DialogHead } from './shifts/ScheduleToolbar';
 import TeamPicker, { ALL_TEAMS, NO_TEAM } from './shifts/TeamPicker';
 import { MOTION, useReducedMotion } from './shifts/motion';
 import { CopyModal, ClearModal, BulkModal } from './shifts/ScheduleDialogs';
-import WeekGrid, { TOOL_BTN } from './shifts/WeekGrid';
+import WeekGrid, { TOOL_BTN, AdherenceLine } from './shifts/WeekGrid';
 import { weatherByDay } from './shifts/WeatherChip';
 import WeatherCallDialog from './shifts/WeatherCallDialog';
 import ScheduleDay from './shifts/ScheduleDay';
 import ScheduleMonth from './shifts/ScheduleMonth';
 import SchedulePhone from './shifts/SchedulePhone';
 import ShiftPanel, { HistoryList } from './shifts/ShiftPanel';
-import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, shiftShortText, sectionKey, teamColor, dayFullyOff, addDaysIso, parseIso, conflictMap, coverageFor, todayIso, adherenceLine, isRuleWarning } from './shifts/shiftLib';
+import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, shiftShortText, sectionKey, teamColor, dayFullyOff, addDaysIso, parseIso, conflictMap, coverageFor, todayIso, adherenceLine, DEFAULT_SHIFT_COLOR, flagOf, FLAG_KINDS, FLAG_ORDER } from './shifts/shiftLib';
 
 // ── The schedule (Microsoft Teams "Shifts" style, rebuilt Oct 2026) ────────
 // This file is the container: it owns the data, the API calls and the
@@ -41,6 +41,8 @@ import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber,
 // decimals, "Hrs" everywhere; group subtotals and the Week total count the
 // people shown, and the Open Shifts rows carry their own hours.
 
+const RULE = { width: 1, height: 14, background: 'var(--line)', flexShrink: 0 };
+const LINK_BTN = { border: 'none', background: 'none', padding: '2px 0', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700 };
 const WEEK_LIMIT_MIN = 40 * 60;   // over this in a week reads red (Neil, Sep 30)
 // The grid's short conflict lines, said in full for the list under the
 // schedule (Neil, Oct 28 2026: "made very clear in simple English").
@@ -74,7 +76,7 @@ const SHORTCUTS = [
   ['Delete', 'Remove a draft'], ['Ctrl + C / Ctrl + X', 'Copy or cut the selected shift'], ['Ctrl + Click', 'Add a day to the selection'], ['Ctrl + V', 'Paste it on the selected day (or every selected day)'], ['Esc', 'Clear the selection and the clipboard'],
 ];
 
-export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus = null }) {
+export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   const { myEmail } = useRole() || {};
   const me = (myEmail || '').toLowerCase();
   const nameOf = useNameResolver();
@@ -252,6 +254,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   // get a forecast. Its managers see one line here until a site is set (or
   // the watch is turned off for it) - dismissable for this visit.
   const [weatherSetupHidden, setWeatherSetupHidden] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);   // the To Review list, folded by default
   const weatherSetup = useMemo(() => groups.filter((g) => !g.archived && g.canEdit !== false && g.weatherAlerts !== false
     && (!g.workSiteId || g.siteLocated === false)), [groups]);
 
@@ -1119,20 +1122,56 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     reveal(el);
     pulseTimer.current = setTimeout(() => setPulseCells(null), 1500);
   }, [pendingJump, data, start]);   // the cell appears once the week's rows do  // eslint-disable-line react-hooks/exhaustive-deps
-  const conflictCount = prefs.conflicts === false ? 0 : shown.filter((x) => x.email && !x.pendingDelete && conflicts[x.id]?.length).length;
-  // "N warnings" once any of them is a schedule rule, "N conflicts" otherwise (Oct 15).
-  const conflictWord = conflictCount > 0 && shown.some((x) => x.email && !x.pendingDelete && (x.ruleWarnings?.length || (conflicts[x.id] || []).some(isRuleWarning))) ? 'warning' : 'conflict';
+  // The type key under the grid (Neil, Oct 30 2026): every code on screen
+  // with its color and name, since the blocks print only the code.
+  const typeKey = (() => {
+    if (view === 'month') return [];
+    const m = new Map();
+    shown.forEach((s) => {
+      if (!s.code || m.has(s.code)) return;
+      const p = presets.find((x) => x.id === s.shiftId);
+      m.set(s.code, { code: s.code, name: p?.name || s.shiftName || '', color: p?.color || s.color || DEFAULT_SHIFT_COLOR });
+    });
+    return [...m.values()].sort((a, b) => a.code.localeCompare(b.code));
+  })();
+  // "N To Review" (Neil, Oct 30 2026): one line ABOVE the grid, grouped by
+  // kind (Overtime / Time Off / Availability / Rest ...); each kind jumps to
+  // its first shift, and Review List opens one line per warning.
   const conflictList = prefs.conflicts === false ? [] : shown.filter((x) => x.email && !x.pendingDelete && conflicts[x.id]?.length)
     .sort((a, b) => a.date.localeCompare(b.date) || (names[a.email] || '').localeCompare(names[b.email] || ''))
-    .flatMap((x) => conflicts[x.id].map((t, i) => ({ key: `${x.id}|${i}`, email: x.email, date: x.date, shift: x, name: names[x.email] || nameOf(x.email), text: plainConflict(t) })));
-  const goToConflict = () => {
-    const el = rootRef.current?.querySelector('.week-grid [data-conflict]');
-    if (!el) return;
+    .flatMap((x) => conflicts[x.id].map((t, i) => ({ key: `${x.id}|${i}`, email: x.email, date: x.date, shift: x, name: names[x.email] || nameOf(x.email), text: plainConflict(t), kind: flagOf(t).kind })));
+  const reviewKinds = FLAG_ORDER.map((k) => ({ kind: k, label: FLAG_KINDS[k], items: conflictList.filter((c) => c.kind === k) })).filter((g) => g.items.length);
+  const goToShift = (s) => {
+    const el = rootRef.current?.querySelector(`[data-shift="${s.id}"]`);
+    if (!el) { jumpToShift(s.email, s.date); return; }
     reveal(el);
     el.focus?.({ preventScroll: true });
     el.classList.add('m-pulse');
     setTimeout(() => el.classList.remove('m-pulse'), 2600);
   };
+  // The weather setup note names only the teams on screen (Oct 30 2026: it
+  // used to name every team, whichever one the manager was looking at).
+  const weatherNote = managing ? weatherSetup.filter((g) => visibleGroupIds.has(g.id)) : [];
+  // Where the unshared changes are (Oct 30 2026): this team on screen, then
+  // every team, then where the rest sit - one honest set of numbers, the
+  // same total as Save & Share.
+  const unsharedLine = (() => {
+    if (!managing || !data) return '';
+    const here = shown.filter(isUnshared).length;
+    const by = data.unsharedByDate || null;
+    const total = unsharedCount;
+    if (!here && !total) return '';
+    const sum = (a, b) => (by ? Object.entries(by).reduce((n, [d, c]) => (d >= a && d <= b ? n + c : n), 0) : 0);
+    const inView = by ? sum(start, end) : localUnshared;
+    const nextFrom = addDaysIso(end, 1), nextTo = addDaysIso(end, 7);
+    const next = sum(nextFrom, nextTo);
+    const nowIn = todayIso() >= start && todayIso() <= end;
+    const where = by ? [inView - here > 0 ? `${inView - here} ${mode === 'all' ? 'not on screen' : 'on other teams'}` : '', next ? `${next} ${view === 'day' ? 'in the next 7 days' : nowIn ? 'next week' : 'the week after'}` : '',
+      total - inView - next > 0 ? `${total - inView - next} in other weeks` : ''].filter(Boolean) : [];
+    const head = `${here} Unshared${mode === 'all' ? '' : ' On This Team'}`;
+    if (total <= here) return head;
+    return `${head} · ${total} ${mode === 'all' ? 'in all' : 'across all teams'}${where.length ? ` (${where.join(', ')})` : ''}`;
+  })();
   // The team picker (Neil, Oct 28 2026): on its own line above the schedule
   // in Day, Week and Month, so the grid always says which team it shows.
   const teamPicker = groups.length > 0 ? (
@@ -1142,6 +1181,14 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   // The manager controls stay on the toolbar while loading or after a failed
   // load (disabled), so the row never jumps - the grid itself says what happened.
   const toolbarManage = data ? canManage : true;
+  // The team line (Neil, Oct 30 2026): the picker, then plain facts - hours
+  // scheduled and worked, where the unshared changes are, who confirmed -
+  // in words, no chips. On a phone the facts move under the list.
+  const teamFacts = [
+    adherence ? <AdherenceLine text={adherence} style={{ marginBottom: 0, minWidth: 0, whiteSpace: phone ? 'normal' : undefined }} /> : null,
+    unsharedLine ? <span data-unshared-line="" title="Changes the team has not seen yet. Save & Share sends them.">{unsharedLine}</span> : null,
+    managing && confirmations && confirmations.total > 0 ? <ConfirmChip c={confirmations} onNudge={nudge} compact={phone} /> : null,
+  ].filter(Boolean);
 
   return (
     <div ref={rootRef} data-sched-root="" style={{ fontFamily: 'Inter,sans-serif' }}>
@@ -1150,7 +1197,6 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
         teamSwitcher={phone ? teamPicker : null}
         canManage={toolbarManage} busy={busy} ready={ready}
         unsharedCount={managing ? unsharedCount : 0} phone={phone}
-        confirmations={managing ? confirmations : null} onNudge={nudge}
         onAdd={(kind) => {
           if (kind === 'note') { setNoteDate(view === 'day' ? start : isoDate(new Date()) >= start && isoDate(new Date()) <= end ? isoDate(new Date()) : start); setOpen('note'); return; }
           const date = view === 'day' ? start : (isoDate(new Date()) >= start && isoDate(new Date()) <= end ? isoDate(new Date()) : start);
@@ -1160,17 +1206,16 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
         }}
         onShare={() => { setShareGroup(groupFilter || ''); setOpen('share'); }}
         actions={{ canTimeOff, canOpen: groups.some((g) => g.openShifts && (!groupFilter || g.id === groupFilter)), copy: () => setOpen('copy'), fill: () => setOpen('fill'), clear: () => setOpen('clear'), importFile: () => setOpen('import'),
-          exportFile: exportSchedule, print: printView, viewOptions: () => setOpen('view'), discard: discardAll, shortcuts: () => setKeysOpen(true),
-          requests: () => (onOpenRequests ? onOpenRequests() : window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'requests' } }))) }} />
+          exportFile: exportSchedule, print: printView, viewOptions: () => setOpen('view'), discard: discardAll, shortcuts: () => setKeysOpen(true) }} />
 
-      {managing && weatherSetup.length > 0 && !weatherSetupHidden && (
+      {weatherNote.length > 0 && !weatherSetupHidden && (
         <div role="note" aria-label="Weather setup" data-weather-setup="" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 12px', borderRadius: 10, fontSize: 12.5, flexWrap: 'wrap',
           background: 'hsl(var(--color-orange) / 0.1)', color: 'var(--ink)', border: '1px solid hsl(var(--color-orange) / 0.35)' }}>
           <CloudRain size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
           <span style={{ flex: 1, minWidth: 200 }}>
-            {weatherSetup.length === 1
-              ? <><strong>{weatherSetup[0].name}</strong> has no work site{weatherSetup[0].workSiteId ? ' with coordinates' : ''}, so weather alerts cannot watch it.</>
-              : <><strong>{weatherSetup.length} groups</strong> have no work site, so weather alerts cannot watch them: {weatherSetup.map((g) => g.name).join(', ')}.</>}
+            {weatherNote.length === 1
+              ? <><strong>{weatherNote[0].name}</strong> has no work site{weatherNote[0].workSiteId ? ' with coordinates' : ''}, so weather alerts cannot watch it.</>
+              : <><strong>{weatherNote.length} groups</strong> have no work site, so weather alerts cannot watch them: {weatherNote.map((g) => g.name).join(', ')}.</>}
           </span>
           <button type="button" className="secondary-btn" style={{ fontSize: 12 }}
             onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'shifts' } }))}>Set a Work Site</button>
@@ -1194,11 +1239,41 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
         </div>
       )}
 
-      {!phone && teamPicker && (
-        <div data-team-bar="" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+      {!phone && (teamPicker || teamFacts.length > 0) && (
+        <div data-team-bar="" style={{ display: 'flex', alignItems: 'center', gap: '6px 12px', marginBottom: 8, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)' }}>
           {teamPicker}
-          {mode === 'all' && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Every team, one under the other</span>}
+          {teamFacts.map((f, i) => <Fragment key={i}>{(i > 0 || teamPicker) && <span aria-hidden="true" style={RULE} />}{f}</Fragment>)}
         </div>
+      )}
+      {data && view !== 'month' && conflictList.length > 0 && (
+        <section aria-label="To review" data-conflict-list="" style={{ marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px 14px', flexWrap: 'wrap', fontSize: 12.5, minHeight: phone ? 44 : undefined }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, color: 'var(--ink)' }}>
+              <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: 'hsl(var(--color-orange))' }} />
+              {conflictList.length} To Review
+            </span>
+            {!phone && reviewKinds.map((g) => (
+              <button key={g.kind} type="button" data-review-kind={g.kind} onClick={() => goToShift(g.items[0].shift)} title={`Show the first ${g.label.toLowerCase()} warning on the schedule`}
+                style={{ ...LINK_BTN, color: 'var(--ink)' }}>{g.label} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>{g.items.length}</span></button>
+            ))}
+            <button type="button" aria-expanded={reviewOpen} onClick={() => setReviewOpen((o) => !o)}
+              style={{ ...LINK_BTN, color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', gap: 3, minHeight: phone ? 44 : undefined, marginLeft: phone ? 'auto' : undefined }}>
+              Review List {reviewOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+          </div>
+          {reviewOpen && (
+            <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: '4px 0 0', borderTop: '1px solid var(--line)', display: 'grid', gap: 0 }}>
+              {conflictList.map((c) => (
+                <li key={c.key}>
+                  <button type="button" onClick={() => goToShift(c.shift)} style={{ ...LINK_BTN, fontWeight: 400, width: '100%', padding: phone ? '10px 0' : '4px 0', minHeight: phone ? 44 : undefined, color: 'var(--ink)', textAlign: 'left', display: 'flex', gap: 8 }}>
+                    <span style={{ color: 'hsl(var(--color-orange))', fontWeight: 700, flexShrink: 0, minWidth: phone ? 0 : 150 }}>{FLAG_KINDS[c.kind]}</span>
+                    <span style={{ minWidth: 0 }}><strong>{c.name}</strong> · {formatWeekday(c.date, 'short')} {formatDate(c.date)}, {shiftTimeText(c.shift)} - {c.text}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       )}
       {error ? (
         <ErrorBanner message={`The schedule could not be loaded - ${error}`} onRetry={load} />
@@ -1210,7 +1285,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
         <SchedulePhone single={single} emptyNote={emptyNote} days={days} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} usualOf={usualOf}
           notes={notes} weather={weather} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
           rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} dragId={drag?.id} collapsed={collapsed} copied={copied} on={gridOn}
-          actualOf={actuals ? actualOf : null} adherence={adherence} />
+          actualOf={actuals ? actualOf : null} />
       ) : view === 'day' ? (
         <ScheduleDay single={single} date={start} sections={sections} shifts={shown} openCells={openCells} notes={notes} weather={weather} canManage={managing} offOn={offOn} holOn={holOn}
           copied={copied} prefs={prefs} rowEditable={rowEditable} shiftEditable={shiftEditable} dragId={drag?.id} on={gridOn}
@@ -1229,26 +1304,24 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
           dragProps={dragProps} personDragProps={personDragProps} dropProps={dropProps} dropStyle={dropStyle} hoverCell={hoverCell} hoverShift={hoverShift} clickable={clickable}
           single={single} emptyNote={emptyNote} cornerTools={cornerTools} ghostOf={ghostOf} blockClass={blockClass} motion={!reduce} glowToday={glowRef.current}
           personFill={managing ? personFill : null} usualCan={(email) => !!usualOf(email)}
-          coverageOf={coverageOf} onCoverage={managing ? onCoverage : null} pulseCells={pulseCells} conflictCount={conflictCount} onConflicts={goToConflict} conflictWord={conflictWord}
-          actualOf={actuals ? actualOf : null} adherence={adherence} confirmOf={managing && confirmations ? confirmOf : null} />
+          coverageOf={coverageOf} onCoverage={managing ? onCoverage : null} pulseCells={pulseCells}
+          actualOf={actuals ? actualOf : null} confirmOf={managing && confirmations ? confirmOf : null} />
       )}
       </div>
       )}
-      {data && teamZoneLabel && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>}
-      {data && view !== 'month' && conflictList.length > 0 && (
-        <section aria-label="Conflicts to review" data-conflict-list="" style={{ marginTop: 14, border: '1px solid hsl(var(--color-orange) / 0.35)', borderRadius: 12, background: 'hsl(var(--color-orange) / 0.06)', padding: '10px 14px' }}>
-          <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6 }}>Conflicts To Review ({conflictList.length})</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>These shifts may be a mistake. They can still be shared - click one to see it on the schedule.</div>
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 4 }}>
-            {conflictList.map((c) => (
-              <li key={c.key}>
-                <button type="button" onClick={() => jumpToShift(c.email, c.date)} style={{ border: 'none', background: 'none', padding: '3px 0', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, color: 'var(--ink)', textAlign: 'left' }}>
-                  <strong>{c.name} -</strong> {formatWeekday(c.date, 'short')} {formatDate(c.date)}, {shiftTimeText(c.shift)}: {c.text}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
+      {data && (typeKey.length > 0 || teamZoneLabel) && (
+        <div data-type-key="" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 16px', fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>
+          {typeKey.map((t) => (
+            <span key={t.code} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: t.color, flexShrink: 0 }} />
+              <strong style={{ color: t.color, fontWeight: 700 }}>{t.code}</strong>{t.name && t.name !== t.code ? <span>{t.name}</span> : null}
+            </span>
+          ))}
+          {teamZoneLabel && <span>Times in {teamZoneLabel}</span>}
+        </div>
+      )}
+      {phone && data && teamFacts.length > 0 && (
+        <div data-team-facts="" style={{ display: 'grid', gap: 6, marginTop: 12, fontSize: 12.5, color: 'var(--muted)' }}>{teamFacts.map((f, i) => <div key={i} style={{ minWidth: 0 }}>{f}</div>)}</div>
       )}
 
       {ghost && (
@@ -1273,7 +1346,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
           onSaveTimeOff={saveTimeOff} onClose={() => setPanel(null)} />
       )}
       {open === 'share' && (
-        <ShareDialog defaultStart={start} defaultEnd={end} defaultGroupId={shareGroup} lastPublishedAt={data?.lastPublishedAt || ''} localCount={localUnshared} groups={groups.filter((g) => !g.archived)}
+        <ShareDialog defaultStart={start} defaultEnd={end} defaultGroupId={shareGroup} lastPublishedAt={data?.lastPublishedAt || ''} groups={groups.filter((g) => !g.archived)}
           totalCount={unsharedCount} thisWeek={{ start: isoDate(weekStartOf(new Date(), weekStart)) }}
           busy={busy} onPublish={publish} onJump={jumpToShift} onClose={() => setOpen('')} memo={shareMemo} onMemo={setShareMemo} />
       )}
