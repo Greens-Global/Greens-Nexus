@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 import models
 import perf_scorecards as sc
+import perf_scores as ps
 import performance as perf
 from auth import get_current_user
 from database import get_db
@@ -214,3 +215,38 @@ def scorecard_history(sid: str, user: dict = Depends(get_current_user), db: Sess
         raise HTTPException(404, "Scorecard not found")
     lib = sc.library_map(db, row.company_id)
     return [sc.version_out(db, v, lib) for v in sc.versions(db, row.role_id)]
+
+
+# ── the monthly score (perf_scores.py) ───────────────────────────────────────
+@router.get("/score")
+def my_score(person: str = "", month: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A person's score for a month (default: the caller, this month). The
+    person, their manager chain and HR read it; anyone else gets 404."""
+    me = _me(user)
+    who = (person or me).strip().lower()
+    if who != me and not perf.can_see_person(db, user, who):
+        raise HTTPException(404, "Person not found")
+    return ps.score(db, who, month)
+
+
+@router.get("/score/team")
+def team_scores(month: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The caller's direct reports' scores for the month (My Team)."""
+    me = _me(user)
+    return ps.team_scores(db, me, month)
+
+
+class RatingIn(BaseModel):
+    person: str = ""
+    kpi: str = ""
+    month: str = ""
+    value: float = 0
+    reason: str = ""
+
+
+@router.put("/score/rating")
+def rate_kpi(body: RatingIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _me(user)
+    ps.rate(db, user, body.person, body.kpi, body.month, body.value, body.reason)
+    db.commit()
+    return ps.score(db, body.person, body.month)
