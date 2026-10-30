@@ -229,8 +229,12 @@ const valueSetter = (el) => Object.getOwnPropertyDescriptor(
 export function insertAtCursor(el, text) {
   if (!el || !text) return;
   const value = el.value || '';
-  const start = el.selectionStart ?? value.length;
-  const end = el.selectionEnd ?? start;
+  // A box the person is not in (never tapped, or tapped away from) takes the
+  // words at the END: an unfocused prefilled box reports its cursor at 0, and
+  // dictation would land in front of a saved draft.
+  const inBox = el.ownerDocument?.activeElement === el;
+  const start = inBox ? (el.selectionStart ?? value.length) : value.length;
+  const end = inBox ? (el.selectionEnd ?? start) : start;
   const before = value.slice(0, start);
   const after = value.slice(end);
   const sentenceStart = !before.trim() || /[.!?\n]\s*$/.test(before);

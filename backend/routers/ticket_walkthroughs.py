@@ -63,6 +63,10 @@ router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
 
 MAX_LINES = 50
 MAX_PHOTOS_PER_LINE = 6
+# Voice notes and videos per line (Neil, Oct 30 2026): recorded at the
+# property, uploaded to ticket-evidence like the photos, kept as attachments.
+MAX_CLIPS_PER_LINE = 3
+_AUDIO_EXT = (".m4a", ".mp3", ".aac", ".ogg", ".opus", ".wav", ".weba")
 PRIORITIES = ("urgent", "high", "medium", "low")
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
@@ -88,6 +92,7 @@ class WalkLine(BaseModel):
     description: Optional[str] = ""      # plain text; escaped into paragraphs server-side
     assignee_email: Optional[str] = ""   # desk callers only
     images: Optional[List[str]] = None   # canonical ticket-evidence URLs
+    clips: Optional[List[str]] = None    # voice notes and videos, same bucket and rule
 
 
 class WalkthroughBody(BaseModel):
@@ -147,6 +152,11 @@ def _validate_lines(db: Session, lines: list, desk: bool, gated: set) -> tuple:
             bad(i, "images", f"Up to {MAX_PHOTOS_PER_LINE} photos a line.")
         elif any(not _photo_ok(u) for u in images):
             bad(i, "images", "A photo did not upload - remove it and add it again.")
+        clips = [u.strip() for u in (ln.clips or []) if isinstance(u, str) and u.strip()]
+        if len(clips) > MAX_CLIPS_PER_LINE:
+            bad(i, "clips", f"Up to {MAX_CLIPS_PER_LINE} voice notes or videos a line.")
+        elif any(not _photo_ok(u) for u in clips):
+            bad(i, "clips", "A voice note or video did not upload - remove it and add it again.")
         assignee = (ln.assignee_email or "").strip().lower()
         if assignee:
             if not desk:
@@ -159,7 +169,7 @@ def _validate_lines(db: Session, lines: list, desk: bool, gated: set) -> tuple:
         if len(errors) == before:
             clean.append({"subject": subject, "application": application, "priority": priority,
                           "type": typ, "description": _desc_html(description), "location": location,
-                          "images": images, "assignee": assignee})
+                          "images": images, "clips": clips, "assignee": assignee})
     return errors, clean
 
 
@@ -175,11 +185,16 @@ def _fingerprint(body: WalkthroughBody, requester: str) -> str:
     resend of the same text always matches)."""
     def sq(v):
         return " ".join(str(v or "").split())
+    def line(ln):
+        row = [sq(ln.subject), sq(ln.application), sq(ln.priority).lower() or "medium",
+               sq(ln.type) or "incident", sq(ln.location), (ln.description or "").strip(),
+               sq(ln.assignee_email).lower(), [sq(u) for u in (ln.images or []) if sq(u)]]
+        clips = [sq(u) for u in (ln.clips or []) if sq(u)]
+        # Only a line with clips adds them, so a batch sent before clips
+        # existed still matches its own retry.
+        return row + [clips] if clips else row
     doc = {"p": sq(body.property_asset_id), "d": sq(body.hr_department_id), "r": requester,
-           "l": [[sq(ln.subject), sq(ln.application), sq(ln.priority).lower() or "medium",
-                  sq(ln.type) or "incident", sq(ln.location), (ln.description or "").strip(),
-                  sq(ln.assignee_email).lower(), [sq(u) for u in (ln.images or []) if sq(u)]]
-                 for ln in (body.lines or [])]}
+           "l": [line(ln) for ln in (body.lines or [])]}
     return hashlib.sha256(json.dumps(doc, sort_keys=True).encode("utf-8")).hexdigest()
 
 
@@ -352,6 +367,19 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
         for k, url in enumerate(c["images"]):
             db.add(models.TaskAttachment(id=gen_id(), task_id=t.id, name=f"Photo {k + 1}", size="",
                                          kind="image", url=url, added_at=now, added_by=me))
+        voice = video = 0
+        for url in c["clips"]:
+            # The form uploads a voice note as "audio-<stamp>.<ext>" (a .webm
+            # can be either kind); the extension decides for anything else.
+            leaf = url.lower().split("?")[0].rsplit("/", 1)[-1]
+            audio = leaf.startswith("audio-") or leaf.endswith(_AUDIO_EXT)
+            if audio:
+                voice += 1
+            else:
+                video += 1
+            db.add(models.TaskAttachment(id=gen_id(), task_id=t.id, size="",
+                                         name=f"Voice Note {voice}" if audio else f"Video {video}",
+                                         kind="audio" if audio else "video", url=url, added_at=now, added_by=me))
         log_activity(db, type="created", actor_email=me, entity_kind="ticket", entity_id=t.id,
                      entity_code=t.code, entity_title=t.subject,
                      detail=json.dumps({**T._ticket_snapshot(t), "walkthrough": batch_id,

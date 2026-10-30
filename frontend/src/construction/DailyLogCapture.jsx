@@ -21,6 +21,8 @@ import {
 import { api } from '../api';
 import { uploadConstructionMedia, validate, kindOf, filesFromPaste } from './lib/upload';
 import { formatDate } from '../lib/datetime';
+import { useVoiceRecorder, clock } from '../lib/voice';
+import DictateButton from '../components/DictateButton';
 
 // One row per file the worker picked, tracked client-side until the server has
 // a media row for it. `status` drives the whole strip:
@@ -55,8 +57,6 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   const [hours, setHours] = useState(log.hoursWorked || '');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const recorderRef = useRef(null);
   const camRef = useRef(null);
   const vidRef = useRef(null);
   const fileRef = useRef(null);
@@ -119,50 +119,14 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   }, [add]);
 
   // ── Voice note ────────────────────────────────────────────────────────────
-  // Adapted from lib/screenRecorder.js's MediaRecorder pattern (mime picking,
-  // chunk collection, stop-and-flush) but on getUserMedia({audio:true}) rather
-  // than getDisplayMedia. Every track is stopped on the way out or the phone
-  // keeps showing a recording indicator.
-  const pickAudioMime = () => {
-    for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']) {
-      if (window.MediaRecorder?.isTypeSupported?.(m)) return m;
-    }
-    return '';
-  };
-
-  const startVoice = async () => {
-    setError('');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = pickAudioMime();
-      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      const chunks = [];
-      rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
-      rec.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const type = rec.mimeType || mime || 'audio/webm';
-        const blob = new Blob(chunks, { type });
-        const ext = type.includes('mp4') ? 'm4a' : 'weba';
-        add([new File([blob], `voice-${Date.now()}.${ext}`, { type })]);
-        setRecording(false);
-      };
-      recorderRef.current = rec;
-      rec.start();
-      setRecording(true);
-    } catch {
-      // Denied permission, no mic, or an insecure origin. Say which action is
-      // blocked rather than "an error occurred".
-      setError('Could not start recording. Allow microphone access and try again.');
-      setRecording(false);
-    }
-  };
-
-  const stopVoice = () => { try { recorderRef.current?.stop(); } catch { setRecording(false); } };
-
-  // A tab closed mid-recording must not leave the mic light on.
-  useEffect(() => () => {
-    try { recorderRef.current?.stream?.getTracks?.().forEach((t) => t.stop()); } catch { /* already gone */ }
-  }, []);
+  // The shared recorder (lib/voice.js, Oct 30 2026): one microphone even on a
+  // double tap, 15 minutes at most, and the mic is released when the log
+  // closes mid-recording. The clip joins the strip like any picked file.
+  const voice = useVoiceRecorder((file) => add([file]));
+  const recording = voice.recording;
+  const startVoice = () => { setError(''); voice.start(); };
+  const stopVoice = voice.stop;
+  const notesRef = useRef(null);
 
   const remove = async (item) => {
     if (item.media) { try { await api.deleteConstructionMedia(item.media.id); } catch { /* soft delete is best effort */ } }
@@ -240,16 +204,16 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
             style={{ padding: 8 }} title="Save and close"><X size={16} /></button>
         </div>
 
-        {error && (
+        {(error || voice.error) && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', marginTop: 16,
             borderRadius: 8, backgroundColor: 'hsl(var(--color-red) / 0.08)',
             border: '1px solid hsl(var(--color-red) / 0.3)', fontSize: '0.85rem',
           }}>
             <AlertTriangle size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0 }} />
-            <span style={{ flex: 1 }}>{error}</span>
+            <span style={{ flex: 1 }}>{error || voice.error}</span>
             <button className="secondary-btn" style={{ padding: '2px 10px', fontSize: '0.75rem' }}
-              onClick={() => setError('')}>Dismiss</button>
+              onClick={() => { setError(''); voice.setError(''); }}>Dismiss</button>
           </div>
         )}
 
@@ -264,7 +228,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
 
         {recording && (
           <div style={{ marginTop: 12, textAlign: 'center', fontSize: '0.85rem', color: 'hsl(var(--color-red))', fontWeight: 600 }}>
-            Recording&hellip; tap Stop when you are done
+            Recording {clock(voice.seconds)} - tap Stop when you are done
           </div>
         )}
 
@@ -346,9 +310,14 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
             </div>
           )}
 
-          <label className="form-label" style={{ marginTop: 18 }}>Notes (optional)</label>
-          <textarea className="form-input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)}
-            placeholder="Anything the photos do not show" style={{ resize: 'vertical', fontFamily: 'inherit' }} />
+          {/* The crew's words as text (Oct 30 2026): a voice note is never
+              transcribed (AI is off), so the mic types the notes instead. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 }}>
+            <label className="form-label" htmlFor="dl-notes" style={{ margin: 0 }}>Notes (optional)</label>
+            <DictateButton target={notesRef} title="Say the Notes" />
+          </div>
+          <textarea id="dl-notes" ref={notesRef} className="form-input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)}
+            placeholder="Anything the photos do not show - or tap the mic and say it" style={{ resize: 'vertical', fontFamily: 'inherit' }} />
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
             <div>
