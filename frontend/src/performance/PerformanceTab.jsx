@@ -18,6 +18,7 @@ import { StatusLabel } from '../components/StatusLabel';
 import { GOAL_STATUS, card, cardHead, HD, LBL, muted, parsePerfSub } from './lib';
 import Figures from './Figures';
 import { scoreColor } from './Score';
+import { BonusReviewCard } from './BonusRuns';
 import { NX } from '../tasks/theme';
 import { FeedbackCard } from './Feedback';
 import { KudosCard } from './Kudos';
@@ -185,6 +186,7 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
                 <ReviewList items={toWrite} onOpen={r => setOpenReview(r.id)} showPerson />
               </section>
             )}
+            {hasTeam && <BonusReviewCard toastOk={toastOk} toastErr={toastErr} />}
             {hasTeam && (
               <section style={card} aria-label="My Team">
                 <div style={cardHead}>

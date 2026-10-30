@@ -91,7 +91,7 @@ def score(db, email: str, month: str = "", today: date | None = None, metrics: d
     role = sc.role_of_person(db, email)
     out = {"email": email, "name": perf.name_of(db, email), "period": period, "start": start, "end": end,
            "role": {"id": role.id, "name": role.name} if role else None, "scorecard": None, "items": [],
-           "score": None, "measuredWeight": 0, "status": "no_role" if not role else "no_scorecard"}
+           "score": None, "overTarget": 0, "measuredWeight": 0, "status": "no_role" if not role else "no_scorecard"}
     if not role:
         return out
     version = sc.active_for(db, role.id, date.fromisoformat(start))
@@ -102,7 +102,7 @@ def score(db, email: str, month: str = "", today: date | None = None, metrics: d
     nums = metrics if metrics is not None else perf_metrics.scorecard(db, email, start, end, today)
     values = {m["key"]: m for m in nums.get("metrics", [])}
     rated = ratings_for(db, email, period)
-    items, measured, points = [], 0, 0.0
+    items, measured, points, over_pts = [], 0, 0.0, 0.0
     for it in sc.items_of(db, version):
         k = lib.get(it["kpi"]) or {"name": it["kpi"], "unit": "", "direction": "high", "source": "nexus"}
         value, rating = None, None
@@ -125,6 +125,7 @@ def score(db, email: str, month: str = "", today: date | None = None, metrics: d
                         "status": "met" if att >= 1 else "partly" if att > 0 else "missed"})
             measured += it["weight"]
             points += it["weight"] * att
+            over_pts += it["weight"] * over
         items.append(row)
     for row in items:
         if row["measured"] and measured:
@@ -132,6 +133,7 @@ def score(db, email: str, month: str = "", today: date | None = None, metrics: d
     out.update({"scorecard": {"id": version.id, "version": version.version, "effectiveFrom": version.effective_from},
                 "items": items, "measuredWeight": measured,
                 "score": round(points / measured * 100, 1) if measured else None,
+                "overTarget": round(over_pts / measured * 100, 1) if measured else 0,
                 "status": "scored" if measured else "unmeasured"})
     return out
 
