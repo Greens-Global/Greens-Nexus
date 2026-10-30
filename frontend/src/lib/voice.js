@@ -211,6 +211,16 @@ export function useDictation(onText) {
   return { listening, interim, error, setError, start, stop };
 }
 
+// ── spoken words as text ──────────────────────────────────────────────────
+/** `said` as it should follow `before`: a space after a word, capitalized at the start or after a sentence. */
+export function spokenAfter(before, said) {
+  const text = String(said || '').trim();
+  if (!text) return '';
+  const start = !String(before || '').trim() || /[.!?\n]\s*$/.test(before);
+  const words = start ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+  return `${before && !/\s$/.test(before) ? ' ' : ''}${words}`;
+}
+
 // ── typing into a plain box ───────────────────────────────────────────────
 const valueSetter = (el) => Object.getOwnPropertyDescriptor(
   el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set;

@@ -79,8 +79,10 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
     await api.addTicketAttachment(ticketId, { name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind, url }).catch(attachFailed(f.name));
     setAttaching(false);
     if (!url) return;
-    const text = kind === 'video' ? 'Screen recording' : f.name;
-    const link = `<p>${kind === 'video' ? 'Attached a screen recording' : 'Attached'}: <a href="${escapeHtml(url)}">${escapeHtml(text)}</a></p>`;
+    const recording = kind === 'video' && /^ticket-recording-/.test(f.name);
+    const text = recording ? 'Screen recording' : kind === 'audio' ? 'Voice note' : f.name;
+    const what = recording ? 'Attached a screen recording' : kind === 'audio' ? 'Attached a voice note' : 'Attached';
+    const link = `<p>${what}: <a href="${escapeHtml(url)}">${escapeHtml(text)}</a></p>`;
     onReplyChange((r) => ({ ...r, body: isEmptyDoc(r.body) ? link : `${r.body || ''}${link}` }));
   };
 
