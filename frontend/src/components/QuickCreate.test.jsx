@@ -136,6 +136,26 @@ describe('Header Create menu', () => {
     }
   });
 
+  it('on a phone, New Note sits under New Task and opens Quick Note', async () => {
+    // The Quick Note button leaves the phone's top bar (Neil, Oct 29 2026).
+    ROLE = employee();
+    const mm = window.matchMedia;
+    window.matchMedia = (q) => ({ matches: q === '(max-width: 900px)', media: q, addEventListener() {}, removeEventListener() {} });
+    const opened = vi.fn();
+    window.addEventListener('nexus:quick-note', opened);
+    try {
+      header();
+      await act(async () => { fireEvent.click(plus()); });
+      expect(rows().slice(0, 2)).toEqual(['New Task', 'New Note']);
+      await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: 'New Note' })); });
+      expect(opened).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('menu')).toBeNull();
+    } finally {
+      window.matchMedia = mm;
+      window.removeEventListener('nexus:quick-note', opened);
+    }
+  });
+
   it('Performance reads "performance:1on1:new" as Set Up a 1:1, not a 1:1 called "new"', async () => {
     const { parsePerfSub } = await import('../performance/lib');
     expect(parsePerfSub('performance:1on1:new')).toMatchObject({ view: 'me', oneOnOne: '', newOneOnOne: true });

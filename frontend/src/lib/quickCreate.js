@@ -17,19 +17,26 @@
 // for the module it lands in, plus the grant level that module's own New
 // button asks for when a row sets `level` (canAccessModule).
 //
+// On a phone (the header's 900px breakpoint) the Quick Note button leaves the
+// top bar and New Note sits under New Task instead (Neil, Oct 29 2026): it
+// opens the same Quick Note panel through the `nexus:quick-note` event.
+//
 // Kept off the menu on purpose (Neil, Oct 29 2026): 1:1s, Ask HR,
 // Reimbursements, Credentials, Purchase Requests, Send for Signature,
 // Workflows and Time Off - those start from their own modules.
-import { CheckSquare, FilePlus2, Package, Mail, CalendarPlus } from 'lucide-react';
+import { CheckSquare, NotebookPen, FilePlus2, Package, Mail, CalendarPlus } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { NAV, isNavItemVisible } from '../components/Sidebar';
 
 export const goTo = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }));
 
 // Display order. `module` = the left-menu item the flow lives in; `level` =
-// the grant level that module's own New button needs.
+// the grant level that module's own New button needs; `phoneOnly` = offered on
+// a phone only.
 export const CREATE_ITEMS = [
   { key: 'task', group: 'Work', label: 'New Task', Icon: CheckSquare, module: 'tasks', compose: 'task' },
+  { key: 'note', group: 'Work', label: 'New Note', Icon: NotebookPen, module: 'dashboard', phoneOnly: true,
+    run: () => window.dispatchEvent(new CustomEvent('nexus:quick-note')) },
   { key: 'ticket', group: 'Work', label: 'New Ticket', Icon: TicketToken, module: 'support', compose: 'ticket' },
   { key: 'document', group: 'Work', label: 'New Document', Icon: FilePlus2, module: 'documents', go: ['documents', 'documents-new'] },
   { key: 'item', group: 'Requests', label: 'Request an Item', Icon: Package, module: 'inventory', go: ['inventory', 'catalog'] },
@@ -38,9 +45,10 @@ export const CREATE_ITEMS = [
   { key: 'event', group: 'Outlook', label: 'New Event', Icon: CalendarPlus, module: 'dashboard', compose: 'event' },
 ];
 
-/** The rows this person may use. `role` is useRole(). */
-export function visibleCreates(role) {
+/** The rows this person may use. `role` is useRole(); `phone` = the header's phone layout. */
+export function visibleCreates(role, phone = false) {
   return CREATE_ITEMS.filter((it) => {
+    if (it.phoneOnly && !phone) return false;
     const nav = NAV.find((n) => n.view === it.module);
     if (!nav || !isNavItemVisible(nav, role || {})) return false;
     if (it.level && !role?.canAccessModule?.(it.module, 'administrator', it.level)) return false;
