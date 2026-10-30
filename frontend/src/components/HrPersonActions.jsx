@@ -13,7 +13,7 @@
 //                  the employee signs, then the manager. When it is fully
 //                  signed the role, access and pay change, and the letter is
 //                  filed in their Egnyte folder (My HR > My Documents).
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Send, FileSignature, FolderOpen, TrendingUp, ArrowRight, AlertTriangle, LogOut, Shield } from 'lucide-react';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
@@ -22,6 +22,7 @@ import { usePeopleDirectory } from '../lib/queries';
 import { currencyOptions } from '../asset/lib/currency';
 import PersonSearchSelect from './PersonSearchSelect';
 import { DateField } from '../tasks/components';
+import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
 const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
@@ -367,6 +368,16 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
     try { onSent(await api.offboard(e.id, { ...body(), excluded_ack: preview?.engine === 'documents' ? true : ack })); }
     catch (err) { toastErr(err?.message || 'Could not offboard.'); setBusy(''); }
   }
+  // Offboard Now (a last day of today) ends their access at once, so it is
+  // held (Hold to confirm, Neil, Oct 30 2026); a refusal rewinds the button
+  // with the reason, success hands the result on once the check has shown.
+  // Schedule Offboarding stays a click - it can still be cancelled.
+  const sent = useRef(null);
+  async function goNow() {
+    setBusy('send');
+    try { sent.current = await api.offboard(e.id, { ...body(), excluded_ack: preview?.engine === 'documents' ? true : ack }); }
+    catch (err) { setBusy(''); throw new Error(err?.message || 'Could not offboard.'); }
+  }
   const radio = (val, label, sub) => (
     <label style={{ display: 'flex', gap: 10, padding: '9px 11px', borderRadius: 10, border: `1px solid ${mailbox === val ? 'var(--pine)' : 'var(--line)'}`, background: mailbox === val ? 'hsla(var(--color-green),0.06)' : 'transparent', cursor: 'pointer', marginBottom: 8 }}>
       <input type="radio" name="offMailbox" checked={mailbox === val} onChange={() => { setMailbox(val); setPreview(null); }} style={{ marginTop: 2 }} />
@@ -505,12 +516,17 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review
             </button>
+          ) : preview.immediate ? (
+            <HoldButton label="Offboard Now" doneLabel="Offboarded" icon={LogOut} holdMs={HOLD_MAJOR_MS} clickRuns
+              onConfirm={goNow} onDone={() => onSent(sent.current)}
+              disabled={(!!busy && busy !== 'send') || (preview.package && preview.engine !== 'documents' && !ack) || missing.length > 0
+                || (preview.engine === 'documents' && (preview.problems || []).length > 0)} />
           ) : (
             <button className="primary-btn" onClick={go}
               disabled={!!busy || (preview.package && preview.engine !== 'documents' && !ack) || missing.length > 0
                 || (preview.engine === 'documents' && (preview.problems || []).length > 0)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: preview.immediate ? 'hsl(var(--color-red))' : undefined }}>
-              {busy === 'send' ? <Spinner size={14} /> : <LogOut size={14} />} {preview.immediate ? 'Offboard Now' : 'Schedule Offboarding'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {busy === 'send' ? <Spinner size={14} /> : <LogOut size={14} />} Schedule Offboarding
             </button>
           )}
         </div>
