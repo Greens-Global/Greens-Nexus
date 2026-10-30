@@ -60,7 +60,7 @@ class NotesTest(unittest.TestCase):
 
     def setUp(self):
         self.db = database.SessionLocal()
-        for m in (models.NexusNote, models.NexusNoteVersion, models.NexusNotification):
+        for m in (models.NexusNote, models.NexusNoteVersion, models.NexusNotePresence, models.NexusNotification):
             self.db.query(m).delete()
         self.db.commit()
         self.user = {"email": AMY, "name": "Amy Test", "role": "employee", "level": 1}
@@ -296,11 +296,133 @@ class NotesTest(unittest.TestCase):
 
     def test_versions_capped(self):
         n = self.make(body="<p>0</p>")
-        for i in range(1, 30):
+        for i in range(1, notes.VERSIONS_KEPT + 5):
             self.db.query(models.NexusNoteVersion).update({"created_at": "2000-01-01T00:00:00+00:00"})
             self.db.commit()
             n = self.client.patch(f"/notes/{n['id']}", json={"rev": n["rev"], "body": f"<p>{i}</p>"}).json()
         self.assertEqual(len(self.client.get(f"/notes/{n['id']}/versions").json()), notes.VERSIONS_KEPT)
+
+
+    # ── working together (Oct 30 2026) ─────────────────────────────────────
+    def shared(self, can="edit", body="<p>Amy wrote this</p>"):
+        n = self.make(body=body)
+        self.client.put(f"/notes/{n['id']}/share", json={"email": BOB, "can": can})
+        return self.client.get(f"/notes/{n['id']}").json()
+
+    def test_a_new_author_keeps_the_previous_words_under_their_name(self):
+        n = self.shared()
+        self.as_(BOB)
+        n = self.client.patch(f"/notes/{n['id']}", json={"rev": n["rev"], "body": "<p>Bob changed it</p>"}).json()
+        vs = self.client.get(f"/notes/{n['id']}/versions").json()
+        self.assertEqual([(v["body"], v["savedBy"]) for v in vs], [("<p>Amy wrote this</p>", AMY)])
+        # Bob again, minutes later: no new copy.
+        n = self.client.patch(f"/notes/{n['id']}", json={"rev": n["rev"], "body": "<p>Bob again</p>"}).json()
+        self.assertEqual(len(self.client.get(f"/notes/{n['id']}/versions").json()), 1)
+        # Amy takes over: Bob's words are kept under Bob's name.
+        self.as_(AMY)
+        n = self.client.patch(f"/notes/{n['id']}", json={"rev": n["rev"], "body": "<p>Amy back</p>"}).json()
+        vs = self.client.get(f"/notes/{n['id']}/versions").json()
+        self.assertEqual([(v["body"], v["savedBy"]) for v in vs][0], ("<p>Bob again</p>", BOB))
+
+    def test_updated_dot_for_someone_elses_change_until_opened(self):
+        n = self.shared()
+        self.as_(BOB)
+        row = lambda: next(x for x in self.client.get("/notes").json()["notes"] if x["id"] == n["id"])  # noqa: E731
+        self.assertTrue(row()["unseen"])                         # new to Bob
+        self.client.get(f"/notes/{n['id']}")
+        self.assertFalse(row()["unseen"])
+        self.as_(AMY)
+        n2 = self.client.patch(f"/notes/{n['id']}", json={"rev": n["rev"], "body": "<p>More</p>"}).json()
+        self.assertFalse(next(x for x in self.client.get("/notes").json()["notes"] if x["id"] == n["id"])["unseen"])
+        self.assertEqual(n2["editedBy"], AMY)
+        self.as_(BOB)
+        self.assertTrue(row()["unseen"])
+        # A change that is not to the words (Amy pins it) raises no dot.
+        self.client.get(f"/notes/{n['id']}")
+        self.as_(AMY)
+        self.client.patch(f"/notes/{n['id']}", json={"rev": n2["rev"], "pinned": True})
+        self.as_(BOB)
+        self.assertFalse(row()["unseen"])
+
+    def test_presence_shows_others_and_expires(self):
+        n = self.shared()
+        self.client.put(f"/notes/{n['id']}/share", json={"email": CAT, "can": "read"})
+        self.as_(BOB)
+        self.client.post(f"/notes/{n['id']}/presence", json={"state": "editing"})
+        self.as_(CAT)
+        r = self.client.post(f"/notes/{n['id']}/presence", json={"state": "editing"}).json()
+        self.assertEqual(r["people"], [{"email": BOB, "state": "editing"}])
+        self.as_(AMY)
+        r = self.client.post(f"/notes/{n['id']}/presence", json={"state": "viewing"}).json()
+        self.assertEqual(sorted((p["email"], p["state"]) for p in r["people"]),
+                         [(BOB, "editing"), (CAT, "viewing")])           # read-only is only ever viewing
+        self.assertEqual(r["rev"], self.client.get(f"/notes/{n['id']}").json()["rev"])
+        old = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+        self.db.query(models.NexusNotePresence).filter(models.NexusNotePresence.email == BOB).update({"at": old})
+        self.db.commit()
+        r = self.client.post(f"/notes/{n['id']}/presence", json={}).json()
+        self.assertEqual([p["email"] for p in r["people"]], [CAT])
+        self.as_("dan@greensglobal.com")
+        self.assertEqual(self.client.post(f"/notes/{n['id']}/presence", json={}).status_code, 404)
+
+    def test_collab_key_editors_only_and_rotated_when_an_editor_goes(self):
+        n = self.shared()
+        self.client.put(f"/notes/{n['id']}/share", json={"email": CAT, "can": "edit"})
+        k1 = self.client.get(f"/notes/{n['id']}/collab").json()
+        self.assertEqual(len(k1["key"]), 44)                       # 32 bytes, base64
+        self.assertTrue(k1["channel"].startswith("nx-note-"))
+        self.assertNotIn(n["id"], k1["channel"])
+        self.as_(BOB)
+        self.assertEqual(self.client.get(f"/notes/{n['id']}/collab").json()["key"], k1["key"])
+        self.as_("dan@greensglobal.com")
+        self.assertEqual(self.client.get(f"/notes/{n['id']}/collab").status_code, 404)
+        self.as_(AMY)
+        self.client.put(f"/notes/{n['id']}/share", json={"email": BOB, "can": "read"})     # made read-only
+        self.as_(BOB)
+        self.assertEqual(self.client.get(f"/notes/{n['id']}/collab").status_code, 403)
+        self.as_(AMY)
+        k2 = self.client.get(f"/notes/{n['id']}/collab").json()
+        self.assertNotEqual(k2["key"], k1["key"])
+        self.assertNotEqual(k2["channel"], k1["channel"])
+        self.client.delete(f"/notes/{n['id']}/share/{CAT}")                                # an editor removed
+        self.assertNotEqual(self.client.get(f"/notes/{n['id']}/collab").json()["key"], k2["key"])
+
+    def test_seed_once_then_saves_carry_the_epoch(self):
+        n = self.shared()
+        r = self.client.post(f"/notes/{n['id']}/collab/seed", json={"rev": n["rev"], "ydoc": "AAEC", "yepoch": "epoch-amy-1"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.as_(BOB)
+        r = self.client.post(f"/notes/{n['id']}/collab/seed", json={"rev": n["rev"], "ydoc": "BBBB", "yepoch": "epoch-bob-1"})
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.json()["detail"]["collab"], {"ydoc": "AAEC", "yepoch": "epoch-amy-1", "rev": n["rev"]})
+        bad = self.client.patch(f"/notes/{n['id']}", json={"rev": n["rev"], "body": "<p>x</p>", "ydoc": "CC", "yepoch": "epoch-bob-1"})
+        self.assertEqual(bad.status_code, 409)
+        self.assertTrue(bad.json()["detail"]["epoch"])
+        ok = self.client.patch(f"/notes/{n['id']}", json={"rev": n["rev"], "body": "<p>Bob live</p>", "ydoc": "AAEDDD", "yepoch": "epoch-amy-1"})
+        self.assertEqual(ok.status_code, 200, ok.text)
+        stale = self.client.patch(f"/notes/{n['id']}", json={"rev": n["rev"], "body": "<p>y</p>", "ydoc": "Z", "yepoch": "epoch-amy-1"})
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(stale.json()["detail"]["collab"]["ydoc"], "AAEDDD")    # merge it in and try again
+        # A save from a screen that is not co-typing drops the state.
+        self.as_(AMY)
+        cur = ok.json()
+        self.client.patch(f"/notes/{n['id']}", json={"rev": cur["rev"], "body": "<p>Quick Note words</p>"})
+        st = self.client.get(f"/notes/{n['id']}/collab").json()
+        self.assertEqual((st["ydoc"], st["yepoch"]), ("", ""))
+        self.assertEqual(self.client.post(f"/notes/{n['id']}/collab/seed",
+                                          json={"rev": st["rev"], "ydoc": "x", "yepoch": "bad epoch!"}).status_code, 400)
+
+    def test_append_and_restore_drop_the_live_state(self):
+        r = self.client.post("/notes/daily/append", json={"day": TODAY, "text": "first"}).json()
+        self.client.post(f"/notes/{r['id']}/collab/seed", json={"rev": r["rev"], "ydoc": "AA", "yepoch": "epoch-123456"})
+        self.client.post("/notes/daily/append", json={"day": TODAY, "text": "second"})
+        self.assertEqual(self.client.get(f"/notes/{r['id']}/collab").json()["yepoch"], "")
+        n = self.make(body="<p>One</p>")
+        n = self.client.patch(f"/notes/{n['id']}", json={"rev": n["rev"], "body": "<p>Two</p>"}).json()
+        self.client.post(f"/notes/{n['id']}/collab/seed", json={"rev": n["rev"], "ydoc": "AA", "yepoch": "epoch-123456"})
+        v = self.client.get(f"/notes/{n['id']}/versions").json()[0]
+        self.client.post(f"/notes/{n['id']}/versions/{v['id']}/restore")
+        self.assertEqual(self.client.get(f"/notes/{n['id']}/collab").json()["yepoch"], "")
 
 
 if __name__ == "__main__":
