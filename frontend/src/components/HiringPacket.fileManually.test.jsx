@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // File Manually (Pranshu, Oct 15 2026): automatic Egnyte filing failed, HR
 // picks the folder with the Egnyte folder picker (Neil, Oct 22: "you click on
@@ -21,12 +21,14 @@ const filedAuto = { ...filedByHand, id: 'ev-auto', title: 'Promotion Letter', ki
 const outForSignature = { ...filedAuto, id: 'ev-out', title: 'Separation Package', kind: 'separation', status: 'sent', completedAt: '', filingStatus: '' };
 const fileLifeEventManually = vi.fn();
 const egnytePersonDocs = vi.fn();
+const voidLifeEvent = vi.fn();
 vi.mock('../api', () => ({
   api: {
     getLifeEvents: () => Promise.resolve([unfiled, filedByHand, filedAuto, outForSignature]),
     fileLifeEventManually: (...a) => fileLifeEventManually(...a),
     egnytePersonDocs: (...a) => egnytePersonDocs(...a),
     retryLifeEventFiling: vi.fn(),
+    voidLifeEvent: (...a) => voidLifeEvent(...a),
   },
 }));
 const prompt = vi.fn();
@@ -129,5 +131,39 @@ describe('Offboarding with no separation package (Charmi, Oct 20 2026)', () => {
     expect(screen.queryByText(/Filing in Egnyte/)).toBeNull();
     expect(screen.queryByText('Retry Filing')).toBeNull();
     expect(screen.queryByText('Fully Signed')).toBeNull();
+  });
+});
+
+// Hold to confirm (Neil, Oct 30 2026): voiding one envelope is held on the
+// card with no dialog first; a refusal rewinds the button with the reason.
+describe('Void', () => {
+  it('voids on a full hold, then refreshes the card', async () => {
+    voidLifeEvent.mockReset().mockResolvedValue({});
+    const toastOk = vi.fn(); const onChanged = vi.fn();
+    render(<LifeEventCard ev={outForSignature} toastOk={toastOk} onChanged={onChanged} />);
+    const hold = screen.getByRole('button', { name: 'Void, press and hold' });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(1200); });
+      expect(voidLifeEvent).toHaveBeenCalledWith('ev-out');
+      expect(toastOk).toHaveBeenCalledWith('Separation Package voided.');
+      await act(async () => { vi.advanceTimersByTime(700); });
+    } finally { vi.useRealTimers(); }
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refused void rewinds with the reason', async () => {
+    voidLifeEvent.mockReset().mockRejectedValue(new Error('This packet is already signed.'));
+    const onChanged = vi.fn();
+    render(<LifeEventCard ev={outForSignature} onChanged={onChanged} />);
+    const hold = screen.getByRole('button', { name: 'Void, press and hold' });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(1200); });
+    } finally { vi.useRealTimers(); }
+    expect(screen.getByRole('alert').textContent).toBe('This packet is already signed.');
+    expect(onChanged).not.toHaveBeenCalled();
   });
 });

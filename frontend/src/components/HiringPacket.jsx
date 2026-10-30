@@ -17,6 +17,7 @@ import { createPortal } from 'react-dom';
 import { X, Send, FileSignature, RefreshCw, Ban, FolderOpen, CheckCircle, Clock, AlertTriangle, Plus, Trash2, Copy, Info } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
+import HoldButton from '../ui/HoldButton';
 import { formatDateTime } from '../lib/datetime';
 import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
@@ -784,13 +785,21 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
         : ev.kind === 'offer' && ev.status === 'completed' ? ['Signed - Hired', 'green']
           : (EVENT_STATUS[ev.status] || [ev.status, 'gray']);
   const what = ev.title || 'Packet';
+  const voidMessage = `Void this ${what.toLowerCase()}? It can no longer be signed. To change the pay or any other detail, void it and send a new one with the new values - a letter that is out is never edited.`;
+  // Void is held on the card (Hold to confirm, Neil, Oct 30 2026): one
+  // envelope, so no dialog; a refusal rewinds the button with the reason,
+  // and the card refreshes once the check has shown (onDone).
+  async function voidIt() {
+    setBusy('void');
+    try { await api.voidLifeEvent(ev.id); toastOk?.(`${what} voided.`); }
+    catch (e) { throw new Error(e?.message || 'That did not work.'); }
+    finally { setBusy(''); }
+  }
   async function act(kind) {
-    if (kind === 'void' && !await dialog.confirm(`Void this ${what.toLowerCase()}? It can no longer be signed. To change the pay or any other detail, void it and send a new one with the new values - a letter that is out is never edited.`, { title: 'Void', confirmText: 'Void' })) return;
     if (kind === 'cancel' && !await dialog.confirm('Cancel this offboarding? They stay active, and any paperwork still out is voided.', { title: 'Cancel Offboarding', confirmText: 'Cancel Offboarding', cancelText: 'Keep It' })) return;
     setBusy(kind);
     try {
-      if (kind === 'void') { await api.voidLifeEvent(ev.id); toastOk?.(`${what} voided.`); }
-      else if (kind === 'cancel') { await api.cancelOffboarding(ev.id); toastOk?.('Offboarding canceled.'); }
+      if (kind === 'cancel') { await api.cancelOffboarding(ev.id); toastOk?.('Offboarding canceled.'); }
       else if (kind === 'apply') { await api.retryLifeEventApply(ev.id); toastOk?.('Applied.'); }
       else { const out = await api.retryLifeEventFiling(ev.id); toastOk?.(out.filingStatus === 'filed' ? 'Filed in Egnyte.' : 'Still not filed - see the reason below.'); }
       onChanged?.();
@@ -962,9 +971,8 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
           </button>
         )}
         {['awaiting_sender', 'sent', 'intake', 'review'].includes(ev.status) && (
-          <button className="secondary-btn" onClick={() => act('void')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {busy === 'void' ? <Spinner size={12} /> : <Ban size={12} />} Void
-          </button>
+          <HoldButton size="sm" label="Void" doneLabel="Voided" icon={Ban} onConfirm={voidIt} onDone={() => onChanged?.()}
+            disabled={!!busy && busy !== 'void'} fallbackMessage={voidMessage} />
         )}
         {notStarted && (
           <button className="primary-btn" onClick={startPacket} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
