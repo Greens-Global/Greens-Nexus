@@ -369,7 +369,7 @@ const counts = (d) => ({
   sentBack: (d?.mine || []).filter((r) => r.status === 'sent_back').length,
 });
 
-/** The Workday tile plus its panel. `autoOpen` opens it (a bell's link). */
+/** The Workday tile plus its panel. `autoOpen` opens it (a bell's link); 'new' opens it on the New form. */
 export default function ReimbursementsTile({ autoOpen = false, flash = () => {} }) {
   const [data, setData] = useState(null);
   const [open, setOpen] = useState(!!autoOpen);
@@ -379,7 +379,7 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
   useEffect(() => { if (!open) resetNudge(); }, [open, resetNudge]);
   const [tab, setTab] = useState('mine');
   const [hrTab, setHrTab] = useState('approver_approved');
-  const [form, setForm] = useState(null);       // null | 'new' | the sent-back claim being fixed
+  const [form, setForm] = useState(() => (autoOpen === 'new' ? 'new' : null));   // null | 'new' | the sent-back claim being fixed
   const people = usePeople(open && !!form);
   // Opening lands on what needs this person first.
   const landRef = useRef(!!autoOpen);
@@ -398,8 +398,10 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
   const openPanel = useCallback(() => { landRef.current = true; setOpen(true); load(); }, [load]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    window.addEventListener(OPEN_REIMBURSEMENTS, openPanel);
-    return () => window.removeEventListener(OPEN_REIMBURSEMENTS, openPanel);
+    // detail.newForm: the header's Create menu > New Reimbursement.
+    const onOpen = (e) => { openPanel(); if (e?.detail?.newForm) { setForm('new'); setTab('mine'); } };
+    window.addEventListener(OPEN_REIMBURSEMENTS, onOpen);
+    return () => window.removeEventListener(OPEN_REIMBURSEMENTS, onOpen);
   }, [openPanel]);
   useEffect(() => {
     if (!open) return undefined;

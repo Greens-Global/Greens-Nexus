@@ -1735,6 +1735,8 @@ export const api = {
   // Punch-fix requests: employee asks, approver (HR/manager) approves/rejects
   timePunchRequestCreate: (data) => req('/timeclock/punch-requests', { method: 'POST', body: JSON.stringify(data) }),
   timeMyPunchRequests:    () => req('/timeclock/punch-requests/mine'),
+  // Approved and rejected requests in a range - Time Admin's Decided view (Oct 29 2026).
+  timeDecidedPunchRequests: (from = '', to = '') => req(`/timeclock/punch-requests?status=decided${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`),
   timePunchRequests:      (status) => req(`/timeclock/punch-requests?status=${status || 'pending'}`),
   // Employee self-edit of a punch time (applies to display now, to pay only on approval)
   timePunchEditCreate:    (data)     => req('/timeclock/punch-edits', { method: 'POST', body: JSON.stringify(data) }),
@@ -3332,6 +3334,41 @@ export const api = {
   // The person's own training-email switch (Profile > Email Settings, WP 2.4)
   getKbMyEmailPref:    ()     => req("/kb-reminder-settings/mine"),
   updateKbMyEmailPref: (data) => req("/kb-reminder-settings/mine", { method: "PUT", body: JSON.stringify(data) }),
+  // Performance: peer feedback, kudos, improvement plans, calibration (Neil,
+  // Oct 29 2026) - routers/perf_feedback.py and routers/perf_reviews.py.
+  perfFeedbackList: (person = "") => req(`/performance/feedback${person ? `?person=${encodeURIComponent(person)}` : ""}`),
+  perfFeedback: (id) => req(`/performance/feedback/${encodeURIComponent(id)}`),
+  perfFeedbackAsk: (data) => req("/performance/feedback", { method: "POST", body: JSON.stringify(data) }),
+  perfFeedbackAnswer: (id, data) => req(`/performance/feedback/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
+  perfFeedbackDecline: (id, note = "") => req(`/performance/feedback/${encodeURIComponent(id)}/decline`, { method: "POST", body: JSON.stringify({ note }) }),
+  perfFeedbackCancel: (id) => req(`/performance/feedback/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  perfKudos: ({ scope = "company", person = "", company = "" } = {}) =>
+    req(`/performance/kudos?${new URLSearchParams({ scope, person, company }).toString()}`),
+  perfKudosGive: (data) => req("/performance/kudos", { method: "POST", body: JSON.stringify(data) }),
+  perfKudosHide: (id) => req(`/performance/kudos/${encodeURIComponent(id)}/hide`, { method: "POST" }),
+  perfPlans: ({ person = "", company = "" } = {}) => req(`/performance/plans?${new URLSearchParams({ person, company }).toString()}`),
+  perfPlan: (id) => req(`/performance/plans/${encodeURIComponent(id)}`),
+  perfPlanCreate: (data) => req("/performance/plans", { method: "POST", body: JSON.stringify(data) }),
+  perfPlanUpdate: (id, data) => req(`/performance/plans/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  perfPlanAct: (id, action, data = {}) => req(`/performance/plans/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(data) }),
+  perfCalibration: (cycleId) => req(`/performance/cycles/${encodeURIComponent(cycleId)}/calibration`),
+  perfCalibrate: (reviewId, rating, note) => req(`/performance/reviews/${encodeURIComponent(reviewId)}/calibrate`, { method: "POST", body: JSON.stringify({ rating, note }) }),
+  // Notes - Dashboard > Notes, Quick Note, the Notes widget (Neil, Oct 29
+  // 2026; routers/notes.py). A PATCH carries the rev it was read with; a 409
+  // brings the server copy back in err.detail.note.
+  notesList: (params = {}) => req(`/notes?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")).toString()}`),
+  noteGet: (id) => req(`/notes/${encodeURIComponent(id)}`),
+  noteCreate: (data) => req("/notes", { method: "POST", body: JSON.stringify(data) }),
+  noteUpdate: (id, data) => req(`/notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  noteDaily: (day) => req(`/notes/daily?day=${encodeURIComponent(day)}`),
+  noteDailyAppend: (day, text) => req("/notes/daily/append", { method: "POST", body: JSON.stringify({ day, text }) }),
+  noteTrash: (id) => req(`/notes/${encodeURIComponent(id)}/trash`, { method: "POST" }),
+  noteRestore: (id) => req(`/notes/${encodeURIComponent(id)}/restore`, { method: "POST" }),
+  noteDeleteForever: (id) => req(`/notes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  noteShare: (id, email, can = "read") => req(`/notes/${encodeURIComponent(id)}/share`, { method: "PUT", body: JSON.stringify({ email, can }) }),
+  noteUnshare: (id, email) => req(`/notes/${encodeURIComponent(id)}/share/${encodeURIComponent(email)}`, { method: "DELETE" }),
+  noteVersions: (id) => req(`/notes/${encodeURIComponent(id)}/versions`),
+  noteRestoreVersion: (id, versionId) => req(`/notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`, { method: "POST" }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

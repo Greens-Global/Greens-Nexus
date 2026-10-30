@@ -309,7 +309,12 @@ const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE
 // local build read 15004 KB against the HR release's 14836 KB. CI's clean install reads ~200 KB above a local
 // build, so 15600 leaves ~400 KB. App code only, no new dependency. Needs
 // Neil's OK with the release (he OK'd the Oct 27 raise the same way).
-const TOTAL_KB     = 15600 + (NX_SRC_ON ? 350 : 0);
+// Oct 29 2026: 15600 -> 15900. The Oct 29 release (#859): Performance
+// feedback / kudos / plans / calibration, the + Create menu and Notes (the
+// editor rides the TipTap already in the bundle; @tiptap/extension-list was
+// installed, now declared). A local build read 15647 KB with all of it in.
+// App code only, no new dependency. Needs Neil's OK with the release.
+const TOTAL_KB     = 15900 + (NX_SRC_ON ? 350 : 0);
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

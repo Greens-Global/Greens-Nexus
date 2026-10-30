@@ -1573,3 +1573,50 @@ def _perf_goals(db: Session, user: dict, ctx: dict) -> list:
                        link={"view": "myhr", "sub": f"performance:goal:{g.id}"}, due=due,
                        facts=(("Goal", g.title), ("Due", _us_day(due) if due else ""))))
     return out
+
+
+# Performance feedback and improvement plans (Neil, Oct 29 2026): asks for
+# feedback waiting on the caller (perf_feedback.waiting_feedback), and plans
+# waiting on them (perf_plans.waiting_on) - their own to acknowledge, and as
+# HR the ones a manager sent to start and active ones past their end date.
+
+@source("perf_feedback", "Feedback Requests", "people")
+def _perf_feedback(db: Session, user: dict, ctx: dict) -> list:
+    import perf_feedback as pf
+    if user.get("external"):
+        return []
+    out = []
+    for f in pf.waiting_feedback(db, user):
+        about = "themselves" if not f.private else _name(db, ctx, f.subject_email)
+        out.append(row("perf_feedback", f.id, person_email=f.subject_email, person_name=_name(db, ctx, f.subject_email),
+                       title="Feedback Requested", for_name=_name(db, ctx, f.requested_by),
+                       detail=f"{_name(db, ctx, f.requested_by)} asked for your feedback about {about}.",
+                       created_at=f.requested_at, actions=(a_open("Answer"),),
+                       link={"view": "myhr", "sub": f"performance:feedback:{f.id}"},
+                       facts=(("Asked By", _name(db, ctx, f.requested_by)), ("Note", f.note or ""))))
+    return out
+
+
+_PERF_PLAN_WORDS = {
+    "acknowledge": ("Acknowledge Your Improvement Plan", "Read the plan your manager and HR set up, and acknowledge it.", "Read It"),
+    "start": ("Improvement Plan to Start", "A manager sent this plan to HR. Read it, then Start it with the employee.", "Review"),
+    "close": ("Improvement Plan Past Its End", "The end date has passed. Close it with an outcome, or extend it.", "Review"),
+}
+
+
+@source("perf_plan", "Improvement Plans", "people")
+def _perf_plans(db: Session, user: dict, ctx: dict) -> list:
+    import perf_plans as pp
+    if user.get("external"):
+        return []
+    out = []
+    for kind, p in pp.waiting_on(db, user):
+        title, detail, label = _PERF_PLAN_WORDS[kind]
+        mine = kind == "acknowledge"
+        out.append(row("perf_plan", f"{p.id}:{kind}", person_email="" if mine else p.employee_email,
+                       person_name="" if mine else _name(db, ctx, p.employee_email), title=title, detail=detail,
+                       created_at=p.started_at if kind == "acknowledge" else p.updated_at,
+                       actions=(a_open(label),), link={"view": "myhr", "sub": f"performance:plan:{p.id}"},
+                       due=p.end_on if kind == "close" else "",
+                       facts=(("Plan", p.title or ""), ("Ends", _us_day(p.end_on) if p.end_on else ""))))
+    return out

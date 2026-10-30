@@ -10,6 +10,7 @@
 // in the Subtasks list), with a toast whose Open steps into it.
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Circle, GripVertical, ListTree, MoreHorizontal, Plus, X } from 'lucide-react';
+import { draftKey, useTaskDraft } from './taskDrafts';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { NX, FONT, btn } from './theme';
@@ -50,7 +51,11 @@ function ItemMenu({ item, onConvert }) {
 export default function Checklist({ task, people = [], canEdit = true, canConvert = false, onOpenTask = null, autoFocusAdd = false }) {
   const { applyServerTask, nameOf, myEmail, convertChecklistItem, offerUndo } = useTasks();
   const [items, setItems] = useState(null);
-  const [draft, setDraft] = useState('');
+  // The line being typed is kept per task (taskDrafts.js): another tab or
+  // closing the drawer used to wipe it.
+  const [lineDraft, setLineDraft, clearLine] = useTaskDraft(draftKey(task?.id, 'checklist'), { taskId: task?.id, kind: 'checklist' });
+  const draft = lineDraft.text || '';
+  const setDraft = (v) => (v ? setLineDraft({ text: v }) : clearLine());
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [dragId, setDragId] = useState(null);

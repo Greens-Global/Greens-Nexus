@@ -1395,6 +1395,13 @@ def _run_migrations():
             # Page readers (Oct 29) - see the Postgres list. models.KbDocument.
             "ALTER TABLE kb_documents ADD COLUMN readers TEXT DEFAULT ''",
             "ALTER TABLE kb_documents ADD COLUMN live_from VARCHAR DEFAULT ''",
+            # Punch edit history (Oct 29) - see the Postgres list. models.TimePunch.
+            "ALTER TABLE time_punches ADD COLUMN edit_requested_at VARCHAR DEFAULT ''",
+            "ALTER TABLE time_punches ADD COLUMN edit_note VARCHAR DEFAULT ''",
+            # Review calibration (Oct 29) - see the Postgres list. models.PerfReview.
+            "ALTER TABLE hr_perf_reviews ADD COLUMN calibrated_from VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN calibrated_by VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN calibrated_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3321,6 +3328,23 @@ def _run_migrations():
         # Knowledge Base photo-proof quiz answers (WP 5.5, 10/29/2026) - a new
         # table, explicit RLS. models.KbPhotoReview.
         "ALTER TABLE kb_photo_reviews ENABLE ROW LEVEL SECURITY",
+        # Punch edit history (Neil, 10/29/2026): the time an employee asked
+        # for and the approver's note, kept after the decision. models.TimePunch.
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS edit_requested_at VARCHAR DEFAULT ''",
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS edit_note VARCHAR DEFAULT ''",
+        # Performance: review calibration, peer feedback, kudos and improvement
+        # plans (Neil, Oct 29 2026). Three new tables - explicit RLS.
+        # models.PerfReview / PerfFeedback / PerfKudos / PerfPlan.
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS calibrated_from VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS calibrated_by VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS calibrated_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_feedback ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_kudos ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_plans ENABLE ROW LEVEL SECURITY",
+        # Notes (Dashboard > Notes, Neil 10/29/2026) - two new tables, explicit
+        # RLS. models.NexusNote / NexusNoteVersion.
+        "ALTER TABLE nexus_notes ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE nexus_note_versions ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5057,6 +5081,8 @@ from routers import performance as performance_router  # noqa: E402 - new tables
 app.include_router(performance_router.router)  # Performance: goals and 1:1s - Workday > Performance, People > Performance (Neil, Oct 27 2026)
 from routers import perf_reviews as perf_reviews_router  # noqa: E402 - new tables: create_all + explicit RLS lines, no ALTER columns
 app.include_router(perf_reviews_router.router)  # Performance: review cycles - People > Performance, Workday > Performance (Neil, Oct 27 2026)
+from routers import perf_feedback as perf_feedback_router  # noqa: E402 - new tables: create_all + explicit RLS lines
+app.include_router(perf_feedback_router.router)  # Performance: peer feedback, kudos, improvement plans (Neil, Oct 29 2026)
 from routers import extra_time as extra_time_router  # noqa: E402
 app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)
 from routers import import_hub as import_hub_router  # noqa: E402 - also registers import_hub_models before create_all
@@ -5067,3 +5093,5 @@ from routers import help_center as help_center_router  # noqa: E402 - new table 
 app.include_router(help_center_router.router)  # Help Center: Ask Nexus (docs only), failed searches, Was This Helpful?, Known Issues (Oct 2026)
 from routers import kb_reminder_settings  # noqa: E402
 app.include_router(kb_reminder_settings.router)  # Training Reminders switches - Settings > Emails & Reminders (Sagar, Oct 28 2026)
+from routers import notes as notes_router  # noqa: E402 - two new tables: create_all + explicit RLS lines
+app.include_router(notes_router.router)  # Notes: the scratchpad that follows you - Dashboard > Notes, Quick Note, the Notes widget (Neil, Oct 29 2026)
