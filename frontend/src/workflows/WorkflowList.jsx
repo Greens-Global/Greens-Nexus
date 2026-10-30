@@ -5,7 +5,7 @@
 // actions Pause / Resume / Duplicate / Archive / Delete, and a click opens the
 // builder (wf:<id>).
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, Copy, Pause, Play, Plus, Search, Trash2, Workflow as WorkflowIcon } from 'lucide-react';
+import { Archive, Copy, Pause, Play, Plus, Search, Workflow as WorkflowIcon } from 'lucide-react';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
@@ -13,6 +13,7 @@ import { useRole } from '../contexts/RoleContext';
 import { formatDateTime } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { dialog } from '../ui/dialog';
+import HoldButton from '../ui/HoldButton';
 import { EmptyState } from '../tasks/components';
 import { wfStatusMeta } from './lib/status';
 import { buildSub } from './lib/sub';
@@ -89,11 +90,18 @@ export default function WorkflowList({ go }) {
     if (!ok) return;
     act(w, () => api.wfStatus(w.id, { status: 'archived', reason: '' }), () => setRows((rs) => (rs || []).filter((r) => r.id !== w.id)));
   };
+  // Delete is held on the row (Hold to confirm, Neil, Oct 30 2026): one
+  // workflow, so no dialog; a refusal rewinds the button with the reason and
+  // the row leaves once the check has shown (onDone).
   const remove = async (w) => {
-    const ok = await dialog.confirm(`Delete "${w.name}" for good? It stops running and cannot be brought back. Runs still waiting are cancelled; its past runs stay in Runs.`, { title: 'Delete Workflow', confirmText: 'Delete', danger: true });
-    if (!ok) return;
-    act(w, () => api.wfDelete(w.id), () => setRows((rs) => (rs || []).filter((r) => r.id !== w.id)));
+    setNotice('');
+    try {
+      await api.wfDelete(w.id);
+    } catch (e) {
+      throw new Error(errorText(e));
+    }
   };
+  const removed = (w) => setRows((rs) => (rs || []).filter((r) => r.id !== w.id));
   const create = () => act({ id: 'new' }, () => api.wfCreate({ name: 'Untitled Workflow', companyId: '' }), (res) => { if (res?.id) go(buildSub('builder', res.id)); });
 
   const triggerText = (w) => w.triggerText || describeTrigger(w.trigger, catalog);
@@ -138,12 +146,13 @@ export default function WorkflowList({ go }) {
               {shown.map((w) => {
                 const m = wfStatusMeta(w.status);
                 const actions = (
-                  <div style={{ display: 'flex', gap: isMobile ? 6 : 4, justifyContent: isMobile ? 'flex-start' : 'flex-end', flexWrap: isMobile ? 'wrap' : 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                  <div style={{ display: 'flex', gap: isMobile ? 6 : 4, justifyContent: isMobile ? 'flex-start' : 'flex-end', flexWrap: isMobile ? 'wrap' : 'nowrap' }} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                     {w.status === 'active' && <IconBtn label="Pause" Icon={Pause} onClick={() => pause(w)} disabled={busy === w.id} />}
                     {(w.status === 'paused' || w.status === 'needs_attention') && <IconBtn label="Resume" Icon={Play} onClick={() => resume(w)} disabled={busy === w.id} />}
                     <IconBtn label="Duplicate" Icon={Copy} onClick={() => duplicate(w)} disabled={busy === w.id} />
                     {w.status !== 'archived' && <IconBtn label="Archive" Icon={Archive} onClick={() => archive(w)} disabled={busy === w.id} />}
-                    <IconBtn label="Delete" Icon={Trash2} onClick={() => remove(w)} disabled={busy === w.id} />
+                    <HoldButton size="sm" label="Delete" doneLabel="Deleted" onConfirm={() => remove(w)} onDone={() => removed(w)} disabled={busy === w.id}
+                      fallbackMessage={`Delete "${w.name}" for good? It stops running and cannot be brought back. Runs still waiting are cancelled; its past runs stay in Runs.`} />
                   </div>
                 );
                 const open = () => go(buildSub('builder', w.id));

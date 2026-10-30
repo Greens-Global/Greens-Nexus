@@ -12,12 +12,13 @@
 // The builder renders only what the catalog serves - nothing about a
 // trigger, field or action is hard-coded here.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowLeft, Copy, FlaskConical, History, LayoutTemplate, Pause, Play, Save, Settings, Trash2, Upload } from 'lucide-react';
+import { Archive, ArrowLeft, Copy, FlaskConical, History, LayoutTemplate, Pause, Play, Save, Settings, Upload } from 'lucide-react';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import { useRole } from '../contexts/RoleContext';
 import { dialog } from '../ui/dialog';
+import HoldButton from '../ui/HoldButton';
 import { useIsMobile } from '../lib/useIsMobile';
 import { btn } from '../tasks/theme';
 import { useCatalog } from './lib/useCatalog';
@@ -207,16 +208,17 @@ export default function Builder({ id, go }) {
     if (ok) setStatus('archived');
   };
 
+  // Delete is a hold on the button (Hold to confirm, Neil, Oct 30 2026): one
+  // workflow, so no dialog; a refusal rewinds it with the reason under it,
+  // success shows the check and then goes back to the list (onDone).
+  const removeMessage = `Delete "${meta.name || 'this workflow'}" for good? It stops running and cannot be brought back. Runs still waiting are cancelled; its past runs stay in Runs.`;
   const remove = async () => {
-    const ok = await dialog.confirm(`Delete "${meta.name || 'this workflow'}" for good? It stops running and cannot be brought back. Runs still waiting are cancelled; its past runs stay in Runs.`, { title: 'Delete Workflow', confirmText: 'Delete', danger: true });
-    if (!ok) return;
     setBusy('delete');
     try {
       await api.wfDelete(id);
-      go('list');
     } catch (e) {
-      await dialog.alert(errorText(e, 'The workflow could not be deleted.'));
       setBusy('');
+      throw new Error(errorText(e, 'The workflow could not be deleted.'));
     }
   };
 
@@ -289,7 +291,8 @@ export default function Builder({ id, go }) {
             <button type="button" onClick={() => setTemplateOpen(true)} disabled={!!busy} style={btn('outline')}><LayoutTemplate size={14} /> Save As Template</button>
           )}
           {canEdit && <button type="button" onClick={archive} disabled={!!busy || !workflow} style={btn('outline')}><Archive size={14} /> Archive</button>}
-          <button type="button" onClick={remove} disabled={!!busy || !workflow} style={btn('outline')}><Trash2 size={14} /> {busy === 'delete' ? 'Deleting...' : 'Delete'}</button>
+          <HoldButton size="sm" label="Delete" doneLabel="Deleted" onConfirm={remove} onDone={() => go('list')}
+            disabled={(!!busy && busy !== 'delete') || !workflow} fallbackMessage={removeMessage} />
           <button type="button" onClick={saveDraft} disabled={!!busy || !definition || !canEdit} style={btn('outline')}><Save size={14} /> {busy === 'save' ? 'Saving...' : 'Save Draft'}</button>
           <button type="button" onClick={() => setRail('test')} disabled={!definition || !canEdit} style={btn('outline')}><FlaskConical size={14} /> Test</button>
           <button type="button" onClick={publish} disabled={!!publishReason || !!busy} title={publishReason || 'Publish this draft as a new version'}
