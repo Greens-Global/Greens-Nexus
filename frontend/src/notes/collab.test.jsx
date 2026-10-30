@@ -21,7 +21,7 @@ const note = (over = {}) => ({
 
 const apiMock = vi.hoisted(() => ({
   notesList: vi.fn(), noteGet: vi.fn(), noteCreate: vi.fn(), noteUpdate: vi.fn(), noteShare: vi.fn(), noteUnshare: vi.fn(),
-  noteVersions: vi.fn(), noteRestoreVersion: vi.fn(), notePresence: vi.fn(), noteCollab: vi.fn(), noteCollabSeed: vi.fn(),
+  noteVersions: vi.fn(), noteRestoreVersion: vi.fn(), notePresence: vi.fn(), noteCollab: vi.fn(), noteCollabSeed: vi.fn(), noteCollabReset: vi.fn(),
   getPeopleDirectory: vi.fn(), createTask: vi.fn(),
 }));
 vi.mock('../api', () => ({ api: apiMock }));
@@ -32,7 +32,12 @@ vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => 
 import NotesPage from './NotesPage';
 import NoteEditor from './NoteEditor';
 import { useNoteCollab } from './useNoteCollab';
-import { importKey, seal, open, toB64 } from './collabCrypto';
+import { importKey, seal, open, toB64, boundTo } from './collabCrypto';
+import { getSchema, generateHTML } from '@tiptap/core';
+import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap';
+import { buildExtensions } from './noteExtensions';
+import { normalizeHtml, safeHtml } from './noteSafeHtml';
+import { mergeNotes } from './notesMerge';
 import * as rt from './collabRuntime';
 
 if (!globalThis.crypto?.subtle) vi.stubGlobal('crypto', webcrypto);
@@ -196,10 +201,12 @@ describe('starting a live session', () => {
     const html = result.current.getHtml();
     expect(html).not.toContain('Mine');
     expect(html).toContain('data-checked="true"');
-    expect(html).toContain('<audio src="https://x.supabase.co/storage/v1/object/public/task-files/notes/a.m4a"');
+    expect(html).toContain('<audio');          // the player node came through the shared document
     expect(html).toContain('href="mailto:bob@greensglobal.com"');
-    // A clip that came through the shared document plays only from our own
-    // storage (no Supabase project in tests, so this one stays silent).
+    // A clip that came through the shared document plays - and is saved -
+    // only from our own storage (no Supabase project in tests, so this one
+    // is not ours: no src in the page or in the HTML a save would send).
+    expect(html).not.toContain('x.supabase.co');
     await waitFor(() => expect(document.querySelector('.nt-media audio')).toBeTruthy());
     expect(document.querySelector('.nt-media audio').getAttribute('src')).toBeFalsy();
   });
@@ -214,5 +221,118 @@ describe('starting a live session', () => {
     expect(sent.yepoch).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
     expect(result.current.epoch).toBe(sent.yepoch);
     expect(text(rt.docFrom(sent.ydoc))).toContain('Seed me');
+  });
+});
+
+// ── review fixes (Oct 30 2026) ─────────────────────────────────────────────
+describe('what a shared document can put on the page', () => {
+  const exts = buildExtensions('');
+  const doc = (content) => ({ type: 'doc', content });
+  const para = (text, marks) => ({ type: 'paragraph', content: [{ type: 'text', text, ...(marks ? { marks } : {}) }] });
+  const cell = (attrs) => ({ type: 'tableCell', attrs, content: [para('x')] });
+
+  it('a table cell aligns left, center or right - never a style of someone else\'s choosing', () => {
+    const evil = 'left;position:fixed;inset:0;background:url(https://evil.supabase.co/p.png)';
+    const html = generateHTML(doc([{ type: 'table', content: [{ type: 'tableRow', content: [cell({ align: evil }), cell({ align: 'center' })] }] }]), exts);
+    expect(html).not.toContain('position');
+    expect(html).not.toContain('evil');
+    expect(html).toContain('text-align: center');
+  });
+
+  it('a link carries only its href; a code block only a plain language word', () => {
+    const html = generateHTML(doc([
+      para('x', [{ type: 'link', attrs: { href: 'https://a.example', class: 'nx-overlay', target: '_self', rel: '' } }]),
+      { type: 'codeBlock', attrs: { language: 'js nx-overlay big' }, content: [{ type: 'text', text: 'a' }] },
+    ]), exts);
+    expect(html).toContain('href="https://a.example"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer"');
+    expect(html).not.toContain('nx-overlay');
+    expect(html).not.toContain('_self');
+  });
+
+  it('a link whose href is not text renders as an empty link instead of crashing the editor', () => {
+    expect(() => generateHTML(doc([para('x', [{ type: 'link', attrs: { href: 12345 } }])]), exts)).not.toThrow();
+  });
+
+  it('a stored state with a value that is not plain text is refused before it mounts', () => {
+    const schema = getSchema(exts);
+    const bad = prosemirrorJSONToYDoc(schema, doc([para('x', [{ type: 'link', attrs: { href: { evil: 1 } } }])]), rt.FIELD);
+    expect(() => rt.validateDoc(bad)).toThrow();
+    const span = prosemirrorJSONToYDoc(schema, doc([{ type: 'table', content: [{ type: 'tableRow', content: [cell({ colspan: 'x' })] }] }]), rt.FIELD);
+    expect(() => rt.validateDoc(span)).toThrow();
+    expect(() => rt.validateDoc(rt.seedDoc(P('Fine')))).not.toThrow();
+  });
+
+  it('safeHtml keeps only the schema - a clash or Compare With Now cannot carry markup of its own', () => {
+    const out = safeHtml('<p onclick="x()" style="position:fixed">Hi <img src=x onerror=alert(1)><a href="javascript:alert(1)">l</a></p><div class="nx-overlay">d</div>');
+    expect(out).not.toMatch(/onclick|onerror|position|javascript|nx-overlay|<img|<div/);
+    expect(out).toContain('Hi');
+  });
+});
+
+describe('the merge compares words, not markup', () => {
+  it('an untouched checklist, link and table never clash with the server\'s sanitized copy', () => {
+    // The server keeps the sanitized form; this editor hands back its own markup of the same words.
+    const server = (checked, last) => '<ul data-type="taskList"><li data-type="taskItem" data-checked="' + checked + '"><p>Order parts</p></li></ul>'
+      + '<p><a href="https://example.com">site</a></p>'
+      + '<table><tbody><tr><td><p>A</p></td></tr></tbody></table>'
+      + '<p>' + last + '</p>';
+    const base = server('false', 'Amy wrote');
+    const theirs = server('true', 'Amy wrote');                       // Bob ticked the item
+    const mine = normalizeHtml(server('false', 'Amy wrote more'));    // Amy typed in the last paragraph, editor markup
+    const r = mergeNotes(base, mine, theirs, {}, { norm: normalizeHtml });
+    expect(r.clashes).toHaveLength(0);
+    expect(r.html).toContain('data-checked="true"');                  // Bob's tick kept
+    expect(r.html).toContain('Amy wrote more');                       // Amy's words kept
+    // Both making the same change is no clash either, whatever the markup.
+    expect(mergeNotes(base, normalizeHtml(theirs), theirs, {}, { norm: normalizeHtml }).clashes).toHaveLength(0);
+  });
+});
+
+describe('the channel, bound and gated', () => {
+  it('a message bound to one note or session opens for no other', async () => {
+    const k = await newKey();
+    const sealed = await seal(k, new Uint8Array([1, 2, 3]), boundTo('note_1', 'e1'));
+    expect(await open(k, sealed, boundTo('note_1', 'e1'))).toEqual(new Uint8Array([1, 2, 3]));
+    expect(await open(k, sealed, boundTo('note_1', 'e2'))).toBeNull();     // relabeled as another session
+    expect(await open(k, sealed, boundTo('note_2', 'e1'))).toBeNull();     // replayed onto another note
+  });
+
+  it('an untrusted session applies and answers nothing until it resyncs', async () => {
+    const h = hub();
+    const key = await newKey();
+    const a = rt.seedDoc(P('Hello'));
+    const b = rt.seedDoc(P('Hello'));
+    let trusted = true;
+    const hooks = (t) => ({ onLive: vi.fn(), onForeignEpoch: vi.fn(), onUnreadable: vi.fn(), trusted: t });
+    const ca = rt.connect({ supabase: h.client(), channelName: 'c', key, noteId: 'n1', epoch: 'e1', doc: a, awareness: rt.newAwareness(a, { name: 'A' }), hooks: hooks(() => true) });
+    const cb = rt.connect({ supabase: h.client(), channelName: 'c', key, noteId: 'n1', epoch: 'e1', doc: b, awareness: rt.newAwareness(b, { name: 'B' }), hooks: hooks(() => trusted) });
+    await new Promise((r) => setTimeout(r, 30));
+    trusted = false;                                   // b's tab went hidden / a message did not open
+    addParagraph(a, 'While away');
+    await new Promise((r) => setTimeout(r, 120));
+    expect(text(b)).not.toContain('While away');
+    trusted = true;                                    // the key checked out
+    cb.resync();
+    await waitFor(() => expect(text(b)).toContain('While away'));
+    [ca, cb].forEach((c) => c.close());
+  });
+});
+
+describe('joining a stored state that cannot be shown', () => {
+  it('drops it on the server once and rebuilds from the saved words', async () => {
+    const schema = getSchema(buildExtensions(''));
+    const bad = rt.encodeState(prosemirrorJSONToYDoc(schema, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x', marks: [{ type: 'link', attrs: { href: { evil: 1 } } }] }] }] }, rt.FIELD));
+    const key = toB64(webcrypto.getRandomValues(new Uint8Array(32)));
+    apiMock.noteCollab
+      .mockResolvedValueOnce({ key, channel: 'nx-note-z', ydoc: bad, yepoch: 'bad-epoch-1', rev: 4, body: P('Saved words') })
+      .mockResolvedValue({ key, channel: 'nx-note-z', ydoc: '', yepoch: '', rev: 4, body: P('Saved words') });
+    apiMock.noteCollabReset.mockResolvedValue({ ok: true });
+    apiMock.noteCollabSeed.mockImplementation(async (_id, d) => ({ ydoc: d.ydoc, yepoch: d.yepoch, rev: 4 }));
+    const { result } = renderHook(() => useNoteCollab('note_1', { enabled: true, me: 'neil@greensglobal.com', name: 'Neil' }));
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    expect(apiMock.noteCollabReset).toHaveBeenCalledTimes(1);
+    expect(text(rt.docFrom(apiMock.noteCollabSeed.mock.calls[0][1].ydoc))).toContain('Saved words');
   });
 });

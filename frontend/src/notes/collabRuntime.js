@@ -11,14 +11,22 @@
 //   2 diff     - a Yjs update answering 1 or 3
 //   3 vector   - your state vector; answer with what you lack (2)
 //   4 presence - a y-protocols awareness update (who and where the caret is)
+//
+// Each message is bound to the note and the epoch (AES-GCM additional data),
+// so it cannot be replayed onto another note or relabeled as another
+// session's. While the session is not TRUSTED (the tab was hidden, or a
+// message did not open - the key may have moved on) nothing from the channel
+// is applied and nobody is answered: the hook re-checks the key with the
+// server first, then `resync()` asks the others for what was missed.
 import * as Y from 'yjs';
 import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 import { getSchema, generateJSON } from '@tiptap/core';
-import { prosemirrorJSONToYDoc, ySyncPluginKey } from '@tiptap/y-tiptap';
+import { DOMSerializer } from '@tiptap/pm/model';
+import { prosemirrorJSONToYDoc, ySyncPluginKey, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import { buildExtensions } from './noteExtensions';
-import { seal, open, toB64, fromB64 } from './collabCrypto';
+import { seal, open, toB64, fromB64, boundTo } from './collabCrypto';
 
 export { Y };
 
@@ -37,6 +45,44 @@ export function docFrom(b64) {
   const doc = new Y.Doc();
   if (b64) Y.applyUpdate(doc, fromB64(b64), REMOTE);
   return doc;
+}
+
+// ── is a shared document safe to put on screen? ───────────────────────────
+// A stored state came from an editor's browser, not through the server's
+// sanitizer: before it mounts, every attribute must be a plain value of the
+// right kind, the document must fit the schema, and it must render.
+const SPAN_KEYS = new Set(['colspan', 'rowspan']);
+function attrsOk(attrs) {
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (SPAN_KEYS.has(k) && v != null && !(Number.isInteger(v) && v >= 1 && v <= 100)) return false;
+    if (v == null || typeof v === 'boolean') continue;
+    if (typeof v === 'string') { if (v.length > 8000) return false; continue; }
+    if (typeof v === 'number') {
+      if (!Number.isFinite(v)) return false;
+      continue;
+    }
+    if (k === 'colwidth' && Array.isArray(v) && v.every((w) => w == null || Number.isFinite(w))) continue;
+    return false;
+  }
+  return true;
+}
+function treeOk(node, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 60) return false;
+  if (!attrsOk(node.attrs)) return false;
+  if ((node.marks || []).some((m) => !attrsOk(m?.attrs))) return false;
+  return (node.content || []).every((c) => treeOk(c, depth + 1));
+}
+
+let checkSchema = null;
+/** Throws when the shared document could not be shown safely. */
+export function validateDoc(doc) {
+  const exts = buildExtensions('', null, { strict: true });
+  checkSchema ||= getSchema(exts);
+  const json = yXmlFragmentToProsemirrorJSON(doc.getXmlFragment(FIELD));
+  if (!treeOk(json)) throw new Error('A value in the shared note is not plain text');
+  const node = checkSchema.nodeFromJSON(json);
+  node.check();
+  DOMSerializer.fromSchema(checkSchema).serializeFragment(node.content, { document });
 }
 
 export const encodeState = (doc) => toB64(Y.encodeStateAsUpdate(doc));
@@ -60,11 +106,13 @@ export function newAwareness(doc, user) {
 }
 
 /**
- * Joins the encrypted channel. Returns { close() }.
- * hooks: onLive(bool), onForeignEpoch(), onUnreadable()
+ * Joins the encrypted channel. Returns { close(), resync() }.
+ * hooks: onLive(bool), onForeignEpoch(), onUnreadable(), trusted() -> bool
  */
-export function connect({ supabase, channelName, key, epoch, doc, awareness, hooks }) {
+export function connect({ supabase, channelName, key, noteId, epoch, doc, awareness, hooks }) {
   const chan = supabase.channel(channelName, { config: { broadcast: { self: false } } });
+  const aad = boundTo(noteId, epoch);
+  const trusted = () => (hooks.trusted ? hooks.trusted() : true);
   let closed = false;
   let queue = [];
   let timer = null;
@@ -74,7 +122,7 @@ export function connect({ supabase, channelName, key, epoch, doc, awareness, hoo
     const msg = new Uint8Array(bytes.length + 1);
     msg[0] = type;
     msg.set(bytes, 1);
-    const d = await seal(key, msg);
+    const d = await seal(key, msg, aad);
     if (d.length > MAX_MESSAGE || closed) return;
     try { await chan.send({ type: 'broadcast', event: 'm', payload: { e: epoch, d } }); } catch { /* the saved state covers it */ }
   };
@@ -100,8 +148,12 @@ export function connect({ supabase, channelName, key, epoch, doc, awareness, hoo
   chan.on('broadcast', { event: 'm' }, async ({ payload }) => {
     if (closed || !payload || typeof payload.d !== 'string') return;
     if (payload.e !== epoch) { hooks.onForeignEpoch?.(); return; }
-    const msg = await open(key, payload.d);
+    // Not trusted right now: apply nothing, answer nobody (the hook is
+    // checking the key; resync() catches up afterwards).
+    if (!trusted()) return;
+    const msg = await open(key, payload.d, aad);
     if (!msg || !msg.length) { hooks.onUnreadable?.(); return; }
+    if (closed || !trusted()) return;
     const type = msg[0], data = msg.subarray(1);
     try {
       if (type === 0 || type === 2) Y.applyUpdate(doc, data, REMOTE);
@@ -127,6 +179,11 @@ export function connect({ supabase, channelName, key, epoch, doc, awareness, hoo
   });
 
   return {
+    // After a fresh key check: ask the others for whatever was missed.
+    resync() {
+      send(1, Y.encodeStateVector(doc));
+      send(4, encodeAwarenessUpdate(awareness, [awareness.clientID]));
+    },
     close() {
       // Tell the others this caret is gone, then leave.
       try { removeAwarenessStates(awareness, [awareness.clientID], 'local'); } catch { /* gone */ }

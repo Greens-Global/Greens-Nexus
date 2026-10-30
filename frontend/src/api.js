@@ -3380,6 +3380,7 @@ export const api = {
   notePresence: (id, state) => req(`/notes/${encodeURIComponent(id)}/presence`, { method: "POST", body: JSON.stringify({ state }) }),
   noteCollab: (id) => req(`/notes/${encodeURIComponent(id)}/collab`),
   noteCollabSeed: (id, data) => req(`/notes/${encodeURIComponent(id)}/collab/seed`, { method: "POST", body: JSON.stringify(data) }),
+  noteCollabReset: (id) => req(`/notes/${encodeURIComponent(id)}/collab/reset`, { method: "POST" }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

@@ -85,9 +85,15 @@ BODY_MAX = 300_000
 TAG_MAX, TAGS_MAX = 40, 20
 SHARES_MAX = 50
 VERSION_GAP = timedelta(minutes=10)
-VERSIONS_KEPT = 50
 AUTHOR_GAP = timedelta(minutes=2)     # a new author within this of their predecessor's last copy adds none
+# History thins by AGE, never by count (co-typing keeps a copy every few
+# minutes, and a count cap would push a note's older history out within an
+# hour or two): everything from the last day, then the newest copy of each
+# hour for a week, then the newest copy of each day - for good.
+KEEP_ALL = timedelta(hours=24)
+KEEP_HOURLY = timedelta(days=7)
 PRESENCE_TTL = timedelta(seconds=45)
+PRESENCE_SWEEP = timedelta(days=1)    # rows of notes nobody reopened are swept after a day
 YDOC_MAX = 3_000_000                  # base64; bigger and the state is rebuilt from the body instead
 LIST_MAX = 500
 COLORS = ("", "green", "blue", "amber", "red", "purple", "slate")
@@ -354,19 +360,46 @@ def _snapshot(db: Session, n: models.NexusNote, me: str, force: bool = False) ->
         # A new author keeps their predecessor's words - unless a copy was
         # kept only minutes ago (two people co-typing would otherwise keep
         # one at every turn).
-        new_author = (n.updated_by or n.owner_email or "").lower() != me and age >= AUTHOR_GAP
+        new_author = _last_author(n) != me and age >= AUTHOR_GAP
         if age < VERSION_GAP and not new_author:
             return
     if last and last.body == (n.body or "") and last.title == (n.title or ""):
         return
     db.add(models.NexusNoteVersion(id="nv_" + uuid.uuid4().hex, note_id=n.id, title=n.title or "",
-                                   body=n.body or "", rev=n.rev or 1, saved_by=n.updated_by or n.owner_email,
+                                   body=n.body or "", rev=n.rev or 1, saved_by=_last_author(n),
                                    created_at=_now()))
     db.flush()
-    old = (db.query(models.NexusNoteVersion).filter(models.NexusNoteVersion.note_id == n.id)
-           .order_by(models.NexusNoteVersion.created_at.desc()).offset(VERSIONS_KEPT).all())
-    for v in old:
-        db.delete(v)
+    _thin_versions(db, n.id)
+
+
+def _last_author(n: models.NexusNote) -> str:
+    """Who wrote the words as they stand: the content marker, not updated_by
+    (sharing, trash and restore set that to the owner without changing a word)."""
+    return (_seen(n)["content"].get("by") or n.updated_by or n.owner_email or "").lower()
+
+
+def _thin_versions(db: Session, note_id: str) -> None:
+    """Keep every copy from the last day, the newest of each hour for a week,
+    then the newest of each day (KEEP_ALL / KEEP_HOURLY)."""
+    now = datetime.now(timezone.utc)
+    kept = set()
+    rows = (db.query(models.NexusNoteVersion).filter(models.NexusNoteVersion.note_id == note_id)
+            .order_by(models.NexusNoteVersion.created_at.desc()).all())
+    for v in rows:
+        try:
+            at = datetime.fromisoformat(v.created_at)
+            if at.tzinfo is None:
+                at = at.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            continue      # an unreadable date is never thinned
+        age = now - at
+        if age < KEEP_ALL:
+            continue
+        bucket = at.strftime("%Y-%m-%dT%H") if age < KEEP_HOURLY else at.strftime("%Y-%m-%d")
+        if bucket in kept:
+            db.delete(v)    # an older copy in a bucket that already has its newest
+        else:
+            kept.add(bucket)
 
 
 def _touch(n: models.NexusNote, me: str) -> None:
@@ -541,8 +574,16 @@ def create_note(body: NoteIn, user: dict = Depends(get_current_user), db: Sessio
 def get_note(note_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = _me(user)
     n, _ = _get_or_404(db, note_id, me)
-    if _mark_seen(n, me):
-        db.commit()
+    if _seen(n)["by"].get(me) != (n.rev or 1):
+        # Written under the row lock, re-read: an unlocked read-modify-write
+        # here would put back a stale content marker over a save that
+        # committed in between (and lose its Updated dot).
+        n = (db.query(models.NexusNote).filter(models.NexusNote.id == note_id)
+             .with_for_update().populate_existing().first())
+        if n is None or not _access(n, me):
+            raise HTTPException(404, "Note not found")
+        if _mark_seen(n, me):
+            db.commit()
     return _full(n, me)
 
 
@@ -767,11 +808,17 @@ def note_presence(note_id: str, body: PresenceIn, user: dict = Depends(get_curre
         row.state, row.at = state, now.isoformat()
     cutoff = (now - PRESENCE_TTL).isoformat()
     db.query(P).filter(P.note_id == n.id, P.at < cutoff).delete()
+    if secrets.randbelow(50) == 0:
+        # Now and then, rows of notes nobody has reopened (one cheap delete).
+        db.query(P).filter(P.at < (now - PRESENCE_SWEEP).isoformat()).delete()
     try:
         db.commit()
     except Exception:       # two tabs of the same person racing the first insert
         db.rollback()
-    allowed = {(n.owner_email or "").lower()} | {s["email"] for s in _shares(n)}
+    # A read-only sharer sees only the owner and the editors - never who else
+    # the note is shared with to read (sharedWith is the owner's alone, _full).
+    allowed = {(n.owner_email or "").lower()} | {s["email"] for s in _shares(n)
+                                                 if can != "read" or s["can"] == "edit"}
     people = [{"email": r.email, "state": r.state}
               for r in db.query(P).filter(P.note_id == n.id, P.at >= cutoff).all()
               if r.email != me and r.email in allowed]
@@ -815,10 +862,14 @@ def note_collab(note_id: str, user: dict = Depends(get_current_user), db: Sessio
     """What an editor needs to co-type: the channel key and name, and the
     stored Yjs state with its epoch. Owner and Can Edit only."""
     me = _me(user)
-    n = _editor_or_404(db, note_id, me, lock=True)
+    n = _editor_or_404(db, note_id, me)
     if not n.collab_key:
-        _rotate_key(n)
-        db.commit()
+        # First use: take the row lock and read again, so two editors never mint two keys.
+        n = (db.query(models.NexusNote).filter(models.NexusNote.id == note_id)
+             .with_for_update().populate_existing().first())
+        if not n.collab_key:
+            _rotate_key(n)
+            db.commit()
     return {"key": n.collab_key, "channel": _channel(n), "keyTag": _key_tag(n), **_collab_state(n),
             "title": n.title or "", "body": n.body or ""}
 
@@ -846,3 +897,15 @@ def seed_collab(note_id: str, body: SeedIn, user: dict = Depends(get_current_use
     db.commit()
     return _collab_state(n)
 
+
+@router.post("/{note_id}/collab/reset")
+def reset_collab(note_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Drop the note's live state (an editor's browser could not read it): the
+    words stay as saved, and the next opener rebuilds the state from them.
+    Live sessions see the epoch go and rejoin. Owner and Can Edit only."""
+    me = _me(user)
+    n = _editor_or_404(db, note_id, me, lock=True)
+    if n.yepoch or n.ydoc:
+        _drop_collab_state(n)
+        db.commit()
+    return {"ok": True}

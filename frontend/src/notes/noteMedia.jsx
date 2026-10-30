@@ -82,7 +82,21 @@ const mediaNode = (name, tag, extra) => Node.create({
   atom: true,
   draggable: true,
   selectable: true,
-  addAttributes() { return { src: { default: '' } }; },
+  // strictSrc (co-typing, and HTML shown outside the editor): only a clip in
+  // our own storage keeps its src - a shared document never went through the
+  // server's sanitizer (noteExtensions.js).
+  addOptions() { return { strictSrc: false }; },
+  addAttributes() {
+    return {
+      src: {
+        default: '',
+        renderHTML: (a) => {
+          const src = typeof a.src === 'string' ? a.src : '';
+          return { src: !this.options.strictSrc || (isOwnImageUrl(src) && !/^data:/i.test(src)) ? src : '' };
+        },
+      },
+    };
+  },
   parseHTML() { return [{ tag: `${tag}[src]`, getAttrs: (el) => ({ src: el.getAttribute('src') || '' }) }]; },
   renderHTML({ HTMLAttributes }) { return [tag, mergeAttributes(HTMLAttributes, { controls: '', preload: 'metadata', ...extra })]; },
   addNodeView() { return ReactNodeViewRenderer(MediaView); },

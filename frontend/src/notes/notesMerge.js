@@ -7,6 +7,12 @@
 // base): a block only one side changed takes that side's change, a block
 // both changed the same way is taken once, and only a block both changed
 // DIFFERENTLY is a clash for the person to settle - never the whole note.
+//
+// Blocks are compared by what they SAY, not their markup: the server keeps
+// a sanitized copy (no checklist <label><input>, no link target/rel, no
+// table style) while the editor hands back its own HTML, so the caller
+// passes `norm` (noteSafeHtml.normalizeHtml) and both sides of an untouched
+// checklist, link or table compare equal.
 
 /** The note's top-level blocks as HTML strings (bare text is wrapped in <p>). */
 export function blocksOf(html) {
@@ -53,15 +59,16 @@ export function lcsPairs(a, b, eq = (x, y) => x === y) {
   return pairs;
 }
 
-const same = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);
+const sameBy = (eq) => (x, y) => x.length === y.length && x.every((v, i) => eq(v, y[i]));
 
 /**
  * 3-way merge of block lists. Returns parts in order: { ok: [blocks] } or
  * { clash: { base, mine, theirs } } (each a block list).
  */
-export function merge3(base, mine, theirs) {
-  const toMine = new Map(lcsPairs(base, mine).map(([b, m]) => [b, m]));
-  const toTheirs = new Map(lcsPairs(base, theirs).map(([b, t]) => [b, t]));
+export function merge3(base, mine, theirs, eq = (x, y) => x === y) {
+  const same = sameBy(eq);
+  const toMine = new Map(lcsPairs(base, mine, eq).map(([b, m]) => [b, m]));
+  const toTheirs = new Map(lcsPairs(base, theirs, eq).map(([b, t]) => [b, t]));
   const parts = [];
   const push = (blocks) => {
     if (!blocks.length) return;
@@ -80,7 +87,7 @@ export function merge3(base, mine, theirs) {
     const m = toMine.get(i), t = toTheirs.get(i);
     if (m < im || t < it) continue;
     chunk(base.slice(ib, i), mine.slice(im, m), theirs.slice(it, t));
-    push([base[i]]);
+    push([mine[m]]);      // the same block on all three sides: this editor's own markup
     ib = i + 1; im = m + 1; it = t + 1;
   }
   chunk(base.slice(ib), mine.slice(im), theirs.slice(it));
@@ -88,25 +95,37 @@ export function merge3(base, mine, theirs) {
 }
 
 /** A clash settled: 'mine', 'theirs' or 'both' (mine, then theirs). */
-function settle(clash, choice) {
+function settle(clash, choice, eq) {
   if (choice === 'theirs') return clash.theirs;
-  if (choice === 'both') return [...clash.mine, ...clash.theirs.filter((b) => !clash.mine.includes(b))];
+  if (choice === 'both') return [...clash.mine, ...clash.theirs.filter((b) => !clash.mine.some((m) => eq(m, b)))];
   return clash.mine;
 }
+
+// Blocks paired with their comparison key (norm), compared by key.
+function keyed(html, norm) {
+  const memo = new Map();
+  return blocksOf(html).map((h) => {
+    if (!norm) return { h, k: h };
+    if (!memo.has(h)) memo.set(h, norm(h));
+    return { h, k: memo.get(h) };
+  });
+}
+const byKey = (x, y) => x.k === y.k;
+const html = (list) => list.map((b) => b.h);
 
 /**
  * Merge the note bodies. { html, clashes } - html settles every clash with
  * `choices[k]` (default 'mine'), clashes lists them for the screen.
  */
-export function mergeNotes(baseHtml, mineHtml, theirsHtml, choices = {}) {
-  const parts = merge3(blocksOf(baseHtml), blocksOf(mineHtml), blocksOf(theirsHtml));
+export function mergeNotes(baseHtml, mineHtml, theirsHtml, choices = {}, { norm } = {}) {
+  const parts = merge3(keyed(baseHtml, norm), keyed(mineHtml, norm), keyed(theirsHtml, norm), byKey);
   const clashes = [];
   const out = [];
   parts.forEach((p) => {
-    if (p.ok) { out.push(...p.ok); return; }
+    if (p.ok) { out.push(...html(p.ok)); return; }
     const k = clashes.length;
-    clashes.push(p.clash);
-    out.push(...settle(p.clash, choices[k] || 'mine'));
+    clashes.push({ base: html(p.clash.base), mine: html(p.clash.mine), theirs: html(p.clash.theirs) });
+    out.push(...html(settle(p.clash, choices[k] || 'mine', byKey)));
   });
   return { html: out.join(''), clashes };
 }
@@ -149,7 +168,7 @@ function wordDiff(oldText, newText) {
  */
 export function diffNotes(olderHtml, newerHtml) {
   const a = blocksOf(olderHtml), b = blocksOf(newerHtml);
-  const pairs = lcsPairs(a, b);
+  const pairs = lcsPairs(a, b);   // callers pass HTML from one source (server copies, or both through safeHtml)
   const out = [];
   let added = 0, removed = 0, changed = 0;
   let i = 0, j = 0;

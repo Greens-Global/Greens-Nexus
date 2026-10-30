@@ -8,7 +8,7 @@
 // first and a note opens in the Quick Note sheet over it (PhoneSheet). The
 // sub is `notes` or `notes:<id>`, so a link to one note (the share bell)
 // opens it.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ChevronLeft, ChevronRight, Search, X, Plus, Upload, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
@@ -28,6 +28,7 @@ import NoteEditor from './NoteEditor';
 import { useNoteSync } from './useNoteSync';
 import { useNoteCollab, collabEligible } from './useNoteCollab';
 import { diffNotes } from './notesMerge';
+import { safeHtml } from './noteSafeHtml';
 import { createTaskFrom, openTask } from './notesTasks';
 import {
   NOTE_COLORS, colorCss, localDay, monthOf, shiftMonth, monthLabel, dayHeading, groupByDay, noteTitle, htmlToText,
@@ -130,9 +131,9 @@ function ClashPanel({ conflict, who, onResolve }) {
       )}
       {conflict.clashes.map((c, k) => (
         <div key={k} className="nt-clash-item">
-          {/* Yours: this editor's own HTML; theirs: sanitized on the server. */}
-          <div className="nt-clash-side"><small>Yours</small><div className="nt-prose" dangerouslySetInnerHTML={{ __html: c.mine.join('') || '<p><i>Removed</i></p>' }} /></div>
-          <div className="nt-clash-side"><small>Theirs</small><div className="nt-prose" dangerouslySetInnerHTML={{ __html: c.theirs.join('') || '<p><i>Removed</i></p>' }} /></div>
+          {/* Both read back through the editor's schema (noteSafeHtml): "Yours" may hold words typed live that never reached the server's sanitizer. */}
+          <div className="nt-clash-side"><small>Yours</small><div className="nt-prose" dangerouslySetInnerHTML={{ __html: (c.mine.length && safeHtml(c.mine.join(''))) || '<p><i>Removed</i></p>' }} /></div>
+          <div className="nt-clash-side"><small>Theirs</small><div className="nt-prose" dangerouslySetInnerHTML={{ __html: (c.theirs.length && safeHtml(c.theirs.join(''))) || '<p><i>Removed</i></p>' }} /></div>
           <Choice on={choices[k]} set={(v) => pick(k, v)} both={!!(c.mine.length && c.theirs.length)} />
         </div>
       ))}
@@ -263,7 +264,9 @@ function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
     if (!pick || !rows) return null;
     if (show === 'version') return null;
     const i = rows.findIndex((r) => r.id === pick.id);
-    if (show === 'now') return diffNotes(pick.body, note.body || '');
+    // The note now may be words typed live (never through the server's
+    // sanitizer): both sides are read back through the schema first.
+    if (show === 'now') return diffNotes(safeHtml(pick.body), safeHtml(note.body || ''));
     const older = rows[i + 1];
     return older ? diffNotes(older.body, pick.body) : null;
   }, [pick, rows, show, note.body]);
@@ -286,7 +289,7 @@ function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
       <div className="nt-dialog-body">
         {error && <ErrorBanner message={error} />}
         {rows === null && !error && <SkeletonBlocks count={3} height={56} />}
-        {rows && rows.length === 0 && <div className="nt-empty"><strong>No earlier versions yet</strong>A copy is kept when you come back to a note after ten minutes or more, and whenever someone else starts writing in it, so earlier wording is never lost and you can see who changed what.</div>}
+        {rows && rows.length === 0 && <div className="nt-empty"><strong>No earlier versions yet</strong>A copy is kept when you come back to a note after ten minutes or more, and whenever someone else starts writing in it, so you can see who changed what. Every copy from the last day stays; older ones thin out to one an hour, and after a week to one a day.</div>}
         {rows && rows.length > 0 && (
           <div className="nt-hist nx-fill">
             <div className="nt-hist-list" role="listbox" aria-label="Versions">
@@ -368,6 +371,16 @@ function PhoneSheet({ title, sub, color, actions, foot, onClose, children }) {
   );
 }
 
+// The live editor could not render the shared state: hand the note back to
+// the ordinary editor (collab.fail drops the state on the server, and the
+// saved words show) instead of letting the crash blank the whole view.
+class LiveBoundary extends Component {
+  constructor(props) { super(props); this.state = { crashed: false }; }
+  static getDerivedStateFromError() { return { crashed: true }; }
+  componentDidCatch() { this.props.onCrash?.(); }
+  render() { return this.state.crashed ? <div style={{ paddingTop: 14 }}><SkeletonBlocks count={3} height={56} /></div> : this.props.children; }
+}
+
 // The open note.
 function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail }) {
   const collabRef = useRef(null);
@@ -379,7 +392,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     return (people || []).find((p) => p.email === e)?.name || email || 'Someone';
   }, [people, myEmail]);
   // A shared note's editors type together live (useNoteCollab).
-  const eligible = collabEligible(note) && !sync.collabPaused;
+  const eligible = collabEligible(note);
   const myName = (people || []).find((p) => p.email === (myEmail || '').toLowerCase())?.name || myEmail;
   const collab = useNoteCollab(id, { enabled: eligible, me: myEmail, name: myName });
   useEffect(() => { collabRef.current = collab; }, [collab]);
@@ -568,8 +581,12 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
           {eligible && collab.phase !== 'ready' && collab.phase !== 'failed'
             ? <div style={{ paddingTop: 14 }}><SkeletonBlocks count={3} height={56} /></div>
             : collab.phase === 'ready'
-              ? <NoteEditor key={`live:${collab.epoch}`} collab={collab} readOnly={readOnly} people={people}
-                  onChange={(html) => sync.edit({ body: html })} onRemoteChange={sync.seeRemote} onMakeTask={readOnly ? undefined : makeTask} />
+              ? (
+                <LiveBoundary key={`live:${collab.epoch}`} onCrash={collab.fail}>
+                  <NoteEditor collab={collab} readOnly={readOnly} people={people}
+                    onChange={(html) => sync.edit({ body: html })} onRemoteChange={sync.seeRemote} onMakeTask={readOnly ? undefined : makeTask} />
+                </LiveBoundary>
+              )
               : <NoteEditor key="saved" value={note.body || ''} readOnly={readOnly} people={people}
                   onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : makeTask} />}
         </div>

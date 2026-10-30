@@ -6,7 +6,10 @@
 // the rest of Nexus's realtime carries only content-free pings.
 //
 // Message = 12-byte random IV + AES-GCM ciphertext (which authenticates it:
-// a message not made with the key fails to open and is dropped).
+// a message not made with the key fails to open and is dropped). The note
+// and the session epoch are bound in as additional data (`aad`), so a
+// message cannot be replayed onto another note or relabeled as another
+// session's - it would fail to open.
 
 export function toB64(bytes) {
   let s = '';
@@ -29,10 +32,15 @@ export function importKey(b64) {
   return crypto.subtle.importKey('raw', fromB64(b64), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
 
+/** What a message is bound to: the note and the live session. */
+export const boundTo = (noteId, epoch) => new TextEncoder().encode(`nx-note|${noteId}|${epoch}`);
+
+const params = (iv, aad) => (aad ? { name: 'AES-GCM', iv, additionalData: aad } : { name: 'AES-GCM', iv });
+
 /** bytes -> base64(iv + ciphertext) */
-export async function seal(key, bytes) {
+export async function seal(key, bytes, aad) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes));
+  const ct = new Uint8Array(await crypto.subtle.encrypt(params(iv, aad), key, bytes));
   const out = new Uint8Array(12 + ct.length);
   out.set(iv, 0);
   out.set(ct, 12);
@@ -40,11 +48,11 @@ export async function seal(key, bytes) {
 }
 
 /** base64(iv + ciphertext) -> bytes, or null when it was not made with this key. */
-export async function open(key, b64) {
+export async function open(key, b64, aad) {
   try {
     const all = fromB64(b64);
     if (all.length < 13) return null;
-    return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: all.subarray(0, 12) }, key, all.subarray(12)));
+    return new Uint8Array(await crypto.subtle.decrypt(params(all.subarray(0, 12), aad), key, all.subarray(12)));
   } catch {
     return null;
   }

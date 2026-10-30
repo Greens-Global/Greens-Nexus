@@ -12,7 +12,18 @@
 // whose channel is down still end up with each other's words.
 //
 // phase: off | loading | ready | failed. `restart()` drops this session and
-// joins afresh (the state was rebuilt elsewhere).
+// joins afresh (the state was rebuilt elsewhere). A stored state this
+// browser cannot show safely (collabRuntime.validateDoc) is dropped on the
+// server (POST /collab/reset) and rebuilt from the saved words once; `fail()`
+// (the live editor crashed) does the same and leaves this visit on the
+// ordinary saves.
+//
+// Trust: the key can move on (an editor removed) while this tab was hidden
+// and its heartbeat paused. So a hidden tab stops trusting the channel, and
+// coming back - or any message that does not open - asks the server for the
+// current key first; until then nothing from the channel is applied or
+// answered (collabRuntime connect), and once it checks out, resync() fetches
+// whatever was missed.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
@@ -47,14 +58,28 @@ export function useNoteCollab(noteId, { enabled, me, name }) {
     let conn = null;
     let awareness = null;
     let keyCheck = 0;
+    let trusted = true;
+    let later = null;
+    let onVisible = null;
     setPhase('loading');
     (async () => {
       try {
         const rt = await import('./collabRuntime');
         let st = await api.noteCollab(noteId);
         let doc = null;
-        for (let attempt = 0; alive && !doc && attempt < 3; attempt += 1) {
-          if (st.yepoch) { doc = rt.docFrom(st.ydoc); break; }
+        let reset = false;
+        for (let attempt = 0; alive && !doc && attempt < 4; attempt += 1) {
+          if (st.yepoch) {
+            const stored = rt.docFrom(st.ydoc);
+            try { rt.validateDoc(stored); doc = stored; break; } catch (bad) {
+              // Not safe to show: drop it on the server (once) and rebuild from the saved words.
+              if (reset) throw bad;
+              reset = true;
+              await api.noteCollabReset(noteId);
+              st = await api.noteCollab(noteId);
+              continue;
+            }
+          }
           const fresh = rt.seedDoc(st.body);
           const epoch = newEpoch();
           try {
@@ -84,32 +109,50 @@ export function useNoteCollab(noteId, { enabled, me, name }) {
         if (!supabase) return;
         const key = await importKey(st.key);
         if (!alive) return;
-        const check = async () => {
-          if (Date.now() - keyCheck < 5000) return;
+        // Is this session's key still the note's key? At most every few
+        // seconds unless `now` (the tab just came back).
+        const check = async (now = false) => {
+          const wait = 5000 - (Date.now() - keyCheck);
+          if (!now && wait > 0) {
+            if (!later) later = setTimeout(() => { later = null; check(true); }, wait);
+            return;
+          }
           keyCheck = Date.now();
           try {
-            const now = await api.noteCollab(noteId);
-            if (alive && (now.yepoch !== st.yepoch || now.channel !== st.channel)) restart();
+            const cur = await api.noteCollab(noteId);
+            if (!alive) return;
+            if (cur.yepoch !== st.yepoch || cur.channel !== st.channel) { restart(); return; }
+            if (!trusted) { trusted = true; conn?.resync(); }
           } catch (err) {
             if (alive && (err?.status === 403 || err?.status === 404)) { setPhase('failed'); setLive(false); }
           }
         };
+        onVisible = () => {
+          if (document.visibilityState === 'hidden') { trusted = false; return; }
+          check(true);
+        };
+        document.addEventListener('visibilitychange', onVisible);
         conn = rt.connect({
-          supabase, channelName: st.channel, key, epoch: st.yepoch, doc, awareness,
+          supabase, channelName: st.channel, key, noteId, epoch: st.yepoch, doc, awareness,
           hooks: {
             onLive: (on) => { if (alive) setLive(on); },
-            // Someone is on a newer session, or the key moved on (an editor
-            // was removed): ask the server, at most every few seconds.
+            trusted: () => trusted,
+            // Someone is on a newer session: ask the server.
             onForeignEpoch: () => check(),
-            onUnreadable: () => check(),
+            // A message that did not open: the key may have moved on - trust
+            // nothing on the channel until the server says it has not.
+            onUnreadable: () => { trusted = false; check(); },
           },
         });
+        if (document.visibilityState === 'hidden') trusted = false;
       } catch {
         if (alive) { setPhase('failed'); setSession(null); }
       }
     })();
     return () => {
       alive = false;
+      clearTimeout(later);
+      if (onVisible) document.removeEventListener('visibilitychange', onVisible);
       conn?.close();
       setTimeout(() => { try { awareness?.destroy(); } catch { /* gone */ } }, 100);
     };
@@ -117,13 +160,30 @@ export function useNoteCollab(noteId, { enabled, me, name }) {
 
   const bindEditor = useCallback((editor) => { editorRef.current = editor; }, []);
 
+  // The live editor could not render the shared state: drop it on the
+  // server (the next opener rebuilds it from the saved words) and finish
+  // this visit on the ordinary saves.
+  const fail = useCallback(() => {
+    setPhase('failed');
+    setSession(null);
+    setLive(false);
+    if (noteId) api.noteCollabReset(noteId).catch(() => { /* the next opener checks it again */ });
+  }, [noteId]);
+
   return useMemo(() => ({
-    phase, live, peers, restart, bindEditor,
+    phase, live, peers, restart, bindEditor, fail,
     epoch: session?.epoch || '',
     keyTag: session?.keyTag || '',
     extensions: session?.extensions || null,
     isRemote: session ? session.rt.isRemote : () => false,
     getHtml: () => (editorRef.current && !editorRef.current.isDestroyed ? editorRef.current.getHTML() : null),
+    // Put words that were merged outside the editor into the shared document.
+    setHtml: (html) => {
+      const ed = editorRef.current;
+      if (!ed || ed.isDestroyed) return false;
+      ed.commands.setContent(html || '', { emitUpdate: false });
+      return true;
+    },
     encodeState: () => (session ? session.rt.encodeState(session.doc) : ''),
     applyState: (b64) => { if (session) session.rt.applyState(session.doc, b64); },
   }), [phase, live, peers, restart, bindEditor, session]);

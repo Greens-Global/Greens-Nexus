@@ -14,12 +14,21 @@
 //     (POST /presence): who else is here (`people`), and when the note
 //     moved on and nothing is waiting to save here, it is re-read in place.
 //   - A shared note's editors co-type live (`collabRef` -> useNoteCollab):
-//     the shared Yjs state rides along with each save, and a 409 takes the
-//     server's state in (Yjs merges it) and saves again - no question.
+//     the shared Yjs state rides along with each save - always with the
+//     editor's whole body, so the saved words never lag the state - and a
+//     409 takes the server's state in (Yjs merges it) and saves again. When
+//     the live state was rebuilt elsewhere (Quick Note, a restore), the words
+//     typed here are merged into the saved copy, the new session is joined
+//     and the merged words go into IT - never a plain save, which would drop
+//     the state the others just rebuilt.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { clearDraft, readDraft, writeDraft } from './notesModel';
 import { mergeNotes, mergeTitle } from './notesMerge';
+import { normalizeHtml } from './noteSafeHtml';
+
+const MERGE = { norm: normalizeHtml };
+const REJOIN_MS = 15000;    // longest a save waits for the new live session
 
 export const SAVE_MS = 800;
 export const BEAT_MS = 8000;
@@ -33,7 +42,6 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
   const [restored, setRestored] = useState(false);  // an unsaved draft came back
   const [merged, setMerged] = useState('');         // who the last automatic merge took words from
   const [people, setPeople] = useState([]);         // others with the note open: { email, state }
-  const [collabPaused, setCollabPaused] = useState(false);
   const noteRef = useRef(null);
   const pending = useRef(null);       // fields typed since the last save went out
   const rev = useRef(0);
@@ -46,12 +54,12 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
   const lastEdit = useRef(0);
   useEffect(() => { savedCb.current = onSaved; }, [onSaved]);
 
+  const external = useRef(false);   // pending.body was merged outside the editor: put it into the live state
+  const rejoin = useRef(null);      // { from: epoch, at } while joining a rebuilt live session
   const put = useCallback((n) => { noteRef.current = n; setNote(n); }, []);
   const setBase = (n) => { base.current = { title: n?.title || '', body: n?.body || '' }; };
-  const paused = useRef(false);
-  useEffect(() => { paused.current = collabPaused; }, [collabPaused]);
   const live = () => {
-    const c = paused.current ? null : collabRef?.current;
+    const c = collabRef?.current;
     return c && c.phase === 'ready' && c.epoch ? c : null;
   };
 
@@ -59,7 +67,7 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
   const mergeIn = useCallback((server) => {
     const cur = noteRef.current;
     const mine = { title: pending.current?.title ?? cur?.title ?? '', body: pending.current?.body ?? cur?.body ?? '' };
-    const body = mergeNotes(base.current.body, mine.body, server.body || '');
+    const body = mergeNotes(base.current.body, mine.body, server.body || '', {}, MERGE);
     const title = mergeTitle(base.current.title, mine.title, server.title || '');
     rev.current = server.rev;
     setBase(server);
@@ -74,6 +82,7 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
     const changedHere = body.html !== (server.body || '') || title.title !== (server.title || '');
     put({ ...server, title: title.title, body: body.html });
     pending.current = changedHere ? { ...(pending.current || {}), title: title.title, body: body.html } : null;
+    if (changedHere) external.current = true;
     setMerged(server.updatedBy || 'someone');
     return true;
   }, [put]);
@@ -83,15 +92,34 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
     const n = noteRef.current;
     if (!n || !pending.current || inFlight.current) return;
     if (n.can === 'read') { pending.current = null; return; }
+    // Joining a rebuilt live session: wait for it (a plain save now would
+    // drop the state the others just rebuilt) - at most REJOIN_MS.
+    const waitAgain = () => { timer.current = setTimeout(() => saveRef.current(), 400); };
+    if (rejoin.current) {
+      const c0 = collabRef?.current;
+      const joining = c0 && (c0.phase === 'loading' || (c0.phase === 'ready' && c0.epoch === rejoin.current.from));
+      if (joining && Date.now() - rejoin.current.at < REJOIN_MS) { waitAgain(); return; }
+      rejoin.current = null;
+    }
+    let c = live();
+    if (c && external.current && 'body' in pending.current) {
+      // Words merged outside the editor go into the shared document first.
+      if (!c.setHtml(pending.current.body)) {
+        if (Date.now() - (rejoin.current?.at || 0) < REJOIN_MS) { waitAgain(); return; }
+        c = null;
+      }
+    }
+    external.current = false;
     const sent = pending.current;
     pending.current = null;
     inFlight.current = true;
     setStatus('saving');
-    const c = live();
     const payload = { rev: rev.current, ...sent };
     if (c) {
+      // Always the editor's whole body with the state, so the saved words
+      // (readers, search, the list) never lag what the state holds.
       const html = c.getHtml();
-      if (html != null && 'body' in sent) payload.body = html;
+      if (html != null) payload.body = html;
       payload.ydoc = c.encodeState();
       payload.yepoch = c.epoch;
     }
@@ -111,12 +139,15 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
       pending.current = { ...sent, ...(pending.current || {}) };
       const d = err?.status === 409 ? err.detail : null;
       if (d?.note && c && d.epoch) {
-        // The live state was rebuilt elsewhere (Quick Note, a restore): save
-        // these words the ordinary way (merged), then join the new session.
+        // The live state was rebuilt elsewhere (Quick Note, a restore):
+        // merge these words into the saved copy, join the new session, and
+        // the next save puts the merged words into it (setHtml above).
         pending.current = { ...pending.current, body: c.getHtml() ?? pending.current.body };
-        paused.current = true;
-        setCollabPaused(true);
-        again = mergeIn(d.note);
+        mergeIn(d.note);
+        if (pending.current) external.current = true;
+        rejoin.current = { from: c.epoch, at: Date.now() };
+        c.restart();
+        again = !!pending.current;
       } else if (d?.note && c && d.collab) {
         // Someone else saved first: take their state in (Yjs merges it) and save again.
         c.applyState(d.collab.ydoc);
@@ -152,7 +183,8 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
     setRestored(false);
     setMerged('');
     setPeople([]);
-    setCollabPaused(false);
+    external.current = false;
+    rejoin.current = null;
     if (!id) { put(null); setStatus('missing'); return undefined; }
     setStatus('loading');
     api.noteGet(id).then((n) => {
@@ -216,11 +248,17 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
       const c = live();
       if (c && api.noteCollab) {
         // Co-typing: the words come through the shared state (the channel
-        // may be down - take the saved state in, Yjs merges it).
-        try { const st = await api.noteCollab(fresh.id); if (st.yepoch === c.epoch) c.applyState(st.ydoc); } catch { /* next beat */ }
-        rev.current = fresh.rev;
-        setBase(fresh);
-        put({ ...fresh, body: c.getHtml() ?? fresh.body });
+        // may be down - take the saved state in, Yjs merges it). The rev
+        // moves on ONLY with that state applied: a rev without the words
+        // would let the next save write the others' paragraph away.
+        let st;
+        try { st = await api.noteCollab(fresh.id); } catch { return; /* next beat; a save meanwhile merges on its 409 */ }
+        if (st.yepoch !== c.epoch) { c.restart(); return; }
+        if (pending.current || inFlight.current || conflictRef.current || noteRef.current?.id !== fresh.id) return;
+        c.applyState(st.ydoc);
+        rev.current = st.rev;
+        setBase({ title: st.title, body: st.body });
+        put({ ...fresh, rev: st.rev, title: st.title, body: c.getHtml() ?? st.body });
         return;
       }
       rev.current = fresh.rev;
@@ -253,11 +291,6 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
     document.addEventListener('visibilitychange', onVis);
     return () => { stop = true; clearTimeout(first); clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
   }, [id, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // The ordinary save after a rebuilt live session landed: join the new one.
-  useEffect(() => {
-    if (collabPaused && status === 'saved') setCollabPaused(false);
-  }, [collabPaused, status]);
 
   // Title / body typing.
   const edit = useCallback((fields) => {
@@ -294,11 +327,12 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
   const resolve = useCallback((choices = {}, titleChoice = 'mine') => {
     const c = conflictRef.current;
     if (!c) return;
-    const body = mergeNotes(base.current.body, c.mine.body, c.server.body || '', choices).html;
+    const body = mergeNotes(base.current.body, c.mine.body, c.server.body || '', choices, MERGE).html;
     const title = c.titleClash ? (titleChoice === 'theirs' ? c.titleClash.theirs : c.titleClash.mine) : (noteRef.current?.title ?? c.mine.title);
     rev.current = c.server.rev;
     pending.current = { ...(pending.current || {}), title, body };
     put({ ...c.server, title, body });
+    external.current = true;
     setConflict(null);
     conflictRef.current = null;
     saveRef.current();
@@ -326,7 +360,7 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
   }, [put]);
 
   return {
-    note, status, conflict, restored, merged, people, collabPaused,
+    note, status, conflict, restored, merged, people,
     edit, seeRemote, setMeta, resolve, keepMine, takeTheirs, replace, refresh, flush: save,
   };
 }
