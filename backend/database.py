@@ -91,6 +91,11 @@ _audit_capture.wire(SessionLocal)
 import feature_request_sync as _feature_request_sync  # noqa: E402
 _feature_request_sync.wire(SessionLocal)
 
+# A Cubby-linked task completed or reopened by any path is queued for Cubby
+# (Oct 31 2026, cubby_tasks.py) - sent by cubby_task_push_loop behind its switch.
+import cubby_tasks as _cubby_tasks  # noqa: E402
+_cubby_tasks.wire(SessionLocal)
+
 # Workflows (Oct 28 2026, workflows/observer.py): a record registered as an
 # observed entity emits `<entity>.created` / `<entity>.field_changed` into
 # the workflow outbox at flush, in the same transaction - events for free,

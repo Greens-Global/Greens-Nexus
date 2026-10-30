@@ -1035,6 +1035,8 @@ def _run_migrations():
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
             # Pay-printing envelopes need Pay & Benefits to download (Oct 14). models.HrSignRequest.prints_pay.
             "ALTER TABLE hr_sign_requests ADD COLUMN prints_pay INTEGER DEFAULT 0",
+            # Where the sealed copy was filed in Egnyte (Oct 31 2026). models.HrSignRequest.egnyte_filed_path.
+            "ALTER TABLE hr_sign_requests ADD COLUMN egnyte_filed_path VARCHAR DEFAULT ''",
             # Template Publish (Oct 14). models.DocTemplate.published_*.
             "ALTER TABLE doc_templates ADD COLUMN published_version INTEGER DEFAULT 0",
             "ALTER TABLE doc_templates ADD COLUMN published_meta JSON DEFAULT '{}'",
@@ -1395,6 +1397,8 @@ def _run_migrations():
             # Page readers (Oct 29) - see the Postgres list. models.KbDocument.
             "ALTER TABLE kb_documents ADD COLUMN readers TEXT DEFAULT ''",
             "ALTER TABLE kb_documents ADD COLUMN live_from VARCHAR DEFAULT ''",
+            # Cubby tasks in Nexus Tasks (Oct 31 2026) - see the Postgres list. models.Task.
+            "ALTER TABLE tasks ADD COLUMN cubby_task_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2680,6 +2684,8 @@ def _run_migrations():
         "ALTER TABLE hr_role_change_requests ENABLE ROW LEVEL SECURITY",
         # Pay-printing envelopes need Pay & Benefits to download (Oct 14). models.HrSignRequest.prints_pay.
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS prints_pay INTEGER DEFAULT 0",
+        # Where the sealed copy was filed in Egnyte (Oct 31 2026). models.HrSignRequest.egnyte_filed_path.
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS egnyte_filed_path VARCHAR DEFAULT ''",
         # Template Publish (Oct 14). models.DocTemplate.published_*.
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_version INTEGER DEFAULT 0",
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_meta JSONB DEFAULT '{}'::jsonb",
@@ -3321,6 +3327,12 @@ def _run_migrations():
         # Knowledge Base photo-proof quiz answers (WP 5.5, 10/29/2026) - a new
         # table, explicit RLS. models.KbPhotoReview.
         "ALTER TABLE kb_photo_reviews ENABLE ROW LEVEL SECURITY",
+        # Cubby tasks in Nexus Tasks (Neil, Oct 30 2026, cubby_tasks.py): the
+        # pointer on the task and the link table, a new table with explicit
+        # RLS. models.Task.cubby_task_id, models.CubbyTaskLink.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS cubby_task_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_tasks_cubby_task_id ON tasks (cubby_task_id)",
+        "ALTER TABLE cubby_task_links ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4346,6 +4358,11 @@ async def lifespan(app: FastAPI):
             if is_deployed_worker():
                 from cubby import cubby_snapshot_loop
                 _tasks.append(_a.create_task(cubby_snapshot_loop()))
+                # Completions and reopenings of Cubby-linked tasks back to
+                # Cubby, every minute, behind the Close Tasks in Cubby switch
+                # (Neil, Oct 30 2026, cubby_tasks.py).
+                from cubby_tasks import cubby_task_push_loop
+                _tasks.append(_a.create_task(cubby_task_push_loop()))
             else:
                 print("[startup] Cubby snapshot loop skipped (not the deployed worker)")
         except Exception as e:
@@ -5014,6 +5031,8 @@ from routers import ops_budget as ops_budget_router  # noqa: E402 - also registe
 app.include_router(ops_budget_router.router)       # Operations > Ops Budget: results vs budget and last year, per site (Oct 21 2026)
 from routers import ops_settings as ops_settings_router  # noqa: E402
 app.include_router(ops_settings_router.router)     # Operations settings: the Push to Cubby switch, OFF by default (Visesh, Oct 21 2026)
+from routers import cubby_tasks as cubby_tasks_router  # noqa: E402
+app.include_router(cubby_tasks_router.router)      # Cubby tasks <-> Nexus Tasks: switches, facility -> project map (Neil, Oct 30 2026)
 from routers import ops_cma as ops_cma_router  # noqa: E402
 app.include_router(ops_cma_router.router)          # Operations > Rate Management CMA: comp set, surveys, history, review & push (Miranda, Oct 21 2026)
 from routers import ops_customer_map as ops_customer_map_router  # noqa: E402

@@ -176,6 +176,8 @@ const AppRatingsPanel = fromPanels('AppRatingsPanel');
 const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSettings'));
 // Operations (Oct 21 2026): the Push to Cubby switch, OFF by default.
 const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
+// Cubby tasks in Nexus Tasks (Neil, Oct 30 2026): the switches and the facility -> project map.
+const CubbyTasksSettingsPanel = lazy(() => import('../operations/CubbyTasksSettings'));
 // Performance (Oct 27 2026): the goal and 1:1 reminders, layered per company.
 const PerformanceReminderSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceReminderSettings })));
 // Workflows (Oct 28 2026): the switches, ceilings, digest and pause - layered per company.
@@ -519,6 +521,10 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['operations', 'full'] },
     sub: 'Off by default: Nexus only reads from Cubby and staff mark changes Entered in Cubby. On: approved rate and rent changes can be pushed to Cubby from Nexus.',
     keywords: 'cubby push sync write rates rent ecri rate management revenue management storage facilities operations locked switch' },
+  { id: 'ops-cubby-tasks', subject: 'operations', face: 'org', scope: 'org', icon: Warehouse, title: 'Cubby Tasks',
+    needs: { role: 'administrator', grant: ['operations', 'full'] },
+    sub: 'Cubby\'s tasks come into Nexus Tasks after each Cubby sync - each facility\'s into the project you pick here, tasks assigned to people to those people. Completing one in Nexus can complete it in Cubby, behind its own switch.',
+    keywords: 'cubby tasks sync facility project map assignee operations to-do workload close complete switch' },
   { id: 'ops-unit-rules', subject: 'operations', face: 'org', scope: 'org', icon: Warehouse, title: 'Unit Rules',
     needs: { role: 'manager', grant: ['operations', 'editor'] },
     sub: 'Which Cubby unit types are mailboxes, and which records are not units at all, by the words in the unit type name.',
@@ -1711,6 +1717,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ops-cubby-push':       return <LazyPanelSection key={key} id={id} Panel={OpsSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'ops-cubby-tasks':      return <LazyPanelSection key={key} id={id} Panel={CubbyTasksSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       // Phase 3: the strays, each the component its module owns.
       case 'payroll-readiness':    return <LazyPanelSection key={key} id={id} Panel={ReadinessThresholds} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ca-min-wage':          return <LazyPanelSection key={key} id={id} Panel={MinWageForm} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;

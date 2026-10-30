@@ -1420,6 +1420,11 @@ export const api = {
   revertOpsCmaChange: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/revert`, { method: "POST", timeoutMs: 120_000 }),
   getOpsSettings: () => req("/facility-ops/settings"),
   saveOpsSettings: (data) => req("/facility-ops/settings", { method: "PUT", body: JSON.stringify(data) }),
+  // Cubby tasks <-> Nexus Tasks (Neil, Oct 30 2026): Settings > Operations > Cubby Tasks, and the drawer's From Cubby row.
+  getCubbyTaskSettings: () => req("/cubby-tasks/settings"),
+  saveCubbyTaskSettings: (data) => req("/cubby-tasks/settings", { method: "PUT", body: JSON.stringify(data) }),
+  runCubbyTaskSync: () => req("/cubby-tasks/sync-now", { method: "POST" }),
+  getCubbyTaskLink: (taskId) => req(`/cubby-tasks/link/${encodeURIComponent(taskId)}`),
   // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
   getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
   // Operations > Pricing Insights (Oct 20): ranked insights + sections from Cubby's pricing and the market. '' = every facility.
@@ -1661,6 +1666,7 @@ export const api = {
   getSignRequest:     (id)        => req(`/esign/requests/${id}`),
   remindSign:         (id)        => req(`/esign/requests/${id}/remind`, { method: 'POST' }),
   voidSign:           (id)        => req(`/esign/requests/${id}/void`, { method: 'POST' }),
+  fileSignToEgnyte:   (id, folder) => req(`/esign/requests/${id}/file-egnyte`, { method: 'POST', body: JSON.stringify({ folder }) }),
   downloadSign:       (id)        => req(`/esign/requests/${id}/download`),
   verifySign:         (id)        => req(`/esign/requests/${id}/verify`),
   mySignatures:       ()          => req('/esign/mine'),

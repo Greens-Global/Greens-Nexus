@@ -150,11 +150,14 @@ def require_push(db) -> None:
 
 # ── The write client (blocking; only reachable with the switch on) ───────────
 
-def _write(db, path: str, body: dict) -> dict:
+def _write(db, path: str, body: dict, gate=None) -> dict:
     """POST one Cubby write with the Manager-role key. Checks the switch
     FIRST, so with it off nothing leaves the server. Writes are flat bodies
-    (no {"where"}), unlike searches."""
-    if not is_on(db):
+    (no {"where"}), unlike searches. `gate(db) -> bool` is a different
+    switch for a different kind of write (cubby_tasks.py closes tasks behind
+    its own, never behind the rate-and-rent one); None = the Push to Cubby
+    switch above."""
+    if not (gate(db) if gate is not None else is_on(db)):
         raise PushOff(PUSH_OFF)
     key = os.environ.get(WRITE_KEY_ENV, "").strip()
     if not key:
@@ -196,3 +199,13 @@ def rent_change_schedule(db, lease_id: str) -> dict | None:
 def change_rent(db, lease_id: str, new_cents: int, change_date: str, notice: str) -> dict:
     return _write(db, "leases/change-rents", {"leases": [
         {"leaseId": lease_id, "newRentAmount": int(new_cents), "rentChangeDate": change_date, "noticeDate": notice}]})
+
+
+def set_task_status(db, task_id: str, status: str, gate) -> dict:
+    """Mark one Cubby task COMPLETED or OPEN (Cubby tasks <-> Nexus Tasks,
+    Neil, Oct 30 2026). Behind `gate` - cubby_tasks.close_in_cubby_on - never
+    the rate-and-rent switch. Cubby allows only these two from here: a task
+    is never archived by Nexus."""
+    if status not in ("COMPLETED", "OPEN"):
+        raise ValueError("status must be COMPLETED or OPEN")
+    return _write(db, "tasks/update", {"taskId": task_id, "status": status}, gate=gate)

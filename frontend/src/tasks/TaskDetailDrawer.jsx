@@ -10,7 +10,7 @@ import {
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma, MoveRight,
-  History, Upload, HardDrive, Image as ImageIcon,
+  History, Upload, HardDrive, Image as ImageIcon, Warehouse,
 } from 'lucide-react';
 import MoveTaskModal from './MoveTaskModal';
 import MyDayToggle from './MyDayToggle';
@@ -1125,6 +1125,43 @@ function SourceTicketLink({ ticketId, onOpen }) {
   );
 }
 
+/** The From Cubby row: the facility and unit, who Cubby has it assigned to,
+ *  whether a Cubby automation raised it, and where Cubby stands with it.
+ *  Fetched when the drawer opens - the task carries only the Cubby id. */
+function CubbyLink({ taskId }) {
+  const [info, setInfo] = useState(null);   // the link | 'denied'
+  useEffect(() => {
+    let alive = true;
+    setInfo(null);
+    api.getCubbyTaskLink(taskId).then((r) => { if (alive) setInfo(r); }).catch(() => { if (alive) setInfo('denied'); });
+    return () => { alive = false; };
+  }, [taskId]);
+  if (info === 'denied') return <span style={{ fontSize: 13, color: NX.faint, paddingTop: 5 }}>Cubby&apos;s copy could not be read</span>;
+  if (!info) return <span className="skel" style={{ display: 'block', width: 180, height: 14, marginTop: 8 }} />;
+  const where = [info.facilityName, info.unitName ? `unit ${info.unitName}` : ''].filter(Boolean).join(' · ');
+  const people = (info.assignedNames || []).length ? `Assigned in Cubby to ${info.assignedNames.join(', ')}`
+    : (info.groupNames || []).length ? `Assigned in Cubby to the ${info.groupNames.join(', ')} group` : '';
+  const cubbyState = info.pushStatus ? `Waiting to be ${info.pushStatus === 'COMPLETED' ? 'completed' : 'reopened'} in Cubby`
+    : info.status === 'COMPLETED' ? 'Completed in Cubby' : info.status === 'ARCHIVED' ? 'Archived in Cubby' : 'Open in Cubby';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 5, fontSize: 13, minWidth: 0 }} data-testid="task-cubby-link">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <Warehouse size={14} style={{ flexShrink: 0, color: NX.faint }} />
+        <span style={{ fontWeight: 600 }}>{where || 'Cubby'}</span>
+        {info.automated && <Chip color={NX.teal} tint="rgba(13,148,136,0.15)">Automated</Chip>}
+        <Chip color={info.status === 'OPEN' && !info.pushStatus ? NX.dim : NX.amber}
+          tint={info.status === 'OPEN' && !info.pushStatus ? 'rgba(128,128,128,0.14)' : 'rgba(217,119,6,0.14)'}>{cubbyState}</Chip>
+      </div>
+      {(people || info.createdBy) && (
+        <span style={{ color: NX.faint }}>
+          {people}{people && info.createdBy ? ' · ' : ''}{info.createdBy ? `Created in Cubby by ${info.createdBy}` : ''}
+        </span>
+      )}
+      {info.pushError && <span style={{ color: NX.red }}>Cubby refused the last try: {info.pushError}</span>}
+    </div>
+  );
+}
+
 // ── Recurrence ──────────────────────────────────────────────────────────────
 /** The Recurrence row: the Repeat menu (RecurrenceMenu.jsx) under a button
  *  naming the rule, with Ends beside it once the task has a schedule of its
@@ -1296,6 +1333,10 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {/* The ticket it was made from, or linked to (Oct 14 2026). */}
       {task.sourceTicketId && (
         <Row label="From Ticket"><SourceTicketLink ticketId={task.sourceTicketId} onOpen={onOpenTicket} /></Row>
+      )}
+      {/* The Cubby task it mirrors (Neil, Oct 30 2026, backend/cubby_tasks.py). */}
+      {task.cubbyTaskId && (
+        <Row label="From Cubby"><CubbyLink taskId={task.id} /></Row>
       )}
       {/* Same column and gap as the tab body, so locking moves nothing. */}
       <FieldsLock readOnly={readOnly} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

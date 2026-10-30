@@ -187,6 +187,9 @@ def jobs() -> list[dict]:
              "Every 15 minutes", "operations"),
         _job("stortrack_sync", "StorTrack Rates", "Competitor rates from the StorTrack feed.", "Every few hours",
              "operations"),
+        _job("cubby_tasks", "Cubby Tasks",
+             "Cubby's tasks into Nexus Tasks after each Cubby sync; completions back to Cubby while Close Tasks "
+             "in Cubby is on.", "Every 15 minutes", "operations"),
         _job("cma_push", "CMA Queued Pushes",
              "Approved rate changes to Cubby on their effective date, only while Push To Cubby is on.", "Hourly",
              "operations"),

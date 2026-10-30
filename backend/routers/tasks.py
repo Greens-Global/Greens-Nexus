@@ -112,6 +112,8 @@ def task_to_dict(t: models.Task) -> dict:
         "modifiedAt":       t.modified_at or "",
         "syncedWithAsana":  bool(t.synced_with_asana),
         "sourceTicketId":   _nz(t.source_ticket_id),
+        # The Cubby task it mirrors (cubby_tasks.py); the drawer fetches the rest.
+        "cubbyTaskId":      _nz(getattr(t, "cubby_task_id", "")),
         # Due-date accountability - see task_due.py.
         "dueExtensionCount": int(t.due_extension_count or 0),
         "dueHistory":       t.due_history if isinstance(t.due_history, list) else [],

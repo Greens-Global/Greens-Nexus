@@ -142,6 +142,11 @@ class Task(Base):
     # 2026, routers/tasks._cascade_level): opening that task again opens this
     # one again - unless its level was set by hand since, which clears it.
     narrowed_by       = Column(String, default="")
+    # The Cubby task this one mirrors (Neil, Oct 30 2026, cubby_tasks.py):
+    # Cubby's task id ("task_..."), '' for every task that did not come from
+    # Cubby. The sync state lives on cubby_task_links; this is the pointer
+    # every list row and the drawer read.
+    cubby_task_id     = Column(String, default="", index=True)
 
 
 class PurchaseRequest(Base):
@@ -1926,6 +1931,9 @@ class HrSignRequest(Base):
     # 1 = the documents print pay (offer / promotion letters): the sealed PDF,
     # the party links and party re-pointing need Pay & Benefits (hr_comp).
     prints_pay       = Column(Integer, default=0)
+    # Where the sealed copy landed in Egnyte ('' = not filed). Set by the
+    # automatic push at completion and by the sender's File In Egnyte (Oct 31 2026).
+    egnyte_filed_path = Column(String, default="")
 
 
 class HrSignParty(Base):
@@ -9377,3 +9385,38 @@ class KbPhotoReview(Base):
     decided_at   = Column(String, default="")
     note         = Column(String, default="")
     created_at   = Column(String, default="")
+
+
+class CubbyTaskLink(Base):
+    """One Cubby task that Nexus Tasks mirrors (Neil, Oct 30 2026 - "if you
+    close it in Nexus, it closes also there; if you close it in Cubby, it
+    closes it also in Nexus"). Keyed by Cubby's task id, so a Cubby task is
+    imported once however many syncs see it. `status` is what Cubby last said
+    (OPEN / COMPLETED / ARCHIVED); `push_status` is what Nexus wants Cubby to
+    become after someone completed or reopened the task here, cleared once
+    the push lands (cubby_tasks.push_pending). Names, not contact details:
+    the assignee names are Cubby staff, matched to Nexus people by work email."""
+    __tablename__ = "cubby_task_links"
+    task_id            = Column(String, primary_key=True)             # Cubby "task_..."
+    facility_id        = Column(String, default="", index=True)
+    nexus_task_id      = Column(String, default="", index=True)       # tasks.id
+    status             = Column(String, default="OPEN")               # Cubby's last known status
+    title              = Column(String, default="")
+    due_date           = Column(String, default="")                   # YYYY-MM-DD or ''
+    unit_id            = Column(String, default="")
+    unit_name          = Column(String, default="")
+    customer_id        = Column(String, default="")
+    assigned_names     = Column(JSON, default=list)                   # Cubby staff names (warehouse)
+    group_names        = Column(JSON, default=list)                   # Cubby manager groups (warehouse)
+    assignee_snapshot  = Column(JSON, default=list)                   # Nexus emails last applied FROM Cubby
+    created_by_name    = Column(String, default="")
+    workflow_generated = Column(Boolean, default=False)               # raised by a Cubby automation
+    cubby_created_at   = Column(String, default="")
+    cubby_updated_at   = Column(String, default="")
+    push_status        = Column(String, default="")                   # '' | COMPLETED | OPEN
+    push_attempts      = Column(Integer, default=0)
+    push_error         = Column(String, default="")
+    pushed_at          = Column(String, default="")
+    created_at         = Column(String, default="")
+    updated_at         = Column(String, default="")
+    last_seen_at       = Column(String, default="")                   # last sync that listed it open
