@@ -21,6 +21,7 @@ import {
   CheckCircle2, XCircle, History, Lock, Inbox, LayoutList, LayoutDashboard,
 } from "lucide-react";
 import { api } from "../api";
+import { ensureStepUp, isStepUpRequired } from "../stepup/StepUp";
 import { dialog } from "../ui/dialog";
 import { SkeletonBlocks } from "../components/AsyncState";
 import ModuleTabs from "../components/ModuleTabs";
@@ -189,8 +190,11 @@ export default function CredentialVaultApp({ activeSub }) {
   // click time, and an action the API still refuses with vault_otp_required
   // re-opens the gate with the same action instead of a toast.
   function gated(run) {
-    const wrapped = () => run().catch((e) => {
+    const wrapped = () => run().catch(async (e) => {
       if (e?.detail?.code === "vault_otp_required") { setOtp({ verified: false, until: null }); setOtpGate({ run: wrapped }); return; }
+      // Critical + Settings > Security step-up (Oct 29 2026): run the Entra
+      // challenge, then the same action again.
+      if (isStepUpRequired(e)) { const r = await ensureStepUp(); if (r.ok) return wrapped(); if (!r.cancelled) flash("Verification did not complete.", "info"); return; }
       throw e;
     });
     if (otp.verified && otp.until > Date.now()) return wrapped();
@@ -204,7 +208,7 @@ export default function CredentialVaultApp({ activeSub }) {
   }
 
   // ── actions ─────────────────────────────────────────────────────────────
-  const otpError = (e) => e?.detail?.code === "vault_otp_required";
+  const otpError = (e) => e?.detail?.code === "vault_otp_required" || isStepUpRequired(e);
   async function reveal(c) {
     try {
       const res = await api.cvReveal(c.id);
@@ -220,6 +224,13 @@ export default function CredentialVaultApp({ activeSub }) {
     gated(async () => {
       try { const res = await api.cvReveal(c.id); await clip(res.secret, `${c.id}:p`); copiedSecret(c); }
       catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not copy.", "info"); }
+    });
+  }
+  // Copy Code from the row: the current authenticator code, behind the same gate.
+  function copyCode(c) {
+    gated(async () => {
+      try { const r = await api.cvTotp(c.id); await clip(r.code, `${c.id}:t`); used(c.id); flash(`Code copied - good for ${r.left}s.`); }
+      catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not get the code.", "info"); }
     });
   }
   // Open: copy the password, then open the site - the username is in the
@@ -371,7 +382,7 @@ export default function CredentialVaultApp({ activeSub }) {
         <div className={`wkc cv-directory cv-master is-logins${isMobile ? " is-mobile" : ""}`}>
           <MyLogins rows={creds} depts={deptsInUse} favorites={favorites} recents={recents} query={loginQuery} onQuery={setLoginQuery}
             selectedId={selectedId} now={now} nameOf={nameOf} done={done} clipLeft={clipLeft}
-            onOpen={open} onToggleFavorite={toggleFavorite} onCopyUser={copyUser} onCopyPassword={copyPassword} onOpenSite={openSite} onRequest={setRequestFor} />
+            onOpen={open} onToggleFavorite={toggleFavorite} onCopyUser={copyUser} onCopyPassword={copyPassword} onOpenSite={openSite} onCopyCode={copyCode} onRequest={setRequestFor} />
           {!isMobile && (
             <div className="cv-pane">
               {selected ? <CredentialDetail key={selected.id} {...detailProps} /> : (
@@ -552,6 +563,7 @@ export default function CredentialVaultApp({ activeSub }) {
                     <div><b style={{ fontWeight: 600 }}>{e.actor}</b> <span style={{ ...actionStyle(e.action), borderRadius: 6, padding: "1px 7px", fontSize: 11.5, fontWeight: 600 }}>{e.action}</span> <span style={{ color: "var(--text-secondary)" }}>{e.cred}</span></div>
                     <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
                       {e.dept !== "-" ? e.dept : ""}
+                      {e.ip ? <span title={e.userAgent || ""} style={{ paddingLeft: e.dept !== "-" ? 8 : 0 }}>from {e.ip}</span> : null}
                       {Array.isArray(e.detail) && e.detail.length > 0 && <span className="cv-diff" style={{ paddingLeft: e.dept !== "-" ? 8 : 0 }}>{e.detail.map((d, i) => <span key={i} style={{ marginRight: 10 }}>{d.field}: {d.from ? <><s>{d.from}</s> → </> : null}{d.to}</span>)}</span>}
                     </div>
                   </div>

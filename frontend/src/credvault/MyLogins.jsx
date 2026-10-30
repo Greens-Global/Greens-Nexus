@@ -5,7 +5,7 @@
 // see but not open sit folded at the bottom with Request Access. The screen
 // owns the gated calls; this file lays the list out.
 import { useState } from "react";
-import { Search, X, Star, Clock, Copy, Check, KeyRound, ExternalLink, ChevronDown, ChevronRight, Send, ShieldAlert, Lock } from "lucide-react";
+import { Search, X, Star, Clock, Copy, Check, KeyRound, ExternalLink, ChevronDown, ChevronRight, Send, ShieldAlert, Lock, ShieldCheck } from "lucide-react";
 import { ACCESS_LABEL, groupLogins, healthFlags, healthTone, siteOf, timeLeft } from "./vaultModel";
 import { Monogram } from "./vaultCards";
 
@@ -17,7 +17,7 @@ export function SiteIcon({ cred, depts, size = 38 }) {
   return <img className="cv-site-icon" style={{ width: size, height: size }} src={`https://icon.horse/icon/${host}`} alt="" onError={() => setBroken(true)} loading="lazy" />;
 }
 
-function RowActions({ cred, done, onCopyUser, onCopyPassword, onOpenSite }) {
+function RowActions({ cred, done, onCopyUser, onCopyPassword, onOpenSite, onCopyCode }) {
   const hasUser = cred.username && cred.username !== "-";
   const site = siteOf(cred.url);
   return (
@@ -30,6 +30,11 @@ function RowActions({ cred, done, onCopyUser, onCopyPassword, onOpenSite }) {
       <button type="button" className={`cv-btn${done === `${cred.id}:p` ? " is-done" : ""}`} title="Copy the password (logged)" aria-label={`Copy password for ${cred.name}`} onClick={() => onCopyPassword(cred)}>
         {done === `${cred.id}:p` ? <Check size={13} /> : <KeyRound size={13} />} Password
       </button>
+      {cred.hasTotp && (
+        <button type="button" className={`cv-btn${done === `${cred.id}:t` ? " is-done" : ""}`} title="Copy the current authenticator code" aria-label={`Copy code for ${cred.name}`} onClick={() => onCopyCode(cred)}>
+          {done === `${cred.id}:t` ? <Check size={13} /> : <ShieldCheck size={13} />} Code
+        </button>
+      )}
       {site && (
         <button type="button" className="cv-btn" title={`Copy the password and open ${site}`} aria-label={`Open ${cred.name}`} onClick={() => onOpenSite(cred)}>
           <ExternalLink size={13} /> Open
@@ -75,13 +80,13 @@ function Section({ Icon, title, rows, children }) {
 
 export default function MyLogins({
   rows, depts, favorites, recents, query, onQuery, selectedId, now, nameOf, done, clipLeft,
-  onOpen, onToggleFavorite, onCopyUser, onCopyPassword, onOpenSite, onRequest,
+  onOpen, onToggleFavorite, onCopyUser, onCopyPassword, onOpenSite, onCopyCode, onRequest,
 }) {
   const [showLocked, setShowLocked] = useState(false);
   const g = groupLogins(rows, { favorites, recents, query });
   const attention = rows.filter((c) => c.canReveal && !c.deletedAt && healthFlags(c).length).length;
   const shared = rows.filter((c) => (c.access === "shared" || c.access === "person") && !c.deletedAt).length;
-  const rowProps = (c) => ({ cred: c, depts, active: selectedId === c.id, favorite: favorites.has(c.id), now, nameOf, done, onOpen, onToggleFavorite, onCopyUser, onCopyPassword, onOpenSite });
+  const rowProps = (c) => ({ cred: c, depts, active: selectedId === c.id, favorite: favorites.has(c.id), now, nameOf, done, onOpen, onToggleFavorite, onCopyUser, onCopyPassword, onOpenSite, onCopyCode });
   return (
     <div className="cv-rows cv-logins" data-my-logins="">
       <div className="cv-login-strip">

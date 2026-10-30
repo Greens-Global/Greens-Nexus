@@ -710,6 +710,8 @@ async def reminders_loop():
         try:
             from routers import credvault
             await asyncio.to_thread(credvault.run_daily_rotation_reminders)
+            # ...and the daily Have I Been Pwned pass (vault_breach.py).
+            await asyncio.to_thread(credvault.run_daily_breach_scan)
         except Exception as e:
             print(f"[reminders] credential vault loop error: {e}")
         # Knowledge Base (Oct 2026): assignment rules, renewals, training and

@@ -4268,6 +4268,7 @@ class VaultCredential(Base):
     note               = Column(String, default="")
     prev_secret_enc    = Column(String, default="")
     prev_rotated_at    = Column(String, default="")
+    totp_enc           = Column(String, default="")           # authenticator key, Fernet (vault_totp.py, Oct 29 2026)
 
 
 class VaultPersonalCredential(Base):
@@ -4328,6 +4329,8 @@ class VaultAccessLog(Base):
     dept        = Column(String, default="")
     detail      = Column(JSON, nullable=True)                 # [{field,from,to}] for edits
     loc         = Column(String, default="")
+    ip          = Column(String, default="")                  # where from (Oct 29 2026) - the request's client address
+    user_agent  = Column(String, default="")
     created_at  = Column(String, default="", index=True)
 
 

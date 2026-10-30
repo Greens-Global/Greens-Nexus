@@ -24,8 +24,10 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 
-from cryptography.fernet import Fernet, InvalidToken
-from fastapi import APIRouter, Depends, HTTPException
+from contextvars import ContextVar
+
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -38,11 +40,33 @@ from auth import (get_current_user, require_module_grant, _module_level, _MODULE
 from notify_company import notification_company
 import job_switch
 import vault_access as VA
+import vault_breach
+import vault_totp
+
+# Where a request came from (Oct 29 2026): set once per request by the router
+# dependency below, read by _log so every reveal, share and change says which
+# address and browser did it - no per-route plumbing.
+_REQ: ContextVar = ContextVar("credvault_req", default=("", ""))
+
+
+async def _remember_request(request: Request) -> None:
+    # async: runs in the request's own context, so the sync endpoint's thread
+    # (a copy of that context) sees what is set here; a sync dependency's
+    # thread would keep it to itself.
+    from middleware_hardening import _client_ip
+    try:
+        ip = _client_ip(request)
+    except Exception:
+        ip = ""
+    if not ip:
+        ip = request.client.host if request.client else ""
+    _REQ.set((ip or "", (request.headers.get("user-agent") or "")[:200]))
+
 
 router = APIRouter(
     prefix="/credvault",
     tags=["Credential Vault"],
-    dependencies=[Depends(require_module_grant("credvault"))],
+    dependencies=[Depends(require_module_grant("credvault")), Depends(_remember_request)],
 )
 
 TIERS = ("Standard", "High", "Critical")
@@ -56,19 +80,39 @@ PERSONAL_DEPT = "Personal"      # vault_access_logs.dept for Personal Vault rows
 # now DISABLES the vault (503 on every operation) instead of silently running
 # fake crypto. Same posture as NEXUS_SKIP_AUTH being refused on Azure. The
 # whole app deliberately does NOT crash - only the vault locks.
-_VAULT_KEY = os.getenv("NEXUS_VAULT_KEY", "").strip()
 _ON_AZURE = bool(os.getenv("WEBSITE_SITE_NAME"))
-if _VAULT_KEY:
-    _fernet = Fernet(_VAULT_KEY.encode())
-elif _ON_AZURE:
-    _fernet = None
-    print("[credvault] NEXUS_VAULT_KEY not set on a DEPLOYED API - vault DISABLED (fail-closed)")
-else:
-    # DEV-ONLY fallback so local SQLite dev works out of the box.
-    _fernet = Fernet(base64.urlsafe_b64encode(
-        hashlib.sha256(b"nexus-credvault-DEV-ONLY-key-set-NEXUS_VAULT_KEY").digest()
-    ))
-    print("[credvault] WARNING: NEXUS_VAULT_KEY not set - using dev-only fallback key")
+_VAULT_KEY = ""
+_fernet = None
+_HASH_KEY = b""
+
+
+def load_keys() -> None:
+    """Key rotation (Oct 29 2026): NEXUS_VAULT_KEYS is a comma-separated list,
+    NEWEST FIRST; new secrets are written under the first key and every key in
+    the list can still read. Rotating = put the new key in front, deploy, let
+    rotate_vault_keys() rewrite the rows at startup, then drop the old key.
+    NEXUS_VAULT_KEY alone still works (one key, as before). The reuse hash is
+    keyed with the primary key; rehash_secret_hashes() notices a new primary
+    through the fingerprint it stores."""
+    global _VAULT_KEY, _fernet, _HASH_KEY
+    keys = [k.strip() for k in os.getenv("NEXUS_VAULT_KEYS", "").split(",") if k.strip()] or \
+        ([os.getenv("NEXUS_VAULT_KEY", "").strip()] if os.getenv("NEXUS_VAULT_KEY", "").strip() else [])
+    _VAULT_KEY = keys[0] if keys else ""
+    if keys:
+        _fernet = MultiFernet([Fernet(k.encode()) for k in keys])
+    elif _ON_AZURE:
+        _fernet = None
+        print("[credvault] NEXUS_VAULT_KEY not set on a DEPLOYED API - vault DISABLED (fail-closed)")
+    else:
+        # DEV-ONLY fallback so local SQLite dev works out of the box.
+        _fernet = MultiFernet([Fernet(base64.urlsafe_b64encode(
+            hashlib.sha256(b"nexus-credvault-DEV-ONLY-key-set-NEXUS_VAULT_KEY").digest()
+        ))])
+        print("[credvault] WARNING: NEXUS_VAULT_KEY not set - using dev-only fallback key")
+    _HASH_KEY = (_VAULT_KEY or "nexus-credvault-DEV-ONLY-hash-key").encode()
+
+
+load_keys()
 
 
 def _require_key():
@@ -95,8 +139,11 @@ def _dec(ciphertext: str) -> str:
 # brute-force the weaker entries WITHOUT the vault key. The hash is now an HMAC
 # keyed with that same key - worthless without it. rehash_secret_hashes() moves
 # the existing rows over once (main._startup_seeds).
-_HASH_KEY = (_VAULT_KEY or "nexus-credvault-DEV-ONLY-hash-key").encode()
-REHASH_MARK = "vault_secret_hash_hmac"      # nexus_settings key: the one-time rehash ran
+REHASH_MARK = "vault_secret_hash_hmac"      # nexus_settings key: the rehash ran - value = the primary key's fingerprint
+
+
+def _key_fingerprint() -> str:
+    return hashlib.sha256(_HASH_KEY).hexdigest()[:16]
 
 
 def _hash(secret: str) -> str:
@@ -109,7 +156,8 @@ def rehash_secret_hashes(db: Session) -> int:
     nexus_settings marker makes every later boot a no-op. Not run - and not
     marked - while the vault key is missing, so it happens on the first start
     that has it. Returns how many rows were rehashed."""
-    if _fernet is None or db.get(models.NexusSetting, REHASH_MARK):
+    mark = db.get(models.NexusSetting, REHASH_MARK)
+    if _fernet is None or (mark and mark.value == _key_fingerprint()):
         return 0
     n = 0
     for c in db.query(models.VaultCredential).all():
@@ -120,8 +168,40 @@ def rehash_secret_hashes(db: Session) -> int:
             n += 1
         except InvalidToken:
             continue            # written under another key - leave its hash alone
-    db.add(models.NexusSetting(key=REHASH_MARK, value=_now(), updated_by="startup", updated_at=_now()))
+    if mark:
+        mark.value, mark.updated_at = _key_fingerprint(), _now()
+    else:
+        db.add(models.NexusSetting(key=REHASH_MARK, value=_key_fingerprint(), updated_by="startup", updated_at=_now()))
     db.commit()
+    return n
+
+
+def rotate_vault_keys(db: Session) -> int:
+    """Rewrite every secret that is not under the primary key (MultiFernet
+    .rotate re-encrypts with the first key, reading with any). Startup, one
+    process per deploy; a no-op with one key. Returns how many fields moved."""
+    if _fernet is None or len(_fernet._fernets) < 2:    # noqa: SLF001 - MultiFernet keeps no public count
+        return 0
+    n = 0
+
+    def move(value: str) -> str:
+        nonlocal n
+        if not value:
+            return value
+        try:
+            out = _fernet.rotate(value.encode()).decode()
+        except InvalidToken:
+            return value                                 # not ours - leave it
+        if out != value:
+            n += 1
+        return out
+
+    for c in db.query(models.VaultCredential).all():
+        c.secret_enc, c.prev_secret_enc, c.totp_enc = move(c.secret_enc), move(c.prev_secret_enc), move(c.totp_enc)
+    for p in db.query(models.VaultPersonalCredential).all():
+        p.secret_enc = move(p.secret_enc)
+    if n:
+        db.commit()
     return n
 
 
@@ -422,6 +502,8 @@ def _log(db: Session, user: dict, action: str, cred_name: str, dept: str = "",
         dept=dept,
         detail=detail,
         loc=loc,
+        ip=_REQ.get()[0],
+        user_agent=_REQ.get()[1],
         created_at=_now(),
     ))
 
@@ -579,6 +661,7 @@ def _cred_dict(c: models.VaultCredential, reused: bool, shared_with: int,
         "expiresAt": (c.expires_at or "") if can_reveal else "",
         "expiresInDays": _days_until(c.expires_at) if can_reveal else None,
         "hasPrevious": bool(c.prev_secret_enc) if can_reveal else False,
+        "hasTotp": bool(c.totp_enc), "breached": bool(c.breached) if can_reveal else False,
         "prevRotatedAt": (c.prev_rotated_at or "") if can_reveal else "",
         "sharedWith": shared_with, "deletedAt": _ms(c.deleted_at) or None,
         "createdAt": _ms(c.created_at),
@@ -605,6 +688,10 @@ class CredentialIn(BaseModel):
     # Who may open it (vault_access): [{kind, value, level}]. Omitted on an
     # edit = unchanged; omitted on a create = the credential's own department.
     audiences: list[dict] | None = None
+    # Authenticator key (vault_totp): the text under the site's QR code or the
+    # otpauth:// link; "" = unchanged on an edit; clearTotp removes it.
+    totpSecret: str = ""
+    clearTotp: bool = False
 
 
 def _clean_url(v: str) -> str:
@@ -616,6 +703,22 @@ def _clean_url(v: str) -> str:
     if not re.match(r"^https?://", v, re.I):
         raise HTTPException(400, "The link must start with http:// or https://")
     return v
+
+
+def _clean_totp(v: str) -> str:
+    v = (v or "").strip()
+    if not v:
+        return ""
+    key = vault_totp.normalize(v)
+    if not key:
+        raise HTTPException(400, "That is not an authenticator key - paste the text under the QR code, or the otpauth:// link")
+    return key
+
+
+def _breached(secret: str, current: bool = False) -> bool:
+    """Have I Been Pwned on save; unreachable = keep what we had (fail open)."""
+    hit = vault_breach.is_breached(secret)
+    return current if hit is None else hit
 
 
 def _clean_date(v: str) -> str:
@@ -690,11 +793,12 @@ def create_credential(body: CredentialIn, user: dict = Depends(get_current_user)
         expires_at=_clean_date(body.expiresAt),
         secret_enc=_enc(body.secret),
         secret_hash=_hash(body.secret),
+        totp_enc=_enc(_clean_totp(body.totpSecret)) if _clean_totp(body.totpSecret) else "",
         tier=body.tier if body.tier in TIERS else "Standard",
         owner_email=user["email"],
         backup_owner_email=(body.backupOwner or "").lower().strip(),
         strength=_eval_strength(body.secret),
-        breached=False,
+        breached=_breached(body.secret),
         rotation_max=body.rotationMax or 90,
         custom_expiry=bool(body.customExpiry),
         rotated_at=_now(),
@@ -760,8 +864,15 @@ def update_credential(cred_id: str, body: CredentialIn,
         c.secret_enc = _enc(body.secret)
         c.secret_hash = _hash(body.secret)
         c.strength = _eval_strength(body.secret)
-        c.breached = False
+        c.breached = _breached(body.secret, c.breached)
         c.rotated_at = _now()
+    if body.clearTotp and c.totp_enc:
+        changed.append({"field": "Authenticator", "from": "set", "to": "-"})
+        c.totp_enc = ""
+    elif body.totpSecret:
+        key = _clean_totp(body.totpSecret)
+        changed.append({"field": "Authenticator", "from": "set" if c.totp_enc else "-", "to": "set"})
+        c.totp_enc = _enc(key)
     if body.audiences is not None:
         before = VA.labels(db, VA.rows_for(db, [c.id]).get(c.id, []))
         new = VA.clean(body.audiences)
@@ -870,7 +981,11 @@ def reveal_credential(cred_id: str, user: dict = Depends(get_current_user),
         # Request Access (POST .../request) instead. Keep the gate anyway.
         raise HTTPException(403, {"code": "vault_access_required",
                                   "message": "Ask the owner for access to this credential."})
+    _require_critical_stepup(c, user, db)
     out = {"secret": _dec(c.secret_enc)}
+    if c.totp_enc:
+        code, left = vault_totp.code_at(_dec(c.totp_enc))
+        out["totp"] = {"code": code, "left": left}
     if c.prev_secret_enc and access in MANAGE:
         try:
             out["previousSecret"] = _dec(c.prev_secret_enc)
@@ -880,6 +995,41 @@ def reveal_credential(cred_id: str, user: dict = Depends(get_current_user),
     _log(db, user, "Revealed", c.name, c.dept, c.id)
     db.commit()
     return out
+
+
+def _require_critical_stepup(c: models.VaultCredential, user: dict, db: Session) -> None:
+    """Settings > Security "Critical credentials need a fresh Microsoft sign-in"
+    (Oct 29 2026): on top of the text/email code, a Critical reveal or share
+    needs a live step-up session (routers/stepup.py) - the frontend catches the
+    code and runs the Entra challenge."""
+    if (c.tier or "Standard") != "Critical":
+        return
+    import security_config
+    if not security_config.get("vaultCriticalStepUp", db):
+        return
+    from routers.stepup import has_active_stepup
+    if has_active_stepup(db, user["email"]):
+        return
+    raise HTTPException(status_code=403, detail={
+        "code": "stepup_required",
+        "message": "This is a Critical credential - re-confirm your Microsoft sign-in to continue.",
+    })
+
+
+@router.get("/credentials/{cred_id}/totp")
+def current_totp(cred_id: str, user: dict = Depends(get_current_user),
+                 _otp: dict = Depends(require_vault_otp), db: Session = Depends(get_db)):
+    """The authenticator code right now, for whoever may open the credential -
+    the drawer refreshes it every 30 seconds while it is open; the reveal that
+    opened it is what the log records."""
+    c = _get_cred(cred_id, db, user)
+    if not c.totp_enc:
+        raise HTTPException(404, "This credential has no authenticator key")
+    if _access_one(c, user, db) in ("request", "view"):
+        raise HTTPException(403, {"code": "vault_access_required", "message": "Ask the owner for access to this credential."})
+    _require_critical_stepup(c, user, db)
+    code, left = vault_totp.code_at(_dec(c.totp_enc))
+    return {"code": code, "left": left}
 
 
 class RequestIn(BaseModel):
@@ -972,6 +1122,7 @@ def import_credentials(body: ImportIn, user: dict = Depends(get_current_user), d
             owner_email=user["email"],
             backup_owner_email=backup if backup in known and backup != user["email"] else "",
             strength=_eval_strength(secret),
+            breached=_breached(secret),
             rotated_at=_now(),
             created_at=_now(),
             created_by=user["email"],
@@ -1093,6 +1244,7 @@ def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_curre
         raise HTTPException(400, "Credential is in the trash")
     if not _can_modify(c, user, db):
         raise HTTPException(403, "Only the owner, backup owner or an admin can share this credential")
+    _require_critical_stepup(c, user, db)
     recipient = (body.recipientEmail or "").lower().strip()
     if "@" not in recipient or "." not in recipient:
         raise HTTPException(400, "A valid recipient email address is required")
@@ -1320,6 +1472,7 @@ def list_logs(user: dict = Depends(get_current_user), db: Session = Depends(get_
             "id": r.id, "actor": r.actor_name or r.actor_email, "actorEmail": r.actor_email,
             "action": r.action, "cred": r.cred_name, "credId": r.cred_id,
             "dept": r.dept or "-", "loc": r.loc or "", "detail": r.detail,
+            "ip": r.ip or "", "userAgent": r.user_agent or "",
             "ts": _ms(r.created_at),
         })
     return out
@@ -1596,6 +1749,31 @@ def rotation_reminders(db: Session) -> int:
     if sent:
         db.commit()
     return sent
+
+
+def breach_scan(db: Session) -> dict:
+    """The daily Have I Been Pwned pass (vault_breach.scan): one bell to the
+    owner and backup owner of a credential that just turned breached."""
+    def tell(who, c):
+        _notify(db, type="vault_breach", recipient=who,
+                title="Credentials - Password Found in a Breach",
+                body=f"The password for {c.name} ({c.dept}) appears in a known data breach. Change it on the site and rotate it here.",
+                ref_id=c.id, actor=c.owner_email or who, action={"view": "credvault", "sub": f"cred-{c.id}"})
+    return vault_breach.scan(db, _dec, tell)
+
+
+def run_daily_breach_scan() -> dict:
+    if job_switch.off("credvault_breach") or _fernet is None:   # Workflows > Automations switch
+        return {}
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        out = breach_scan(db)
+        if out.get("newly"):
+            print(f"[reminders] credential vault: {out['newly']} password(s) newly found in a breach")
+        return out
+    finally:
+        db.close()
 
 
 def run_daily_rotation_reminders() -> int:
