@@ -10,7 +10,7 @@ import {
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma, MoveRight,
-  History, Upload, HardDrive, Image as ImageIcon,
+  History, Upload, HardDrive, Image as ImageIcon, AudioLines,
 } from 'lucide-react';
 import MoveTaskModal from './MoveTaskModal';
 import MyDayToggle from './MyDayToggle';
@@ -18,12 +18,13 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { formulaEngineFor } from './formula';
 import { FormulaValue } from './FormulaColumn';
+import { isAudioAttachment } from './lib';
 import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, uploadTaskAttachmentVersion, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
-import { Avatar, Modal, PersonMultiSelect, ChipMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, MenuCaption, PersonDot } from './components';
+import { Avatar, Modal, PersonMultiSelect, ChipMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, MenuCaption, PersonDot, useEscapeLayer } from './components';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
 import { useFrequentCollaborators, frequentRows } from './frequentPeople';
@@ -36,6 +37,8 @@ import Checklist from './Checklist';
 import { ShowOnCardSelect } from './CardPreview';
 import { IMAGE_MODE, isCoverCandidate } from './boardLayout';
 import CommentThread from './CommentThread';
+import { draftKey, getDraft, hasWords, useTaskDraft, useTaskDrafts, clearDraftsFor, clearDraft } from './taskDrafts';
+import { isBypassing } from '../lib/dialogGuard';
 import TimeTracking from './TimeTracking';
 import { toDownloadUrl } from '../lib/storageView';
 import { openNotificationTarget } from '../lib/openTarget';
@@ -60,6 +63,7 @@ import LabelsEditor from './LabelsEditor';
 import { labelsInUse } from './labels';
 import { FieldHistoryContext, useHistoryCtx } from './fieldHistoryContext';
 import { groupFieldChanges, historyFieldName } from './fieldHistory';
+import { STOP_VOICE_FIRST } from '../lib/voice';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const VIEW_ONLY_TITLE = 'You can view this task but not change it';
@@ -265,9 +269,34 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     const p = taskById[fromId]?.parentTaskId;
     return p && taskById[p] ? p : null;
   };
+  // Unsent words (taskDrafts.js) in this task or one stepped through on the
+  // way here. Closing asks first - Keep Editing / Discard / Post - and
+  // fields that save themselves (title, description, custom fields) are
+  // blurred first so they commit before the drawer goes.
+  const asideRef = useRef(null);
+  const visitedIds = [...new Set([taskId, ...trail, activeId])];
+  const unsent = useTaskDrafts(visitedIds);
+  const [asking, setAsking] = useState(false);
+  const requestClose = () => {
+    const el = document.activeElement;
+    if (el && asideRef.current?.contains(el) && typeof el.blur === 'function') el.blur();
+    // A Discard the app-wide guard already confirmed (lib/dialogGuard.js).
+    if (isBypassing()) { clearDraftsFor(visitedIds); onClose(); return; }
+    if (unsent.length) { setAsking(true); return; }
+    onClose();
+  };
+  // Keep Editing lands on the tab that holds the first unsent box.
+  const keepEditing = () => {
+    setAsking(false);
+    const d = unsent.find((x) => x.taskId === activeId) || unsent[0];
+    if (!d) return;
+    if (d.taskId !== activeId) { setActiveId(d.taskId); return; }
+    const where = DRAFT_TAB[d.kind];
+    if (where && !isMobile) setTab(where === 'checklist' ? 'overview' : where);
+  };
   const goBack = (fromId = activeId) => {
     const to = backTarget(fromId);
-    if (!to) { onClose(); return; }
+    if (!to) { requestClose(); return; }
     setTrail((t) => t.slice(0, Math.max(0, t.lastIndexOf(to))));
     setActiveId(to);
   };
@@ -455,9 +484,13 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     }
   };
 
+  // A tab holding an unsent box shows a dot, so a draft left on another tab
+  // is not out of sight and out of mind.
+  const draftTabs = new Set(unsent.filter((d) => d.taskId === activeId).map((d) => (DRAFT_TAB[d.kind] === 'checklist' ? 'overview' : DRAFT_TAB[d.kind])));
+
   return createPortal(
-    <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
-      <aside style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
+    <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
+      <aside ref={asideRef} style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
         {/* drag handle */}
         {!isMobile && (
           <div onMouseDown={() => { dragging.current = true; document.body.style.userSelect = 'none'; }} title="Drag to resize" style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: 6, cursor: 'ew-resize', zIndex: 5 }} />
@@ -515,6 +548,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                     const sub = !!task.parentTaskId;
                     if (!window.confirm(sub ? `Delete subtask "${task.title}"?` : `Delete "${task.title}" and its subtasks?`)) return;
                     const gone = activeId;
+                    clearDraftsFor([gone]);
                     deleteTask(gone);
                     goBack(gone);
                   }}>
@@ -523,7 +557,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                 </>
               )}
             </Pop>
-            <button onClick={() => (trail.length ? goBack() : onClose())}
+            <button onClick={() => (trail.length ? goBack() : requestClose())}
               title={trail.length && taskById[trail[trail.length - 1]] ? `Back to ${taskById[trail[trail.length - 1]].title}` : 'Close'}
               style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><ArrowRightToLine size={18} /></button>
           </div>
@@ -577,6 +611,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   }}>
                     {label}
                     {counts[key] > 0 && <span style={{ background: NX.hover, borderRadius: 999, padding: '1px 6px', fontSize: 11, color: NX.dim }}>{counts[key]}</span>}
+                    {draftTabs.has(key) && key !== tab && <span title="Unsent draft" aria-label="Unsent draft" style={{ width: 6, height: 6, borderRadius: '50%', background: NX.amber, flexShrink: 0 }} />}
                   </button>
                 );
               })}
@@ -610,6 +645,11 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           ) : paneFor(tab)}
         </div>
         </FieldHistoryContext.Provider>
+        {asking && unsent.length > 0 && (
+          <UnsentPrompt drafts={unsent} taskById={taskById} activeId={activeId}
+            onKeep={keepEditing} onDiscard={() => { clearDraftsFor(visitedIds); setAsking(false); onClose(); }}
+            onSent={() => { setAsking(false); onClose(); }} />
+        )}
         {moving && <MoveTaskModal taskId={moving} onClose={() => setMoving(null)} />}
         {savingTemplate && <SaveTemplateModal task={task} subtasks={subtasks} onClose={() => setSavingTemplate(false)} />}
         {duplicating && <DuplicateTaskModal task={task} subtasks={subtasks} onClose={() => setDuplicating(false)} onDuplicate={duplicate} />}
@@ -1470,7 +1510,8 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
           a task that never needed one is not pushed down by an add box. The
           hint rides on the heading, where it shows while folded too: neither
           Neil nor Sagar could tell what the section was for (Oct 14 2026). */}
-      <Section defaultOpen={(task.checklistTotal || 0) > 0} title={<>
+      {/* Also open when a line was left half-typed (taskDrafts.js). */}
+      <Section defaultOpen={(task.checklistTotal || 0) > 0 || hasWords(getDraft(draftKey(task.id, 'checklist')))} title={<>
         {task.checklistTotal ? `Checklist ${task.checklistDone || 0}/${task.checklistTotal}` : 'Checklist'}
         <span style={{ fontWeight: 400, fontSize: 12, color: NX.faint, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           Quick steps for this task. Use Subtasks for work that needs its own date or owner.
@@ -1486,7 +1527,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {/* Subtasks (inline) */}
       {/* Open whenever the task has subtasks (Oct 13 2026) - folded, they
           were easy to miss. */}
-      <Section key={`subtasks:${task.id}:${subtasks?.length > 0}`} defaultOpen={subtasks?.length > 0}
+      <Section key={`subtasks:${task.id}:${subtasks?.length > 0}`} defaultOpen={subtasks?.length > 0 || hasWords(getDraft(draftKey(task.id, 'subtask')))}
         title={subtasks?.length ? `Subtasks ${subtasks.filter((s) => s.completed).length}/${subtasks.length}` : 'Subtasks'}>
         <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} onMoveSub={onMoveSub} hideHeading
           canAdd={canEditProject} canEditParent={!readOnly} canEditTask={canEditTask} />
@@ -1510,7 +1551,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {/* Add comment - dropped on mobile: the Comments/All-activity block at the
           bottom of the stacked layout already has a composer. */}
       {!isMobile && (canComment || hasComments) && (
-        <Section key={`comments:${task.id}:${hasComments}`} defaultOpen={hasComments} title="Comments">
+        <Section key={`comments:${task.id}:${hasComments}`} defaultOpen={hasComments || hasWords(getDraft(draftKey(task.id, 'comment')))} title="Comments">
           <QuickComment task={task} addComment={addComment} getComments={getComments}
             nameOf={nameOf} myEmail={myEmail} onViewAll={onViewAllComments} canComment={canComment} canPin={canEditProject} />
         </Section>
@@ -1570,7 +1611,7 @@ function PendingAttachments({ files, setFiles }) {
         <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 8px 2px 2px', fontSize: 11.5, color: NX.dim }}>
           {f.type.startsWith('image/')
             ? <img src={URL.createObjectURL(f)} alt="" style={{ width: 18, height: 18, borderRadius: 4, objectFit: 'cover' }} />
-            : <Paperclip size={11} />}
+            : f.type.startsWith('audio/') ? <AudioLines size={11} aria-label="Voice Note" /> : <Paperclip size={11} />}
           <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
           <button type="button" onClick={() => remove(i)} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={11} /></button>
         </span>
@@ -1637,11 +1678,138 @@ export function onPasteStage(e, setFiles) {
   if (files.length) { e.preventDefault(); setFiles((p) => [...p, ...files]); }
 }
 
+// The new-comment box's words, staged files and "Assign to", kept per task
+// in the draft store (taskDrafts.js) - Overview's box and the Comments
+// tab's are the same draft, so switching tabs carries it over.
+function useCommentDraft(taskId) {
+  const [d, set, clear] = useTaskDraft(draftKey(taskId, 'comment'), { taskId, kind: 'comment' });
+  const pending = d.files || [];
+  return {
+    body: d.text || '',
+    setBody: (v) => set({ text: v }),
+    pending,
+    setPending: (v) => set((cur) => ({ files: typeof v === 'function' ? v(cur.files || []) : v })),
+    assignTo: d.assignTo || '',
+    setAssignTo: (v) => set({ assignTo: v }),
+    clear,
+    restore: (sent) => set(sent),
+  };
+}
+
+// Which drawer tab holds each kind of unsent box.
+const DRAFT_TAB = { comment: 'comments', reply: 'comments', edit: 'comments', checklist: 'checklist', subtask: 'subtasks' };
+const DRAFT_NOUN = { comment: 'comment', reply: 'reply', edit: 'edit to a comment', checklist: 'checklist item', subtask: 'subtask' };
+const DRAFT_SEND = { comment: 'Post Comment', reply: 'Post Reply', edit: 'Save Edit', checklist: 'Add Item', subtask: 'Add Subtask' };
+const DRAFT_TITLE = { comment: 'Unsent Comment', reply: 'Unsent Reply', edit: 'Unsaved Comment Edit', checklist: 'Unsaved Checklist Item', subtask: 'Unsaved Subtask' };
+
+// A draft's words for the prompt: tags gone, paragraphs and line breaks kept.
+const plainOf = (html) => {
+  const lined = String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|li|h[1-6]|blockquote)>/gi, '\n');
+  let text;
+  try { text = new DOMParser().parseFromString(lined, 'text/html').body.textContent || ''; }
+  catch { text = lined.replace(/<[^>]+>/g, ' '); }
+  return text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+};
+
+/** Closing the drawer with unsent words in it (Neil, Oct 29 2026): Keep
+ *  Editing, Discard, or send them - post the comment or reply, save the
+ *  edit, add the checklist line or subtask - and then close. */
+function UnsentPrompt({ drafts, taskById, activeId, onKeep, onDiscard, onSent }) {
+  const { addComment, createTask, applyServerTask } = useTasks();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEscapeLayer(() => { if (!busy) onKeep(); });
+  const kinds = [...new Set(drafts.map((d) => d.kind))];
+  const one = drafts.length === 1;
+  const title = one ? DRAFT_TITLE[drafts[0].kind] : 'Unsent Work';
+  const sendLabel = one ? DRAFT_SEND[drafts[0].kind] : kinds.every((k) => k === 'comment' || k === 'reply') ? 'Post All' : 'Send All';
+
+  const sendOne = async (d) => {
+    const text = d.text || '';
+    if (d.kind === 'comment') {
+      const c = await addComment(d.taskId, text, d.assignTo ? { assignee_email: d.assignTo } : {});
+      if (d.files?.length && c?.id) await uploadPendingAttachments(d.taskId, c.id, d.files);
+    } else if (d.kind === 'reply') {
+      await addComment(d.taskId, text, { parent_id: d.parentId });
+    } else if (d.kind === 'edit') {
+      await api.editTaskComment(d.commentId, { body: text });
+    } else if (d.kind === 'checklist') {
+      const res = await api.addTaskChecklistItems(d.taskId, { title: text.trim() });
+      if (res?.task) applyServerTask?.(res.task);
+    } else if (d.kind === 'subtask') {
+      // The Subtasks tab's own defaults (SubtasksTab.add): the main task's
+      // people, project, team, priority and field values; no due date.
+      const t = taskById[d.taskId];
+      if (!t) return;
+      await createTask({
+        title: text.trim(), parentTaskId: t.id, projectId: t.projectId, teamId: t.teamId,
+        followerIds: [...(t.followerIds || [])], customFieldValues: { ...(t.customFieldValues || {}) },
+        assigneeIds: taskAssignees(t), status: 'not_started', priority: t.priority || 'medium', type: 'task',
+      });
+    }
+    clearDraft(d.key);
+  };
+  const sendAll = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      for (const d of drafts) await sendOne(d);
+      onSent();
+    } catch (e) {
+      // What went is cleared; what did not stays, and the prompt stays.
+      setError(e?.message || 'That did not send. Try again.');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} data-nx-backdrop data-nx-prompt
+      style={{ position: 'fixed', inset: 0, zIndex: 4600, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(17,24,39,0.25)', padding: 16, fontFamily: FONT }}>
+      <div role="alertdialog" aria-modal="true" aria-labelledby="nx-unsent-title" className="nx-popup" style={{
+        background: NX.surface, borderRadius: 14, padding: 20, display: 'flex', flexDirection: 'column',
+        boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
+      }}>
+        <div id="nx-unsent-title" style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, marginBottom: 6 }}>{title}</div>
+        <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 12, lineHeight: 1.5 }}>
+          {one ? 'Closing now would lose what you typed.' : 'Closing now would lose everything below.'}
+        </div>
+        {/* The words themselves, in full, fill the popup (nx-fill) - what
+            you wrote is what you are deciding about. */}
+        <div className="nx-fill" style={{ display: 'flex', flexDirection: 'column', marginBottom: 16, borderTop: `1px solid ${NX.border2}`, overflowY: 'auto', minHeight: 0 }}>
+          {drafts.map((d) => {
+            const words = d.kind === 'checklist' || d.kind === 'subtask' ? (d.text || '').trim() : plainOf(d.text);
+            const files = d.files?.length || 0;
+            return (
+              <div key={d.key} style={{ padding: '8px 0', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5, color: NX.ink, lineHeight: 1.45 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: NX.faint, marginBottom: 2 }}>
+                  {DRAFT_NOUN[d.kind].replace(/^\w/, (c) => c.toUpperCase())}
+                  {d.taskId !== activeId && taskById[d.taskId] ? ` on ${taskById[d.taskId].title}` : ''}
+                  {files ? ` - ${files} file${files === 1 ? '' : 's'} attached` : ''}
+                </div>
+                <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{words || (files ? 'Files only' : '')}</div>
+              </div>
+            );
+          })}
+        </div>
+        {error && <div role="alert" style={{ fontSize: 12, color: NX.red, marginBottom: 10 }}>{error}</div>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <button autoFocus style={btn('ghost')} onClick={onKeep} disabled={busy}>Keep Editing</button>
+          <button style={btn('ghost')} onClick={onDiscard} disabled={busy}>Discard</button>
+          <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1, pointerEvents: busy ? 'none' : 'auto' }} onClick={sendAll}>
+            {busy ? 'Sending…' : sendLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAll, canComment = true, canPin = true }) {
-  const [body, setBody] = useState('');
+  // The same draft as the Comments tab's box (useCommentDraft).
+  const { body, setBody, pending, setPending, assignTo, setAssignTo, clear: clearComment } = useCommentDraft(task.id);
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState([]);
+  // A voice note still recording in the box: Comment waits for Stop.
+  const [voiceRec, setVoiceRec] = useState(false);
   const people = usePeople();
   const [attachments, reloadAttachments] = useCommentAttachments(task.id);
   const uploads = useCommentUploads(task.id, reloadAttachments);
@@ -1651,19 +1819,15 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
   }, [getComments, task.id]);
   useEffect(() => { load(); }, [load]);
 
-  const [assignTo, setAssignTo] = useState('');
   const submit = async () => {
     if (isEmptyDoc(body) || busy) return;
     setBusy(true);
     try {
       const c = await addComment(task.id, body, assignTo ? { assignee_email: assignTo } : {});
-      setBody('');
-      setAssignTo('');
-      if (pending.length) {
-        const files = pending;
-        setPending([]);
-        await uploads.upload(c.id, files);
-      }
+      // Cleared once it posted - a refused comment keeps its words.
+      const files = pending;
+      clearComment();
+      if (files.length) await uploads.upload(c.id, files);
       load();
     } catch { /* surfaced by the store */ } finally { setBusy(false); }
   };
@@ -1697,7 +1861,7 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
                 "[Asana · Name]" stamp still in the body instead of the real
                 author. Reusing the component means the two can't drift again. */}
             {shown.map((th) => (
-              <CommentThread key={th.root.id} thread={th} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} {...handlers} />
+              <CommentThread key={th.root.id} thread={th} taskId={task.id} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} {...handlers} />
             ))}
           </div>
           <button onClick={onViewAll} style={{ ...btn('ghost'), padding: 0, fontSize: 12, fontWeight: 600, color: NX.primary, marginTop: 8 }}>
@@ -1705,7 +1869,9 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
           </button>
         </div>
       )}
-      {canComment && <div onPaste={(e) => onPasteStage(e, setPending)}>
+      {/* data-nx-noguard: the draft store and the drawer's own prompt look
+          after this box, so the app-wide dialog guard does not ask too. */}
+      {canComment && <div data-nx-noguard onPaste={(e) => onPasteStage(e, setPending)}>
         <RichDescription
           value={body}
           onChange={setBody}
@@ -1713,6 +1879,7 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
           mentionPeople={people}
           minHeight={64}
           onStageFiles={(fs) => setPending((p) => [...p, ...fs])}
+          onRecordingChange={setVoiceRec}
         />
       </div>}
       <PendingAttachments files={pending} setFiles={setPending} />
@@ -1723,8 +1890,8 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
             Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
           </span>
           <AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} />
-          <button onClick={submit} disabled={isEmptyDoc(body) || busy}
-            style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1, flexShrink: 0 }}>
+          <button onClick={submit} disabled={isEmptyDoc(body) || busy || voiceRec} title={voiceRec ? STOP_VOICE_FIRST : undefined}
+            style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy || voiceRec) ? 0.5 : 1, flexShrink: 0 }}>
             {busy ? 'Posting…' : assignTo ? 'Assign Comment' : 'Comment'}
           </button>
         </div>
@@ -1811,6 +1978,8 @@ function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment
 // ── Comments ────────────────────────────────────────────────────────────────
 function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComment = null, canComment = true, canPin = true }) {
   const [comments, setComments] = useState(null);
+  // A voice note still recording in the box: Send waits for Stop.
+  const [voiceRec, setVoiceRec] = useState(false);
   const listRef = useRef(null);
   const focused = useRef(null);
   // Land on the comment the drawer was opened for, once its list is in: the
@@ -1828,25 +1997,21 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
     el.animate?.([{ boxShadow: `0 0 0 2px ${NX.blue}` }, { boxShadow: `0 0 0 2px ${NX.blue}`, offset: 0.7 }, { boxShadow: '0 0 0 2px transparent' }],
       { duration: still ? 1 : 2400 });
   }, [focusComment, comments]);
-  const [body, setBody] = useState('');
-  const [pending, setPending] = useState([]);
+  const { body, setBody, pending, setPending, assignTo, setAssignTo, clear: clearComment, restore } = useCommentDraft(task.id);
   const people = usePeople();
   const [attachments, reloadAttachments] = useCommentAttachments(task.id);
   const uploads = useCommentUploads(task.id, reloadAttachments);
   const reload = () => getComments(task.id).then(setComments).catch(() => setComments([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
-  const [assignTo, setAssignTo] = useState('');
   const submit = async () => {
     if (isEmptyDoc(body)) return;
-    setBody('');
+    const sent = { text: body, assignTo, files: pending };
+    clearComment();
     const c = await addComment(task.id, body, assignTo ? { assignee_email: assignTo } : {}).catch(() => null);
-    setAssignTo('');
-    if (c && pending.length) {
-      const files = pending;
-      setPending([]);
-      await uploads.upload(c.id, files);
-    }
+    // Refused: the words come back into the box instead of vanishing.
+    if (!c) { restore(sent); return; }
+    if (sent.files.length) await uploads.upload(c.id, sent.files);
     reload();
   };
   const handlers = useCommentHandlers(task, addComment, reload, { canComment, canPin });
@@ -1857,10 +2022,10 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
 
   return (
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {canComment && <div onPaste={(e) => onPasteStage(e, setPending)}>
+      {canComment && <div data-nx-noguard onPaste={(e) => onPasteStage(e, setPending)}>
         <RichDescription value={body} onChange={setBody} onSubmit={submit}
           mentionPeople={people} minHeight={64}
-          onStageFiles={(fs) => setPending((p) => [...p, ...fs])} />
+          onStageFiles={(fs) => setPending((p) => [...p, ...fs])} onRecordingChange={setVoiceRec} />
         <PendingAttachments files={pending} setFiles={setPending} />
         <FailedUploads failed={uploads.failed} onRetry={uploads.retry} onDismiss={uploads.dismiss} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
@@ -1868,14 +2033,14 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
             Type <b>@</b> to mention someone - they'll get an email.
           </span>
           <span style={{ marginLeft: 'auto' }}><AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} /></span>
-          <button onClick={submit} disabled={isEmptyDoc(body)}
-            style={{ ...btn('primary'), opacity: isEmptyDoc(body) ? 0.5 : 1 }}>{assignTo ? 'Assign Comment' : 'Send'}</button>
+          <button onClick={submit} disabled={isEmptyDoc(body) || voiceRec} title={voiceRec ? STOP_VOICE_FIRST : undefined}
+            style={{ ...btn('primary'), opacity: isEmptyDoc(body) || voiceRec ? 0.5 : 1 }}>{assignTo ? 'Assign Comment' : 'Send'}</button>
         </div>
       </div>}
       {comments === null ? <LoadingState />
         : list.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No comments yet.</div>
           : <div ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {list.map((th) => <CommentThread key={th.root.id} thread={th} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} {...handlers} />)}
+            {list.map((th) => <CommentThread key={th.root.id} thread={th} taskId={task.id} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} {...handlers} />)}
           </div>}
     </div>
   );
@@ -2152,7 +2317,9 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
                 const href = a.dataUrl || a.url;
                 const thumb = a.kind === 'image' && href
                   ? <img src={href} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
-                  : <Paperclip size={13} style={{ color: NX.dim }} />;
+                  : isAudioAttachment(a)
+                    ? <AudioLines size={14} style={{ color: NX.primary }} aria-label="Voice Note" />
+                    : <Paperclip size={13} style={{ color: NX.dim }} />;
                 const nVersions = a.versionCount || 1;
                 const up = verUploads[a.id];
                 return (
@@ -2287,7 +2454,11 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
   const rowEditable = (s) => (canEditTask ? canEditTask(s) : true);
   // Reordering writes every sibling's position and the main task's order.
   const canReorder = canEditParent && canAdd;
-  const [title, setTitle] = useState('');
+  // The title being typed is a draft (taskDrafts.js): Overview and the
+  // Subtasks tab share it, and closing the drawer asks before losing it.
+  const [titleDraft, setTitleDraft, clearTitle] = useTaskDraft(draftKey(task.id, 'subtask'), { taskId: task.id, kind: 'subtask' });
+  const title = titleDraft.text || '';
+  const setTitle = (v) => (v ? setTitleDraft({ text: v }) : clearTitle());
   const [dueOn, setDueOn] = useState('');
   // Who it is for: the main task's assignees until changed here.
   const [assignees, setAssignees] = useState(null);

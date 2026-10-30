@@ -29,7 +29,7 @@ const Overlay = ({ children, onClose }) => {
   const vv = useVisualViewport();
   return createPortal(
     <div data-testid="quick-action-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: 'fixed', ...(vv ? { left: 0, right: 0, top: vv.top, height: vv.height } : { inset: 0 }), background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, boxSizing: 'border-box' }}>
+      style={{ position: 'fixed', ...(vv ? { left: 0, right: 0, top: vv.top, height: vv.height } : { inset: 0 }), background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, paddingBottom: 16 + (vv?.clear || 0), boxSizing: 'border-box' }}>
       {children}
     </div>,
     document.body,

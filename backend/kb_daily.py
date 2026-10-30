@@ -218,7 +218,7 @@ def learner_items(db, email: str) -> list[dict]:
     for d in db.query(models.KbDocument).filter(models.KbDocument.status == "approved", models.KbDocument.require_ack.is_(True)).all():
         if email not in kb_core.policy_audience_emails(db, d):
             continue
-        if kb_core.signature_for(db, d, email):
+        if kb_core.signature_for(db, d, email) or not kb_core.is_live(d):   # scheduled pages ask nobody yet (WP 5.8)
             continue
         due = kb_core.signature_due(db, d, emp)
         out.append({"kind": "policy", "id": d.id, "title": d.title, "due": due, "days_overdue": max(0, kb_core.days_between(due, day)), "status": "Overdue" if due < day else "To Sign"})

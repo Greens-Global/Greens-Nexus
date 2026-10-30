@@ -4,10 +4,10 @@
 //    got a height. jsdom has no layout, so this pins the structure that makes
 //    the bound work - the panes never wrap, and the agenda list is a bounded
 //    flex:1/minHeight:0 scroller - plus the count that says how much is there.
-//  - Notes used to go through the layout's unsaved-changes flag, which has no
-//    Save button outside Customize, so typed text was lost on reload.
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+//  - The Notes tile is the Notes module's (Oct 29) - see the Notes block.
+import { Suspense } from 'react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen } from '@testing-library/react';
 
 const apiMock = vi.hoisted(() => ({
   dashAgenda: vi.fn(),
@@ -61,49 +61,18 @@ describe('Calendar agenda', () => {
   });
 });
 
+// The Notes tile is the Notes module's now (notes/NotesWidget.jsx, Neil Oct
+// 29 2026): its own text in the view config moved into a note, and the
+// module's tests (notes/notes.test.jsx) cover the capture line, the pinned
+// list and that move. Here: the registry entry still resolves under its old
+// key and size, so saved boards keep their tile.
 describe('Notes', () => {
-  beforeEach(() => { vi.useFakeTimers(); });
-  afterEach(() => { vi.useRealTimers(); });
-  const Notes = WIDGETS.notes.render;
-
-  it('saves on its own shortly after typing stops, not through the layout', async () => {
-    const saveConfig = vi.fn(async () => {});
-    const updateConfig = vi.fn();
-    render(<Notes config={{ text: '' }} saveConfig={saveConfig} canSaveConfig updateConfig={updateConfig} />);
-    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Call the plumber' } });
-    expect(saveConfig).not.toHaveBeenCalled();
-    await act(async () => { vi.advanceTimersByTime(1300); });
-    expect(saveConfig).toHaveBeenCalledWith({ text: 'Call the plumber' });
-    expect(updateConfig).not.toHaveBeenCalled();
-  });
-
-  it('does not save (or mark anything changed) when the text did not change', async () => {
-    const saveConfig = vi.fn(async () => {});
-    render(<Notes config={{ text: 'Same' }} saveConfig={saveConfig} canSaveConfig />);
-    fireEvent.blur(screen.getByLabelText('Notes'));
-    expect(saveConfig).not.toHaveBeenCalled();
-  });
-
-  it('says so when the note is waiting on the layout Save (Customize), instead of "Saved"', async () => {
-    const saveConfig = vi.fn(async () => ({ deferred: true }));
-    render(<Notes config={{ text: '' }} saveConfig={saveConfig} canSaveConfig />);
-    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Draft' } });
-    await act(async () => { vi.advanceTimersByTime(1300); });
-    expect(screen.getByText(/when you press Save/)).toBeTruthy();
-    expect(screen.queryByText('Saved')).toBeNull();
-  });
-
-  it('saves the last words when the tile goes away inside the debounce', async () => {
-    const saveConfig = vi.fn(async () => {});
-    const { unmount } = render(<Notes config={{ text: '' }} saveConfig={saveConfig} canSaveConfig />);
-    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Last words' } });
-    unmount();
-    expect(saveConfig).toHaveBeenCalledWith({ text: 'Last words' });
-  });
-
-  it('is read-only on a view this person cannot change, and says why', () => {
-    render(<Notes config={{ text: 'Team note' }} saveConfig={vi.fn()} canSaveConfig={false} />);
-    expect(screen.getByLabelText('Notes').readOnly).toBe(true);
-    expect(screen.getByText(/save a copy as your own/)).toBeTruthy();
+  it('keeps the notes tile under its old key and size, now the Notes module widget', async () => {
+    apiMock.notesList = vi.fn(async () => ({ notes: [], counts: { all: 0 }, tags: [] }));
+    expect(WIDGETS.notes.size).toEqual({ w: 3, h: 3 });
+    const Notes = WIDGETS.notes.render;
+    render(<Suspense fallback={null}><Notes config={{ text: 'Team note' }} saveConfig={vi.fn()} canSaveConfig={false} /></Suspense>);
+    expect(await screen.findByText('Team note')).toBeTruthy();
+    expect(screen.getByLabelText("Add to today's scratchpad")).toBeTruthy();
   });
 });

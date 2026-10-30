@@ -50,7 +50,7 @@ const COLUMNS = (multiCompany) => [
 export async function directoryPdfBytes({ people, companyName = '', scope = '', generatedAt = new Date() }) {
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
   const doc = await PDFDocument.create();
-  doc.setTitle('Contact Directory');
+  doc.setTitle('Directory');
   doc.setProducer('Nexus');
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -94,7 +94,7 @@ export async function directoryPdfBytes({ people, companyName = '', scope = '', 
   // ── Page 1+: the contact sheet, grouped by department ───────────────────
   const when = formatDateTime(generatedAt);
   const count = `${people.length} ${people.length === 1 ? 'person' : 'people'}`;
-  title(companyName ? `${companyName} - Contact Directory` : 'Contact Directory',
+  title(companyName ? `${companyName} - Directory` : 'Directory',
     [count, scope, `Generated ${when}`].filter(Boolean).join('  ·  '));
 
   const groups = groupByDepartment(people);
@@ -157,7 +157,7 @@ export async function directoryPdfBytes({ people, companyName = '', scope = '', 
   // Footer on every page, once the count is known.
   const pages = doc.getPages();
   pages.forEach((pg, i) => {
-    pg.drawText(`${ascii(companyName || 'Nexus')} Contact Directory  -  internal use  -  ${count}  -  ${when}  -  page ${i + 1} of ${pages.length}`,
+    pg.drawText(`${ascii(companyName || 'Nexus')} Directory  -  internal use  -  ${count}  -  ${when}  -  page ${i + 1} of ${pages.length}`,
       { x: MARGIN, y: MARGIN - 14, size: 8, font, color: FAINT });
   });
   return doc.save();
@@ -173,5 +173,5 @@ function saveBlob(blob, filename) {
 
 export async function exportDirectoryPdf(spec) {
   const bytes = await directoryPdfBytes(spec);
-  saveBlob(new Blob([bytes], { type: 'application/pdf' }), `contact-directory-${new Date().toISOString().slice(0, 10)}.pdf`);
+  saveBlob(new Blob([bytes], { type: 'application/pdf' }), `directory-${new Date().toISOString().slice(0, 10)}.pdf`);
 }

@@ -12,6 +12,7 @@ from typing import Optional, Any
 import os
 import json
 import math
+import re
 import uuid
 import httpx
 from datetime import datetime, timedelta, timezone
@@ -1494,6 +1495,7 @@ def mark_changelog_seen(user: dict = Depends(get_current_user), db: Session = De
 # categories only - "2 new features and 3 bug fixes" - and leave the details to
 # What's New itself.
 FEATURE_BANNER_DAYS = 7
+RELEASED_SINCE_ITEMS = 40   # the most a See What's New popup lists
 # A hand-written update used to carry the author's browser wall time with no
 # zone; the company's home zone is the best reading of those. New ones are
 # saved as instants (ChangelogView's AddUpdateModal), and merges always were.
@@ -1544,6 +1546,25 @@ def _released_updates(db: Session) -> list:
     rows.sort(key=lambda r: r["at"], reverse=True)
     _released_cache.update(key=key, rows=rows)
     return rows
+
+
+def _release_items(db: Session, rows: list) -> list:
+    """The updates themselves for the bar's See What's New popup (Oct 29-30
+    2026, Neil agreed: it opens a popup, it never reloads): newest first,
+    capped; the description cut to a short plain line. Both bars use it -
+    the New Version one (released-since) and the weekly news (feature-banner)."""
+    rows = rows[:RELEASED_SINCE_ITEMS]
+    ids = [r["id"] for r in rows]
+    by_id = {e.id: e for e in db.query(models.TaskChangelogEntry).filter(models.TaskChangelogEntry.id.in_(ids)).all()} if ids else {}
+    items = []
+    for r in rows:
+        e = by_id.get(r["id"])
+        p = e.payload if e is not None and isinstance(e.payload, dict) else {}
+        desc = re.sub(r"\s+", " ", re.sub(r"[#*_`>\[\]]", "", str(p.get("description") or ""))).strip()
+        items.append({"id": r["id"], "title": str(p.get("title") or "Update")[:200], "type": r["type"],
+                      "module": str(p.get("module") or "")[:60],
+                      "summary": desc[:240] + ("..." if len(desc) > 240 else "")})
+    return items
 
 
 def _category_counts(rows: list) -> dict:
@@ -1626,7 +1647,7 @@ def get_feature_banner(user: dict = Depends(get_current_user), db: Session = Dep
     db.commit()
     if away_this_week:
         return {"show": False}
-    return {"show": True, **counts}
+    return {"show": True, **counts, "items": _release_items(db, fresh)}
 
 
 @view_router.post("/task-changelog/feature-banner/dismiss")
@@ -1647,8 +1668,9 @@ def get_released_since(since: str = "", user: dict = Depends(get_current_user), 
     import changelog_reach
     since_at = _changelog_instant(since) or (datetime.now(timezone.utc) - timedelta(days=1))
     ctx = changelog_reach.viewer(db, user)
-    return _category_counts([r for r in _released_updates(db)
-                             if (r["merged"] or r["at"]) > since_at and changelog_reach.visible(r["p"], ctx)])
+    rows = [r for r in _released_updates(db)
+            if (r["merged"] or r["at"]) > since_at and changelog_reach.visible(r["p"], ctx)]
+    return {**_category_counts(rows), "items": _release_items(db, rows)}
 
 
 @router.delete("/task-changelog/{entry_id}", status_code=204)

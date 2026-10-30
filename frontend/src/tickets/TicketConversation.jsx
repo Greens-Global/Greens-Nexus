@@ -31,7 +31,9 @@ import { RecordUploadButtons } from './TicketEvidence';
 // The reply being written is the drawer's (`reply` / `onReplyChange`): it is
 // posted with the rest of the ticket's changes when Done is clicked, never on
 // its own - see TicketDrawer's `commit`.
-function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, canDelete = false, newSince, reply, onReplyChange, onDone, savedReplies = false, ticket = null, myEmail = '' }) {
+// onVoiceRecordingChange(bool): a voice note is recording under the reply - the
+// drawer's Done waits for Stop.
+function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, canDelete = false, newSince, reply, onReplyChange, onDone, onVoiceRecordingChange, savedReplies = false, ticket = null, myEmail = '' }) {
   const [rows, setRows] = useState(null);
   const [attaching, setAttaching] = useState(false);
   const [pickingReply, setPickingReply] = useState(false);
@@ -79,8 +81,10 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
     await api.addTicketAttachment(ticketId, { name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind, url }).catch(attachFailed(f.name));
     setAttaching(false);
     if (!url) return;
-    const text = kind === 'video' ? 'Screen recording' : f.name;
-    const link = `<p>${kind === 'video' ? 'Attached a screen recording' : 'Attached'}: <a href="${escapeHtml(url)}">${escapeHtml(text)}</a></p>`;
+    const recording = kind === 'video' && /^ticket-recording-/.test(f.name);
+    const text = recording ? 'Screen recording' : kind === 'audio' ? 'Voice note' : f.name;
+    const what = recording ? 'Attached a screen recording' : kind === 'audio' ? 'Attached a voice note' : 'Attached';
+    const link = `<p>${what}: <a href="${escapeHtml(url)}">${escapeHtml(text)}</a></p>`;
     onReplyChange((r) => ({ ...r, body: isEmptyDoc(r.body) ? link : `${r.body || ''}${link}` }));
   };
 
@@ -139,7 +143,7 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
         <RecordUploadButtons compact disabled={attaching} showRecord={!NO_RECORDING_TYPES.includes(ticketType)}
-          onFile={attach} onRecordingChange={returnToTicketAfterRecording(ticketId)} />
+          onFile={attach} onRecordingChange={returnToTicketAfterRecording(ticketId)} onVoiceRecordingChange={onVoiceRecordingChange} />
         {savedReplies && (
           <button type="button" onClick={() => setPickingReply(true)}
             style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>

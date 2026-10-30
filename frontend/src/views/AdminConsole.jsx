@@ -131,6 +131,8 @@ const ChecklistLibrary = lazy(() => import('../components/HrChecklists').then(m 
 const EmployeeCustomFieldsSettings = lazy(() => import('../components/EmployeeCustomFieldsSettings'));
 // Probation (Oct 27 2026): the length, the reminder and the letters - a default, and each company's own.
 const ProbationSettings = lazy(() => import('../components/HrProbation').then(m => ({ default: m.ProbationSettings })));
+// Headcount Requests: off per company until turned on (Neil, Oct 30 2026).
+const HeadcountSwitch = lazy(() => import('../components/hiring/HeadcountSwitch'));
 const WorkSiteLibrary = fromHR('WorkSiteLibrary');
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
@@ -430,13 +432,15 @@ const GROUPS = [
     keywords: 'intacct employee codes nightly sync automatic payroll' },
   // Workforce Analytics
   { id: 'app-ratings', subject: 'analytics', face: 'org', scope: 'org', icon: MonitorDot, title: 'App & Website Ratings',
-    needs: { role: 'manager', grant: [['hr', 'editor'], ['employee-tracking', 'full']] },
+    // Workforce Analytics' own (Neil, 10/29/2026): the full Employee Tracking
+    // grant, as /timeclock/ratings now demands - no longer any manager or HR editor.
+    needs: { role: 'administrator', grant: ['employee-tracking', 'full'] },
     sub: 'Every application and website seen on company computers, rated productive, neutral or unproductive - the split the Workforce Analytics dashboard shows.',
     keywords: 'apps websites ratings productive neutral unproductive workforce analytics activity' },
-  // Moved out of Shift Settings (Oct 25): managers see the trail in Workforce Analytics.
+  // Moved out of Shift Settings (Oct 25): Workforce Analytics grant holders see the trail (Oct 29 2026).
   { id: 'location-trail', subject: 'analytics', face: 'both', scope: 'layered', icon: MapPinned, title: 'Location Trail', part: 'trail', flush: true,
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
-    sub: 'Share each person\'s location while they are clocked in, for managers in Workforce Analytics. Off unless turned on.',
+    sub: 'Share each person\'s location while they are clocked in, for Workforce Analytics grant holders. Off unless turned on.',
     keywords: 'location trail gps clocked in live position map workforce analytics privacy shifts' },
   { id: 'company-policy', subject: 'analytics', face: 'company', scope: 'company', icon: MonitorDot, title: 'Workforce Analytics Policy',
     needs: { role: 'administrator', grant: ['employee-tracking', 'full'] },
@@ -504,6 +508,14 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'This company\'s baseline steps, which departments own steps, and the steps its onboarding, promotion, offboarding and leave checklists add, role by role.',
     keywords: 'company checklists baseline onboarding promotion offboarding leave steps departments owners roles missing' },
+  // Headcount Requests (Neil, Oct 30 2026): off for every company until it
+  // turns them on - most small and midsize companies do not need them.
+  { id: 'headcount-requests', subject: 'hiring', face: 'both', scope: 'company', icon: UserPlus, title: 'Headcount Requests', flush: true,
+    // What PUT /hiring/headcount/settings demands: HR++ (is_hr_approver) -
+    // switching it off takes waiting requests from their approvers.
+    needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
+    sub: 'Managers ask to hire and the department line and HR approve, before there is a candidate. Off for every company until it is turned on here; while off, HR starts job openings directly.',
+    keywords: 'headcount request hire approval new role opening requisition team department switch off on' },
   // HR letters (Neil, Oct 27 2026): an organization default a company may override.
   { id: 'hr-letters', subject: 'hiring', face: 'both', scope: 'layered', icon: FileText, title: 'HR Letters',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
@@ -686,6 +698,7 @@ const COMPANY_STATE = {
   'payroll-readiness': (cid) => api.payrollReadinessSettings(cid).then(m => ownState(!!m?.override)),
   'time-off-reasons': (cid) => api.timeOffTypes(cid).then(r => ownState(!!r?.hasOverride)),
   'probation': (cid) => api.probationSettings(cid).then(r => ownState(!!r?.override)),
+  'headcount-requests': (cid) => api.headcountSettings(cid).then(r => ({ own: !!r?.on, label: r?.on ? 'On' : 'Off' })),
   'leave-year-end': (cid) => api.leaveYearEndSettings(cid).then(r => ownState(!!r?.hasOverride)),
   'timeoff-approval': (cid) => api.timeOffApprovalGet(cid).then(r => ownState(!!r?.hasOverride)),
   'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
@@ -1720,6 +1733,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'timeoff-approval':     return <LazyPanelSection key={key} id={id} Panel={TimeOffApprovalSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'intacct-nightly':      return <LazyPanelSection key={key} id={id} Panel={IntacctNightlySync} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} embedded />;
       case 'letterheads':          return <LazyPanelSection key={key} id={id} Panel={LetterheadsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'headcount-requests':   return <LazyPanelSection key={key} id={id} Panel={HeadcountSwitch} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'hr-letters':           return <LazyPanelSection key={key} id={id} Panel={HrLettersSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ticket-property-rules': return <LazyPanelSection key={key} id={id} Panel={TicketPropertyRulesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ops-unit-rules':       return <LazyPanelSection key={key} id={id} Panel={UnitRulesPanel} chrome={chrome} />;

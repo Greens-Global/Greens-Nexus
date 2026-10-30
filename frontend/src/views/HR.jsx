@@ -2277,6 +2277,14 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [openingFilter, setOpeningFilter] = useState('');   // '' = every candidate
   const loadOpenings = useCallback(() => { api.listOpenings().then(setOpenings).catch(() => {}); }, []);
   useEffect(() => { loadOpenings(); }, [loadOpenings]);
+  // Headcount Requests are off per company until Settings turns them on (Neil,
+  // Oct 30 2026): no Headcount tab without any, and where they are off HR
+  // starts openings by hand (directOpeningCompanies).
+  const [hcMeta, setHcMeta] = useState({ showTab: false, directOpeningCompanies: [] });
+  useEffect(() => {
+    Promise.resolve().then(() => api.headcountMeta())
+      .then(m => setHcMeta({ showTab: !!m?.showTab, directOpeningCompanies: m?.directOpeningCompanies || [] })).catch(() => {});
+  }, []);
   // Roles typed in as Other on Add Candidate that have no hiring packet yet
   // (Neil, Oct 12) - the Packets button carries the count until each has one.
   const [needPackets, setNeedPackets] = useState([]);
@@ -2325,7 +2333,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const activeOpenings = openings.filter(o => ['draft', 'open', 'paused'].includes(o.status) || o.id === openingFilter);
   const viewTabs = (
     <div className="scroll-tabs" role="tablist" aria-label="Hiring" style={{ display: 'flex', gap: 4 }}>
-      {[['pipeline', 'Pipeline'], ['openings', `Openings${activeOpenings.length ? ` (${activeOpenings.length})` : ''}`], ['headcount', 'Headcount']].map(([k, label]) => (
+      {[['pipeline', 'Pipeline'], ['openings', `Openings${activeOpenings.length ? ` (${activeOpenings.length})` : ''}`], ...(hcMeta.showTab ? [['headcount', 'Headcount']] : [])].map(([k, label]) => (
         <button key={k} type="button" role="tab" aria-selected={hView === k} onClick={() => { setHView(k); if (k === 'pipeline') { refreshBoard(); loadOpenings(); } }}
           className={hView === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 12.5, padding: '5px 12px' }}>{label}</button>
       ))}
@@ -2337,8 +2345,8 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>{viewTabs}</div>
         <Suspense fallback={<SkeletonBlocks count={3} height={64} />}>
           {hView === 'openings'
-            ? <JobOpenings toastOk={toastOk} toastErr={toastErr} canSeePay={canSeePay}
-              onFilterPipeline={id => { setOpeningFilter(id); setHView('pipeline'); refreshBoard(); loadOpenings(); }} />
+            ? <JobOpenings toastOk={toastOk} toastErr={toastErr} canSeePay={canSeePay} directCompanies={hcMeta.directOpeningCompanies}
+              onCreated={loadOpenings} onFilterPipeline={id => { setOpeningFilter(id); setHView('pipeline'); refreshBoard(); loadOpenings(); }} />
             : <HeadcountRequests toastOk={toastOk} toastErr={toastErr} />}
         </Suspense>
       </div>
@@ -3381,7 +3389,7 @@ export function CompanyDepartments({ entity, toastOk, toastErr }) {
     <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
       <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
         Departments for <strong>{entity.name}</strong>. These are the only choices when picking a department for someone in this company.
-        The department head is the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Contact Directory.
+        The department head is the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Directory.
         The head and the backup both get the HR, IT and Accounting steps of every checklist, so set a backup for anyone who can be out.
         Weather Calls: rain advisories and weather calls apply only to the people of departments with it on - on for Construction by default.
       </p>

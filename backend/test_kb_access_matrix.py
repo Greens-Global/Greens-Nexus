@@ -81,9 +81,11 @@ ROUTES = {
     ("GET", "/kb/health"): "list",
     ("GET", "/kb/home"): "list",
     ("POST", "/kb/import"): "create",
+    ("POST", "/kb/import/convert"): "create",       # Import As Is: authors only, saves nothing
     ("GET", "/kb/jobs/{job_id}"): "wall",
     ("GET", "/kb/me"): "own",
     ("POST", "/kb/media"): "create",
+    ("POST", "/kb/media/video-upload"): "create",      # WP 5.10: a signed link to the caller's own upload
     ("GET", "/kb/migrate"): "org",                    # the one-time conversion report (Manage)
     ("POST", "/kb/migrate"): "org",
     ("GET", "/kb/pages"): "list",
@@ -138,6 +140,18 @@ ROUTES = {
     ("PUT", "/kb/synonyms"): "org",
     ("POST", "/kb/tags"): "create",
     ("GET", "/kb/training/me"): "own",
+    # In-person training (WP 5.1)
+    ("GET", "/kb/reports/reading"): "list",
+    ("GET", "/kb/reports/training"): "list",
+    ("GET", "/kb/export"): "list",                     # WP 5.11: built from _published (wall + readers)           # WP 5.6: its company's courses and people            # WP 5.4: counts over the caller's pages
+    ("GET", "/kb/courses/{cid}/sessions"): "wall",
+    ("POST", "/kb/courses/{cid}/feedback"): "wall",   # WP 5.7
+    ("GET", "/kb/photo-reviews"): "list",              # WP 5.5 photo proof
+    ("POST", "/kb/photo-reviews/{rid}/decide"): "wall",
+    ("POST", "/kb/courses/{cid}/sessions"): "wall",
+    ("POST", "/kb/courses/{cid}/sign-off"): "wall",
+    ("PATCH", "/kb/sessions/{sid}"): "wall",
+    ("POST", "/kb/sessions/{sid}/attendance"): "wall",
 }
 
 # Bodies that pass validation, so the call reaches the wall.
@@ -164,6 +178,12 @@ BODIES = {
     "/kb/rules/{rid}": {"due_days": 1},
     "/kb/revisions/{rid}": {"summary": "taken over"},
     "/kb/requests/{rid}/assign": {"email": BAUTH},
+    "/kb/courses/{cid}/sessions": {"starts_at": "2026-11-03T09:00"},
+    "/kb/courses/{cid}/sign-off": {"email": ALRN},
+    "/kb/courses/{cid}/feedback": {"rating": 5},
+    "/kb/photo-reviews/{rid}/decide": {"decision": "approve"},
+    "/kb/sessions/{sid}": {"location": "Taken Over"},
+    "/kb/sessions/{sid}/attendance": {"email": ALRN, "status": "attended"},
 }
 
 # GETs whose owner answer is not a plain 2xx in this fixture (nothing to show yet).
@@ -257,11 +277,15 @@ class KbAccessMatrixCase(unittest.TestCase):
             db.add(models.KbQuizAttempt(id="chk-kbm-a", course_id=cid, user_email=ALRN, status="open", course_major=-1,
                                         answers=json.dumps({"lesson": "L1"})))
             db.add(models.KbJob(id="job-kbm-a", kind="import", created_by=AAUTH))
+            db.add(models.KbPhotoReview(id="phr-kbm-a", attempt_id="att-kbm-a", course_id=cid, question_id="q1", user_email=ALRN,
+                                        photo_url="https://x/kb-media/proof/a.jpg", status="pending"))
+            db.add(models.KbSession(id="ses-kbm-a", course_id=cid, starts_at="2026-11-03T09:00", trainer_email=AAUTH, status="scheduled"))
+            db.add(models.KbSessionAttendee(id="att-kbm-a", session_id="ses-kbm-a", course_id=cid, user_email=ALRN, status="invited"))
             db.commit()
             rid_rev = rev.get("id") or rev.get("revision", {}).get("id")
             return {"doc_id": pub["id"], "draft": draft["id"], "rid_rev": rid_rev, "cid": cid, "pid": pid, "rule": rule["id"],
                     "fid": flag["id"], "req": req.id, "aid_asg": "asg-kbm-a", "cert_id": "cert-kbm-a", "aid_quiz": "att-kbm-a",
-                    "aid_chk": "chk-kbm-a", "job_id": "job-kbm-a", "col": "col-kbm-a", "lid": "L1", "lang": "es", "vid": "v-none"}
+                    "aid_chk": "chk-kbm-a", "job_id": "job-kbm-a", "sid": "ses-kbm-a", "col": "col-kbm-a", "lid": "L1", "lang": "es", "vid": "v-none"}
         finally:
             db.close()
 
@@ -270,6 +294,7 @@ class KbAccessMatrixCase(unittest.TestCase):
         fill = {
             "{doc_id}": i["doc_id"], "{draft}": i["draft"], "{cid}": i["cid"], "{pid}": i["pid"], "{fid}": i["fid"],
             "{cert_id}": i["cert_id"], "{job_id}": i["job_id"], "{lid}": i["lid"], "{lang}": i["lang"], "{vid}": i["vid"],
+            "{sid}": i["sid"],
         }
         # ids whose placeholder name is shared between routes
         if path.startswith("/kb/collections/"):
@@ -280,6 +305,8 @@ class KbAccessMatrixCase(unittest.TestCase):
             fill["{rid}"] = i["rule"]
         elif path.startswith("/kb/requests/"):
             fill["{rid}"] = i["req"]
+        elif path.startswith("/kb/photo-reviews/"):
+            fill["{rid}"] = "phr-kbm-a"
         if path.startswith("/kb/assignments/"):
             fill["{aid}"] = i["aid_asg"]
         elif path.startswith("/kb/quiz/"):
@@ -333,6 +360,9 @@ class KbAccessMatrixCase(unittest.TestCase):
             ("GET", f"/kb/compliance?scope=direct&manager={AAUTH}", None), ("GET", "/kb/people", None),
             ("GET", f"/kb/collections/{self.ids['col']}", None),
             ("POST", "/kb/audience/preview", {"audience": {"everyone": True}}),
+            ("GET", "/kb/reports/reading", None),
+            ("GET", "/kb/reports/training", None),
+            ("GET", "/kb/photo-reviews", None),
         ]
         for method, url, body in calls:
             r = self.client.request(method, url, json=body)
@@ -401,6 +431,8 @@ class KbAccessMatrixCase(unittest.TestCase):
             self.assertEqual(db.query(models.KbPageRequest).filter(models.KbPageRequest.id == self.ids["req"]).first().status, "open")
             self.assertTrue(db.query(models.KbAssignmentRule).filter(models.KbAssignmentRule.id == self.ids["rule"]).first().active)
             self.assertEqual(db.query(models.KbFlag).filter(models.KbFlag.id == self.ids["fid"]).first().status, "open")
+            self.assertEqual(db.query(models.KbSessionAttendee).filter(models.KbSessionAttendee.id == "att-kbm-a").first().status, "invited")
+            self.assertEqual(db.query(models.KbPhotoReview).filter(models.KbPhotoReview.id == "phr-kbm-a").first().status, "pending")
             self.assertEqual(db.query(models.NexusNotification).filter(models.NexusNotification.recipient == ALRN,
                                                                        models.NexusNotification.requested_by == BAUTH).count(), 0)
         finally:

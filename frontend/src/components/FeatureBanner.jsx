@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Sparkles, ArrowRight, RefreshCw, X } from 'lucide-react';
 import { api } from '../api';
 import { RUNNING_SINCE, useBuildVersion } from '../lib/useBuildVersion';
@@ -30,7 +31,8 @@ import { prefersReducedMotion } from '../lib/reducedMotion';
 // automatic - a forced reload mid-form would throw their typing away. It
 // takes the bar over from the weekly news (reloading brings that news with
 // it), says what the waiting version brings by category once the server
-// answers, and See What's New loads the new version straight onto What's New.
+// answers, and See What's New opens those updates in a popup (ReleasePopup,
+// Oct 29 2026 - it used to reload the tab onto What's New).
 // Its X hides it for this tab only: the next load is the new version anyway.
 //
 // Phones (style.css): one row, two lines of message at most, and the whole
@@ -57,12 +59,86 @@ const CLOSE_FALLBACK_MS = 1000;
 // (unsaved work elsewhere) never unloads the page: the buttons come back.
 const RELOAD_RECOVER_MS = 4000;
 
+// See What's New on a NEW VERSION opens this popup (Oct 29 2026, Neil agreed:
+// "should not reload the whole Nexus"): the updates the waiting version brings,
+// listed from GET /task-changelog/released-since, with Reload beside them.
+// It lives in this file on purpose - an out-of-date tab cannot load a screen
+// it has not loaded yet (the deploy deleted those files), so the popup uses
+// nothing but what the bar already has. Grouped by category in reading order.
+const TYPE_ORDER = ['New Feature', 'Improvement', 'Performance', 'Security Update', 'Bug Fix', 'Hotfix', 'Maintenance'];
+
+// `weekly`: the weekly news (this version's own updates) - worded for it, with a
+// way on to the full What's New page; a new version cannot open that page.
+function ReleasePopup({ items, total, onClose, onReload, reloading, weekly = false, onSeeAll }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const groups = [];
+  const byType = {};
+  (items || []).forEach((it) => { (byType[it.type] = byType[it.type] || []).push(it); });
+  [...TYPE_ORDER, ...Object.keys(byType).filter((t) => !TYPE_ORDER.includes(t))].forEach((t) => {
+    if (byType[t]?.length) groups.push({ type: t, label: categoryParts({ [t]: byType[t].length })[0]?.label || t, rows: byType[t] });
+  });
+  const more = Math.max(0, (total || 0) - (items || []).length);
+  // Into the body: the bar animates with transforms, which would trap a
+  // fixed overlay inside it.
+  return createPortal(
+    <div className="nx-overlay" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,.45)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="nx-release-title" onClick={(e) => e.stopPropagation()}
+        style={{ width: '60vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', minHeight: '60vh', maxHeight: '85vh',
+          background: 'var(--nx-surface, #fff)', color: 'var(--nx-ink, #0f172a)', borderRadius: 14,
+          boxShadow: '0 24px 60px rgba(0,0,0,.25)', display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Inter, sans-serif' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px', borderBottom: '1px solid var(--nx-border, #e5e7eb)' }}>
+          <Sparkles size={18} style={{ color: '#1f7a40' }} aria-hidden="true" />
+          <div style={{ flex: 1 }}>
+            <div id="nx-release-title" style={{ fontSize: 17, fontWeight: 700 }}>{weekly ? <>What&apos;s New This Week</> : <>What&apos;s New in This Version</>}</div>
+            <div style={{ fontSize: 13, color: 'var(--nx-dim, #64748b)' }}>{weekly ? 'The updates released to Nexus this week.' : 'Reload when you are ready to start using these. Nothing changes until you do.'}</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ border: 0, background: 'transparent', cursor: 'pointer', padding: 6, color: 'inherit' }}><X size={18} /></button>
+        </div>
+        <div className="nx-fill" style={{ flex: 1, overflowY: 'auto', padding: '8px 20px 16px' }}>
+          {groups.length === 0 && <div style={{ padding: '24px 0', color: 'var(--nx-dim, #64748b)', fontSize: 14 }}>The details are still being published. Reload to get the new version.</div>}
+          {groups.map((g) => (
+            <section key={g.type} style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--nx-dim, #64748b)', marginBottom: 6 }}>
+                {g.rows.length} {g.label}
+              </div>
+              {g.rows.map((it) => (
+                <div key={it.id} style={{ padding: '10px 0', borderTop: '1px solid var(--nx-border, #eef0f3)' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 14.5, fontWeight: 600 }}>{it.title}</span>
+                    {it.module && <span style={{ fontSize: 11.5, fontWeight: 600, color: '#1f7a40', background: '#e7f4ec', borderRadius: 999, padding: '1px 8px' }}>{it.module}</span>}
+                  </div>
+                  {it.summary && <div style={{ fontSize: 13.5, color: 'var(--nx-dim, #475569)', marginTop: 3, lineHeight: 1.45 }}>{it.summary}</div>}
+                </div>
+              ))}
+            </section>
+          ))}
+          {more > 0 && <div style={{ marginTop: 14, fontSize: 13, color: 'var(--nx-dim, #64748b)' }}>And {more} more - see them all on What&apos;s New{weekly ? '' : ' after you reload'}.</div>}
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 20px', borderTop: '1px solid var(--nx-border, #e5e7eb)' }}>
+          <button type="button" onClick={onClose} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--nx-border, #d1d5db)', background: 'transparent', color: 'inherit', fontWeight: 600, cursor: 'pointer' }}>{weekly ? 'Close' : 'Later'}</button>
+          {weekly && onSeeAll && <button type="button" onClick={onSeeAll} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--nx-border, #d1d5db)', background: 'transparent', color: 'inherit', fontWeight: 600, cursor: 'pointer' }}>See All on What&apos;s New</button>}
+          <button type="button" onClick={onReload} disabled={reloading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: 0, background: '#1f7a40', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
+            <RefreshCw size={14} aria-hidden="true" />{reloading ? 'Reloading…' : 'Reload Now'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export default function FeatureBanner({ activeView, onNavigate }) {
   const [banner, setBanner] = useState(null);
   const [closing, setClosing] = useState(null);       // the mode folding away
   const [updateHidden, setUpdateHidden] = useState(false);
   const [release, setRelease] = useState(null);       // { counts, total } the waiting version brings
   const [reloading, setReloading] = useState(false);
+  const [popupOpen, setPopupOpen] = useState(false);   // See What's New on a new version
   const rowRef = useRef(null);
   const closeTimer = useRef(null);
   const reloadTimer = useRef(null);
@@ -105,7 +181,7 @@ export default function FeatureBanner({ activeView, onNavigate }) {
       checks += 1;
       if (checks >= RELEASE_MAX_CHECKS) clearInterval(timer);
       return api.getReleasedSince(RUNNING_SINCE)
-        .then((r) => { if (live && r) setRelease(r.total > 0 ? { counts: r.counts || {}, total: r.total } : null); })
+        .then((r) => { if (live && r) setRelease(r.total > 0 ? { counts: r.counts || {}, total: r.total, items: r.items || [] } : null); })
         .catch(() => {});
     };
     const timer = setInterval(check, RELEASE_POLL_MS);
@@ -167,10 +243,18 @@ export default function FeatureBanner({ activeView, onNavigate }) {
     navigate();
   };
   const update = mode === 'update';
-  // A full load, not in-app navigation: the new version, opened on What's New.
-  const seeWhatsNew = update
-    ? () => go(() => window.location.assign('/whats-new'))
-    : () => onNavigate?.('whats-new');
+  // See What's New opens the popup in both modes and never reloads (Oct 29-30
+  // 2026, Neil agreed); Reload is its own button on both. Opening the weekly
+  // news counts as seeing it for the week, as reaching What's New does.
+  const seeWhatsNew = () => {
+    if (!update && !dismissed.current) {
+      dismissed.current = true;
+      api.dismissFeatureBanner().catch(() => {});
+    }
+    setPopupOpen(true);
+  };
+  // Closing the weekly popup folds the bar away - it has been seen.
+  const closePopup = () => { setPopupOpen(false); if (!update) close(); };
   const reload = () => go(() => window.location.reload());
 
   const counts = update ? release?.counts : banner.counts;
@@ -222,8 +306,9 @@ export default function FeatureBanner({ activeView, onNavigate }) {
               <ArrowRight size={15} className="feature-banner-cta-arrow" aria-hidden="true" />
             </button>
           )}
-          {update && (
-            <button type="button" className="feature-banner-cta feature-banner-reload" onClick={reload} disabled={reloading}>
+          {/* Reload on both bars (Oct 30 2026): anyone can reload by hand. */}
+          {(update || hasNews) && (
+            <button type="button" className={`feature-banner-cta feature-banner-reload${update ? '' : ' is-quiet'}`} onClick={reload} disabled={reloading}>
               <RefreshCw size={14} className={reloading ? 'feature-banner-spin' : undefined} aria-hidden="true" />
               {reloading ? 'Reloading…' : 'Reload'}
             </button>
@@ -235,6 +320,12 @@ export default function FeatureBanner({ activeView, onNavigate }) {
           </button>
         </div>
       </div>
+      {popupOpen && (
+        <ReleasePopup weekly={!update} items={update ? release?.items : banner?.items}
+          total={update ? release?.total : banner?.total} reloading={reloading}
+          onClose={closePopup} onReload={reload}
+          onSeeAll={() => { setPopupOpen(false); onNavigate?.('whats-new'); }} />
+      )}
     </div>
   );
 }

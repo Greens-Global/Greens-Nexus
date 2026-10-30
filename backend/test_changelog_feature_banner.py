@@ -143,7 +143,30 @@ class AnnouncementTests(_Case):
         self._entry("A fix since", ago(minutes=20), type_="Bug Fix")
         self._entry("A feature since", ago(minutes=10))
         r = T.get_released_since(since=build, user=ME, db=self.db)
-        self.assertEqual(r, {"counts": {"Bug Fix": 1, "New Feature": 1}, "total": 2})
+        self.assertEqual((r["counts"], r["total"]), ({"Bug Fix": 1, "New Feature": 1}, 2))
+
+    def test_the_weekly_bar_lists_its_updates_for_the_popup(self):
+        self._entry("Fix this week", ago(days=2), type_="Bug Fix")
+        self._entry("Feature this week", ago(days=1))
+        r = self._banner()
+        self.assertTrue(r["show"])
+        self.assertEqual([i["title"] for i in r["items"]], ["Feature this week", "Fix this week"])
+
+    def test_released_since_lists_the_updates_for_the_popup(self):
+        build = ago(hours=1)
+        self._entry("In the running build", ago(hours=3))
+        self._entry("A fix since", ago(minutes=20), type_="Bug Fix")
+        self._entry("A feature since", ago(minutes=10))
+        e = self.db.query(models.TaskChangelogEntry).filter(models.TaskChangelogEntry.id == "e2").one()
+        e.payload = {**e.payload, "description": "## Faster\n\n**Shift** grid loads " + "x" * 300}
+        self.db.commit()
+        T._released_cache.update(key=None)
+        r = T.get_released_since(since=build, user=ME, db=self.db)
+        self.assertEqual([(i["title"], i["type"]) for i in r["items"]],
+                         [("A feature since", "New Feature"), ("A fix since", "Bug Fix")])   # newest first
+        self.assertTrue(r["items"][0]["summary"].startswith("Faster Shift grid loads"))
+        self.assertTrue(r["items"][0]["summary"].endswith("..."))
+        self.assertEqual(r["items"][1]["summary"], "")
 
     def test_a_merge_is_placed_by_its_merge_time_not_its_publish_time(self):
         build = ago(minutes=30)

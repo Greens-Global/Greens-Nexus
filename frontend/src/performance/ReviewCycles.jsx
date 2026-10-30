@@ -5,7 +5,7 @@
 // finished ones (one at a time or Share All Ready) and closes it. Reminders
 // go out by themselves.
 import { useCallback, useEffect, useState } from 'react';
-import { ClipboardCheck, Plus, Send } from 'lucide-react';
+import { ClipboardCheck, Plus, Send, Scale } from 'lucide-react';
 import { api } from '../api';
 import { Modal, DateField } from '../tasks/components';
 import { StatusLabel } from '../components/StatusLabel';
@@ -13,6 +13,7 @@ import { SkeletonBlocks, LoadingState, ErrorBanner } from '../components/AsyncSt
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { ReviewModal, ReviewStage } from './Reviews';
+import CalibrationModal from './Calibration';
 import { ProgressBar } from './Goals';
 import { RATINGS, card, cardHead, HD, LBL, muted, TAP } from './lib';
 
@@ -113,6 +114,7 @@ function CycleModal({ cycleId, onClose, onChanged, toastOk, toastErr }) {
   const [open, setOpen] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmClose, setConfirmClose] = useState('');
+  const [calibrating, setCalibrating] = useState(false);
   const load = useCallback(() => api.perfCycle(cycleId).then(setC).catch(e => setErr(e?.message || 'Could not load the review.')), [cycleId]);
   useEffect(() => { load(); }, [load]);
   const act = async (p, ok) => {
@@ -148,6 +150,10 @@ function CycleModal({ cycleId, onClose, onChanged, toastOk, toastErr }) {
                 onClick={() => act(() => api.perfCycleShareAll(c.id), (out) => `Shared ${out.shared}.`)}>
                 <Send size={14} /> Share All Ready{ready ? ` (${ready})` : ''}
               </button>
+            )}
+            {(ready > 0 || (c.counts?.shared || 0) + done > 0) && (
+              <button type="button" className="secondary-btn" style={{ ...TAP, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                onClick={() => setCalibrating(true)}><Scale size={14} /> Calibrate Ratings</button>
             )}
           </div>
           <RatingLine ratings={c.counts?.ratings} />
@@ -187,6 +193,7 @@ function CycleModal({ cycleId, onClose, onChanged, toastOk, toastErr }) {
         </div>
       )}
       {open && <ReviewModal reviewId={open} onClose={() => { setOpen(''); load(); onChanged?.(); }} toastOk={toastOk} toastErr={toastErr} />}
+      {calibrating && <CalibrationModal cycleId={cycleId} onClose={() => { setCalibrating(false); load(); }} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />}
     </Modal>
   );
 }

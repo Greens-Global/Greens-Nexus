@@ -148,7 +148,7 @@ export const IMPL_PHASES = [
         'Follow docs/Actionable-Messages-Setup.md: register the originator and set the originator and audience server settings. Task emails then carry buttons that work inside Outlook.',
       ]},
       { title: 'Optional: Teams Status and Outlook Shift Calendars', where: 'Microsoft Entra admin center (client tenant)', items: [
-        'For Teams status on Team > Company Directory, add the Presence.Read.All application permission and grant admin consent (docs/Teams-Presence-Setup.md). Until then the Company Directory simply shows no status.',
+        'For Teams status on Team > Directory, add the Presence.Read.All application permission and grant admin consent (docs/Teams-Presence-Setup.md). Until then the Directory simply shows no status.',
         'To put shared shifts on Outlook calendars, add Calendars.ReadWrite (application) and grant consent (docs/Outlook-Calendar-Setup.md). Nothing is written until a company also turns it on in Settings > Shifts & Scheduling > Sharing.',
       ]},
     ],
@@ -386,7 +386,7 @@ export const IMPL_PHASES = [
       { title: 'Payroll Readiness', where: 'Settings > Time & Pay > Payroll Readiness', view: 'admin-console', sub: 'pay:payroll-readiness', items: [
         'Set what counts as a big change or an unusual week (25% or 8 hours off last period or the schedule by default) - a default, and each company’s own. The check itself runs from People > Time > Payroll.',
       ]},
-      { title: 'Monitoring Computers', where: 'Workforce Analytics', view: 'employee-tracking', items: [
+      { title: 'Monitoring Computers', where: 'Team > Workforce Analytics', view: 'employee-tracking', items: [
         'If monitoring is on: enroll each company computer (desktop agent), or have people share their screen in Chrome when clocking in.',
       ]},
       { title: 'Run a Test Pay Period', where: 'People > Time', view: 'hr', sub: 'hr-time', items: [

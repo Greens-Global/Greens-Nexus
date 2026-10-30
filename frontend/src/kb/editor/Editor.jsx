@@ -8,11 +8,12 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
-import { ArrowLeft, Bold, Italic, Underline as UnderlineIcon, Link2, Heading2, Heading3, List, ListOrdered, ListChecks, AlertTriangle, Lightbulb, Table as TableIcon, Image as ImageIcon, Play, BookOpen, Plus, Eye, Sparkles, Send, Check, Trash2, X, Loader2, Undo2, Redo2, Save } from 'lucide-react';
+import { ArrowLeft, Bold, Italic, Underline as UnderlineIcon, Link2, Heading2, Heading3, List, ListOrdered, ListChecks, AlertTriangle, Lightbulb, Table as TableIcon, Image as ImageIcon, Paperclip, Play, BookOpen, Plus, Eye, Sparkles, Send, Check, Trash2, X, Loader2, Undo2, Redo2, Save } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection from '../../components/AsyncState';
 import AnchoredMenu from '../../components/AnchoredMenu';
-import { Modal } from '../../tasks/components';
+import { Modal, DateField } from '../../tasks/components';
+import { supabase } from '../../lib/supabase';
 import UnsavedChangesPrompt from '../../components/UnsavedChangesPrompt';
 import Blocks from '../components/Blocks';
 import { Chip, TypeChip, Banner } from '../components/Chips';
@@ -72,7 +73,7 @@ function SubmitModal({ page, revision, me, onClose, onDone }) {
   const needsReviewer = !canPublishDirect || (revision && !direct);
   return (
     <Modal title={revision ? 'Submit the Revision' : canPublishDirect ? 'Publish' : 'Submit for Review'} onClose={onClose} minHeight="40vh"
-           footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+           footer={<div className="kb" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
              <button type="button" className="kb-btn" onClick={onClose}>Cancel</button>
              {!revision && canPublishDirect && <button type="button" className="kb-btn pri" disabled={busy} onClick={() => go(true)}><Check />Publish Now</button>}
              {(revision || !canPublishDirect) && <button type="button" className="kb-btn pri" disabled={busy || (needsReviewer && !reviewer && !page?.collection?.length)} onClick={() => go(false)}><Send />{revision && direct ? 'Publish Revision' : 'Send for Review'}</button>}
@@ -108,6 +109,7 @@ export default function Editor({ id, me }) {
   const [importOpen, setImportOpen] = useState(isImport);
   const [pickPage, setPickPage] = useState(false);
   const [audienceOpen, setAudienceOpen] = useState(false);
+  const [readersOpen, setReadersOpen] = useState(false);   // WP 5.3: who may read the page
   const [blockMenu, setBlockMenu] = useState(false);
   const [leaving, setLeaving] = useState(null);
   const [dismissed, setDismissed] = useState([]);
@@ -297,6 +299,43 @@ export default function Editor({ id, me }) {
     else if (what === 'numbers') c.toggleOrderedList().run();
     else if (what === 'image') { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = () => { const f = inp.files?.[0]; if (f) uploadImage(f).then((url) => editor.chain().focus().setImage({ src: url, alt: f.name }).run()).catch((e) => toast(errText(e), 'err')); }; inp.click(); }
     else if (what === 'video') { const url = window.prompt('Video link (YouTube, Loom, Vimeo, SharePoint):'); if (url && /^https:\/\//.test(url)) c.insertContent({ type: 'video', attrs: { url, title: '' } }).run(); else if (url) toast('Use an https:// link', 'err'); }
+    else if (what === 'file') {
+      // An attachment (WP 5.2): PDF, Word, Excel, PowerPoint, CSV or text, up to 15 MB.
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt';
+      inp.onchange = () => {
+        const f = inp.files?.[0];
+        if (!f) return;
+        if (f.size > 15 * 1024 * 1024) { toast('Files can be up to 15 MB', 'err'); return; }
+        toast(`Uploading ${f.name}...`);
+        readAsDataUrl(f).then((d) => api.kbUploadMedia(d, 'files'))
+          .then((r) => editor.chain().focus().insertContent({ type: 'file', attrs: { url: r.url, name: f.name, size: f.size, mime: f.type } }).run())
+          .catch((e) => toast(errText(e, 'Upload failed'), 'err'));
+      };
+      inp.click();
+    }
+    else if (what === 'videoUpload') {
+      // An uploaded training video (WP 5.10): the API signs a one-time link and
+      // the bytes go straight to the private kb-media bucket, never through the API.
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = 'video/mp4,video/webm,video/quicktime';
+      inp.onchange = async () => {
+        const f = inp.files?.[0];
+        if (!f) return;
+        if (f.size > 200 * 1024 * 1024) { toast('Videos can be up to 200 MB', 'err'); return; }
+        try {
+          if (!supabase) throw new Error('Video storage is not set up here');
+          const link = await api.kbVideoUploadLink(f.type, f.size);
+          toast(`Uploading ${f.name}...`);
+          const { error } = await supabase.storage.from(link.bucket).uploadToSignedUrl(link.path, link.token, f, { contentType: f.type, cacheControl: '31536000' });
+          if (error) throw error;
+          editor.chain().focus().insertContent({ type: 'video', attrs: { url: link.url, title: f.name.replace(/\.[^.]+$/, ''), kind: 'file' } }).run();
+        } catch (e) { toast(errText(e, 'Video upload failed'), 'err'); }
+      };
+      inp.click();
+    }
     else if (what === 'embed') setPickPage(true);
     else if (what === 'link') { const url = window.prompt('Link to:'); if (url) c.setLink({ href: url }).run(); }
     setBlockMenu(false);
@@ -329,14 +368,14 @@ export default function Editor({ id, me }) {
             <button type="button" className="kb-btn pri" onClick={() => create()}>Start Writing</button>
           </div>
         </div>
-        {importOpen && <ImportModal defaultCollection={newCreate.collection_id} onClose={() => setImportOpen(false)} onOpenInEditor={(d) => { setImportOpen(false); create({ ...d, template: '' }); }} />}
+        {importOpen && <ImportModal ai={!!me?.ai} defaultCollection={newCreate.collection_id} onClose={() => setImportOpen(false)} onOpenInEditor={(d) => { setImportOpen(false); create({ ...d, template: '' }); }} />}
       </div>
     );
   }
   if (isImport) {
     return (
       <div className="kb-page">
-        {importOpen ? <ImportModal onClose={() => goKb('home')} onOpenInEditor={(d) => { setImportOpen(false); setNewCreate({ collection_id: d.collection_id, title: d.title, page_type: d.page_type, template: '' }); api.kbCreatePage({ ...d, template: '' }).then((p) => { toast('Draft created from the import'); goKb('editor', p.id); }).catch((e) => toast(errText(e), 'err')); }} /> : <div className="kb-empty">Opening the editor...</div>}
+        {importOpen ? <ImportModal ai={!!me?.ai} onClose={() => goKb('home')} onOpenInEditor={(d) => { setImportOpen(false); setNewCreate({ collection_id: d.collection_id, title: d.title, page_type: d.page_type, template: '' }); api.kbCreatePage({ ...d, template: '' }).then((p) => { toast('Draft created from the import'); goKb('editor', p.id); }).catch((e) => toast(errText(e), 'err')); }} /> : <div className="kb-empty">Opening the editor...</div>}
       </div>
     );
   }
@@ -383,7 +422,7 @@ export default function Editor({ id, me }) {
                       <div className="kb kb-blockmenu">
                         {[['h2', Heading2, 'Heading', 'A section'], ['h3', Heading3, 'Subheading', ''], ['steps', ListOrdered, 'Steps', 'Numbered, with photos'], ['checklist', ListChecks, 'Checklist', 'Tick boxes'],
                           ['bullets', List, 'Bullet List', ''], ['numbers', ListOrdered, 'Numbered List', 'Plain numbers'], ['warning', AlertTriangle, 'Warning', 'Yellow callout'], ['safety', AlertTriangle, 'Safety', 'Red callout'],
-                          ['tip', Lightbulb, 'Tip', 'Green callout'], ['table', TableIcon, 'Table', '3 by 3 to start'], ['image', ImageIcon, 'Image', 'Upload or paste'], ['video', Play, 'Video Link', 'YouTube, Loom, Vimeo'],
+                          ['tip', Lightbulb, 'Tip', 'Green callout'], ['table', TableIcon, 'Table', '3 by 3 to start'], ['image', ImageIcon, 'Image', 'Upload or paste'], ['video', Play, 'Video Link', 'YouTube, Loom, Vimeo'], ['videoUpload', Play, 'Upload a Video', 'MP4 or WebM, up to 200 MB'], ['file', Paperclip, 'Attachment', 'PDF, Word, Excel, up to 15 MB'],
                           ['embed', BookOpen, 'Embed a Page', 'Another page, by title']].map(([k, Icon, l, s]) => (
                           <button key={k} type="button" onClick={() => insert(k)}><Icon /><span>{l}{s && <small>{s}</small>}</span></button>
                         ))}
@@ -435,6 +474,11 @@ export default function Editor({ id, me }) {
                              onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) { e.preventDefault(); const t = tagInput.trim().toLowerCase(); if (!settings.tags.includes(t)) patchSettings({ tags: [...settings.tags, t] }); setTagInput(''); } }} />
                       <datalist id="kb-tag-list">{tags.map((t) => <option key={t.name} value={t.name} />)}</datalist>
                     </div></div>
+                  <div className="kb-field"><label>Goes Live On</label>
+                    <DateField value={page.live_from || ''} noPast placeholder="As soon as it is approved" style={{ minHeight: 40, borderRadius: 10 }}
+                      onChange={(v) => api.kbUpdatePage(page.id, { live_from: v || '' }).then((p) => setPage((x) => ({ ...x, live_from: p.live_from, is_live: p.is_live }))).catch((e) => toast(errText(e), 'err'))} />
+                    <div className="kb-help">Until then only the page's editors see it, and a policy asks nobody to sign.</div></div>
+                  <div className="kb-meta">Who can read: <b>{page.readers_text || 'Everyone in the company'}</b> <a href="#readers" onClick={(e) => { e.preventDefault(); setReadersOpen(true); }}>Change</a></div>
                   <label className="kb-check"><input type="checkbox" checked={!!settings.require_ack} onChange={(e) => patchSettings({ require_ack: e.target.checked })} />People must sign this page</label>
                   {settings.require_ack && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 24 }}>
@@ -470,6 +514,8 @@ export default function Editor({ id, me }) {
 
           {submitOpen && <SubmitModal page={page} revision={revision} me={me} onClose={() => setSubmitOpen(false)} onDone={(kind, out) => { setSubmitOpen(false); setDirty(false); goKb(kind === 'page' ? 'page' : 'revision', kind === 'page' ? page.id : out.id); }} />}
           {pickPage && <PagePickerModal onClose={() => setPickPage(false)} onPick={(p) => editor?.chain().focus().insertContent({ type: 'embedPage', attrs: { docId: p.id, title: p.title } }).run()} />}
+          {readersOpen && <AudienceModal value={normalizeAudience(page.readers)} timing={false} title="Who Can Read" onClose={() => setReadersOpen(false)}
+            onChange={(a) => api.kbUpdatePage(page.id, { readers: a }).then((p) => setPage((x) => ({ ...x, readers: p.readers, readers_text: p.readers_text }))).catch((e) => toast(errText(e), 'err'))} />}
           {audienceOpen && <AudienceModal value={normalizeAudience(settings.audience)} onClose={() => setAudienceOpen(false)} onChange={(a) => patchSettings({ audience: a })} title="Who Must Sign" dueLabel="Sign within" renewLabel="Sign again every" />}
           {leaving && <UnsavedChangesPrompt onKeepEditing={() => setLeaving(null)} onDiscard={() => { setDirty(false); leaving(); }} onSave={async () => { await save(false); leaving(); }} saving={saving} />}
         </div>

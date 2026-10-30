@@ -5,7 +5,7 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { useRef, useState } from 'react';
-import { AlertTriangle, Camera, Lightbulb, Info, ShieldAlert, Trash2, Plus, Play, BookOpen, X } from 'lucide-react';
+import { AlertTriangle, Camera, Lightbulb, Info, ShieldAlert, Trash2, Plus, Play, BookOpen, X, Paperclip } from 'lucide-react';
 import { api } from '../../api';
 import { readAsDataUrl } from '../lib';
 
@@ -221,9 +221,9 @@ export const Video = Node.create({
   group: 'block',
   atom: true,
   draggable: true,
-  addAttributes() { return { url: { default: '' }, title: { default: '' } }; },
-  parseHTML() { return [{ tag: 'div[data-video]', getAttrs: (el) => ({ url: el.getAttribute('data-url') || '', title: el.getAttribute('data-title') || '' }) }]; },
-  renderHTML({ node, HTMLAttributes }) { return ['div', mergeAttributes(HTMLAttributes, { 'data-video': '', 'data-url': node.attrs.url, 'data-title': node.attrs.title })]; },
+  addAttributes() { return { url: { default: '' }, title: { default: '' }, kind: { default: 'link' } }; },   // kind: link | file (WP 5.10)
+  parseHTML() { return [{ tag: 'div[data-video]', getAttrs: (el) => ({ url: el.getAttribute('data-url') || '', title: el.getAttribute('data-title') || '', kind: el.getAttribute('data-kind') || 'link' }) }]; },
+  renderHTML({ node, HTMLAttributes }) { return ['div', mergeAttributes(HTMLAttributes, { 'data-video': '', 'data-url': node.attrs.url, 'data-title': node.attrs.title, 'data-kind': node.attrs.kind })]; },
   addNodeView() { return ReactNodeViewRenderer(VideoView); },
 });
 
@@ -249,4 +249,31 @@ export const EmbedPage = Node.create({
   addNodeView() { return ReactNodeViewRenderer(EmbedView); },
 });
 
-export const KB_NODES = [Steps, Step, Callout, Checklist, CheckItem, Video, EmbedPage];
+// ── Attachment (WP 5.2, Oct 29 2026) ────────────────────────────────────
+// A PDF form, spreadsheet or manual: the file sits in the private kb-media
+// bucket; the page keeps its URL, name and size. Readers download it behind
+// their login (api.js rewrites the URL to /files/view).
+export const fileSize = (n) => (!n ? '' : n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+
+function FileView({ node, deleteNode }) {
+  return (
+    <NodeViewWrapper className="kb-embed" data-file="" contentEditable={false} style={{ cursor: 'default' }}>
+      <Paperclip size={18} style={{ color: 'var(--kb-green)', flex: '0 0 auto' }} />
+      <span className="kb-grow"><span className="kb-title" style={{ display: 'block' }}>{node.attrs.name || 'File'}</span><span className="kb-meta">Attachment{node.attrs.size ? ` · ${fileSize(node.attrs.size)}` : ''}. Readers download it.</span></span>
+      <button type="button" className="kb-ibtn" style={{ width: 28, height: 28 }} aria-label="Remove" onClick={deleteNode}><X size={14} /></button>
+    </NodeViewWrapper>
+  );
+}
+
+export const FileAttachment = Node.create({
+  name: 'file',
+  group: 'block',
+  atom: true,
+  draggable: true,
+  addAttributes() { return { url: { default: '' }, name: { default: '' }, size: { default: 0 }, mime: { default: '' } }; },
+  parseHTML() { return [{ tag: 'div[data-file]', getAttrs: (el) => ({ url: el.getAttribute('data-url') || '', name: el.getAttribute('data-name') || '', size: Number(el.getAttribute('data-size')) || 0, mime: el.getAttribute('data-mime') || '' }) }]; },
+  renderHTML({ node, HTMLAttributes }) { return ['div', mergeAttributes(HTMLAttributes, { 'data-file': '', 'data-url': node.attrs.url, 'data-name': node.attrs.name, 'data-size': String(node.attrs.size || 0), 'data-mime': node.attrs.mime })]; },
+  addNodeView() { return ReactNodeViewRenderer(FileView); },
+});
+
+export const KB_NODES = [Steps, Step, Callout, Checklist, CheckItem, Video, EmbedPage, FileAttachment];

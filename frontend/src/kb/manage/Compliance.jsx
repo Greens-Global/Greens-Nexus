@@ -7,6 +7,7 @@ import { Stat, Av } from '../components/Chips';
 import { useToast, errText } from '../components/Toast';
 import { goKb, CELL_COLORS, fmtDate, plural } from '../lib';
 import { toCsv } from '../../operations/csv';
+import TrainingReport from './TrainingReport';
 
 // Byte order mark: makes Excel read the file as UTF-8 (names with accents).
 const BOM = String.fromCharCode(0xFEFF);
@@ -57,6 +58,7 @@ export default function Compliance({ me }) {
       <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
         {data && (
           <>
+            {me?.can_manage && <TrainingReport />}
             <div className="kb-stats">
               <Stat value={`${data.stats.compliant_pct}%`} label="of requirements met" color={data.stats.compliant_pct >= 90 ? '#1e7b4e' : '#b45309'} />
               <Stat value={data.stats.overdue} label="overdue or expired" color={data.stats.overdue ? '#dc2626' : undefined} />

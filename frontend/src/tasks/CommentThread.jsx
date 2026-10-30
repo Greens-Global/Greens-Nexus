@@ -7,9 +7,10 @@ import { useRef, useState } from 'react';
 import { Check, CheckCircle2, CornerDownRight, Download, Paperclip, Pencil, Pin, RotateCcw, SmilePlus, Trash2 } from 'lucide-react';
 import { NX, FONT, btn } from './theme';
 import { Avatar, AttachmentViewer, PersonDot, useImageZoom } from './components';
-import { fmtDateTime, parseImportedAuthor, richBodyHtml, COMMENT_REACTIONS } from './lib';
+import { fmtDateTime, parseImportedAuthor, richBodyHtml, COMMENT_REACTIONS, isAudioAttachment } from './lib';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import AnchoredMenu from '../components/AnchoredMenu';
+import { draftKey, getDraft, hasWords, useTaskDraft } from './taskDrafts';
 
 /** The words of a rendered comment, one line: tags gone, entities decoded. */
 const textOf = (html) => {
@@ -80,6 +81,13 @@ export function CommentAttachments({ items }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
       {items.map((a) => {
         const href = a.dataUrl || a.url;
+        // A voice note plays right in the comment (Oct 30 2026).
+        if (href && isAudioAttachment(a)) {
+          return (
+            <audio key={a.id} src={href} controls preload="metadata" aria-label={a.name}
+              style={{ display: 'block', width: 'min(320px, 100%)', height: 40 }} />
+          );
+        }
         if (a.kind === 'image' && href) {
           return (
             <button key={a.id} type="button" onClick={() => setView({ ...a, url: href })} title={`View ${a.name}`}
@@ -138,13 +146,19 @@ function CommentBody({ c, nameOf, editing, text, setText, onSave, onCancel, atta
  * only), assign / resolve (root only), pin, and edit / delete for the author.
  * The server decides who may pin, assign and resolve; the row offers them.
  */
-function CommentRow({ c, isReply, nameOf, myEmail, people, attachments = [], onPin, onEdit, onDelete, onReact, onReply, onResolve, onAssign }) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(c.body);
-  const [hover, setHover] = useState(false);
+function CommentRow({ c, taskId = '', isReply, nameOf, myEmail, people, attachments = [], onPin, onEdit, onDelete, onReact, onReply, onResolve, onAssign }) {
   const imported = parseImportedAuthor(c.body);
   const displayName = imported?.name || nameOf(c.authorId);
   const displayBody = imported ? imported.text : c.body;
+  // An edit in progress lives in the task's draft store (taskDrafts.js), so
+  // switching tabs or closing the drawer does not lose it - and an edit left
+  // open comes back open.
+  const editKey = draftKey(taskId, 'edit', c.id);
+  const [edit, setEdit, clearEdit] = useTaskDraft(editKey, { taskId, kind: 'edit', commentId: c.id });
+  const [editing, setEditing] = useState(() => hasWords(getDraft(editKey)));
+  const text = edit.text ?? displayBody;
+  const setText = (v) => setEdit({ text: v });
+  const [hover, setHover] = useState(false);
   const mine = c.authorId === myEmail;
   const resolved = !!c.resolvedAt;
   const assignedToMe = c.assigneeId && c.assigneeId === myEmail;
@@ -185,32 +199,34 @@ function CommentRow({ c, isReply, nameOf, myEmail, people, attachments = [], onP
               resolved ? act('Reopen', RotateCcw, () => onResolve(false)) : act('Resolve', Check, () => onResolve(true), NX.green)
             )}
             {onPin && act(c.pinned ? 'Unpin' : 'Pin', Pin, onPin)}
-            {mine && act('Edit', Pencil, () => { setText(displayBody); setEditing(true); })}
+            {mine && act('Edit', Pencil, () => { setEdit({ text: displayBody, original: displayBody }); setEditing(true); })}
             {mine && act('Delete', Trash2, onDelete)}
           </div>
         </div>
         <CommentBody c={c} nameOf={nameOf} editing={editing} text={text} setText={setText} attachments={attachments}
-          onSave={() => { onEdit(text); setEditing(false); }} onCancel={() => setEditing(false)} />
+          onSave={() => { onEdit(text); clearEdit(); setEditing(false); }} onCancel={() => { clearEdit(); setEditing(false); }} />
         <CommentReactions reactions={c.reactions} myEmail={myEmail} nameOf={nameOf} onToggle={(e) => onReact?.(c, e)} />
       </div>
     </div>
   );
 }
 
-function ReplyComposer({ people, onPost, onCancel }) {
-  const [body, setBody] = useState('');
+function ReplyComposer({ taskId = '', rootId, people, onPost, onCancel }) {
+  const [draft, setDraft, clearDraft] = useTaskDraft(draftKey(taskId, 'reply', rootId), { taskId, kind: 'reply', parentId: rootId });
+  const body = draft.text || '';
+  const setBody = (v) => setDraft({ text: v });
   const [busy, setBusy] = useState(false);
   const post = async () => {
     if (isEmptyDoc(body) || busy) return;
     setBusy(true);
-    try { await onPost(body); setBody(''); onCancel(); } finally { setBusy(false); }
+    try { await onPost(body); clearDraft(); onCancel(); } finally { setBusy(false); }
   };
   return (
     <div style={{ marginLeft: 28, marginTop: 4, paddingLeft: 10, borderLeft: `2px solid ${NX.border}` }} data-testid="reply-composer">
       <RichDescription value={body} onChange={setBody} onSubmit={post} mentionPeople={people} minHeight={48} autoFocus />
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
         <span style={{ fontSize: 11, color: NX.faint }}>Everyone in this thread is told. ⌘/Ctrl+Enter to post.</span>
-        <button onClick={onCancel} style={{ ...btn('ghost'), marginLeft: 'auto', padding: '5px 10px', fontSize: 12 }}>Cancel</button>
+        <button onClick={() => { clearDraft(); onCancel(); }} style={{ ...btn('ghost'), marginLeft: 'auto', padding: '5px 10px', fontSize: 12 }}>Cancel</button>
         <button onClick={post} disabled={isEmptyDoc(body) || busy} style={{ ...btn('primary'), padding: '5px 10px', fontSize: 12, opacity: isEmptyDoc(body) || busy ? 0.5 : 1 }}>
           {busy ? 'Posting…' : 'Reply'}
         </button>
@@ -223,9 +239,10 @@ function ReplyComposer({ people, onPost, onCancel }) {
  * thread: { root, replies } from lib.threadComments. Handlers all receive
  * the comment they act on. A resolved thread opens folded to one line.
  */
-export default function CommentThread({ thread, nameOf, myEmail, people = [], attachments, onPin, onEdit, onDelete, onReply, onReact, onResolve, onAssign }) {
+export default function CommentThread({ thread, taskId = '', nameOf, myEmail, people = [], attachments, onPin, onEdit, onDelete, onReply, onReact, onResolve, onAssign }) {
   const { root, replies } = thread;
-  const [replying, setReplying] = useState(false);
+  // A reply left half-written (another tab, the drawer closed) reopens.
+  const [replying, setReplying] = useState(() => hasWords(getDraft(draftKey(taskId, 'reply', root.id))));
   const resolved = !!root.resolvedAt;
   // Folded while resolved, unless the person opened it since THIS resolve -
   // keyed on resolvedAt so a Resolve click folds the thread without a remount.
@@ -247,15 +264,15 @@ export default function CommentThread({ thread, nameOf, myEmail, people = [], at
   }
   return (
     <div style={{ opacity: resolved ? 0.75 : 1 }}>
-      <CommentRow c={root} nameOf={nameOf} myEmail={myEmail} people={people} attachments={att(root)}
+      <CommentRow c={root} taskId={taskId} nameOf={nameOf} myEmail={myEmail} people={people} attachments={att(root)}
         onPin={onPin && (() => onPin(root))} onEdit={(t) => onEdit(root, t)} onDelete={() => onDelete(root)}
         onReact={onReact} onReply={onReply && (() => setReplying(true))}
         onResolve={onResolve && ((v) => onResolve(root, v))} onAssign={onAssign && ((email) => onAssign(root, email))} />
       {replies.map((r) => (
-        <CommentRow key={r.id} c={r} isReply nameOf={nameOf} myEmail={myEmail} people={people} attachments={att(r)}
+        <CommentRow key={r.id} c={r} taskId={taskId} isReply nameOf={nameOf} myEmail={myEmail} people={people} attachments={att(r)}
           onEdit={(t) => onEdit(r, t)} onDelete={() => onDelete(r)} onReact={onReact} />
       ))}
-      {replying && onReply && <ReplyComposer people={people} onPost={(html) => onReply(root, html)} onCancel={() => setReplying(false)} />}
+      {replying && onReply && <ReplyComposer taskId={taskId} rootId={root.id} people={people} onPost={(html) => onReply(root, html)} onCancel={() => setReplying(false)} />}
       {!replying && !resolved && onReply && replies.length > 0 && (
         <button type="button" onClick={() => setReplying(true)} style={{ ...btn('ghost'), marginLeft: 36, padding: '2px 6px', fontSize: 12, color: NX.primary || NX.blue }}>
           <CornerDownRight size={12} /> Reply

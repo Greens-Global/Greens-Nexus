@@ -43,7 +43,7 @@ export default function StartTaskModal({ page, onClose }) {
 
   return (
     <Modal title="Start as Task" onClose={onClose}
-           footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+           footer={<div className="kb" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
              <span className="kb-meta" style={{ marginRight: 'auto' }}>{steps.length} steps become the checklist{photoSteps ? `, ${photoSteps} need a photo` : ''}</span>
              <button type="button" className="kb-btn" onClick={onClose}>Cancel</button>
              <button type="button" className="kb-btn pri" disabled={busy || !title.trim()} onClick={start}><CheckSquare />Create Task</button></div>}>

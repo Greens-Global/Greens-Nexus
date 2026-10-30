@@ -9,6 +9,7 @@ import { useRole } from '../../contexts/RoleContext';
 import Blocks from '../components/Blocks';
 import { TypeChip, VerifiedChip, StatusChip, Chip, Av, Banner } from '../components/Chips';
 import StartTaskModal from '../components/StartTaskModal';
+import PeoplePick, { usePeopleList } from '../components/PeoplePick';
 import { useToast, errText } from '../components/Toast';
 import { goKb, goView, fmtDate, fmtDateTime, pageUrl, copyText, typeMeta, plural, subFor } from '../lib';
 
@@ -83,7 +84,7 @@ function FlagModal({ page, onClose }) {
     try { await api.kbFlagPage(page.id, text); toast('Thanks. The page owner has been told.'); onClose(); } catch (e) { toast(errText(e), 'err'); } finally { setBusy(false); }
   };
   return (
-    <Modal title="Report a Problem" onClose={onClose} minHeight="40vh" footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={onClose}>Cancel</button><button type="button" className="kb-btn pri" disabled={busy || !text.trim()} onClick={send}>Send to the Owner</button></div>}>
+    <Modal title="Report a Problem" onClose={onClose} minHeight="40vh" footer={<div className="kb" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={onClose}>Cancel</button><button type="button" className="kb-btn pri" disabled={busy || !text.trim()} onClick={send}>Send to the Owner</button></div>}>
       <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div className="kb-meta">About <b>{page.title}</b> v{page.version}. It goes to {page.owner_name || 'the collection owner'} as a flagged item in Manage, and you hear back when it is fixed.</div>
         <textarea className="kb-textarea" autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="What is wrong, and which step" style={{ minHeight: 140 }} />
@@ -97,10 +98,19 @@ function Comments({ page, me }) {
   const [rows, setRows] = useState(page.comments || []);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [mentioned, setMentioned] = useState([]);   // WP 5.9: [{email, name}]
+  const people = usePeopleList();
+  const mention = (email) => {
+    const p = people.find((x) => x.email === email);
+    if (!p || mentioned.some((m) => m.email === email)) return;
+    setMentioned((m) => [...m, { email, name: p.name }]);
+    setText((t) => `${t}${t && !t.endsWith(' ') ? ' ' : ''}@${p.name} `);
+  };
   const add = async () => {
     if (!text.trim()) return;
     setBusy(true);
-    try { setRows(await api.kbAddComment(page.id, text.trim())); setText(''); } catch (e) { toast(errText(e), 'err'); } finally { setBusy(false); }
+    const still = mentioned.filter((m) => text.includes(`@${m.name}`)).map((m) => m.email);   // only names still in the text
+    try { setRows(await api.kbAddComment(page.id, text.trim(), still)); setText(''); setMentioned([]); } catch (e) { toast(errText(e), 'err'); } finally { setBusy(false); }
   };
   return (
     <section id="comments" style={{ marginTop: 28 }}>
@@ -115,6 +125,9 @@ function Comments({ page, me }) {
         <Av name={me?.name} email={me?.email} />
         <input className="kb-input" value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a comment" aria-label="Add a comment" onKeyDown={(e) => { if (e.key === 'Enter') add(); }} />
         <button type="button" className="kb-btn" disabled={busy || !text.trim()} onClick={add}>Post</button>
+      </div>
+      <div style={{ marginTop: 6, marginLeft: 42, maxWidth: 320 }}>
+        <PeoplePick value="" onChange={(e) => e && mention(e)} placeholder="@ Mention someone" />
       </div>
     </section>
   );
@@ -182,6 +195,9 @@ export default function PageView({ id, me }) {
               {page.status === 'changes_requested' && page.review_note ? ` Reviewer: "${page.review_note}"` : ''}
               {page.status === 'in_review' && page.can_review && <span> <a href="#rev" onClick={(e) => { e.preventDefault(); goKb('review', page.id); }}>Review it</a>.</span>}
             </Banner>
+          )}
+          {page.status === 'approved' && page.live_from && page.is_live === false && (
+            <Banner kind="blue" icon={Eye}>Goes live on {fmtDate(page.live_from)}. Until then only this page's editors can see it.</Banner>
           )}
           {page.status === 'approved' && page.review?.banner && (
             <Banner kind="amber" icon={AlertTriangle}>This page was due for review on {fmtDate(page.review.next_review)} and has not been checked since. Treat it with care.{page.can_edit && <> <a href="#v" onClick={(e) => { e.preventDefault(); act(() => api.kbVerifyPage(page.id), 'Marked still accurate'); }}>Still accurate</a></>}</Banner>

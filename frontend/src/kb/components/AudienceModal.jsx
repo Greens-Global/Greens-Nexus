@@ -44,7 +44,7 @@ export default function AudienceModal({ value, onChange, onClose, title = 'Who T
 
   return (
     <Modal title={title} onClose={onClose}
-           footer={<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+           footer={<div className="kb" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
              <span className="kb-meta kb-grow">{preview ? <><b>{preview.count}</b> people match now. {preview.description}.</> : 'Counting...'}</span>
              <button type="button" className="kb-btn" onClick={onClose}>Cancel</button>
              <button type="button" className="kb-btn pri" onClick={save}>Save Audience</button></div>}>

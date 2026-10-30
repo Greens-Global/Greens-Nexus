@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Paperclip, Image as ImageIcon, ScanText, Camera, ImagePlus, Check, Copy, Send, CircleCheck, Circle,
-  Monitor, Building2, Warehouse, ShieldCheck, Receipt, Users, HardHat, LifeBuoy, Briefcase,
+  Monitor, Building2, Warehouse, ShieldCheck, Receipt, Users, HardHat, LifeBuoy, Briefcase, Video,
 } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
@@ -45,6 +45,7 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import { TicketPropertyIntake } from './TicketPropertyFields';
 import { useTicketPropertyRules, propertyRequiredFor, usePropertyUnits } from './ticketPropertyLink';
 import { uploadTicketEvidence } from './evidenceUpload';
+import { checkMedia, mediaKind, withType } from '../lib/voice';
 import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import CreateModeTabs from './CreateModeTabs';
 import { TicketEquipmentIntake } from './TicketEquipment';
@@ -57,6 +58,7 @@ import {
 } from './ticketViewShared';
 import { HelpTopicField } from './HelpTopicField';
 import { RecordUploadButtons, PendingFileChip } from './TicketEvidence';
+import { STOP_VOICE_FIRST } from '../lib/voice';
 import { MapSpotIntake, dataUrlToFile } from './TicketMapSpot';
 
 // ── Create ───────────────────────────────────────────────────────────────────
@@ -288,6 +290,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // API is keyed by ticket id, so there is nothing to attach to until then.
   const camRef = useRef(null);
   const libRef = useRef(null);
+  const vidRef = useRef(null);
   const attachRef = useRef(null);
   const scanRef = useRef(null);
   const [attachments, setAttachments] = useState(seed?.attachments || []);
@@ -299,6 +302,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // Stop pill and closed-and-discarded the form on any outside click. Hiding
   // the RENDER while this component stays mounted keeps every field intact.
   const [recActive, setRecActive] = useState(false);
+  // A voice note still recording: Create waits for Stop, or the clip is lost.
+  const [voiceRec, setVoiceRec] = useState(false);
   // Tell the draft stash whether this form is alive: on Stop it either lets
   // the mounted form reappear, or (form unmounted - the user navigated away
   // to reproduce the issue) routes the app back here to resume from the stash.
@@ -309,7 +314,12 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     else finishRecording();
   };
   const onFiles = (e) => {
-    const list = Array.from(e.target.files || []); e.target.value = '';
+    // A video from the camera or the library keeps the video limit and a
+    // real type (an iPhone .mov can come with none) - Neil, Oct 30 2026.
+    const picked = Array.from(e.target.files || []).map(withType); e.target.value = '';
+    const tooBig = picked.map((f) => (mediaKind(f) ? checkMedia(f) : '')).filter(Boolean);
+    const list = picked.filter((f) => !mediaKind(f) || !checkMedia(f));
+    if (tooBig.length) appDialog.alert(tooBig[0], { title: 'Not Added' });
     if (list.length) setAttachments((prev) => [...prev, ...list]);
   };
   const addFile = (f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); };
@@ -338,7 +348,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
 
   const hasPhoto = attachments.some((f) => (f.type || '').startsWith('image/'));
   const submit = async () => {
-    if (busy) return;
+    if (busy || voiceRec) return;
     if (missing.size) { setShowErrors(true); return; }
     // A marked spot asks for a photo - strongly, never a wall.
     if (mapSpot && !hasPhoto && !(await appDialog.confirm('A photo of the spot shows the maintenance team exactly what to fix. Create the ticket without one?',
@@ -734,7 +744,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           placeholder="What is happening? What were you doing, and what did you expect?" />
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 10px', marginTop: 6 }}>
           <RecordUploadButtons quiet showRecord={!NO_RECORDING_TYPES.includes(form.type)}
-            onFile={addFile} onRecordingChange={onRecChange} />
+            onFile={addFile} onRecordingChange={onRecChange} onVoiceRecordingChange={setVoiceRec} />
           {!isMobile && <span style={{ fontSize: 12, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>}
         </div>
         {attachments.length > 0 && (
@@ -891,7 +901,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     extras: (<>
       {isMobile && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto', position: 'relative' }}>
-          <button ref={photoBtnRef} type="button" title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
+          <button ref={photoBtnRef} type="button" title="Add Photo or Video" aria-label="Add Photo or Video" onClick={() => setPhotoMenu((v) => !v)}
             style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><ImageIcon size={20} /></button>
           <button type="button" title="Attach file" aria-label="Attach file" onClick={() => attachRef.current?.click()}
             style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Paperclip size={20} /></button>
@@ -903,11 +913,13 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           <AnchoredMenu anchorRef={photoBtnRef} open={photoMenu} onClose={() => setPhotoMenu(false)} minWidth={180}
             style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', padding: 4 }}>
             <button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take Photo</button>
+            <button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); vidRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Video size={16} /> Record Video</button>
             <button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose From Device</button>
           </AnchoredMenu>
           {/* capture="environment" opens the rear camera on a phone. */}
           <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFiles} />
-          <input ref={libRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={onFiles} />
+          <input ref={libRef} type="file" accept="image/*,video/*" multiple style={{ display: 'none' }} onChange={onFiles} />
+          <input ref={vidRef} type="file" accept="video/*" capture="environment" style={{ display: 'none' }} onChange={onFiles} />
           <input ref={attachRef} type="file" multiple style={{ display: 'none' }} onChange={onFiles} />
           <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onScan} />
         </div>
@@ -927,7 +939,9 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           </label>
         )}
         <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
-        <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={submit} disabled={busy}>
+        {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red }}>{STOP_VOICE_FIRST}</span>}
+        <button style={{ ...btn('primary'), opacity: busy || voiceRec ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={submit} disabled={busy || voiceRec}
+          title={voiceRec ? STOP_VOICE_FIRST : undefined}>
           {!busy && <Send size={14} aria-hidden="true" />}
           {busy ? (fromTask ? 'Converting…' : 'Creating…') : (fromTask ? 'Convert to Ticket' : 'Create Ticket')}
         </button>

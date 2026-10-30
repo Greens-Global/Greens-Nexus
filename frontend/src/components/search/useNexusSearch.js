@@ -4,7 +4,7 @@ import { useRole } from '../../contexts/RoleContext';
 import { useInventory } from '../../contexts/InventoryContext';
 import { useRequisitions } from '../../contexts/RequisitionContext';
 import { NAV, isNavItemVisible } from '../Sidebar';
-import { SUBMENUS } from '../MobileMenu';
+import { visibleSubs } from '../MobileMenu';
 import { openContact } from '../../lib/contactNav';
 import { openPersonTasks } from '../../lib/personTasksNav';
 import { api } from '../../api';
@@ -70,7 +70,7 @@ function useQaEnabled(enabled) {
 const navigate = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub: sub ?? undefined } }));
 
 export function useNexusSearch(query, { enabled = true } = {}) {
-  const { myRole, isExternal, can, myGrantedModules, myEmail } = useRole();
+  const { myRole, isExternal, can, canAccessModule, myGrantedModules, myEmail } = useRole();
   const { items = [], checkouts = [] } = useInventory() || {};
   const { requisitions = [] } = useRequisitions() || {};
   const q = (query || '').trim().toLowerCase();
@@ -85,12 +85,14 @@ export function useNexusSearch(query, { enabled = true } = {}) {
   // the role it reads instead).
   const screens = useMemo(() => {
     if (!live) return [];
-    const visible = NAV.filter(i => !i.divider && isNavItemVisible(i, { isExternal, can, myGrantedModules, qaEnabled }));
+    // `inTeam` (Workforce Analytics): listed once, as Team's tab below.
+    const visible = NAV.filter(i => !i.divider && !i.inTeam && isNavItemVisible(i, { isExternal, can, myGrantedModules, qaEnabled }));
     const out = [];
     for (const item of visible) {
       out.push({ view: item.view, sub: null, label: item.label, context: null });
-      const entry = SUBMENUS[item.view];
-      const subs = !entry ? null : Array.isArray(entry) ? entry : (can?.('manager') ? entry.manager : entry.employee);
+      // The phone menu's own rule, so a gated tab (Team > Workforce
+      // Analytics) is never listed for someone who cannot open it.
+      const subs = visibleSubs(item.view, { can, canAccessModule, isExternal });
       if (subs) for (const s of subs) out.push({ view: item.view, sub: s.sub, label: s.label, context: item.label });
     }
     return out;

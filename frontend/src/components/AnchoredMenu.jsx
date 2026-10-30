@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom';
 import { MOTION, usePresence } from '../lib/motion';
 import { rootZoom } from '../lib/utils';
+import { readVisualViewport } from '../lib/useVisualViewport';
 
 // A dropdown / popover pinned to the button that opened it (Neil, Sep 28).
 //
@@ -75,7 +76,7 @@ export default function AnchoredMenu({
     // is the plain [0, innerHeight] x [0, innerWidth] it always was.
     const vv = window.visualViewport;
     const vw = vv?.width ?? window.innerWidth;
-    const vh = vv?.height ?? window.innerHeight;
+    const vh = (vv?.height ?? window.innerHeight) - (readVisualViewport()?.clear || 0);   // above iOS's keyboard strip
     const vTop = vv?.offsetTop || 0;
     const vLeft = vv?.offsetLeft || 0;
     const w = Math.min(m.offsetWidth * z, vw - EDGE * 2);

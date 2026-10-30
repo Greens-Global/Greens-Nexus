@@ -16,7 +16,7 @@ import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
 import { ErrorBanner, SkeletonBlocks, Spinner } from './AsyncState';
-import { formatDate, formatPacificDateTime, zonedDateTime, zonedInputValue, zonedInputToUtc, zoneOffsetMin } from '../lib/datetime';
+import { formatDate, formatDateTime, formatPacificDateTime, zonedDateTime, zonedInputValue, zonedInputToUtc, zoneOffsetMin } from '../lib/datetime';
 import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
 import { TIMEOFF_FILTERS, countByStatus, filterAndSortTimeoff, nextSort, yearsOf, inPeriod } from '../lib/timeOffFilter';
 import { takePendingOpen } from '../lib/pendingOpen';
@@ -331,7 +331,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
   const [punchReqs, setPunchReqs] = useState([]);
   const [reqSearch, setReqSearch] = useState('');
   const [actDept, setActDept] = useState('');      // Action Log: one department, '' = all
-  const [actKind, setActKind] = useState('all');   // all | requests | missing
+  const [actKind, setActKind] = useState('all');   // all | requests | missing | decided
   const [selReqs, setSelReqs] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const loadPunchReqs = useCallback(() =>
@@ -340,6 +340,20 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
     loadPunchReqs();
     return pollWhileVisible(loadPunchReqs, 60000);
   }, [loadPunchReqs]);
+  // Decided (Neil, Oct 29 2026): the requests already approved or rejected in
+  // this range - what the employee asked, their reason, who decided, when,
+  // and the note (a changed Type is in it) - so a decision never takes the
+  // request out of sight. Read when the Decided view is opened.
+  const [decidedReqs, setDecidedReqs] = useState(null);
+  useEffect(() => {
+    if (actKind !== 'decided') return undefined;
+    let alive = true;
+    setDecidedReqs(null);
+    api.timeDecidedPunchRequests(start, end)
+      .then(r => { if (alive) setDecidedReqs(Array.isArray(r) ? r : []); })
+      .catch(() => { if (alive) setDecidedReqs([]); });
+    return () => { alive = false; };
+  }, [actKind, start, end]);
   // The Type an approver picked for a requested clock-in ({id: 'Sick'}) - sent on approve.
   const [reqType, setReqType] = useState({});
   // Bulk approve / reject of the selected requests (one note for all rejects).
@@ -877,8 +891,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
         const inScope = all.filter(matches);
         const shown = inScope.map(g => ({
           ...g,
-          reqs: actKind === 'missing' ? [] : [...g.reqs].sort((a, b) => (a.at || '').localeCompare(b.at || '') || ((kindRank[a.punchKind] ?? 9) - (kindRank[b.punchKind] ?? 9))),
-          missing: actKind === 'requests' ? [] : g.missing,
+          reqs: actKind === 'missing' || actKind === 'decided' ? [] : [...g.reqs].sort((a, b) => (a.at || '').localeCompare(b.at || '') || ((kindRank[a.punchKind] ?? 9) - (kindRank[b.punchKind] ?? 9))),
+          missing: actKind === 'requests' || actKind === 'decided' ? [] : g.missing,
         })).filter(g => g.reqs.length || g.missing.length)
           .map(g => {
             // Copies of the same fix (same person, punch and minute) are ONE
@@ -936,6 +950,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                 {seg('all', 'All', null)}
                 {seg('requests', 'Punch Requests', reqTotal)}
                 {seg('missing', 'Missing Punches', missTotal)}
+                {seg('decided', 'Decided', actKind === 'decided' && decidedReqs ? decidedReqs.length : null)}
               </div>
               <div style={{ position: 'relative', flex: '0 1 260px' }}>
                 <Search size={13} style={{ position: 'absolute', left: 10, top: 9, color: 'var(--muted)' }} />
@@ -973,7 +988,44 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                 </button>
               </div>
             )}
-            {exceptions === null && punchReqs.length === 0 ? (
+            {actKind === 'decided' ? (() => {
+              const list = (decidedReqs || []).filter(r => (!actDept || (actDept === '__none' ? !r.department : r.department === actDept))
+                && (!q || (r.employeeName || '').toLowerCase().includes(q) || (r.employeeEmail || '').toLowerCase().includes(q)
+                  || (r.reason || '').toLowerCase().includes(q) || (r.decisionNote || '').toLowerCase().includes(q)));
+              if (decidedReqs === null) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>;
+              if (!list.length) {
+                return (
+                  <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
+                    {decidedReqs.length ? 'Nothing matches these filters.' : `No punch requests were approved or rejected for ${rangeText}.`}
+                  </div>
+                );
+              }
+              return (
+                <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
+                  {list.map((r, i) => (
+                    <div key={r.id} data-testid="decided-request" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '6px 16px',
+                      alignItems: 'start', padding: '11px 14px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 12.5 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <AvatarName email={r.employeeEmail} name={r.employeeName || r.employeeEmail} size={22} />
+                        {r.department && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, marginLeft: 28 }}>{r.department}</div>}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div><span title={yourTime(r.at, r.timeZone)} style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at, r.timeZone) || (r.localDate ? formatDate(r.localDate) : 'No time')}</span> <span>{verb(r)}</span></div>
+                        {r.reason && <div style={{ color: 'var(--muted)', marginTop: 2 }}>Their reason: "{r.reason}"</div>}
+                        {r.createdAt && <div style={{ color: 'var(--muted)', fontSize: 11.5, marginTop: 2 }}>Asked {formatDateTime(r.createdAt)}</div>}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, color: r.status === 'approved' ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))' }}>
+                          {r.status === 'approved' ? 'Approved' : 'Rejected'}
+                          <span style={{ fontWeight: 400, color: 'var(--muted)' }}>{r.decidedByName ? ` by ${r.decidedByName}` : ''}{r.decidedAt ? ` on ${formatDateTime(r.decidedAt)}` : ''}</span>
+                        </div>
+                        {r.decisionNote && <div style={{ marginTop: 2 }}>Note: "{r.decisionNote}"</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })() : exceptions === null && punchReqs.length === 0 ? (
               <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
             ) : shown.length === 0 ? (
               <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12,

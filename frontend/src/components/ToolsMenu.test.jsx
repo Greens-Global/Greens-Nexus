@@ -73,6 +73,32 @@ describe('Tools section', () => {
     expect(screen.getByRole('button', { name: /Act As/ })).toBeInTheDocument();
   });
 
+  it('offers Insights to someone the left menu showed it to, and opens it', () => {
+    // Moved off the left menu (Neil, Oct 29 2026): the Insights grant opens
+    // it below administrator, exactly as the rail did.
+    roleState.value = makeRole('employee', { grants: ['bi'] });
+    const onClose = vi.fn();
+    const nav = vi.fn();
+    window.addEventListener('nexus:navigate', nav);
+    render(<ToolsSection onClose={onClose} onOpenActAs={vi.fn()} />);
+    expect(screen.getByText('Tools')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Act As/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Insights/ }));
+    expect(onClose).toHaveBeenCalled();
+    expect(nav.mock.calls[0][0].detail).toEqual({ view: 'bi' });
+    window.removeEventListener('nexus:navigate', nav);
+  });
+
+  it('no Insights row without the grant below administrator; an administrator has it', () => {
+    roleState.value = makeRole('manager');
+    render(<ToolsSection onClose={vi.fn()} onOpenActAs={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /Insights/ })).not.toBeInTheDocument();
+    cleanup();
+    roleState.value = makeRole('administrator');
+    render(<ToolsSection onClose={vi.fn()} onOpenActAs={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /Insights/ })).toBeInTheDocument();
+  });
+
   it('shows Build Mode as a switch and Testing for an admin when QA is on', async () => {
     QA = true; build.enabled = true; build.on = true;
     roleState.value = makeRole('owner');

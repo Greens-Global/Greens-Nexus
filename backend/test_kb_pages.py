@@ -405,6 +405,154 @@ class KbPagesCase(unittest.TestCase):
         finally:
             db.close()
 
+    # ── attachments (WP 5.2, Oct 29 2026) ───────────────────────────────────
+    def test_an_attachment_is_kept_found_by_name_and_never_a_data_blob(self):
+        import kb_blocks
+        doc = kb_blocks.doc([kb_blocks.paragraph("Fill in the form below."),
+                             kb_blocks.file_block("https://files.example.com/kb-media/pages/abc.pdf", "Move-In Checklist.pdf", 48213, "application/pdf"),
+                             {"type": "file", "attrs": {"url": "data:application/pdf;base64,AAAA", "name": "Smuggled.pdf"}}])
+        page = self._create(page_type="how_to", title="Move-In Paperwork", blocks=doc)
+        files = [n for n in page["blocks"]["content"] if n["type"] == "file"]
+        self.assertEqual([(f["attrs"]["name"], f["attrs"]["size"]) for f in files], [("Move-In Checklist.pdf", 48213)])
+        self.assertEqual(self.client.post(f"/kb/pages/{page['id']}/publish", json={}).status_code, 200)
+        self._as(EMP)
+        found = self.client.get("/kb/search", params={"q": "move-in checklist"}).json()
+        self.assertIn(page["id"], [r["id"] for r in found["results"]])
+
+    # ── who may read a page (WP 5.3, Oct 29 2026) ───────────────────────────
+    def test_a_page_with_readers_is_hidden_from_everyone_else(self):
+        page = self._create(page_type="how_to", title="Payroll Corrections Desk")
+        self.assertEqual(self.client.post(f"/kb/pages/{page['id']}/publish", json={}).status_code, 200)
+        other = self._create(page_type="how_to", title="Front Desk Hours", related_ids=[page["id"]])
+        self.assertEqual(self.client.post(f"/kb/pages/{other['id']}/publish", json={}).status_code, 200)
+        r = self.client.patch(f"/kb/pages/{page['id']}", json={"readers": {"people": [REV]}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["readers_text"], "1 named")
+        self._as(EMP)
+        self.assertEqual(self.client.get(f"/kb/pages/{page['id']}").status_code, 404)
+        self.assertNotIn(page["id"], [x["id"] for x in self.client.get("/kb/search", params={"q": "payroll corrections"}).json()["results"]])
+        self.assertNotIn(page["id"], [x["id"] for x in self.client.post("/kb/ask", json={"question": "payroll corrections desk"}).json()["sources"]])
+        self.assertNotIn(page["id"], [x["id"] for x in self.client.get(f"/kb/pages/{other['id']}").json()["related"]])
+        for who in (REV, MGR, OWN, AUT):          # named, Manage, collection owner, its owner
+            self._as(who)
+            self.assertEqual(self.client.get(f"/kb/pages/{page['id']}").status_code, 200, who)
+        self._as(AUT)
+        self.client.patch(f"/kb/pages/{page['id']}", json={"readers": {"everyone": True}})
+        self._as(EMP)
+        self.assertEqual(self.client.get(f"/kb/pages/{page['id']}").status_code, 200)
+
+    # ── page view reports (WP 5.4, Oct 29 2026) ─────────────────────────────
+    def test_the_reading_report_counts_views_and_finds_unread_pages(self):
+        read = self._create(page_type="how_to", title="Opening Checklist")
+        unread = self._create(page_type="how_to", title="Closing Checklist")
+        for p in (read, unread):
+            self.assertEqual(self.client.post(f"/kb/pages/{p['id']}/publish", json={}).status_code, 200)
+        self._as(EMP)
+        self.client.get(f"/kb/pages/{read['id']}")
+        self.client.get(f"/kb/pages/{read['id']}")
+        self.assertEqual(self.client.get("/kb/reports/reading").status_code, 403)   # readers do not get reports
+        self._as(MGR)
+        rep = self.client.get("/kb/reports/reading", params={"days": 30}).json()
+        top = next(x for x in rep["most_read"] if x["id"] == read["id"])
+        self.assertEqual((top["views"], top["readers"]), (2, 1))
+        self.assertIn(unread["id"], [x["id"] for x in rep["never_opened"]])
+        self.assertIn("Operations", [t["department"] for t in rep["by_team"]])
+        self.assertNotIn("user_email", str(rep))                                    # counts only, never who
+
+    # ── scheduled publishing (WP 5.8, Oct 29 2026) ──────────────────────────
+    def test_a_page_goes_live_on_its_day(self):
+        import kb_core
+        from unittest import mock
+        page = self._create(page_type="how_to", title="Winter Hours")
+        self.assertEqual(self.client.post(f"/kb/pages/{page['id']}/publish", json={}).status_code, 200)
+        self.assertEqual(self.client.patch(f"/kb/pages/{page['id']}", json={"live_from": "2020-01-01"}).status_code, 422)
+        day = kb_core.add_days(kb_core.today(), 3)
+        r = self.client.patch(f"/kb/pages/{page['id']}", json={"live_from": day})
+        self.assertEqual((r.json()["live_from"], r.json()["is_live"]), (day, False))
+        self._as(EMP)
+        self.assertEqual(self.client.get(f"/kb/pages/{page['id']}").status_code, 404)
+        self.assertNotIn(page["id"], [x["id"] for x in self.client.get("/kb/search", params={"q": "winter hours"}).json()["results"]])
+        self._as(AUT)
+        self.assertEqual(self.client.get(f"/kb/pages/{page['id']}").status_code, 200)   # its editor sees it
+        with mock.patch.object(kb_core, "today", return_value=day):
+            self._as(EMP)
+            self.assertEqual(self.client.get(f"/kb/pages/{page['id']}").status_code, 200)
+
+    # ── @mentions in comments (WP 5.9, Oct 29 2026) ─────────────────────────
+    def test_a_mention_rings_only_someone_who_may_read_the_page(self):
+        def mentions_of(who):
+            db = database.SessionLocal()
+            try:
+                return db.query(models.NexusNotification).filter(models.NexusNotification.recipient == who,
+                                                                 models.NexusNotification.title == "You Were Mentioned").count()
+            finally:
+                db.close()
+        page = self._create(page_type="how_to", title="Key Log")
+        self.assertEqual(self.client.post(f"/kb/pages/{page['id']}/publish", json={}).status_code, 200)
+        r = self.client.post(f"/kb/pages/{page['id']}/comments", json={"text": "@Eve Test can you check step 2?", "mentions": [EMP]})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(mentions_of(EMP), 1)
+        self.client.patch(f"/kb/pages/{page['id']}", json={"readers": {"people": [REV]}})
+        self.client.post(f"/kb/pages/{page['id']}/comments", json={"text": "@Eve Test again", "mentions": [EMP, "nobody@example.com"]})
+        self.assertEqual(mentions_of(EMP), 1)                     # Eve may no longer read it: no bell, no title leaked
+
+    # ── export (WP 5.11, Oct 29 2026) ───────────────────────────────────────
+    def test_export_holds_the_published_pages_only(self):
+        import io
+        import docx
+        live = self._create(page_type="how_to", title="Exported Gate Steps")
+        self.assertEqual(self.client.post(f"/kb/pages/{live['id']}/publish", json={}).status_code, 200)
+        self._create(page_type="how_to", title="Unpublished Draft Steps")
+        self.assertEqual(self.client.get("/kb/export").status_code, 403)              # an author is not Manage
+        self._as(OWN)                                                                   # owns Operations
+        r = self.client.get("/kb/export", params={"collection": "col-ops", "format": "docx"})
+        self.assertEqual(r.status_code, 200, r.text)
+        text = " ".join(p.text for p in docx.Document(io.BytesIO(r.content)).paragraphs)
+        self.assertIn("Exported Gate Steps", text)
+        self.assertNotIn("Unpublished Draft Steps", text)
+        self._as(MGR)
+        r = self.client.get("/kb/export", params={"format": "pdf"})
+        self.assertEqual((r.status_code, r.headers["content-type"]), (200, "application/pdf"))
+        self.assertTrue(r.content.startswith(b"%PDF"))
+
+    # ── uploaded training videos (WP 5.10, Oct 29 2026) ─────────────────────
+    def test_a_video_upload_link_is_signed_by_the_server(self):
+        from unittest import mock
+        import kb_media
+        self._as(EMP)
+        self.assertEqual(self.client.post("/kb/media/video-upload", json={"content_type": "video/mp4", "size": 1000}).status_code, 403)
+        self._as(AUT)
+        self.assertEqual(self.client.post("/kb/media/video-upload", json={"content_type": "video/mp4", "size": 1000}).status_code, 503)
+
+        class Resp:
+            status_code = 200
+
+            def json(self):
+                return {"url": "/object/upload/sign/kb-media/videos/x.mp4?token=tok123"}
+
+        class FakeClient:      # only kb_media's httpx: the test client uses the real one
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, *a, **k):
+                return Resp()
+
+        class FakeHttpx:
+            Client = FakeClient
+        with mock.patch.object(kb_media, "configured", return_value=True),              mock.patch.dict("os.environ", {"SUPABASE_URL": "https://x.supabase.co", "SUPABASE_SERVICE_KEY": "k"}),              mock.patch.object(kb_media, "httpx", FakeHttpx):
+            self.assertEqual(self.client.post("/kb/media/video-upload", json={"content_type": "video/avi", "size": 1000}).status_code, 422)
+            self.assertEqual(self.client.post("/kb/media/video-upload", json={"content_type": "video/mp4", "size": 300 * 1024 * 1024}).status_code, 422)
+            r = self.client.post("/kb/media/video-upload", json={"content_type": "video/mp4", "size": 5 * 1024 * 1024})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["token"], "tok123")
+            self.assertTrue(r.json()["url"].endswith(".mp4"))
+
     def test_archive_then_restore_lands_in_draft_not_published(self):
         page = self._published()
         self._as(AUT)   # author, not owner/manage
@@ -484,6 +632,65 @@ class KbPagesCase(unittest.TestCase):
         self.assertFalse(home["me"]["can_author"])
         self._as(AUT)
         self.assertTrue(self.client.get("/kb/me").json()["can_author"])
+
+    # ── Import As Is: a Word / PDF file, no AI (Oct 29 2026) ─────────────────
+    def test_import_as_is_keeps_structure_and_attaches_the_original(self):
+        store = "https://proj.supabase.co/storage/v1/object/public/kb-media/imports/"
+        word = {"type": "doc", "content": [
+            {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Gate Lockup"}]},
+            {"type": "paragraph", "attrs": {"textAlign": "center"}, "content": [
+                {"type": "text", "text": "Lock the ", "marks": [{"type": "textStyle", "attrs": {"fontFamily": "Calibri", "color": "#ff0000"}}]},
+                {"type": "text", "text": "main gate", "marks": [{"type": "bold"}]}]},
+            {"type": "paragraph"},
+            {"type": "orderedList", "content": [{"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Close it"}]}]}]},
+            {"type": "table", "content": [{"type": "tableRow", "content": [
+                {"type": "tableCell", "attrs": {"backgroundColor": "#eee"}, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Key"}]}]}]}]},
+            {"type": "image", "attrs": {"src": store + "a.png"}},
+            {"type": "image", "attrs": {"src": "data:image/png;base64,AAAA"}},
+            {"type": "pageBreak"},
+            {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "After Hours"}]},
+        ]}
+        self._as(EMP)
+        self.assertEqual(self.client.post("/kb/import/convert", json={"body": word}).status_code, 403)
+        self._as(AUT)
+        old = os.environ.get("SUPABASE_URL")
+        os.environ["SUPABASE_URL"] = "https://proj.supabase.co"
+        try:
+            r = self.client.post("/kb/import/convert", json={"body": word, "title": "gate lockup v3",
+                                                             "original": {"url": store + "b.docx", "name": "Gate Lockup v3.docx", "size": 2048, "mime": "x"}})
+        finally:
+            if old is None:
+                os.environ.pop("SUPABASE_URL", None)
+            else:
+                os.environ["SUPABASE_URL"] = old
+        self.assertEqual(r.status_code, 200, r.text)
+        out = r.json()
+        self.assertEqual(out["title"], "Gate Lockup")          # the file's own title line
+        types = [n["type"] for n in out["blocks"]["content"]]
+        self.assertEqual(types, ["paragraph", "orderedList", "table", "image", "horizontalRule", "heading", "heading", "file"])
+        para = out["blocks"]["content"][0]["content"]
+        self.assertEqual([m["type"] for m in para[1]["marks"]], ["bold"])
+        self.assertNotIn("marks", para[0])                      # fonts and colors are not copied
+        self.assertNotIn("data:", json.dumps(out["blocks"]))    # a data: picture never lands on a page
+        self.assertEqual(out["blocks"]["content"][-1]["attrs"]["name"], "Gate Lockup v3.docx")
+        self.assertEqual((out["tables"], out["images"]), (1, 1))
+        # an outside URL is never attached as the "original"
+        r = self.client.post("/kb/import/convert", json={"body": word, "original": {"url": "https://evil.example.com/x.docx", "name": "x"}})
+        self.assertNotIn("file", [n["type"] for n in r.json()["blocks"]["content"]])
+        # the result opens as an ordinary draft
+        page = self._create(title=out["title"], page_type="how_to", blocks=out["blocks"])
+        self.assertEqual(page["status"], "draft")
+
+    def test_pasted_text_imports_without_ai_warnings(self):
+        import kb_ai
+        self._as(AUT)
+        self.assertFalse(kb_ai.available())
+        r = self.client.post("/kb/import", json={"text": "OPENING\n\n1. Unlock the door\n2. Turn on the lights"})
+        self.assertEqual(r.status_code, 202, r.text)
+        job = self.client.get(f"/kb/jobs/{r.json()['id']}").json()
+        self.assertEqual(job["status"], "done")
+        self.assertEqual(job["result"]["warnings"], [])
+        self.assertIn("orderedList", [n["type"] for n in job["result"]["blocks"]["content"]])
 
 
 if __name__ == "__main__":
