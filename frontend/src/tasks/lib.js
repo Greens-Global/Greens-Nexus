@@ -1065,8 +1065,9 @@ export function attachmentKindOf(file) {
   return 'doc';
 }
 // `folder` keeps other modules' files apart in the bucket (What's New
-// screenshots and attachments use 'whats-new').
-export async function storeTaskFile(file, onProgress, folder = 'tasks') {
+// screenshots and attachments use 'whats-new', Notes' voice notes and videos
+// 'notes' with a 50 MB `maxBytes`).
+export async function storeTaskFile(file, onProgress, folder = 'tasks', maxBytes = ATTACHMENT_MAX_BYTES) {
   if (!supabase) {
     if (file.size > ATTACHMENT_MAX_INLINE) return '';
     return new Promise((resolve) => {
@@ -1076,7 +1077,7 @@ export async function storeTaskFile(file, onProgress, folder = 'tasks') {
       r.readAsDataURL(file);
     });
   }
-  if (file.size > ATTACHMENT_MAX_BYTES) throw new Error('file is larger than 25 MB');
+  if (file.size > maxBytes) throw new Error(`file is larger than ${Math.round(maxBytes / 1024 / 1024)} MB`);
   const ext = (file.name.split('.').pop() || 'dat').toLowerCase();
   const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   // XHR instead of supabase.storage.upload solely for upload.onprogress -

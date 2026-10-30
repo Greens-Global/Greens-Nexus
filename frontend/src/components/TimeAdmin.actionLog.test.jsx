@@ -13,6 +13,11 @@ vi.mock('../api', () => ({
     timeOffCalendar: () => Promise.resolve({ entries: [], holidays: [] }),
     timeMonitoringAlerts: () => Promise.resolve({ alerts: [] }),
     timesheetReviewWaiting: () => Promise.resolve({ reviews: [] }),
+    timeDecidedPunchRequests: () => Promise.resolve([
+      { id: 'd1', employeeEmail: 'amy@x.com', employeeName: 'Amy Ops', department: 'Operations', action: 'add', punchKind: 'in', at: '2026-10-02T15:00:00',
+        reason: 'Doctor visit', status: 'approved', category: 'Sick', decidedBy: 'max@x.com', decidedByName: 'Max Lead', decidedAt: '2026-10-03T16:00:00Z',
+        decisionNote: 'Type changed from Personal to Sick.', createdAt: '2026-10-02T20:00:00Z' },
+    ]),
     timePunchRequests: () => Promise.resolve([
       { id: 'q1', employeeEmail: 'amy@x.com', employeeName: 'Amy Ops', department: 'Operations', action: 'add', punchKind: 'out', at: '2026-10-01T23:00:00', reason: 'Manager meeting' },
       // The same fix filed twice - one row (Visesh, Oct 7).
@@ -59,7 +64,18 @@ describe('People > Time Action Log', () => {
     await waitFor(() => expect(decide).toHaveBeenCalledWith('q1', { status: 'approved', note: '' }));
   });
 
-  it('Teams opens a chat with the person, their items typed in (Oct 28)', async () => {
+  it('Decided keeps what was asked, who decided and the note (Neil, Oct 29 2026)', async () => {
+    render(<TimeAdmin toastOk={() => {}} toastErr={() => {}} initialView="actions" />);
+    await screen.findByText('Nick Build');
+    fireEvent.click(screen.getByRole('tab', { name: /Decided/ }));
+    const row = await screen.findByTestId('decided-request');
+    expect(row).toHaveTextContent('Their reason: "Doctor visit"');
+    expect(row).toHaveTextContent('Approved by Max Lead');
+    expect(row).toHaveTextContent('Note: "Type changed from Personal to Sick."');
+    expect(screen.queryByText('Nick Build')).toBeNull();          // the open work is on the other views
+  });
+
+    it('Teams opens a chat with the person, their items typed in (Oct 28)', async () => {
     render(<TimeAdmin toastOk={() => {}} toastErr={() => {}} initialView="actions" />);
     await screen.findByText('Nick Build');
     const card = screen.getByText('Nick Build').closest('div[style*="border-radius: 14px"]');

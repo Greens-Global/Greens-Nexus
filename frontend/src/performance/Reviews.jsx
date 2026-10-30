@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { ClipboardCheck, Lock, Send, Undo2, PenLine, UserMinus, Sparkles, Target } from 'lucide-react';
 import { api } from '../api';
 import { Modal, PersonSelect, usePeople } from '../tasks/components';
+import { ReviewFeedback } from './Feedback';
 import { StatusLabel } from '../components/StatusLabel';
 import { LoadingState, ErrorBanner } from '../components/AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
@@ -184,6 +185,7 @@ function ManagerPart({ r, scores, onSaved, toastOk, toastErr }) {
         <span style={{ fontSize: 13.5, fontWeight: 600 }}>Overall Rating</span>
         {edit ? <Segmented label="Overall Rating" value={rating} onChange={setRating} options={RATINGS} />
           : <span style={{ fontSize: 14, fontWeight: 600 }}>{r.ratingLabel || 'Not rated'}</span>}
+        {r.calibratedFromLabel && <span style={muted}>Calibrated by HR - the manager rated {r.calibratedFromLabel}.</span>}
       </div>
       {r.promotionReady !== undefined && (edit ? (
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13.5, minHeight: 40 }}>
@@ -324,6 +326,12 @@ export function ReviewModal({ reviewId, onClose, onChanged, toastOk, toastErr })
               <Section title="Goals">
                 <GoalsBeside goals={r.goals} scores={scoring ? scores : r.goalScores} onScore={setScores} editable={scoring} />
               </Section>
+              {r.peerFeedback && (
+                <Section title="Feedback From Colleagues" aside={<span style={{ ...muted, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Lock size={12} aria-hidden="true" /> Never shown to them</span>}>
+                  <ReviewFeedback r={r} me={r.role.manager ? r.managerEmail : ''} toastOk={toastOk} toastErr={toastErr}
+                    onAsked={() => api.perfReview(reviewId).then(saved).catch(() => {})} />
+                </Section>
+              )}
             </div>
             <div style={{ display: 'grid', gap: 14, minWidth: 0 }}>
               <SelfPart r={r} onSaved={saved} toastOk={toastOk} toastErr={toastErr} />

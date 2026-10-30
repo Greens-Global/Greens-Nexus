@@ -437,8 +437,8 @@ export const DOCS = [
   {
     id: 'workforce-analytics', name: 'Workforce Analytics', group: 'My Desk', icon: 'MonitorDot', view: 'employee-tracking',
     tagline: 'Live coverage, activity, the weekly hours Scorecard, punch locations and company computers.',
-    where: 'Left menu > Workforce Analytics',
-    access: 'IT Admin and Global Admin, or anyone given the Workforce Analytics grant. The Scorecard tab alone opens with the Workforce Scorecard grant.',
+    where: 'Team > Workforce Analytics',
+    access: 'IT Admin and Global Admin, or anyone given the Workforce Analytics grant. The Scorecard tab alone opens with the Workforce Scorecard grant. Team is everyone\'s module, but its Workforce Analytics tab shows only for these people - a manager without a grant does not see it.',
     purpose: 'Workforce Analytics is the disclosed monitoring dashboard. It shows who is working right now, where each person last punched from, activity on enrolled company computers and screenshots taken under the company policy. Employees are told about it before they first clock in.',
     gains: [
       'Know at a glance who is working, on break or not clocked in.',
@@ -449,7 +449,7 @@ export const DOCS = [
       {
         title: 'See Who Is Working Now',
         steps: [
-          'Open Workforce Analytics from the left menu. You land on Coverage.',
+          'Open Team and pick the Workforce Analytics tab (only people with the grant see it). You land on Coverage.',
           'Filter by company, department, country or site status to narrow the list.',
           'Click a person to see their day. With a full grant, you can also watch their screen live.',
         ],
@@ -477,7 +477,7 @@ export const DOCS = [
       { name: 'Activity', desc: 'Time and activity per person across the day.' },
       { name: 'Scorecard', desc: 'Punched hours against expected hours for each hourly person, by week: On Track, Below Expected, Well Below, Absent, with the days that were excused and why. The same report goes to managers by email.' },
       { name: 'Locations', desc: 'A map of where each person last punched from.' },
-      { name: 'Location Trail', desc: 'When a company turns on Location Trail While Clocked In (Settings > Workforce Analytics > Location Trail), the live position of each person on your team who is clocked in, and the trail of any one person for a chosen day with their punches on it. Managers only: employees never see a trail, their own included.' },
+      { name: 'Location Trail', desc: 'When a company turns on Location Trail While Clocked In (Settings > Workforce Analytics > Location Trail), the live position of each person on your team who is clocked in, and the trail of any one person for a chosen day with their punches on it. Workforce Analytics grant holders only: a manager without the grant, and every employee, never sees a trail (their own included).' },
       { name: 'Computers', desc: 'Company computers with the desktop agent. Copy the install or uninstall command here.' },
       { name: 'Screenshots', desc: 'Screenshots captured under the policy, shown by day, with the capture interval.' },
     ],
@@ -2067,7 +2067,7 @@ export const DOCS = [
   {
     id: 'business-intelligence', name: 'Insights', group: 'Modules', icon: 'InsightsChart', view: 'bi',
     tagline: 'Company-wide numbers from every module, with what needs attention first.',
-    where: 'Left menu > Insights',
+    where: 'Profile menu > Tools > Insights',
     access: 'Supervisors and above with the Insights grant',
     purpose: 'Insights pulls the key numbers from across Nexus onto one board, counted exactly as each module counts them. Anything past its alert level - overdue, breached, unassigned, expiring - is listed first under Needs Attention; every module then gets its own card of counts. Click a count to see who or what is behind it.',
     gains: [

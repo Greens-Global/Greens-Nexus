@@ -3748,7 +3748,14 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   const [requests, setRequests] = useState(null);
   const [templates, setTemplates] = useState(null);
   const [signParty, setSignParty] = useState(null);
-  const [sendOpen, setSendOpen] = useState(false);
+  // 'documents-esign-send' (the header's Create menu > Send for Signature,
+  // Oct 29 2026) opens the wizard - on arrival, and again on a repeat while here.
+  const [sendOpen, setSendOpen] = useState(() => navSub === 'documents-esign-send');
+  const [sendSeenSub, setSendSeenSub] = useState(navSub);
+  if (navSub !== sendSeenSub) {
+    setSendSeenSub(navSub);
+    if (navSub === 'documents-esign-send') setSendOpen(true);
+  }
   const [detailId, setDetailId] = useState(null);
   const [reqSearch, setReqSearch] = useState('');
   const [reqFilter, setReqFilter] = useState('all');

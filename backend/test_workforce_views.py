@@ -60,6 +60,10 @@ class WorkforceViewTests(unittest.TestCase):
             emp(ADMIN, "WFV IT")
             db.add(models.NexusRole(email=BOSS, role="manager", display_name="Boss", assigned_by="test"))
             db.add(models.NexusRole(email=ADMIN, role="administrator", display_name="Admin", assigned_by="test"))
+            # Saved views are Workforce Analytics' (Neil, 10/29/2026): BOSS holds
+            # the Employee Tracking grant; a manager without it is refused.
+            db.add(models.NexusGroup(id="wfv-wa", name="WFV WA", allowed_modules="employee-tracking:viewer"))
+            db.add(models.NexusGroupMember(group_id="wfv-wa", email=BOSS))
             db.add(models.ShiftGroup(id=GROUP, name="Front Desk"))
             db.add(models.ShiftGroupMember(id="wfv-sgm-1", group_id=GROUP, employee_email=BEN))
             db.add(models.ShiftGroupMember(id="wfv-sgm-2", group_id=GROUP, employee_email=OUT))
@@ -89,6 +93,8 @@ class WorkforceViewTests(unittest.TestCase):
             db.query(models.ShiftGroup).filter(models.ShiftGroup.id == GROUP).delete(synchronize_session=False)
             db.query(models.ShiftGroupMember).filter(models.ShiftGroupMember.group_id == GROUP).delete(synchronize_session=False)
             db.query(models.DashboardView).filter(models.DashboardView.owner_email.like("wfv.%")).delete(synchronize_session=False)
+            db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == "wfv-wa").delete(synchronize_session=False)
+            db.query(models.NexusGroup).filter(models.NexusGroup.id == "wfv-wa").delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -187,6 +193,18 @@ class WorkforceViewTests(unittest.TestCase):
     def test_an_employee_cannot_use_views(self):
         self._as(AMY)
         self.assertIn(self.client.get("/timeclock/workforce-views").status_code, (401, 403))
+
+    def test_a_manager_without_the_grant_cannot_use_views(self):
+        db = database.SessionLocal()
+        try:
+            db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == "wfv-wa").delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+        auth.invalidate_role_cache()
+        cache.module_grants.invalidate()
+        self._as(BOSS)
+        self.assertEqual(self.client.get("/timeclock/workforce-views").status_code, 403)
 
 
 if __name__ == "__main__":

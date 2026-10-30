@@ -208,6 +208,17 @@ class GoalTests(PerfCase):
         g.current_value = 90      # the period is over without the target
         self.assertEqual(perf.computed_status(g, day("2027-01-05")), "behind")
 
+    def test_a_done_or_not_goal_is_not_behind_before_its_last_stretch(self):
+        g = models.PerfGoal(id="d", level="personal", owner_email=EMP, measure="done", current_value=0,
+                            start_value=0, target_value=1, period_start="2026-01-01", period_end="2026-12-31",
+                            metric_key="", archived_at="")
+        self.assertEqual(perf.computed_status(g, "2026-01-05"), "on_track")
+        self.assertEqual(perf.computed_status(g, "2026-07-02"), "on_track")
+        self.assertEqual(perf.computed_status(g, "2026-12-15"), "at_risk")   # the last stretch
+        self.assertEqual(perf.computed_status(g, "2027-01-02"), "behind")    # over, not done
+        g.current_value = 1
+        self.assertEqual(perf.computed_status(g, "2026-03-01"), "done")
+
     def test_a_less_is_better_number_and_a_rate(self):
         low = models.PerfGoal(id="l", level="personal", owner_email=EMP, measure="number", metric_key="no_shows",
                               target_value=2, current_value=1, period_start="2026-01-01", period_end="2026-12-31")
