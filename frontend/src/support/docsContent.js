@@ -107,7 +107,7 @@ export const DOCS = [
     ],
     features: [
       { name: 'Left Menu', desc: 'Grouped into My Desk (Dashboard, Workday, Team, Approvals...), Work (Tasks, Tickets, Files, Documents, Credentials, Workflows), Modules and System (Help Center, Settings). You only see what your role or Access Groups allow.' },
-      { name: 'Approvals', desc: 'Left menu > Approvals: everything waiting on your decision, from every module, in one list. See the Approvals page of this guide.' },
+      { name: 'Approvals', desc: 'Dashboard > Approvals: everything waiting on your decision, from every module, in one place. The strip on top counts what is waiting, what is urgent, what has waited over three days and what you decided this week - each tile filters the list. The rail on the left counts by kind, and for HR and administrators by department and by company; Group By sections the list by kind, department, company or person. Pick a row to read every detail beside the list (a popup on a phone), then Approve, Reject or Open In its module. Approve Selected clears routine yes-decisions together (50 at a time, with a confirmation); every decision has a few seconds of Undo. Yours To Do at the bottom holds what only you can do - sign, accept, answer. History lists what you decided here. Keyboard: J / K move, A approve, R reject, Enter review, O open, ? shows the list.' },
       { name: 'Top Tabs', desc: 'Each module shows its own tabs in the header (in the page itself on a phone).' },
       { name: 'Search (Ctrl+K)', desc: 'One Search Nexus bar in the same place on every screen: tasks, projects, people, portfolios, teams, items, checkouts, purchase requests and pages. Press / to jump to it (on the Company Directory and the Knowledge Base, / goes to that page\'s own search), and Esc clears it.' },
       { name: 'Notification Bell', desc: 'Every alert meant for you: approvals, handovers, assignments, mentions, reminders and updates on tickets you raised. Repeats are grouped into one notice that updates in place, other task and ticket activity stays inside those modules, and anything you clear stays under Closed for 30 days.' },
@@ -679,10 +679,10 @@ export const DOCS = [
     ],
   },
   {
-    id: 'approvals', name: 'Approvals', group: 'My Desk', icon: 'Inbox', view: 'approvals',
+    id: 'approvals', name: 'Approvals', group: 'My Desk', icon: 'Inbox', view: 'approvals', sub: 'approvals',
     tagline: 'Everything waiting on your decision, from every module, in one list.',
-    where: 'Left menu > Approvals',
-    access: 'Everyone. You only see what is waiting on you - an employee has shift swaps and signatures too.',
+    where: 'Dashboard > Approvals',
+    access: 'Managers, HR, administrators and anyone named as an approver see the Approvals tab; an employee sees it when something waits on them (a document to sign, an item to accept), under Yours To Do.',
     purpose: 'Approvals gathers every decision that is yours to make: time off, punch fixes, time sheets to review or sign, reimbursements, purchase requests, shift requests, hiring votes, Nexus Sign documents, workflow approvals, performance reviews to write, share or acknowledge, and goals your team proposed. Each row uses the module\'s own approval, so deciding here is the same as deciding in the module. The number beside Approvals in the left menu is the same count.',
     gains: [
       'Clear your approvals in one sitting instead of visiting each module.',

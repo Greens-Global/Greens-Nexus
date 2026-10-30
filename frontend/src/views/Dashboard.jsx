@@ -5,6 +5,8 @@ import { useNotifications } from '../contexts/NotificationContext';
 import CustomDashboard from '../dashboard/CustomDashboard';
 import { ViewLoading } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
+import { useRole } from '../contexts/RoleContext';
+import { useActionCounts, tabCount } from '../lib/useActionCounts';
 
 // External Links is a large, fully self-contained view (its own header,
 // filters, Manage modal, etc.) - lazy so its chunk only loads when that tab
@@ -13,6 +15,12 @@ const ExternalLinks = lazy(() => import('./ExternalLinks'));
 // Notes (Neil, Oct 29 2026) - the scratchpad page, after Links. Its sub is
 // `notes`, or `notes:<id>` for one open note (a share bell, a copied link).
 const NotesPage = lazy(() => import('../notes/NotesPage'));
+// Approvals (Pranshu, Oct 30 2026) - the Approvals screen moved in here as a
+// tab between Links and Notes. Its sub is `approvals`, `approvals:<kind>` or
+// `approvals:history`. The tab shows for Managers++ (manager tier, HR scope)
+// and for anyone with something waiting - an employee with a document to
+// sign still finds it; one with nothing to do is not shown an empty tab.
+const ApprovalsCenter = lazy(() => import('../approvals/ApprovalsCenter'));
 
 // The dashboard IS the customizable widget grid now. The old "Portfolio at a
 // glance" overview (Occupancy trend, Facilities, Tasks overview) ran on sample
@@ -35,10 +43,16 @@ const NotesPage = lazy(() => import('../notes/NotesPage'));
 export default function Dashboard({ activeSub, onSubChange }) {
   const { accounts } = useMsal();
   const { activeOverdueAlerts, dismissOverdueAlert } = useNotifications();
+  const { can, hrScope } = useRole();
+  const counts = useActionCounts();
   const fullName = accounts[0]?.name ?? 'there';
+  const approvalsWaiting = tabCount(counts, 'dashboard', 'approvals');
+  const approvalsSub = String(activeSub || '');
+  const showApprovals = approvalsSub === 'approvals' || approvalsSub.startsWith('approvals:') || approvalsWaiting > 0 || can?.('manager') || !!hrScope;
 
   const tab = activeSub === 'links' ? 'links'
-    : (activeSub === 'notes' || String(activeSub || '').startsWith('notes:')) ? 'notes' : 'dashboard';
+    : (approvalsSub === 'approvals' || approvalsSub.startsWith('approvals:')) ? 'approvals'
+      : (activeSub === 'notes' || String(activeSub || '').startsWith('notes:')) ? 'notes' : 'dashboard';
 
   // Overdue alerts relevant to this user
   const myOverdueAlerts = activeOverdueAlerts.filter(a =>
@@ -48,6 +62,7 @@ export default function Dashboard({ activeSub, onSubChange }) {
   const tabs = [
     { key: 'dashboard', label: 'Dashboard' },
     { key: 'links', label: 'Links' },
+    ...(showApprovals ? [{ key: 'approvals', label: 'Approvals', badge: approvalsWaiting }] : []),
     { key: 'notes', label: 'Notes' },
   ];
 
@@ -85,6 +100,11 @@ export default function Dashboard({ activeSub, onSubChange }) {
       {tab === 'links' ? (
         <Suspense fallback={<ViewLoading minHeight="40vh" />}>
           <ExternalLinks />
+        </Suspense>
+      ) : tab === 'approvals' ? (
+        <Suspense fallback={<ViewLoading minHeight="40vh" />}>
+          <ApprovalsCenter activeSub={approvalsSub.startsWith('approvals:') ? approvalsSub.slice('approvals:'.length) : ''}
+            onSubChange={(s) => onSubChange?.(s ? `approvals:${s}` : 'approvals')} />
         </Suspense>
       ) : tab === 'notes' ? (
         <Suspense fallback={<ViewLoading minHeight="40vh" />}>

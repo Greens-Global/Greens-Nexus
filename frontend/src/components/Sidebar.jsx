@@ -95,10 +95,9 @@ export const NAV = [
       { subview: "contact",  label: "Company Directory", icon: Contact },
     ],
   },
-  // Approvals (Neil, Oct 27 2026): everything waiting on your decision,
-  // across modules (views/Approvals.jsx). Everyone - an employee has swaps
-  // and signatures too; its count is the Approvals registry's total.
-  { view: "approvals", code: "APR", label: "Approvals", icon: Inbox },
+  // Approvals (Neil, Oct 27 2026) lived here until Oct 30 2026; it is now the
+  // Approvals tab of Dashboard (approvals/ApprovalsCenter.jsx). The view id
+  // still resolves - App.jsx remaps it - and its count rides on Dashboard.
   { divider: true },
   // Tasks + Tickets are grant-driven like every other module (Aug 10): they
   // only appear when an Access Group / job role grants them (most job roles
