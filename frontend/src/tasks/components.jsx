@@ -227,7 +227,7 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
         // Where the visual viewport is known it wins: dvh does not shrink for
         // the keyboard, the visual viewport does.
         ...(isMobile
-          ? { width: '100%', maxWidth: '100%', borderRadius: 0, border: 'none', ...(vv ? { height: vv.height } : null) }
+          ? { width: '100%', maxWidth: '100%', borderRadius: 0, border: 'none', ...(vv ? { height: vv.height - (vv.clear || 0) } : null) }
           // Never under 60vw (CLAUDE.md popup rule), whatever width a caller passes.
           // 100% of the overlay's padded box. On a desktop that is the same
           // 86vh as before; pinned to the visual viewport it is what fits.
@@ -397,7 +397,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
     // window's size still counts the area the keyboard covers. Opening upward
     // pins the bottom edge with translateY(-100%) rather than a `bottom`
     // measured from a layout-viewport height iOS reports inconsistently.
-    const vBottom = vv.top + vv.height;
+    const vBottom = vv.top + vv.height - (vv.clear || 0);   // above iOS's keyboard strip
     left = Math.max(vv.left + 8, Math.min(anchorRect.left, vv.left + vv.width - W * z - 8)) / z;
     if (anchorRect.bottom + 6 + H * z <= vBottom - 8) vpos = { top: (anchorRect.bottom + 6) / z };
     else if (anchorRect.top - 6 - H * z >= vv.top + 8) vpos = { top: (anchorRect.top - 6) / z, transform: 'translateY(-100%)' };
@@ -1034,7 +1034,7 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
       const GAP = 4, EDGE = 8, MAX = 280;
       const v = isMobile ? readVisualViewport() : null;
       if (v) {
-        const vBottom = v.top + v.height;
+        const vBottom = v.top + v.height - (v.clear || 0);   // above iOS's keyboard strip
         const below = vBottom - a.bottom - GAP - EDGE;
         const above = a.top - v.top - GAP - EDGE;
         const up = below < above && below < MAX * z;
