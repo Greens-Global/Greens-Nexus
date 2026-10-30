@@ -374,12 +374,13 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         {/* Create (Neil, Oct 29 2026): the "+" beside the search bar starts a
             task, a ticket, a request... from any screen - components/QuickCreate.jsx. */}
         <QuickCreate />
-        {/* "?" Help menu: search the guide, help with this page, then Contact
-            Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
-        <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
         <QuickNoteButton />{/* Quick Note: today's scratchpad from any screen, Ctrl+Alt+N (notes/, Oct 29 2026) */}
         {buildMode.enabled && buildMode.on && <BuildModeChip onClick={buildMode.toggle} />}
         <NotificationBell onNavigate={onNavigate} />
+        {/* "?" Help menu: search the guide, help with this page, then Contact
+            Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx.
+            Right beside the profile, not between + and Quick Note (Neil, Oct 30 2026). */}
+        <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
 
         {/* User profile pill */}
         <div className="header-user-wrap" ref={dropRef}>

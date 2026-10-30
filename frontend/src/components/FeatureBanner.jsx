@@ -49,9 +49,16 @@ import { prefersReducedMotion } from '../lib/reducedMotion';
 // Transform/opacity plus that one height change, nothing loops, and reduced
 // motion turns all of it off.
 const RECHECK_MS = 30 * 60 * 1000;
+// Updates publish automatically after their merge (changelog_auto.py: 5
+// minutes after it, up to 30 when merges come in a burst, and the 15-minute
+// sweep when GitHub's push notice is missed), so the first ~20 minutes are
+// asked every 2 minutes and after that every 10 for as long as the tab stays
+// stale - the bar always comes to list what the version brings instead of
+// giving up on the plain line (Neil, Oct 30 2026). Only while the tab is
+// visible.
 const RELEASE_POLL_MS = 2 * 60 * 1000;
-// Updates publish within minutes of the merge; ~20 minutes of asking covers it.
-const RELEASE_MAX_CHECKS = 10;
+const RELEASE_FAST_CHECKS = 10;
+const RELEASE_SLOW_POLL_MS = 10 * 60 * 1000;
 // Removal follows the fold's own animationend; this only catches a browser
 // that never sends one (an animation turned off another way).
 const CLOSE_FALLBACK_MS = 1000;
@@ -170,23 +177,27 @@ export default function FeatureBanner({ activeView, onNavigate }) {
   }, [onWhatsNew, banner]);
 
   // What does the version waiting for this tab bring? Asked once the build is
-  // stale, and again for a while, because an update is published a few
-  // minutes after its merge lands.
+  // stale and again until the tab reloads - an update is published minutes
+  // after its merge lands, and a later merge adds to the list.
   const stale = useBuildVersion();
   useEffect(() => {
     if (!stale) return undefined;
     let live = true;
     let checks = 0;
+    let stopSlow = null;
     const check = () => {
       checks += 1;
-      if (checks >= RELEASE_MAX_CHECKS) clearInterval(timer);
+      if (checks === RELEASE_FAST_CHECKS) {
+        clearInterval(timer);
+        stopSlow = pollWhileVisible(check, RELEASE_SLOW_POLL_MS);
+      }
       return api.getReleasedSince(RUNNING_SINCE)
         .then((r) => { if (live && r) setRelease(r.total > 0 ? { counts: r.counts || {}, total: r.total, items: r.items || [] } : null); })
         .catch(() => {});
     };
-    const timer = setInterval(check, RELEASE_POLL_MS);
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') check(); }, RELEASE_POLL_MS);
     check();
-    return () => { live = false; clearInterval(timer); };
+    return () => { live = false; clearInterval(timer); stopSlow?.(); };
   }, [stale]);
 
   // A new version outranks the weekly news: reloading brings the news with
@@ -259,13 +270,15 @@ export default function FeatureBanner({ activeView, onNavigate }) {
 
   const counts = update ? release?.counts : banner.counts;
   const parts = counts ? categoryParts(counts) : [];
-  // The new version knows what it brings only once the server answers; until
-  // then the bar offers Reload alone.
+  // The new version knows what it brings only once its updates are published
+  // (see RELEASE_POLL_MS); until then, or for a version with nothing a person
+  // would notice (CI, docs, tests), the bar offers Reload alone - one plain
+  // line, never "whenever it suits you" (Neil, Oct 30 2026).
   const hasNews = parts.length > 0;
   // The label already says "New Version", so the desktop line leads with
   // what to do about it.
   const lead = update
-    ? (hasNews ? 'Reload to get the latest version of Nexus, including ' : 'Reload to get the latest version of Nexus whenever it suits you.')
+    ? (hasNews ? 'Reload to get the latest version of Nexus, including ' : 'Reload to get the latest version of Nexus.')
     : 'Updates this week, including ';
   const leadShort = update ? (hasNews ? 'New Version: ' : 'A New Version is ready.') : 'Including ';
   const message = `${lead}${parts.map((p, i) => `${p.count} ${p.label}${partJoiner(i, parts.length)}`).join('')}`;
