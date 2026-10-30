@@ -401,6 +401,30 @@ class PublishReviewTests(_Case):
         body = self.client.get("/timeclock/schedule/publish/review", params={"start": MON, "end": FRI}).json()
         self.assertEqual((len(body["changes"]), body["warnings"], body["reasonRequired"]), (1, [], False))
 
+    def test_review_leaves_out_warnings_on_unshared_shifts_outside_the_dates(self):
+        # Neil, Oct 30 2026: sharing Thursday listed a warning on a draft the
+        # next week. Mon-Wed are shared; the Thursday draft is shared now; a
+        # Fri-Sun run of DRAFTS makes Sunday the 7th day in a row - but those
+        # drafts are not in this share, so their warning waits for theirs.
+        for d in (MON, TUE, WED):
+            self._shift(AMY, d, "09:00", "13:00")
+        thu = self._shift(AMY, THU, "09:00", "13:00", published=0)
+        for d in (FRI, SAT, SUN):
+            self._shift(AMY, d, "09:00", "13:00", published=0)
+        body = self.client.get("/timeclock/schedule/publish/review", params={"start": THU, "end": THU}).json()
+        self.assertEqual([c["shiftId"] for c in body["changes"]], [thu])
+        self.assertEqual((body["warnings"], body["reasonRequired"]), ([], False))
+        # Sharing the whole week brings the warning back, on Sunday's draft.
+        body = self.client.get("/timeclock/schedule/publish/review", params={"start": MON, "end": SUN}).json()
+        self.assertEqual([(w["date"], w["text"]) for w in body["warnings"]], [(SUN, "7th day in a row (6 is the most).")])
+        # A published Sunday with an edit waiting is not "as the team sees it" either.
+        self.db.query(models.ScheduledShift).filter(models.ScheduledShift.work_date.in_([FRI, SAT, SUN])).update({"published": 1})
+        self.db.query(models.ScheduledShift).filter(models.ScheduledShift.work_date == SUN).update(
+            {"pending_json": json.dumps({"shiftId": "", "start": "09:00", "end": "14:00", "label": "", "note": "", "openSlots": 0, "breakMin": 0})})
+        self.db.commit()
+        body = self.client.get("/timeclock/schedule/publish/review", params={"start": THU, "end": THU}).json()
+        self.assertEqual(body["warnings"], [])
+
     def test_the_reason_follows_the_warned_persons_company_not_the_publishers(self):
         # Bob's company does not ask for a reason; the manager's (Amy's) does.
         self.db.add(models.HrEntity(id="ent-two", name="Two"))

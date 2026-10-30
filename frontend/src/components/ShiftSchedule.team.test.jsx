@@ -363,10 +363,10 @@ describe('Share summary and motion', () => {
     const share = screen.getByRole('button', { name: /^Save & Share, 242 unsaved/ });
     expect(share.getAttribute('title')).toBe('242 changes your team has not seen yet. Save & Share sends them and tells the people affected.');
     fireEvent.click(share);
-    const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
+    const dlg = screen.getByRole('dialog', { name: 'Save & Share' });
     await waitFor(() => expect(dlg.textContent).toContain('This week: 4 · Next week: 8 · Other weeks: 230'));
-    expect(within(dlg).getByLabelText('Share from').value).toBe(monday);
-    expect(within(dlg).getByLabelText('Share to').value).toBe(plusDays(monday, 6));
+    expect(dlg.querySelector('[data-share-scope]').textContent).toContain(`${us(monday)} - `);
+    expect(dlg.querySelector('[data-share-scope]').textContent).toContain(us(plusDays(monday, 6)));
   });
 
   it('animates the grid in, and not at all with reduced motion', async () => {

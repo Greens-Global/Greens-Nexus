@@ -979,23 +979,23 @@ describe('Share, copy, clear, discard', () => {
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
     fireEvent.click(screen.getByRole('button', { name: 'Save & Share, 5 unsaved' }));   // the count across the WHOLE schedule
-    const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
+    const dlg = screen.getByRole('dialog', { name: 'Save & Share' });
     expect(dlg.textContent).toContain('Last shared 09/28/2026');
-    expect(await within(dlg).findByText('2 changes to share in these dates.')).toBeTruthy();
-    expect(within(dlg).getByLabelText('Share from').value).toBe(monday);
-    expect(within(dlg).getByLabelText('Share to').value).toBe(plusDays(monday, 6));
-    fireEvent.change(within(dlg).getByLabelText('Share to'), { target: { value: plusDays(monday, 13) } });
-    await waitFor(() => expect(timeSchedUnshared).toHaveBeenLastCalledWith(monday, plusDays(monday, 13)));
+    // One dialog (Oct 30 2026): the review of the dates on screen comes at once.
+    await waitFor(() => expect(timeSchedPublishReview).toHaveBeenCalledWith({ start: monday, end: plusDays(monday, 6) }));
+    expect(await within(dlg).findByText('No warnings.')).toBeTruthy();
+    // The team has 2 more changes the week after: one box takes them along.
+    await waitFor(() => expect(timeSchedUnshared).toHaveBeenLastCalledWith(plusDays(monday, 7), plusDays(monday, 13), ''));
+    const after = await waitFor(() => { const el = dlg.querySelector('[data-share-after]'); expect(el).toBeTruthy(); return el; });
+    expect(after.textContent).toContain('Share next week too - 2 changes');
+    fireEvent.click(within(after).getByRole('checkbox'));
+    await waitFor(() => expect(timeSchedPublishReview).toHaveBeenLastCalledWith({ start: monday, end: plusDays(monday, 13) }));
     fireEvent.click(within(dlg).getByText('The whole team'));
-    // Phase 2: Review first, then Share from the review.
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Review' }));
-    await within(dlg).findByText('Review And Share');
-    expect(timeSchedPublishReview).toHaveBeenCalledWith({ start: monday, end: plusDays(monday, 13) });
-    expect(within(dlg).getByText('No warnings.')).toBeTruthy();
+    await waitFor(() => expect(within(dlg).getByRole('button', { name: 'Share' }).disabled).toBe(false));
     fireEvent.click(within(dlg).getByRole('button', { name: 'Share' }));
     await waitFor(() => expect(timeSchedPublish).toHaveBeenCalledWith({ start_date: monday, end_date: plusDays(monday, 13), notify: 'team', reason: '' }));
     expect(toastOk).toHaveBeenCalledWith('Shared with the team: 2 new, 1 removed. 2 people notified.');
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Share Schedule' })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Save & Share' })).toBeNull());
   });
 
   it('shows the server refusal in the review and keeps it open', async () => {
@@ -1004,13 +1004,12 @@ describe('Share, copy, clear, discard', () => {
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
     await screen.findByText('Amy Adams');
     fireEvent.click(screen.getByRole('button', { name: 'Save & Share, 1 unsaved' }));
-    const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Review' }));
-    await within(dlg).findByText('Review And Share');
+    const dlg = screen.getByRole('dialog', { name: 'Save & Share' });
+    await waitFor(() => expect(within(dlg).getByRole('button', { name: 'Share' }).disabled).toBe(false));
     fireEvent.click(within(dlg).getByRole('button', { name: 'Share' }));
     expect((await within(dlg).findByRole('alert')).textContent).toBe('A reason is needed to share a schedule with warnings.');
     expect(toastErr).toHaveBeenCalledWith('A reason is needed to share a schedule with warnings.');
-    expect(screen.getByRole('dialog', { name: 'Share Schedule' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Save & Share' })).toBeTruthy();
   });
 
   it('jumps from a review warning to the cell on the grid and pulses it', async () => {
@@ -1020,25 +1019,23 @@ describe('Share, copy, clear, discard', () => {
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
     await screen.findByText('Amy Adams');
     fireEvent.click(screen.getByRole('button', { name: 'Save & Share, 1 unsaved' }));
-    const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Review' }));
-    await within(dlg).findByText('Review And Share');
-    fireEvent.click(within(dlg).getByText('Only 6 hours of rest.'));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Share Schedule' })).toBeNull());
+    const dlg = screen.getByRole('dialog', { name: 'Save & Share' });
+    await within(dlg).findByText('Only 6 hours of rest.');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Show On Schedule' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Save & Share' })).toBeNull());
     await waitFor(() => expect(cellOf('amy@greensglobal.com').className).toContain('m-pulse-cell'));
   });
 
-  it('refuses more than 92 days, and still counts locally on an older API', async () => {
+  it('shares without the next-week box on an older API that cannot count', async () => {
     timeSchedule.mockResolvedValue(data([shift({ published: false })]));
     timeSchedUnshared.mockRejectedValue(new Error('404'));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
     fireEvent.click(screen.getByRole('button', { name: 'Save & Share, 1 unsaved' }));
-    const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
-    expect(within(dlg).getByText('1 change to share in these dates.')).toBeTruthy();
-    fireEvent.change(within(dlg).getByLabelText('Share to'), { target: { value: plusDays(monday, 100) } });
-    expect(within(dlg).getByText('Share at most 92 days at a time.')).toBeTruthy();
-    expect(within(dlg).getByRole('button', { name: 'Review' }).disabled).toBe(true);
+    const dlg = screen.getByRole('dialog', { name: 'Save & Share' });
+    expect(await within(dlg).findByText('1 change for 1 person: 1 new')).toBeTruthy();
+    expect(dlg.querySelector('[data-share-after]')).toBeNull();
+    expect(within(dlg).getByRole('button', { name: 'Share' }).disabled).toBe(false);
   });
 
   it('copies the week on screen to the next week as drafts', async () => {
@@ -1196,7 +1193,7 @@ describe('On a phone', () => {
       expect(items.slice(0, 2)).toEqual(['Save & Share (1)', 'Discard Changes']);
       expect(items).toContain('Copy Week');
       fireEvent.click(within(screen.getByRole('menu', { name: 'More' })).getByText('Save & Share (1)'));
-      expect(screen.getByRole('dialog', { name: 'Share Schedule' })).toBeTruthy();
+      expect(screen.getByRole('dialog', { name: 'Save & Share' })).toBeTruthy();
       fireEvent.click(screen.getByRole('button', { name: 'Close' }));
       fireEvent.click(screen.getByRole('button', { name: 'View' }));
       expect(within(screen.getByRole('menu', { name: 'View' })).getAllByRole('menuitem').map((b) => b.textContent.replace(/✓/g, '').trim())).toEqual(['Day', 'Week', 'Month']);

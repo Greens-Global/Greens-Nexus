@@ -1346,7 +1346,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
           onSaveTimeOff={saveTimeOff} onClose={() => setPanel(null)} />
       )}
       {open === 'share' && (
-        <ShareDialog defaultStart={start} defaultEnd={end} defaultGroupId={shareGroup} lastPublishedAt={data?.lastPublishedAt || ''} localCount={localUnshared} groups={groups.filter((g) => !g.archived)}
+        <ShareDialog defaultStart={start} defaultEnd={end} defaultGroupId={shareGroup} lastPublishedAt={data?.lastPublishedAt || ''} groups={groups.filter((g) => !g.archived)}
           totalCount={unsharedCount} thisWeek={{ start: isoDate(weekStartOf(new Date(), weekStart)) }}
           busy={busy} onPublish={publish} onJump={jumpToShift} onClose={() => setOpen('')} memo={shareMemo} onMemo={setShareMemo} />
       )}

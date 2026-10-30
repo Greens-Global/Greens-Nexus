@@ -7630,13 +7630,14 @@ def _unshared_query(db: Session, user: dict, d0: str = "", d1: str = "", group_i
 
 
 @router.get("/schedule/unshared")
-def unshared_changes(start: str = "", end: str = "", user: dict = Depends(require_schedule_write),
+def unshared_changes(start: str = "", end: str = "", group_id: str = "", user: dict = Depends(require_schedule_write),
                      db: Session = Depends(get_db)):
     """How many changes are waiting to be shared - everything, or inside a
-    range - and the dates they span (the Share dialog, Oct 2)."""
+    range, optionally one team (Save & Share's "next week too", Oct 30
+    2026) - and the dates they span (the Share dialog, Oct 2)."""
     d0 = _parse_day(start, "start date").isoformat() if start else ""
     d1 = _parse_day(end, "end date").isoformat() if end else ""
-    rows = _unshared_query(db, user, d0, d1).with_entities(ScheduledShift.work_date).all()
+    rows = _unshared_query(db, user, d0, d1, group_id).with_entities(ScheduledShift.work_date).all()
     dates = sorted(d for (d,) in rows)
     return {"count": len(dates), "firstDate": dates[0] if dates else "", "lastDate": dates[-1] if dates else ""}
 
@@ -14172,7 +14173,18 @@ def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "
                 # another shift is shown and tagged but never demands a reason
                 # (hardening pass, Oct 15): `soft`.
                 warnings.append({**base, "text": text, "kind": "conflict", "soft": _soft_conflict(text)})
-        for w in shift_rules.publish_warnings(db, emails_on, d0, d1, [r.id for _, r in shared], presets=presets):
+        rule_rows = shift_rules.publish_warnings(db, emails_on, d0, d1, [r.id for _, r in shared], presets=presets)
+        # Scoped to the share (Neil, Oct 30 2026): a warning on a shift outside
+        # [d0, d1] counts only when that shift is one the team already sees as
+        # it is (published, no edit or removal waiting) - the share is what
+        # puts the warning on it. An unshared draft or edit on another date is
+        # not part of this share; its warning waits for the share that sends it.
+        outside = {w["shiftId"] for w in rule_rows if w.get("shiftId") and not (d0 <= (w.get("date") or "") <= d1)}
+        settled = {o.id for o in db.query(ScheduledShift).filter(ScheduledShift.id.in_(list(outside))).all()
+                   if o.published and not o.pending_delete and not _pending(o)} if outside else set()
+        for w in rule_rows:
+            if not (d0 <= (w.get("date") or "") <= d1) and w.get("shiftId") not in settled:
+                continue
             base = {"email": w["email"], "name": names.get(w["email"], w["email"]), "date": w["date"], "shiftId": w["shiftId"]}
             for text in w["texts"]:
                 warnings.append({**base, "text": text, "kind": "rule", "soft": False})
