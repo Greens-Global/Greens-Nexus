@@ -3151,6 +3151,8 @@ export const api = {
   // modules - {rows, counts, groups, groupLabels, errors, total}. The
   // decisions go to each module's own endpoint (lib/approvalActions.js).
   approvalsInbox: () => req("/approvals/inbox"),
+  approvalsHistory: (days = 30) => req(`/approvals/history?days=${encodeURIComponent(days)}`),
+  approvalsDecided: (data) => req("/approvals/decided", { method: "POST", body: JSON.stringify(data) }),
   // HR letters (Neil, Oct 27 2026, routers/hr_letters.py): employees request
   // them from My HR, HR for their company issues them through Nexus Sign.
   hrLetterTypes: () => req('/letter-requests/types'),

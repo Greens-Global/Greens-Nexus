@@ -89,7 +89,6 @@ const Egnyte              = lazy(() => import("./views/Egnyte"));
 const Shifts              = lazy(() => import("./views/Shifts"));
 const MyBriefing          = lazy(() => import("./views/MyBriefing"));
 const WhatsNew            = lazy(() => import("./tasks/ChangelogView"));   // What's New as a page (Oct 12)
-const Approvals           = lazy(() => import("./views/Approvals"));       // everything waiting on my decision (Neil, Oct 27 2026)
 const Workflows           = lazy(() => import("./views/Workflows"));       // cross-module automations (Oct 28 2026)
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
@@ -403,7 +402,6 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "privacy-policy":     return <Legal activeSub="privacy" onSubChange={(sub) => onNavigate("legal", sub)} />;
     case "terms-conditions":   return <Legal activeSub="terms" onSubChange={(sub) => onNavigate("legal", sub)} />;
     case "briefing":           return <MyBriefing />;
-    case "approvals":          return <Approvals activeSub={activeSub} onSubChange={onSubChange} />;
     case "workflows":          return <Workflows activeSub={activeSub} onSubChange={onSubChange} />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
@@ -445,6 +443,9 @@ function parsePath() {
   // effect below writes it as /links rather than /dashboard/links. The old
   // /external-links and /dashboard/external-links forms still land there.
   if (raw === 'links' || raw === 'external-links') return { view: 'dashboard', sub: 'links' };
+  // Approvals folded into Dashboard as a tab (Pranshu, Oct 30 2026): /approvals
+  // and /approvals/<kind or history> land on Dashboard > Approvals.
+  if (raw === 'approvals') return { view: 'dashboard', sub: segs[1] ? `approvals:${segs[1]}` : 'approvals' };
   if (raw === 'dashboard' && segs[1] === 'external-links') return { view: 'dashboard', sub: 'links' };
   // The old Nexus Access Manager (/admin) was retired Sep 26 - Settings >
   // Global Settings > Access does the same job; old links land there.
@@ -724,6 +725,8 @@ function MainApp() {
     // 'external-links' folded into Dashboard as a tab (Sep 3) - same
     // reasoning. The tab key is 'links' (Sep 22); the old key still maps.
     if (view === 'external-links' || view === 'links') { view = 'dashboard'; sub = 'links'; }
+    // Approvals -> Dashboard > Approvals (Oct 30 2026); bells and old links keep working.
+    if (view === 'approvals') { view = 'dashboard'; sub = sub ? `approvals:${sub}` : 'approvals'; }
     if (view === 'dashboard' && sub === 'external-links') sub = 'links';
     // Retired Nexus Access Manager -> Settings > Access (see parsePath).
     if (view === 'admin') { view = 'admin-console'; sub = 'access'; }
