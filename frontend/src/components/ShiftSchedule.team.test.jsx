@@ -208,7 +208,7 @@ describe('Fill Automatically (Neil, Oct 28 2026)', () => {
     expect(dlg.querySelector('[data-fill-summary]').textContent).toContain('No usual hours set for Bob Brown');
     fireEvent.click(within(dlg).getByRole('button', { name: 'Fill Schedule' }));
     await waitFor(() => expect(api.timeSchedBulk).toHaveBeenCalledWith({ shift_id: 'p1', emails: [A], start_date: monday, end_date: plusDays(monday, 6),
-      weekdays: [0, 1, 2, 3, 4], skip_timeoff: true, overwrite: false }));
+      weekdays: [0, 1, 2, 3, 4], skip_timeoff: true, skip_holidays: true, overwrite: false }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Fill Automatically' })).toBeNull());
   });
 
@@ -222,7 +222,7 @@ describe('Fill Automatically (Neil, Oct 28 2026)', () => {
     fireEvent.change(within(dlg).getByRole('combobox', { name: 'Shift' }), { target: { value: 'p1' } });
     fireEvent.click(within(dlg).getByRole('button', { name: 'Fill Schedule' }));
     await waitFor(() => expect(api.timeSchedBulk).toHaveBeenCalledWith({ shift_id: 'p1', weekdays: [0, 1, 2, 3, 4], start_date: monday, end_date: plusDays(monday, 6),
-      skip_timeoff: true, overwrite: false, group_id: 'g1' }));
+      skip_timeoff: true, skip_holidays: true, overwrite: false, group_id: 'g1' }));
   });
 });
 
@@ -260,7 +260,7 @@ describe('Building a week in clicks', () => {
     fireEvent.click(screen.getByLabelText('Options for Amy Adams'));
     fireEvent.click(within(screen.getByRole('menu', { name: 'Options for Amy Adams' })).getByText('Fill Usual Hours'));
     await waitFor(() => expect(api.timeSchedBulk).toHaveBeenCalledWith({ shift_id: 'p1', emails: [A], start_date: monday, end_date: plusDays(monday, 6),
-      weekdays: [0, 1, 2, 3, 4], skip_timeoff: true, overwrite: false }));
+      weekdays: [0, 1, 2, 3, 4], skip_timeoff: true, skip_holidays: true, overwrite: false }));
     const bar = await screen.findByRole('status');
     expect(bar.textContent).toContain('Placed 2 shifts from usual hours for Amy Adams.');
     fireEvent.click(within(bar).getByRole('button', { name: /Undo/ }));

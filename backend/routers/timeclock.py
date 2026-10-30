@@ -8029,7 +8029,23 @@ class BulkScheduleIn(BaseModel):
     weekdays:   Optional[List[int]] = None  # 0=Mon..6=Sun; empty/None = every day
     break_min:  Optional[int] = None        # unpaid break; None = the preset's
     skip_timeoff: bool = True               # don't schedule over approved/pending time off
+    skip_holidays: bool = True              # leave each person's company holidays empty
     overwrite:  bool = False                # replace an existing shift that day, else skip it
+
+
+def _holiday_days(db: Session, emails, lo: str, hi: str) -> set:
+    """(email, date) pairs a fill or a copy leaves empty: each person's own
+    company holidays (their company's calendar, country rule), optional ones
+    excepted - the same days the no-show scan and the Workforce Scorecard
+    excuse (`shift_attendance._holiday_dates`), so a manager never has to
+    clear Thanksgiving by hand after Fill Automatically (Neil, Oct 30 2026)."""
+    emails = sorted({(e or "").lower() for e in emails if e})
+    if not emails:
+        return set()
+    import shift_attendance
+    people = {(e.work_email or "").lower(): e for e in
+              db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email).in_(emails)).all()}
+    return set(shift_attendance._holiday_dates(db, people, lo, hi))
 
 
 @router.post("/schedule/bulk")
@@ -8039,8 +8055,9 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
     RANGE in one action, instead of adding it per person per day (Visesh, Aug 26).
     Applies a preset (or explicit start/end) to every selected person on every
     date in [start_date, end_date] that matches `weekdays`, skipping dates a
-    person has time off (unless turned off) and existing shifts (unless
-    overwrite). Team-scoped: only people the caller can already see are touched."""
+    person has time off or a company holiday (unless turned off) and existing
+    shifts (unless overwrite). Team-scoped: only people the caller can already
+    see are touched."""
     scope = _visible_emails(db, user)
     named = _check_people(db, body.emails)   # a named person must be ACTIVE in People (Oct 2)
     emails = set(named)
@@ -8108,13 +8125,17 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
 
     def _is_off(em, ds):
         return any(s <= ds <= e for (s, e) in off.get(em, []))
+    holidays = _holiday_days(db, emails, dates[0], dates[-1]) if body.skip_holidays else set()
 
-    created = replaced = skipped = timeoff_skipped = 0
+    created = replaced = skipped = timeoff_skipped = holiday_skipped = 0
     now = _now_iso()
     for em in sorted(emails):
         for ds in dates:
             if body.skip_timeoff and _is_off(em, ds):
                 timeoff_skipped += 1
+                continue
+            if (em, ds) in holidays:
+                holiday_skipped += 1
                 continue
             have = existing.get((em, ds))
             if have:
@@ -8141,7 +8162,8 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
             created += 1
     db.commit()
     return {"created": created, "replaced": replaced, "skipped": skipped,
-            "timeoffSkipped": timeoff_skipped, "people": len(emails), "dates": len(dates)}
+            "timeoffSkipped": timeoff_skipped, "holidaySkipped": holiday_skipped,
+            "people": len(emails), "dates": len(dates)}
 
 
 # ── Copy / clear a range (Sep 28, Teams "Copy schedule" / "Clear") ────────────
@@ -8196,6 +8218,7 @@ class CopyScheduleIn(BaseModel):
     include_notes: bool = True
     include_activities: bool = True         # Teams "Include shift activities when copying shifts"
     skip_timeoff: bool = True               # don't copy onto approved/pending time off
+    skip_holidays: bool = True              # nor onto a person's company holiday
     overwrite: bool = False                 # replace a person's shifts on a target day, else skip it
     include_timeoff: bool = False           # also copy APPROVED time off - as new PENDING requests
 
@@ -8262,7 +8285,8 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
     four - instead of rebuilding it cell by cell (Teams "Copy schedule"). The
     copies are DRAFTS until published, carry their times, preset, label and
     unpaid break (and notes when asked), and follow bulk fill's rules: time
-    off is skipped unless turned off, and a person's existing shifts on a
+    off and company holidays are skipped unless turned off (last week's
+    Thursday never lands on Thanksgiving), and a person's existing shifts on a
     target day are kept unless `overwrite` - in which case a PUBLISHED one is
     only marked for removal, so staff keep it until the copy is published."""
     s0, s1 = _parse_day(body.source_start, "start date"), _parse_day(body.source_end, "end date")
@@ -8307,8 +8331,9 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
                           TimeOffRequest.status == "approved",
                           TimeOffRequest.start_date <= hi, TimeOffRequest.end_date >= lo).all()):
             off.setdefault((t.employee_email or "").lower(), []).append((t.start_date, t.end_date))
+    holidays = _holiday_days(db, people, lo, hi) if body.skip_holidays else set()
 
-    created = replaced = skipped = timeoff_skipped = 0
+    created = replaced = skipped = timeoff_skipped = holiday_skipped = 0
     cleared = set()     # target days already overwritten this run
     now = _now_iso()
     for k in range(repeats):
@@ -8318,6 +8343,9 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
             em = src["email"]
             if em and body.skip_timeoff and any(a <= day <= b for a, b in off.get(em, [])):
                 timeoff_skipped += 1
+                continue
+            if em and (em, day) in holidays:
+                holiday_skipped += 1
                 continue
             key = (em, day) if em else ("", day, src["start"], src["end"])
             have = existing.get(key)
@@ -8351,7 +8379,7 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
     timeoff_copied = _copy_timeoff(db, user, body, s0, s1, span, repeats) if body.include_timeoff else 0
     db.commit()
     return {"created": created, "replaced": replaced, "skipped": skipped, "timeoffSkipped": timeoff_skipped,
-            "timeoffCopied": timeoff_copied, "targetStart": lo, "targetEnd": hi}
+            "holidaySkipped": holiday_skipped, "timeoffCopied": timeoff_copied, "targetStart": lo, "targetEnd": hi}
 
 
 class ClearScheduleIn(BaseModel):
