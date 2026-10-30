@@ -537,7 +537,7 @@ const GROUPS = [
   // KPI scorecards per department (Charmi, 10/30/2026): a company's own, so a company face.
   { id: 'performance-scorecards', subject: 'performance', face: 'company', scope: 'company', icon: Target, title: 'KPI Scorecards',
     needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
-    sub: 'What each department is scored on and how much each KPI counts - Nexus-measured KPIs, manual ones rated with a reason, targets and caps. Changes apply from the first of next month.',
+    sub: 'What each job role is scored on and how much each KPI counts - Nexus-measured KPIs, manual ones rated with a reason, targets and caps; copy a role from another role or a shared set. Changes apply from the first of next month.',
     keywords: 'performance kpi scorecard weights targets bonus department metrics score' },
   // Workflows
   { id: 'workflows-config', subject: 'workflows', face: 'both', scope: 'layered', icon: Workflow, title: 'Workflow Settings', flush: true,
