@@ -213,7 +213,10 @@ export const NAV = [
   },
   // BI board (Neil, Sep 14): cross-module KPIs, sortable/filterable, reusing
   // the same widget-grid engine as Dashboard - see dashboard/useDashboards.js.
-  { view: "bi", code: "INS", label: "Insights", icon: InsightsChart, minRole: 'supervisor' },
+  // menuOnly (Neil, Oct 29 2026): opened from the profile menu's Tools
+  // section, like Testing - off the rail and the phone menu; the 'bi' view,
+  // its grant and header search are unchanged.
+  { view: "bi", code: "INS", label: "Insights", icon: InsightsChart, minRole: 'supervisor', menuOnly: true },
   { divider: true },
   // Help Center (Neil, Oct 13 2026; was Support): Submit a Ticket,
   // Documentation and the Knowledge Base & Training. View id stays 'support'.
