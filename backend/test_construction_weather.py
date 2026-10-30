@@ -163,6 +163,128 @@ class ConstructionWeatherTests(unittest.TestCase):
         self.assertEqual(rows["No Address"], (0.0, 0.0))
 
 
+class DailyUpdateTests(unittest.TestCase):
+    """The evening notice for tomorrow, the morning notice only on a change,
+    one bell and one email per person across their jobsites, by each site's
+    own clock, never twice (the sent marks)."""
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
+
+    def setUp(self):
+        db = SessionLocal()
+        for t in (models.ConstructionProject, models.NexusNotification, models.NexusSetting):
+            db.query(t).delete()
+        db.commit()
+        db.close()
+        weather._cache.clear()
+        self.sent = []
+        self.mail = mock.patch.object(cw, "_send_email", side_effect=lambda to, subject, html: self.sent.append((to[0], subject, html)) or 1)
+        self.mail.start()
+
+    def tearDown(self):
+        self.mail.stop()
+
+    def _project(self, pid, name, people, lat=33.49, lon=-117.15):
+        db = SessionLocal()
+        db.add(models.ConstructionProject(id=pid, name=name, address="x", latitude=lat, longitude=lon, status="active",
+                                          manager_emails=people[:1], worker_emails=people[1:], executive_emails=[]))
+        db.commit()
+        db.close()
+
+    def _bells(self):
+        db = SessionLocal()
+        rows = [(n.recipient, n.title, n.body, n.priority) for n in db.query(models.NexusNotification).all()]
+        db.close()
+        return rows
+
+    def _tick(self, iso_utc, fc_for=None):
+        from datetime import datetime
+        fc_for = fc_for or (lambda lat, lon, units="imperial": FC)
+        db = SessionLocal()
+        with mock.patch.object(weather, "forecast_for", side_effect=fc_for):
+            out = cw.tick(db, now=datetime.fromisoformat(iso_utc))
+        db.close()
+        return out
+
+    def test_evening_notice_for_tomorrow_once_per_person_across_their_sites(self):
+        self._project("tem", "GS Temecula", ["boss@greensglobal.com", "crew1@greensglobal.com"])
+        self._project("fair", "Fairfield Yard", ["boss@greensglobal.com", "crew2@greensglobal.com"], lat=38.25, lon=-122.03)
+        # 4:30 PM in Los Angeles (UTC-7 on 10/30): nothing yet.
+        self.assertEqual(self._tick("2026-10-30T23:30:00+00:00")["notices"], 0)
+        # 5:05 PM: tomorrow's notice. The fixture's day 2 (10/31) has rain
+        # from 7 AM at both sites (same forecast fixture), so the bell leads
+        # with the rain and the email is one per person.
+        fc = {**FC, "daily": [{**FC["daily"][0], "date": "2026-10-30"}, {**FC["daily"][0], "date": "2026-10-31"}] + FC["daily"][2:]}
+        out = self._tick("2026-10-31T00:05:00+00:00", lambda *a, **k: fc)
+        self.assertEqual(out, {"notices": 3, "people": 3})
+        bells = {r[0]: r for r in self._bells()}
+        self.assertEqual(sorted(bells), ["boss@greensglobal.com", "crew1@greensglobal.com", "crew2@greensglobal.com"])
+        boss = bells["boss@greensglobal.com"]
+        self.assertEqual(boss[1], "Weather At Your Jobsites Tomorrow")
+        self.assertIn("GS Temecula: Light Rain, 50-66°, rain from 7 AM (80%)", boss[2])
+        self.assertIn("Fairfield Yard", boss[2])
+        self.assertEqual(boss[3], 1)                                      # a flagged day is a priority bell
+        self.assertEqual(len(self.sent), 3)
+        subject = next(s for to, s, h in self.sent if to == "boss@greensglobal.com")
+        self.assertEqual(subject, "Jobsite Weather For Tomorrow - Sat 10/31/2026")
+        html = next(h for to, s, h in self.sent if to == "boss@greensglobal.com")
+        self.assertIn("2 of your 2 jobsites may lose work", html)
+        # Same evening, a later tick: nothing goes twice.
+        self.assertEqual(self._tick("2026-10-31T01:00:00+00:00", lambda *a, **k: fc)["notices"], 0)
+        self.assertEqual(len(self.sent), 3)
+
+    def test_morning_notice_only_when_the_forecast_changed(self):
+        self._project("tem", "GS Temecula", ["crew1@greensglobal.com"])
+        tomorrow = {**FC, "daily": [{**FC["daily"][0], "date": "2026-10-30"}, {**FC["daily"][0], "date": "2026-10-31"}] + FC["daily"][2:]}
+        self._tick("2026-10-31T00:05:00+00:00", lambda *a, **k: tomorrow)         # 5:05 PM: the evening notice
+        self.assertEqual(len(self.sent), 1)
+        # 6 AM next day, same forecast: quiet.
+        self.assertEqual(self._tick("2026-10-31T13:00:00+00:00", lambda *a, **k: tomorrow)["notices"], 0)
+        # 7 AM, the rain is gone: the change goes out, once.
+        dry = {**DRY, "daily": [{**DRY["daily"][0], "date": "2026-10-30"}, {**DRY["daily"][0], "date": "2026-10-31"}] + DRY["daily"][2:]}
+        self.assertEqual(self._tick("2026-10-31T14:00:00+00:00", lambda *a, **k: dry)["notices"], 1)
+        self.assertEqual(self._tick("2026-10-31T14:30:00+00:00", lambda *a, **k: dry)["notices"], 0)
+        self.assertEqual(self.sent[-1][1], "Jobsite Weather Changed For Today - Sat 10/31/2026")
+        bell = [r for r in self._bells() if r[0] == "crew1@greensglobal.com"]
+        self.assertEqual(len(bell), 1)                                    # rewritten in place, not a second bell
+        self.assertEqual(bell[0][1], "Jobsite Weather Changed For Today")
+        self.assertIn("no rain expected", bell[0][2])
+        self.assertEqual(bell[0][3], 0)
+        # 10 AM is past the morning window: nothing, whatever changed.
+        self.assertEqual(self._tick("2026-10-31T17:00:00+00:00", lambda *a, **k: tomorrow)["notices"], 0)
+
+    def test_a_site_with_no_people_or_no_point_and_one_outage_are_skipped(self):
+        self._project("tem", "GS Temecula", [])
+        self._project("nop", "No Point", ["crew1@greensglobal.com"], lat=0.0, lon=0.0)
+        self._project("fail", "Flaky", ["crew1@greensglobal.com"], lat=30.27, lon=-97.74)
+        self._project("ok", "Fine", ["crew1@greensglobal.com"], lat=38.25, lon=-122.03)
+        from fastapi import HTTPException
+
+        def fc_for(lat, lon, units="imperial"):
+            if lat == 30.27:
+                raise HTTPException(502, weather.UNAVAILABLE)
+            return {**DRY, "daily": [{**DRY["daily"][0], "date": "2026-10-30"}, {**DRY["daily"][0], "date": "2026-10-31"}] + DRY["daily"][2:]}
+        out = self._tick("2026-10-31T00:05:00+00:00", fc_for)
+        self.assertEqual(out, {"notices": 1, "people": 1})
+        self.assertIn("Fine: Mostly Sunny, 50-66°, no rain expected", self._bells()[0][2])
+        self.assertNotIn("Flaky", self._bells()[0][2])
+
+    def test_outlook_words_and_flags(self):
+        cfg = cw_defaults()
+        o = cw.day_outlook(FC, "2026-10-31", cfg)
+        self.assertEqual((o["flag"], o["rainFrom"], o["chance"]), ("rain", "2026-10-31T07:00", 80))
+        self.assertEqual(cw.site_line("GS Temecula", o), "GS Temecula: Light Rain, 50-66°, rain from 7 AM (80%)")
+        windy = cw.day_outlook({**DRY, "daily": [{**DRY["daily"][0], "windMax": 31}]}, "2026-10-31", cfg)
+        self.assertEqual(windy["flag"], "wind")
+        self.assertIn("wind to 31 mph", cw.site_line("Austin", windy))
+        hot = cw.day_outlook({**DRY, "daily": [{**DRY["daily"][0], "high": 101}]}, "2026-10-31", cfg)
+        self.assertEqual((hot["flag"], cw.site_line("Austin", hot)), ("heat", "Austin: Mostly Sunny, 50-101°, no rain expected, high heat"))
+        self.assertIsNone(cw.day_outlook(FC, "2027-01-01", cfg))
+        self.assertNotEqual(cw.fingerprint(o), cw.fingerprint(windy))
+
+
 def cw_defaults():
     from weather_watch import DEFAULTS
     return DEFAULTS

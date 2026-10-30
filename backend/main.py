@@ -4162,6 +4162,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] weather watch loop skipped: {e}")
         try:
+            # Project-based weather (Neil, 10/30/2026): each jobsite's people
+            # hear tomorrow's weather there the evening before, and a change
+            # in the morning. See construction_weather.daily_loop.
+            from construction_weather import daily_loop as construction_weather_loop
+            _tasks.append(_a.create_task(construction_weather_loop()))
+        except Exception as e:
+            print(f"[startup] construction weather loop skipped: {e}")
+        try:
             # Shifts Phase 1 (Oct 2026): the no-show scan - every minute, one
             # bell per manager / scheduler per team-day for anyone not clocked
             # in past start + grace + the company's noShowAlertMin, closed

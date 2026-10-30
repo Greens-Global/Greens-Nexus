@@ -1225,6 +1225,7 @@ export const DOCS = [
     gains: [
       'Daily logs from the field without paperwork.',
       'The weather at every jobsite - its own address, not yours - with the first wet hour and a red flag when rain, wind or heat puts the day at risk.',
+      'Everyone on a jobsite hears tomorrow's weather there the evening before (a bell and an email, one for all their sites), and again in the morning only if it changed.',
       'Project managers see every site\'s progress in one dashboard.',
       'Questions (RFIs) and submittals are tracked with who has the ball.',
     ],
