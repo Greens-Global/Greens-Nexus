@@ -2066,9 +2066,8 @@ function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameF
   const gh = { fontSize: 12, fontWeight: 700, padding: '6px 8px', textAlign: 'center', border: '1px solid var(--line)', background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', whiteSpace: 'nowrap' };
   const gc = { fontSize: 12.5, padding: '3px 8px', textAlign: 'center', border: '1px solid var(--line)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', verticalAlign: 'middle' };
   const btn = { border: '1px solid var(--line-strong,var(--line))', borderRadius: 3, padding: '0 5px', background: 'var(--wk-hover)', color: 'var(--ink)', font: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', lineHeight: 1.6 };
-  // Policy as the server computed it (A4-A6, Charmi Sep 30) - shown on the strip
-  // so the formula is on screen, never a guess.
-  const bands = data.bands || { fullMin: 420, halfMin: 240 };
+  // The day bands (full / half / absent) are applied by the server and no
+  // longer printed on the strip (Oct 31 2026); the day statuses say the result.
   const fixedSplit = (data.rateSplits || []).length > 1
     ? data.rateSplits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmtM(s.monthlySalary)}/mo` : `From ${formatDate(s.from)} at ${fmtM(s.monthlySalary)}/mo`).join(' · ')
     : '';
@@ -2181,9 +2180,6 @@ function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameF
             reviewer, not the employee's own time sheet (Neil, Oct 18 2026). */}
         {!self && !icp && <span title="Weekend pay = max(minimum, 1.35 x daily x hours worked / full-day hours). Calculated, never typed per person.">
           <strong style={{ color: 'var(--ink)' }}>Weekend:</strong> {data.weekendMultiplier || 1.35} × daily, pro-rated by hours{data.weekendFloor ? `, min ${fmtM(data.weekendFloor)}` : ''}
-        </span>}
-        {!self && !icp && <span title="A weekday is a full day at this many hours worked (full-day hours minus an hour), a half day from 4 hours, absent below that">
-          <strong style={{ color: 'var(--ink)' }}>Bands:</strong> Full Day ≥ {hhmm(bands.fullMin)} · Half Day ≥ {hhmm(bands.halfMin)} · Absent below
         </span>}
         {icp && <span title="Settings > Time & Pay > India Contractor Policy. Scheduled 9 hours a day, Monday - Friday; full credit at 8 hours, half at 4; the month-end reconciliation recovers missing days from the pool.">
           <strong style={{ color: 'var(--ink)' }}>India Contractor Policy</strong>

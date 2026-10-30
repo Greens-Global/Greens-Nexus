@@ -456,6 +456,16 @@ def run_claimed(run_id: str) -> dict:
     except Exception as e:  # noqa: BLE001
         print(f"[cubby] pricing sync skipped: {type(e).__name__}")
 
+    # Cubby tasks -> Nexus Tasks (Neil, Oct 30 2026, cubby_tasks.py): the
+    # facilities whose rows were just saved. Its own try, like pricing - it
+    # can never fail the facility rows above.
+    try:
+        import cubby_tasks
+        cubby_tasks.after_sync([f["facilityId"] for f in facilities
+                                if results.get(f["facilityId"], {}).get("status") == "ok"])
+    except Exception as e:  # noqa: BLE001
+        print(f"[cubby] task sync skipped: {type(e).__name__}")
+
     ok = [r for r in results.values() if r["status"] == "ok"]
     state = "ok" if len(ok) == len(results) else "partial" if ok else "failed"
     if not results:

@@ -33,8 +33,9 @@ Tests: `backend/test_india_contractor_pay.py` (exact rupee amounts).
   a company in any other country. HR can turn it on or off per company.
 - Policy Starts (per company, default 11/01/2026): a month that starts before it keeps the
   old rules, so October 2026 is never re-priced.
-- Everyone else keeps the old fixed-pay rules exactly (bands at full-day hours minus an hour
-  and 4 hours, automatic weekend pay at 1.35 x daily pro-rated with the Rs 500 floor, leave
+- Everyone else keeps the old fixed-pay rules (day bands - since 10/31/2026 a full day from
+  4 hours worked, a half day from 2.5 hours, absent below, no longer printed on the Time
+  Sheet; automatic weekend pay at 1.35 x daily pro-rated with the Rs 500 floor; leave
   deducted like an absence).
 
 ## The exact algorithm (all in minutes)
