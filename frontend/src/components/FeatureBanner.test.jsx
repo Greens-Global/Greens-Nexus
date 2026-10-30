@@ -135,7 +135,7 @@ describe('a new version, in the same bar', () => {
     build.stale = true;
     mount();
     await waitFor(() => expect(api.getReleasedSince).toHaveBeenCalled());
-    expect(update().querySelector('.feature-banner-lead').textContent).toBe('Reload to get the latest version of Nexus whenever it suits you.');
+    expect(update().querySelector('.feature-banner-lead').textContent).toBe('Reload to get the latest version of Nexus.');
     expect(screen.queryByRole('button', { name: "See What's New" })).toBeNull();
     expect(screen.getByRole('button', { name: /Reload/ })).toBeTruthy();
   });
@@ -208,6 +208,31 @@ describe('a new version, in the same bar', () => {
       expect(reload).toHaveBeenCalled();
     } finally {
       Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
+  });
+});
+
+describe('What the new version brings', () => {
+  const update = () => screen.queryByRole('region', { name: 'New Version of Nexus' });
+  it('keeps asking past the first 20 minutes, so a late-published update still gets listed', async () => {
+    vi.useFakeTimers();
+    try {
+      build.stale = true;
+      api.getFeatureBanner.mockResolvedValue({ show: false });
+      api.getReleasedSince.mockResolvedValue({ counts: {}, total: 0 });
+      render(<FeatureBanner activeView="tasks" onNavigate={() => {}} />);
+      // Ten asks two minutes apart, all before the update is published.
+      await act(async () => { await vi.advanceTimersByTimeAsync(9 * 2 * 60 * 1000); });
+      expect(api.getReleasedSince).toHaveBeenCalledTimes(10);
+      expect(update().querySelector('.feature-banner-lead').textContent).toBe('Reload to get the latest version of Nexus.');
+      // Then every ten minutes, never giving up while the tab is stale.
+      api.getReleasedSince.mockResolvedValue({ counts: { 'New Feature': 1, 'Bug Fix': 1 }, total: 2 });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60 * 1000); });
+      expect(api.getReleasedSince).toHaveBeenCalledTimes(11);
+      expect(update().querySelector('.feature-banner-text').title)
+        .toBe('Reload to get the latest version of Nexus, including 1 New Feature and 1 Bug Fix');
+    } finally {
+      vi.useRealTimers();
     }
   });
 });
