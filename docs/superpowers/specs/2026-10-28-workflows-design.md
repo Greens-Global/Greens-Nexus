@@ -50,6 +50,10 @@ Two things already exist and shape this:
 - A node canvas. The builder is a vertical recipe ("When / Only if / Do") like
   Asana and the existing Tasks rule editor. Branches indent. (Bundle headroom
   is ~150 KB and a canvas library would spend it on something harder to read.)
+  **REVERSED 10/30/2026 (Neil):** the Blueprint canvas, plan
+  `docs/superpowers/plans/2026-10-30-workflows-blueprint-canvas.md` - a
+  computed layout of the same definition (no stored coordinates, no canvas
+  library); the recipe stays as the second view and the phone view.
 - Free-form code or expressions. Templating is `{{ path }}` with a picker and
   a short list of filters; conditions are field / operator / value.
 - Replacing module-specific engines that must run inside the request: Tasks
@@ -531,7 +535,10 @@ Sub routes: `overview`, `list`, `wf:<id>` (builder), `runs`, `run:<id>`,
   `data-slash-search`.
 - **Builder** (`wf:<id>`): a page, not a popup. Left: the recipe. Right rail:
   Settings (owner, scope, enrollment, error handling, run-as for GA), Test,
-  Versions. Top: name, status chip, Save Draft, Test, Publish.
+  Versions. Top: name, status chip, Save Draft, Test, Publish. Since
+  10/30/2026 the desktop default is the Blueprint canvas
+  (`wf:<id>:run:<runId>` replays a run on it); the recipe is the second view
+  and the phone view - see the Non-goals note.
   - **When** card: trigger kind tabs (Event / Schedule / Date / Manual); the
     event picker groups by module, searchable, "New" badges; after choosing,
     trigger filters appear (e.g. "status changed to: Approved").

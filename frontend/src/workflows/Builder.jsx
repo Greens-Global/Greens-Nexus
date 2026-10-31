@@ -1,7 +1,11 @@
-// The workflow builder (Oct 2026): a page, not a popup. Left, the recipe -
-// When, Only If, Do - every card a sentence when collapsed, controls when
-// open, so the workflow reads top to bottom as prose. Right, a rail with
-// Settings, Test and Versions. Top: the name, the status, Save Draft, Test,
+// The workflow builder (Oct 2026): a page, not a popup. Two views of ONE
+// definition (Neil, 10/30/2026): the Canvas - the Blueprint sheet in
+// ./canvas, the desktop default - and the Recipe: left, When / Only If /
+// Do, every card a sentence when collapsed, controls when open, so the
+// workflow reads top to bottom as prose; right, a rail with Settings, Test
+// and Versions (on the canvas the rail is the side panel when no block is
+// selected). The view and the canvas skin are remembered per person
+// (canvas/prefs.js); a phone always gets the recipe. Top: the name, the status, Save Draft, Test,
 // Publish (disabled with the reason until the draft is clean and tested),
 // Pause / Resume, Duplicate, Archive, Delete, Run for a manual trigger, and Save As
 // Template (full level, once published). A workflow just made from a
@@ -12,7 +16,7 @@
 // The builder renders only what the catalog serves - nothing about a
 // trigger, field or action is hard-coded here.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowLeft, Copy, FlaskConical, History, LayoutTemplate, Pause, Play, Save, Settings, Upload } from 'lucide-react';
+import { Archive, ArrowLeft, Copy, FlaskConical, History, LayoutTemplate, List, Pause, Play, Save, Settings, Upload, Waypoints } from 'lucide-react';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
@@ -38,6 +42,11 @@ import { blankLabel } from './lib/modules';
 import { takeBlanks } from './lib/blanks';
 import { Muted } from './ui';
 import { errorProblems, errorText } from './lib/errors';
+import Canvas from './canvas/Canvas';
+import { builderView, canvasSkin, setBuilderView, setCanvasSkin } from './canvas/prefs';
+import { replayPlan } from './canvas/replay';
+import { runStatusMeta } from './lib/status';
+import { formatDateTime } from '../lib/datetime';
 
 const RAILS = [
   { key: 'settings', label: 'Settings', icon: Settings },
@@ -59,7 +68,7 @@ function companiesFromCatalog(catalog) {
   return [];
 }
 
-export default function Builder({ id, go }) {
+export default function Builder({ id, go, runId = '' }) {
   const { catalog, loading: catalogLoading, error: catalogError, isNew } = useCatalog();
   const role = useRole() || {};
   const isMobile = useIsMobile();
@@ -76,6 +85,13 @@ export default function Builder({ id, go }) {
   const [lastTest, setLastTest] = useState(null);
   const [rail, setRail] = useState('settings');
   const [openCard, setOpenCard] = useState('');          // 'when' | 'onlyIf' | ''
+  const [view, setViewState] = useState(() => builderView());   // 'canvas' | 'recipe' (phones: always the recipe)
+  const [skin, setSkinState] = useState(() => canvasSkin());    // 'paper' | 'night'
+  const [selectedId, setSelectedId] = useState(null);           // the canvas block open in the side panel
+  const [replayRun, setReplayRun] = useState(null);             // the run fetched for wf:<id>:run:<runId>, told on the canvas
+  const [testReplay, setTestReplay] = useState(null);           // a Test's planned steps, told from the rail
+  const setView = (v) => { setViewState(v); setBuilderView(v); setSelectedId(null); setReplayRun(null); setTestReplay(null); };
+  const setSkin = (sk) => { setSkinState(sk); setCanvasSkin(sk); };
   const [runOpen, setRunOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [blanks, setBlanks] = useState([]);           // template blanks, this open only
@@ -117,6 +133,33 @@ export default function Builder({ id, go }) {
     }).catch((e) => { if (alive) setLoadError(e); });
     return () => { alive = false; };
   }, [id, reload]);
+
+  // Show On Canvas (10/30/2026): a run id in the address (wf:<id>:run:<runId>,
+  // from a run's drawer) fetches that run once - keyed on the id alone, so a
+  // draft or workflow refresh while it loads cannot lose it - and the story
+  // is derived below from whatever the sheet shows. Phones keep the recipe,
+  // so there is nothing to play on.
+  useEffect(() => {
+    if (!runId || isMobile) return undefined;
+    let alive = true;
+    api.wfRunGet(runId).then((run) => {
+      if (!alive || !run) return;
+      setViewState('canvas');
+      setSelectedId(null);
+      setReplayRun(run);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [runId, isMobile]);
+  const workflowVersion = workflow?.version;
+  const replay = useMemo(() => {
+    if (replayRun && definition) {
+      const when = replayRun.startedAt || replayRun.createdAt || replayRun.at || '';
+      return { ...replayPlan(definition, replayRun, workflowVersion), label: `Showing the run${when ? ` from ${formatDateTime(when)}` : ''} · ${runStatusMeta(replayRun.status).label}` };
+    }
+    return testReplay;
+  }, [replayRun, testReplay, definition, workflowVersion]);
+  // The story is over (or stopped): clear it; a failure opens the block it stopped on.
+  const onReplayDone = (r) => { setReplayRun(null); setTestReplay(null); if (r?.failed && r.stoppedAt) setSelectedId(r.stoppedAt); };
 
   const setDefinition = (next) => { setDefinitionState(next); setTested(false); setServerProblems([]); };
   const setMeta = (patch) => setMetaState((m) => ({ ...m, ...patch }));
@@ -265,6 +308,33 @@ export default function Builder({ id, go }) {
   const canEdit = status !== 'archived';
   const published = (workflow?.version || 0) > 0 && status !== 'draft';
   const blankLabels = blanks.map(blankLabel).filter((l, i, a) => l && a.indexOf(l) === i);
+  const canvasOn = view === 'canvas' && !isMobile;
+
+  // The rail - Settings / Test / Versions - drawn once, in the recipe's aside
+  // or in the canvas's side panel while no block is selected.
+  const railTabs = (
+    <div role="tablist" aria-label="Builder rail" className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
+      {RAILS.map((r) => (
+        <button key={r.key} type="button" role="tab" aria-selected={rail === r.key} onClick={() => setRail(r.key)} style={{
+          ...chip, cursor: 'pointer', fontWeight: 600,
+          ...(rail === r.key ? { background: 'var(--nx-primary)', color: '#fff', borderColor: 'var(--nx-primary)' } : null),
+        }}><r.icon size={13} /> {r.label}</button>
+      ))}
+    </div>
+  );
+  const railBody = (
+    <>
+      {rail === 'settings' && (
+        <RailSettings workflow={workflow} meta={meta} onMeta={setMeta} definition={definition} onDefinition={setDefinition} ctx={ctx}
+          people={people} companies={companies} isGlobalAdmin={isGlobalAdmin} onReown={reown} />
+      )}
+      {rail === 'test' && (
+        <RailTest workflow={workflow} definition={definition} dirty={dirty} onBeforeTest={saveDraft} onTested={onTested}
+          onReplay={canvasOn ? (result) => { setSelectedId(null); setReplayRun(null); setTestReplay({ ...replayPlan(definition, result, workflow?.version), label: 'Showing the test run' }); } : undefined} />
+      )}
+      {rail === 'versions' && <RailVersions workflow={workflow} onRestored={() => setReload((n) => n + 1)} />}
+    </>
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: isMobile ? '12px 16px 40px' : '16px 20px 40px', fontFamily: 'inherit' }}>
@@ -280,6 +350,16 @@ export default function Builder({ id, go }) {
         {dirty && <span style={{ ...chip, fontSize: 11.5, color: 'hsl(var(--color-orange))', borderColor: 'hsl(var(--color-orange))' }}>Unsaved</span>}
         {notice && <span style={{ ...hint, color: 'var(--nx-primary)' }}>{notice}</span>}
         <span style={{ flex: 1 }} />
+        {!isMobile && (
+          <span role="group" aria-label="Builder view" style={{ display: 'inline-flex', border: '1px solid var(--nx-border)', borderRadius: 9, overflow: 'hidden' }}>
+            {[['canvas', 'Canvas', Waypoints], ['recipe', 'Recipe', List]].map(([key, label, Icon]) => (
+              <button key={key} type="button" aria-pressed={view === key} onClick={() => setView(key)} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px', border: 0, cursor: 'pointer', font: 'inherit', fontSize: 12.5, fontWeight: 600,
+                background: view === key ? 'var(--wk-brand-tint, var(--nx-hover))' : 'transparent', color: view === key ? 'var(--nx-primary)' : 'var(--nx-dim)',
+              }}><Icon size={13} /> {label}</button>
+            ))}
+          </span>
+        )}
         <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
           {trigger?.kind === 'manual' && status === 'active' && (
             <button type="button" onClick={() => setRunOpen(true)} style={btn('outline')}><Play size={14} /> Run</button>
@@ -294,7 +374,7 @@ export default function Builder({ id, go }) {
           <HoldButton size="sm" label="Delete" doneLabel="Deleted" onConfirm={remove} onDone={() => go('list')}
             disabled={(!!busy && busy !== 'delete') || !workflow} fallbackMessage={removeMessage} />
           <button type="button" onClick={saveDraft} disabled={!!busy || !definition || !canEdit} style={btn('outline')}><Save size={14} /> {busy === 'save' ? 'Saving...' : 'Save Draft'}</button>
-          <button type="button" onClick={() => setRail('test')} disabled={!definition || !canEdit} style={btn('outline')}><FlaskConical size={14} /> Test</button>
+          <button type="button" onClick={() => { setRail('test'); setSelectedId(null); }} disabled={!definition || !canEdit} style={btn('outline')}><FlaskConical size={14} /> Test</button>
           <button type="button" onClick={publish} disabled={!!publishReason || !!busy} title={publishReason || 'Publish this draft as a new version'}
             aria-disabled={!!publishReason} style={{ ...btn('primary'), opacity: publishReason || busy ? 0.55 : 1, cursor: publishReason ? 'not-allowed' : 'pointer' }}>
             <Upload size={14} /> {busy === 'publish' ? 'Publishing...' : 'Publish'}
@@ -317,7 +397,37 @@ export default function Builder({ id, go }) {
       <AsyncSection loading={loading && !loadError && !catalogError} error={loadError || catalogError} isEmpty={false}
         errorMessage="This workflow could not be loaded." onRetry={() => setReload((n) => n + 1)}
         skeleton={<SkeletonBlocks count={3} height={110} />}>
-        {definition && catalog && (
+        {definition && catalog && canvasOn && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+            {blankLabels.length > 0 && (
+              <div role="note" aria-label="Template blanks" style={{ ...hint, padding: '8px 12px', border: '1px dashed var(--nx-primary)', borderRadius: 10, color: 'var(--nx-ink)' }}>
+                <strong>Fill in:</strong> {blankLabels.join(', ')}. The outlined blocks are the ones the template left for you.
+              </div>
+            )}
+            <Canvas definition={definition} catalog={catalog} ctx={ctx} skin={skin} onSkin={setSkin} selectedId={selectedId} onSelect={setSelectedId}
+              onChange={setDefinition} canEdit={canEdit} workflowStatus={status} blanks={blanks} people={people} isNew={isNew} entityDef={entityDef} eventDef={eventDef}
+              replay={replay} onReplayDone={onReplayDone}
+              overlay={stepCount === 0 && canEdit ? <DescribeIt onDraft={onDraft} companyId={meta.companyId || ''} /> : null}
+              panel={(
+                <>
+                  <div className="wfc-panel-tabs" role="tablist" aria-label="Builder rail">
+                    {RAILS.map((r) => (
+                      <button key={r.key} type="button" role="tab" className="wfc-panel-tab" aria-selected={rail === r.key} onClick={() => setRail(r.key)}><r.icon size={13} /> {r.label}</button>
+                    ))}
+                  </div>
+                  <div className="wfc-panel-bd" key={rail}>{railBody}</div>
+                  {rail === 'settings' && !!workflow?.ownerName && <div className="wfc-panel-ft" style={{ ...hint }}>Owner: {workflow.ownerName}</div>}
+                </>
+              )} />
+            <div className="wfc-hints" aria-hidden="true">
+              <span><b>Drag</b> a block from the dock onto a connector</span>
+              <span><b>Drag</b> a step to another lane; it snaps home if you let go elsewhere</span>
+              <span><b>Click</b> a block to open it</span>
+              <span><b>Scroll</b> to pan, hold Ctrl or Cmd to zoom</span>
+            </div>
+          </div>
+        )}
+        {definition && catalog && !canvasOn && (
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) 380px', gap: 16, alignItems: 'start' }}>
             {/* The recipe */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
@@ -341,21 +451,9 @@ export default function Builder({ id, go }) {
 
             {/* The rail */}
             <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, position: isMobile ? 'static' : 'sticky', top: 12 }}>
-              <div role="tablist" aria-label="Builder rail" className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
-                {RAILS.map((r) => (
-                  <button key={r.key} type="button" role="tab" aria-selected={rail === r.key} onClick={() => setRail(r.key)} style={{
-                    ...chip, cursor: 'pointer', fontWeight: 600,
-                    ...(rail === r.key ? { background: 'var(--nx-primary)', color: '#fff', borderColor: 'var(--nx-primary)' } : null),
-                  }}><r.icon size={13} /> {r.label}</button>
-                ))}
-              </div>
+              {railTabs}
               <div style={{ ...card, padding: 14 }}>
-                {rail === 'settings' && (
-                  <RailSettings workflow={workflow} meta={meta} onMeta={setMeta} definition={definition} onDefinition={setDefinition} ctx={ctx}
-                    people={people} companies={companies} isGlobalAdmin={isGlobalAdmin} onReown={reown} />
-                )}
-                {rail === 'test' && <RailTest workflow={workflow} definition={definition} dirty={dirty} onBeforeTest={saveDraft} onTested={onTested} />}
-                {rail === 'versions' && <RailVersions workflow={workflow} onRestored={() => setReload((n) => n + 1)} />}
+                {railBody}
               </div>
               {rail === 'settings' && !!workflow?.ownerName && <div style={{ ...sentence, ...hint }}>Owner: {workflow.ownerName}</div>}
             </aside>

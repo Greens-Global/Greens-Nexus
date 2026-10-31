@@ -23,7 +23,7 @@ vi.mock('../ui/dialog', () => ({ dialog }));
 const { default: WorkflowList } = await import('./WorkflowList');
 
 const rows = [
-  { id: 'w1', name: 'Welcome Note', status: 'active', ownerName: 'Neil Kadakia', runs7d: 2 },
+  { id: 'w1', name: 'Welcome Note', status: 'active', ownerName: 'Neil Kadakia', runs7d: 2, shape: [['action'], ['if', [[['action']], []]]] },
   { id: 'w2', name: 'Exit Checklist', status: 'paused', ownerName: 'Neil Kadakia', runs7d: 0 },
 ];
 const deleteFor = () => screen.getAllByRole('button', { name: 'Delete, press and hold' })[0];
@@ -33,6 +33,18 @@ beforeEach(() => {
   api.wfList.mockImplementation(() => Promise.resolve(rows.map((r) => ({ ...r }))));
 });
 afterEach(() => { vi.useRealTimers(); });
+
+describe('WorkflowList shapes', () => {
+  it('gives every row its shape strip under the name, a row with no shape says so', async () => {
+    render(<WorkflowList go={vi.fn()} />);
+    await screen.findByText('Welcome Note');
+    const strips = screen.getAllByTestId('wf-shape');
+    expect(strips).toHaveLength(2);
+    // the steps read in order, the If's lanes included
+    expect(screen.getByRole('img', { name: /^Welcome Note shape: .*If \/ Else/ })).toBeTruthy();
+    expect(screen.getByRole('img', { name: /shape: no steps yet$/ })).toBeTruthy();
+  });
+});
 
 describe('WorkflowList Delete', () => {
   it('deletes on a full hold, with no dialog, and the row leaves', async () => {

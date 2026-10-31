@@ -21,6 +21,7 @@ import { describeTrigger } from './lib/text';
 import { useCatalog } from './lib/useCatalog';
 import { Card, Chip, FONT, Muted } from './ui';
 import { errorText } from './lib/errors';
+import { ShapeStrip } from './canvas/Thumbnail';
 
 const SCOPES = [
   { key: 'mine', label: 'Mine' },
@@ -137,7 +138,7 @@ export default function WorkflowList({ go }) {
           {/* Between the phone cards and a wide desktop the table scrolls
               sideways inside the card instead of clipping its last columns. */}
           <div style={isMobile ? undefined : { overflowX: 'auto' }}>
-            <div style={isMobile ? undefined : { minWidth: 980 }}>
+            <div style={isMobile ? undefined : { minWidth: 1076 }}>
               {!isMobile && (
                 <div role="row" style={{ ...GRID, padding: '8px 16px', fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
                   <span>Name</span><span>Trigger</span><span>Scope</span><span>Owner</span><span>Status</span><span style={{ textAlign: 'right' }}>Runs 7d</span><span>Last Run</span><span />
@@ -164,6 +165,7 @@ export default function WorkflowList({ go }) {
                         <span style={{ flex: 1, fontSize: 14, fontWeight: 700, minWidth: 0, overflowWrap: 'anywhere' }}>{w.name}</span>
                         <StatusLabel label={m.label} color={m.color} size="sm" />
                       </div>
+                      <ShapeStrip shape={w.shape} title={`${w.name} shape`} />
                       <Muted>{triggerText(w)}</Muted>
                       <Muted>{w.companyName || 'Every Company'} - {w.ownerName || w.ownerEmail || '-'} - {w.runs7d ?? 0} runs in 7 days{w.lastRunAt ? ` - last ${formatDateTime(w.lastRunAt)}` : ''}</Muted>
                       {w.pausedReason && <Muted style={{ color: 'hsl(var(--color-orange))' }}>Paused: {w.pausedReason}</Muted>}
@@ -175,7 +177,10 @@ export default function WorkflowList({ go }) {
                 return (
                   <div key={w.id} role="row" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}
                     style={{ ...GRID, padding: '10px 16px', borderTop: '1px solid var(--line)', alignItems: 'center', cursor: 'pointer', fontSize: 13.5 }}>
-                    <span style={{ fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.description || ''}>{w.name}</span>
+                    <span style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
+                      <span style={{ fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.description || ''}>{w.name}</span>
+                      <ShapeStrip shape={w.shape} title={`${w.name} shape`} />
+                    </span>
                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--muted)' }} title={triggerText(w)}>{triggerText(w)}</span>
                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.companyName || 'Every Company'}</span>
                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.ownerEmail || ''}>{w.ownerName || w.ownerEmail || '-'}</span>
@@ -200,7 +205,7 @@ export default function WorkflowList({ go }) {
   );
 }
 
-const GRID = { display: 'grid', gridTemplateColumns: 'minmax(160px, 1.4fr) minmax(160px, 2fr) minmax(110px, 1fr) minmax(120px, 1fr) 112px 64px 140px 132px', gap: 12 };   // the last: four 30px row actions and their gaps, the same on every row
+const GRID = { display: 'grid', gridTemplateColumns: 'minmax(160px, 1.4fr) minmax(160px, 2fr) minmax(110px, 1fr) minmax(120px, 1fr) 112px 64px 140px 160px', gap: 12 };   // the last: Duplicate, Archive and the held Delete button (it says "Delete" since the 10/30 hold rollout; 132px clipped it)
 
 // The company has workflows switched off in Settings > Workflows: the server
 // says so with companyEnabled: false (a row without the flag says nothing).

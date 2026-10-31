@@ -484,6 +484,10 @@ keep the diff minimal.
   `workflow_events`, `workflow_runs`, `workflow_run_steps`,
   `workflow_waits`, `workflow_approvals`, `workflow_subject_marks`) need RLS
   on dev and prod - run `get_advisors` after each release.
+  The builder's canvas (Blueprint, Neil, 10/30/2026) is a computed layout of
+  the definition - `frontend/src/workflows/canvas/layout.js`; never store
+  node coordinates, and the list's `shape` (`workflows/shape.py`,
+  mirrored in `canvas/shape.js`) carries step kinds only.
 
 ## Asana — removed (Sep 2026)
 
