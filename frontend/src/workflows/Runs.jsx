@@ -142,7 +142,7 @@ export default function Runs({ go, openRunId = null, initialWorkflow = '' }) {
         </Card>
       </AsyncSection>
 
-      {openRunId && <RunDrawer key={openRunId} id={openRunId} onClose={close} onChanged={() => load()} />}
+      {openRunId && <RunDrawer key={openRunId} id={openRunId} onClose={close} onChanged={() => load()} go={go} />}
     </div>
   );
 }
