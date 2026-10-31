@@ -130,20 +130,23 @@ def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "mo
     worked = sorted((i for i in items if not i["cancelled"]), key=lambda i: i["key"])
     rule = (ot_rule or "ca").lower()
 
-    # Rest between consecutive shifts: measured from the latest end so far.
+    # Rest between WORKDAYS (Neil, Oct 30 2026): measured from the latest end
+    # of an earlier work date to the first start of the next one. The parts
+    # of one day's split shift (7-11a and 4-8p) are one workday - the break
+    # between them is not rest and never warns.
     rest_h = _int(cfg, "ruleMinRestHours")
     if rest_h > 0:
-        latest = None
+        latest, latest_day = None, None
         for i in worked:
             if not i["iv"]:
                 continue
-            if latest is not None:
+            if latest is not None and i["d"] != latest_day:
                 gap = (i["iv"][0] - latest[1]).total_seconds() / 60
                 # An overlap is a conflict (_shift_conflicts), not a rest problem.
                 if 0 <= gap < rest_h * 60:
                     warn(i["id"], f"Only {_hm(gap)} rest before this shift ({rest_h}h minimum).")
             if latest is None or i["iv"][1] > latest[1]:
-                latest = i["iv"]
+                latest, latest_day = i["iv"], i["d"]
 
     # Days in a row: every worked day past the limit.
     max_days = _int(cfg, "ruleMaxDaysInRow")

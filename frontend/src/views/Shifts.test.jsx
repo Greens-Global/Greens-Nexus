@@ -58,7 +58,7 @@ describe('Team module', () => {
   it('lands a manager on the day and group a weather advisory points at', async () => {
     role.level = 3;
     render(<Shifts activeSub="schedule:2026-10-16:g1" onSubChange={vi.fn()} />);
-    expect(screen.getByRole('tab', { name: /Schedule/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tab', { name: /Shift Planner/ }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getByText('Schedule grid at 2026-10-16 for g1')).toBeTruthy();
     role.level = 1;
     render(<Shifts activeSub="schedule:2026-10-16:g1" onSubChange={vi.fn()} />);
@@ -69,11 +69,11 @@ describe('Team module', () => {
     role.level = 3;
     const onSubChange = vi.fn();
     const { rerender } = render(<Shifts activeSub="shifts" onSubChange={onSubChange} />);
-    expect(tabNames().map((t) => t.replace(/\d+$/, '').trim())).toEqual(['Shifts', 'Schedule', 'Requests', 'Directory']);
+    expect(tabNames().map((t) => t.replace(/\d+$/, '').trim())).toEqual(['Shifts', 'Shift Planner', 'Requests', 'Directory']);
     expect(screen.queryByText(/Presets/)).toBeNull();
     // One pending swap + one decidable time-off request = 2 (the one that is not theirs to decide is not counted).
     expect(await screen.findByRole('tab', { name: 'Requests, 2 waiting' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('tab', { name: /Schedule/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Shift Planner/ }));
     expect(onSubChange).toHaveBeenCalledWith('schedule');
     rerender(<Shifts activeSub="schedule" onSubChange={onSubChange} />);
     expect(screen.getByText('Schedule grid')).toBeTruthy();
@@ -115,7 +115,7 @@ describe('Team module', () => {
 
     role.level = 3; role.grants = new Set(['employee-tracking']);
     const g = render(<Shifts activeSub={null} onSubChange={vi.fn()} />);
-    expect(tabNames()).toEqual(['Shifts', 'Schedule', 'Requests', 'Workforce Analytics', 'Directory']);
+    expect(tabNames()).toEqual(['Shifts', 'Shift Planner', 'Requests', 'Workforce Analytics', 'Directory']);
     g.unmount();
 
     role.level = ADMIN; role.grants = new Set();

@@ -1168,6 +1168,8 @@ def company_holidays(user: dict = Depends(get_current_user), db: Session = Depen
     # (Diwali etc.) on their calendar before this. A manual, no-country
     # holiday still applies company-wide. `type` (Sep 22, Pranshu: "in bracket
     # either its mandatory or optional") lets the widget label each one.
-    country = (emp.country or "") if emp else ""
+    # No country on the person = their company's (holiday_policies.person_country).
+    import holiday_policies
+    country = holiday_policies.person_country(emp, holiday_policies.company_countries(db, [company_id]).get(company_id, ""))
     return {"holidays": [{"date": h.date, "name": h.name, "type": h.type or "mandatory"} for h in rows
-                         if not h.country_code or country in h.country_code.split(",")]}
+                         if holiday_policies.applies_to(h, country)]}

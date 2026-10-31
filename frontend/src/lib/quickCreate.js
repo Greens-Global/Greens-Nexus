@@ -19,8 +19,8 @@
 //
 // New Note sits under New Task on every screen (Neil, Oct 29 2026 for the
 // phone, Oct 30 for the web too): it opens the Quick Note panel through the
-// `nexus:quick-note` event. On a phone (the header's 900px breakpoint) it is
-// the only way in - the Quick Note button leaves the top bar there.
+// `nexus:quick-note` event. It is the way in (with Ctrl+Alt+N) - the top bar
+// has no scratchpad button (Neil, Oct 30 2026).
 //
 // Kept off the menu on purpose (Neil, Oct 29 2026): 1:1s, Ask HR,
 // Reimbursements, Credentials, Purchase Requests, Send for Signature,

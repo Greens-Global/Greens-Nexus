@@ -13,7 +13,6 @@ import WeekGrid from './shifts/WeekGrid';
 import { DayStrip, PhoneRow, firstDay } from './shifts/SchedulePhone';
 import { paidMinutes, fmtHrs, todayIso, shiftShortText, teamColor, minutesText } from './shifts/shiftLib';
 import TeamPicker from './shifts/TeamPicker';
-import { StatusLabel } from './StatusLabel';
 import { formatTime, formatTimeIn } from '../lib/datetime';
 
 const MUTED = { fontSize: 11, color: 'var(--muted)' };
@@ -53,8 +52,11 @@ export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam,
     const [word, since] = LIVE_WORD[s.state];
     const at = s.since ? (teamZone ? formatTimeIn(s.since, teamZone) : formatTime(s.since)) : '';
     return (
-      <StatusLabel size="sm" color={LIVE_COLOR[s.state]} title={at ? `${since} ${at}` : undefined}
-        label={s.state === 'break' && s.since ? `${word} · ${minutesText(minsSince(s.since))}` : word} />
+      // A plain dot and the word - no pill (Neil, Oct 30 2026).
+      <span data-live={s.state} title={at ? `${since} ${at}` : undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+        <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: LIVE_COLOR[s.state], flexShrink: 0 }} />
+        {s.state === 'break' && s.since ? `${word} · ${minutesText(minsSince(s.since))}` : word}
+      </span>
     );
   };
   const liveGroup = (state) => (live ? rows.filter((r) => liveOf(r.email)?.state === state).map(firstName) : []);

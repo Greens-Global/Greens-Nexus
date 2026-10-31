@@ -4477,14 +4477,16 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   font-family: var(--wk-font);
   font-size: clamp(22px, 2.4vw, 28px); font-weight: 800;
   letter-spacing: -.015em; line-height: 1.15;
-  margin: 0 0 4px; color: inherit;
+  margin: 0 0 10px; color: inherit;
 }
-.dk-head-sub { font-size: 13.5px; color: var(--wk-dim); line-height: 1.5; }
+.dk-head-sub { font-size: 15px; color: var(--wk-dim); line-height: 1.5; }   /* a touch larger, level with the controls across from it (Neil, Oct 30 2026) */
 .dk-head-sub b { color: var(--wk-brand); font-weight: 700; }
 [data-theme="dark"] .dk-head-sub { color: var(--muted); }
 [data-theme="dark"] .dk-head-sub b { color: #b9bbff; }
 
-.dk-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.dk-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+/* The h1's 10px and this 4px put the date line's middle level with the
+   controls across from it (Neil, Oct 30 2026). */
 /* The viewer's own time at the greeting's own size (same clamp, weight and
    tracking as .dk-head h1, Neil, Oct 7), with the other zones small on its
    baseline. Tabular digits so the row doesn't jiggle as the seconds tick. */
@@ -4832,7 +4834,7 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .dk-head h1 { font-size: 24px; grid-column: 1; grid-row: 1; }
   .dk-clock-row { grid-column: 2; grid-row: 1; }
   .dk-clock { font-size: 24px; }
-  .dk-head-sub { grid-column: 1 / -1; grid-row: 2; }
+  .dk-head-sub { grid-column: 1 / -1; grid-row: 2; font-size: 14.5px; }
   .dk-toolbar { grid-column: 1 / -1; grid-row: 3; }
   .dk-toolbar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 4px 0 6px; }
   .dk-toolbar::-webkit-scrollbar { display: none; }
@@ -6648,6 +6650,45 @@ body:has(.docs-root) { overflow-x: clip; }
   animation: fb-spark .7s .25s cubic-bezier(.34, 1.56, .64, 1) both, fb-turn 1.1s .65s cubic-bezier(.65, 0, .35, 1) both;
 }
 @keyframes fb-turn { from { rotate: 0deg; } to { rotate: 360deg; } }
+/* Depth and light (Neil, Oct 30 2026: "a shadow effect below it ... make it
+   look amazing"). Now that the bar is the app's top edge it floats over
+   everything:
+   - a layered shadow, tinted with the bar's own green so it reads as the bar
+     casting light-blocked color, not grey smudge: a tight contact line, a
+     soft mid shadow and a long faint falloff;
+   - a lit bottom edge: a 1px mint line, brightest in the middle and fading
+     out at both ends, as if light catches the bar's lower lip;
+   - an aurora: one wide, faint pool of mint light drifting slowly back and
+     forth behind the content (transform only - the compositor moves it, no
+     repaint). Slow enough to read as the surface breathing, not as motion. */
+.feature-banner {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .10), inset 0 -1px 0 rgba(0, 0, 0, .14),
+    0 1px 1px rgba(3, 38, 20, .16),
+    0 4px 10px -2px rgba(4, 52, 28, .22),
+    0 14px 30px -10px rgba(4, 64, 34, .34);
+}
+[data-theme="dark"] .feature-banner {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .10), inset 0 -1px 0 rgba(0, 0, 0, .14),
+    0 1px 1px rgba(0, 0, 0, .40),
+    0 6px 14px -2px rgba(0, 0, 0, .45),
+    0 18px 36px -10px rgba(0, 40, 20, .55);
+}
+.feature-banner::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, transparent 0%, rgba(134, 239, 172, .35) 18%, rgba(187, 247, 208, .75) 50%, rgba(153, 246, 228, .4) 82%, transparent 100%);
+}
+.feature-banner::before {
+  content: ''; position: absolute; top: -60%; bottom: -60%; left: 0; width: 55%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(167, 243, 208, .16), rgba(167, 243, 208, .05) 55%, transparent);
+  transform: translateX(-20%);
+  animation: fb-aurora 18s 1.8s ease-in-out infinite alternate both;
+}
+@keyframes fb-aurora { from { transform: translateX(-20%); } to { transform: translateX(150%); } }
+@media (prefers-reduced-motion: reduce) {
+  .feature-banner::before { animation: none; }
+}
 .feature-banner-label {
   flex-shrink: 0; font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
   color: rgba(255, 255, 255, .9);
@@ -7951,7 +7992,6 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    Note under New Task (lib/quickCreate.js). Here, not in notes/notes.css:
    that file loads only once Notes has opened. The button stays mounted, so
    the shortcut and the nexus:quick-note event still open the panel. */
-@media (max-width: 900px) { .nt-header-btn { display: none; } }
 /* Room beside the centered NEXUS wordmark on a phone: the "+" takes a 40px
    slot with a 44px hit area, and the profile pill is the avatar alone. */
 @media (max-width: 640px) {
@@ -8142,3 +8182,56 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .nx-rec-x { width: 26px; height: 26px; display: grid; place-items: center; border: none; border-radius: 6px; background: transparent; color: var(--muted, #676879); cursor: pointer; }
 .nx-rec-error { display: block; margin-top: 4px; font-size: 12px; color: var(--wk-red, #e2445c); }
 @media (max-width: 768px) { .nx-mic { width: 40px; height: 40px; } .nx-voice, .nx-rec { height: 40px; } }
+
+/* ── Hold to confirm (ui/HoldButton.jsx, Neil, Oct 30 2026) ──
+   A red layer, a clipped copy of the label, wipes left to right at an even
+   pace while held (--nx-hold-ms) and rewinds in 180 ms with a strong ease-out
+   when let go. Done = solid red with a check. Reduced motion: four steps. */
+.nx-hold-wrap { position: relative; display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; vertical-align: middle; }
+.nx-hold {
+  position: relative; isolation: isolate; overflow: hidden; display: inline-flex; align-items: center;
+  height: 36px; min-width: 40px; padding: 0 16px; border-radius: 9px;
+  border: 1px solid hsl(var(--color-red)); background: hsla(var(--color-red), 0.08); color: hsl(var(--color-red));
+  font: 600 13.5px Inter, sans-serif; cursor: pointer; white-space: nowrap;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  transition: transform 160ms cubic-bezier(.23, 1, .32, 1), background-color 120ms ease-out;
+}
+.nx-hold-sm { height: 30px; padding: 0 11px; border-radius: 8px; font-size: 12.5px; }
+.nx-hold:hover:not(:disabled) { background: hsla(var(--color-red), 0.13); }
+.nx-hold:focus-visible { outline: 2px solid hsl(var(--color-red)); outline-offset: 2px; }
+.nx-hold:disabled { opacity: .5; cursor: not-allowed; }
+.nx-hold[data-holding] { transform: scale(.98); }
+.nx-hold-face, .nx-hold-fill { display: inline-flex; align-items: center; gap: 7px; }
+.nx-hold-sm .nx-hold-face, .nx-hold-sm .nx-hold-fill { gap: 6px; }
+.nx-hold-fill {
+  position: absolute; inset: 0; padding: inherit; justify-content: inherit;
+  background: hsl(var(--color-red)); color: #fff;
+  clip-path: inset(0 100% 0 0); transition: clip-path 180ms cubic-bezier(.23, 1, .32, 1);
+}
+.nx-hold[data-holding] .nx-hold-fill { clip-path: inset(0 0 0 0); transition: clip-path var(--nx-hold-ms, 1200ms) linear; }
+.nx-hold[data-nudge] .nx-hold-fill { clip-path: inset(0 88% 0 0); transition: clip-path 140ms ease-out; }
+.nx-hold[data-working] .nx-hold-fill, .nx-hold[data-done] .nx-hold-fill { clip-path: inset(0 0 0 0); transition: none; }
+.nx-hold[data-done] { background: hsl(var(--color-red)); color: #fff; }
+.nx-hold[data-working] { cursor: progress; }
+.nx-hold[data-working] .nx-hold-fill { animation: nx-hold-wait 900ms ease-in-out infinite alternate; }
+@keyframes nx-hold-wait { from { opacity: 1; } to { opacity: .78; } }
+.nx-hold-hint {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 2; pointer-events: none; white-space: nowrap;
+  font-size: 11.5px; font-weight: 600; color: var(--muted, #5b675f);
+}
+.nx-hold-error { font-size: 12px; color: hsl(var(--color-red)); text-align: right; }
+.nx-hold-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .nx-hold, .nx-hold-fill, .nx-hold[data-holding] .nx-hold-fill, .nx-hold[data-nudge] .nx-hold-fill { transition: none; }
+  .nx-hold[data-holding] { transform: none; }
+  .nx-hold[data-holding] .nx-hold-fill { clip-path: inset(0 var(--nx-hold-left, 100%) 0 0); }
+  .nx-hold[data-working] .nx-hold-fill { animation: none; }
+}
+/* the Undo toast after a hold (ui/dialog.jsx dialog.undo) */
+.nx-undo {
+  position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 100001;
+  display: flex; align-items: center; gap: 16px; padding: 10px 14px 10px 16px; border-radius: 10px;
+  background: var(--ink, #17211c); color: var(--paper, #fff); font: 500 13.5px Inter, sans-serif;
+  box-shadow: 0 8px 28px rgba(0,0,0,.24); animation: nx-fade-in var(--dur-sm, 160ms) ease-out;
+}
+.nx-undo button { background: none; border: none; padding: 0; color: inherit; font: 700 13.5px Inter, sans-serif; text-decoration: underline; cursor: pointer; }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, onTestFinished } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
 // Tasks Home on a phone (Neil, Oct 14 2026): no summary tiles, the range
@@ -224,6 +224,12 @@ describe('a grouped update', () => {
   });
 
   it('folds several people on one task into one row, never an ask', async () => {
+    // Noon, so 40 minutes back is still today: run just after midnight
+    // UTC the rows split by day (failed on PR #883 at 00:06 UTC).
+    const noon = new Date(); noon.setHours(12, 0, 0, 0);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(noon);
+    onTestFinished(() => vi.useRealTimers());
     activity.mockImplementation(() => Promise.resolve([
       grouped({ id: 'a', actorId: SAGAR, at: minutesAgo(2), parts: [{ kind: 'commented', count: 1 }] }),
       grouped({ id: 'b', actorId: 'dean@greensglobal.com', at: minutesAgo(30), parts: [{ kind: 'commented', count: 2 }] }),

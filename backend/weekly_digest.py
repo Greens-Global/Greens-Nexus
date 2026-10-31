@@ -310,7 +310,8 @@ def holiday_rows(db: Session, email: str, today: date) -> list:
                     models.HrCompanyHoliday.date >= today.isoformat(),
                     models.HrCompanyHoliday.date <= next_sunday.isoformat()).all())
     out = []
-    for d, h in holiday_policies.holidays_by_date(rows, emp.country).items():
+    country = holiday_policies.person_country(emp, holiday_policies.company_countries(db, [emp.company]).get(emp.company, ""))
+    for d, h in holiday_policies.holidays_by_date(rows, country).items():
         try:
             day = date.fromisoformat(d)
         except ValueError:

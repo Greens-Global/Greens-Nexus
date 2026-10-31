@@ -1,4 +1,4 @@
-// Quick Note (Oct 29 2026): the slide-over that opens from the top bar (or
+// Quick Note (Oct 29 2026): the slide-over that opens from the + menu's New Note (or
 // Ctrl+Alt+N / Ctrl+Cmd+N) on any screen. It writes today's scratchpad - the
 // one 'daily' note per day, made on the first word - or the note last opened
 // on the Notes page, and links to the full page. Saving is the Notes page's
