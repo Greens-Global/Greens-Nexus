@@ -879,13 +879,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     const okMsg = 'Time sheet finalized - the period is locked.';
     try { await call(false); toastOk?.(okMsg); return; }
     catch (e) {
-      if (e?.detail?.code !== 'unresolved_exceptions') throw new Error(e?.message || 'Could not finalize.');
+      if (e?.detail?.code !== 'unresolved_exceptions') throw new Error(e?.message || 'Could not finalize.', { cause: e });
       const go = await dialog.confirm(e.detail.message,
         { title: 'Unresolved punch exceptions', confirmText: 'Finalize anyway', danger: true });
-      if (!go) throw new Error('Not finalized - the punch exceptions are still unresolved.');
+      if (!go) throw new Error('Not finalized - the punch exceptions are still unresolved.', { cause: e });
     }
     try { await call(true); toastOk?.(`${okMsg} (exceptions overridden).`); }
-    catch (e2) { throw new Error(e2?.message || 'Could not finalize.'); }
+    catch (e2) { throw new Error(e2?.message || 'Could not finalize.', { cause: e2 }); }
   }
   async function unfinalize() {
     // HR / Global Admin only (Neil, Oct 22): only HR changes it until the employee signs it again.

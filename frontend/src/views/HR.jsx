@@ -3590,7 +3590,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
       title: 'Delete Company', confirmText: 'Delete Company', doneText: 'Deleted', hold: true, holdMs: HOLD_MAJOR_MS,
       onConfirm: async () => {
         try { await api.deleteEntity(en.id); }
-        catch (e) { throw new Error(e?.message || 'Could not delete company.'); }
+        catch (e) { throw new Error(e?.message || 'Could not delete company.', { cause: e }); }
         await onChangedEntities(); toastOk('Company deleted.');
       },
     });

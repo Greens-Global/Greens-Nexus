@@ -792,7 +792,7 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
   async function voidIt() {
     setBusy('void');
     try { await api.voidLifeEvent(ev.id); toastOk?.(`${what} voided.`); }
-    catch (e) { throw new Error(e?.message || 'That did not work.'); }
+    catch (e) { throw new Error(e?.message || 'That did not work.', { cause: e }); }
     finally { setBusy(''); }
   }
   async function act(kind) {

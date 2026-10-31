@@ -501,7 +501,7 @@ export default function RolesAccess({ embedded = false }) {
   // the list re-reads once the check has shown (onDone).
   async function onDeleteGroup(g) {
     try { await api.deleteGroup(g.id); toastOk(`Deleted "${g.name}".`); }
-    catch (e) { throw new Error(e?.message || 'Could not delete group.'); }
+    catch (e) { throw new Error(e?.message || 'Could not delete group.', { cause: e }); }
   }
 
   const openDuplicate = r => setEditing({ ...r, id: undefined, member_count: 0, members: [],
@@ -883,7 +883,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   async function removeFromGroup(g) {
     const who = person;
     try { await api.removeGroupMember(g.id, who); toastOk(`Removed ${nameOf(who)} from “${g.name}”.`); }
-    catch (e) { throw new Error(e?.message || 'Could not remove.'); }
+    catch (e) { throw new Error(e?.message || 'Could not remove.', { cause: e }); }
     return {
       undoMessage: `Removed ${nameOf(who)} from “${g.name}”.`,
       undo: async () => {
@@ -1273,7 +1273,7 @@ export function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastEr
           const r = await api.applyJobRoleManager(role.id, val);
           toastOk(`${nameOf(val)} is now the approver for ${r.updated} ${r.updated === 1 ? 'person' : 'people'} in “${role.name}”.`);
           onSaved();
-        } catch (e) { throw new Error(e?.message || 'Could not apply to members.'); }
+        } catch (e) { throw new Error(e?.message || 'Could not apply to members.', { cause: e }); }
         finally { setBusy(''); }
       },
     });

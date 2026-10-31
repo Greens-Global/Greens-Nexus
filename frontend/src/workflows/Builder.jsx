@@ -218,7 +218,7 @@ export default function Builder({ id, go }) {
       await api.wfDelete(id);
     } catch (e) {
       setBusy('');
-      throw new Error(errorText(e, 'The workflow could not be deleted.'));
+      throw new Error(errorText(e, 'The workflow could not be deleted.'), { cause: e });
     }
   };
 

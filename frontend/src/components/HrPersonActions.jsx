@@ -376,7 +376,7 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
   async function goNow() {
     setBusy('send');
     try { sent.current = await api.offboard(e.id, { ...body(), excluded_ack: preview?.engine === 'documents' ? true : ack }); }
-    catch (err) { setBusy(''); throw new Error(err?.message || 'Could not offboard.'); }
+    catch (err) { setBusy(''); throw new Error(err?.message || 'Could not offboard.', { cause: err }); }
   }
   const radio = (val, label, sub) => (
     <label style={{ display: 'flex', gap: 10, padding: '9px 11px', borderRadius: 10, border: `1px solid ${mailbox === val ? 'var(--pine)' : 'var(--line)'}`, background: mailbox === val ? 'hsla(var(--color-green),0.06)' : 'transparent', cursor: 'pointer', marginBottom: 8 }}>

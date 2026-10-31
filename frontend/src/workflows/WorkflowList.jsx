@@ -98,7 +98,7 @@ export default function WorkflowList({ go }) {
     try {
       await api.wfDelete(w.id);
     } catch (e) {
-      throw new Error(errorText(e));
+      throw new Error(errorText(e), { cause: e });
     }
   };
   const removed = (w) => setRows((rs) => (rs || []).filter((r) => r.id !== w.id));

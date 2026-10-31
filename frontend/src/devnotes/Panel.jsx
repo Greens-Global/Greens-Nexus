@@ -457,7 +457,7 @@ function Tokens() {
   // button with the reason; the list re-reads once the check has shown.
   const revoke = async (id) => {
     try { await api.devNotesTokenRevoke(id); if (minted?.id === id) setMinted(null); toast('Token revoked'); }
-    catch (e) { throw new Error(e?.message || 'The token could not be revoked.'); }
+    catch (e) { throw new Error(e?.message || 'The token could not be revoked.', { cause: e }); }
   };
   const live = tokens.filter((t) => !t.revokedAt);
   return (
