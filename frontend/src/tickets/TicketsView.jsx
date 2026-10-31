@@ -551,6 +551,11 @@ export default function TicketsView() {
   const keysOn = !isMobile && view === 'list' && (pane || !openId);
   const onMove = useCallback((id) => switchTo(id), [switchTo]);
   const { focusId } = useListKeys({ ids: allVisibleIds, enabled: keysOn, onOpen: openTicket, openId, onMove: pane ? onMove : null });
+  // In the pane the ring IS the open ticket - a row click, Previous / Next
+  // or closing the pane moves it, and the hook steps from it (dev pass,
+  // 10/31/2026: the ring sat on the row the arrows last visited while a
+  // clicked ticket filled the pane). Derived, never a second state.
+  const ringId = pane ? openId : focusId;
   // Previous / Next in the open ticket's header, in the list's order.
   const openIdx = openId ? allVisibleIds.indexOf(openId) : -1;
   const prevId = openIdx > 0 ? allVisibleIds[openIdx - 1] : null;
@@ -818,7 +823,7 @@ export default function TicketsView() {
                   {g.rows.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
                     myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={openTicket}
-                    people={people} focused={focusId === t.id}
+                    people={people} focused={ringId === t.id}
                       checked={selected.has(t.id)} onToggle={toggleSel} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}

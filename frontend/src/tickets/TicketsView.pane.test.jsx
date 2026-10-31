@@ -88,6 +88,8 @@ describe('Tickets desk - side pane', () => {
     await waitFor(() => expect(within(screen.getByTestId('ticket-drawer')).getByText('Ticket #2')).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: /Next/ }));
     await waitFor(() => expect(within(screen.getByTestId('ticket-drawer')).getByText('Ticket #3')).toBeTruthy());
+    // The ring follows the open ticket, so the next ↓ steps from it (dev pass, 10/31/2026).
+    expect(document.querySelector('.nx-row-hover[data-focused="true"]')).toHaveTextContent('Badge reader offline');
     // Nothing after the last row.
     expect(screen.getByRole('button', { name: /Next/ }).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: /Previous/ }));
@@ -118,7 +120,8 @@ describe('Tickets desk - side pane', () => {
     await act(async () => { key('ArrowDown'); });
     expect(confirmSwitch).toHaveBeenCalledTimes(1);
     expect(within(screen.getByTestId('ticket-drawer')).getByText('Ticket #1')).toBeTruthy();
-    expect(document.querySelector('.nx-row-hover[data-focused="true"]')).toBeNull();
+    // The ring is the open ticket, so it stayed put too.
+    expect(document.querySelector('.nx-row-hover[data-focused="true"]')).toHaveTextContent('Printer jam');
     // Discard: the next ticket takes the pane.
     confirmSwitch.mockImplementation(() => Promise.resolve(true));
     await act(async () => { key('ArrowDown'); });

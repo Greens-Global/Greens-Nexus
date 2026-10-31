@@ -55,13 +55,17 @@ export function useListKeys({ ids, enabled = true, onOpen, openId = null, onMove
     const { ids: list, openId: open, onMove: moved } = ref.current;
     if (!list || !list.length) return;
     const cur = curRef.current != null && list.includes(curRef.current) ? curRef.current : null;
-    // From the highlight; else from the open ticket; else from before the
+    const openIn = open != null && list.includes(open);
+    // With `onMove` the open ticket IS the position (the side pane: a row
+    // click or Next moved it, the arrows continue from there). Otherwise
+    // from the highlight; else from the open ticket; else from before the
     // start, so the first ↓ lands on the first row.
-    const from = cur != null ? list.indexOf(cur)
-      : open != null && list.includes(open) ? list.indexOf(open) : -1;
+    const from = moved && openIn ? list.indexOf(open)
+      : cur != null ? list.indexOf(cur)
+      : openIn ? list.indexOf(open) : -1;
     const next = Math.min(list.length - 1, Math.max(0, from + step));
     const id = list[next];
-    if (id === cur) return;
+    if (id === cur || (moved && openIn && id === open)) return;
     if (!moved) { setFocusId(id); return; }
     const answer = moved(id);
     if (!answer || typeof answer.then !== 'function') {
