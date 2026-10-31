@@ -381,6 +381,12 @@ def _with_latest_comment(db: Session, t: models.TaskTicket, user: dict, d: dict)
     d["latestComment"] = _latest_comments(db, internal_ok, ticket_id=t.id).get(t.id)
     if not internal_ok:
         _public_last_comment(d)
+    # The Needs Reply flag the list carries (list_tickets), from the PUBLIC
+    # thread: this dict replaces the row in the browser's list, and a row
+    # without the flag would fall back on latestComment - the internal-
+    # inclusive one for the desk, which an internal note would then "answer".
+    public_latest = d["latestComment"] if not internal_ok else _latest_comments(db, False, ticket_id=t.id).get(t.id)
+    d["needsReply"] = _needs_reply(t, public_latest)
     return _for_viewer(db, t, user, d)
 
 
@@ -1047,7 +1053,9 @@ def _needs_reply(t: "models.TaskTicket", latest_public: dict | None) -> bool:
         return False
     if not t.first_response_at:
         return True
-    return bool(latest_public) and (latest_public.get("authorId") or "") == req
+    # `req and`: a mail-in or guest row with no requester, whose last public
+    # comment carries no author, must not read "" == "" as the requester.
+    return bool(req) and bool(latest_public) and (latest_public.get("authorId") or "") == req
 
 
 def _valid_requester(db: Session, user: dict, requested: str | None) -> str:

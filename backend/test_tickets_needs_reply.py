@@ -18,6 +18,8 @@ _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 
+from fastapi import BackgroundTasks
+
 import database
 import models
 from routers.task_util import gen_id, now_iso
@@ -64,6 +66,24 @@ class NeedsReplyRuleTests(unittest.TestCase):
 
     def test_unassigned_still_counts(self):
         self.assertTrue(T._needs_reply(self._t(assignee_email=""), None))
+
+    def test_new_is_live(self):
+        # ticket_to_dict normalizes "new" to "open"; the rule must agree it is live.
+        self.assertTrue(T._needs_reply(self._t(status="new", first_response_at=""), None))
+
+    def test_no_requester_and_an_authorless_comment_is_not_the_requester(self):
+        # A mail-in / guest row: "" == "" must not read as "the requester wrote last".
+        t = self._t(requester_email="", first_response_at="2026-10-01T10:00:00")
+        self.assertFalse(T._needs_reply(t, {"authorId": ""}))
+        self.assertFalse(T._needs_reply(t, {"authorId": AGENT}))
+
+    def test_a_third_party_writing_last_is_not_the_requester(self):
+        # The filer (created_by) or a watcher writing last reads as the desk's
+        # side - the flag follows counts_as_response (anyone but the requester
+        # answers), not _resume_on_requester_reply's wider "requester" set.
+        t = self._t(first_response_at="2026-10-01T10:00:00", created_by_email="filer@greensglobal.com")
+        self.assertFalse(T._needs_reply(t, {"authorId": "filer@greensglobal.com"}))
+        self.assertFalse(T._needs_reply(t, {"authorId": "watcher@greensglobal.com"}))
 
 
 class NeedsReplyOnTheListTests(unittest.TestCase):
@@ -129,6 +149,28 @@ class NeedsReplyOnTheListTests(unittest.TestCase):
         self._ticket("closed", status="closed", first_response_at="")
         self._ticket("gated", approval_status="pending", first_response_at="")
         self.assertEqual(self._flags(), {"closed": False, "gated": False})
+
+    def test_the_support_list_carries_the_flag_too(self):
+        # ?mine=true (the Support page) reads the same rule: "the desk owes you
+        # an answer" is harmless to the requester and keeps one dict shape.
+        self._ticket("mine", first_response_at="")
+        rows = T.list_tickets(mine=True, user={"email": REQ, "level": 1}, db=self.db)
+        self.assertEqual([(r["subject"], r["needsReply"]) for r in rows], [("mine", True)])
+
+    def test_a_single_ticket_response_carries_the_flag(self):
+        # PATCH replaces the row in the browser's list; without the flag the
+        # client would fall back on latestComment - the desk's internal-
+        # inclusive one - and an internal note would read as the answer.
+        t = self._ticket("patched")
+        self._comment(t, REQ, "2026-10-03T10:00:00")
+        self._comment(t, AGENT, "2026-10-04T10:00:00", internal=True)
+        out = T.update_ticket(t.id, T.TicketUpdate(priority="high"), BackgroundTasks(), user=ADMIN, db=self.db)
+        self.assertEqual(out["priority"], "high")
+        self.assertTrue(out["needsReply"])
+        self.assertTrue(out["latestComment"]["internal"])   # the desk still sees its note
+        self._comment(t, AGENT, "2026-10-05T10:00:00")
+        out = T.update_ticket(t.id, T.TicketUpdate(priority="medium"), BackgroundTasks(), user=ADMIN, db=self.db)
+        self.assertFalse(out["needsReply"])
 
 
 if __name__ == "__main__":
