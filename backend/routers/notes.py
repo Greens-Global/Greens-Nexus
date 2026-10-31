@@ -1,6 +1,6 @@
 """Notes - the scratchpad that follows you around Nexus (Neil, Oct 29 2026).
 
-Dashboard > Notes is the full page, Quick Note (top bar, Ctrl/Cmd+Shift+N)
+Dashboard > Notes is the full page, Quick Note (the + menu's New Note, Ctrl+Alt+N / Ctrl+Cmd+N)
 the slide-over and the dashboard's Notes widget the glance; all three read
 and write the same rows (models.NexusNote).
 

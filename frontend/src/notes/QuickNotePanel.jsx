@@ -2,17 +2,20 @@
 // Ctrl+Alt+N / Ctrl+Cmd+N) on any screen. It writes today's scratchpad - the
 // one 'daily' note per day, made on the first word - or the note last opened
 // on the Notes page, and links to the full page. Saving is the Notes page's
-// own (useNoteSync), so both always show the same words.
+// own (useNoteSync), so both always show the same words. Make a Task works
+// here as on the Notes page; what it made is said in the foot (Oct 31 2026).
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ArrowUpRight, Check, Loader2, CloudOff } from 'lucide-react';
 import { api } from '../api';
+import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
 import { useDialogFocus } from '../lib/useDialogFocus';
 import { useEscapeLayer, usePeople } from '../tasks/components';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import NoteEditor from './NoteEditor';
 import { useNoteSync } from './useNoteSync';
+import { createTaskFrom, openTask } from './notesTasks';
 import { localDay, lastNoteId, noteTitle, writeDraft, editedLabel, quickNoteKeys } from './notesModel';
 import './notes.css';
 
@@ -66,7 +69,7 @@ function FirstWrite({ day, people, onMade }) {
   </>);
 }
 
-function SyncedNote({ id, people, onNote }) {
+function SyncedNote({ id, people, onNote, onMakeTask }) {
   const sync = useNoteSync(id);
   const { note, status } = sync;
   useEffect(() => { onNote({ note, status }); }, [note, status, onNote]);
@@ -79,7 +82,7 @@ function SyncedNote({ id, people, onNote }) {
         placeholder="Untitled Note" aria-label="Note title" onChange={(e) => sync.edit({ title: e.target.value })} />
     )}
     <NoteEditor value={note.body || ''} readOnly={readOnly} people={people} compact autoFocus
-      onChange={(html) => sync.edit({ body: html })}
+      onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : (line) => onMakeTask(line, note)}
       placeholder="Today's scratchpad. Type / for blocks, [ ] for a checklist." />
   </>);
 }
@@ -93,7 +96,23 @@ export default function QuickNotePanel({ onClose }) {
   const [error, setError] = useState('');
   const [mode, setMode] = useState('today');
   const [shown, setShown] = useState({ note: null, status: 'loading' });
+  const [said, setSaid] = useState(null);    // { text, taskId } after Make a Task
+  const saidTimer = useRef(null);
+  const { myEmail } = useRole() || {};
   useEscapeLayer(onClose);
+  useEffect(() => () => clearTimeout(saidTimer.current), []);
+  const say = (text, taskId) => {
+    clearTimeout(saidTimer.current);
+    setSaid({ text, taskId });
+    saidTimer.current = setTimeout(() => setSaid(null), 6000);
+  };
+  const makeTask = async (line, note) => {
+    if (!line) { say('Put the cursor on a line (or select text) to make it a task'); return; }
+    try {
+      const t = await createTaskFrom(line, note, myEmail);
+      say(`Task created: ${line.slice(0, 60)}`, t?.id);
+    } catch (e) { say(e.message || 'Could not create the task'); }
+  };
   useDialogFocus(panelRef);
 
   useEffect(() => {
@@ -132,11 +151,18 @@ export default function QuickNotePanel({ onClose }) {
           {error && <div style={{ paddingTop: 12 }}><ErrorBanner message={error} /></div>}
           {dailyId === null && mode === 'today' && <div style={{ paddingTop: 14 }}><SkeletonBlocks count={3} height={56} /></div>}
           {dailyId === '' && mode === 'today' && !error && <FirstWrite day={day} people={people} onMade={setDailyId} />}
-          {id && <SyncedNote key={id} id={id} people={people} onNote={setShown} />}
+          {id && <SyncedNote key={id} id={id} people={people} onNote={setShown} onMakeTask={makeTask} />}
         </div>
         <div className="nt-qn-foot" aria-live="polite">
-          {id ? <Status status={shown.status} note={shown.note} /> : <span>Saves as you type</span>}
-          <span className="nt-qn-keys">{quickNoteKeys()} opens this anywhere</span>
+          {said ? (
+            <span className="nt-qn-said">
+              {said.text}
+              {said.taskId && (
+                <button type="button" className="nt-text-btn" onClick={() => { openTask(said.taskId); onClose(); }}>Open Task</button>
+              )}
+            </span>
+          ) : id ? <Status status={shown.status} note={shown.note} /> : <span>Saves as you type</span>}
+          {!said && <span className="nt-qn-keys">{quickNoteKeys()} opens this anywhere</span>}
         </div>
       </aside>
     </>,
