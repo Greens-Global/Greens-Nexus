@@ -3,7 +3,7 @@
 // definition list (the catalog's labels for an action's inputs), its
 // detail, and the error in red - the event payload folded away, Replay for
 // a failed run, Cancel for one still waiting, "Open <subject>" into the
-// subject's own module, and Replay On Canvas (10/30/2026) into the builder,
+// subject's own module, and Show On Canvas (10/30/2026) into the builder,
 // which walks the run step by step on its canvas (wf:<id>:run:<runId>).
 // GET /workflows/runs/{id}. Mounted with key={id}, so a different run
 // starts from the skeleton.
@@ -72,7 +72,7 @@ export default function RunDrawer({ id, onClose, onChanged, go }) {
       {typeof go === 'function' && run?.workflowId && steps.length > 0 && !isMobile && (
         <button type="button" className="secondary-btn" onClick={() => go(buildSub('builder', run.workflowId, run.id))}
           title="Open the workflow and watch this run walk through it" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <WorkflowIcon size={13} /> Replay On Canvas
+          <WorkflowIcon size={13} /> Show On Canvas
         </button>
       )}
       <span style={{ flex: 1 }} />

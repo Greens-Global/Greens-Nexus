@@ -208,7 +208,7 @@ export default function Canvas({
         {overlay && <div className="wfc-overlay">{overlay}</div>}
         {replay && (
           <div className="wfc-replaybar" role="status">
-            <span>{replay.label || 'Replaying the run'}{replay.note ? ` · ${replay.note}` : ''}</span>
+            <span>{replay.label || 'Showing the run'}{replay.note ? ` · ${replay.note}` : ''}</span>
             <button type="button" className="wfc-replaystop" onClick={() => { rp.stop(); onReplayDone?.({ stoppedAt: null, failed: false }); }}>Stop</button>
           </div>
         )}

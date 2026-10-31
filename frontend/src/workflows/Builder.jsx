@@ -134,7 +134,7 @@ export default function Builder({ id, go, runId = '' }) {
     return () => { alive = false; };
   }, [id, reload]);
 
-  // Replay On Canvas (10/30/2026): a run id in the address (wf:<id>:run:<runId>,
+  // Show On Canvas (10/30/2026): a run id in the address (wf:<id>:run:<runId>,
   // from a run's drawer) fetches that run once - keyed on the id alone, so a
   // draft or workflow refresh while it loads cannot lose it - and the story
   // is derived below from whatever the sheet shows. Phones keep the recipe,
@@ -154,7 +154,7 @@ export default function Builder({ id, go, runId = '' }) {
   const replay = useMemo(() => {
     if (replayRun && definition) {
       const when = replayRun.startedAt || replayRun.createdAt || replayRun.at || '';
-      return { ...replayPlan(definition, replayRun, workflowVersion), label: `Replaying the run${when ? ` from ${formatDateTime(when)}` : ''} · ${runStatusMeta(replayRun.status).label}` };
+      return { ...replayPlan(definition, replayRun, workflowVersion), label: `Showing the run${when ? ` from ${formatDateTime(when)}` : ''} · ${runStatusMeta(replayRun.status).label}` };
     }
     return testReplay;
   }, [replayRun, testReplay, definition, workflowVersion]);
@@ -330,7 +330,7 @@ export default function Builder({ id, go, runId = '' }) {
       )}
       {rail === 'test' && (
         <RailTest workflow={workflow} definition={definition} dirty={dirty} onBeforeTest={saveDraft} onTested={onTested}
-          onReplay={canvasOn ? (result) => { setSelectedId(null); setReplayRun(null); setTestReplay({ ...replayPlan(definition, result, workflow?.version), label: 'Replaying the test run' }); } : undefined} />
+          onReplay={canvasOn ? (result) => { setSelectedId(null); setReplayRun(null); setTestReplay({ ...replayPlan(definition, result, workflow?.version), label: 'Showing the test run' }); } : undefined} />
       )}
       {rail === 'versions' && <RailVersions workflow={workflow} onRestored={() => setReload((n) => n + 1)} />}
     </>
