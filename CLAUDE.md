@@ -256,6 +256,16 @@ keep the diff minimal.
   muted rows are dropped; nothing left = nothing sent). Mentions, deletions,
   urgent tasks and tasks due today/tomorrow never wait. New task email events
   go through `notify_task_event` - never mail directly - so they batch too.
+- **Many tasks at once go through the import engine** (Neil, 10/31/2026):
+  a pasted list in any task name box (Home's add row, My Day, the Create
+  Task title, the phone quick-add) and the Create form's "Add Several"
+  open `tasks/AddSeveralModal.jsx`, which sends rows to `POST /tasks/import`
+  (`task_import.run_import`, `source` paste / typed, a project or none) -
+  one transaction, one bell and one batched email per person, the same
+  dry run first. Never add a second bulk-create path or loop POST /tasks.
+  Tasks Home: on a wide window the Updates card leads (left column, first
+  in the DOM) and Tasks + Bookmarks stack on the right; a feed that loaded
+  empty leaves Tasks on the left; phones stay Tasks, Updates, Bookmarks.
 - Timesheets are approved through review + Nexus Sign (`timesheet_review.py`;
   ONLY THE EMPLOYEE SIGNS - Neil, Oct 16 2026). After the period's last day
   the manager (else the company's HR contact; nobody at all = the Global

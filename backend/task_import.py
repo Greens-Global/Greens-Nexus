@@ -1,4 +1,9 @@
-"""Import tasks from a CSV or Excel file (Neil, Oct 22 2026).
+"""Import tasks from a CSV or Excel file (Neil, Oct 22 2026) - and, since
+Oct 31 2026, the rows a person pastes into an add row or types into Add
+Several (`source` "paste" / "typed"): one engine for every "many tasks at
+once", never a second create path. With no `project_id` the rows are
+personal tasks (no project, no sections, no required fields - what
+create_task makes with no project), and no project activity row is written.
 
 POST /tasks/import (routers/tasks.py). The browser reads the file, the person
 maps its columns to task fields, and the rows arrive here as raw cell values
@@ -95,6 +100,8 @@ from routers.task_util import (
 log = logging.getLogger(__name__)
 
 MAX_ROWS = 2000
+# Where a batch of rows comes from (routers/tasks.TaskImportBody.source).
+SOURCES = ("file", "paste", "typed")
 MAX_TITLE = 500
 MAX_TEXT = 20000
 MAX_TAGS = 30
@@ -282,32 +289,51 @@ class _Context:
     def __init__(self, db: Session, user: dict, body):
         self.db, self.user = db, user
         self.actor = (user.get("email") or "").lower()
+        # No project (Oct 31 2026: a list pasted into Home's add row, Add
+        # Several with no project picked) = personal tasks, exactly as
+        # create_task makes them with no project_id: the role check still
+        # runs against None (managers clear it, anyone else needs the editor
+        # rank project_role_for gives them with no project), the access
+        # level is org, there are no sections and no required fields.
         project = (db.query(models.TaskProject).filter(models.TaskProject.id == (body.project_id or "")).first()
                    if body.project_id else None)
-        if project is None:
+        if body.project_id and project is None:
             raise HTTPException(404, "Project not found")
         # The bar for creating a task in a project, company wall first.
         require_project_access(db, user, project, "editor")
-        # project_role_for hands an external editor on any org-wide project,
-        # which externals never see - they import only into one they can.
-        if user.get("external") and project.id not in visible_project_ids(db, user):
-            raise HTTPException(404, "Project not found")
-        if getattr(project, "archived", False):
-            raise HTTPException(422, "This project is archived. Unarchive it to import tasks into it.")
+        if project is not None:
+            # project_role_for hands an external editor on any org-wide project,
+            # which externals never see - they import only into one they can.
+            if user.get("external") and project.id not in visible_project_ids(db, user):
+                raise HTTPException(404, "Project not found")
+            if getattr(project, "archived", False):
+                raise HTTPException(422, "This project is archived. Unarchive it to import tasks into it.")
         self.project = project
+        self.project_id = project.id if project is not None else ""
+        # Where the rows came from: a file (the import wizard), a pasted list
+        # or a typed one (Add Several) - the wording below and the project's
+        # activity row follow it. Anything else is a caller's mistake.
+        self.source = (getattr(body, "source", "") or "file").strip().lower()
+        if self.source not in SOURCES:
+            raise HTTPException(422, f"source must be one of {', '.join(SOURCES)}.")
+        # "file" / "list": the noun every message uses for the rows.
+        self.noun = "file" if self.source == "file" else "list"
+        # "in this project" when there is one; a personal list has no project
+        # to point at.
+        self.here = " in this project" if project is not None else ""
         rows = body.rows or []
         if not rows:
-            raise HTTPException(422, "The file has no rows to import.")
+            raise HTTPException(422, f"The {self.noun} has no rows to {self.verb}.")
         if len(rows) > MAX_ROWS:
-            raise HTTPException(422, f"A file can have at most {MAX_ROWS:,} rows. This one has {len(rows):,} - "
-                                     "split it into smaller files.")
+            raise HTTPException(422, f"A {self.noun} can have at most {MAX_ROWS:,} rows. This one has {len(rows):,} - "
+                                     f"split it into smaller {self.noun}s.")
         self.scope = auth.company_scope(user, db)
         if body.add_missing_options and not is_manager(user):
             raise HTTPException(403, "Only a manager can add options to a custom field.")
         creator = (db.query(models.NexusEmployee.company)
                    .filter(func.lower(models.NexusEmployee.work_email) == self.actor).first())
         self.company_id = (creator.company if creator else "") or ""
-        self.access_level = project.access_level or "org"
+        self.access_level = (project.access_level if project is not None else "") or "org"
         self.people = _People(db, user, self.company_id)
         # Statuses this project shows: the built-ins plus custom ones on it.
         self.statuses: dict = {}
@@ -318,7 +344,7 @@ class _Context:
             if not config_admits(getattr(s, "company_id", "") or "", self.scope):
                 continue
             pids = [p for p in (s.project_ids or []) if p]
-            if pids and project.id not in pids:
+            if pids and self.project_id not in pids:
                 continue
             self.statuses.setdefault(_norm(s.label), s.id)
             self.statuses.setdefault(_norm(s.id), s.id)
@@ -329,25 +355,33 @@ class _Context:
         self.defs = {f.id: f for f in self.all_fields}
         self.fields = {f.id: f for f in self.all_fields
                        if config_admits(getattr(f, "company_id", "") or "", self.scope)
-                       and field_applies_to(f, project.id) and "task" in _parse_applies_to(f.applies_to)}
+                       and field_applies_to(f, self.project_id) and "task" in _parse_applies_to(f.applies_to)}
         self.add_options = bool(body.add_missing_options)
         # Sections made for the Custom grouping (customSections.js) - the
         # ones the project screen shows.
         self.sections = {}
         self.section_rows = sorted(
             (s for s in db.query(models.TaskSection).filter(models.TaskSection.project_id == project.id).all()
-             if s.custom), key=lambda s: (s.position or 0, s.created_at or ""))
+             if s.custom), key=lambda s: (s.position or 0, s.created_at or "")) if project is not None else []
         for s in self.section_rows:
             self.sections.setdefault(_norm(s.name), s)
         self.default_section = self.default_section_name = ""
         if body.section_id:
+            if project is None:
+                raise HTTPException(422, "A section needs a project. Pick a project or clear the section.")
             sec = next((s for s in self.section_rows if s.id == body.section_id), None)
             if sec is None:
                 raise HTTPException(422, "That section is not in this project.")
             self.default_section, self.default_section_name = sec.id, sec.name
-        self.create_sections = bool(body.create_sections)
+        # Personal tasks have no sections to file under or to make.
+        self.create_sections = bool(body.create_sections) and project is not None
         self.new_sections: dict = {}     # norm name -> display name, in first-seen order
         self.new_options: dict = {}      # field id -> {norm label: label}
+
+    @property
+    def verb(self) -> str:
+        """"import" for a file, "add" for a pasted or typed list."""
+        return "import" if self.source == "file" else "add"
 
     def may_add_option(self, f) -> bool:
         """A field's options are its definition: a manager's to change, and
@@ -424,7 +458,7 @@ def _parse_row(ctx: _Context, raw: dict, index: int) -> _Row:
         if hit:
             r.status = hit
         else:
-            r.warnings.append(f"Status \"{st}\" is not a status in this project - set to Not Started.")
+            r.warnings.append(f"Status \"{st}\" is not a status{ctx.here} - set to Not Started.")
 
     seen = set()
     for who in _split(_cell(raw.get("assignees"))):
@@ -463,7 +497,9 @@ def _parse_row(ctx: _Context, raw: dict, index: int) -> _Row:
     r.tags = tags
 
     sec = _cell(raw.get("section"))
-    if sec:
+    if sec and ctx.project is None:
+        r.warnings.append(f"Section \"{sec}\" was ignored - these tasks are not in a project.")
+    elif sec:
         hit = ctx.sections.get(_norm(sec))
         if hit is not None:
             r.section_id, r.section_name = hit.id, hit.name
@@ -482,7 +518,7 @@ def _parse_row(ctx: _Context, raw: dict, index: int) -> _Row:
     for fid, value in custom.items():
         f = ctx.fields.get(fid)
         if f is None:
-            r.warnings.append("A column was mapped to a field this project does not have - ignored.")
+            r.warnings.append(f"A column was mapped to a field {'this project does not have' if ctx.project is not None else 'that does not apply'} - ignored.")
             continue
         _parse_field(ctx, r, f, value)
     return r
@@ -562,7 +598,12 @@ def _parse_field(ctx: _Context, r: _Row, f, value) -> None:
 _ROW_REF = re.compile(r"^(?:row\s*)?#?\s*(\d+)$", re.I)
 
 
-def _resolve_parents(rows: list[_Row]) -> None:
+def _resolve_parents(rows: list[_Row], by_row_first: bool = False) -> None:
+    """`by_row_first` (a pasted or typed list, Oct 31 2026): the browser
+    always names a parent by its ROW NUMBER, so a line whose title happens to
+    be a bare number ("1") must never be taken for it - the row reference is
+    tried first and a title only when nothing matches. A file keeps the old
+    order (a title first, then a row number), as its wizard documents."""
     by_title: dict = {}
     for r in rows:
         if r.title:
@@ -571,6 +612,12 @@ def _resolve_parents(rows: list[_Row]) -> None:
     for r in rows:
         if not r.parent_raw:
             continue
+        if by_row_first:
+            hit = _ROW_REF.match(r.parent_raw)
+            target = by_n.get(int(hit.group(1))) if hit else None
+            if target is not None and target is not r:
+                r.parent = target
+                continue
         cands = [x for x in by_title.get(_norm(r.parent_raw), []) if x is not r]
         if len(cands) > 1:
             r.errors.append(f"Parent \"{r.parent_raw}\" matches more than one row - use its row number.")
@@ -581,7 +628,7 @@ def _resolve_parents(rows: list[_Row]) -> None:
         hit = _ROW_REF.match(r.parent_raw)
         target = by_n.get(int(hit.group(1))) if hit else None
         if target is None:
-            r.errors.append(f"Parent \"{r.parent_raw}\" is not a row in this file.")
+            r.errors.append(f"Parent \"{r.parent_raw}\" is not a row in this {'file' if not by_row_first else 'list'}.")
         elif target is r:
             r.errors.append("A task cannot be its own parent.")
         else:
@@ -614,6 +661,8 @@ def _skip_orphans(rows: list[_Row]) -> None:
 def _check_required(ctx: _Context, rows: list[_Row]) -> None:
     """A project's required custom fields, judged as create_task judges
     them: top-level rows only, a company's own field binds only its tasks."""
+    if ctx.project is None:
+        return   # a task with no project has no project to require anything (create_task)
     for r in rows:
         if r.parent is not None or r.errors:
             continue
@@ -656,7 +705,7 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
     BackgroundTasks.add_task, for the batched assignment emails."""
     ctx = _Context(db, user, body)
     rows = [_parse_row(ctx, raw if isinstance(raw, dict) else {}, i) for i, raw in enumerate(body.rows)]
-    _resolve_parents(rows)
+    _resolve_parents(rows, by_row_first=ctx.source != "file")
     _check_required(ctx, rows)
     _skip_orphans(rows)
     good = [r for r in rows if not r.errors]
@@ -680,12 +729,25 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
     }
     if body.dry_run:
         return report
-    import_key = _import_key(ctx.project.id, getattr(body, "import_id", "") or "")
+    # The repeat guard: one keyed activity row per import id - the project's
+    # "imported N tasks" row, or for a personal list (no project, Oct 31
+    # 2026) the actor's own "added N tasks" row. A POST that timed out after
+    # the server committed, then clicked again with the same id, would
+    # otherwise write every personal task twice.
+    import_key = _import_key(ctx.project.id if ctx.project is not None else f"personal:{ctx.actor}",
+                             getattr(body, "import_id", "") or "")
+    if ctx.project is not None:
+        repeat = ("This file was already imported into this project. Check the project before importing it again."
+                  if ctx.source == "file" else
+                  "This list was already added to this project. Check the project before adding it again.")
+        failed = f"The {ctx.verb} failed. Check the project before trying again."
+    else:
+        repeat = "This list was already added. Check your tasks before adding it again."
+        failed = f"The {ctx.verb} failed. Check your tasks before trying again."
     if import_key and db.get(models.TaskActivity, import_key) is not None:
-        raise HTTPException(409, "This file was already imported into this project. Check the project "
-                                 "before importing it again.")
+        raise HTTPException(409, repeat)
     if not good:
-        raise HTTPException(422, "Every row has an error, so nothing was imported. Fix the file and try again.")
+        raise HTTPException(422, f"Every row has an error, so nothing was {ctx.verb}ed. Fix the {ctx.noun} and try again.")
     try:
         made = _create(ctx, body, good, used_sections, used_options, import_key)
     except HTTPException:
@@ -695,14 +757,13 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
         db.rollback()
         if import_key and db.get(models.TaskActivity, import_key) is not None:
             # The same import committed first (a double click, a retry).
-            raise HTTPException(409, "This file was already imported into this project. Check the project "
-                                     "before importing it again.")
+            raise HTTPException(409, repeat)
         log.exception("task import failed")
-        raise HTTPException(500, "The import failed. Check the project before trying again.")
+        raise HTTPException(500, failed)
     except Exception:
         db.rollback()
         log.exception("task import failed")
-        raise HTTPException(500, "The import failed. Check the project before trying again.")
+        raise HTTPException(500, failed)
     notify = bool(body.notify_assignees)
     # What the 'created' rules asked for once the rows exist (see the
     # docstring): rule emails only when notifying, comments silently, and a
@@ -719,7 +780,7 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
             log.exception("import assignment bells failed")
         if defer is not None:
             defer(_queue_assignment_mail, ctx.actor, assigned)
-    if notify and ctx.project.follower_emails:
+    if notify and ctx.project is not None and ctx.project.follower_emails:
         # The project's followers: one grouped notice for the whole import.
         # About one imported top-level task (an open one when there is one:
         # a batched follower email about a completed task is dropped).
@@ -737,7 +798,7 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
         "dryRun": False, "created": len(good), "skipped": len(bad), "errors": report["errors"],
         "droppedPeople": report["droppedPeople"], "newSections": new_sections, "newOptions": new_options,
         "taskIds": [r.task_id for r in good], "topLevelIds": [r.task_id for r in good if r.parent is None],
-        "projectId": ctx.project.id,
+        "projectId": ctx.project_id,
     }
 
 
@@ -773,13 +834,15 @@ class _Placeholders:
                     setattr(obj, key, new)
 
 
-def _import_key(project_id: str, import_id: str) -> str:
-    """The id of the project's "imported N tasks" activity row for one import
-    - derived, so the primary key itself refuses a second commit of it."""
+def _import_key(scope: str, import_id: str) -> str:
+    """The id of the one activity row for one import - the project's
+    "imported N tasks" row (`scope` = the project id), or for a personal list
+    the actor's own row (`scope` = "personal:<email>") - derived, so the
+    primary key itself refuses a second commit of it."""
     iid = (import_id or "").strip()[:100]
     if not iid:
         return ""
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"nexus-task-import:{project_id}:{iid}"))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"nexus-task-import:{scope}:{iid}"))
 
 
 def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_options: dict,
@@ -791,14 +854,15 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
     db, user, actor, now = ctx.db, ctx.user, ctx.actor, now_iso()
     project = ctx.project
 
-    # Sections first, after the project's last one.
+    # Sections first, after the project's last one. A personal list has no
+    # project to hold one (_parse_row never asks for one without a project).
     section_ids = {}
     pos = max([s.position or 0 for s in ctx.section_rows] or [0])
-    for key, name in ctx.new_sections.items():
+    for key, name in (ctx.new_sections.items() if project is not None else ()):
         if key not in used_sections:
             continue
         pos += 1
-        sec = models.TaskSection(id=gen_id(), project_id=project.id, name=name, position=pos,
+        sec = models.TaskSection(id=gen_id(), project_id=ctx.project_id, name=name, position=pos,
                                  created_at=now, custom=True)
         db.add(sec)
         section_ids[key] = sec.id
@@ -835,7 +899,7 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
             "status": r.status, "priority": r.priority,
             # File order is the manual order, after everything already there.
             "position": base + r.index * 0.001,
-            "project_id": project.id,
+            "project_id": ctx.project_id,
             "section_id": "" if parent is not None else (section_ids.get(r.section_new) or r.section_id or ""),
             "parent_task_id": parent.id if parent is not None else "",
             "tags": list(r.tags), "start_on": r.start, "due_on": r.due,
@@ -886,14 +950,29 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
     # once the rules' after-commit work has run, so a task a rule makes for
     # the same person joins the same notice (_ring_assignment_bells).
 
-    name = (body.file_name or "").strip()[:200] or "a file"
+    # One row for the lot, keyed on the import id (the repeat guard): the
+    # project's, naming the file a file import came from - a pasted or typed
+    # list (source "paste" / "typed", Oct 31 2026) was simply added, there is
+    # no file to name. A personal list (no project) gets the actor's own row
+    # instead (entity_kind "person"): it hangs off no activity_ids list, and
+    # the Activity Log reads it as "<actor> added N tasks".
+    count = f"{len(order)} task{'' if len(order) == 1 else 's'}"
+    if ctx.source in ("paste", "typed"):
+        detail = f"added {count}"
+    else:
+        name = (body.file_name or "").strip()[:200] or "a file"
+        detail = f"imported {count} from {name}"
     aid = import_key or gen_id()
-    db.add(models.TaskActivity(
-        id=aid, entity_kind="project", entity_id=project.id, entity_code=project.name,
-        entity_title=project.name, type="imported", actor_email=actor, at=now_iso(),
-        detail=f"imported {len(order)} task{'' if len(order) == 1 else 's'} from {name}"))
-    project.activity_ids = list(project.activity_ids or []) + [aid]
-    project.modified_at = now
+    if project is not None:
+        db.add(models.TaskActivity(
+            id=aid, entity_kind="project", entity_id=project.id, entity_code=project.name,
+            entity_title=project.name, type="imported", actor_email=actor, at=now_iso(), detail=detail))
+        project.activity_ids = list(project.activity_ids or []) + [aid]
+        project.modified_at = now
+    else:
+        db.add(models.TaskActivity(
+            id=aid, entity_kind="person", entity_id=actor, entity_code="",
+            entity_title=actor, type="imported", actor_email=actor, at=now_iso(), detail=detail))
     # The codes, last of all: the counter's row lock is held from here to
     # the commit just below, not while the rows above were built.
     placeholders.swap(db, code_sequence.next_task_codes(db, len(order)))
@@ -921,8 +1000,11 @@ def _ring_assignment_bells(db: Session, project, assigned: dict) -> None:
             continue
         # "In <Project>" only when every one of them is in it - a rule can
         # make its task in another project.
-        where = (f"In {project.name}: " if all((t.project_id or "") == project.id for t in mine)
-                 else f"From the import into {project.name}: ")
+        if project is None:
+            where = ""
+        else:
+            where = (f"In {project.name}: " if all((t.project_id or "") == project.id for t in mine)
+                     else f"From the import into {project.name}: ")
         task_notify(db, kind="task_assigned", for_email=who,
                     title=f"You Were Assigned {len(mine)} Tasks",
                     body=where + ", ".join(x.title or "Untitled task" for x in mine[:5])

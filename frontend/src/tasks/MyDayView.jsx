@@ -18,6 +18,8 @@ import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import AnchoredMenu from '../components/AnchoredMenu';
 import DictateButton from '../components/DictateButton';
+import AddSeveralModal from './AddSeveralModal';
+import { pastedTaskList } from './batchPaste';
 
 const card = { background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12 };
 
@@ -38,7 +40,7 @@ function Progress({ done, total, isMobile }) {
   );
 }
 
-function QuickAdd({ onAdd }) {
+function QuickAdd({ onAdd, onSeveral }) {
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const ref = useRef(null);
@@ -58,6 +60,8 @@ function QuickAdd({ onAdd }) {
       <Plus size={16} style={{ color: NX.blue, flexShrink: 0 }} aria-hidden="true" />
       <input ref={ref} type="text" value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+        // A pasted list (two or more lines) is many tasks for today - Add Several (Oct 31 2026).
+        onPaste={(e) => { const list = pastedTaskList(e); if (list && onSeveral) { e.preventDefault(); onSeveral(list); } }}
         placeholder="Add a task for today" aria-label="Add a task for today" maxLength={500}
         style={{ ...inputStyle, border: 'none', padding: '6px 2px', background: 'transparent', fontSize: 14 }} />
       {!busy && <DictateButton target={ref} title="Dictate a Task" />}
@@ -343,6 +347,11 @@ export default function MyDayView({ onOpen }) {
       if (!store.taskById?.[t.id]) myDay.reload();
     }).catch(() => {});
   };
+  const [several, setSeveral] = useState('');   // the pasted list while Add Several is open
+  const [severalNote, setSeveralNote] = useState('');
+  const noteTimer = useRef(null);
+  const noteAdded = (msg) => { clearTimeout(noteTimer.current); setSeveralNote(msg); noteTimer.current = setTimeout(() => setSeveralNote(''), 4000); };
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
   const quickAdd = async (title) => {
     let created;
     try {
@@ -410,7 +419,13 @@ export default function MyDayView({ onOpen }) {
       <div style={{ flex: 1, minWidth: 0, maxWidth: 920, margin: suggestOpen && !isMobile ? 0 : '0 auto' }}>
         {header}
         <div className={isMobile ? 'nx-edge-card' : undefined} style={{ ...card, overflow: 'hidden' }}>
-          <QuickAdd onAdd={quickAdd} />
+          <QuickAdd onAdd={quickAdd} onSeveral={(text) => setSeveral(text)} />
+          {severalNote && <div role="status" style={{ padding: '4px 12px', fontSize: 12.5, color: NX.green, fontWeight: 600 }}>{severalNote}</div>}
+          {several && (
+            <AddSeveralModal defaults={{ text: several, dueOn: day || todayISO(), assigneeIds: store.myEmail ? [store.myEmail] : [], source: 'paste' }}
+              onClose={() => setSeveral(null)}
+              onDone={(r) => { const n = r?.topLevelIds?.length ?? r?.created ?? 0; noteAdded(`${n} task${n === 1 ? '' : 's'} added for today`); }} />
+          )}
           {body}
         </div>
         <span id="myday-move-hint" style={{ display: 'none' }}>Alt plus Up or Down arrow moves this task.</span>

@@ -15,11 +15,19 @@ const mineView = vi.fn();
 const myDay = { status: 'ready', total: 0, open: [], done: [] };
 
 vi.mock('./TasksContext', () => ({ useTasks: () => store }));
+// The Updates feed: empty unless a test fills it (or makes it fail).
+let activity = () => Promise.resolve([]);
 vi.mock('../api', () => ({ api: {
-  getMyTaskActivity: () => Promise.resolve([]), markUpdatesSeen: () => Promise.resolve({ seenAt: '' }),
+  getMyTaskActivity: (...a) => activity(...a), markUpdatesSeen: () => Promise.resolve({ seenAt: '' }),
 } }));
 vi.mock('./myDay', () => ({ useMyDay: () => myDay }));
 vi.mock('./TaskDetailDrawer', () => ({ default: ({ taskId }) => <div data-testid="drawer">{taskId}</div> }));
+// Add Several is its own tested surface; here only that the add row opens it with the right defaults.
+vi.mock('./AddSeveralModal', () => ({ default: ({ defaults, onDone, onClose }) => (
+  <div data-testid="add-several" data-defaults={JSON.stringify(defaults)}>
+    <button type="button" onClick={() => { onDone?.({ created: 3, topLevelIds: ['a', 'b'] }); onClose?.(true); }}>Finish Several</button>
+  </div>
+) }));
 vi.mock('./ManageView', () => ({ DeletedTasksTab: () => null }));
 vi.mock('../components/AnchoredMenu', () => ({ default: ({ open, children }) => (open ? <div>{children}</div> : null) }));
 vi.mock('./components', async (orig) => {
@@ -50,6 +58,7 @@ const task = (o) => ({ id: `t${++n}`, title: `Task ${n}`, type: 'task', status: 
 beforeEach(() => {
   n = 0;
   savedHome = undefined;
+  activity = () => Promise.resolve([]);
   setHome.mockClear();
   mineView.mockClear();
   Object.assign(myDay, { status: 'ready', total: 0, open: [], done: [] });
@@ -270,6 +279,35 @@ describe('quick add', () => {
     await act(async () => { resolve({ id: 'new' }); });
   });
 
+  it('a pasted list opens Add Several with the typed text first, and the new undated tasks are shown', async () => {
+    store.createTask = vi.fn(() => Promise.resolve({ id: 'new' }));
+    store.tasks = [task({ title: 'Undated one', dueOn: '' })];
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: /Create Task/ }));
+    const box = screen.getByRole('textbox', { name: 'Task Name' });
+    fireEvent.change(box, { target: { value: 'Typed first' } });
+    fireEvent.paste(box, { clipboardData: { getData: () => 'Call the bank\nFile the receipts' } });
+    const modal = await screen.findByTestId('add-several');
+    const d = JSON.parse(modal.dataset.defaults);
+    expect(d).toMatchObject({ text: 'Typed first\nCall the bank\nFile the receipts', dueOn: '', assigneeIds: [ME], source: 'paste' });
+    expect(store.createTask).not.toHaveBeenCalled();
+    expect(screen.queryByText('Undated one')).toBeNull();   // folded under No Due Date
+    fireEvent.click(screen.getByRole('button', { name: 'Finish Several' }));
+    expect(screen.getByRole('status', { name: '' })).toHaveTextContent('2 tasks added');
+    expect(screen.getByText('Undated one')).toBeTruthy();   // the fold opened
+  });
+
+  it('a one-line paste types in as before', async () => {
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: /Create Task/ }));
+    const box = screen.getByRole('textbox', { name: 'Task Name' });
+    const out = fireEvent.paste(box, { clipboardData: { getData: () => 'Just one\n' } });
+    expect(out).toBe(true);
+    expect(screen.queryByTestId('add-several')).toBeNull();
+  });
+
   it('a click outside the row saves; a click inside it does not', async () => {
     store.createTask = vi.fn(() => Promise.resolve({ id: 'new' }));
     render(<HomeView onNavigate={() => {}} />);
@@ -295,5 +333,98 @@ describe('keyboard', () => {
     fireEvent.keyDown(screen.getByRole('tab', { name: 'Overdue' }), { key: 'ArrowLeft' });
     fireEvent.keyDown(screen.getByRole('button', { name: 'Open Open me' }), { key: 'Enter' });
     expect(screen.getByTestId('drawer').textContent).toBe(store.tasks[0].id);
+  });
+});
+
+// The core at a desk (Neil, 10/31/2026): Updates leads - the left column for
+// the full height of Tasks + Bookmarks, and first in the DOM - unless the
+// feed has loaded with nothing in it, when Tasks keeps the left column.
+describe('the core at a desk', () => {
+  const update = (over) => ({
+    id: 'g1', type: 'attached', actorId: SAGAR, at: new Date(Date.now() - 5 * 60e3).toISOString(), detail: 'attached "a.png"',
+    taskId: 't1', relation: 'assignee', entityTitle: 'Fix roof', forYou: false, preview: '', parts: [], ...over,
+  });
+  const wide = () => vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockReturnValue({ width: 1200, height: 400, top: 0, left: 0, right: 1200, bottom: 400, x: 0, y: 0 });
+  const h2s = () => [...document.querySelectorAll('[data-home-core] h2')].map((h) => h.textContent);
+  const core = () => document.querySelector('[data-home-core]');
+  const areas = () => core().style.gridTemplateAreas.replace(/\s+/g, ' ').trim();
+  // The fill column: the Updates card sits in the keyed wrapper that spans the other two cells.
+  const updatesColumn = () => screen.getByText('Updates').closest('[data-home-updates-column]');
+
+  it('Updates leads when there is anything in the feed, filling its column', async () => {
+    activity = () => Promise.resolve([update()]);
+    const rect = wide();
+    try {
+      render(<HomeView onNavigate={() => {}} />);
+      await flush();
+      expect(core().dataset.homeCore).toBe('wide');
+      expect(core().dataset.homeCoreLead).toBe('updates');
+      expect(h2s()).toEqual(['Updates', 'Tasks', 'Bookmarks']);
+      expect(areas()).toBe('"updates tasks" "updates bookmarks"');
+      expect(updatesColumn()).toBeTruthy();
+      expect(updatesColumn().style.gridArea).toBe('updates');
+      expect(screen.getByText('Fix roof')).toBeTruthy();
+    } finally { rect.mockRestore(); }
+  });
+
+  it('Tasks keeps the left column when the feed has loaded empty', async () => {
+    const rect = wide();
+    try {
+      render(<HomeView onNavigate={() => {}} />);
+      await flush();
+      expect(core().dataset.homeCore).toBe('wide');
+      expect(core().dataset.homeCoreLead).toBe('tasks');
+      expect(h2s()).toEqual(['Tasks', 'Updates', 'Bookmarks']);
+      expect(areas()).toBe('"tasks updates" "bookmarks updates"');
+      expect(updatesColumn().style.gridArea).toBe('updates');
+    } finally { rect.mockRestore(); }
+  });
+
+  it('keeps the lead for the visit: a feed that fills up later does not swap the columns', async () => {
+    const rect = wide();
+    try {
+      const { rerender } = render(<HomeView onNavigate={() => {}} />);
+      await flush();
+      expect(core().dataset.homeCoreLead).toBe('tasks');
+      // A task changes, the feed is re-read (after its 800 ms settle) and now has a row.
+      let reads = 0;
+      activity = () => { reads += 1; return Promise.resolve([update({ taskId: 'other', entityTitle: 'Fix roof' })]); };
+      store = { ...store, tasks: [task({ modifiedAt: '2099-01-01T00:00:00Z' })] };
+      rerender(<HomeView onNavigate={() => {}} />);
+      await act(() => new Promise((r) => setTimeout(r, 900)));
+      expect(reads).toBe(1);
+      expect(screen.getByText('Fix roof')).toBeTruthy();
+      expect(core().dataset.homeCoreLead).toBe('tasks');
+      expect(h2s()).toEqual(['Tasks', 'Updates', 'Bookmarks']);
+    } finally { rect.mockRestore(); }
+  });
+
+  it('a focus tile moves the keyboard to the Tasks card, one column over', async () => {
+    activity = () => Promise.resolve([update()]);
+    store.tasks = [task({ title: 'Late one', dueOn: addDays(TODAY, -2) })];
+    const rect = wide();
+    try {
+      render(<HomeView onNavigate={() => {}} />);
+      await flush();
+      expect(h2s()[0]).toBe('Updates');
+      fireEvent.click(screen.getByTitle('Show overdue tasks'));
+      const tab = screen.getByRole('tab', { name: 'Overdue (1)' });
+      expect(tab.getAttribute('aria-selected')).toBe('true');
+      expect(document.activeElement).toBe(tab);
+      expect(tasksCard().contains(tab)).toBe(true);
+    } finally { rect.mockRestore(); }
+  });
+
+  it('a feed that could not be read still leads: the notice is worth seeing', async () => {
+    activity = () => Promise.reject(new Error('down'));
+    const rect = wide();
+    try {
+      render(<HomeView onNavigate={() => {}} />);
+      await flush();
+      expect(core().dataset.homeCoreLead).toBe('updates');
+      expect(h2s()[0]).toBe('Updates');
+      expect(screen.getByText(/Updates could not be loaded/)).toBeTruthy();
+    } finally { rect.mockRestore(); }
   });
 });

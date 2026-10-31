@@ -23,6 +23,8 @@ import DictateButton from '../components/DictateButton';
 import { useTableValue, whenTablePrefsLoaded } from './tableCols';
 import { api } from '../api';
 import UpdatesCard from './HomeUpdates';
+import AddSeveralModal from './AddSeveralModal';
+import { pastedTaskList } from './batchPaste';
 import ProjectIcon from './ProjectIcon';
 import { projectLook } from './projectLook';
 import { useMyDay } from './myDay';
@@ -143,9 +145,25 @@ export default function HomeView({ onNavigate }) {
   const [showUndated, setShowUndated] = useState(false);
   const tasksCardRef = useRef(null);
   const toTasksCard = () => { tasksCardRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); };
+  // A focus tile moves the keyboard to the Tasks card's selected tab once the
+  // switch has rendered: with Updates leading at a desk, a plain Tab from the
+  // tile would land in the Updates column first (10/31/2026).
+  const focusTasksTab = useRef(false);
+  useEffect(() => {
+    if (!focusTasksTab.current) return;
+    focusTasksTab.current = false;
+    tasksCardRef.current?.querySelector('[role=tab][aria-selected="true"]')?.focus();
+  });
   // My Tasks opens on the tab it was last left on; My Day's Open sets it first.
   const [, setMineView] = useTableValue('mytasks', 'view', 'list');
   const [creating, setCreating] = useState(false);
+  // A list pasted into the add row (Oct 31 2026): many tasks at once, confirmed in Add Several.
+  const [several, setSeveral] = useState(null);   // { text, dueOn } while the modal is open
+  const [addedNote, setAddedNote] = useState('');
+  // One timer for the note: a second list within 4s is not wiped by the first's timer, and an unmount clears it.
+  const noteTimer = useRef(null);
+  const noteAdded = (msg) => { clearTimeout(noteTimer.current); setAddedNote(msg); noteTimer.current = setTimeout(() => setAddedNote(''), 4000); };
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
   const [newTitle, setNewTitle] = useState('');
   const [newDue, setNewDue] = useState(null);
   // The quick-add row saves when you leave it - Enter, Tab away, or a click
@@ -269,6 +287,9 @@ export default function HomeView({ onNavigate }) {
   const [updatesLimit, setUpdatesLimit] = useState(30);
   const [updatesNonce, setUpdatesNonce] = useState(0);
   const [updatesFailed, setUpdatesFailed] = useState(false);
+  // Which card leads the wide core, decided ONCE per visit by the first
+  // answer of the feed (see updatesLead below): 'updates' | 'tasks' | null.
+  const [lead, setLead] = useState(null);
   const updatesRead = useRef(false);
   // Not before the first task data is in (that load would only trigger a
   // second read). The card is core, so it is always on the page.
@@ -286,8 +307,13 @@ export default function HomeView({ onNavigate }) {
     readStamp.current = tasksStamp;
     const timer = setTimeout(() => {
       api.getMyTaskActivity({ limit: updatesLimit })
-        .then((rows) => { if (!alive) return; updatesRead.current = true; setUpdatesFailed(false); setUpdates(Array.isArray(rows) ? rows : []); })
-        .catch(() => { if (alive) setUpdatesFailed(true); });
+        .then((rows) => {
+          if (!alive) return;
+          const list = Array.isArray(rows) ? rows : [];
+          updatesRead.current = true; setUpdatesFailed(false); setUpdates(list);
+          setLead((l) => l ?? (list.length > 0 ? 'updates' : 'tasks'));
+        })
+        .catch(() => { if (!alive) return; setUpdatesFailed(true); setLead((l) => l ?? 'updates'); });
     }, updatesRead.current && taskMoved ? 800 : 0);
     return () => { alive = false; clearTimeout(timer); };
   }, [tasksStamp, showUpdates, updatesLimit, updatesNonce]);
@@ -327,6 +353,7 @@ export default function HomeView({ onNavigate }) {
     if (key === 'overdue') setTab('Overdue');
     else if (key === 'inProgress') setTab('In Progress');
     else { setTab('Upcoming'); setRange(key === 'today' ? 'day' : 'week'); }
+    focusTasksTab.current = true;
     toTasksCard();
   };
   const pickDay = (iso) => { setPick({ kind: 'day', iso }); toTasksCard(); };
@@ -433,6 +460,24 @@ export default function HomeView({ onNavigate }) {
     return () => ro.disconnect();
   }, []);
   const coreWide = !isMobile && coreW >= CORE_WIDE;
+  // Updates takes the left column unless its feed has loaded with nothing in
+  // it (see the core below). A failed read still leads: the notice counts.
+  // Decided ONCE per visit, by the feed's first answer (`lead`, set where the
+  // read lands): a feed that fills up later (the poll, Load More, a row
+  // answered) must not swap the two columns under the person. The only move
+  // left is the one from the loading skeleton (Updates leads) to a feed that
+  // came back empty.
+  const updatesLead = coreWide && (lead ?? 'updates') === 'updates';
+  // Takes no height of its own (absolute inside), so the Updates column is
+  // exactly as tall as Tasks + Bookmarks - with a floor, for a quiet week
+  // with three tasks and no bookmarks. Keyed, like the other two core cells,
+  // so a change of lead MOVES the card (its For You filter, open rows and
+  // scroll kept) instead of unmounting it.
+  const updatesColumn = () => (
+    <div key="updates" data-home-updates-column style={{ gridArea: 'updates', position: 'relative', minWidth: 0, minHeight: 520 }}>
+      <div style={{ position: 'absolute', inset: 0 }}>{renderWidget('updates')}</div>
+    </div>
+  );
   // Today / This Week / This Month, in the Tasks card's header - the tabs it
   // scopes (Upcoming, Completed) are there, so it is too (Oct 23 2026; it sat
   // on the tiles' card at a desk before).
@@ -554,6 +599,17 @@ export default function HomeView({ onNavigate }) {
             <Circle size={16} style={{ color: NX.faint, flexShrink: 0 }} />
             <input ref={titleRef} autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} aria-label="Task Name"
               onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(false); if (e.key === 'Escape') cancelCreate(); }}
+              // Two or more lines on the clipboard are a list, not a name: Add
+              // Several takes them (one task per line) - a one-line paste is typed in as before.
+              onPaste={(e) => {
+                const list = pastedTaskList(e);
+                if (!list) return;
+                e.preventDefault();
+                // The due date and any text already typed travel; the typed text is the first line.
+                const due = newDue; const typed = newTitle.trim();
+                cancelCreate();
+                setSeveral({ text: typed ? `${typed}\n${list}` : list, dueOn: due || '' });
+              }}
               // Keyboard focus leaving the row saves; a pointer leaving it is the
               // document listener above (a click inside the calendar moves
               // focus too, and must not save).
@@ -569,6 +625,18 @@ export default function HomeView({ onNavigate }) {
           </div>
         ) : (
           <button onClick={() => setCreating(true)} style={{ ...btn('ghost'), padding: '6px 0', color: NX.dim, fontSize: 13, fontWeight: 500 }}><Plus size={15} /> Create Task</button>
+        )}
+        {addedNote && <div role="status" style={{ fontSize: 12.5, color: NX.green, fontWeight: 600, padding: '2px 0 6px' }}>{addedNote}</div>}
+        {several && (
+          <AddSeveralModal defaults={{ text: several.text, dueOn: several.dueOn, assigneeIds: myEmail ? [myEmail] : [], source: 'paste' }}
+            onClose={() => setSeveral(null)}
+            onDone={(r) => {
+              // Top-level tasks, as the button counted them (subtasks ride along).
+              const n = r?.topLevelIds?.length ?? r?.created ?? 0;
+              noteAdded(`${n} task${n === 1 ? '' : 's'} added`);
+              // Undated tasks live under the collapsed No Due Date fold - open it so the new ones show.
+              if (!several?.dueOn) setShowUndated(true);
+            }} />
         )}
         <div id="home-tasks-panel" role="tabpanel" aria-label={pick ? pickLabel : tab}>{tasksList()}</div>
       </div>
@@ -684,27 +752,32 @@ export default function HomeView({ onNavigate }) {
           tiles pushed the list below the fold. */}
       {!isMobile && <FocusTiles counts={tiles} focus={focus} onPick={pickTile} active={activeTile} />}
 
-      {/* The core: Tasks and Bookmarks down the left, Updates beside them for
-          the full height of both (its list scrolls inside), so the feed gets
-          real width instead of one 340px grid column. Stacked - Tasks,
-          Updates, Bookmarks - on a phone or a narrow window. */}
-      <div ref={coreRef} data-home-core={coreWide ? 'wide' : 'stacked'}
+      {/* The core. At a desk Updates LEADS (Neil, 10/31/2026): it answers
+          "what changed that affects what I do next", so it takes the LEFT
+          column for the full height of the other two (its list scrolls
+          inside), and Tasks then Bookmarks stack one column over at full
+          height. The order is swapped in the DOM too, so tab order and a
+          screen reader follow the eye. The one fallback: a feed that has
+          loaded EMPTY (a new hire, no collaborators yet) would put an empty
+          state in the primary slot, so that day Tasks keeps the left column
+          as before; while the feed is still loading, and when it failed (the
+          notice is worth seeing), Updates leads. The lead is fixed for the
+          visit by the feed's first answer (`lead`). Stacked - Tasks,
+          Updates, Bookmarks - on a phone or a narrow window: there the add
+          row and today's work stay above the fold. */}
+      <div ref={coreRef} data-home-core={coreWide ? 'wide' : 'stacked'} data-home-core-lead={updatesLead ? 'updates' : 'tasks'}
         style={coreWide ? {
           display: 'grid', gap: 16, marginBottom: 16,
           gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-          gridTemplateAreas: '"tasks updates" "bookmarks updates"',
+          gridTemplateAreas: updatesLead ? '"updates tasks" "updates bookmarks"' : '"tasks updates" "bookmarks updates"',
           gridTemplateRows: 'auto 1fr',
         } : { display: 'flex', flexDirection: 'column', gap: isMobile ? 12 : 16, marginBottom: 16 }}>
-        <div style={{ gridArea: 'tasks', minWidth: 0 }}>{renderWidget('my_tasks')}</div>
-        {coreWide ? (
-          // Takes no height of its own (absolute inside), so the column is
-          // exactly as tall as Tasks + Bookmarks - with a floor, for a quiet
-          // week with three tasks and no bookmarks.
-          <div style={{ gridArea: 'updates', position: 'relative', minWidth: 0, minHeight: 520 }}>
-            <div style={{ position: 'absolute', inset: 0 }}>{renderWidget('updates')}</div>
-          </div>
-        ) : <div style={{ minWidth: 0 }}>{renderWidget('updates')}</div>}
-        <div style={{ gridArea: 'bookmarks', minWidth: 0 }}>{renderWidget('projects')}</div>
+        {(() => {
+          const tasksCell = <div key="tasks" style={{ gridArea: 'tasks', minWidth: 0 }}>{renderWidget('my_tasks')}</div>;
+          const bookmarksCell = <div key="bookmarks" style={{ gridArea: 'bookmarks', minWidth: 0 }}>{renderWidget('projects')}</div>;
+          if (!coreWide) return [tasksCell, <div key="updates" style={{ minWidth: 0 }}>{renderWidget('updates')}</div>, bookmarksCell];
+          return updatesLead ? [updatesColumn(), tasksCell, bookmarksCell] : [tasksCell, updatesColumn(), bookmarksCell];
+        })()}
       </div>
 
       {/* Customize mode: add-widget tray (only unused widgets) */}
