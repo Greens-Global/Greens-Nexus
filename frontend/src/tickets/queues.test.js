@@ -69,15 +69,22 @@ describe('the other queues', () => {
     expect(queueMatches('mine', base({ assigneeId: ME, status: 'resolved' }), ctx)).toBe(false);
   });
   it('due_soon: a breached or at-risk resolution clock, or an overdue / due first response', () => {
-    const past = '2026-10-30T12:00:00Z';
-    const soon = '2026-10-31T14:00:00Z';
-    const far = '2026-11-20T12:00:00Z';
-    expect(queueMatches('due_soon', base({ slaDueAt: past }), ctx)).toBe(true);
-    expect(queueMatches('due_soon', base({ slaDueAt: soon }), ctx)).toBe(true);
+    // Every fixture hangs off ctx.now (10/31/2026 noon UTC), so the test
+    // reads the same on any day: medium's 72h target makes the at-risk
+    // window 18h.
+    const at = (h) => new Date(NOW + h * 3600 * 1000).toISOString();
+    const past = at(-24);
+    const atRisk = at(5);
+    const far = at(30 * 24);
+    expect(queueMatches('due_soon', base({ slaDueAt: past }), ctx)).toBe(true);        // breached
+    expect(queueMatches('due_soon', base({ slaDueAt: atRisk }), ctx)).toBe(true);      // inside the window
+    expect(queueMatches('due_soon', base({ slaDueAt: at(20) }), ctx)).toBe(false);     // just outside it
     expect(queueMatches('due_soon', base({ slaDueAt: far }), ctx)).toBe(false);
     expect(queueMatches('due_soon', base({ slaDueAt: far, firstResponseDueAt: past }), ctx)).toBe(true);
     expect(queueMatches('due_soon', base({ slaDueAt: past, status: 'closed' }), ctx)).toBe(false);
     expect(queueMatches('due_soon', base({ slaDueAt: past, slaPaused: true }), ctx)).toBe(false);
+    // The context's clock, not the machine's: the same row read a day later is breached.
+    expect(queueMatches('due_soon', base({ slaDueAt: at(20) }), { ...ctx, now: NOW + 24 * 3600 * 1000 })).toBe(true);
   });
   it('waiting: the three parked statuses', () => {
     for (const s of ['waiting_user', 'waiting_vendor', 'on_hold']) expect(queueMatches('waiting', base({ status: s }), ctx)).toBe(true);

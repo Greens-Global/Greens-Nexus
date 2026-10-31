@@ -39,7 +39,7 @@ describe('Ticket list - the Done queue', () => {
     await screen.findByText('Printer jam');
     expect(screen.queryByText('Old monitor replaced')).toBeNull();     // resolved ticket out of the way
     const done = screen.getByRole('button', { name: /^Done/ });
-    expect(done.textContent).toMatch(/Done\s*1/);                      // counted on the tab
+    expect(done.textContent.trim()).toBe('Done');                      // a tally, not work waiting - no count pill (10/31/2026)
     fireEvent.click(done);
     expect(screen.getByText('Old monitor replaced')).toBeTruthy();
     expect(screen.queryByText('Printer jam')).toBeNull();

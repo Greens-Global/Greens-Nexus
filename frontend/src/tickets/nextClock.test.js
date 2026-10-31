@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { nextClock } from './ticketMeta';
+import { nextClock, fmtMoment, fmtDate } from './ticketMeta';
 
 // The Next Clock cell (Tickets desk re-cut, 10/31/2026): whichever SLA clock
 // bites next, in words - red only when overdue - with the exact deadline in
-// the tooltip. Fixed `now` so the words never drift with the calendar.
+// the tooltip. Fixed `now` so the words never drift with the calendar, and
+// every date in an expectation is built with the same helpers the code uses,
+// so an Indian laptop (UTC+5:30) reads the same as CI.
 const NOW = Date.parse('2026-10-31T17:00:00Z');
 const hours = (h) => new Date(NOW + h * 3600 * 1000).toISOString();
 
@@ -32,7 +34,7 @@ describe('nextClock', () => {
     expect(c.kind).toBe('reply');
     expect(c.state).toBe('at_risk');          // medium first response = 24h; 2h left is inside the quarter
     expect(c.label).toBe('Reply due in 2h');
-    expect(c.title).toMatch(/^First response due 10\/31\/2026 \d{1,2}:00 (AM|PM)$/);
+    expect(c.title).toBe(`First response due ${fmtMoment(hours(2))}`);
     expect(c.at).toBe(Date.parse(hours(2)));
   });
 
@@ -58,7 +60,7 @@ describe('nextClock', () => {
     expect(nextClock(live({ slaDueAt: hours(5) }), NOW).label).toBe('Due in 5h');         // 72h target: 5h is inside the 18h quarter
     expect(nextClock(live({ slaDueAt: hours(5) }), NOW).state).toBe('at_risk');
     expect(nextClock(live({ slaDueAt: hours(0.5) }), NOW).label).toBe('Due in 30m');
-    expect(nextClock(live({ slaDueAt: hours(30 * 24) }), NOW).label).toBe('Due 11/30/2026');
+    expect(nextClock(live({ slaDueAt: hours(30 * 24) }), NOW).label).toBe(`Due ${fmtDate(hours(30 * 24))}`);
     expect(nextClock(live({ slaDueAt: hours(30 * 24) }), NOW).state).toBe('ok');
     expect(nextClock(live({ slaDueAt: hours(-3) }), NOW).label).toBe('Overdue 3h');
   });
@@ -68,13 +70,13 @@ describe('nextClock', () => {
     expect(c.kind).toBe('resolve');
     expect(c.state).toBe('overdue');
     expect(c.label).toMatch(/^Overdue [12]d$/);
-    expect(c.title).toBe('Resolution due 10/29/2026');
+    expect(c.title).toBe(`Resolution due ${fmtDate('2026-10-29')}`);
   });
 
   it('reads Paused with the time since the pause, sorted after every live clock', () => {
     const paused = nextClock(live({ status: 'waiting_user', slaPaused: true, slaPausedAt: hours(-4 * 24), slaDueAt: hours(10) }), NOW);
     expect(paused).toMatchObject({ kind: 'paused', state: 'paused', label: 'Paused · 4d' });
-    expect(paused.title).toMatch(/^Paused since 10\/27\/2026/);
+    expect(paused.title).toBe(`Paused since ${fmtMoment(hours(-4 * 24))}`);
     expect(paused.at).toBeGreaterThan(nextClock(live({ slaDueAt: hours(30 * 24) }), NOW).at);
     expect(paused.at).toBeLessThan(Infinity);
     // Awaiting approval pauses too; without a pause time the word stands alone.

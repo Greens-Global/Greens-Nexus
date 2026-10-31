@@ -8,6 +8,7 @@ import { render, screen, fireEvent, cleanup, act, within } from '@testing-librar
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ instance: {}, accounts: [] }) }));
 let ME = 'agent@example.com';
 let LEVEL = 3;
+let VIEWS = [];
 vi.mock('../contexts/RoleContext', async (importOriginal) => ({
   ...(await importOriginal()),
   useRole: () => ({ isExternal: false, can: () => true, myLevel: LEVEL, canAccessModule: () => true,
@@ -33,7 +34,7 @@ const TICKETS = [
 ];
 const updateTicket = vi.fn((id, p) => Promise.resolve({ ...TICKETS.find((t) => t.id === id), ...p }));
 vi.mock('../tasks/TasksContext', () => ({
-  useTasks: () => ({ tickets: TICKETS, ticketsLoaded: true, ticketViews: [], tasks: [], projects: [], myEmail: ME,
+  useTasks: () => ({ tickets: TICKETS, ticketsLoaded: true, ticketViews: VIEWS, tasks: [], projects: [], myEmail: ME,
     nameOf: (e) => ({ 'agent@example.com': 'Ava Agent', 'req@example.com': 'Rex Requester' })[e] || e,
     updateTicket, deleteTicket: vi.fn(), refresh: vi.fn(), createTicketView: vi.fn(), deleteTicketView: vi.fn() }),
 }));
@@ -41,7 +42,10 @@ vi.mock('../tasks/TasksContext', () => ({
 const { default: TicketsView, TicketActionDialog } = await import('./TicketsView');
 const { TICKET_STATUS_META } = await import('./ticketMeta');
 
-afterEach(() => { cleanup(); updateTicket.mockClear(); ME = 'agent@example.com'; LEVEL = 3; });
+afterEach(() => { cleanup(); updateTicket.mockClear(); ME = 'agent@example.com'; LEVEL = 3; VIEWS = []; });
+
+// ModuleTabs (inline) marks the lit tab with the `active` class.
+const activeTab = () => (document.querySelector('.module-tab-inline-btn.active')?.textContent || '').trim();
 
 describe('Ticket list - Latest Comment column', () => {
   it('shows the newest reply at the end of the row, author first', async () => {
@@ -175,10 +179,43 @@ describe('Landing on a desk list', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent('nexus:ticket-filter', { detail: { filter: 'unassigned' } })); });
     expect(screen.queryByText('Printer jam')).toBeNull();          // assigned to Ava
     expect(screen.getByText('VPN down')).toBeTruthy();
+    expect(activeTab()).toMatch(/^Unassigned/);
     cleanup();
     setPendingOpen('ticketFilter', 'assigned');
     render(<TicketsView />);
     await screen.findByText('Printer jam');
     expect(screen.queryByText('VPN down')).toBeNull();             // nobody's
+    expect(activeTab()).toMatch(/^Mine/);
+  });
+
+  it('a view saved before the queues (filters.scope) still lands on its queue when its tab is clicked', async () => {
+    VIEWS = [{ id: 'v1', name: 'My Desk', view: 'list', filters: { scope: 'assigned', sort: { key: 'due', dir: 'asc' } } }];
+    render(<TicketsView />);
+    await screen.findByText('Printer jam');
+    fireEvent.click(screen.getByRole('button', { name: 'My Desk' }));
+    expect(activeTab()).toBe('My Desk');
+    expect(screen.getByText('Printer jam')).toBeTruthy();           // assigned to me
+    expect(screen.queryByText('VPN down')).toBeNull();
+    expect(screen.queryByText('Badge reader offline')).toBeNull();
+    // Its old Due Date sort is the Next Clock column now - the header shows the arrow.
+    expect(screen.getByTitle('Sort by Next Clock').querySelector('svg')).toBeTruthy();
+  });
+});
+
+// The bar's order (Neil, 10/31/2026): queues through Done, the approval
+// queues when they have something, saved views, Raised by Me, then + View.
+// A count pill is work waiting on you, so Done / All Open / Raised by Me show none.
+describe('The desk bar', () => {
+  it('runs the built-in queues, then saved views, then Raised by Me, then + View', async () => {
+    VIEWS = [{ id: 'v1', name: 'My Desk', view: 'list', filters: {} }];
+    render(<TicketsView />);
+    await screen.findByText('Printer jam');
+    const labels = [...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.replace(/\d+$/, '').trim());
+    expect(labels).toEqual(['Needs Reply', 'Unassigned', 'Mine', 'Due Soon', 'Waiting', 'All Open', 'Done', 'My Desk', 'Raised by Me', '+ View']);
+    const pill = (name) => screen.getByRole('button', { name: new RegExp(`^${name}`) }).querySelector('.hdr-tab-badge');
+    expect(pill('Unassigned')).toBeTruthy();
+    expect(pill('Done')).toBeNull();
+    expect(pill('All Open')).toBeNull();
+    expect(pill('Raised by Me')).toBeNull();
   });
 });
