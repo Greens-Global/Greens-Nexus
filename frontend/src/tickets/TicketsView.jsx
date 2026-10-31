@@ -78,6 +78,8 @@ const TICKET_VIEW_TABS = [
 // and Reports never see the pane.
 const LAYOUTS = ['modal', 'pane'];
 const PANE_COLS = ['checkbox', 'type', 'title', 'state', 'clock'];
+// Tabs whose count is a tally, not work waiting on you - no pill.
+const UNCOUNTED = new Set(['done', 'open', 'raised']);
 
 // What an empty queue says - not "no tickets match your filters", which is
 // for a filter someone set. Title Case titles, sentence-case hints.
@@ -85,7 +87,7 @@ const QUEUE_EMPTY = {
   needs_reply: { title: 'All Caught Up', hint: 'Nothing is waiting on a reply from the desk.' },
   unassigned: { title: 'Everything Has an Owner', hint: 'Every live ticket is assigned to someone.' },
   mine: { title: 'Nothing Assigned to You', hint: 'Tickets assigned to you will show up here.' },
-  due_soon: { title: 'No Clock Is Close', hint: 'Nothing is overdue or about to be.' },
+  due_soon: { title: 'Nothing Due Soon', hint: 'Nothing is overdue or about to be.' },
   waiting: { title: 'Nothing Parked', hint: 'No ticket is waiting on a user, a vendor or a hold.' },
   open: { title: 'No Open Tickets', hint: 'Everything has been resolved or closed.' },
   done: { title: 'Nothing Finished Yet', hint: 'Resolved and closed tickets land here.' },
@@ -145,7 +147,15 @@ export default function TicketsView() {
   // `queue` replaced the old scope (All / My Requests / Assigned to Me) and the
   // five summary tiles that sat above the list. To Route (the desk's unrouted
   // approvals) and To Approve (parked on me) only show with something in them.
-  const qctx = useMemo(() => ({ me: (myEmail || '').toLowerCase(), onDesk: itAdmin }), [myEmail, itAdmin]);
+  // The context's clock ticks once a minute, so a ticket that crosses into
+  // its at-risk window while the desk sits on the page is counted in Due
+  // Soon without a refetch (a reload recounts against the last tick).
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setClockNow(Date.now()), 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+  const qctx = useMemo(() => ({ me: (myEmail || '').toLowerCase(), onDesk: itAdmin, now: clockNow }), [myEmail, itAdmin, clockNow]);
   const counts = useMemo(() => queueCounts(tickets, qctx), [tickets, qctx]);
   const [queue, setQueue] = useState(DEFAULT_QUEUE);
   // The saved view whose tab is lit, while the list shows it.
@@ -184,7 +194,6 @@ export default function TicketsView() {
     return () => window.removeEventListener('nexus:ticket-desk', onDesk);
   }, []);
   const [groupBy, setGroupBy] = useState('none');
-  const [view, setView] = useState('list');   // 'list' | 'board' | 'reports'
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState(null);
   // Which drawer tab to land on - the Latest Comment cell opens straight onto
@@ -198,17 +207,56 @@ export default function TicketsView() {
   // Every way of opening a ticket over one already open - a row click in the
   // pane, ↑ ↓, Previous / Next, the bell - asks first when the open one holds
   // unsaved edits (the drawer remounts and would throw them away).
+  // One question at a time: while the confirm is up, a second switch (a held
+  // arrow key, a double click) is refused rather than stacking dialogs.
+  const switchingRef = useRef(false);
   const switchTo = useCallback(async (id, tab = null) => {
     if (!id) return false;
     if (id === openIdRef.current) { if (tab) setOpenTab(tab); return true; }
-    if (openIdRef.current && drawerDirtyRef.current && !(await confirmSwitchTicket())) return false;
+    if (openIdRef.current && drawerDirtyRef.current) {
+      if (switchingRef.current) return false;
+      switchingRef.current = true;
+      const ok = await confirmSwitchTicket().finally(() => { switchingRef.current = false; });
+      if (!ok) return false;
+    }
     setOpenTab(tab); setOpenId(id);
     return true;
   }, []);
   const openTicket = useCallback((id, tab = null) => { switchTo(id, tab); }, [switchTo]);
   const closeTicket = useCallback(() => { setOpenId(null); setOpenTab(null); }, []);
+  // Leaving the open ticket behind (the pane switched off, Board / Reports
+  // chosen with a ticket in the pane) asks the same question first, then
+  // CLOSES the ticket - it never re-materializes as a popup over the next
+  // screen.
+  const leaveOpenTicket = useCallback(async () => {
+    if (!openIdRef.current) return true;
+    if (drawerDirtyRef.current) {
+      if (switchingRef.current) return false;
+      switchingRef.current = true;
+      const ok = await confirmSwitchTicket().finally(() => { switchingRef.current = false; });
+      if (!ok) return false;
+    }
+    closeTicket();
+    return true;
+  }, [closeTicket]);
   const [layoutPref, setLayoutPref] = useTableValue('tickets-v3', 'layout', 'modal');
   const layout = LAYOUTS.includes(layoutPref) ? layoutPref : 'modal';
+  const [view, setViewState] = useState('list');   // 'list' | 'board' | 'reports'
+  const viewRef = useRef(view);
+  useEffect(() => { viewRef.current = view; }, [view]);
+  // Only a ticket parked in the PANE is at stake here: the popup drawer
+  // stays where it is across a view change, as it always has.
+  const inPane = useCallback(() => !isMobile && viewRef.current === 'list' && layout === 'pane' && !!openIdRef.current, [isMobile, layout]);
+  const setView = useCallback((next) => {
+    if (next === viewRef.current) return;
+    if (next !== 'list' && inPane()) { leaveOpenTicket().then((ok) => { if (ok) setViewState(next); }); return; }
+    setViewState(next);
+  }, [inPane, leaveOpenTicket]);
+  const setLayout = useCallback((next) => {
+    if (next === layout) return;
+    if (inPane()) { leaveOpenTicket().then((ok) => { if (ok) setLayoutPref(next); }); return; }
+    setLayoutPref(next);
+  }, [layout, inPane, leaveOpenTicket, setLayoutPref]);
   const [selected, setSelected] = useState(() => new Set());
   // Phones have no row checkboxes, so a selection made on desktop must not
   // survive a rotate into the phone layout - the bulk pill would float over a
@@ -234,7 +282,7 @@ export default function TicketsView() {
     const params = new URLSearchParams(window.location.search);
     // The Weekly Ticket Report email links to ?view=reports.
     if (params.get('view') === 'reports') {
-      setView('reports');
+      setViewState('reports');   // mount time: no ticket is open yet, nothing to ask
       params.delete('view');
       const left = params.toString();
       window.history.replaceState({}, '', window.location.pathname + (left ? `?${left}` : ''));
@@ -371,7 +419,8 @@ export default function TicketsView() {
     setHrDeptFilter(f.hrDeptFilter ?? 'all');
     setDeskFilter('all');
     setSearch(f.search ?? '');
-    if (f.sort?.key) setSort({ key: f.sort.key, dir: f.sort.dir === 'asc' ? 'asc' : 'desc' });
+    // A view saved before the Next Clock column sorted by 'due' - that column is 'clock' now.
+    if (f.sort?.key) setSort({ key: f.sort.key === 'due' ? 'clock' : f.sort.key, dir: f.sort.dir === 'asc' ? 'asc' : 'desc' });
     if (v.group) setGroupBy(v.group);
     if (v.view) setView(v.view);
   };
@@ -500,7 +549,7 @@ export default function TicketsView() {
   // conversation stays in view); as a popup the list goes quiet while a
   // ticket is open, so the keys never reach a list hidden behind it.
   const keysOn = !isMobile && view === 'list' && (pane || !openId);
-  const onMove = useCallback((id) => { switchTo(id); }, [switchTo]);
+  const onMove = useCallback((id) => switchTo(id), [switchTo]);
   const { focusId } = useListKeys({ ids: allVisibleIds, enabled: keysOn, onOpen: openTicket, openId, onMove: pane ? onMove : null });
   // Previous / Next in the open ticket's header, in the list's order.
   const openIdx = openId ? allVisibleIds.indexOf(openId) : -1;
@@ -564,12 +613,20 @@ export default function TicketsView() {
   // The bar's tabs: the queues this person has (To Route only on the desk,
   // and the two approval queues only with something in them), then their
   // saved views, then "+ View" (desktop - saving is a desktop job).
-  const queueTabs = useMemo(() => [
-    ...QUEUES.filter((q) => !(q.onlyDesk && !itAdmin) && !(q.hideWhenEmpty && !counts[q.key]))
-      .map((q) => ({ key: q.key, label: q.label, badge: counts[q.key], tone: q.tone })),
-    ...ticketViews.map((v) => ({ key: `view:${v.id}`, label: v.name })),
-    ...(isMobile ? [] : [{ key: '__save', label: '+ View' }]),
-  ], [counts, itAdmin, ticketViews, isMobile]);
+  // Order (Neil, 10/31/2026): the built-in queues through Done, To Route and
+  // To Approve when they have something, the person's saved views, Raised by
+  // Me, then "+ View". A count pill means something waiting on you, so Done,
+  // All Open and Raised by Me carry none.
+  const queueTabs = useMemo(() => {
+    const shown = QUEUES.filter((q) => !(q.onlyDesk && !itAdmin) && !(q.hideWhenEmpty && !counts[q.key]));
+    const tab = (q) => ({ key: q.key, label: q.label, badge: UNCOUNTED.has(q.key) ? 0 : counts[q.key], tone: q.tone });
+    return [
+      ...shown.filter((q) => q.key !== 'raised').map(tab),
+      ...ticketViews.map((v) => ({ key: `view:${v.id}`, label: v.name })),
+      ...shown.filter((q) => q.key === 'raised').map(tab),
+      ...(isMobile ? [] : [{ key: '__save', label: '+ View' }]),
+    ];
+  }, [counts, itAdmin, ticketViews, isMobile]);
   const activeTab = activeSaved && ticketViews.some((v) => v.id === activeSaved) ? `view:${activeSaved}` : queue;
   const onTab = (key) => {
     if (key === '__save') { setNamingView(true); return; }
@@ -664,7 +721,7 @@ export default function TicketsView() {
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'}
               onExport={() => downloadTicketsCsv(sortedVisible, nameOf, companyName, hrDeptName)}
               columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={fullTable.cols} showColumns={view === 'list' && !pane}
-              layout={view === 'list' ? layout : undefined} setLayout={setLayoutPref}
+              layout={view === 'list' ? layout : undefined} setLayout={setLayout}
               suggestLinks={privileged ? (style) => <SuggestPropertyLinksButton style={style} /> : null} />
           </div>
         </div>
@@ -781,13 +838,13 @@ export default function TicketsView() {
         {isMobile && <div aria-hidden="true" data-testid="ticket-bar-spacer" style={{ height: 'calc(96px + env(safe-area-inset-bottom))', flexShrink: 0 }} />}
       </div>
       {pane && (
-        <div data-testid="ticket-pane" style={{ minHeight: 0, display: 'flex', flexDirection: 'column', borderLeft: `1px solid ${NX.border}`, background: NX.surface }}>
+        <div data-testid="ticket-pane" role="region" aria-label="Open Ticket" style={{ minHeight: 0, display: 'flex', flexDirection: 'column', borderLeft: `1px solid ${NX.border}`, background: NX.surface }}>
           {openId ? (
             <TicketDrawer key={openId} inline ticketId={openId} initialTab={openTab} dirtyRef={drawerDirtyRef}
               onPrev={onPrev} onNext={onNext} onClose={closeTicket} />
           ) : (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-              <EmptyState icon={TicketToken} title="Pick a ticket" hint="Click a row, or press ↓ to start at the top of the list. ↑ ↓ step through it, Escape clears the pane." />
+              <EmptyState icon={TicketToken} title="Pick a Ticket" hint="Click a row, or press ↓ to start at the top of the list. ↑ ↓ step through it, Escape clears the pane." />
             </div>
           )}
         </div>

@@ -7,7 +7,8 @@
 // Needs Reply is the one the server works out (`needsReply` on every row of
 // GET /task-tickets, routers/tickets.py `_needs_reply`): it needs the latest
 // PUBLIC comment, which the list already fetches once for everyone. The
-// client fallback below is for a row from an older API only.
+// client fallback below is ONLY for a row that arrived without the flag (an
+// older API, a fixture) and must stay identical to `_needs_reply`.
 import { CLOSED_STATES, FIRST_RESPONSE_HOURS, slaPaused, slaState } from './ticketMeta';
 
 export const QUEUES = [
@@ -42,7 +43,7 @@ function replyClockBites(t, now) {
   return left <= window;
 }
 
-function needsReplyFallback(t, me) {
+function needsReplyFallback(t) {
   if (!isLive(t) || slaPaused(t) || t.approvalStatus === 'pending') return false;
   const req = lower(t.requesterId);
   if (req && req === lower(t.assigneeId)) return false;
@@ -57,12 +58,12 @@ export function queueMatches(key, t, ctx = {}) {
   const now = ctx.now ?? Date.now();
   switch (key) {
     case 'needs_reply':
-      return typeof t.needsReply === 'boolean' ? t.needsReply : needsReplyFallback(t, me);
+      return typeof t.needsReply === 'boolean' ? t.needsReply : needsReplyFallback(t);
     case 'unassigned': return isLive(t) && !t.assigneeId;
     case 'mine': return isLive(t) && !!me && lower(t.assigneeId) === me;
     case 'due_soon': {
       if (!isLive(t) || slaPaused(t)) return false;
-      const s = slaState(t);
+      const s = slaState(t, now);
       return s === 'breached' || s === 'at_risk' || replyClockBites(t, now);
     }
     case 'waiting': return WAITING_STATES.includes(t.status);

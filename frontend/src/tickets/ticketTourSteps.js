@@ -28,7 +28,7 @@ export function buildTicketTourSteps({ setQueue, setView, isMobile }) {
       target: 'ticket-scope',
       before: () => { setQueue('needs_reply'); setView('list'); },
       title: 'Every tab is a queue',
-      body: 'Each tab is a live count of the whole desk, and opening it shows those tickets. Needs Reply is where a day starts - tickets waiting on an answer from the desk. Unassigned has nobody on it yet, Mine is what you are working, Due Soon is what is late or about to be, Waiting is parked on a user, a vendor or a hold, All Open is everything live, Done is finished. To Route and To Approve appear only with something in them; a view you save becomes a tab too.',
+      body: 'Needs Reply is where a day starts - tickets waiting on an answer from the desk. Unassigned has nobody on it yet; Mine is what you are working. The rest are the same tickets cut other ways, and a view you save becomes a tab too.',
     },
     {
       target: 'ticket-views',
@@ -47,7 +47,7 @@ export function buildTicketTourSteps({ setQueue, setView, isMobile }) {
       target: 'ticket-toolbar',
       when: () => !isMobile,
       title: 'Search, filter, and save the combination',
-      body: 'Search checks the title, description and even the app named on the ticket. Filters narrows by status, priority, type, SLA, department, service area or assignee. The three dots hold grouping, the columns you see, export and your saved views - "+ View" in the bar saves what you have on screen as a tab of its own.',
+      body: 'Search checks the title, description and even the app named on the ticket. Filters narrows by status, priority, type, SLA, department, service area or assignee. More (the three dots) holds grouping, the columns you see, export and your saved views - "+ View" in the bar saves what you have on screen as a tab of its own.',
     },
     {
       target: 'ticket-body',

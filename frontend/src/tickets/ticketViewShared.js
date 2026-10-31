@@ -146,7 +146,9 @@ const typeOptions = () => TICKET_TYPE_KEYS.map((ty) => [ty, TICKET_TYPE_META[ty]
 // dropdown (Neil, Sep 30) - where a requester (or the desk re-typing a
 // ticket) actually picks one.
 const typeIntakeOptions = () => TICKET_TYPE_ORDER.map((ty) => ({ id: ty, label: TICKET_TYPE_META[ty].label, desc: TICKET_TYPE_META[ty].hint || '' }));
-const slaFilterOptions = [['all', 'Any SLA'], ['breached', 'SLA Breached'], ['at_risk', 'Due Soon'], ['ok', 'On Track'], ['paused', 'Paused']];
+// 'At Risk', not 'Due Soon' (10/31/2026): the Due Soon queue tab means late
+// OR at risk, so the narrower filter cannot share its name.
+const slaFilterOptions = [['all', 'Any SLA'], ['breached', 'SLA Breached'], ['at_risk', 'At Risk'], ['ok', 'On Track'], ['paused', 'Paused']];
 // Open/Unassigned are buckets, not statuses - they must be listed or the
 // control renders blank when a summary tile selects one.
 const statusFilterOptions = () => [['all', 'All Statuses'], ['open', 'Open (Not Resolved)'],

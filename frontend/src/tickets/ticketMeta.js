@@ -10,7 +10,7 @@ export const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 // The UTC day. Only the date fallback for a ticket with no slaDueAt still
 // compares days (the server's _sla_breached does the same for such a row);
 // everything else is a moment - see slaState.
-export const today = () => new Date().toISOString().slice(0, 10);
+export const today = (now = Date.now()) => new Date(now).toISOString().slice(0, 10);
 
 // ── Ticket issue types ───────────────────────────────────────────────────────
 // `hint` is the one-line, plain-English "which one am I?" shown under the Type
@@ -426,20 +426,22 @@ export const fmtMoment = (iso) => (iso ? `${formatDate(asUtc(iso))} ${formatTime
 // urgent ticket's 24, 42 h of a low one's week), and never less than an hour.
 const atRiskMs = (t) => Math.max(1, (SLA_TARGET_HOURS[t.priority] ?? 72) / 4) * 3600 * 1000;
 // 'breached' | 'at_risk' | 'ok' | 'paused' | 'none'
-export function slaState(t) {
+// `now` (ms) lets a caller that counts many rows at once (the desk's queue
+// tabs) read them all against one clock; every other caller takes the default.
+export function slaState(t, now = Date.now()) {
   if (CLOSED_STATES.includes(t.status)) return 'none';
   if (t.slaDueAt) {
     if (slaPaused(t)) return 'paused';
-    const left = msOf(t.slaDueAt) - Date.now();
+    const left = msOf(t.slaDueAt) - now;
     if (Number.isNaN(left)) return 'none';
     if (left < 0) return 'breached';
     return left <= atRiskMs(t) ? 'at_risk' : 'ok';
   }
   // A row with no deadline yet (from before the datetime existed): its date.
   if (!t.slaDueOn) return 'none';
-  const now = today();
-  if (t.slaDueOn < now) return 'breached';
-  const soon = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const todayStr = today(now);
+  if (t.slaDueOn < todayStr) return 'breached';
+  const soon = new Date(now + 24 * 3600 * 1000).toISOString().slice(0, 10);
   if (t.slaDueOn <= soon) return 'at_risk';
   return 'ok';
 }

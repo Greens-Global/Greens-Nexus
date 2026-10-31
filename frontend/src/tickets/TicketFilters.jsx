@@ -16,14 +16,13 @@ import {
 
 // The phone's Sort By choices - the keys the desktop column headers sort on
 // (TICKET_COLUMNS[].sort), each in the direction someone usually wants it.
-// Newest First (created, desc) is the list's default.
+// A queue opens in its own order (queueDefaultSort: Next Clock for Needs
+// Reply and Due Soon, Recently Updated for the rest); this picker overrides it.
 const MOBILE_SORTS = [
   ['updated:desc', 'Recently Updated'],
   ['clock:asc', 'Next Clock'],
   ['created:desc', 'Newest First'],
   ['created:asc', 'Oldest First'],
-  ['updated:desc', 'Recently Updated'],
-  ['clock:asc', 'Next Clock'],
   ['priority:asc', 'Priority'],
   ['state:asc', 'Status'],
   ['latestComment:desc', 'Latest Comment'],
@@ -250,7 +249,7 @@ function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showG
             <div style={sectionLabel}>Layout</div>
             <div style={{ padding: '0 6px 6px' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '5px 6px', boxSizing: 'border-box', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink }}>
-                <input type="checkbox" role="switch" checked={layout === 'pane'} aria-checked={layout === 'pane'}
+                <input type="checkbox" checked={layout === 'pane'}
                   onChange={(e) => setLayout(e.target.checked ? 'pane' : 'modal')} />
                 Open Tickets in a Side Pane
               </label>
