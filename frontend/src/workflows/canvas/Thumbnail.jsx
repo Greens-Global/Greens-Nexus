@@ -1,14 +1,18 @@
 // A workflow's silhouette as a small picture (Blueprint, 10/30/2026): the
-// Workflows list and the Templates gallery show one per row so a workflow is
-// recognized by its shape before its name is read. Drawn from the row's
-// compact `shape` (canvas/shape.js) through the same layout engine as the
-// canvas, at thumbnail scale: rounded blocks in the kind's color, the
-// connectors as ink, the joins as dots. The fault lane is left out.
+// Templates gallery shows one per card so a workflow is recognized by its
+// shape before its name is read. Drawn from the row's compact `shape`
+// (canvas/shape.js) through the same layout engine as the canvas, at
+// thumbnail scale: rounded blocks in the kind's color, the connectors as
+// ink, the joins as dots. The fault lane is left out.
+//
+// The Workflows list is a table, and a whole sheet squeezed into a 40px row
+// reads as a row of dots - so a row shows the ShapeStrip instead: the steps
+// as colored tiles in reading order, smaller inside a branch or a loop.
 import { useMemo } from 'react';
 import { JOIN_R, layout } from './layout';
 import { definitionFromShape } from './shape';
 
-const COLOR = {
+export const COLOR = {
   trigger: 'var(--ink)',
   gate: '#475569',
   action: 'var(--wk-brand)',
@@ -18,6 +22,7 @@ const COLOR = {
   for_each: 'hsl(174,60%,36%)',
   stop: '#64748b',
 };
+const KIND_WORD = { trigger: 'Trigger', action: 'Action', if: 'If / Else', approval: 'Ask For Approval', wait: 'Wait', for_each: 'For Each', stop: 'Stop' };
 
 function picture(shape) {
   const L = layout(definitionFromShape(shape));
@@ -61,5 +66,36 @@ export default function Thumbnail({ shape, width = 56, height = 36, title = 'Wor
         );
       })}
     </svg>
+  );
+}
+
+// The steps as tiles, reading order, depth first: a step inside a branch or
+// a loop is a smaller tile. At most `max` tiles, then "+N".
+export function flattenShape(shape, depth = 0, out = []) {
+  (Array.isArray(shape) ? shape : []).forEach((s) => {
+    if (!Array.isArray(s) || !s.length) return;
+    out.push({ kind: String(s[0]), depth });
+    (Array.isArray(s[1]) ? s[1] : []).forEach((lane) => flattenShape(lane, depth + 1, out));
+  });
+  return out;
+}
+
+export function ShapeStrip({ shape, max = 12, title = 'Workflow shape' }) {
+  const tiles = useMemo(() => flattenShape(shape), [shape]);
+  const shown = tiles.slice(0, max);
+  const more = tiles.length - shown.length;
+  const words = shown.map((t) => KIND_WORD[t.kind] || t.kind).join(', ');
+  return (
+    <span data-testid="wf-shape" role="img" aria-label={`${title}: ${words || 'no steps yet'}${more > 0 ? ` and ${more} more` : ''}`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, height: 12, flexShrink: 0 }}>
+      <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 6, background: COLOR.trigger, opacity: .8 }} />
+      {shown.map((t, i) => (
+        <span key={i} aria-hidden="true" style={{
+          width: t.depth ? 8 : 12, height: t.depth ? 8 : 12, borderRadius: t.kind === 'stop' ? 6 : 3,
+          background: COLOR[t.kind] || COLOR.action, opacity: t.depth ? .7 : .95,
+        }} />
+      ))}
+      {more > 0 && <span aria-hidden="true" style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', marginLeft: 2 }}>+{more}</span>}
+    </span>
   );
 }

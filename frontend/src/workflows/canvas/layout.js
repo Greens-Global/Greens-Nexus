@@ -111,7 +111,10 @@ export function layout(definition) {
   const addEdge = (a, b, from, to, insert, label, opts = {}) => {
     const edge = { id: `e${edgeCount++}`, d: edgePath(a, b), from, to, a: { ...a }, b: { ...b }, label: label || '', dashed: !!opts.dashed };
     out.edges.push(edge);
-    if (insert) out.hots.push({ id: `h-${edge.id}`, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, edge: edge.id, insert });
+    // The insert point sits at the connector's midpoint; a labeled connector
+    // (Yes / No, an approval's answers) wears its label near the top, so its
+    // point moves down the curve to keep the two apart.
+    if (insert) { const p = bezierPoint(a, b, label ? 0.66 : 0.5); out.hots.push({ id: `h-${edge.id}`, x: p.x, y: p.y, edge: edge.id, insert }); }
     return edge;
   };
 

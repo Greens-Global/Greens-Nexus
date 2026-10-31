@@ -34,16 +34,15 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); });
 
-describe('WorkflowList thumbnails', () => {
-  it('draws every row as its canvas silhouette, a row with no shape as the empty sheet', async () => {
+describe('WorkflowList shapes', () => {
+  it('gives every row its shape strip under the name, a row with no shape says so', async () => {
     render(<WorkflowList go={vi.fn()} />);
     await screen.findByText('Welcome Note');
-    const thumbs = screen.getAllByTestId('wf-thumb');
-    expect(thumbs).toHaveLength(2);
-    expect(screen.getByRole('img', { name: 'Welcome Note shape' })).toBeTruthy();
-    // the If fans into two lanes: more blocks than the bare row's trigger + slot
-    const blocks = (svg) => svg.querySelectorAll('g').length;
-    expect(blocks(thumbs[0])).toBeGreaterThan(blocks(thumbs[1]));
+    const strips = screen.getAllByTestId('wf-shape');
+    expect(strips).toHaveLength(2);
+    // the steps read in order, the If's lanes included
+    expect(screen.getByRole('img', { name: /^Welcome Note shape: .*If \/ Else/ })).toBeTruthy();
+    expect(screen.getByRole('img', { name: /shape: no steps yet$/ })).toBeTruthy();
   });
 });
 
