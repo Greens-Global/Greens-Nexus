@@ -100,6 +100,8 @@ from routers.task_util import (
 log = logging.getLogger(__name__)
 
 MAX_ROWS = 2000
+# Where a batch of rows comes from (routers/tasks.TaskImportBody.source).
+SOURCES = ("file", "paste", "typed")
 MAX_TITLE = 500
 MAX_TEXT = 20000
 MAX_TAGS = 30
@@ -308,13 +310,23 @@ class _Context:
                 raise HTTPException(422, "This project is archived. Unarchive it to import tasks into it.")
         self.project = project
         self.project_id = project.id if project is not None else ""
+        # Where the rows came from: a file (the import wizard), a pasted list
+        # or a typed one (Add Several) - the wording below and the project's
+        # activity row follow it. Anything else is a caller's mistake.
         self.source = (getattr(body, "source", "") or "file").strip().lower()
+        if self.source not in SOURCES:
+            raise HTTPException(422, f"source must be one of {', '.join(SOURCES)}.")
+        # "file" / "list": the noun every message uses for the rows.
+        self.noun = "file" if self.source == "file" else "list"
+        # "in this project" when there is one; a personal list has no project
+        # to point at.
+        self.here = " in this project" if project is not None else ""
         rows = body.rows or []
         if not rows:
-            raise HTTPException(422, "The file has no rows to import.")
+            raise HTTPException(422, f"The {self.noun} has no rows to {self.verb}.")
         if len(rows) > MAX_ROWS:
-            raise HTTPException(422, f"A file can have at most {MAX_ROWS:,} rows. This one has {len(rows):,} - "
-                                     "split it into smaller files.")
+            raise HTTPException(422, f"A {self.noun} can have at most {MAX_ROWS:,} rows. This one has {len(rows):,} - "
+                                     f"split it into smaller {self.noun}s.")
         self.scope = auth.company_scope(user, db)
         if body.add_missing_options and not is_manager(user):
             raise HTTPException(403, "Only a manager can add options to a custom field.")
@@ -365,6 +377,11 @@ class _Context:
         self.create_sections = bool(body.create_sections) and project is not None
         self.new_sections: dict = {}     # norm name -> display name, in first-seen order
         self.new_options: dict = {}      # field id -> {norm label: label}
+
+    @property
+    def verb(self) -> str:
+        """"import" for a file, "add" for a pasted or typed list."""
+        return "import" if self.source == "file" else "add"
 
     def may_add_option(self, f) -> bool:
         """A field's options are its definition: a manager's to change, and
@@ -441,7 +458,7 @@ def _parse_row(ctx: _Context, raw: dict, index: int) -> _Row:
         if hit:
             r.status = hit
         else:
-            r.warnings.append(f"Status \"{st}\" is not a status in this project - set to Not Started.")
+            r.warnings.append(f"Status \"{st}\" is not a status{ctx.here} - set to Not Started.")
 
     seen = set()
     for who in _split(_cell(raw.get("assignees"))):
@@ -501,7 +518,7 @@ def _parse_row(ctx: _Context, raw: dict, index: int) -> _Row:
     for fid, value in custom.items():
         f = ctx.fields.get(fid)
         if f is None:
-            r.warnings.append("A column was mapped to a field this project does not have - ignored.")
+            r.warnings.append(f"A column was mapped to a field {'this project does not have' if ctx.project is not None else 'that does not apply'} - ignored.")
             continue
         _parse_field(ctx, r, f, value)
     return r
@@ -581,7 +598,12 @@ def _parse_field(ctx: _Context, r: _Row, f, value) -> None:
 _ROW_REF = re.compile(r"^(?:row\s*)?#?\s*(\d+)$", re.I)
 
 
-def _resolve_parents(rows: list[_Row]) -> None:
+def _resolve_parents(rows: list[_Row], by_row_first: bool = False) -> None:
+    """`by_row_first` (a pasted or typed list, Oct 31 2026): the browser
+    always names a parent by its ROW NUMBER, so a line whose title happens to
+    be a bare number ("1") must never be taken for it - the row reference is
+    tried first and a title only when nothing matches. A file keeps the old
+    order (a title first, then a row number), as its wizard documents."""
     by_title: dict = {}
     for r in rows:
         if r.title:
@@ -590,6 +612,12 @@ def _resolve_parents(rows: list[_Row]) -> None:
     for r in rows:
         if not r.parent_raw:
             continue
+        if by_row_first:
+            hit = _ROW_REF.match(r.parent_raw)
+            target = by_n.get(int(hit.group(1))) if hit else None
+            if target is not None and target is not r:
+                r.parent = target
+                continue
         cands = [x for x in by_title.get(_norm(r.parent_raw), []) if x is not r]
         if len(cands) > 1:
             r.errors.append(f"Parent \"{r.parent_raw}\" matches more than one row - use its row number.")
@@ -600,7 +628,7 @@ def _resolve_parents(rows: list[_Row]) -> None:
         hit = _ROW_REF.match(r.parent_raw)
         target = by_n.get(int(hit.group(1))) if hit else None
         if target is None:
-            r.errors.append(f"Parent \"{r.parent_raw}\" is not a row in this file.")
+            r.errors.append(f"Parent \"{r.parent_raw}\" is not a row in this {'file' if not by_row_first else 'list'}.")
         elif target is r:
             r.errors.append("A task cannot be its own parent.")
         else:
@@ -677,7 +705,7 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
     BackgroundTasks.add_task, for the batched assignment emails."""
     ctx = _Context(db, user, body)
     rows = [_parse_row(ctx, raw if isinstance(raw, dict) else {}, i) for i, raw in enumerate(body.rows)]
-    _resolve_parents(rows)
+    _resolve_parents(rows, by_row_first=ctx.source != "file")
     _check_required(ctx, rows)
     _skip_orphans(rows)
     good = [r for r in rows if not r.errors]
@@ -701,14 +729,25 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
     }
     if body.dry_run:
         return report
-    # Personal tasks have no project activity row to key a repeat on; the
-    # browser's one-save guard covers the add rows there.
-    import_key = _import_key(ctx.project.id, getattr(body, "import_id", "") or "") if ctx.project is not None else ""
+    # The repeat guard: one keyed activity row per import id - the project's
+    # "imported N tasks" row, or for a personal list (no project, Oct 31
+    # 2026) the actor's own "added N tasks" row. A POST that timed out after
+    # the server committed, then clicked again with the same id, would
+    # otherwise write every personal task twice.
+    import_key = _import_key(ctx.project.id if ctx.project is not None else f"personal:{ctx.actor}",
+                             getattr(body, "import_id", "") or "")
+    if ctx.project is not None:
+        repeat = ("This file was already imported into this project. Check the project before importing it again."
+                  if ctx.source == "file" else
+                  "This list was already added to this project. Check the project before adding it again.")
+        failed = f"The {ctx.verb} failed. Check the project before trying again."
+    else:
+        repeat = "This list was already added. Check your tasks before adding it again."
+        failed = f"The {ctx.verb} failed. Check your tasks before trying again."
     if import_key and db.get(models.TaskActivity, import_key) is not None:
-        raise HTTPException(409, "This file was already imported into this project. Check the project "
-                                 "before importing it again.")
+        raise HTTPException(409, repeat)
     if not good:
-        raise HTTPException(422, "Every row has an error, so nothing was imported. Fix the file and try again.")
+        raise HTTPException(422, f"Every row has an error, so nothing was {ctx.verb}ed. Fix the {ctx.noun} and try again.")
     try:
         made = _create(ctx, body, good, used_sections, used_options, import_key)
     except HTTPException:
@@ -718,14 +757,13 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
         db.rollback()
         if import_key and db.get(models.TaskActivity, import_key) is not None:
             # The same import committed first (a double click, a retry).
-            raise HTTPException(409, "This file was already imported into this project. Check the project "
-                                     "before importing it again.")
+            raise HTTPException(409, repeat)
         log.exception("task import failed")
-        raise HTTPException(500, "The import failed. Check the project before trying again.")
+        raise HTTPException(500, failed)
     except Exception:
         db.rollback()
         log.exception("task import failed")
-        raise HTTPException(500, "The import failed. Check the project before trying again.")
+        raise HTTPException(500, failed)
     notify = bool(body.notify_assignees)
     # What the 'created' rules asked for once the rows exist (see the
     # docstring): rule emails only when notifying, comments silently, and a
@@ -796,13 +834,15 @@ class _Placeholders:
                     setattr(obj, key, new)
 
 
-def _import_key(project_id: str, import_id: str) -> str:
-    """The id of the project's "imported N tasks" activity row for one import
-    - derived, so the primary key itself refuses a second commit of it."""
+def _import_key(scope: str, import_id: str) -> str:
+    """The id of the one activity row for one import - the project's
+    "imported N tasks" row (`scope` = the project id), or for a personal list
+    the actor's own row (`scope` = "personal:<email>") - derived, so the
+    primary key itself refuses a second commit of it."""
     iid = (import_id or "").strip()[:100]
     if not iid:
         return ""
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"nexus-task-import:{project_id}:{iid}"))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"nexus-task-import:{scope}:{iid}"))
 
 
 def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_options: dict,
@@ -814,14 +854,15 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
     db, user, actor, now = ctx.db, ctx.user, ctx.actor, now_iso()
     project = ctx.project
 
-    # Sections first, after the project's last one.
+    # Sections first, after the project's last one. A personal list has no
+    # project to hold one (_parse_row never asks for one without a project).
     section_ids = {}
     pos = max([s.position or 0 for s in ctx.section_rows] or [0])
-    for key, name in ctx.new_sections.items():
+    for key, name in (ctx.new_sections.items() if project is not None else ()):
         if key not in used_sections:
             continue
         pos += 1
-        sec = models.TaskSection(id=gen_id(), project_id=project.id, name=name, position=pos,
+        sec = models.TaskSection(id=gen_id(), project_id=ctx.project_id, name=name, position=pos,
                                  created_at=now, custom=True)
         db.add(sec)
         section_ids[key] = sec.id
@@ -909,22 +950,29 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
     # once the rules' after-commit work has run, so a task a rule makes for
     # the same person joins the same notice (_ring_assignment_bells).
 
+    # One row for the lot, keyed on the import id (the repeat guard): the
+    # project's, naming the file a file import came from - a pasted or typed
+    # list (source "paste" / "typed", Oct 31 2026) was simply added, there is
+    # no file to name. A personal list (no project) gets the actor's own row
+    # instead (entity_kind "person"): it hangs off no activity_ids list, and
+    # the Activity Log reads it as "<actor> added N tasks".
+    count = f"{len(order)} task{'' if len(order) == 1 else 's'}"
+    if ctx.source in ("paste", "typed"):
+        detail = f"added {count}"
+    else:
+        name = (body.file_name or "").strip()[:200] or "a file"
+        detail = f"imported {count} from {name}"
+    aid = import_key or gen_id()
     if project is not None:
-        # The project's one row for the lot: a file import names the file; a
-        # pasted or typed list (source "paste" / "typed", Oct 31 2026) was
-        # simply added - there is no file to name.
-        count = f"{len(order)} task{'' if len(order) == 1 else 's'}"
-        if ctx.source in ("paste", "typed"):
-            detail = f"added {count}"
-        else:
-            name = (body.file_name or "").strip()[:200] or "a file"
-            detail = f"imported {count} from {name}"
-        aid = import_key or gen_id()
         db.add(models.TaskActivity(
             id=aid, entity_kind="project", entity_id=project.id, entity_code=project.name,
             entity_title=project.name, type="imported", actor_email=actor, at=now_iso(), detail=detail))
         project.activity_ids = list(project.activity_ids or []) + [aid]
         project.modified_at = now
+    else:
+        db.add(models.TaskActivity(
+            id=aid, entity_kind="person", entity_id=actor, entity_code="",
+            entity_title=actor, type="imported", actor_email=actor, at=now_iso(), detail=detail))
     # The codes, last of all: the counter's row lock is held from here to
     # the commit just below, not while the rows above were built.
     placeholders.swap(db, code_sequence.next_task_codes(db, len(order)))
