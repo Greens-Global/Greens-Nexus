@@ -6,7 +6,7 @@
 // Ticket statuses get their own color map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Plus, Search, Trash2, CheckCircle2, X, Download, List as ListIcon, Columns3, BarChart3, ChevronDown } from 'lucide-react';
+import { Plus, Search, Trash2, CheckCircle2, X, List as ListIcon, Columns3, BarChart3 } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
@@ -21,7 +21,7 @@ import { useTableColumns } from '../tasks/tableCols';
 import {
   TICKET_TYPE_META,
   TICKET_STATUS_META, CLOSED_STATES,
-  slaState,
+  slaState, slaSortKey,
   ticketNoShort, normalizeCode,
   serviceAreaLabel,
 } from './ticketMeta';
@@ -33,6 +33,10 @@ import GuidedTour from '../components/GuidedTour';
 import { buildTicketTourSteps } from './ticketTourSteps';
 import { confirmSwitchTicket } from './drawerGuard';
 import { SuggestPropertyLinksButton } from './TicketPropertyFields';
+import ModuleTabs from '../components/ModuleTabs';
+import {
+  QUEUES, DEFAULT_QUEUE, queueMatches, queueCounts, queueDefaultSort, queueFromLegacyScope, queueFromFilterEvent,
+} from './queues';
 import { useTicketAccess } from './ticketAccess';
 import { registerTour } from '../lib/tours';
 import TicketReports from './TicketReports';
@@ -44,7 +48,7 @@ import {
 } from './ticketViewShared';
 import { downloadTicketsCsv } from './ticketExport';
 import {
-  TicketMobileFilters, TicketFilterMenu, MoreMenu, SaveViewDialog, TicketColumnsMenu,
+  TicketMobileFilters, TicketFilterMenu, MoreMenu, SaveViewDialog,
 } from './TicketFilters';
 import { TicketListHeader, TicketRow } from './TicketList';
 import { TicketActionDialog } from './TicketActionDialog';
@@ -65,6 +69,29 @@ const TICKET_VIEW_TABS = [
   { key: 'board', label: 'Board', icon: Columns3 },
   { key: 'reports', label: 'Reports', icon: BarChart3 },
 ];
+
+// The sorts a queue opens with, until the list's columns carry these keys
+// themselves (the Updated and Next Clock columns): a column of the same key
+// in TICKET_COLUMNS always wins.
+const SORT_FALLBACK = {
+  updated: { key: 'updated', sort: (t) => t.modifiedAt || t.createdAt || '' },
+  clock: { key: 'clock', sort: slaSortKey },
+};
+
+// What an empty queue says - not "no tickets match your filters", which is
+// for a filter someone set. Title Case titles, sentence-case hints.
+const QUEUE_EMPTY = {
+  needs_reply: { title: 'All Caught Up', hint: 'Nothing is waiting on a reply from the desk.' },
+  unassigned: { title: 'Everything Has an Owner', hint: 'Every live ticket is assigned to someone.' },
+  mine: { title: 'Nothing Assigned to You', hint: 'Tickets assigned to you will show up here.' },
+  due_soon: { title: 'No Clock Is Close', hint: 'Nothing is overdue or about to be.' },
+  waiting: { title: 'Nothing Parked', hint: 'No ticket is waiting on a user, a vendor or a hold.' },
+  open: { title: 'No Open Tickets', hint: 'Everything has been resolved or closed.' },
+  done: { title: 'Nothing Finished Yet', hint: 'Resolved and closed tickets land here.' },
+  route: { title: 'Nothing to Route', hint: 'No gated request is waiting for an approver.' },
+  approve: { title: 'Nothing to Approve', hint: 'No request is parked on your decision.' },
+  raised: { title: 'No Tickets Raised', hint: 'Tickets you raise will show up here.' },
+};
 
 export default function TicketsView() {
   // Applies any admin-saved SLA-hours / intake-field overrides (Sep 2026,
@@ -111,20 +138,23 @@ export default function TicketsView() {
   useEffect(() => { api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([])); }, []);
   const companyName = useCallback((id) => companies.find((c) => c.id === id)?.name || '', [companies]);
   const hrDeptName = useCallback((id) => hrDepts.find((d) => d.id === id)?.name || '', [hrDepts]);
-  // Requests parked on my approval - same reasoning: count the queue, not the view.
-  const approvalCount = useMemo(() => {
-    const me = (myEmail || '').toLowerCase();
-    if (!me) return 0;   // "" must never match "no approver named yet"
-    return tickets.filter((t) => t.approvalStatus === 'pending'
-      && (t.approverId || '').toLowerCase() === me).length;
-  }, [tickets, myEmail]);
-  // The IT Admin desk's own queue: gated requests that have landed but not yet
-  // been sent to anyone. Without a tab these live only in the bell, and a bell
-  // that has been dismissed is not a queue.
-  const routeCount = useMemo(() => (itAdmin
-    ? tickets.filter((t) => t.approvalStatus === 'pending' && !t.approverId).length
-    : 0), [tickets, itAdmin]);
-  const [scope, setScope] = useState('all');   // all | mine (requester) | assigned | approve | route
+  // The desk's work queues (Neil, 10/31/2026, tickets/queues.js): the tabs in
+  // the bar, each a filter preset counted over the WHOLE workspace, so a tab's
+  // number is what the desk owes rather than what the filters happen to show.
+  // `queue` replaced the old scope (All / My Requests / Assigned to Me) and the
+  // five summary tiles that sat above the list. To Route (the desk's unrouted
+  // approvals) and To Approve (parked on me) only show with something in them.
+  const qctx = useMemo(() => ({ me: (myEmail || '').toLowerCase(), onDesk: itAdmin }), [myEmail, itAdmin]);
+  const counts = useMemo(() => queueCounts(tickets, qctx), [tickets, qctx]);
+  const [queue, setQueue] = useState(DEFAULT_QUEUE);
+  // The saved view whose tab is lit, while the list shows it.
+  const [activeSaved, setActiveSaved] = useState(null);
+  // Column sort - click a header to sort by it, click again to flip direction.
+  // A queue opens in its own order (urgency for Needs Reply and Due Soon, else
+  // Updated, newest first); a header click overrides it until the next queue.
+  const [sort, setSort] = useState(() => queueDefaultSort(DEFAULT_QUEUE));
+  const onSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+  const pickQueue = useCallback((key) => { setQueue(key); setActiveSaved(null); setSort(queueDefaultSort(key)); }, []);
   const [search, setSearch] = useState('');
   // The list filters on a debounced copy (~200ms) so a long queue is not
   // re-filtered and re-rendered on every keystroke. Clearing applies at once.
@@ -227,21 +257,20 @@ export default function TicketsView() {
   }, []);
 
   // A list to land on (Oct 26 2026): the Tickets to Assign notice and the
-  // dashboard's My Open Tickets tile open the desk on Unassigned or on
-  // Assigned to Me - the same filters the Unassigned tile and the scope
-  // pills set. Live event for a mounted screen, pending note for a first
+  // dashboard's My Open Tickets tile open the desk on the Unassigned or the
+  // Mine queue. Live event for a mounted screen, pending note for a first
   // visit (lib/openTarget.js).
   useEffect(() => {
     const apply = (f) => {
-      if (f === 'unassigned') { setScope('all'); setSlaFilter('all'); setStatusFilter('unassigned'); }
-      else if (f === 'assigned') { setScope('assigned'); setSlaFilter('all'); setStatusFilter('open'); }
+      const q = queueFromFilterEvent(f);
+      if (q) { pickQueue(q); setSlaFilter('all'); setStatusFilter('all'); }
     };
     const onFilter = (e) => apply(e.detail?.filter);
     window.addEventListener('nexus:ticket-filter', onFilter);
     const pending = takePendingOpen('ticketFilter');
     if (pending) apply(pending);
     return () => window.removeEventListener('nexus:ticket-filter', onFilter);
-  }, []);
+  }, [pickQueue]);
 
   // Guided tour - same pattern as the Task module's (views/Tasks.jsx): runs
   // itself once per person on first visit, then only from the profile menu's
@@ -273,17 +302,17 @@ export default function TicketsView() {
   // uses (tasks/tableCols.jsx), persisted to the user's profile under
   // table:"tickets" rather than a one-off localStorage key, so an arrangement
   // follows them to another device. Requester drops out of the underlying
-  // column set entirely on My Requests (rather than being hidden per-row), so
+  // column set entirely on Raised by Me (rather than being hidden per-row), so
   // the grid template - and the reorder/resize state - never has to know about it.
   // Company ships hidden while every loaded ticket is one company (desk
   // re-cut, 10/31/2026) - it shows by itself once there are two, and is one
   // click away in Columns either way.
   const oneCompany = useMemo(() => new Set(tickets.map((t) => t.companyId || '')).size <= 1, [tickets]);
   const columnDefs = useMemo(
-    () => TICKET_COLUMNS.filter((c) => !(scope === 'mine' && c.key === 'requester'))
+    () => TICKET_COLUMNS.filter((c) => !(queue === 'raised' && c.key === 'requester'))
       .map((c) => (c.key === 'company' ? { ...c, defaultHidden: oneCompany } : c))
       .map((c) => (c.shrink ? { ...c, template: `minmax(${c.shrink}px, ${c.width}fr)` } : c)),
-    [scope, oneCompany],
+    [queue, oneCompany],
   );
   // 'tickets-v3' (10/31/2026): the title went elastic and Status / Priority
   // narrowed; saved widths win over defaults, so the key bumps once to
@@ -291,14 +320,10 @@ export default function TicketsView() {
   const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps, hidden, toggleHidden } = useTableColumns({
     table: 'tickets-v3', cols: columnDefs,
   });
-  // Completed tickets (resolved/closed) collapse into their own section below
-  // the main list (Pranshu, Sept 8 2026) rather than sitting inline with the
-  // work still in flight. Collapsed on EVERY visit (Neil, Oct 13 2026: "make
-  // sure the completed section is collapsed by default so it doesn't add to
-  // the confusion") - opening it is for this visit only. It used to be a saved
-  // preference, so one click left it open on every screen from then on.
-  const [completedCollapsed, setCompletedCollapsed] = useState(true);
-  const toggleCompleted = () => setCompletedCollapsed((c) => !c);
+  // Finished tickets (resolved / closed) used to collapse into a Completed
+  // section under the list (Pranshu, Sept 8 2026; collapsed on every visit,
+  // Neil, Oct 13 2026). The Done queue is that section now (10/31/2026): the
+  // same intent - finished work out of the way, one click to see it.
 
   // Assignee filter options - every distinct current assignee across the
   // tickets already on screen, not a separate directory fetch: this only
@@ -315,14 +340,13 @@ export default function TicketsView() {
     return [...byEmail.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [tickets, nameOf]);
 
-  // Column sort - click a header to sort by it, click again to flip direction.
-  const [sort, setSort] = useState({ key: 'created', dir: 'desc' });
-  const onSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
-
   // Saved views - snapshot the current filter set + grouping + view kind.
   const applyTicketView = (v) => {
     const f = v.filters || {};
-    setScope(f.scope ?? 'all'); setStatusFilter(f.statusFilter ?? 'all'); setPriorityFilter(f.priorityFilter ?? 'all');
+    // A view saved before the queues existed carried the old scope (10/31/2026).
+    pickQueue(f.queue ?? queueFromLegacyScope(f.scope));
+    setActiveSaved(v.id);
+    setStatusFilter(f.statusFilter ?? 'all'); setPriorityFilter(f.priorityFilter ?? 'all');
     setTypeFilter(f.typeFilter ?? 'all'); setSlaFilter(f.slaFilter ?? 'all');
     // ?? 'all', not a no-op: a view saved before service areas existed must
     // still CLEAR the filter, or applying it silently keeps whatever narrowing
@@ -349,7 +373,7 @@ export default function TicketsView() {
   const [namingView, setNamingView] = useState(false);
   const saveTicketView = (name) => createTicketView({
     name, view, group: groupBy,
-    filters: { scope, statusFilter, priorityFilter, typeFilter, slaFilter, serviceAreaFilter, assigneeFilter, hrDeptFilter, search, sort },
+    filters: { queue, statusFilter, priorityFilter, typeFilter, slaFilter, serviceAreaFilter, assigneeFilter, hrDeptFilter, search, sort },
   });
   const removeTicketView = async (v) => {
     if (!(await appDialog.confirm(`Delete the saved view "${v.name}"?`, { title: 'Delete Saved View', confirmText: 'Delete', danger: true }))) return;
@@ -359,15 +383,11 @@ export default function TicketsView() {
 
   const visible = useMemo(() => {
     const q = searchQ.trim().toLowerCase();
-    const me = (myEmail || '').toLowerCase();
+    // Inside All Open, a filter set to Resolved or Closed means "show me
+    // those" - the one time a finished ticket shows outside Done.
+    const closedOnly = statusFilter === 'resolved' || statusFilter === 'closed';
     return tickets.filter((t) => {
-      if (scope === 'mine' && (t.requesterId || '').toLowerCase() !== me) return false;
-      if (scope === 'assigned' && (t.assigneeId || '').toLowerCase() !== me) return false;
-      // Approval queue: requests parked on my decision.
-      if (scope === 'approve' && !(t.approvalStatus === 'pending'
-        && (t.approverId || '').toLowerCase() === me)) return false;
-      // Routing queue (IT Admin): gated requests nobody has been asked to sign off yet.
-      if (scope === 'route' && !(t.approvalStatus === 'pending' && !t.approverId)) return false;
+      if (!queueMatches(queue, t, qctx) && !(queue === 'open' && closedOnly && CLOSED_STATES.includes(t.status))) return false;
       if (hrDeptFilter !== 'all' && (t.hrDepartmentId || '') !== hrDeptFilter) return false;
       if (deskFilter !== 'all' && (t.confidentialDesk || '') !== deskFilter) return false;
       if (assigneeFilter !== 'all' && (t.assigneeId || '').toLowerCase() !== assigneeFilter) return false;
@@ -389,7 +409,7 @@ export default function TicketsView() {
       }
       return true;
     });
-  }, [tickets, scope, myEmail, searchQ, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, assigneeFilter, serviceAreaFilter, deskFilter]);
+  }, [tickets, queue, qctx, searchQ, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, assigneeFilter, serviceAreaFilter, deskFilter]);
 
   // Reports (server-side, TicketReports.jsx) take the list's filters that the
   // report endpoint understands; status, SLA, scope and search are list-only.
@@ -410,7 +430,7 @@ export default function TicketsView() {
 
   // List-view sort - applied before grouping so it holds within each bucket too.
   const sortTickets = useCallback((list) => {
-    const col = TICKET_COLUMNS.find((c) => c.key === sort.key);
+    const col = TICKET_COLUMNS.find((c) => c.key === sort.key) || SORT_FALLBACK[sort.key];
     if (!col?.sort) return list;
     const ctx = { nameOf, companyName };
     const dir = sort.dir === 'asc' ? 1 : -1;
@@ -425,20 +445,7 @@ export default function TicketsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sort, nameOf, companies]);
 
-  // Completed (resolved/closed) tickets never sit inline with the ones still in
-  // flight - they collapse into their own section at the bottom (see
-  // toggleCompleted above). The one exception: someone who has explicitly
-  // filtered down to exactly Resolved or Closed asked to SEE those tickets, so
-  // hiding them behind a collapsed toggle would bury the very thing they asked
-  // for - the partition is skipped and they render as the main (only) list.
-  const statusFilterIsClosedOnly = statusFilter === 'resolved' || statusFilter === 'closed';
-  // Memoized: unmemoized, both were new arrays every render, which re-ran the
-  // sorts below (and re-rendered every row) on any state change at all.
-  const [mainVisible, completedVisible] = useMemo(() => (statusFilterIsClosedOnly ? [visible, []]
-    : [visible.filter((t) => !CLOSED_STATES.includes(t.status)), visible.filter((t) => CLOSED_STATES.includes(t.status))]),
-  [visible, statusFilterIsClosedOnly]);
-  const sortedVisible = useMemo(() => sortTickets(mainVisible), [mainVisible, sortTickets]);
-  const sortedCompleted = useMemo(() => sortTickets(completedVisible), [completedVisible, sortTickets]);
+  const sortedVisible = useMemo(() => sortTickets(visible), [visible, sortTickets]);
 
   // Grouped sections for the list view.
   const groups = useMemo(() => {
@@ -466,20 +473,15 @@ export default function TicketsView() {
   // standard form idiom so a handful of them fit in one tight row.
   const compactSelStyle = { ...inputStyle, width: 'auto', cursor: 'pointer', appearance: 'auto', color: NX.ink, fontSize: 12.5, padding: '5px 8px', borderRadius: 8 };
   const compactBtnStyle = { ...btn('ghost'), color: NX.surface, background: 'color-mix(in srgb, var(--nx-surface) 14%, transparent)', fontSize: 12.5, padding: '5px 9px', gap: 5 };
-  const toggleBtn = (on) => ({ ...btn('ghost'), padding: '6px 10px', borderRadius: 7, gap: 6, background: on ? NX.surface : 'transparent', color: on ? NX.ink : NX.dim, boxShadow: on ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' });
 
   // Bulk selection (list view only). Selection is cleared when it no longer matches.
   const toggleSel = useCallback((id) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }), []);
   const clearSel = () => setSelected(new Set());
   const selIds = [...selected].filter((id) => visible.some((t) => t.id === id));
-  // Select-all - the rows actually on screen: each group's first 200, plus
-  // the Completed section only while it is open. It used to take every
-  // filtered ticket, so a bulk Delete also hit the collapsed Completed ones
-  // nobody could see (Oct 2026 review).
-  const allVisibleIds = useMemo(() => [
-    ...groups.flatMap((g) => g.rows.slice(0, 200)),
-    ...(completedCollapsed ? [] : sortedCompleted.slice(0, 200)),
-  ].map((t) => t.id), [groups, completedCollapsed, sortedCompleted]);
+  // Select-all - the rows actually on screen: each group's first 200. It used
+  // to take every filtered ticket, so a bulk Delete also hit rows nobody
+  // could see (Oct 2026 review).
+  const allVisibleIds = useMemo(() => groups.flatMap((g) => g.rows.slice(0, 200)).map((t) => t.id), [groups]);
   const allSelected = allVisibleIds.length > 0 && allVisibleIds.every((id) => selected.has(id));
   const someSelected = !allSelected && allVisibleIds.some((id) => selected.has(id));
   const toggleSelectAll = () => setSelected(allSelected ? new Set() : new Set(allVisibleIds));
@@ -526,49 +528,63 @@ export default function TicketsView() {
   const moveOnBoard = useCallback((id, status) => guardedUpdate(id, { status })
     .catch((e) => appDialog.alert(`Could not move the ticket: ${e?.message || e}`)), [guardedUpdate]);
 
+  // The bar's tabs: the queues this person has (To Route only on the desk,
+  // and the two approval queues only with something in them), then their
+  // saved views, then "+ View" (desktop - saving is a desktop job).
+  const queueTabs = useMemo(() => [
+    ...QUEUES.filter((q) => !(q.onlyDesk && !itAdmin) && !(q.hideWhenEmpty && !counts[q.key]))
+      .map((q) => ({ key: q.key, label: q.label, badge: counts[q.key], tone: q.tone })),
+    ...ticketViews.map((v) => ({ key: `view:${v.id}`, label: v.name })),
+    ...(isMobile ? [] : [{ key: '__save', label: '+ View' }]),
+  ], [counts, itAdmin, ticketViews, isMobile]);
+  const activeTab = activeSaved && ticketViews.some((v) => v.id === activeSaved) ? `view:${activeSaved}` : queue;
+  const onTab = (key) => {
+    if (key === '__save') { setNamingView(true); return; }
+    if (key.startsWith('view:')) {
+      const v = ticketViews.find((x) => `view:${x.id}` === key);
+      if (v) applyTicketView(v);
+      return;
+    }
+    pickQueue(key);
+  };
+  // What an empty list says: the queue's own words, unless a filter or a
+  // search narrowed it - or nothing has been raised at all.
+  const narrowed = !!searchQ || [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter, assigneeFilter, deskFilter].some((v) => v !== 'all');
+  const emptyWords = !tickets.length
+    ? { title: 'No Tickets Yet', hint: `Nothing has been submitted so far. ${isMobile ? 'Tap + below' : 'Choose Create'} to report a problem or ask for help.` }
+    : narrowed ? { title: 'No Tickets', hint: 'No tickets match your filters.' }
+      : (QUEUE_EMPTY[queue] || { title: 'No Tickets', hint: 'Nothing here right now.' });
+
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', position: 'relative' }}>
-      {/* Header - two rows, matching the task module: title + primary action, then
-          a bordered tab strip with the toolbar on its right. On phones the tabs,
-          filters and New Ticket move into the floating MobileTaskBar. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '12px 12px 8px' : '18px 24px 12px', flexWrap: 'wrap', background: NX.surface }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-          <span style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>Tickets</span>
-          <span style={{ padding: '2px 9px', borderRadius: 12, background: NX.border2, color: NX.dim, fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{visible.length}</span>
+      {/* One bar, the Tasks anatomy (Neil, 10/31/2026): the work queues on the
+          left - each a filter preset counted over the whole workspace - and
+          Create on the right. The title row and the five summary tiles that
+          sat above the list are gone; their counts live on the tabs. To Route
+          and To Approve appear only with something in them, a saved view is a
+          tab too, and "+ View" saves the current filters as one. Phones get
+          the same strip (swipeable), with Create in the floating bar. */}
+      <div className="nx-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '0 8px' : '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, flexShrink: 0 }}>
+        <div data-tour="ticket-scope" style={{ flex: 1, minWidth: 0 }}>
+          <ModuleTabs inline tabs={queueTabs} active={activeTab} onChange={onTab} />
         </div>
-        {/* Manage sits beside New Ticket rather than in a bar of its own -
-            one header line for the module's two top-level actions, the
-            everyday one (create) first. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
-          {/* "Create", not "New Ticket" - the same word the Task module's bar
-              button uses, and the page it sits on already says Tickets
-              (Sagar, Sept 2 2026). */}
-          {!isMobile && (
-            <span data-tour="ticket-create">
-              <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
-            </span>
-          )}
-        </div>
+        {!isMobile && (
+          <span data-tour="ticket-create" style={{ flexShrink: 0, padding: '6px 0' }}>
+            {/* "Create", not "New Ticket" - the same word the Task module's bar
+                button uses, and the page it sits on already says Tickets
+                (Sagar, Sept 2 2026). */}
+            <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
+          </span>
+        )}
       </div>
 
-      {/* Phones keep a scope strip under the title (the desktop scope pills
-          moved into the toolbar row, which doesn't render on mobile). */}
-      {isMobile && (
-        <div data-tour="ticket-scope" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '0 12px 8px', overflowX: 'auto' }}>
-          {[['all', 'All'], ['mine', 'Mine'], ['assigned', 'Assigned'],
-            ...(routeCount > 0 ? [['route', `To Route (${routeCount})`]] : []),
-            ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
-            <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
-          ))}
-        </div>
-      )}
       {/* Phone search - the same `search` state as the desktop toolbar's box,
           which does not render here. 16px so iOS does not zoom the page on
           focus; the clear button is a full 32px target. type="text" (with
           inputMode="search") rather than type="search", whose native cancel
           button would sit beside our own X on Chrome/Android. */}
       {isMobile && (
-        <div style={{ position: 'relative', margin: '0 12px 8px' }}>
+        <div style={{ position: 'relative', margin: '8px 12px' }}>
           <Search size={16} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: NX.faint, pointerEvents: 'none' }} />
           <input type="text" inputMode="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets…"
             aria-label="Search tickets" enterKeyHint="search"
@@ -582,34 +598,25 @@ export default function TicketsView() {
         </div>
       )}
 
+      {/* The toolbar - the same shape on List, Board and Reports: how the
+          tickets are shown on the left; search, Filters and the one overflow
+          menu (grouping, columns, saved views, export, the property clean-up)
+          on the right. It never changes rows between views. */}
       {!isMobile && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '0 24px', flexWrap: 'wrap', background: NX.surface }}>
-          {/* Row 2 pairs the two mode controls: scope (WHICH tickets) first,
-              then view (HOW they're shown) - row 1 stays title + New Ticket,
-              matching My Tasks' header anatomy. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            <div data-tour="ticket-scope" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 1, minWidth: 0 }}>
-              {[['all', 'All'], ['mine', 'My Requests'], ['assigned', 'Assigned to Me'],
-                ...(routeCount > 0 ? [['route', `To Route (${routeCount})`]] : []),
-                ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
-                <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
-              ))}
-            </div>
-            <span style={{ width: 1, height: 20, background: NX.border, flexShrink: 0 }} />
-            <div data-tour="ticket-views" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 0 }}>
-              {TICKET_VIEW_TABS.map((tb) => (
-                <button key={tb.key} onClick={() => setView(tb.key)} title={tb.label} style={{
-                  ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
-                  background: view === tb.key ? NX.surface : 'transparent', color: view === tb.key ? NX.ink : NX.dim,
-                  boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-                }}><tb.icon size={15} /> {tb.label}</button>
-              ))}
-            </div>
+        <div data-tour="ticket-toolbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '6px 16px', flexWrap: 'wrap', background: NX.surface }}>
+          <div data-tour="ticket-views" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, overflowX: 'auto', flexShrink: 0 }}>
+            {TICKET_VIEW_TABS.map((tb) => (
+              <button key={tb.key} onClick={() => setView(tb.key)} title={tb.label} style={{
+                ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
+                background: view === tb.key ? NX.surface : 'transparent', color: view === tb.key ? NX.ink : NX.dim,
+                boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+              }}><tb.icon size={15} /> {tb.label}</button>
+            ))}
           </div>
-          <div data-tour="ticket-toolbar" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', width: 210 }}>
               <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets…" style={{ ...inputStyle, paddingLeft: 32 }} />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets…" aria-label="Search tickets" style={{ ...inputStyle, paddingLeft: 32 }} />
             </div>
             <TicketFilterMenu
               statusFilter={statusFilter} setStatusFilter={setStatusFilter}
@@ -620,25 +627,17 @@ export default function TicketsView() {
               serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
               assigneeFilter={assigneeFilter} setAssigneeFilter={setAssigneeFilter} assigneeOptions={assigneeOptions}
             />
-            <button
-              onClick={() => downloadTicketsCsv([...sortedVisible, ...sortedCompleted], nameOf, companyName, hrDeptName)}
-              style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13 }}
-              title="Export the currently filtered tickets to CSV"
-            >
-              <Download size={15} />Export
-            </button>
-            {privileged && <SuggestPropertyLinksButton style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13 }} />}
             <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={() => setNamingView(true)} onDelete={removeTicketView}
-              groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'} />
-            {view === 'list' && (
-              <TicketColumnsMenu columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={cols} />
-            )}
+              groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'}
+              onExport={() => downloadTicketsCsv(sortedVisible, nameOf, companyName, hrDeptName)}
+              columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={cols} showColumns={view === 'list'}
+              suggestLinks={privileged ? (style) => <SuggestPropertyLinksButton style={style} /> : null} />
           </div>
         </div>
       )}
 
       {deskFilter === 'hr' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 16px 0', flexWrap: 'wrap' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: NX.ink,
             background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.28)', borderRadius: 999, padding: '4px 6px 4px 11px' }}>
             HR Requests
@@ -648,81 +647,6 @@ export default function TicketsView() {
           <span style={{ fontSize: 12, color: NX.faint }}>Confidential Ask HR requests - only their people and HR see them.</span>
         </div>
       )}
-
-      {/* Status summary tiles (owner's chosen Order-list concept): colored
-          header band + count + caption. Every tile is a real filter action.
-
-          Open + Resolved + Closed PARTITION the board - every ticket is in
-          exactly one, and the three sum to the total. Unassigned and SLA
-          breached are overlays ON Open, so they deliberately double-count.
-          Closed was missing, which left finished tickets in no card at all and
-          made the numbers look like they did not add up. */}
-      {!isMobile && view !== 'reports' && (() => {
-        const openCount = tickets.filter((t) => !CLOSED_STATES.includes(t.status)).length;
-        const breachedCount = tickets.filter((t) => slaState(t) === 'breached').length;
-        const resolvedCount = tickets.filter((t) => t.status === 'resolved').length;
-        const closedCount = tickets.filter((t) => t.status === 'closed').length;
-        // Live tickets with nobody on them. Closed ones are excluded - a closed
-        // ticket having no assignee is not work waiting for someone.
-        const unassignedCount = tickets.filter(
-          (t) => !t.assigneeId && !CLOSED_STATES.includes(t.status)).length;
-        // White cards with a dot (Neil, Oct 14 2026) - the tinted header bands
-        // made a row of five different colors. Only Unassigned and SLA
-        // Breached color their number, and only when it is above zero; the
-        // selected tile takes the Nexus green outline.
-        // `urgent` (Neil, Oct 14): with a count, the whole tile turns into a
-        // call to act - tinted and bordered in its color, an Action Required
-        // line in place of the quiet subtitle - so an unassigned ticket cannot
-        // be read past. Empty, it sits as quietly as the others.
-        const tile = (label, dot, n, sub, onGo, active, alarm, urgent) => {
-          const act = urgent && n > 0;
-          const ring = active ? 'var(--wk-brand, #15803d)' : act ? dot : NX.border;
-          return (
-          <button key={label} onClick={onGo} aria-pressed={active} data-action-required={act ? '' : undefined}
-            style={{ textAlign: 'left', border: `1px solid ${ring}`, borderRadius: 12, background: act ? `color-mix(in srgb, ${dot} 12%, ${NX.surface})` : NX.surface, cursor: 'pointer', fontFamily: FONT, padding: '11px 14px 12px', boxShadow: active ? '0 0 0 1px var(--wk-brand, #15803d)' : act ? `0 0 0 1px ${dot}` : 'none', transition: 'transform .15s, box-shadow .15s', display: 'flex', flexDirection: 'column', gap: 4 }}
-            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,.08)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = active ? '0 0 0 1px var(--wk-brand, #15803d)' : act ? `0 0 0 1px ${dot}` : 'none'; }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: act ? NX.ink : NX.dim }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flexShrink: 0 }} />{label}
-            </span>
-            <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <span style={{ fontSize: 24, fontWeight: 800, color: (alarm || act) && n > 0 ? dot : NX.ink, fontVariantNumeric: 'tabular-nums' }}>{n}</span>
-              {act
-                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: dot }}><AlertTriangle size={12} /> Action Required</span>
-                : <span style={{ fontSize: 12, color: NX.faint }}>{sub}</span>}
-            </span>
-          </button>
-          );
-        };
-        return (
-          <div data-tour="ticket-tiles" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '14px 24px 0', background: NX.canvas }}>
-            {/* Every tile counts the WHOLE workspace, so every tile clears the
-                scope on the way in - otherwise a card reading 4 opens a list of
-                1 because "My Requests" was still selected, and the number looks
-                broken. */}
-            {/* The Open status color (ticketMeta's TICKET_STATUS_META) - not
-                blue, which no status uses any more (Neil, Oct 1). */}
-            {/* Unassigned leads the row, in yellow (Pranshu, Oct 6): the major
-                item - tickets nobody is working - so it is the first thing
-                the desk sees, the whole card tinted, not only its band. */}
-            {tile('Unassigned', NX.amber, unassignedCount, 'nobody working them',
-              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
-              statusFilter === 'unassigned', true, true)}
-            {tile('Open', TICKET_STATUS_META.open.color, openCount, 'not yet resolved',
-              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'open' ? 'all' : 'open'); },
-              statusFilter === 'open')}
-            {tile('SLA Breached', NX.red, breachedCount, 'past their target',
-              () => { setScope('all'); setStatusFilter('all'); setSlaFilter(slaFilter === 'breached' ? 'all' : 'breached'); },
-              slaFilter === 'breached', true)}
-            {tile('Resolved', TICKET_STATUS_META.resolved.color, resolvedCount, 'awaiting closure',
-              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'resolved' ? 'all' : 'resolved'); },
-              statusFilter === 'resolved')}
-            {tile('Closed', TICKET_STATUS_META.closed.color, closedCount, 'done and filed',
-              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'closed' ? 'all' : 'closed'); },
-              statusFilter === 'closed')}
-          </div>
-        );
-      })()}
 
       {/* Body. Desktop: paddingBottom leaves room under the last row. Phones:
           a small paddingBottom only - the ticket-bar-spacer at the end of the
@@ -738,8 +662,7 @@ export default function TicketsView() {
           <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={moveOnBoard} mobile={isMobile}
             canMove={(t) => ticketRights(t, myEmail, privileged).canEditStatus} />
         ) : visible.length === 0 ? (
-          <EmptyState icon={TicketToken} title={tickets.length ? 'No Tickets' : 'No Tickets Yet'}
-            hint={tickets.length ? 'No tickets match your filters.' : `Nothing has been submitted so far. ${isMobile ? 'Tap + below' : 'Choose Create'} to report a problem or ask for help.`} />
+          <EmptyState icon={TicketToken} title={emptyWords.title} hint={emptyWords.hint} />
         ) : isMobile ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {groups.map((g) => (
@@ -758,27 +681,6 @@ export default function TicketsView() {
                 {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
               </div>
             ))}
-            {/* Resolved/closed tickets collapse into their own section instead of
-                sitting inline with the ones still in flight - see toggleCompleted. */}
-            {sortedCompleted.length > 0 && (
-              <div className="nx-edge-card" style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
-                <button onClick={toggleCompleted} aria-expanded={!completedCollapsed} style={{
-                  display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 16px', background: NX.surface2,
-                  border: 'none', borderBottom: completedCollapsed ? 'none' : `1px solid ${NX.border2}`, cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
-                }}>
-                  <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0, transform: completedCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
-                  <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>Completed</span>
-                  <span style={{ fontSize: 12, color: NX.faint, fontWeight: 400 }}>{sortedCompleted.length}</span>
-                </button>
-                {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
-                  <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={openTicket}
-                    people={people}
-                    checked={selected.has(t.id)} onToggle={toggleSel} band={idx % 2 === 1} mobile />
-                ))}
-                {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
-              </div>
-            )}
           </div>
         ) : (
           // Desktop - copies the task module's RichListView structure exactly:
@@ -828,29 +730,6 @@ export default function TicketsView() {
                   {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
                 </div>
               ))}
-              {/* Resolved/closed tickets collapse into their own section instead
-                  of sitting inline with the ones still in flight (Pranshu, Sept
-                  8 2026) - see toggleCompleted above. */}
-              {sortedCompleted.length > 0 && (
-                <div>
-                  <button onClick={toggleCompleted} aria-expanded={!completedCollapsed} style={{
-                    display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 16px', background: NX.surface2,
-                    border: 'none', borderTop: `1px solid ${NX.border}`, borderBottom: completedCollapsed ? 'none' : `1px solid ${NX.border2}`,
-                    cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
-                  }}>
-                    <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0, transform: completedCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
-                    <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>Completed</span>
-                    <span style={{ fontSize: 12, color: NX.faint, fontWeight: 400 }}>{sortedCompleted.length}</span>
-                  </button>
-                  {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
-                    <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={openTicket}
-                    people={people}
-                      checked={selected.has(t.id)} onToggle={toggleSel} cols={cols} band={idx % 2 === 1} />
-                  ))}
-                  {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -936,7 +815,7 @@ export default function TicketsView() {
       )}
       {tour && (
         <GuidedTour
-          steps={buildTicketTourSteps({ setScope, setView, isMobile })}
+          steps={buildTicketTourSteps({ setQueue: pickQueue, setView, isMobile })}
           onClose={closeTour} />
       )}
     </div>

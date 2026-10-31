@@ -4258,6 +4258,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .hdr-tab.active .hdr-tab-badge, .module-tab-inline-btn.active .hdr-tab-badge { background: var(--wk-brand-tint); border-color: transparent; color: var(--wk-brand); }
 [data-theme="dark"] .hdr-tab-badge { background: rgba(255,255,255,.06); color: var(--ink); }
 [data-theme="dark"] .hdr-tab.active .hdr-tab-badge { background: rgba(185,187,255,.16); color: #b9bbff; }
+/* A count that is a call to act (Tickets' Unassigned queue, 10/31/2026):
+   amber, the same word the Unassigned cell uses - never red (the bell's). */
+.hdr-tab-badge--alarm, .module-tab-inline-btn.active .hdr-tab-badge--alarm { background: rgba(217,119,6,.14); border-color: transparent; color: #b45309; }
+[data-theme="dark"] .hdr-tab-badge--alarm, [data-theme="dark"] .module-tab-inline-btn.active .hdr-tab-badge--alarm { background: rgba(245,158,11,.18); color: #fbbf24; }
 [data-theme="dark"] .hdr-tab { color: var(--muted); }
 [data-theme="dark"] .hdr-tab:hover { background: var(--mist); color: var(--ink); }
 [data-theme="dark"] .hdr-tab.active {

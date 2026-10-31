@@ -113,8 +113,8 @@ describe('Requester resolves their own ticket', () => {
 
 // Neil, Oct 14 2026: "Assignee" and "Created" as the column words, the
 // author's picture (not name) in the comment cell, and an unassigned ticket
-// turning the Unassigned tile into a call to act.
-describe('Ticket list - Oct 14 column and tile words', () => {
+// turning the Unassigned count into a call to act.
+describe('Ticket list - Oct 14 column and queue words', () => {
   // Desk re-cut (Neil, 10/31/2026): Updated and Next Clock are the default
   // columns; Created (and Company while every ticket is one company) ship
   // hidden and come back from Customize.
@@ -152,12 +152,15 @@ describe('Ticket list - Oct 14 column and tile words', () => {
     expect(within(cell).getByText(/Swapping the toner now/)).toBeTruthy();
   });
 
-  it('marks the Unassigned tile Action Required while a ticket has no owner', async () => {
+  it('colors the Unassigned tab\'s count amber while a ticket has no owner', async () => {
+    // The tiles became queue tabs (Neil, 10/31/2026); the call to act is the
+    // amber count on Unassigned, the same word the row's Assignee cell uses.
     render(<TicketsView />);
-    const tile = (await screen.findByText('Unassigned', { selector: 'button span' })).closest('button');
-    expect(tile.hasAttribute('data-action-required')).toBe(true);
-    expect(within(tile).getByText('Action Required')).toBeTruthy();
-    expect(within(tile).queryByText('nobody working them')).toBeNull();
+    await screen.findByText('Printer jam');
+    const tab = screen.getByRole('button', { name: /^Unassigned/ });
+    const badge = tab.querySelector('.hdr-tab-badge--alarm');
+    expect(badge).toBeTruthy();
+    expect(badge.textContent).toBe('1');
   });
 });
 
