@@ -117,7 +117,7 @@ describe('Requester resolves their own ticket', () => {
 describe('Ticket list - Oct 14 column and queue words', () => {
   // Desk re-cut (Neil, 10/31/2026): Updated and Next Clock are the default
   // columns; Created (and Company while every ticket is one company) ship
-  // hidden and come back from Customize.
+  // hidden and come back from the More menu's Show Columns.
   it('heads the columns Assignee, Next Clock and Updated; Created is one click away', async () => {
     render(<TicketsView />);
     expect(await screen.findByText('Assignee')).toBeTruthy();
@@ -127,7 +127,7 @@ describe('Ticket list - Oct 14 column and queue words', () => {
     expect(screen.queryByText('Created')).toBeNull();
     expect(screen.queryByText('Company')).toBeNull();
     expect(screen.queryByText('Assigned To')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
     const created = screen.getByLabelText('Created');
     expect(created.checked).toBe(false);
     expect(screen.getByLabelText('Company').checked).toBe(false);

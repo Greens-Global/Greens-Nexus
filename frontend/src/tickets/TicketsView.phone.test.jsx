@@ -155,23 +155,27 @@ describe('Tickets on a phone', () => {
   it('sorts from the filter sheet - the Next Clock order by default', async () => {
     render(<TicketsView />);
     await screen.findByText('Printer jam');
-    expect(rowOrder()).toEqual(['VPN down', 'Printer jam']);
+    // Printer jam's clock is overdue; VPN down has no clock, so it comes last.
+    expect(rowOrder()).toEqual(['Printer jam', 'VPN down']);
     fireEvent.click(screen.getByRole('button', { name: 'Filters & sort' }));
     expect(screen.getByText('Filter, Sort & Group')).toBeTruthy();
     expect(screen.getByText('Sort By')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Next Clock/ }));
-    fireEvent.click(screen.getByText('Oldest First'));
+    fireEvent.click(screen.getByText('Newest First'));
     fireEvent.click(sheetDone());
-    expect(rowOrder()).toEqual(['Printer jam', 'VPN down']);
+    expect(rowOrder()).toEqual(['VPN down', 'Printer jam']);
   });
 
   it('sorting by Next Clock puts tickets with no SLA clock last', async () => {
     render(<TicketsView />);
     await screen.findByText('Printer jam');
-    expect(rowOrder()).toEqual(['VPN down', 'Printer jam']);
     fireEvent.click(screen.getByRole('button', { name: 'Filters & sort' }));
-    fireEvent.click(screen.getByRole('button', { name: /Newest First|Recently Updated|Next Clock/ }));
-    fireEvent.click(screen.getByText('Next Clock'));
+    fireEvent.click(screen.getByRole('button', { name: /Next Clock/ }));
+    fireEvent.click(screen.getByText('Newest First'));
+    expect(rowOrder()).toEqual(['VPN down', 'Printer jam']);
+    fireEvent.click(screen.getByRole('button', { name: /Newest First/ }));
+    // The row chips say "Next Clock" too; the option is the last match.
+    fireEvent.click(screen.getAllByText('Next Clock').pop());
     fireEvent.click(sheetDone());
     // VPN down has no slaDueOn - it no longer leads the list.
     expect(rowOrder()).toEqual(['Printer jam', 'VPN down']);
