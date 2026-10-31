@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { generateJSON } from '@tiptap/core';
-import { Search, Loader2, FilePlus2, Copy, Archive, RotateCcw, Trash2, FileText, Folder, FolderPlus, Tag, X, Pencil, PenTool, Upload, Cloud, Download } from 'lucide-react';
+import { Search, Loader2, FilePlus2, Copy, Archive, RotateCcw, FileText, Folder, FolderPlus, Tag, X, Pencil, PenTool, Upload, Cloud, Download } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -11,6 +11,7 @@ import { uploadToSupabase } from '../lib/docBuilderUpload';
 import AsyncSection, { SkeletonBlocks } from './AsyncState';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import TypedFieldInput from './TypedFieldInput';
+import HoldButton from '../ui/HoldButton';
 import { validateFieldValue, formatFieldValue, RESERVED_TYPES, isAutoToken } from '../lib/mergeFieldTypes';
 
 // ── My Documents (Phase 1 browse/organize, Phase 2 adds the editor) ─────────
@@ -386,6 +387,16 @@ export default function DocumentsBrowser({ openCreateSignal, employees = [], ent
     setBusyId('');
   };
 
+  // Delete a draft is held on its row (Neil, Oct 30 2026): same call, toast
+  // and reload as act(), but a refusal throws so the button rewinds with it.
+  const deleteDoc = async (d) => {
+    setBusyId(d.id);
+    try { await api.deleteDocument(d.id); }
+    catch (e) { throw new Error(e.message || 'Action failed', { cause: e }); }
+    finally { setBusyId(''); }
+    toastOk?.('Deleted'); load();
+  };
+
   const act = (id, fn, okMsg) => {
     setBusyId(id);
     fn(id).then(() => { toastOk?.(okMsg); load(); }).catch(e => toastErr?.(e.message || 'Action failed')).finally(() => setBusyId(''));
@@ -503,8 +514,8 @@ export default function DocumentsBrowser({ openCreateSignal, employees = [], ent
                   style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Archive size={14} /></button>
               )}
               {d.status === 'draft' && (
-                <button title="Delete" disabled={busyId === d.id} onClick={() => { if (window.confirm(`Delete "${d.title}"? This can't be undone.`)) act(d.id, api.deleteDocument, 'Deleted'); }}
-                  style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex', color: 'hsl(var(--color-red))' }}><Trash2 size={14} /></button>
+                <HoldButton size="sm" label="Delete" doneLabel="Deleted" ariaLabel={`Delete ${d.title}`}
+                  fallbackMessage={`Delete "${d.title}"? This can't be undone.`} onConfirm={() => deleteDoc(d)} />
               )}
               </>)}
             </div>

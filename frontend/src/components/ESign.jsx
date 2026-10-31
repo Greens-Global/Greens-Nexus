@@ -23,6 +23,8 @@ import { useRole } from '../contexts/RoleContext';
 import { Spinner, LoadingState } from './AsyncState';
 import BreakAttestModal, { BreakStatement } from './BreakAttestModal';
 import { PersonSelect } from '../tasks/components';
+import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
@@ -3588,7 +3590,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
 // Pay & Benefits holders download it or hand out its links (the API 403s).
 const PAY_LOCKED_HINT = 'Needs Pay & Benefits access - this envelope shows pay';
 
-function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }) {
+export function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }) {
   const [req, setReq] = useState(null);
   const [busy, setBusy] = useState('');
   const [editPid, setEditPid] = useState(null);
@@ -3633,6 +3635,29 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
     catch (e) { toastErr(e?.message || `Could not ${kind}.`); }
     setBusy('');
   }
+  // Void (Neil, Oct 30 2026 - hold to confirm): every signer loses the
+  // envelope at once and it cannot be reopened, so the dialog names the
+  // document and who is still on it, and the confirm is a hold.
+  async function voidEnvelope() {
+    if (busy || !req) return;
+    const who = (req.parties || []).filter(p => p.partyRole !== 'cc').map(p => p.name || p.email).filter(Boolean);
+    const signed = (req.parties || []).filter(p => p.partyRole !== 'cc' && p.status === 'signed').length;
+    const names = who.length ? who.join(', ') : 'nobody yet';
+    const lost = signed ? ` and the ${signed} signature${signed === 1 ? '' : 's'} already collected will not count` : '';
+    await dialog.confirm(
+      `"${req.title}" will be voided for every recipient. Signers: ${names}.\n\n` +
+      `Their signing links stop working${lost}. A voided envelope cannot be reopened - it would have to be sent again.`,
+      {
+        title: 'Void This Envelope?', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Void Envelope', doneText: 'Voided',
+        onConfirm: async () => {
+          setBusy('void');
+          try { await api.voidSign(requestId); }
+          catch (e) { throw new Error(e?.message || 'Could not void.', { cause: e }); }
+          finally { setBusy(''); }
+          toastOk('Voided.'); load(); onChanged();
+        },
+      });
+  }
   const download = () => act('download', async () => {
     const { url } = await api.downloadSign(requestId); window.open(url, '_blank', 'noopener'); return {};
   }, 'Download started.');
@@ -3656,7 +3681,7 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
           <div style={{ overflowY: 'auto', flex: 1, padding: '16px 24px' }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('remind', () => api.remindSign(requestId), r => `Reminded ${r.reminded}.`)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Bell size={12} /> Remind</button>}
-              {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('void', () => api.voidSign(requestId), 'Voided.')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))' }}><Ban size={12} /> Void</button>}
+              {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={voidEnvelope} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))' }}><Ban size={12} /> Void</button>}
               {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy || req.payLocked} onClick={download} title={req.payLocked ? PAY_LOCKED_HINT : undefined} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={12} /> Sealed PDF</button>}
               {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={() => act('verify', () => api.verifySign(requestId), r => {
                 const doc = r.valid ? 'Document untampered' : '⚠ HASH MISMATCH - document was modified!';
