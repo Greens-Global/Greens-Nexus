@@ -117,6 +117,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   roleState.full = true;
   window.sessionStorage.clear();
+  // these tests drive the recipe; the canvas (the desktop default since
+  // 10/30/2026) has its own tests in BuilderCanvas.test.jsx and canvas/
+  window.localStorage.setItem('wf-builder-view', 'recipe');
   api.wfGet.mockImplementation(() => Promise.resolve(workflow()));
   dialog.confirm.mockResolvedValue(true);
   dialog.alert.mockResolvedValue(undefined);
