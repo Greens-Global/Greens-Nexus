@@ -8182,3 +8182,56 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .nx-rec-x { width: 26px; height: 26px; display: grid; place-items: center; border: none; border-radius: 6px; background: transparent; color: var(--muted, #676879); cursor: pointer; }
 .nx-rec-error { display: block; margin-top: 4px; font-size: 12px; color: var(--wk-red, #e2445c); }
 @media (max-width: 768px) { .nx-mic { width: 40px; height: 40px; } .nx-voice, .nx-rec { height: 40px; } }
+
+/* ── Hold to confirm (ui/HoldButton.jsx, Neil, Oct 30 2026) ──
+   A red layer, a clipped copy of the label, wipes left to right at an even
+   pace while held (--nx-hold-ms) and rewinds in 180 ms with a strong ease-out
+   when let go. Done = solid red with a check. Reduced motion: four steps. */
+.nx-hold-wrap { position: relative; display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; vertical-align: middle; }
+.nx-hold {
+  position: relative; isolation: isolate; overflow: hidden; display: inline-flex; align-items: center;
+  height: 36px; min-width: 40px; padding: 0 16px; border-radius: 9px;
+  border: 1px solid hsl(var(--color-red)); background: hsla(var(--color-red), 0.08); color: hsl(var(--color-red));
+  font: 600 13.5px Inter, sans-serif; cursor: pointer; white-space: nowrap;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  transition: transform 160ms cubic-bezier(.23, 1, .32, 1), background-color 120ms ease-out;
+}
+.nx-hold-sm { height: 30px; padding: 0 11px; border-radius: 8px; font-size: 12.5px; }
+.nx-hold:hover:not(:disabled) { background: hsla(var(--color-red), 0.13); }
+.nx-hold:focus-visible { outline: 2px solid hsl(var(--color-red)); outline-offset: 2px; }
+.nx-hold:disabled { opacity: .5; cursor: not-allowed; }
+.nx-hold[data-holding] { transform: scale(.98); }
+.nx-hold-face, .nx-hold-fill { display: inline-flex; align-items: center; gap: 7px; }
+.nx-hold-sm .nx-hold-face, .nx-hold-sm .nx-hold-fill { gap: 6px; }
+.nx-hold-fill {
+  position: absolute; inset: 0; padding: inherit; justify-content: inherit;
+  background: hsl(var(--color-red)); color: #fff;
+  clip-path: inset(0 100% 0 0); transition: clip-path 180ms cubic-bezier(.23, 1, .32, 1);
+}
+.nx-hold[data-holding] .nx-hold-fill { clip-path: inset(0 0 0 0); transition: clip-path var(--nx-hold-ms, 1200ms) linear; }
+.nx-hold[data-nudge] .nx-hold-fill { clip-path: inset(0 88% 0 0); transition: clip-path 140ms ease-out; }
+.nx-hold[data-working] .nx-hold-fill, .nx-hold[data-done] .nx-hold-fill { clip-path: inset(0 0 0 0); transition: none; }
+.nx-hold[data-done] { background: hsl(var(--color-red)); color: #fff; }
+.nx-hold[data-working] { cursor: progress; }
+.nx-hold[data-working] .nx-hold-fill { animation: nx-hold-wait 900ms ease-in-out infinite alternate; }
+@keyframes nx-hold-wait { from { opacity: 1; } to { opacity: .78; } }
+.nx-hold-hint {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 2; pointer-events: none; white-space: nowrap;
+  font-size: 11.5px; font-weight: 600; color: var(--muted, #5b675f);
+}
+.nx-hold-error { font-size: 12px; color: hsl(var(--color-red)); text-align: right; }
+.nx-hold-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .nx-hold, .nx-hold-fill, .nx-hold[data-holding] .nx-hold-fill, .nx-hold[data-nudge] .nx-hold-fill { transition: none; }
+  .nx-hold[data-holding] { transform: none; }
+  .nx-hold[data-holding] .nx-hold-fill { clip-path: inset(0 var(--nx-hold-left, 100%) 0 0); }
+  .nx-hold[data-working] .nx-hold-fill { animation: none; }
+}
+/* the Undo toast after a hold (ui/dialog.jsx dialog.undo) */
+.nx-undo {
+  position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 100001;
+  display: flex; align-items: center; gap: 16px; padding: 10px 14px 10px 16px; border-radius: 10px;
+  background: var(--ink, #17211c); color: var(--paper, #fff); font: 500 13.5px Inter, sans-serif;
+  box-shadow: 0 8px 28px rgba(0,0,0,.24); animation: nx-fade-in var(--dur-sm, 160ms) ease-out;
+}
+.nx-undo button { background: none; border: none; padding: 0; color: inherit; font: 700 13.5px Inter, sans-serif; text-decoration: underline; cursor: pointer; }
