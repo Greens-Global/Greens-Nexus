@@ -55,7 +55,7 @@ export function buildTicketTourSteps({ setQueue, setView, isMobile }) {
       title: 'Working a ticket',
       body: isMobile
         ? 'Tap a card to open the full thread, attachments and history. Search sits under the tabs, and the filter button in the bar below narrows and sorts the list. Finished tickets live under Done, out of the way.'
-        : 'Click a row to open the full thread, attachments and history - or click Status / Priority right in the list to change it without opening anything. Finished tickets live under Done, out of the way.',
+        : 'Click a row - or press ↓ and Enter - to open the full thread, attachments and history; Previous and Next step through the queue from inside it. Click Status / Priority right in the list to change it without opening anything. The More menu can open tickets in a side pane beside the list instead of over it. Finished tickets live under Done, out of the way.',
     },
   ];
 
