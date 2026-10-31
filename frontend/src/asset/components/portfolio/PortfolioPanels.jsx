@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowRight, Trash2, RotateCcw, Search, X, Check } from 'lucide-react';
 import { assetCompleteness, assetTypeOf, assetRegionOf, categoryOf, cityRegion, searchHaystack, ASSET_CATEGORIES } from '../../lib/assetMetrics.js';
 import { baseStage } from '../../lib/stages.js';
+import HoldButton, { HOLD_MAJOR_MS } from '../../../ui/HoldButton';
 
 // The panels that used to be the Manage page (Neil, Oct 21 2026: Manage is
 // not a destination). Data Gaps and Flagged open from chips on the Needs
@@ -127,19 +128,27 @@ export function DataGapsPanel({ assets, onOpen, onDelete, serverOk, onClose }) {
   );
 }
 
-/** Trash: restore a deleted asset, or remove it for good (asked inline). */
-export function TrashPanel({ deleted, onRecover, onPurge, onClose }) {
+/** Trash: restore a deleted asset, or remove it for good (asked inline).
+ *  Delete Forever takes the asset and every record under it, so the inline
+ *  ask names how many and its confirm is a hold (Neil, Oct 30 2026). */
+export function TrashPanel({ deleted, onRecover, onPurge, onClose, recordsOf }) {
   const [purgeTarget, setPurgeTarget] = useState(null);
+  // Counted when the ask opens, so the line does not change under the check.
+  const records = purgeTarget ? purgeTarget.records : null;
   return (
     <div style={CARD}>
       <PanelHead title="Trash" subtitle="Restore a deleted asset, or remove it permanently." onClose={onClose} />
       {purgeTarget && (
         <div style={{ marginBottom: 12, padding: '13px 14px', borderRadius: 11, border: '1px solid hsla(var(--color-red), 0.4)', backgroundColor: 'hsla(var(--color-red), 0.07)' }}>
           <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Permanently delete "{purgeTarget.name}"?</div>
-          <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 11 }}>This <strong>cannot be undone</strong> - the asset and its records are gone for good.</div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 11 }}>
+            This <strong>cannot be undone</strong> - the asset and {!records ? 'its records' : `its ${records} record${records === 1 ? '' : 's'} (warranties, inspections, documents, maintenance and the rest)`} are gone for good.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'flex-start' }}>
             <button type="button" className="secondary-btn" onClick={() => setPurgeTarget(null)} style={{ fontSize: '0.8rem' }}>Keep</button>
-            <button type="button" className="primary-btn" onClick={() => { onPurge(purgeTarget.id); setPurgeTarget(null); }} style={{ fontSize: '0.8rem', backgroundColor: 'hsl(var(--color-red))' }}>Delete Forever</button>
+            <HoldButton key={purgeTarget.id} label="Delete Forever" doneLabel="Deleted" holdMs={HOLD_MAJOR_MS} clickRuns
+              ariaLabel={`Delete ${purgeTarget.name} forever`}
+              onConfirm={() => { onPurge(purgeTarget.id); }} onDone={() => setPurgeTarget(null)} />
           </div>
         </div>
       )}
@@ -154,7 +163,7 @@ export function TrashPanel({ deleted, onRecover, onPurge, onClose }) {
                 <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cityRegion(x) || '-'}</div>
               </div>
               <button type="button" onClick={() => onRecover(x.id)} className="secondary-btn" style={{ flexShrink: 0, padding: '6px 11px', fontSize: '0.78rem' }}><RotateCcw size={14} /> Restore</button>
-              <button type="button" onClick={() => setPurgeTarget(x)} title={'Delete ' + x.name + ' permanently'} aria-label={'Delete ' + x.name + ' permanently'}
+              <button type="button" onClick={() => setPurgeTarget({ ...x, records: recordsOf ? recordsOf(x.id) : null })} title={'Delete ' + x.name + ' permanently'} aria-label={'Delete ' + x.name + ' permanently'}
                 style={{ flexShrink: 0, width: 32, height: 32, borderRadius: 8, border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                 onMouseEnter={(e) => { e.currentTarget.style.color = 'hsl(var(--color-red))'; }} onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; }}>
                 <Trash2 size={15} />

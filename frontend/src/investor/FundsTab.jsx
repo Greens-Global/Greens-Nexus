@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Briefcase, ExternalLink, Info, Plus, Trash2, X } from 'lucide-react';
+import { Briefcase, ExternalLink, Info, Plus, X } from 'lucide-react';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
 import { usePeopleDirectory } from '../lib/queries';
 import { formatCurrency, formatMultiple, formatPercent, numOrNull } from './lib/format';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, PeopleSelect, StatusText, ThinBar, useIrLoad } from './lib/ui';
 import { Spinner } from '../components/AsyncState';
+import HoldButton from '../ui/HoldButton';
 
 const BLANK = {
   name: '', entityName: '', strategy: '', propertyName: '', status: 'raising',
@@ -205,19 +206,20 @@ export default function FundsTab() {
     }
   };
 
+  // Delete is held in the modal's footer (Neil, Oct 30 2026): one record, no
+  // second dialog. A refusal (e.g. a 409) throws so the button rewinds with it.
   const remove = async () => {
-    if (!modal?.id || busy) return;
-    if (!window.confirm('Delete this deal? Commitments, calls, and distributions tied to it may be affected.')) return;
+    if (!modal?.id) return;
     setBusy(true); setFormErr('');
     try {
       await api.deleteIrFund(modal.id);
-      setModal(null);
-      await reload();
     } catch (err) {
-      setFormErr(err?.message || 'Delete failed.');
+      throw new Error(err?.message || 'Delete failed.', { cause: err });
     } finally {
       setBusy(false);
     }
+    setModal(null);
+    await reload();
   };
 
   const stat = (label, value) => (
@@ -397,10 +399,10 @@ export default function FundsTab() {
             </div>
             <div className="modal-footer">
               {modal.id && (
-                <button type="button" className="secondary-btn" disabled={busy} onClick={remove}
-                  style={{ marginRight: 'auto', color: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <Trash2 size={14} /> Delete
-                </button>
+                <span style={{ marginRight: 'auto' }}>
+                  <HoldButton label="Delete" doneLabel="Deleted" disabled={busy} onConfirm={remove}
+                    fallbackMessage="Delete this deal? Commitments, calls, and distributions tied to it may be affected." />
+                </span>
               )}
               <button type="button" className="secondary-btn" onClick={() => setModal(null)}>Cancel</button>
               <button type="submit" className="primary-btn" disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

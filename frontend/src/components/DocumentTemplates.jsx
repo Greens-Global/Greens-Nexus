@@ -7,6 +7,7 @@ import { takePendingOpen } from '../lib/pendingOpen';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { Spinner } from './AsyncState';
 import WordTemplateWizard from './WordTemplateWizard';
+import HoldButton from '../ui/HoldButton';
 
 // ── Document Templates & Letterheads (Phase 3) ───────────────────────────────
 // Category tabs + search over doc_templates, reusing DocumentBuilder (kind=
@@ -425,13 +426,16 @@ Leave blank for a company-wide template (administrators only).`,
                       <button title="Restore" disabled={busyId === t.id} onClick={() => act(t.id, (id) => api.updateDocTemplate(id, { status: 'active' }), 'Restored')}
                         style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><RotateCcw size={14} /></button>
                     )}
-                    <button title="Delete" disabled={busyId === t.id} onClick={() => {
-                      if (!window.confirm(`Delete template "${t.name}"? This can't be undone.`)) return;
-                      setBusyId(t.id);
-                      api.deleteDocTemplate(t.id).then(() => { toastOk?.('Deleted'); load(); })
-                        .catch(e => toastErr?.(e.status === 409 ? 'This template has generated documents - archive it instead.' : (e.message || 'Failed to delete')))
-                        .finally(() => setBusyId(''));
-                    }} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex', color: 'hsl(var(--color-red))' }}><Trash2 size={14} /></button>
+                    {/* Held on the row (Neil, Oct 30 2026); a refusal rewinds the button with the reason. */}
+                    <HoldButton size="sm" label="Delete" doneLabel="Deleted" ariaLabel={`Delete template ${t.name}`}
+                      fallbackMessage={`Delete template "${t.name}"? This can't be undone.`}
+                      onConfirm={async () => {
+                        setBusyId(t.id);
+                        try { await api.deleteDocTemplate(t.id); }
+                        catch (e) { throw new Error(e.status === 409 ? 'This template has generated documents - archive it instead.' : (e.message || 'Failed to delete'), { cause: e }); }
+                        finally { setBusyId(''); }
+                        toastOk?.('Deleted'); load();
+                      }} />
                   </div>
                 </div>
               ))}
