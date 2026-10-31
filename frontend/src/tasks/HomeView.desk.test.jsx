@@ -313,6 +313,9 @@ describe('the core at a desk', () => {
     .mockReturnValue({ width: 1200, height: 400, top: 0, left: 0, right: 1200, bottom: 400, x: 0, y: 0 });
   const h2s = () => [...document.querySelectorAll('[data-home-core] h2')].map((h) => h.textContent);
   const core = () => document.querySelector('[data-home-core]');
+  const areas = () => core().style.gridTemplateAreas.replace(/\s+/g, ' ').trim();
+  // The fill column: the Updates card sits in the keyed wrapper that spans the other two cells.
+  const updatesColumn = () => screen.getByText('Updates').closest('[data-home-updates-column]');
 
   it('Updates leads when there is anything in the feed, filling its column', async () => {
     activity = () => Promise.resolve([update()]);
@@ -323,11 +326,9 @@ describe('the core at a desk', () => {
       expect(core().dataset.homeCore).toBe('wide');
       expect(core().dataset.homeCoreLead).toBe('updates');
       expect(h2s()).toEqual(['Updates', 'Tasks', 'Bookmarks']);
-      expect(core().style.gridTemplateAreas).toBe('"updates tasks" "updates bookmarks"');
-      // The fill column: Updates sits in the absolute box that spans the other two.
-      const column = screen.getByText('Updates').closest('[style*="position: absolute"]');
-      expect(column).toBeTruthy();
-      expect(column.parentElement.style.gridArea).toBe('updates');
+      expect(areas()).toBe('"updates tasks" "updates bookmarks"');
+      expect(updatesColumn()).toBeTruthy();
+      expect(updatesColumn().style.gridArea).toBe('updates');
       expect(screen.getByText('Fix roof')).toBeTruthy();
     } finally { rect.mockRestore(); }
   });
@@ -340,7 +341,43 @@ describe('the core at a desk', () => {
       expect(core().dataset.homeCore).toBe('wide');
       expect(core().dataset.homeCoreLead).toBe('tasks');
       expect(h2s()).toEqual(['Tasks', 'Updates', 'Bookmarks']);
-      expect(core().style.gridTemplateAreas).toBe('"tasks updates" "bookmarks updates"');
+      expect(areas()).toBe('"tasks updates" "bookmarks updates"');
+      expect(updatesColumn().style.gridArea).toBe('updates');
+    } finally { rect.mockRestore(); }
+  });
+
+  it('keeps the lead for the visit: a feed that fills up later does not swap the columns', async () => {
+    const rect = wide();
+    try {
+      const { rerender } = render(<HomeView onNavigate={() => {}} />);
+      await flush();
+      expect(core().dataset.homeCoreLead).toBe('tasks');
+      // A task changes, the feed is re-read (after its 800 ms settle) and now has a row.
+      let reads = 0;
+      activity = () => { reads += 1; return Promise.resolve([update({ taskId: 'other', entityTitle: 'Fix roof' })]); };
+      store = { ...store, tasks: [task({ modifiedAt: '2099-01-01T00:00:00Z' })] };
+      rerender(<HomeView onNavigate={() => {}} />);
+      await act(() => new Promise((r) => setTimeout(r, 900)));
+      expect(reads).toBe(1);
+      expect(screen.getByText('Fix roof')).toBeTruthy();
+      expect(core().dataset.homeCoreLead).toBe('tasks');
+      expect(h2s()).toEqual(['Tasks', 'Updates', 'Bookmarks']);
+    } finally { rect.mockRestore(); }
+  });
+
+  it('a focus tile moves the keyboard to the Tasks card, one column over', async () => {
+    activity = () => Promise.resolve([update()]);
+    store.tasks = [task({ title: 'Late one', dueOn: addDays(TODAY, -2) })];
+    const rect = wide();
+    try {
+      render(<HomeView onNavigate={() => {}} />);
+      await flush();
+      expect(h2s()[0]).toBe('Updates');
+      fireEvent.click(screen.getByTitle('Show overdue tasks'));
+      const tab = screen.getByRole('tab', { name: 'Overdue (1)' });
+      expect(tab.getAttribute('aria-selected')).toBe('true');
+      expect(document.activeElement).toBe(tab);
+      expect(tasksCard().contains(tab)).toBe(true);
     } finally { rect.mockRestore(); }
   });
 
