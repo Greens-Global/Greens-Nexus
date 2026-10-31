@@ -11,17 +11,11 @@
 import { useMemo } from 'react';
 import { JOIN_R, layout } from './layout';
 import { definitionFromShape } from './shape';
+import { KIND_COLOR } from './palette';
 
-export const COLOR = {
-  trigger: 'var(--ink)',
-  gate: '#475569',
-  action: 'var(--wk-brand)',
-  if: 'hsl(271,60%,48%)',
-  approval: 'hsl(236,60%,52%)',
-  wait: 'hsl(30,80%,48%)',
-  for_each: 'hsl(174,60%,36%)',
-  stop: '#64748b',
-};
+// The canvas's own kind colors; a shape carries no module, so an action is
+// the brand color and the trigger the ink.
+const COLOR = { ...KIND_COLOR, trigger: 'var(--ink)', action: 'var(--wk-brand)' };
 const KIND_WORD = { trigger: 'Trigger', action: 'Action', if: 'If / Else', approval: 'Ask For Approval', wait: 'Wait', for_each: 'For Each', stop: 'Stop' };
 
 function picture(shape) {
@@ -71,7 +65,7 @@ export default function Thumbnail({ shape, width = 56, height = 36, title = 'Wor
 
 // The steps as tiles, reading order, depth first: a step inside a branch or
 // a loop is a smaller tile. At most `max` tiles, then "+N".
-export function flattenShape(shape, depth = 0, out = []) {
+function flattenShape(shape, depth = 0, out = []) {
   (Array.isArray(shape) ? shape : []).forEach((s) => {
     if (!Array.isArray(s) || !s.length) return;
     out.push({ kind: String(s[0]), depth });

@@ -2,13 +2,20 @@
 // gate, a step, the fault-lane header, a join dot or a ghost drop slot.
 // Every block still speaks its sentence (lib/text.js) - the canvas is the
 // recipe laid out, not a different workflow.
+//
+// Memoized: a pan or zoom re-renders the Canvas on every pointer frame, and
+// a block whose props did not change (its node object, its classes, the
+// stable handlers) is not drawn again.
+import { memo } from 'react';
 import { moduleLabel } from '../lib/modules';
 import { CANVAS_ICONS, KIND_LABEL, nodeColor, nodeModule } from './palette';
 import { nodeWords } from './words';
 
 const at = (n) => ({ transform: `translate(${n.x}px, ${n.y}px)` });
 
-export default function CanvasNode({ node, catalog, entityDef, selected, blank, listening, replayClass, armed = false, onPointerDown, onSelect, nodeRef }) {
+function CanvasNode({ node, catalog, entityDef, selected, blank, listening, replayClass, armed = false, onPointerDown, onSelect, onMount }) {
+  // the Canvas keeps every block's element by id for the drag and the FLIP
+  const nodeRef = (el) => { if (onMount) onMount(node.id, el); };
   if (node.kind === 'join') {
     return <div ref={nodeRef} className={`wfc-join${replayClass ? ` ${replayClass}` : ''}`} data-id={node.id} style={{ ...at(node), width: node.w, height: node.h }} aria-hidden="true" />;
   }
@@ -41,3 +48,5 @@ export default function CanvasNode({ node, catalog, entityDef, selected, blank, 
     </div>
   );
 }
+
+export default memo(CanvasNode);
