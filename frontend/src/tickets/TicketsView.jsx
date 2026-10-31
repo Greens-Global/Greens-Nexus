@@ -14,14 +14,15 @@ import { useRole } from '../contexts/RoleContext';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { peekDraft } from './recordingDraft';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META } from '../tasks/theme';
-import { EmptyState, usePeople, useIsMobile } from '../tasks/components';
+import { EmptyState, usePeople, useIsMobile, useEscapeLayer } from '../tasks/components';
 import { dialog as appDialog } from '../ui/dialog';
 import MobileTaskBar from '../tasks/MobileTaskBar';
-import { useTableColumns } from '../tasks/tableCols';
+import { useTableColumns, useTableValue } from '../tasks/tableCols';
+import { useListKeys } from './useListKeys';
 import {
   TICKET_TYPE_META,
   TICKET_STATUS_META, CLOSED_STATES,
-  slaState, slaSortKey,
+  slaState,
   ticketNoShort, normalizeCode,
   serviceAreaLabel,
 } from './ticketMeta';
@@ -70,13 +71,13 @@ const TICKET_VIEW_TABS = [
   { key: 'reports', label: 'Reports', icon: BarChart3 },
 ];
 
-// The sorts a queue opens with, until the list's columns carry these keys
-// themselves (the Updated and Next Clock columns): a column of the same key
-// in TICKET_COLUMNS always wins.
-const SORT_FALLBACK = {
-  updated: { key: 'updated', sort: (t) => t.modifiedAt || t.createdAt || '' },
-  clock: { key: 'clock', sort: slaSortKey },
-};
+// The desk's two layouts (Neil, 10/31/2026), kept per person in the profile
+// with the list's column arrangement: 'modal' opens a row as the popup;
+// 'pane' opens it beside the list, which drops to the columns that still
+// matter at half width. Desktop and the List view only - phones, the Board
+// and Reports never see the pane.
+const LAYOUTS = ['modal', 'pane'];
+const PANE_COLS = ['checkbox', 'type', 'title', 'state', 'clock'];
 
 // What an empty queue says - not "no tickets match your filters", which is
 // for a filter someone set. Title Case titles, sentence-case hints.
@@ -189,12 +190,25 @@ export default function TicketsView() {
   // Which drawer tab to land on - the Latest Comment cell opens straight onto
   // the Conversation (Neil, Oct 1).
   const [openTab, setOpenTab] = useState(null);
-  const openTicket = useCallback((id, tab = null) => { setOpenTab(tab); setOpenId(id); }, []);
   // What the open drawer holds unsaved (TicketDrawer keeps it current), and
   // which ticket that is - read by the bell's open-ticket handler below.
   const drawerDirtyRef = useRef(false);
   const openIdRef = useRef(openId);
   useEffect(() => { openIdRef.current = openId; }, [openId]);
+  // Every way of opening a ticket over one already open - a row click in the
+  // pane, ↑ ↓, Previous / Next, the bell - asks first when the open one holds
+  // unsaved edits (the drawer remounts and would throw them away).
+  const switchTo = useCallback(async (id, tab = null) => {
+    if (!id) return false;
+    if (id === openIdRef.current) { if (tab) setOpenTab(tab); return true; }
+    if (openIdRef.current && drawerDirtyRef.current && !(await confirmSwitchTicket())) return false;
+    setOpenTab(tab); setOpenId(id);
+    return true;
+  }, []);
+  const openTicket = useCallback((id, tab = null) => { switchTo(id, tab); }, [switchTo]);
+  const closeTicket = useCallback(() => { setOpenId(null); setOpenTab(null); }, []);
+  const [layoutPref, setLayoutPref] = useTableValue('tickets-v3', 'layout', 'modal');
+  const layout = LAYOUTS.includes(layoutPref) ? layoutPref : 'modal';
   const [selected, setSelected] = useState(() => new Set());
   // Phones have no row checkboxes, so a selection made on desktop must not
   // survive a rotate into the phone layout - the bulk pill would float over a
@@ -241,20 +255,14 @@ export default function TicketsView() {
   // A ticket opened over one with held edits asks first - switching used to
   // throw the unsaved edits away without a word (the drawer remounts).
   useEffect(() => {
-    const openTicket = async (e) => {
-      const id = e.detail?.ticketId;
-      if (!id || id === openIdRef.current) return;
-      if (drawerDirtyRef.current && !(await confirmSwitchTicket())) return;
-      setOpenTab(null);
-      setOpenId(id);
-    };
+    const openTicket = (e) => { switchTo(e.detail?.ticketId); };
     window.addEventListener('nexus:open-ticket', openTicket);
     // This module is lazy(), so on a first visit the event above has already
     // fired by the time we get here - the bell leaves the id behind for us.
     const pending = takePendingOpen('ticket');
     if (pending) setOpenId(pending);
     return () => window.removeEventListener('nexus:open-ticket', openTicket);
-  }, []);
+  }, [switchTo]);
 
   // A list to land on (Oct 26 2026): the Tickets to Assign notice and the
   // dashboard's My Open Tickets tile open the desk on the Unassigned or the
@@ -317,9 +325,14 @@ export default function TicketsView() {
   // 'tickets-v3' (10/31/2026): the title went elastic and Status / Priority
   // narrowed; saved widths win over defaults, so the key bumps once to
   // retire everyone's old arrangement ('tickets' was the first key).
-  const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps, hidden, toggleHidden } = useTableColumns({
-    table: 'tickets-v3', cols: columnDefs,
-  });
+  const fullTable = useTableColumns({ table: 'tickets-v3', cols: columnDefs });
+  const { hidden, toggleHidden } = fullTable;
+  // The pane's own arrangement: the columns that still read at half width,
+  // kept apart from the full list's so widening one never squeezes the other.
+  const pane = !isMobile && view === 'list' && layout === 'pane';
+  const paneDefs = useMemo(() => columnDefs.filter((c) => PANE_COLS.includes(c.key)), [columnDefs]);
+  const paneTable = useTableColumns({ table: 'tickets-v3-pane', cols: paneDefs });
+  const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps } = pane ? paneTable : fullTable;
   // Finished tickets (resolved / closed) used to collapse into a Completed
   // section under the list (Pranshu, Sept 8 2026; collapsed on every visit,
   // Neil, Oct 13 2026). The Done queue is that section now (10/31/2026): the
@@ -430,7 +443,7 @@ export default function TicketsView() {
 
   // List-view sort - applied before grouping so it holds within each bucket too.
   const sortTickets = useCallback((list) => {
-    const col = TICKET_COLUMNS.find((c) => c.key === sort.key) || SORT_FALLBACK[sort.key];
+    const col = TICKET_COLUMNS.find((c) => c.key === sort.key);
     if (!col?.sort) return list;
     const ctx = { nameOf, companyName };
     const dir = sort.dir === 'asc' ? 1 : -1;
@@ -482,6 +495,26 @@ export default function TicketsView() {
   // to take every filtered ticket, so a bulk Delete also hit rows nobody
   // could see (Oct 2026 review).
   const allVisibleIds = useMemo(() => groups.flatMap((g) => g.rows.slice(0, 200)).map((t) => t.id), [groups]);
+  // Keyboard flow (Neil, 10/31/2026): ↑ ↓ move a highlight through the rows
+  // on screen, Enter opens. In the pane the arrows open as they move (the
+  // conversation stays in view); as a popup the list goes quiet while a
+  // ticket is open, so the keys never reach a list hidden behind it.
+  const keysOn = !isMobile && view === 'list' && (pane || !openId);
+  const onMove = useCallback((id) => { switchTo(id); }, [switchTo]);
+  const { focusId } = useListKeys({ ids: allVisibleIds, enabled: keysOn, onOpen: openTicket, openId, onMove: pane ? onMove : null });
+  // Previous / Next in the open ticket's header, in the list's order.
+  const openIdx = openId ? allVisibleIds.indexOf(openId) : -1;
+  const prevId = openIdx > 0 ? allVisibleIds[openIdx - 1] : null;
+  const nextId = openIdx >= 0 && openIdx < allVisibleIds.length - 1 ? allVisibleIds[openIdx + 1] : null;
+  const onPrev = useMemo(() => (prevId ? () => switchTo(prevId) : null), [prevId, switchTo]);
+  const onNext = useMemo(() => (nextId ? () => switchTo(nextId) : null), [nextId, switchTo]);
+  // The pane has no overlay of its own, so Escape is the desk's: it clears
+  // the pane (asking first when the ticket holds edits). A dialog open on
+  // top (Resolve, a linked task) is a layer above this one and wins.
+  useEscapeLayer(() => {
+    if (drawerDirtyRef.current) { confirmSwitchTicket().then((ok) => { if (ok) closeTicket(); }); return; }
+    closeTicket();
+  }, pane && !!openId);
   const allSelected = allVisibleIds.length > 0 && allVisibleIds.every((id) => selected.has(id));
   const someSelected = !allSelected && allVisibleIds.some((id) => selected.has(id));
   const toggleSelectAll = () => setSelected(allSelected ? new Set() : new Set(allVisibleIds));
@@ -630,7 +663,8 @@ export default function TicketsView() {
             <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={() => setNamingView(true)} onDelete={removeTicketView}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'}
               onExport={() => downloadTicketsCsv(sortedVisible, nameOf, companyName, hrDeptName)}
-              columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={cols} showColumns={view === 'list'}
+              columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={fullTable.cols} showColumns={view === 'list' && !pane}
+              layout={view === 'list' ? layout : undefined} setLayout={setLayoutPref}
               suggestLinks={privileged ? (style) => <SuggestPropertyLinksButton style={style} /> : null} />
           </div>
         </div>
@@ -652,6 +686,9 @@ export default function TicketsView() {
           a small paddingBottom only - the ticket-bar-spacer at the end of the
           body clears the floating MobileTaskBar, so a larger value here would
           stack on top of it. */}
+      {/* With the pane on, the body is two columns: the list's scroller and
+          the open ticket beside it (never under it). Each scrolls on its own. */}
+      <div style={{ flex: 1, minHeight: 0, display: pane ? 'grid' : 'flex', flexDirection: 'column', gridTemplateColumns: pane ? 'minmax(0, 1fr) minmax(420px, 45%)' : undefined, background: NX.canvas }}>
       <div data-tour="ticket-body" className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas,
         // Longhands only: React warns when a shorthand and its longhand
         // both change on one re-render (rotating the phone, List <-> Board).
@@ -724,7 +761,7 @@ export default function TicketsView() {
                   {g.rows.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
                     myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={openTicket}
-                    people={people}
+                    people={people} focused={focusId === t.id}
                       checked={selected.has(t.id)} onToggle={toggleSel} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
@@ -742,6 +779,19 @@ export default function TicketsView() {
             bar sits 16px + the inset above the screen edge, 68px + the inset
             of overlap. 96px + the inset clears both with 26-28px to spare. */}
         {isMobile && <div aria-hidden="true" data-testid="ticket-bar-spacer" style={{ height: 'calc(96px + env(safe-area-inset-bottom))', flexShrink: 0 }} />}
+      </div>
+      {pane && (
+        <div data-testid="ticket-pane" style={{ minHeight: 0, display: 'flex', flexDirection: 'column', borderLeft: `1px solid ${NX.border}`, background: NX.surface }}>
+          {openId ? (
+            <TicketDrawer key={openId} inline ticketId={openId} initialTab={openTab} dirtyRef={drawerDirtyRef}
+              onPrev={onPrev} onNext={onNext} onClose={closeTicket} />
+          ) : (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+              <EmptyState icon={TicketToken} title="Pick a ticket" hint="Click a row, or press ↓ to start at the top of the list. ↑ ↓ step through it, Escape clears the pane." />
+            </div>
+          )}
+        </div>
+      )}
       </div>
 
       {!isMobile && view === 'list' && selIds.length > 0 && (
@@ -792,7 +842,10 @@ export default function TicketsView() {
 
       {creating && <CreateTicketModal onClose={() => setCreating(false)} />}
       {namingView && <SaveViewDialog onSave={saveTicketView} onClose={() => setNamingView(false)} />}
-      {openId && <TicketDrawer key={openId} ticketId={openId} initialTab={openTab} dirtyRef={drawerDirtyRef} onClose={() => { setOpenId(null); setOpenTab(null); }} />}
+      {openId && !pane && (
+        <TicketDrawer key={openId} ticketId={openId} initialTab={openTab} dirtyRef={drawerDirtyRef}
+          onPrev={onPrev} onNext={onNext} onClose={closeTicket} />
+      )}
       {resolveReq && (
         <TicketActionDialog mode={resolveReq.mode || 'resolve'} targetStatus={resolveReq.status}
           ticket={resolveReq.ids.length === 1 ? tickets.find((x) => x.id === resolveReq.ids[0]) : null}

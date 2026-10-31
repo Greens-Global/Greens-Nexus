@@ -6322,6 +6322,8 @@ body:has(.docs-root) { overflow-x: clip; }
   [data-theme="dark"] .nx-row-hover[data-selected="true"]:hover { background: rgba(96, 140, 255, 0.26) !important; }
 }
 .nx-row-hover:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
+/* The desk's keyboard highlight (↑ ↓, Oct 31 2026): a brand ring inside the row, over the zebra and the selection tint. */
+.nx-row-hover[data-focused="true"] { box-shadow: inset 0 0 0 2px var(--wk-brand, #15803d); }
 
 /* Latest Comment cell - a button inside a clickable row: its own hover so it
    reads as "opens the conversation", not just "opens the ticket". */

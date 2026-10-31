@@ -221,8 +221,12 @@ function TicketFilterMenu({
 // link clean-up - so the toolbar stays List / Board / Reports, search, Filters
 // and this. It renders the same on every view; what does not apply (grouping
 // and columns outside the list) is simply absent.
+// `layout` / `setLayout` (10/31/2026): the desk's per-person layout - 'modal'
+// (a row opens the ticket as a popup) or 'pane' (beside the list). Shown only
+// when the caller passes them (the desktop list).
 function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showGroup,
-  onExport, columns, hidden, toggleHidden, cols, showColumns = false, suggestLinks = null }) {
+  onExport, columns, hidden, toggleHidden, cols, showColumns = false, suggestLinks = null,
+  layout = undefined, setLayout = undefined }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef(null);
   const item = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, color: NX.ink, textAlign: 'left' };
@@ -241,6 +245,20 @@ function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showG
       {/* The "Group by" TicketSelect's portaled list counts as inside. */}
       <AnchoredMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)} align="end" minWidth={250}
         style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', fontFamily: FONT, maxHeight: '70vh', overflowY: 'auto' }}>
+        {layout !== undefined && setLayout && (
+          <>
+            <div style={sectionLabel}>Layout</div>
+            <div style={{ padding: '0 6px 6px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '5px 6px', boxSizing: 'border-box', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink }}>
+                <input type="checkbox" role="switch" checked={layout === 'pane'} aria-checked={layout === 'pane'}
+                  onChange={(e) => setLayout(e.target.checked ? 'pane' : 'modal')} />
+                Open Tickets in a Side Pane
+              </label>
+              <div style={{ padding: '0 6px', fontSize: 12, color: NX.faint }}>A row opens beside the list; ↑ ↓ step through the queue.</div>
+            </div>
+            {rule}
+          </>
+        )}
         {showGroup && (
           <>
             <div style={sectionLabel}>Group By</div>
