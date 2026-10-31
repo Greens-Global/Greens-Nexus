@@ -53,6 +53,23 @@ describe('useReplay', () => {
     expect(onDone).toHaveBeenCalledWith({ stoppedAt: 'a3', failed: true });
   });
 
+  it('passes over a node the run has no row for without lighting it, like the reduced-motion picture', () => {
+    vi.useFakeTimers();
+    const replay = { order: ['trigger', 'a1', 'p1', 'a2'], statusById: { trigger: 'done', a1: 'done', a2: 'done' }, note: '' };
+    const { result } = renderHook(() => useReplay(replay));
+    tick(0);
+    tick(NODE_MS + EDGE_MS);          // a1 lit
+    expect(result.current.nodeClass('a1')).toBe('wfc-lit');
+    tick(NODE_MS + EDGE_MS);          // p1 reached: passed over, its connector still turns hot
+    expect(result.current.nodeClass('p1')).toBe('');
+    expect(result.current.edgeClass('e', 'a1', 'p1')).toBe('wfc-hot');
+    tick(EDGE_MS);
+    expect(result.current.nodeClass('a2')).toBe('wfc-lit');
+    const still = renderHook(() => useReplay(replay, { reduced: true }));
+    expect(still.result.current.nodeClass('p1')).toBe('');
+    expect(still.result.current.nodeClass('a2')).toBe('wfc-lit');
+  });
+
   it('keeps a last waiting node amber until the hold ends', () => {
     vi.useFakeTimers();
     const replay = plan({ trigger: 'done', ap: 'waiting' });

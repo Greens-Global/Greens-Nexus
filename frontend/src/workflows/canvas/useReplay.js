@@ -75,6 +75,10 @@ export function useReplay(replay, { onDone, reduced = false } = {}) {
       const id = order[k]; const st = statusOf(id); const lastOne = k === order.length - 1;
       if (st === 'failed') { nodes[id] = 'failed'; show(''); finish(id, true); return; }
       if (st === 'skipped') { nodes[id] = 'skipped'; show(''); next(k); return; }
+      // a node on the path the run has no row for (a lane passed through
+      // in a plan-only test) is passed over, never lit - the same as the
+      // reduced-motion picture
+      if (!st) { if (lastOne) { finish(id, false); return; } next(k); return; }
       if (st === 'waiting') {
         nodes[id] = 'waitlit'; show('');
         if (lastOne) { finish(id, false); return; }

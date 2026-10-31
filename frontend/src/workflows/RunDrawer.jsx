@@ -13,6 +13,7 @@ import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import { formatDateTime } from '../lib/datetime';
+import { useIsMobile } from '../lib/useIsMobile';
 import { dialog } from '../ui/dialog';
 import { Modal } from '../tasks/components';
 import { runStatusMeta } from './lib/status';
@@ -25,6 +26,7 @@ import { goTo } from './lib/navigate';
 
 export default function RunDrawer({ id, onClose, onChanged, go }) {
   const { catalog } = useCatalog();
+  const isMobile = useIsMobile();   // phones keep the recipe builder: no canvas to replay on
   const [run, setRun] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -67,7 +69,7 @@ export default function RunDrawer({ id, onClose, onChanged, go }) {
           <ExternalLink size={13} /> Open {run.subjectLabel || 'Subject'}
         </button>
       )}
-      {typeof go === 'function' && run?.workflowId && steps.length > 0 && (
+      {typeof go === 'function' && run?.workflowId && steps.length > 0 && !isMobile && (
         <button type="button" className="secondary-btn" onClick={() => go(buildSub('builder', run.workflowId, run.id))}
           title="Open the workflow and watch this run walk through it" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <WorkflowIcon size={13} /> Replay On Canvas

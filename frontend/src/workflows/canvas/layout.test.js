@@ -51,7 +51,7 @@ describe('layout', () => {
     // the step after the approval hangs off the join
     expect(L.edges.some((e) => e.from === 'join-ap' && e.to === 'fe')).toBe(true);
     // the loop: node -> inner lane -> frame bottom -> next step
-    expect(L.edges.some((e) => e.from === 'fe' && e.to === 'a5' && e.label === 'each')).toBe(true);
+    expect(L.edges.some((e) => e.from === 'fe' && e.to === 'a5' && e.label === 'Each')).toBe(true);
     expect(L.edges.some((e) => e.from === 'a5' && e.to === 'frame-fe')).toBe(true);
     expect(L.edges.some((e) => e.from === 'frame-fe' && e.to === 'a6')).toBe(true);
     // every step node knows its lane and index
@@ -75,6 +75,46 @@ describe('layout', () => {
     expect(L.edges.filter((e) => e.from === 'if1').map((e) => e.label)).toEqual(['Yes', 'No']);
     expect(laneOpen(def, def.steps, ['steps'])).toBe(true); // the unreachable action keeps the lane open
     expect(laneOpen(def, [iff], ['steps'])).toBe(false);
+  });
+
+  it('closes a For Each whose lane ends in Stop: no way out of the loop, what follows hangs with no connector in', () => {
+    const def = emptyDefinition();
+    def.steps = [{ ...newStep('for_each'), id: 'fe', steps: [action('l1'), stop('s1')] }, action('after')];
+    const L = layout(def);
+    expect(L.edges.some((e) => e.to === 'frame-fe')).toBe(false);
+    expect(L.edges.some((e) => e.to === 'after')).toBe(false);
+    expect(byId(L, 'after')).toBeTruthy();
+    expect(L.edges.some((e) => e.to === 'tail')).toBe(false);
+    expect(laneOpen(def, [def.steps[0]], ['steps'])).toBe(false);
+    expect(walkOrder(def)).toEqual(['trigger', 'fe', 'l1', 's1']);
+  });
+
+  it('puts a wide fault lane clear of the main tree: no two step blocks overlap', () => {
+    const def = emptyDefinition();
+    def.steps = [action('a1'), action('a2'), action('a3'), action('a4'), action('a5')];
+    const fap = { ...newStep('approval'), id: 'fap' };
+    fap.params.options = ['P', 'Q', 'R'];
+    fap.branches = { P: [action('p')], Q: [action('q')], R: [action('r')], expired: [] };
+    def.settings.faultSteps = [{ ...newStep('if'), id: 'fif', then: [fap], else: [action('fe1')] }];
+    const L = layout(def);
+    const blocks = L.nodes.filter((n) => n.step);
+    const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    const overlaps = [];
+    blocks.forEach((a, i) => blocks.slice(i + 1).forEach((b) => { if (hit(a, b)) overlaps.push([a.id, b.id]); }));
+    expect(overlaps).toEqual([]);
+    const mainRight = Math.max(...blocks.filter((n) => n.path[0] === 'steps').map((n) => n.x + n.w));
+    blocks.filter((n) => n.path[0] === 'settings').forEach((n) => expect(n.x).toBeGreaterThan(mainRight));
+  });
+
+  it('puts the insert point at a connector\'s midpoint, lower on a labeled one so it clears the label', () => {
+    const L = layout(hrExample());
+    const hotOf = (edge) => L.hots.find((h) => h.edge === edge.id);
+    const plain = L.edges.find((e) => e.from === 'a1' && e.to === 'ap');
+    expect(hotOf(plain)).toMatchObject({ x: (plain.a.x + plain.b.x) / 2, y: (plain.a.y + plain.b.y) / 2 });
+    const labeled = L.edges.find((e) => e.from === 'ap' && e.label === 'Confirm');
+    const p = bezierPoint(labeled.a, labeled.b, 0.66);
+    expect(hotOf(labeled).x).toBeCloseTo(p.x); expect(hotOf(labeled).y).toBeCloseTo(p.y);
+    expect(hotOf(labeled).y).toBeGreaterThan((labeled.a.y + labeled.b.y) / 2);
   });
 
   it('knows which lanes sit inside a step', () => {

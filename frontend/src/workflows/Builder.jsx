@@ -88,9 +88,9 @@ export default function Builder({ id, go, runId = '' }) {
   const [view, setViewState] = useState(() => builderView());   // 'canvas' | 'recipe' (phones: always the recipe)
   const [skin, setSkinState] = useState(() => canvasSkin());    // 'paper' | 'night'
   const [selectedId, setSelectedId] = useState(null);           // the canvas block open in the side panel
-  const [replay, setReplay] = useState(null);                   // a run's story playing on the canvas (canvas/replay.js)
-  const replayedRun = useRef('');
-  const setView = (v) => { setViewState(v); setBuilderView(v); setSelectedId(null); setReplay(null); };
+  const [replayRun, setReplayRun] = useState(null);             // the run fetched for wf:<id>:run:<runId>, told on the canvas
+  const [testReplay, setTestReplay] = useState(null);           // a Test's planned steps, told from the rail
+  const setView = (v) => { setViewState(v); setBuilderView(v); setSelectedId(null); setReplayRun(null); setTestReplay(null); };
   const setSkin = (sk) => { setSkinState(sk); setCanvasSkin(sk); };
   const [runOpen, setRunOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
@@ -135,21 +135,31 @@ export default function Builder({ id, go, runId = '' }) {
   }, [id, reload]);
 
   // Replay On Canvas (10/30/2026): a run id in the address (wf:<id>:run:<runId>,
-  // from a run's drawer) plays that run's story on the sheet once the draft
-  // is here - once per run id, whatever the draft does afterwards.
+  // from a run's drawer) fetches that run once - keyed on the id alone, so a
+  // draft or workflow refresh while it loads cannot lose it - and the story
+  // is derived below from whatever the sheet shows. Phones keep the recipe,
+  // so there is nothing to play on.
   useEffect(() => {
-    if (!runId || !definition || !workflow || replayedRun.current === runId) return undefined;
-    replayedRun.current = runId;
+    if (!runId || isMobile) return undefined;
     let alive = true;
     api.wfRunGet(runId).then((run) => {
       if (!alive || !run) return;
       setViewState('canvas');
       setSelectedId(null);
-      const when = run.startedAt || run.createdAt || run.at || '';
-      setReplay({ ...replayPlan(definition, run, workflow.version), label: `Replaying the run${when ? ` from ${formatDateTime(when)}` : ''} · ${runStatusMeta(run.status).label}` });
+      setReplayRun(run);
     }).catch(() => {});
     return () => { alive = false; };
-  }, [runId, definition, workflow]);
+  }, [runId, isMobile]);
+  const workflowVersion = workflow?.version;
+  const replay = useMemo(() => {
+    if (replayRun && definition) {
+      const when = replayRun.startedAt || replayRun.createdAt || replayRun.at || '';
+      return { ...replayPlan(definition, replayRun, workflowVersion), label: `Replaying the run${when ? ` from ${formatDateTime(when)}` : ''} · ${runStatusMeta(replayRun.status).label}` };
+    }
+    return testReplay;
+  }, [replayRun, testReplay, definition, workflowVersion]);
+  // The story is over (or stopped): clear it; a failure opens the block it stopped on.
+  const onReplayDone = (r) => { setReplayRun(null); setTestReplay(null); if (r?.failed && r.stoppedAt) setSelectedId(r.stoppedAt); };
 
   const setDefinition = (next) => { setDefinitionState(next); setTested(false); setServerProblems([]); };
   const setMeta = (patch) => setMetaState((m) => ({ ...m, ...patch }));
@@ -320,7 +330,7 @@ export default function Builder({ id, go, runId = '' }) {
       )}
       {rail === 'test' && (
         <RailTest workflow={workflow} definition={definition} dirty={dirty} onBeforeTest={saveDraft} onTested={onTested}
-          onReplay={canvasOn ? (result) => { setSelectedId(null); setReplay({ ...replayPlan(definition, result, workflow?.version), label: 'Replaying the test run' }); } : undefined} />
+          onReplay={canvasOn ? (result) => { setSelectedId(null); setReplayRun(null); setTestReplay({ ...replayPlan(definition, result, workflow?.version), label: 'Replaying the test run' }); } : undefined} />
       )}
       {rail === 'versions' && <RailVersions workflow={workflow} onRestored={() => setReload((n) => n + 1)} />}
     </>
@@ -396,7 +406,7 @@ export default function Builder({ id, go, runId = '' }) {
             )}
             <Canvas definition={definition} catalog={catalog} ctx={ctx} skin={skin} onSkin={setSkin} selectedId={selectedId} onSelect={setSelectedId}
               onChange={setDefinition} canEdit={canEdit} workflowStatus={status} blanks={blanks} people={people} isNew={isNew} entityDef={entityDef} eventDef={eventDef}
-              replay={replay} onReplayDone={() => setReplay(null)}
+              replay={replay} onReplayDone={onReplayDone}
               overlay={stepCount === 0 && canEdit ? <DescribeIt onDraft={onDraft} companyId={meta.companyId || ''} /> : null}
               panel={(
                 <>

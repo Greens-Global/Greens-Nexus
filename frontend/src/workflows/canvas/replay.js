@@ -3,11 +3,17 @@
 // the node ids the run visited in order and each one's state out. The
 // canvas lights them one after another (useReplay).
 //
-// The lane an approval took is the step's `output.outcome` (the option the
-// engine recorded when it resumed; "expired" is the If Nobody Answers
-// lane). A step the run never reached is left out of `statusById`, so the
-// canvas draws it plain. Steps the run knows that the draft no longer has
-// (edited since) are dropped, and `note` says which version actually ran.
+// The engine names a nested step's row by its path - "ap/Approve/a2" for a
+// step in an approval lane, "if1/a2" in an If lane, "fe#0/a2" for the first
+// item of a For Each, "fault/fx" in the fault lane - so a row is matched to
+// the definition's step by the last segment, the item number stripped; a
+// step the loop ran several times keeps its worst status. The lane an If
+// took is the step's `output.branch` ("then" / "else"); an approval's is
+// `output.outcome` (the option the engine recorded when it resumed,
+// "expired" being the If Nobody Answers lane). A step the run never
+// reached is left out of `statusById`, so the canvas draws it plain. Steps
+// the run knows that the draft no longer has (edited since) are dropped,
+// and `note` says which version actually ran.
 import { walkOrder } from './layout';
 
 const STATUS = {
@@ -16,6 +22,16 @@ const STATUS = {
   failed: 'failed',
   skipped: 'skipped', cancelled: 'skipped',
 };
+// Several rows for one step (a For Each's items): the one that needs a look wins.
+const SEVERITY = { failed: 3, waiting: 2, done: 1, skipped: 0 };
+
+/** "ap/Approve/a2" -> "a2", "fe#0/a2" -> "a2", "fe#1" -> "fe", "a1" -> "a1". */
+export function stepIdOf(rowId) {
+  const last = String(rowId || '').split('/').pop() || '';
+  return last.replace(/#\d+$/, '');
+}
+
+const statusOf = (row) => STATUS[String(row?.status || '').toLowerCase()] || 'done';
 
 /**
  * @param {object} definition  the draft the canvas shows
@@ -25,12 +41,25 @@ const STATUS = {
  */
 export function replayPlan(definition, run, workflowVersion) {
   const steps = Array.isArray(run?.steps) ? run.steps : [];
+  // id -> { status, output }: the worst status over the rows, the first
+  // output that names a lane
   const byId = new Map();
-  steps.forEach((s) => { if (s && s.stepId) byId.set(String(s.stepId), s); });
+  steps.forEach((row) => {
+    if (!row || !row.stepId) return;
+    const id = stepIdOf(row.stepId);
+    if (!id) return;
+    const status = statusOf(row);
+    const out = row.output && typeof row.output === 'object' ? row.output : {};
+    const have = byId.get(id);
+    if (!have) { byId.set(id, { status, output: out }); return; }
+    if (SEVERITY[status] > SEVERITY[have.status]) have.status = status;
+    if (!have.output.branch && !have.output.outcome && (out.branch || out.outcome)) have.output = out;
+  });
 
   const pick = (step, lanes) => {
-    const outcome = byId.get(step.id)?.output?.outcome;
-    const i = outcome ? lanes.findIndex((l) => l.key === outcome) : -1;
+    const out = byId.get(step.id)?.output;
+    const key = step.kind === 'if' ? out?.branch : out?.outcome;
+    const i = key ? lanes.findIndex((l) => l.key === key) : -1;
     return i >= 0 ? i : 0;
   };
   const full = walkOrder(definition, pick);
@@ -54,7 +83,7 @@ export function replayPlan(definition, run, workflowVersion) {
   order.forEach((id) => {
     if (id in statusById) return;
     const s = byId.get(id);
-    if (s) statusById[id] = STATUS[String(s.status || '').toLowerCase()] || 'done';
+    if (s) statusById[id] = s.status;
     else if (id.startsWith('join-') || id.startsWith('frame-')) statusById[id] = 'done';
   });
 

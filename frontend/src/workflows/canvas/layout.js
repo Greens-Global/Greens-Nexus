@@ -46,7 +46,9 @@ export function laneOpen(definition, steps, lanePath) {
   if (!steps.length) return true;
   const last = steps[steps.length - 1];
   if (last.kind === 'stop') return false;
-  if (last.kind === 'if' || last.kind === 'approval') {
+  // a For Each whose lane ends in Stop stops the whole run (the engine's
+  // rule, and walkOrder's): nothing after it is reached either
+  if (last.kind === 'if' || last.kind === 'approval' || last.kind === 'for_each') {
     return childLanes(definition, last, [...lanePath, steps.length - 1]).some((l) => laneOpen(definition, l.steps, l.path));
   }
   return true;
@@ -134,8 +136,9 @@ export function layout(definition) {
       curY += r.h;
       if (!r.exit) {
         // Whatever follows a closed step is unreachable; it is still drawn
-        // (below, with no connector in) so the person can see and fix it -
-        // the Publish problems list already names it.
+        // (below, with no connector in) so the person can see and fix it.
+        // Nothing else says so today: neither lib/definition.js problems()
+        // nor the server's validate flags a step after a Stop.
         for (let j = i + 1; j < steps.length; j++) { curY += V_GAP; curY += placeStep(steps[j], lanePath, j, cx, curY).h; }
         return { exit: null, exitId: null, firstId };
       }
@@ -160,9 +163,11 @@ export function layout(definition) {
       const frame = { id: `frame-${step.id}`, x: cx - m.w / 2, y: y + NODE_H + V_GAP - FRAME_PAD, w: m.w, h: inner.h + 2 * FRAME_PAD, label: 'LOOP' };
       out.frames.push(frame);
       const r = placeLane(lane.steps, lane.path, cx, y + NODE_H + V_GAP);
-      addEdge({ x: cx, y: y + NODE_H }, { x: cx, y: y + NODE_H + V_GAP }, step.id, r.firstId, { path: lane.path, index: 0 }, 'each');
+      addEdge({ x: cx, y: y + NODE_H }, { x: cx, y: y + NODE_H + V_GAP }, step.id, r.firstId, { path: lane.path, index: 0 }, 'Each');
       const bottom = { x: cx, y: frame.y + frame.h };
-      if (r.exit) addEdge(r.exit, bottom, r.exitId, frame.id, { path: lane.path, index: lane.steps.length });
+      // a lane that ends in Stop stops the run: the loop has no way out
+      if (!r.exit) return { h: m.h, exit: null };
+      addEdge(r.exit, bottom, r.exitId, frame.id, { path: lane.path, index: lane.steps.length });
       return { h: m.h, exit: bottom, exitId: frame.id };
     }
 
@@ -210,7 +215,9 @@ export function layout(definition) {
   const faultPath = ['settings', 'faultSteps'];
   const faultSteps = getLane(def, faultPath);
   const right = Math.max(...out.nodes.map((n) => n.x + n.w), ...out.frames.map((f) => f.x + f.w));
-  const fx = right + FAULT_GAP + NODE_W / 2;
+  // the lane's own width: its branches fan out around fx, so a wide fault
+  // lane must start far enough right not to land on the main tree
+  const fx = right + FAULT_GAP + measureLane(def, faultSteps, faultPath).w / 2;
   out.nodes.push({ id: 'fault', kind: 'fault', x: fx - NODE_W / 2, y: 0, w: NODE_W, h: NODE_H, label: 'If a step fails, do this instead' });
   const fault = placeLane(faultSteps, faultPath, fx, NODE_H + V_GAP);
   addEdge({ x: fx, y: NODE_H }, { x: fx, y: NODE_H + V_GAP }, 'fault', fault.firstId, { path: faultPath, index: 0 }, '', { dashed: true });

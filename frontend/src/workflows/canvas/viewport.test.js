@@ -16,6 +16,18 @@ describe('viewport', () => {
     expect(after.x).toBeCloseTo(before.x); expect(after.y).toBeCloseTo(before.y);
   });
 
+  it('leaves the view alone on a bad factor or a broken scale', () => {
+    const v = { x: 10, y: 20, s: 1 };
+    expect(zoomAt(v, NaN, 100, 100)).toBe(v);
+    expect(zoomAt(v, Infinity, 100, 100)).toBe(v);
+    expect(zoomAt(v, 0, 100, 100)).toBe(v);
+    expect(zoomAt(v, -1, 100, 100)).toBe(v);
+    expect(zoomAt({ x: 0, y: 0, s: 0 }, 1.2, 100, 100)).toEqual({ x: 0, y: 0, s: 0 });
+    expect(zoomAt(v, 1.2, NaN, 100)).toBe(v);
+    const ok = zoomAt(v, 1.2, 100, 100);
+    expect(Number.isFinite(ok.x) && Number.isFinite(ok.y) && ok.s === 1.2).toBe(true);
+  });
+
   it('fits the whole sheet inside the box, centered, never above 100%', () => {
     const v = fitView({ w: 2000, h: 1400 }, box);
     expect(v.s).toBeCloseTo(Math.min((1000 - 40) / 2000, (700 - 40) / 1400));

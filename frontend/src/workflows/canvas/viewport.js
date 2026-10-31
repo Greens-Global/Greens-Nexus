@@ -12,6 +12,8 @@ export const clampZoom = (s) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, s));
 
 /** Zoom by `factor` keeping the sheet point under (px, py) (box-relative) still. */
 export function zoomAt(view, factor, px, py) {
+  // a bad wheel delta or a broken scale must not poison the view (NaN never clamps back)
+  if (!Number.isFinite(factor) || factor <= 0 || !(view.s > 0) || !Number.isFinite(px) || !Number.isFinite(py)) return view;
   const ns = clampZoom(view.s * factor);
   const k = ns / view.s;
   return { s: ns, x: px - (px - view.x) * k, y: py - (py - view.y) * k };
