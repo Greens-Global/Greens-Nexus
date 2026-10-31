@@ -23,6 +23,8 @@ import DictateButton from '../components/DictateButton';
 import { useTableValue, whenTablePrefsLoaded } from './tableCols';
 import { api } from '../api';
 import UpdatesCard from './HomeUpdates';
+import AddSeveralModal from './AddSeveralModal';
+import { pastedTaskList } from './batchPaste';
 import ProjectIcon from './ProjectIcon';
 import { projectLook } from './projectLook';
 import { useMyDay } from './myDay';
@@ -146,6 +148,9 @@ export default function HomeView({ onNavigate }) {
   // My Tasks opens on the tab it was last left on; My Day's Open sets it first.
   const [, setMineView] = useTableValue('mytasks', 'view', 'list');
   const [creating, setCreating] = useState(false);
+  // A list pasted into the add row (Oct 31 2026): many tasks at once, confirmed in Add Several.
+  const [several, setSeveral] = useState(null);   // { text, dueOn } while the modal is open
+  const [addedNote, setAddedNote] = useState('');
   const [newTitle, setNewTitle] = useState('');
   const [newDue, setNewDue] = useState(null);
   // The quick-add row saves when you leave it - Enter, Tab away, or a click
@@ -554,6 +559,9 @@ export default function HomeView({ onNavigate }) {
             <Circle size={16} style={{ color: NX.faint, flexShrink: 0 }} />
             <input ref={titleRef} autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} aria-label="Task Name"
               onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(false); if (e.key === 'Escape') cancelCreate(); }}
+              // Two or more lines on the clipboard are a list, not a name: Add
+              // Several takes them (one task per line) - a one-line paste is typed in as before.
+              onPaste={(e) => { const list = pastedTaskList(e); if (list) { e.preventDefault(); const due = newDue; cancelCreate(); setSeveral({ text: list, dueOn: due || '' }); } }}
               // Keyboard focus leaving the row saves; a pointer leaving it is the
               // document listener above (a click inside the calendar moves
               // focus too, and must not save).
@@ -569,6 +577,12 @@ export default function HomeView({ onNavigate }) {
           </div>
         ) : (
           <button onClick={() => setCreating(true)} style={{ ...btn('ghost'), padding: '6px 0', color: NX.dim, fontSize: 13, fontWeight: 500 }}><Plus size={15} /> Create Task</button>
+        )}
+        {addedNote && <div role="status" style={{ fontSize: 12.5, color: NX.green, fontWeight: 600, padding: '2px 0 6px' }}>{addedNote}</div>}
+        {several && (
+          <AddSeveralModal defaults={{ text: several.text, dueOn: several.dueOn, assigneeIds: myEmail ? [myEmail] : [], source: 'paste' }}
+            onClose={() => setSeveral(null)}
+            onDone={(r) => { const n = r?.created || 0; setAddedNote(`${n} task${n === 1 ? '' : 's'} added`); setTimeout(() => setAddedNote(''), 4000); }} />
         )}
         <div id="home-tasks-panel" role="tabpanel" aria-label={pick ? pickLabel : tab}>{tasksList()}</div>
       </div>

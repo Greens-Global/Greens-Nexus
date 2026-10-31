@@ -1,4 +1,9 @@
-"""Import tasks from a CSV or Excel file (Neil, Oct 22 2026).
+"""Import tasks from a CSV or Excel file (Neil, Oct 22 2026) - and, since
+Oct 31 2026, the rows a person pastes into an add row or types into Add
+Several (`source` "paste" / "typed"): one engine for every "many tasks at
+once", never a second create path. With no `project_id` the rows are
+personal tasks (no project, no sections, no required fields - what
+create_task makes with no project), and no project activity row is written.
 
 POST /tasks/import (routers/tasks.py). The browser reads the file, the person
 maps its columns to task fields, and the rows arrive here as raw cell values
@@ -282,19 +287,28 @@ class _Context:
     def __init__(self, db: Session, user: dict, body):
         self.db, self.user = db, user
         self.actor = (user.get("email") or "").lower()
+        # No project (Oct 31 2026: a list pasted into Home's add row, Add
+        # Several with no project picked) = personal tasks, exactly as
+        # create_task makes them with no project_id: the role check still
+        # runs against None (managers clear it, anyone else needs the editor
+        # rank project_role_for gives them with no project), the access
+        # level is org, there are no sections and no required fields.
         project = (db.query(models.TaskProject).filter(models.TaskProject.id == (body.project_id or "")).first()
                    if body.project_id else None)
-        if project is None:
+        if body.project_id and project is None:
             raise HTTPException(404, "Project not found")
         # The bar for creating a task in a project, company wall first.
         require_project_access(db, user, project, "editor")
-        # project_role_for hands an external editor on any org-wide project,
-        # which externals never see - they import only into one they can.
-        if user.get("external") and project.id not in visible_project_ids(db, user):
-            raise HTTPException(404, "Project not found")
-        if getattr(project, "archived", False):
-            raise HTTPException(422, "This project is archived. Unarchive it to import tasks into it.")
+        if project is not None:
+            # project_role_for hands an external editor on any org-wide project,
+            # which externals never see - they import only into one they can.
+            if user.get("external") and project.id not in visible_project_ids(db, user):
+                raise HTTPException(404, "Project not found")
+            if getattr(project, "archived", False):
+                raise HTTPException(422, "This project is archived. Unarchive it to import tasks into it.")
         self.project = project
+        self.project_id = project.id if project is not None else ""
+        self.source = (getattr(body, "source", "") or "file").strip().lower()
         rows = body.rows or []
         if not rows:
             raise HTTPException(422, "The file has no rows to import.")
@@ -307,7 +321,7 @@ class _Context:
         creator = (db.query(models.NexusEmployee.company)
                    .filter(func.lower(models.NexusEmployee.work_email) == self.actor).first())
         self.company_id = (creator.company if creator else "") or ""
-        self.access_level = project.access_level or "org"
+        self.access_level = (project.access_level if project is not None else "") or "org"
         self.people = _People(db, user, self.company_id)
         # Statuses this project shows: the built-ins plus custom ones on it.
         self.statuses: dict = {}
@@ -318,7 +332,7 @@ class _Context:
             if not config_admits(getattr(s, "company_id", "") or "", self.scope):
                 continue
             pids = [p for p in (s.project_ids or []) if p]
-            if pids and project.id not in pids:
+            if pids and self.project_id not in pids:
                 continue
             self.statuses.setdefault(_norm(s.label), s.id)
             self.statuses.setdefault(_norm(s.id), s.id)
@@ -329,23 +343,26 @@ class _Context:
         self.defs = {f.id: f for f in self.all_fields}
         self.fields = {f.id: f for f in self.all_fields
                        if config_admits(getattr(f, "company_id", "") or "", self.scope)
-                       and field_applies_to(f, project.id) and "task" in _parse_applies_to(f.applies_to)}
+                       and field_applies_to(f, self.project_id) and "task" in _parse_applies_to(f.applies_to)}
         self.add_options = bool(body.add_missing_options)
         # Sections made for the Custom grouping (customSections.js) - the
         # ones the project screen shows.
         self.sections = {}
         self.section_rows = sorted(
             (s for s in db.query(models.TaskSection).filter(models.TaskSection.project_id == project.id).all()
-             if s.custom), key=lambda s: (s.position or 0, s.created_at or ""))
+             if s.custom), key=lambda s: (s.position or 0, s.created_at or "")) if project is not None else []
         for s in self.section_rows:
             self.sections.setdefault(_norm(s.name), s)
         self.default_section = self.default_section_name = ""
         if body.section_id:
+            if project is None:
+                raise HTTPException(422, "A section needs a project. Pick a project or clear the section.")
             sec = next((s for s in self.section_rows if s.id == body.section_id), None)
             if sec is None:
                 raise HTTPException(422, "That section is not in this project.")
             self.default_section, self.default_section_name = sec.id, sec.name
-        self.create_sections = bool(body.create_sections)
+        # Personal tasks have no sections to file under or to make.
+        self.create_sections = bool(body.create_sections) and project is not None
         self.new_sections: dict = {}     # norm name -> display name, in first-seen order
         self.new_options: dict = {}      # field id -> {norm label: label}
 
@@ -463,7 +480,9 @@ def _parse_row(ctx: _Context, raw: dict, index: int) -> _Row:
     r.tags = tags
 
     sec = _cell(raw.get("section"))
-    if sec:
+    if sec and ctx.project is None:
+        r.warnings.append(f"Section \"{sec}\" was ignored - these tasks are not in a project.")
+    elif sec:
         hit = ctx.sections.get(_norm(sec))
         if hit is not None:
             r.section_id, r.section_name = hit.id, hit.name
@@ -614,6 +633,8 @@ def _skip_orphans(rows: list[_Row]) -> None:
 def _check_required(ctx: _Context, rows: list[_Row]) -> None:
     """A project's required custom fields, judged as create_task judges
     them: top-level rows only, a company's own field binds only its tasks."""
+    if ctx.project is None:
+        return   # a task with no project has no project to require anything (create_task)
     for r in rows:
         if r.parent is not None or r.errors:
             continue
@@ -680,7 +701,9 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
     }
     if body.dry_run:
         return report
-    import_key = _import_key(ctx.project.id, getattr(body, "import_id", "") or "")
+    # Personal tasks have no project activity row to key a repeat on; the
+    # browser's one-save guard covers the add rows there.
+    import_key = _import_key(ctx.project.id, getattr(body, "import_id", "") or "") if ctx.project is not None else ""
     if import_key and db.get(models.TaskActivity, import_key) is not None:
         raise HTTPException(409, "This file was already imported into this project. Check the project "
                                  "before importing it again.")
@@ -719,7 +742,7 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
             log.exception("import assignment bells failed")
         if defer is not None:
             defer(_queue_assignment_mail, ctx.actor, assigned)
-    if notify and ctx.project.follower_emails:
+    if notify and ctx.project is not None and ctx.project.follower_emails:
         # The project's followers: one grouped notice for the whole import.
         # About one imported top-level task (an open one when there is one:
         # a batched follower email about a completed task is dropped).
@@ -737,7 +760,7 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
         "dryRun": False, "created": len(good), "skipped": len(bad), "errors": report["errors"],
         "droppedPeople": report["droppedPeople"], "newSections": new_sections, "newOptions": new_options,
         "taskIds": [r.task_id for r in good], "topLevelIds": [r.task_id for r in good if r.parent is None],
-        "projectId": ctx.project.id,
+        "projectId": ctx.project_id,
     }
 
 
@@ -835,7 +858,7 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
             "status": r.status, "priority": r.priority,
             # File order is the manual order, after everything already there.
             "position": base + r.index * 0.001,
-            "project_id": project.id,
+            "project_id": ctx.project_id,
             "section_id": "" if parent is not None else (section_ids.get(r.section_new) or r.section_id or ""),
             "parent_task_id": parent.id if parent is not None else "",
             "tags": list(r.tags), "start_on": r.start, "due_on": r.due,
@@ -886,14 +909,22 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
     # once the rules' after-commit work has run, so a task a rule makes for
     # the same person joins the same notice (_ring_assignment_bells).
 
-    name = (body.file_name or "").strip()[:200] or "a file"
-    aid = import_key or gen_id()
-    db.add(models.TaskActivity(
-        id=aid, entity_kind="project", entity_id=project.id, entity_code=project.name,
-        entity_title=project.name, type="imported", actor_email=actor, at=now_iso(),
-        detail=f"imported {len(order)} task{'' if len(order) == 1 else 's'} from {name}"))
-    project.activity_ids = list(project.activity_ids or []) + [aid]
-    project.modified_at = now
+    if project is not None:
+        # The project's one row for the lot: a file import names the file; a
+        # pasted or typed list (source "paste" / "typed", Oct 31 2026) was
+        # simply added - there is no file to name.
+        count = f"{len(order)} task{'' if len(order) == 1 else 's'}"
+        if ctx.source in ("paste", "typed"):
+            detail = f"added {count}"
+        else:
+            name = (body.file_name or "").strip()[:200] or "a file"
+            detail = f"imported {count} from {name}"
+        aid = import_key or gen_id()
+        db.add(models.TaskActivity(
+            id=aid, entity_kind="project", entity_id=project.id, entity_code=project.name,
+            entity_title=project.name, type="imported", actor_email=actor, at=now_iso(), detail=detail))
+        project.activity_ids = list(project.activity_ids or []) + [aid]
+        project.modified_at = now
     # The codes, last of all: the counter's row lock is held from here to
     # the commit just below, not while the rows above were built.
     placeholders.swap(db, code_sequence.next_task_codes(db, len(order)))
@@ -921,8 +952,11 @@ def _ring_assignment_bells(db: Session, project, assigned: dict) -> None:
             continue
         # "In <Project>" only when every one of them is in it - a rule can
         # make its task in another project.
-        where = (f"In {project.name}: " if all((t.project_id or "") == project.id for t in mine)
-                 else f"From the import into {project.name}: ")
+        if project is None:
+            where = ""
+        else:
+            where = (f"In {project.name}: " if all((t.project_id or "") == project.id for t in mine)
+                     else f"From the import into {project.name}: ")
         task_notify(db, kind="task_assigned", for_email=who,
                     title=f"You Were Assigned {len(mine)} Tasks",
                     body=where + ", ".join(x.title or "Untitled task" for x in mine[:5])

@@ -23,6 +23,8 @@ import VoiceNoteButton from '../components/VoiceNoteButton';
 import { STOP_VOICE_FIRST } from '../lib/voice';
 import SayIt from './SayIt';
 import LabelsEditor from './LabelsEditor';
+import AddSeveralModal from './AddSeveralModal';
+import { pastedTaskList } from './batchPaste';
 import { labelsInUse } from './labels';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
@@ -143,6 +145,9 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const [attachments, setAttachments] = useState(() => (editing ? [] : defaults.files || []));
   const [busy, setBusy] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
+  // Add Several (Oct 31 2026): a pasted list in the Title, or the button
+  // beside it, hands the form's shared fields and the lines to AddSeveralModal.
+  const [several, setSeveral] = useState(null);   // { text, source }
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   // Frozen on first render (not re-derived from `editing`/`defaults`, which can
   // change identity across re-renders) so later edits always compare against
@@ -338,11 +343,19 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     }>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={field}>
-          <label style={label}>Title <span style={{ color: NX.red }}>*</span></label>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+            <label style={label}>Title <span style={{ color: NX.red }}>*</span></label>
+            {!isEdit && (
+              <button type="button" onClick={() => setSeveral({ text: form.title, source: 'typed' })} title="Add several tasks at once, one per line"
+                style={{ ...btn('ghost'), padding: '0 2px', fontSize: 12, fontWeight: 600, color: NX.blue, marginBottom: 5 }}><ListChecks size={13} /> Add Several</button>
+            )}
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <input ref={titleRef} autoFocus value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="What needs to be done?"
               aria-label="Title" style={{ ...input, flex: 1, minWidth: 0 }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} />
+              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
+              // A list on the clipboard (two or more lines) is many tasks: Add Several takes it.
+              onPaste={(e) => { if (isEdit) return; const list = pastedTaskList(e); if (list) { e.preventDefault(); setSeveral({ text: list, source: 'paste' }); } }} />
             <DictateButton target={titleRef} title="Dictate the Title" />
           </div>
           {/* Say It fills a NEW task from one sentence; an edit keeps its fields. */}
@@ -643,6 +656,14 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
 
       {/* Inline "create a project" - the new project is auto-selected for this task. */}
       {creatingProject && <ProjectCreateModal onClose={() => setCreatingProject(false)} onCreated={(p) => set('projectId', p.id)} />}
+      {/* Add Several: the form's shared fields travel with the lines; when the
+          list is added this form closes too - the tasks are made. */}
+      {several && (
+        <AddSeveralModal
+          defaults={{ text: several.text, source: several.source, projectId: lockedProjectId || form.projectId || '', assigneeIds: form.assigneeIds,
+            dueOn: form.dueOn || '', priority: form.priority, customFieldValues: form.customFieldValues }}
+          onClose={(added) => { setSeveral(null); if (added) onClose(true); }} />
+      )}
     </Modal>
   );
 }

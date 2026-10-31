@@ -7052,9 +7052,10 @@ def drain_task_inbox(user: dict = Depends(require_manager), db: Session = Depend
 class TaskImportBody(BaseModel):
     """The rows of one file, already mapped to fields by the import wizard -
     raw cell values, re-checked from scratch here (task_import.py)."""
-    project_id: str
+    project_id: Optional[str] = ""          # "" = personal tasks, no project (a pasted list, Oct 31 2026)
     section_id: Optional[str] = ""          # default section for rows that name none
     file_name: Optional[str] = ""           # for the project's "imported N tasks from ..." entry
+    source: Optional[str] = "file"          # "paste" / "typed" (the add rows, Add Several): "added N tasks"
     dry_run: bool = True                    # report only; nothing is written
     notify_assignees: bool = False          # one bell + one batched email per person, or nothing
     create_sections: bool = False           # make the Section values the project lacks
