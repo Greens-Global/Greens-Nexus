@@ -433,6 +433,17 @@ export default function HomeView({ onNavigate }) {
     return () => ro.disconnect();
   }, []);
   const coreWide = !isMobile && coreW >= CORE_WIDE;
+  // Updates takes the left column unless its feed has loaded with nothing in
+  // it (see the core below). A failed read still leads: the notice counts.
+  const updatesLead = coreWide && (updatesFailed || updates === null || updates.length > 0);
+  // Takes no height of its own (absolute inside), so the Updates column is
+  // exactly as tall as Tasks + Bookmarks - with a floor, for a quiet week
+  // with three tasks and no bookmarks.
+  const updatesColumn = () => (
+    <div style={{ gridArea: 'updates', position: 'relative', minWidth: 0, minHeight: 520 }}>
+      <div style={{ position: 'absolute', inset: 0 }}>{renderWidget('updates')}</div>
+    </div>
+  );
   // Today / This Week / This Month, in the Tasks card's header - the tabs it
   // scopes (Upcoming, Completed) are there, so it is too (Oct 23 2026; it sat
   // on the tiles' card at a desk before).
@@ -684,26 +695,28 @@ export default function HomeView({ onNavigate }) {
           tiles pushed the list below the fold. */}
       {!isMobile && <FocusTiles counts={tiles} focus={focus} onPick={pickTile} active={activeTile} />}
 
-      {/* The core: Tasks and Bookmarks down the left, Updates beside them for
-          the full height of both (its list scrolls inside), so the feed gets
-          real width instead of one 340px grid column. Stacked - Tasks,
-          Updates, Bookmarks - on a phone or a narrow window. */}
-      <div ref={coreRef} data-home-core={coreWide ? 'wide' : 'stacked'}
+      {/* The core. At a desk Updates LEADS (Neil, 10/31/2026): it answers
+          "what changed that affects what I do next", so it takes the LEFT
+          column for the full height of the other two (its list scrolls
+          inside), and Tasks then Bookmarks stack one column over at full
+          height. The order is swapped in the DOM too, so tab order and a
+          screen reader follow the eye. The one fallback: a feed that has
+          loaded EMPTY (a new hire, no collaborators yet) would put an empty
+          state in the primary slot, so that day Tasks keeps the left column
+          as before; while the feed is still loading, and when it failed (the
+          notice is worth seeing), Updates leads. Stacked - Tasks, Updates,
+          Bookmarks - on a phone or a narrow window: there the add row and
+          today's work stay above the fold. */}
+      <div ref={coreRef} data-home-core={coreWide ? 'wide' : 'stacked'} data-home-core-lead={updatesLead ? 'updates' : 'tasks'}
         style={coreWide ? {
           display: 'grid', gap: 16, marginBottom: 16,
           gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-          gridTemplateAreas: '"tasks updates" "bookmarks updates"',
+          gridTemplateAreas: updatesLead ? '"updates tasks" "updates bookmarks"' : '"tasks updates" "bookmarks updates"',
           gridTemplateRows: 'auto 1fr',
         } : { display: 'flex', flexDirection: 'column', gap: isMobile ? 12 : 16, marginBottom: 16 }}>
+        {coreWide && updatesLead && updatesColumn()}
         <div style={{ gridArea: 'tasks', minWidth: 0 }}>{renderWidget('my_tasks')}</div>
-        {coreWide ? (
-          // Takes no height of its own (absolute inside), so the column is
-          // exactly as tall as Tasks + Bookmarks - with a floor, for a quiet
-          // week with three tasks and no bookmarks.
-          <div style={{ gridArea: 'updates', position: 'relative', minWidth: 0, minHeight: 520 }}>
-            <div style={{ position: 'absolute', inset: 0 }}>{renderWidget('updates')}</div>
-          </div>
-        ) : <div style={{ minWidth: 0 }}>{renderWidget('updates')}</div>}
+        {coreWide ? (!updatesLead && updatesColumn()) : <div style={{ minWidth: 0 }}>{renderWidget('updates')}</div>}
         <div style={{ gridArea: 'bookmarks', minWidth: 0 }}>{renderWidget('projects')}</div>
       </div>
 
