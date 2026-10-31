@@ -11,7 +11,7 @@ import { dialog as appDialog } from '../ui/dialog';
 import {
   fmtDate, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS,
   TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
-  slaSortKey, toEmailList,
+  nextClock, toEmailList,
   SERVICE_AREAS,
   topicArea,
 } from './ticketMeta';
@@ -34,27 +34,39 @@ import { useFrequentCollaborators } from '../tasks/frequentPeople';
 // every data column is elastic - minmax(shrink, width as a share) - so the
 // table fills the screen it is on and only scrolls sideways once every column
 // is at its floor (Pranshu: "no horizontal scroll bar at the bottom").
+// Desk re-cut (Neil, 10/31/2026): the title is elastic and takes the slack
+// (`template` - never squeezed below 260px, so the words stay readable on a
+// 1,300px list); Status and Priority hold one word each; Due Date became Next
+// Clock (ticketMeta.nextClock - the reply or resolution clock in words);
+// Updated joins and Created steps back (`defaultHidden` - one click away in
+// Columns, saved per person). Company is hidden by default only while the
+// loaded tickets are one company (TicketsView sets that flag). The shrink
+// floors sum to 1,160px with every default column showing (1,240px once
+// Company joins), under a 1,300px list, so the defaults never force a
+// horizontal scroll.
 const TICKET_COLUMNS = [
   { key: 'checkbox', label: '', width: 34, fixed: true },
   { key: 'type', label: '', width: 34, fixed: true },
   // minWidth: a floor even under a width someone dragged - the title is what
   // the row IS, and it must never be squeezed to nothing to make room for
   // another column (Neil, Oct 1).
-  { key: 'title', label: 'Title', width: 260, minWidth: 200, shrink: 200, sort: (t) => (t.subject || '').toLowerCase() },
+  { key: 'title', label: 'Title', minWidth: 260, template: 'minmax(260px, 1fr)', sort: (t) => (t.subject || '').toLowerCase() },
   { key: 'company', label: 'Company', width: 130, shrink: 80, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
-  // State and Priority each carry a second chip when a ticket needs it
-  // (Awaiting approval / SLA breached), so they're sized for the pair - at 150
-  // the pair ran past the column and painted over the one after it.
-  { key: 'state', label: 'Status', width: 180, shrink: 170, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
-  { key: 'priority', label: 'Priority', width: 180, shrink: 160, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
-  // Wide enough for the deadline's date AND time ("10/19/2026 3:00 PM").
-  { key: 'due', label: 'Due Date', width: 150, shrink: 120, sort: slaSortKey },
-  { key: 'requester', label: 'Requester', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
-  { key: 'assignee', label: 'Assignee', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
-  { key: 'created', label: 'Created', width: 110, shrink: 92, sort: (t) => t.createdAt || '' },
+  // Status carries a second small label while a ticket awaits approval.
+  { key: 'state', label: 'Status', width: 140, shrink: 130, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
+  { key: 'priority', label: 'Priority', width: 110, shrink: 100, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
+  // Whichever SLA clock bites next, in words; sorts by that deadline (paused
+  // after every live clock, no clock last).
+  { key: 'clock', label: 'Next Clock', width: 150, shrink: 130, sort: (t) => nextClock(t).at },
+  { key: 'requester', label: 'Requester', width: 140, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
+  { key: 'assignee', label: 'Assignee', width: 140, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
+  // The last change to the ticket, as an age ("3h ago"); the exact moment is
+  // the tooltip. A ticket saved before modified_at existed uses its creation.
+  { key: 'updated', label: 'Updated', width: 100, shrink: 88, sort: (t) => t.modifiedAt || t.createdAt || '' },
+  { key: 'created', label: 'Created', width: 110, shrink: 92, defaultHidden: true, sort: (t) => t.createdAt || '' },
   // The newest reply, last (Neil, Oct 1 2026) - see LatestComment.jsx. Wide
-  // enough by default for a name and a line of the preview; sorts by when.
-  { key: 'latestComment', label: 'Latest Comment', width: 300, minWidth: 160, shrink: 140, sort: (t) => t.latestComment?.createdAt || '' },
+  // enough by default for a picture and a line of the preview; sorts by when.
+  { key: 'latestComment', label: 'Latest Comment', width: 260, minWidth: 160, shrink: 140, sort: (t) => t.latestComment?.createdAt || '' },
   { key: 'resolved', label: '', width: 24, fixed: true },
 ];
 // ── What do you need help with? ──────────────────────────────────────────────

@@ -21,9 +21,15 @@ const nowIso = () => new Date(Date.now() - 2 * 3600 * 1000).toISOString().replac
 const TICKETS = [
   { id: 't1', code: '000001', subject: 'Printer jam', status: 'in_progress', priority: 'medium', type: 'incident',
     requesterId: 'req@example.com', assigneeId: 'agent@example.com', approvalStatus: 'none', typeFields: {},
-    createdAt: '2026-09-30T10:00:00', latestComment: { authorId: 'agent@example.com', preview: 'Swapping the toner now', createdAt: nowIso(), internal: false } },
+    createdAt: '2026-09-30T10:00:00', lastCommentAt: nowIso(),
+    latestComment: { authorId: 'agent@example.com', preview: 'Swapping the toner now', createdAt: nowIso(), internal: false } },
   { id: 't2', code: '000002', subject: 'VPN down', status: 'open', priority: 'high', type: 'incident',
     requesterId: 'req@example.com', assigneeId: '', approvalStatus: 'none', typeFields: {}, createdAt: '2026-09-30T11:00:00', latestComment: null },
+  // Assigned to someone else and quiet for a month: the one row that owes a
+  // comment (an unassigned ticket already says Unassigned - 10/31/2026).
+  { id: 't3', code: '000003', subject: 'Badge reader offline', status: 'open', priority: 'medium', type: 'incident',
+    requesterId: 'req@example.com', assigneeId: 'other@example.com', approvalStatus: 'none', typeFields: {},
+    createdAt: '2026-09-29T09:00:00', modifiedAt: '2026-09-29T09:00:00', latestComment: null },
 ];
 const updateTicket = vi.fn((id, p) => Promise.resolve({ ...TICKETS.find((t) => t.id === id), ...p }));
 vi.mock('../tasks/TasksContext', () => ({
@@ -43,9 +49,11 @@ describe('Ticket list - Latest Comment column', () => {
     expect(await screen.findByText('Latest Comment')).toBeTruthy();
     const cell = screen.getByRole('button', { name: /Latest comment by Ava Agent, 2h ago/ });
     expect(within(cell).getByText(/Swapping the toner now/)).toBeTruthy();
-    // A ticket nobody has replied to, past its check-in window, says it needs
-    // a comment here - the flag left the Priority cell (Oct 14 2026).
-    expect(screen.getAllByText('Needs a Comment').length).toBeGreaterThan(0);
+    // An ASSIGNED ticket nobody has replied to, past its check-in window,
+    // says it needs a comment here - the flag left the Priority cell (Oct 14
+    // 2026). The unassigned VPN ticket says Unassigned instead, never both.
+    expect(screen.getAllByText('Needs a Comment').length).toBe(1);
+    expect(screen.getByText('Unassigned', { selector: '.nx-row-hover span' })).toBeTruthy();
   });
 
   it('opens the ticket on its Conversation when clicked', async () => {
@@ -107,12 +115,30 @@ describe('Requester resolves their own ticket', () => {
 // author's picture (not name) in the comment cell, and an unassigned ticket
 // turning the Unassigned tile into a call to act.
 describe('Ticket list - Oct 14 column and tile words', () => {
-  it('heads the columns Assignee and Created', async () => {
+  // Desk re-cut (Neil, 10/31/2026): Updated and Next Clock are the default
+  // columns; Created (and Company while every ticket is one company) ship
+  // hidden and come back from Customize.
+  it('heads the columns Assignee, Next Clock and Updated; Created is one click away', async () => {
     render(<TicketsView />);
     expect(await screen.findByText('Assignee')).toBeTruthy();
-    expect(screen.getByText('Created')).toBeTruthy();
+    expect(screen.getByText('Next Clock')).toBeTruthy();
+    expect(screen.getByText('Updated')).toBeTruthy();
+    expect(screen.queryByText('Due Date')).toBeNull();
+    expect(screen.queryByText('Created')).toBeNull();
+    expect(screen.queryByText('Company')).toBeNull();
     expect(screen.queryByText('Assigned To')).toBeNull();
-    expect(screen.queryByText('Created Date')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    const created = screen.getByLabelText('Created');
+    expect(created.checked).toBe(false);
+    expect(screen.getByLabelText('Company').checked).toBe(false);
+  });
+
+  it('reads the next SLA clock in words, red only when overdue', async () => {
+    render(<TicketsView />);
+    await screen.findByText('Printer jam');
+    // No deadline on these fixtures: the cell is a quiet dash, never red.
+    const cells = document.querySelectorAll('[data-clock-state]');
+    expect(cells.length).toBe(0);
   });
 
   it('shows the commenter as a picture, their name only on hover', async () => {

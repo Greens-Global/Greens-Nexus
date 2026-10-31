@@ -161,13 +161,13 @@ describe('Tickets on a phone', () => {
     expect(rowOrder()).toEqual(['Printer jam', 'VPN down']);
   });
 
-  it('sorting by Due Date puts tickets with no SLA date last', async () => {
+  it('sorting by Next Clock puts tickets with no SLA clock last', async () => {
     render(<TicketsView />);
     await screen.findByText('Printer jam');
     expect(rowOrder()).toEqual(['VPN down', 'Printer jam']);   // newest first
     fireEvent.click(screen.getByRole('button', { name: 'Filters & sort' }));
     fireEvent.click(screen.getByRole('button', { name: /Newest First/ }));
-    fireEvent.click(screen.getByText('Due Date'));
+    fireEvent.click(screen.getByText('Next Clock'));
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     // VPN down has no slaDueOn - it no longer leads the list.
     expect(rowOrder()).toEqual(['Printer jam', 'VPN down']);
@@ -200,12 +200,13 @@ describe('Tickets on a phone', () => {
     expect(screen.getByText('Printer jam')).toBeTruthy();
   });
 
-  it('spells out the SLA due date and the needs-a-comment state on the card', async () => {
+  it('spells out the next SLA clock and the needs-a-comment state on the card', async () => {
     render(<TicketsView />);
     await screen.findByText('Printer jam');
     const due = screen.getByTestId('ticket-row-due');
-    expect(due.textContent).toMatch(/Due 01\/05\/2026/);
-    expect(due.style.color).toBe('rgb(220, 38, 38)');   // breached = red
+    expect(due.textContent).toMatch(/^Overdue \d+d$/);           // words, not a timestamp (10/31/2026)
+    expect(due.getAttribute('title')).toBe('Resolution due 01/05/2026');
+    expect(due.style.color).toBe('rgb(220, 38, 38)');   // overdue = red
     expect(screen.getAllByText(/Needs a Comment/).length).toBeGreaterThan(0);
   });
 

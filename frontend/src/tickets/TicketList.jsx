@@ -7,16 +7,16 @@ import { Avatar, PriorityChip, UnassignedAvatar, SelectMenu } from '../tasks/com
 import { dialog as appDialog } from '../ui/dialog';
 import { ColResizer } from '../tasks/tableCols';
 import {
-  fmtDate,
+  fmtDate, fmtMoment,
   TICKET_STATUS_META, CLOSED_STATES,
-  SLA_META, slaState, fmtDueAt,
+  nextClock, NEXT_CLOCK_META, slaPaused,
   commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
   APPROVAL_META,
   ticketNoShort,
 } from './ticketMeta';
 import { TicketTypeIcon, TicketStatusChip } from './TicketAtoms';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
-import { LatestCommentPreview } from './LatestComment';
+import { LatestCommentPreview, commentAgo } from './LatestComment';
 import { TicketAssignSheet } from './TicketAssignSheet';
 import { statusOptions, priorityOptions, ticketRights } from './ticketViewShared';
 import { ApprovalChip } from './TicketApproval';
@@ -79,7 +79,10 @@ function TicketListHeader({ cols, widths, startResize, resetWidth, autofitWidth,
               textTransform: 'uppercase', letterSpacing: '0.04em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>{col.label}</span>
             <SortIcon size={11} style={{ flexShrink: 0, marginLeft: 4, opacity: active ? 1 : 0.4 }} />
-            <ColResizer onMouseDown={startResize(col.key, widths[col.key] ?? col.width)} onReset={() => resetWidth(col.key)} onAutofit={() => autofitWidth(col.key)} />
+            {/* The elastic Title has no px width until someone drags it - the
+                drag starts from the width it is actually drawn at. */}
+            <ColResizer onMouseDown={(e) => startResize(col.key, widths[col.key] ?? col.width ?? e.currentTarget.parentElement.getBoundingClientRect().width)(e)}
+              onReset={() => resetWidth(col.key)} onAutofit={() => autofitWidth(col.key)} />
           </div>
         );
       })}
@@ -160,11 +163,16 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
   // Every cell shares this base (minHeight/padding/border) - the same cellPad
   // contract the task rich-list rows use, so the two grids read identically.
   const cell = { minWidth: 0, minHeight: TICKET_ROW_H, display: 'flex', alignItems: 'center', padding: '0 12px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
-  const sla = slaState(t);
-  // Paused (waiting on the requester) reads as its own quiet state, never late.
-  const slaM = (sla === 'breached' || sla === 'at_risk' || sla === 'paused') ? SLA_META[sla] : null;
+  // Whichever SLA clock bites next, in words (ticketMeta.nextClock): red
+  // only when overdue, amber inside the at-risk window, slate while paused.
+  const clock = nextClock(t);
+  const clockM = NEXT_CLOCK_META[clock.state] || null;
   const approvalM = t.approvalStatus === 'pending' ? APPROVAL_META.pending : null;
-  const staleM = commentStale(t) ? COMMENT_STALE_META : null;
+  // "Needs a Comment" only when someone owes it (desk re-cut, 10/31/2026):
+  // an assigned, live, unpaused ticket. An unassigned row already says
+  // Unassigned in amber - one flag per row, never two.
+  const owesComment = !!t.assigneeId && !CLOSED_STATES.includes(t.status) && !slaPaused(t);
+  const staleM = owesComment && commentStale(t) ? COMMENT_STALE_META : null;
   // The HR department is what routed this ticket, so it belongs on the row.
   const hrDept = t.hrDepartmentId ? hrDeptName(t.hrDepartmentId) : '';
 
@@ -205,15 +213,16 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
           {t.approvalStatus === 'pending' && <ApprovalChip ticket={t} />}
           <PriorityChip priority={t.priority} />
           {/* Words, not icon-only chips with a hover title - a phone has no
-              hover. The SLA due date reads as a date (red once breached, amber
-              when due soon) and a quiet ticket says it needs a comment. */}
-          {(t.slaDueAt || t.slaDueOn) && !CLOSED_STATES.includes(t.status) && (
-            <span data-testid="ticket-row-due" title={slaM ? `${slaM.label} - SLA due ${fmtDueAt(t)}` : `SLA due ${fmtDueAt(t)}`}
-              style={slaM
-                ? { ...chip(slaM.color, slaM.tint), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px', fontWeight: 700 }
+              hover. The Next Clock reads in words (red once overdue, amber
+              when due soon, slate while paused) and a quiet ticket says it
+              needs a comment. */}
+          {clock.kind !== 'none' && (
+            <span data-testid="ticket-row-due" title={clock.title}
+              style={clockM
+                ? { ...chip(clockM.color, `color-mix(in srgb, ${clockM.color} 14%, transparent)`), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px', fontWeight: 700 }
                 : { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: NX.dim }}>
-              {slaM ? <slaM.Icon size={11} /> : <Clock size={11} style={{ color: NX.faint }} />}
-              {sla === 'paused' ? 'Paused' : `Due ${fmtDueAt(t)}`}
+              {clockM ? <clockM.Icon size={11} /> : <Clock size={11} style={{ color: NX.faint }} />}
+              {clock.label}
             </span>
           )}
           {staleM && (
@@ -320,15 +329,29 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
         </InlineTicketSelect>
       </div>
     ),
-    // The SLA lives here: red with a shield once breached, amber when due
-    // within a day, plain otherwise.
-    due: (
-      <div style={{ ...cell, justifyContent: 'flex-start', gap: 5, overflow: 'hidden' }}
-        title={slaM ? `${slaM.label} - SLA due ${fmtDueAt(t)}` : undefined}>
-        {slaM ? <slaM.Icon size={12} style={{ color: slaM.color, flexShrink: 0 }} /> : <Clock size={12} style={{ color: NX.faint, flexShrink: 0 }} />}
-        <span style={{ fontSize: 12, color: slaM ? slaM.color : NX.dim, fontWeight: sla === 'breached' || sla === 'at_risk' ? 600 : 400, textAlign: 'left' }}>{fmtDueAt(t)}</span>
+    // Next Clock: whichever SLA clock bites next, in words - "Reply overdue
+    // 3d", "Due in 4h", "Paused · 2d" - red only when overdue, amber inside
+    // the at-risk window. The exact deadline is the tooltip (and the CSV).
+    clock: (
+      <div style={{ ...cell, justifyContent: 'flex-start', gap: 5, overflow: 'hidden' }} title={clock.title || undefined}
+        data-clock-state={clock.kind === 'none' ? undefined : clock.state}>
+        {clock.kind !== 'none' && (clockM
+          ? <clockM.Icon size={12} style={{ color: clockM.color, flexShrink: 0 }} />
+          : <Clock size={12} style={{ color: NX.faint, flexShrink: 0 }} />)}
+        <span style={{ fontSize: 12, color: clockM ? clockM.color : NX.dim, fontWeight: clock.state === 'overdue' || clock.state === 'at_risk' ? 600 : 400, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {clock.kind === 'none' ? '-' : clock.label}
+        </span>
       </div>
     ),
+    // The last change to the ticket as an age; the exact moment on hover.
+    updated: (() => {
+      const at = t.modifiedAt || t.createdAt || '';
+      return (
+        <div style={{ ...cell, justifyContent: 'flex-start', overflow: 'hidden' }} title={at ? `Updated ${fmtMoment(at)}` : ''}>
+          <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{at ? commentAgo(at) : '-'}</span>
+        </div>
+      );
+    })(),
     requester: (
       <div style={{ ...cell, justifyContent: 'flex-start', gap: 6, overflow: 'hidden' }} title={`Requester: ${nameOf(t.requesterId) || 'Unknown'}`}>
         {t.requesterId ? <Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /> : <span style={{ width: 22, flexShrink: 0 }} />}
@@ -352,16 +375,19 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
     // A ticket past its priority's check-in window says so here, beside the
     // last comment it is missing (Oct 14 2026 - it used to be a second solid
     // block in the Priority cell).
+    // The flag and the preview stack (flag above) when a row has both, so
+    // neither pushes the other's picture past the cell edge - side by side
+    // the commenter's avatar used to clip against the Resolved column.
     latestComment: (
-      <div style={{ ...cell, overflow: 'hidden', padding: '0 10px', gap: 8 }}>
+      <div style={{ ...cell, overflow: 'hidden', padding: '4px 10px', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', gap: 1 }}>
         {staleM && (
           <span title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h - past this priority's check-in window`}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0, fontSize: 12, fontWeight: 600, color: staleM.color, whiteSpace: 'nowrap' }}>
-            <staleM.Icon size={13} /> {staleM.label}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', fontSize: 12, fontWeight: 600, color: staleM.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <staleM.Icon size={13} style={{ flexShrink: 0 }} /> {staleM.label}
           </span>
         )}
         {(t.latestComment || !staleM) && (
-          <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ minWidth: 0, width: '100%', overflow: 'hidden' }}>
             <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} onOpen={openConversation} />
           </div>
         )}
