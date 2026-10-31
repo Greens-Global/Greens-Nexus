@@ -505,8 +505,9 @@ def serialize(db, wf: models.Workflow, *, full: bool = False) -> dict:
         "createdAt": wf.created_at or "", "createdBy": wf.created_by or "",
         "hasDraft": isinstance(wf.draft, dict),
         "companyEnabled": _company_enabled(db, wf.company_id or ""),
-        # the canvas silhouette for the list's thumbnails (workflows/shape.py)
-        "shape": shape_of(draft_of(wf) if isinstance(wf.draft, dict) else definition_of(wf)),
+        # the canvas silhouette for the list's thumbnails (workflows/shape.py);
+        # shape_of reads only `steps`, so no normalize_definition deep copy here
+        "shape": shape_of(wf.draft if isinstance(wf.draft, dict) else {"steps": wf.steps}),
     }
     if full:
         out["definition"] = definition_of(wf)

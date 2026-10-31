@@ -188,7 +188,16 @@ def test_publish_after_test_bumps_version_and_writes_audit(client, db):
     t = r.json()
     assert t["status"] == "test" and t["subjectLabel"] == "Priya Shah" and t["testedCurrent"] is True
     assert t["steps"][0]["status"] == "planned" and t["steps"][0]["detail"].startswith("Would notify")
+    assert t["steps"][0]["output"] == {}
     assert t["trace"] == [] and t["conditionsPassed"] is True
+    # an If's planned path travels as output.branch (the canvas replays it), nothing else of the output does
+    branchy = {**DEFINITION, "steps": [{"id": "if1", "kind": "if", "conditions": [], "then": [NOTIFY], "else": [], "enabled": True}]}
+    client.put(f"/workflows/{wf['id']}/draft", json={"definition": branchy})
+    tb = client.post(f"/workflows/{wf['id']}/test", json={}).json()
+    assert [s["stepId"] for s in tb["steps"]][:2] == ["if1", "if1/n1"]
+    assert tb["steps"][0]["output"] == {"branch": "then"}
+    client.put(f"/workflows/{wf['id']}/draft", json={"definition": DEFINITION})
+    client.post(f"/workflows/{wf['id']}/test", json={})
     r = client.post(f"/workflows/{wf['id']}/publish", json={"note": "go"})
     assert r.status_code == 200, r.text
     assert r.json()["version"] == 1 and r.json()["status"] == "active" and r.json()["hasDraft"] is False

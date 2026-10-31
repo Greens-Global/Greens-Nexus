@@ -535,7 +535,10 @@ Sub routes: `overview`, `list`, `wf:<id>` (builder), `runs`, `run:<id>`,
   `data-slash-search`.
 - **Builder** (`wf:<id>`): a page, not a popup. Left: the recipe. Right rail:
   Settings (owner, scope, enrollment, error handling, run-as for GA), Test,
-  Versions. Top: name, status chip, Save Draft, Test, Publish.
+  Versions. Top: name, status chip, Save Draft, Test, Publish. Since
+  10/30/2026 the desktop default is the Blueprint canvas
+  (`wf:<id>:run:<runId>` replays a run on it); the recipe is the second view
+  and the phone view - see the Non-goals note.
   - **When** card: trigger kind tabs (Event / Schedule / Date / Manual); the
     event picker groups by module, searchable, "New" badges; after choosing,
     trigger filters appear (e.g. "status changed to: Approved").
