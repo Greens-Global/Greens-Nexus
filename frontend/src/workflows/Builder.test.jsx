@@ -5,7 +5,7 @@
 // action on a published workflow, and a workflow made from a template opens
 // with its blanks named and outlined once.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 const catalog = {
   entities: [{
@@ -42,6 +42,7 @@ const api = {
   wfStatus: vi.fn(() => Promise.resolve({})),
   wfReown: vi.fn(() => Promise.resolve({})),
   wfDuplicate: vi.fn(() => Promise.resolve({ id: 'w2' })),
+  wfDelete: vi.fn(() => Promise.resolve({})),
   wfSaveAsTemplate: vi.fn(() => Promise.resolve({ key: 't1', name: 'Welcome Note' })),
   wfVersions: vi.fn(() => Promise.resolve([])),
   wfVersion: vi.fn(() => Promise.resolve({})),
@@ -401,5 +402,33 @@ describe('Builder', () => {
     const { container } = render(<Builder id="w1" go={() => {}} />);
     expect(container.textContent.length).toBeGreaterThan(0);
     expect(await screen.findByText('This workflow could not be loaded.')).toBeInTheDocument();
+  });
+  // Hold to confirm (Neil, Oct 30 2026): one workflow, so Delete is held on
+  // the button with no dialog; a refusal rewinds it with the reason.
+  it('deletes on a full hold of Delete, with no dialog, then goes back to the list', async () => {
+    const go = open();
+    const del = await screen.findByRole('button', { name: 'Delete, press and hold' });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(del, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(1200); });
+      expect(api.wfDelete).toHaveBeenCalledWith('w1');
+      expect(dialog.confirm).not.toHaveBeenCalled();
+      await act(async () => { vi.advanceTimersByTime(700); });
+      expect(go).toHaveBeenCalledWith('list');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a refused delete rewinds the button and says why', async () => {
+    api.wfDelete.mockRejectedValueOnce(Object.assign(new Error('Only the owner may delete this workflow'), { status: 403 }));
+    const go = open();
+    const del = await screen.findByRole('button', { name: 'Delete, press and hold' });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(del, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(1200); });
+    } finally { vi.useRealTimers(); }
+    expect(screen.getByRole('alert')).toHaveTextContent('Only the owner may delete this workflow');
+    expect(go).not.toHaveBeenCalledWith('list');
   });
 });

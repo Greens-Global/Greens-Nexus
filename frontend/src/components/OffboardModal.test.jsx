@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // Render-smoke for Offboard (Neil, Oct 8): the last day decides where the
 // paperwork goes and when they become Left.
@@ -54,5 +54,38 @@ describe('OffboardModal', () => {
     fireEvent.click(screen.getByText('Schedule Offboarding'));
     await waitFor(() => expect(onSent).toHaveBeenCalled());
     expect(offboard.mock.calls[0][1].inputs.offboarding.mailboxAction).toBe('remove');
+  });
+  // Hold to confirm (Neil, Oct 30 2026): Offboard Now ends their access at
+  // once, so it is a 1.8 s hold; a refusal rewinds it with the reason.
+  it('today: Offboard Now is held, and a refusal says why', async () => {
+    const onSent = vi.fn();
+    render(<OffboardModal employee={erin} companyName="Greens" onClose={() => {}} onSent={onSent} toastErr={() => {}} />);
+    fireEvent.change(screen.getByDisplayValue('- pick one -'), { target: { value: 'resignation' } });
+    fireEvent.click(screen.getByText('Review'));
+    const hold = await screen.findByRole('button', { name: 'Offboard Now, press and hold' });
+    expect(hold).toBeDisabled();
+    fireEvent.click(screen.getByText(/I confirm this is not a record/));
+    expect(hold).not.toBeDisabled();
+    offboard.mockClear();
+    offboard.mockImplementationOnce(() => Promise.reject(new Error('Only HR may offboard Erin.')));
+    vi.useFakeTimers();
+    try {
+      // a short press does nothing
+      fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+      act(() => { vi.advanceTimersByTime(1200); });
+      fireEvent.pointerUp(hold, { pointerId: 1 });
+      expect(offboard).not.toHaveBeenCalled();
+      fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(1800); });
+      expect(offboard).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('alert').textContent).toBe('Only HR may offboard Erin.');
+      expect(onSent).not.toHaveBeenCalled();
+      // held again: it goes through and hands the result on
+      fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(1800); });
+      await act(async () => { vi.advanceTimersByTime(700); });
+    } finally { vi.useRealTimers(); }
+    expect(offboard).toHaveBeenCalledTimes(2);
+    expect(onSent).toHaveBeenCalledWith(expect.objectContaining({ id: 'ev1' }));
   });
 });
