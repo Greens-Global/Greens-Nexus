@@ -391,6 +391,72 @@ class NotifyTests(Base):
         self.assertEqual(len(rows), 3)   # flush_batches sends them as ONE email
 
 
+class PersonalTests(Base):
+    """No project (Oct 31 2026): a list pasted into Home's add row."""
+
+    def run_personal(self, rows, user=EDITOR, **kw):
+        kw.setdefault("dry_run", False)
+        body = T.TaskImportBody(project_id="", rows=rows, source="paste", **kw)
+        return T.import_tasks(body, kw.pop("bg", None) or BackgroundTasks(), user=user, db=self.db)
+
+    def test_rows_with_no_project_become_personal_tasks_with_codes(self):
+        r = self.run_personal([{"row": 1, "title": "Call the bank", "assignees": EDITOR["email"]},
+                               {"row": 2, "title": "Ask for the statement", "parent": "1",
+                                "assignees": EDITOR["email"]},
+                               {"row": 3, "title": "File the receipts", "assignees": EDITOR["email"]}])
+        self.assertEqual(r["created"], 3)
+        self.assertEqual(r["projectId"], "")
+        by = self.by_title()
+        self.assertEqual({t.project_id or "" for t in by.values()}, {""})
+        self.assertEqual({t.access_level for t in by.values()}, {"org"})
+        self.assertEqual(by["Ask for the statement"].parent_task_id, by["Call the bank"].id)
+        self.assertEqual(by["Call the bank"].subtask_ids, [by["Ask for the statement"].id])
+        self.assertTrue(all(t.code for t in by.values()))
+        self.assertEqual(len({t.code for t in by.values()}), 3)
+        self.assertTrue(all(EDITOR["email"] in (t.assignee_emails or []) for t in by.values()))
+        # No project, so no project activity row - each task's own "created" row only.
+        kinds = [a.entity_kind for a in self.db.query(models.TaskActivity).all()]
+        self.assertNotIn("project", kinds)
+        self.assertEqual(kinds.count("task"), 3)
+
+    def test_a_section_with_no_project_is_refused_and_a_named_one_is_ignored(self):
+        self.assertEqual(self.code(lambda: self.run_personal([{"title": "A"}], section_id="sec-1")), 422)
+        r = self.run_personal([{"title": "A", "section": "Phase 1"}], dry_run=True)
+        self.assertEqual(r["valid"], 1)
+        self.assertTrue(any("ignored" in w for w in r["rows"][0]["warnings"]))
+
+    def test_required_fields_do_not_bind_personal_tasks(self):
+        self.db.add(models.TaskCustomField(id="f-req", name="Property", type="text", required=True,
+                                           applies_to="task"))
+        self.db.commit()
+        r = self.run_personal([{"title": "A"}])
+        self.assertEqual(r["created"], 1)
+
+    def test_notify_is_one_bell_per_person_with_no_project_wording(self):
+        bg = BackgroundTasks()
+        self.run_personal([{"title": f"T{i}", "assignees": ANA} for i in range(3)], bg=bg, notify_assignees=True)
+        bells = self.db.query(models.TaskNotification).all()
+        self.assertEqual([b.for_email for b in bells], [ANA])
+        self.assertEqual(bells[0].title, "You Were Assigned 3 Tasks")
+        self.assertFalse(bells[0].body.startswith("In ") or bells[0].body.startswith("From the import"))
+        self.assertEqual(len(bg.tasks), 1)
+
+    def test_a_pasted_list_into_a_project_reads_added_not_imported(self):
+        self.run_import([{"title": "A"}, {"title": "B"}], source="paste", import_id="paste-1")
+        row = next(a for a in self.db.query(models.TaskActivity).all() if a.entity_kind == "project")
+        self.assertEqual(row.detail, "added 2 tasks")
+        # The repeat guard still holds inside a project.
+        self.assertEqual(self.code(lambda: self.run_import([{"title": "A"}], source="paste",
+                                                           import_id="paste-1")), 409)
+
+    def test_a_viewer_of_nothing_may_still_make_personal_tasks(self):
+        # Anyone may create a task with no project (create_task's bar); a
+        # project they only view stays refused.
+        r = self.run_personal([{"title": "Mine"}], user=OUTSIDER)
+        self.assertEqual(r["created"], 1)
+        self.assertEqual(self.code(lambda: self.run_import([{"title": "A"}], user=VIEWER)), 403)
+
+
 class ValueTests(Base):
     def test_statuses_and_priorities(self):
         s = models.TaskCustomStatus(id="waiting", label="Waiting on Client", project_ids=[self.p.id])

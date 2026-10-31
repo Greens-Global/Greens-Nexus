@@ -21,6 +21,8 @@ import DictateButton from '../components/DictateButton';
 import VoiceNoteButton from '../components/VoiceNoteButton';
 import { STOP_VOICE_FIRST } from '../lib/voice';
 import SayIt from './SayIt';
+import AddSeveralModal from './AddSeveralModal';
+import { pastedTaskList } from './batchPaste';
 
 const fieldLabel = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 };
 
@@ -38,6 +40,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   const titleRef = useRef(null);
   const videoRef = useRef(null);
   const [ocrBusy, setOcrBusy] = useState(false);
+  const [several, setSeveral] = useState('');   // a pasted list (Oct 31 2026) - Add Several over the sheet
   const [photoMenu, setPhotoMenu] = useState(false);
   const photoBtnRef = useRef(null);
 
@@ -110,10 +113,16 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
 
   return (
     <BottomSheet title="New Task" onClose={onClose}>
+      {several && (
+        <AddSeveralModal defaults={{ text: several, dueOn, assigneeIds, priority, customFieldValues: cfValues, source: 'paste' }}
+          onClose={(added) => { setSeveral(''); if (added) onClose(); }} />
+      )}
       <div onPaste={onPaste} tabIndex={0} style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: FONT }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <input ref={titleRef} autoFocus value={title} onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} aria-label="Task name"
+            // Two or more lines pasted into the name are a list: Add Several takes them, one task per line.
+            onPaste={(e) => { const list = pastedTaskList(e); if (list) { e.preventDefault(); e.stopPropagation(); setSeveral(list); } }}
             placeholder="Task name *" style={{ ...inputStyle, flex: 1, minWidth: 0, fontSize: 17, fontWeight: 600, padding: '10px 12px' }} />
           <DictateButton target={titleRef} title="Dictate the Task Name" />
         </div>
