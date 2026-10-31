@@ -3,7 +3,9 @@
 // ConditionsCard, StepCard's Editor) so the two views can never disagree -
 // with Move Up / Move Down, Skip and Remove under a step. With nothing
 // selected it shows whatever the builder hands it (the Settings / Test /
-// Versions rail). Escape clears the selection.
+// Versions rail); the rail stays mounted, only hidden, while a block is
+// open, so a test result is still there when the block closes. Escape
+// clears the selection.
 import { useEffect } from 'react';
 import { ArrowDown, ArrowUp, Eye, EyeOff, Filter, Trash2 } from 'lucide-react';
 import { btn } from '../../tasks/theme';
@@ -18,12 +20,15 @@ import { locate, patchStep } from './edits';
 
 // The ctx a step inside one or more For Each lanes edits with: each loop on
 // the way down adds its name, so {{ item.name }} offers the right lists.
+// Walks every numeric segment of the lane path (an approval lane is three
+// segments long - 'branches', the option, the index - an If's two), the
+// way lib/definition.js's problems() does.
 function ctxFor(ctx, definition, path) {
   const names = [];
-  for (let i = 0; i + 1 < path.length; i += 2) {
-    const lane = getLane(definition, path.slice(0, i + 1));
-    const step = lane[path[i + 1]];
-    if (step && step.kind === 'for_each' && path[i + 2] === 'steps') names.push(step.as || 'item');
+  for (let i = 1; i < path.length; i++) {
+    if (typeof path[i] !== 'number') continue;
+    const step = getLane(definition, path.slice(0, i))[path[i]];
+    if (step && step.kind === 'for_each' && path[i + 1] === 'steps') names.push(step.as || 'item');
   }
   return names.length ? { ...ctx, loopNames: [...(ctx.loopNames || []), ...names] } : ctx;
 }
@@ -47,23 +52,12 @@ function ActionPicker({ catalog, onPick, id }) {
   );
 }
 
-export default function Inspector({ definition, catalog, ctx, selectedId, nodes, onChange, onSelect, canEdit = true, people, isNew, entityDef, eventDef, panel }) {
-  useEffect(() => {
-    if (!selectedId) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') onSelect(null); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selectedId, onSelect]);
-
+function Selected({ definition, catalog, ctx, selectedId, nodes, onChange, onSelect, canEdit, people, isNew, entityDef, eventDef }) {
   const close = () => onSelect(null);
-
-  if (!selectedId) {
-    return <aside className="wfc-panel" aria-label="Workflow panel">{panel}</aside>;
-  }
 
   if (selectedId === 'trigger') {
     return (
-      <aside className="wfc-panel" aria-label="Trigger">
+      <>
         <div className="wfc-panel-hd">
           <span className="wfc-ic" style={{ background: '#475569' }} aria-hidden="true"><CANVAS_ICONS.trigger /></span>
           <div><div className="wfc-panel-k">Trigger</div><div className="wfc-panel-n">When This Happens</div></div>
@@ -75,13 +69,13 @@ export default function Inspector({ definition, catalog, ctx, selectedId, nodes,
         <div className="wfc-panel-ft">
           <button type="button" onClick={() => onSelect('gate')} style={btn('outline')}><Filter size={13} /> Only If Conditions</button>
         </div>
-      </aside>
+      </>
     );
   }
 
   if (selectedId === 'gate') {
     return (
-      <aside className="wfc-panel" aria-label="Only If">
+      <>
         <div className="wfc-panel-hd">
           <span className="wfc-ic" style={{ background: '#475569' }} aria-hidden="true"><CANVAS_ICONS.gate /></span>
           <div><div className="wfc-panel-k">Only If</div><div className="wfc-panel-n">Only Run When</div></div>
@@ -90,12 +84,12 @@ export default function Inspector({ definition, catalog, ctx, selectedId, nodes,
         <div className="wfc-panel-bd" key="gate">
           <ConditionsCard definition={definition} onChange={onChange} entityDef={entityDef} eventDef={eventDef} catalog={catalog} people={people} open onToggle={close} />
         </div>
-      </aside>
+      </>
     );
   }
 
   const at = locate(nodes, selectedId);
-  if (!at) return <aside className="wfc-panel" aria-label="Workflow panel">{panel}</aside>;
+  if (!at) return null;
   const { step, path, index } = at;
   const lane = getLane(definition, path);
   const Icon = CANVAS_ICONS[step.kind] || CANVAS_ICONS.action;
@@ -106,7 +100,7 @@ export default function Inspector({ definition, catalog, ctx, selectedId, nodes,
   const idBase = `canvas-step-${step.id}`;
 
   return (
-    <aside className="wfc-panel" aria-label={`${KIND_LABEL[step.kind] || step.kind} step`}>
+    <>
       <div className="wfc-panel-hd">
         <span className="wfc-ic" style={{ background: nodeColor(node, catalog) }} aria-hidden="true"><Icon /></span>
         <div><div className="wfc-panel-k">{KIND_LABEL[step.kind] || step.kind}</div><div className="wfc-panel-n">Step {index + 1}</div></div>
@@ -128,6 +122,36 @@ export default function Inspector({ definition, catalog, ctx, selectedId, nodes,
           <span style={{ flex: 1 }} />
           <button type="button" onClick={() => { onChange(removeStep(definition, path, index)); close(); }} style={{ ...btn('outline'), color: 'hsl(var(--color-red))' }}><Trash2 size={13} /> Remove</button>
         </div>
+      )}
+    </>
+  );
+}
+
+function panelLabel(selectedId, nodes) {
+  if (!selectedId) return 'Workflow panel';
+  if (selectedId === 'trigger') return 'Trigger';
+  if (selectedId === 'gate') return 'Only If';
+  const at = locate(nodes, selectedId);
+  return at ? `${KIND_LABEL[at.step.kind] || at.step.kind} step` : 'Workflow panel';
+}
+
+export default function Inspector({ definition, catalog, ctx, selectedId, nodes, onChange, onSelect, canEdit = true, people, isNew, entityDef, eventDef, panel }) {
+  useEffect(() => {
+    if (!selectedId) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') onSelect(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedId, onSelect]);
+
+  // A selection the sheet no longer has (the step was removed) shows the rail.
+  const known = selectedId && (selectedId === 'trigger' || selectedId === 'gate' || !!locate(nodes, selectedId));
+
+  return (
+    <aside className="wfc-panel" aria-label={panelLabel(known ? selectedId : null, nodes)}>
+      <div className="wfc-panel-rail" hidden={!!known}>{panel}</div>
+      {known && (
+        <Selected definition={definition} catalog={catalog} ctx={ctx} selectedId={selectedId} nodes={nodes} onChange={onChange} onSelect={onSelect}
+          canEdit={canEdit} people={people} isNew={isNew} entityDef={entityDef} eventDef={eventDef} />
       )}
     </aside>
   );

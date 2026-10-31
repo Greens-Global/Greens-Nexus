@@ -100,6 +100,20 @@ describe('Canvas', () => {
     expect(document.querySelector('path.wfc-edge[data-key="gate>a1"]')).toHaveClass('wfc-hot');
   });
 
+  it('breathes only while the workflow is live', () => {
+    mount({ workflowStatus: 'active' });
+    expect(screen.getByTestId('wfc')).toHaveClass('is-active');
+    expect(screen.getByRole('button', { name: /^Trigger: / })).toHaveClass('is-listening');
+  });
+
+  it('keeps the rail mounted, hidden, while a block is open', () => {
+    mount({ selectedId: 'a1' });
+    const rail = screen.getByText('Rail here');
+    expect(rail).toBeInTheDocument();
+    expect(rail).not.toBeVisible();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+  });
+
   it('says so instead of going blank when a definition cannot be drawn', () => {
     const broken = Object.defineProperty({ v: 1, trigger: { kind: 'manual' }, conditions: [] }, 'steps', { get() { throw new Error('boom'); } });
     render(<Canvas definition={broken} catalog={catalog} ctx={ctx} onChange={() => {}} onSelect={() => {}} initialView={{ x: 0, y: 0, s: 1 }} />);

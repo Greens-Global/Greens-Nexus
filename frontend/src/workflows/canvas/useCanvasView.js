@@ -66,15 +66,21 @@ export function useCanvasView(sheetRef, layout, initialView = null) {
     return () => el.removeEventListener('wheel', onWheel);
   }, [sheetRef, setView]);
 
+  // The pan in progress keeps its `up` here so an unmount mid-drag (the view
+  // toggles, the builder leaves) can take the window listeners down with it.
+  const panUp = useRef(null);
   const startPan = useCallback((e) => {
+    if (panUp.current) panUp.current();
     pan.current = { sx: e.clientX, sy: e.clientY, vx: viewRef.current.x, vy: viewRef.current.y };
     setPanning(true);
     const move = (ev) => { const p = pan.current; if (!p) return; setView((v) => ({ ...v, x: p.vx + (ev.clientX - p.sx), y: p.vy + (ev.clientY - p.sy) })); };
-    const up = () => { pan.current = null; setPanning(false); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+    const up = () => { pan.current = null; panUp.current = null; setPanning(false); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+    panUp.current = up;
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
   }, [setView]);
+  useEffect(() => () => { if (panUp.current) panUp.current(); }, []);
 
   return { view, viewRef, setView, fit, zoomIn, zoomOut, startPan, panning, box };
 }

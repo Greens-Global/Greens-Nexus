@@ -97,4 +97,45 @@ describe('canvas drag and drop', () => {
     expect(document.querySelector('.wfc-hotspot')).toBeNull();
     expect(screen.getByRole('button', { name: /^Wait block/ })).toBeDisabled();
   });
+
+  it('never lifts a block on a read-only canvas: a press that moves is nothing, not a drag', () => {
+    const onChange = vi.fn(); const onSelect = vi.fn();
+    render(<Canvas definition={sample()} catalog={catalog} ctx={ctx} selectedId={null} onSelect={onSelect} onChange={onChange} canEdit={false}
+      entityDef={ctx.entityDef} eventDef={ctx.eventDef} initialView={{ x: 0, y: 0, s: 1 }} />);
+    const node = screen.getByRole('button', { name: /^Wait: / });
+    const home = node.style.transform;
+    fire(node, 'pointerdown', 300, 600);
+    fire(window, 'pointermove', 400, 500);
+    expect(node.style.transform).toBe(home);
+    expect(node).not.toHaveClass('is-dragging');
+    fire(window, 'pointerup', 400, 500);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('does not commit a cancelled gesture: the step goes home and nothing changes', () => {
+    const { onChange, onSelect } = mount();
+    const hot = hotAt('steps.1.else', 0); const p = posOf(hot);
+    const node = screen.getByRole('button', { name: /^Wait: / });
+    const home = node.style.transform;
+    fire(node, 'pointerdown', 300, 600);
+    fire(window, 'pointermove', 308, 608);
+    fire(window, 'pointermove', p.x, p.y);
+    expect(hot).toHaveClass('is-armed');
+    fire(window, 'pointercancel', p.x, p.y);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(node.style.transform).toBe(home);
+    expect(node).not.toHaveClass('is-dragging');
+    expect(hot).not.toHaveClass('is-armed');
+  });
+
+  it('opens a new Action right away so its picker is there', () => {
+    const { onChange, onSelect } = mount();
+    act(() => { hotAt('steps', 1).click(); });
+    const next = onChange.mock.calls[0][0];
+    expect(next.steps[1].kind).toBe('action');
+    expect(next.steps[1].action).toBe('');
+    expect(onSelect).toHaveBeenCalledWith(next.steps[1].id);
+  });
 });

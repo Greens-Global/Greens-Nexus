@@ -5,16 +5,20 @@
 // go on it inserts or moves, letting go anywhere else drops the ghost or
 // springs the step back to its slot. A press that never moves 5px is a
 // tap: on a step it selects, on a dock block it appends to the workflow.
-// Pointer math reads refs, never state, so it is right mid-gesture.
-import { useCallback, useRef, useState } from 'react';
+// A cancelled gesture (the browser took the pointer: a scroll, a tab
+// switch) only springs home - it never commits. Pointer math reads refs,
+// never state, so it is right mid-gesture. With `draggable` false (an
+// archived workflow) a block can only be selected.
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { SPRING } from '../../lib/motion';
 import { toScreen, toWorld } from './viewport';
 import { measure } from './useCanvasView';
 
 const ARM_PX = 40;
 const MOVE_PX = 5;
-const SPRING = 'cubic-bezier(.34,1.4,.64,1)';
+const SPRING_MS = 380;
 
-export function useDragDrop({ sheetRef, viewRef, layoutRef, nodeEls, ghostRef, onInsert, onMove, canMove, onTap, onNodeClick, enabled = true, animate = true }) {
+export function useDragDrop({ sheetRef, viewRef, layoutRef, nodeEls, ghostRef, liftedRef, onInsert, onMove, canMove, onTap, onNodeClick, draggable = true, animate = true }) {
   const drag = useRef(null);
   const [armed, setArmed] = useState(null);      // the armed hot's id
   const [ghostKind, setGhostKind] = useState(''); // '' when no dock block is in the air
@@ -40,18 +44,36 @@ export function useDragDrop({ sheetRef, viewRef, layoutRef, nodeEls, ghostRef, o
     return d;
   }, []);
 
-  const listen = useCallback((onMoveEv, onUpEv) => {
-    const up = (e) => onUpEv(e);
-    const ls = [['pointermove', onMoveEv], ['pointerup', up], ['pointercancel', up]];
+  // Unmounting mid-gesture (the view toggles, the builder leaves) drops the
+  // window listeners with it.
+  useEffect(() => () => { finish(); }, [finish]);
+
+  const listen = useCallback((onMoveEv, onUpEv, onCancelEv) => {
+    const ls = [['pointermove', onMoveEv], ['pointerup', onUpEv], ['pointercancel', onCancelEv || onUpEv]];
     ls.forEach(([t, f]) => window.addEventListener(t, f));
     return ls;
   }, []);
 
+  const springHome = useCallback((el, node) => {
+    if (!el) return;
+    el.classList.remove('is-dragging');
+    const home = `translate(${node.x}px, ${node.y}px)`;
+    const lifted = el.style.transform;
+    el.style.transform = home;
+    if (animate && lifted && lifted !== home && typeof el.animate === 'function') {
+      try { el.animate([{ transform: lifted }, { transform: home }], { duration: SPRING_MS, easing: SPRING }); } catch { /* no spring, still home */ }
+    }
+  }, [animate]);
+
   const nodePointerDown = useCallback((e, node) => {
-    if (!enabled || e.button) return;
-    if (!node.step) { // the trigger and the gate: select only
+    if (e.button) return;
+    if (!node.step || !draggable) { // the trigger and the gate, or a read-only canvas: select only
       drag.current = { type: 'select', id: node.id, sx: e.clientX, sy: e.clientY };
-      drag.current.listeners = listen(() => {}, (ev) => { const d = finish(); if (d && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) < MOVE_PX) onNodeClick && onNodeClick(d.id); });
+      drag.current.listeners = listen(
+        () => {},
+        (ev) => { const d = finish(); if (d && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) < MOVE_PX) onNodeClick && onNodeClick(d.id); },
+        () => finish(),
+      );
       return;
     }
     const el = nodeEls.current.get(node.id);
@@ -74,21 +96,23 @@ export function useDragDrop({ sheetRef, viewRef, layoutRef, nodeEls, ghostRef, o
     const upEv = () => {
       const done = finish(); if (!done) return;
       if (!done.moved) { onNodeClick && onNodeClick(node.id); return; }
-      if (el) el.classList.remove('is-dragging');
-      if (done.hot) { onMove(from, { path: done.hot.insert.path, index: done.hot.insert.index }); return; }
-      if (el) {
-        const home = `translate(${node.x}px, ${node.y}px)`;
-        const lifted = el.style.transform;
-        el.style.transform = home;
-        if (animate && typeof el.animate === 'function') { try { el.animate([{ transform: lifted }, { transform: home }], { duration: 380, easing: SPRING }); } catch { /* no spring, still home */ } }
+      if (done.hot) {
+        // the block stays where the hand left it; the relayout's FLIP
+        // starts from there (Canvas reads liftedRef) instead of from the
+        // old slot, so nothing jumps back before it glides
+        if (el) { el.classList.remove('is-dragging'); if (liftedRef) liftedRef.current = { id: node.id, transform: el.style.transform }; }
+        onMove(from, { path: done.hot.insert.path, index: done.hot.insert.index });
+        return;
       }
+      springHome(el, node);
     };
-    d.listeners = listen(move, upEv);
+    const cancelEv = () => { const done = finish(); if (done && done.moved) springHome(el, node); };
+    d.listeners = listen(move, upEv, cancelEv);
     drag.current = d;
-  }, [enabled, nodeEls, sheetRef, viewRef, canMove, nearestHot, finish, listen, onMove, onNodeClick, animate]);
+  }, [draggable, nodeEls, sheetRef, viewRef, canMove, nearestHot, finish, listen, onMove, onNodeClick, springHome, liftedRef]);
 
   const palettePointerDown = useCallback((e, kind) => {
-    if (!enabled || e.button) return;
+    if (!draggable || e.button) return;
     const d = { type: 'palette', kind, sx: e.clientX, sy: e.clientY, moved: false, hot: null };
     const place = (ev) => { const g = ghostRef.current; if (g) { g.style.left = `${ev.clientX}px`; g.style.top = `${ev.clientY}px`; } };
     const move = (ev) => {
@@ -102,9 +126,9 @@ export function useDragDrop({ sheetRef, viewRef, layoutRef, nodeEls, ghostRef, o
       if (!done.moved) { onTap && onTap(kind); return; }
       if (done.hot) onInsert(kind, { path: done.hot.insert.path, index: done.hot.insert.index });
     };
-    d.listeners = listen(move, upEv);
+    d.listeners = listen(move, upEv, () => finish());
     drag.current = d;
-  }, [enabled, ghostRef, nearestHot, finish, listen, onInsert, onTap]);
+  }, [draggable, ghostRef, nearestHot, finish, listen, onInsert, onTap]);
 
   return { nodePointerDown, palettePointerDown, armed, ghostKind, dragging };
 }

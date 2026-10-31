@@ -9,15 +9,15 @@
 // under reduced motion and in tests.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Plus } from 'lucide-react';
-import { useReducedMotion } from '../../lib/motion';
-import { STEP_KINDS } from '../lib/definition';
+import { EASE_OUT, MOTION, SPRING, useReducedMotion } from '../../lib/motion';
+import { STEP_KINDS, insertStep, newStep } from '../lib/definition';
 import { isBlankStep } from '../lib/blanks';
 import { bezierPoint, layout as layoutDefinition } from './layout';
 import { gridStyle } from './viewport';
 import { useCanvasView } from './useCanvasView';
 import { useDragDrop } from './useDragDrop';
 import { useReplay } from './useReplay';
-import { canMove as canMoveStep, insertKind, moveBetween } from './edits';
+import { canMove as canMoveStep, moveBetween } from './edits';
 import CanvasNode from './CanvasNode';
 import Minimap from './Minimap';
 import Dock from './Dock';
@@ -26,8 +26,7 @@ import { CANVAS_ICONS, KIND_COLOR, MODULE_COLOR } from './palette';
 import './canvas.css';
 
 const TEST = import.meta.env.MODE === 'test';
-const EASE = 'cubic-bezier(.16,1,.3,1)';
-const SPRING = 'cubic-bezier(.34,1.4,.64,1)';
+const SPRING_MS = 380;   // the plan's one spring: a dropped block settling, a relayout gliding
 const edgeKey = (e) => `${e.from}>${e.to}`;
 
 export default function Canvas({
@@ -38,6 +37,7 @@ export default function Canvas({
   const worldRef = useRef(null);
   const ghostRef = useRef(null);
   const nodeEls = useRef(new Map());
+  const lifted = useRef(null);        // { id, transform } of a block just dropped on an insert point
   const reduced = useReducedMotion();
   const animate = !TEST && !reduced;
 
@@ -52,15 +52,20 @@ export default function Canvas({
   const { view, viewRef, fit, zoomIn, zoomOut, startPan, panning, box } = useCanvasView(sheetRef, L, initialView);
 
   // ── edits ──
-  const firstAction = useMemo(() => (catalog?.actions || [])[0] || null, [catalog]);
-  const insert = useCallback((kind, to) => { if (canEdit) onChange(insertKind(definition, kind, to, kind === 'action' ? null : firstAction)); }, [canEdit, definition, onChange, firstAction]);
+  const select = useCallback((id) => { if (onSelect) onSelect(id); }, [onSelect]);
+  const insert = useCallback((kind, to) => {
+    if (!canEdit) return;
+    const step = newStep(kind, null);
+    onChange(insertStep(definition, to.path, step, to.index));
+    // a new Action has no action chosen yet: open it, the picker is right there
+    if (kind === 'action') select(step.id);
+  }, [canEdit, definition, onChange, select]);
   const move = useCallback((from, to) => { if (canEdit) onChange(moveBetween(definition, from, to)); }, [canEdit, definition, onChange]);
   const canMove = useCallback((from, to) => canEdit && canMoveStep(definition, from, to), [canEdit, definition]);
   const append = useCallback((kind) => insert(kind, { path: ['steps'], index: (definition?.steps || []).length }), [insert, definition]);
-  const select = useCallback((id) => { if (onSelect) onSelect(id); }, [onSelect]);
 
   const { nodePointerDown, palettePointerDown, armed, ghostKind, dragging } = useDragDrop({
-    sheetRef, viewRef, layoutRef, nodeEls, ghostRef, onInsert: insert, onMove: move, canMove, onTap: append, onNodeClick: select, enabled: true, animate,
+    sheetRef, viewRef, layoutRef, nodeEls, ghostRef, liftedRef: lifted, onInsert: insert, onMove: move, canMove, onTap: append, onNodeClick: select, draggable: canEdit, animate,
   });
 
   // A click on the paper (not a drag) clears the selection.
@@ -83,14 +88,20 @@ export default function Canvas({
     const first = prevPos.current === null;
     const pos = new Map(); L.nodes.forEach((n) => pos.set(n.id, { x: n.x, y: n.y }));
     const ds = new Map(); L.edges.forEach((e) => ds.set(edgeKey(e), e.d));
+    // A block just dropped on an insert point glides from where the hand
+    // left it, not from its old slot (useDragDrop leaves the lifted transform
+    // on the element and tells us through `lifted`).
+    const dropped = lifted.current; lifted.current = null;
     if (animate && worldRef.current) {
       let i = 0;
       L.nodes.forEach((n) => {
         const el = nodeEls.current.get(n.id); if (!el || typeof el.animate !== 'function') return;
         const was = prevPos.current && prevPos.current.get(n.id);
+        const now = `translate(${n.x}px, ${n.y}px)`;
         try {
-          if (was && (was.x !== n.x || was.y !== n.y)) el.animate([{ transform: `translate(${was.x}px, ${was.y}px)` }, { transform: `translate(${n.x}px, ${n.y}px)` }], { duration: 380, easing: SPRING });
-          else if (!was) el.animate([{ opacity: 0, transform: `translate(${n.x}px, ${n.y + 12}px)` }, { opacity: 1, transform: `translate(${n.x}px, ${n.y}px)` }], { duration: 260, delay: first ? (i++) * 30 : 0, easing: EASE, fill: 'backwards' });
+          if (dropped && dropped.id === n.id) { el.style.transform = now; el.animate([{ transform: dropped.transform }, { transform: now }], { duration: SPRING_MS, easing: SPRING }); }
+          else if (was && (was.x !== n.x || was.y !== n.y)) el.animate([{ transform: `translate(${was.x}px, ${was.y}px)` }, { transform: now }], { duration: SPRING_MS, easing: SPRING });
+          else if (!was) el.animate([{ opacity: 0, transform: `translate(${n.x}px, ${n.y + 12}px)` }, { opacity: 1, transform: now }], { duration: MOTION.md, delay: first ? (i++) * 30 : 0, easing: EASE_OUT, fill: 'backwards' });
         } catch { /* a browser without WAAPI simply shows the new place */ }
       });
       let j = 0;
@@ -98,13 +109,16 @@ export default function Canvas({
         const key = p.dataset.key; const old = prevD.current && prevD.current.get(key); const now = p.getAttribute('d');
         if (typeof p.animate !== 'function') return;
         try {
-          if (old && old !== now) p.animate([{ d: `path("${old}")` }, { d: `path("${now}")` }], { duration: 380, easing: SPRING });
+          if (old && old !== now) p.animate([{ d: `path("${old}")` }, { d: `path("${now}")` }], { duration: SPRING_MS, easing: SPRING });
           else if (!old && typeof p.getTotalLength === 'function') {
             const len = p.getTotalLength();
-            p.animate([{ strokeDasharray: len, strokeDashoffset: len }, { strokeDasharray: len, strokeDashoffset: 0 }], { duration: 420, delay: first ? 200 + (j++) * 40 : 60, easing: EASE, fill: 'backwards' });
+            p.animate([{ strokeDasharray: len, strokeDashoffset: len }, { strokeDasharray: len, strokeDashoffset: 0 }], { duration: MOTION.lg, delay: first ? 200 + (j++) * 40 : 60, easing: EASE_OUT, fill: 'backwards' });
           }
         } catch { /* no draw-in, the ink is simply there */ }
       });
+    } else if (dropped) {
+      const el = nodeEls.current.get(dropped.id); const n = L.nodes.find((q) => q.id === dropped.id);
+      if (el && n) el.style.transform = `translate(${n.x}px, ${n.y}px)`;
     }
     prevPos.current = pos; prevD.current = ds;
   }, [L, animate]);
@@ -122,7 +136,9 @@ export default function Canvas({
     return () => el.removeEventListener('keydown', onKey);
   }, [selectedId, select]);
 
-  const setNodeRef = (id) => (el) => { if (el) nodeEls.current.set(id, el); else nodeEls.current.delete(id); };
+  // One stable registrar for every block (a memoized block's props hold
+  // still through a pan or zoom); each block binds its own id to it.
+  const registerNode = useCallback((id, el) => { if (el) nodeEls.current.set(id, el); else nodeEls.current.delete(id); }, []);
   const GhostIcon = ghostKind ? CANVAS_ICONS[ghostKind] : null;
   const armedPath = armed && L ? (L.hots.find((h) => h.id === armed)?.insert.path.join('.') || '') : '';
 
@@ -135,7 +151,7 @@ export default function Canvas({
   }
 
   return (
-    <div className="wfc" data-skin={skin} data-testid="wfc">
+    <div className={`wfc${workflowStatus === 'active' ? ' is-active' : ''}`} data-skin={skin} data-testid="wfc">
       <Dock canEdit={canEdit} onPaletteDown={palettePointerDown} />
       <div ref={sheetRef} className={`wfc-sheet${panning ? ' is-panning' : ''}${dragging ? ' is-dragging' : ''}`} data-testid="wfc-sheet" tabIndex={-1}
         style={gridStyle(view)} onPointerDown={onSheetPointerDown} onClick={onSheetClick} aria-label="Workflow canvas">
@@ -171,7 +187,7 @@ export default function Canvas({
             </svg>
           )}
           {L && L.nodes.map((n) => (
-            <CanvasNode key={n.id} node={n} catalog={catalog} entityDef={entityDef} nodeRef={setNodeRef(n.id)}
+            <CanvasNode key={n.id} node={n} catalog={catalog} entityDef={entityDef} onMount={registerNode}
               selected={selectedId === n.id}
               blank={n.step && n.path && n.path.length === 1 && isBlankStep(blanks, n.index, n.step.id)}
               listening={n.kind === 'trigger' && workflowStatus === 'active'}
