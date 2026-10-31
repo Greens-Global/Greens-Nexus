@@ -156,7 +156,14 @@ function InlineTicketSelect({ value, options, onChange, editable, meta, children
 const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, updateTicket, onOpen, people, checked, onToggle, cols, band = false, mobile = false, focused = false }) {
   const isMobile = !!mobile || !Array.isArray(cols);
   const rowRef = useRef(null);
-  useEffect(() => { if (focused) rowRef.current?.scrollIntoView?.({ block: 'nearest' }); }, [focused]);
+  // The highlighted row takes real focus (preventScroll: scrollIntoView
+  // places it), so :focus-visible draws the ring and a screen reader hears
+  // the move; aria-current says which row the keys are on.
+  useEffect(() => {
+    if (!focused) return;
+    rowRef.current?.scrollIntoView?.({ block: 'nearest' });
+    rowRef.current?.focus?.({ preventScroll: true });
+  }, [focused]);
   const open = () => onOpen(t.id);
   const openConversation = () => onOpen(t.id, 'conversation');
   const toggle = () => onToggle(t.id);
@@ -196,7 +203,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
   // and bulk edit is a desktop job.
   if (isMobile) {
     return (
-      <div ref={rowRef} onClick={open} className="nx-row-hover" data-selected={checked ? 'true' : undefined} data-focused={focused ? 'true' : undefined} style={{
+      <div ref={rowRef} onClick={open} className="nx-row-hover" data-selected={checked ? 'true' : undefined} data-focused={focused ? 'true' : undefined} aria-current={focused ? 'true' : undefined} tabIndex={focused ? -1 : undefined} style={{
         display: 'flex', flexDirection: 'column', gap: 6, padding: '11px 12px',
         borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: rowBg,
       }}>
@@ -409,7 +416,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
   };
 
   return (
-    <div ref={rowRef} onClick={open} className="nx-row-hover" data-selected={checked ? 'true' : undefined} data-focused={focused ? 'true' : undefined} style={{
+    <div ref={rowRef} onClick={open} className="nx-row-hover" data-selected={checked ? 'true' : undefined} data-focused={focused ? 'true' : undefined} aria-current={focused ? 'true' : undefined} tabIndex={focused ? -1 : undefined} style={{
       display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch',
       borderBottom: `1px solid ${NX.border}`, cursor: 'pointer', background: rowBg,
     }}>

@@ -143,6 +143,16 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const deskAccess = useTicketAccess();
   // initialTab: the list's Latest Comment cell lands on the Conversation.
   const [tab, setTab] = useState(initialTab || 'overview');
+  // In the side pane the drawer stays mounted while the SAME ticket's Latest
+  // Comment cell is clicked again: the caller changes initialTab, and that
+  // must still land on the Conversation (Neil, Oct 1) without a remount that
+  // would throw held edits away. Adjusted during render (React's "storing
+  // information from previous renders" pattern), not in an effect.
+  const [seenInitialTab, setSeenInitialTab] = useState(initialTab);
+  if (initialTab !== seenInitialTab) {
+    setSeenInitialTab(initialTab);
+    if (initialTab) setTab(initialTab);
+  }
   // Up here with the other hooks, and NOT next to canRequestControl where it is
   // used, because `if (!t) return null` sits between the two: a hook after that
   // return runs on some renders and not others, which is the one thing React
@@ -181,12 +191,16 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     const onKey = (e) => {
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
       if (e.target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+      // A desk modal over the pane (Create, Save View, bulk Resolve) keeps
+      // its keys: in the pane this drawer is not a dialog, so any dialog the
+      // key came from is one on top of it.
+      if (inline && e.target?.closest?.('[role="dialog"]')) return;
       if (e.key === ']' && navRef.current.onNext) { e.preventDefault(); navRef.current.onNext(); }
       else if (e.key === '[' && navRef.current.onPrev) { e.preventDefault(); navRef.current.onPrev(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [hasNav, navBlocked]);
+  }, [hasNav, navBlocked, inline]);
   const [seenBefore, setSeenBefore] = useState(undefined);
   const [newReplies, setNewReplies] = useState(0);
   const [companies, setCompanies] = useState([]);
@@ -576,9 +590,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const nav = hasNav ? (
     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
       <button type="button" style={{ ...navButton, opacity: onPrev ? 1 : 0.5 }} disabled={!onPrev} onClick={() => onPrev?.()}
-        title="Previous ticket in the list ( [ )"><ChevronLeft size={14} /> Previous</button>
+        title="Previous ticket - press ["><ChevronLeft size={14} /> Previous</button>
       <button type="button" style={{ ...navButton, opacity: onNext ? 1 : 0.5 }} disabled={!onNext} onClick={() => onNext?.()}
-        title="Next ticket in the list ( ] )">Next <ChevronRight size={14} /></button>
+        title="Next ticket - press ]">Next <ChevronRight size={14} /></button>
     </div>
   ) : null;
   return (

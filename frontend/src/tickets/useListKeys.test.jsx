@@ -61,7 +61,8 @@ describe('useListKeys', () => {
   });
 
   it('listens inside a dialog when the caller owns it', () => {
-    document.body.innerHTML = '<div role="dialog"><button id="d">x</button></div>';
+    // Keys from the dialog's body, not from a button in it (a control keeps its own).
+    document.body.innerHTML = '<div role="dialog"><div id="d">x</div></div>';
     const { result } = renderHook(() => useListKeys({ ids: ['a', 'b'], onOpen: vi.fn(), ownsDialog: true }));
     act(() => { key('ArrowDown', document.getElementById('d')); });
     expect(result.current.focusId).toBe('a');
@@ -77,6 +78,50 @@ describe('useListKeys', () => {
     expect(result.current.focusId).toBe('b');
     rerender({ ids: ['a'], enabled: true });
     expect(result.current.focusId).toBeNull();
+  });
+
+  it('leaves Enter and the arrows to a focused control - a button must still activate', () => {
+    document.body.innerHTML = '<button id="b">Create</button><div role="tab" id="t">Mine</div><div class="nx-row-hover"><button id="inrow">Status</button></div>';
+    const onOpen = vi.fn();
+    const { result } = renderHook(() => useListKeys({ ids: ['a', 'b'], onOpen }));
+    act(() => { key('ArrowDown'); });
+    expect(result.current.focusId).toBe('a');
+    let ev;
+    act(() => { ev = key('Enter', document.getElementById('b')); });
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(ev.defaultPrevented).toBe(false);
+    act(() => { key('ArrowDown', document.getElementById('t')); });
+    expect(result.current.focusId).toBe('a');
+    // A control inside a row is the row's: the keys still walk the list.
+    act(() => { key('ArrowDown', document.getElementById('inrow')); });
+    expect(result.current.focusId).toBe('b');
+  });
+
+  it('does not open or clear a highlight whose row has left the list', () => {
+    const onOpen = vi.fn();
+    const { result, rerender } = renderHook(({ ids }) => useListKeys({ ids, onOpen }), { initialProps: { ids: ['a', 'b'] } });
+    act(() => { key('ArrowDown'); });
+    expect(result.current.focusId).toBe('a');
+    rerender({ ids: ['b'] });
+    expect(result.current.focusId).toBeNull();
+    act(() => { key('Enter'); });
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it('waits for onMove when it answers with a promise, and ignores a second move meanwhile', async () => {
+    let resolve;
+    const onMove = vi.fn(() => new Promise((r) => { resolve = r; }));
+    const { result } = renderHook(() => useListKeys({ ids: ['a', 'b', 'c'], onOpen: vi.fn(), onMove }));
+    act(() => { key('ArrowDown'); });
+    expect(onMove).toHaveBeenCalledWith('a');
+    expect(result.current.focusId).toBeNull();          // not yet - the guard is asking
+    act(() => { key('ArrowDown'); });
+    expect(onMove).toHaveBeenCalledTimes(1);            // a held key does not stack
+    await act(async () => { resolve(false); });
+    expect(result.current.focusId).toBeNull();          // Keep Editing: the highlight stays put
+    act(() => { key('ArrowDown'); });
+    await act(async () => { resolve(true); });
+    expect(result.current.focusId).toBe('a');
   });
 
   it('swallows the arrow key so the page does not scroll', () => {

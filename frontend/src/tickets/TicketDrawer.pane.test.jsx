@@ -88,6 +88,28 @@ describe('TicketDrawer as a pane', () => {
     field.remove();
   });
 
+  it('a changed initialTab re-targets the open drawer without a remount - the held edit survives', async () => {
+    const { rerender } = render(<TicketDrawer inline ticketId="t1" onClose={() => {}} />);
+    const prioritySelect = () => screen.getAllByRole('combobox').find((el) => [...el.options].some((o) => o.value === 'urgent'));
+    fireEvent.change(prioritySelect(), { target: { value: 'high' } });
+    rerender(<TicketDrawer inline ticketId="t1" onClose={() => {}} initialTab="conversation" />);
+    expect(await screen.findByText('No comments yet.')).toBeTruthy();   // the Conversation is showing
+    fireEvent.click(screen.getByRole('button', { name: /Overview/ }));
+    expect(prioritySelect().value).toBe('high');
+  });
+
+  it('[ and ] from a dialog over the pane are that dialog\'s, not the pane\'s', () => {
+    const onNext = vi.fn();
+    render(<TicketDrawer inline ticketId="t1" onClose={() => {}} onPrev={null} onNext={onNext} />);
+    const dlg = document.createElement('div'); dlg.setAttribute('role', 'dialog');
+    const btn = document.createElement('button'); dlg.appendChild(btn); document.body.appendChild(dlg);
+    key(']', btn);
+    expect(onNext).not.toHaveBeenCalled();
+    dlg.remove();
+    key(']');
+    expect(onNext).toHaveBeenCalledTimes(1);
+  });
+
   it('the inline close button goes through the same close as the popup', () => {
     const onClose = vi.fn();
     render(<TicketDrawer inline ticketId="t1" onClose={onClose} />);
