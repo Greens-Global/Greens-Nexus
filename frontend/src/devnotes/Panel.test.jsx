@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 
 // The Build Mode panel (Oct 24 2026): Send To Claude Code is disabled with a
 // hint while the collecting session is empty, enabled once an open pin is in.
@@ -261,5 +261,42 @@ describe('Panel - your own Claude Code (Oct 26 2026)', () => {
     await screen.findByText('Broken');
     await waitFor(() => expect(screen.getByRole('button', { name: /Send To Claude Code/ })).not.toBeDisabled());
     expect(screen.queryByRole('listbox')).toBeNull();
+  });
+});
+
+// Hold to confirm (Neil, Oct 30 2026): revoking one token is held on its row -
+// no inline Revoke? / Keep step; a refusal rewinds the button with the reason.
+describe('Panel - Revoke a Build Token', () => {
+  const token = { id: 't9', label: 'Neil MacBook', email: 'neil@greensglobal.com', createdAt: '2026-10-24T16:00:00Z', expiresAt: '2026-11-23T16:00:00Z' };
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('revokes on a full hold and re-reads the list', async () => {
+    const { api } = await import('../api');
+    api.devNotesTokens.mockImplementation(() => Promise.resolve([token]));
+    api.devNotesTokenRevoke = vi.fn(() => Promise.resolve({}));
+    render(<Panel {...props} tab="settings" />);
+    const btn = await screen.findByRole('button', { name: 'Revoke Neil MacBook, press and hold' });
+    expect(screen.queryByText('Revoke?')).toBeNull();
+    vi.useFakeTimers();
+    fireEvent.pointerDown(btn, { button: 0, pointerId: 1 });
+    await act(async () => { vi.advanceTimersByTime(1200); });
+    expect(api.devNotesTokenRevoke).toHaveBeenCalledWith('t9');
+    const reads = api.devNotesTokens.mock.calls.length;
+    await act(async () => { vi.advanceTimersByTime(700); });
+    expect(api.devNotesTokens.mock.calls.length).toBe(reads + 1);
+    api.devNotesTokens.mockImplementation(() => Promise.resolve([]));
+  });
+
+  it('a refused revoke rewinds with the reason', async () => {
+    const { api } = await import('../api');
+    api.devNotesTokens.mockImplementation(() => Promise.resolve([token]));
+    api.devNotesTokenRevoke = vi.fn(() => Promise.reject(new Error('That token is not yours.')));
+    render(<Panel {...props} tab="settings" />);
+    const btn = await screen.findByRole('button', { name: 'Revoke Neil MacBook, press and hold' });
+    vi.useFakeTimers();
+    fireEvent.pointerDown(btn, { button: 0, pointerId: 1 });
+    await act(async () => { vi.advanceTimersByTime(1200); });
+    expect(screen.getByRole('alert').textContent).toBe('That token is not yours.');
+    api.devNotesTokens.mockImplementation(() => Promise.resolve([]));
   });
 });
