@@ -22,6 +22,12 @@ vi.mock('../api', () => ({ api: {
 } }));
 vi.mock('./myDay', () => ({ useMyDay: () => myDay }));
 vi.mock('./TaskDetailDrawer', () => ({ default: ({ taskId }) => <div data-testid="drawer">{taskId}</div> }));
+// Add Several is its own tested surface; here only that the add row opens it with the right defaults.
+vi.mock('./AddSeveralModal', () => ({ default: ({ defaults, onDone, onClose }) => (
+  <div data-testid="add-several" data-defaults={JSON.stringify(defaults)}>
+    <button type="button" onClick={() => { onDone?.({ created: 3, topLevelIds: ['a', 'b'] }); onClose?.(true); }}>Finish Several</button>
+  </div>
+) }));
 vi.mock('./ManageView', () => ({ DeletedTasksTab: () => null }));
 vi.mock('../components/AnchoredMenu', () => ({ default: ({ open, children }) => (open ? <div>{children}</div> : null) }));
 vi.mock('./components', async (orig) => {
@@ -271,6 +277,35 @@ describe('quick add', () => {
     expect(store.createTask.mock.calls[0][0]).toMatchObject({ title: 'Call the inspector', dueOn: '' });
     expect(box.value).toBe('');
     await act(async () => { resolve({ id: 'new' }); });
+  });
+
+  it('a pasted list opens Add Several with the typed text first, and the new undated tasks are shown', async () => {
+    store.createTask = vi.fn(() => Promise.resolve({ id: 'new' }));
+    store.tasks = [task({ title: 'Undated one', dueOn: '' })];
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: /Create Task/ }));
+    const box = screen.getByRole('textbox', { name: 'Task Name' });
+    fireEvent.change(box, { target: { value: 'Typed first' } });
+    fireEvent.paste(box, { clipboardData: { getData: () => 'Call the bank\nFile the receipts' } });
+    const modal = await screen.findByTestId('add-several');
+    const d = JSON.parse(modal.dataset.defaults);
+    expect(d).toMatchObject({ text: 'Typed first\nCall the bank\nFile the receipts', dueOn: '', assigneeIds: [ME], source: 'paste' });
+    expect(store.createTask).not.toHaveBeenCalled();
+    expect(screen.queryByText('Undated one')).toBeNull();   // folded under No Due Date
+    fireEvent.click(screen.getByRole('button', { name: 'Finish Several' }));
+    expect(screen.getByRole('status', { name: '' })).toHaveTextContent('2 tasks added');
+    expect(screen.getByText('Undated one')).toBeTruthy();   // the fold opened
+  });
+
+  it('a one-line paste types in as before', async () => {
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: /Create Task/ }));
+    const box = screen.getByRole('textbox', { name: 'Task Name' });
+    const out = fireEvent.paste(box, { clipboardData: { getData: () => 'Just one\n' } });
+    expect(out).toBe(true);
+    expect(screen.queryByTestId('add-several')).toBeNull();
   });
 
   it('a click outside the row saves; a click inside it does not', async () => {

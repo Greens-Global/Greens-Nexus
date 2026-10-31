@@ -20,6 +20,11 @@ vi.mock('./components', async (orig) => {
 vi.mock('../components/AnchoredMenu', () => ({ default: ({ open, children }) => (open ? <div>{children}</div> : null) }));
 let state;
 vi.mock('./TasksContext', () => ({ useTasks: () => state }));
+vi.mock('./AddSeveralModal', () => ({ default: ({ defaults, onDone, onClose }) => (
+  <div data-testid="add-several" data-defaults={JSON.stringify(defaults)}>
+    <button type="button" onClick={() => { onDone?.({ created: 2, topLevelIds: ['a'] }); onClose?.(true); }}>Finish Several</button>
+  </div>
+) }));
 
 const lib = await import('./lib');
 const M = await import('./myDay');
@@ -258,6 +263,22 @@ describe('My Day tab', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Suggestions/ }));
     const sheet = screen.getByRole('dialog', { name: 'Suggestions' });
     expect(within(sheet).getByText(/No suggestions right now/)).toBeTruthy();
+  });
+});
+
+describe('My Day add row paste', () => {
+  it('a pasted list opens Add Several due the day shown, and says how many were added', async () => {
+    state = makeStore([]);
+    const day = lib.todayISO();
+    apiOverride.getMyDay = () => Promise.resolve(payload(day));
+    render(<MyDayView onOpen={() => {}} />);
+    const box = await screen.findByLabelText('Add a task for today');
+    fireEvent.paste(box, { clipboardData: { getData: () => 'One\nTwo' } });
+    const modal = await screen.findByTestId('add-several');
+    expect(JSON.parse(modal.dataset.defaults)).toMatchObject({ text: 'One\nTwo', dueOn: day, assigneeIds: [ME], source: 'paste' });
+    expect(state.createTask).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Finish Several' }));
+    expect(screen.getByText('1 task added for today')).toBeTruthy();
   });
 });
 

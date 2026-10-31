@@ -114,7 +114,8 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   return (
     <BottomSheet title="New Task" onClose={onClose}>
       {several && (
-        <AddSeveralModal defaults={{ text: several, dueOn, assigneeIds, priority, customFieldValues: cfValues, source: 'paste' }}
+        <AddSeveralModal defaults={{ text: title.trim() ? `${title.trim()}\n${several}` : several, dueOn, assigneeIds, priority, customFieldValues: cfValues, source: 'paste',
+          projectId, lockedProjectId: lockedProject ? projectId : '', status: defaults.status || '', teamId: defaults.teamId || '' }}
           onClose={(added) => { setSeveral(''); if (added) onClose(); }} />
       )}
       <div onPaste={onPaste} tabIndex={0} style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: FONT }}>

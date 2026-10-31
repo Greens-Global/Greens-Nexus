@@ -32,6 +32,18 @@ describe('parseTaskLines', () => {
   it('a lone bullet with no text is dropped', () => {
     expect(parseTaskLines('-\n- Real')).toEqual([{ title: 'Real', depth: 0 }]);
   });
+
+  it('old-Mac line endings, lettered markers and ticked boxes', () => {
+    expect(parseTaskLines('One\rTwo\rThree').map((l) => l.title)).toEqual(['One', 'Two', 'Three']);
+    expect(parseTaskLines('a. First\nb) Second\n[x] Third').map((l) => l.title)).toEqual(['First', 'Second', 'Third']);
+    // "e.g." is not a marker: the marker needs a space or the end after it.
+    expect(parseTaskLines('e.g. Call\nx')[0].title).toBe('e.g. Call');
+  });
+
+  it('a long title is sent whole - the server cuts it and says so', () => {
+    const long = 'x'.repeat(620);
+    expect(parseTaskLines(`${long}\nshort`)[0].title).toHaveLength(620);
+  });
 });
 
 describe('isTaskList', () => {
@@ -41,6 +53,8 @@ describe('isTaskList', () => {
     expect(isTaskList('One\nTwo')).toBe(true);
     expect(isTaskList('One\r\n\r\nTwo')).toBe(true);
     expect(isTaskList('')).toBe(false);
+    // A trailing lone dash (editors leave one) does not make a one-liner a list.
+    expect(isTaskList('Call the bank\n-')).toBe(false);
   });
 });
 
@@ -63,6 +77,12 @@ describe('importRowsFor', () => {
     expect(rows[1].custom).toBeUndefined();
     expect(rows[1].assignees).toBe('ana@greensglobal.com, ben@greensglobal.com');
     expect(rows[1].due).toBe('2026-11-05');
+  });
+
+  it('hands tags, a start date and a status to every row', () => {
+    const rows = importRowsFor(parseTaskLines('A\n\tB'), { tags: ['Q4', 'Ops'], startOn: '2026-11-01', status: 'in_progress' });
+    expect(rows[0]).toMatchObject({ tags: 'Q4, Ops', start: '2026-11-01', status: 'in_progress' });
+    expect(rows[1]).toMatchObject({ parent: '1', tags: 'Q4, Ops', start: '2026-11-01', status: 'in_progress' });
   });
 
   it('sends nothing for an empty shared field', () => {

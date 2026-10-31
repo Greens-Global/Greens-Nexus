@@ -349,6 +349,9 @@ export default function MyDayView({ onOpen }) {
   };
   const [several, setSeveral] = useState('');   // the pasted list while Add Several is open
   const [severalNote, setSeveralNote] = useState('');
+  const noteTimer = useRef(null);
+  const noteAdded = (msg) => { clearTimeout(noteTimer.current); setSeveralNote(msg); noteTimer.current = setTimeout(() => setSeveralNote(''), 4000); };
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
   const quickAdd = async (title) => {
     let created;
     try {
@@ -421,7 +424,7 @@ export default function MyDayView({ onOpen }) {
           {several && (
             <AddSeveralModal defaults={{ text: several, dueOn: day || todayISO(), assigneeIds: store.myEmail ? [store.myEmail] : [], source: 'paste' }}
               onClose={() => setSeveral(null)}
-              onDone={(r) => { const n = r?.created || 0; setSeveralNote(`${n} task${n === 1 ? '' : 's'} added for today`); setTimeout(() => setSeveralNote(''), 4000); }} />
+              onDone={(r) => { const n = r?.topLevelIds?.length ?? r?.created ?? 0; noteAdded(`${n} task${n === 1 ? '' : 's'} added for today`); }} />
           )}
           {body}
         </div>

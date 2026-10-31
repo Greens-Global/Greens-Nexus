@@ -355,7 +355,12 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
               aria-label="Title" style={{ ...input, flex: 1, minWidth: 0 }}
               onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
               // A list on the clipboard (two or more lines) is many tasks: Add Several takes it.
-              onPaste={(e) => { if (isEdit) return; const list = pastedTaskList(e); if (list) { e.preventDefault(); setSeveral({ text: list, source: 'paste' }); } }} />
+              onPaste={(e) => {
+                if (isEdit) return;
+                const list = pastedTaskList(e);
+                // Text already typed in the box stays, as the first line.
+                if (list) { e.preventDefault(); setSeveral({ text: form.title.trim() ? `${form.title.trim()}\n${list}` : list, source: 'paste' }); }
+              }} />
             <DictateButton target={titleRef} title="Dictate the Title" />
           </div>
           {/* Say It fills a NEW task from one sentence; an edit keeps its fields. */}
@@ -660,8 +665,10 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           list is added this form closes too - the tasks are made. */}
       {several && (
         <AddSeveralModal
-          defaults={{ text: several.text, source: several.source, projectId: lockedProjectId || form.projectId || '', assigneeIds: form.assigneeIds,
-            dueOn: form.dueOn || '', priority: form.priority, customFieldValues: form.customFieldValues }}
+          defaults={{ text: several.text, source: several.source, fromForm: true,
+            projectId: lockedProjectId || form.projectId || '', lockedProjectId, assigneeIds: form.assigneeIds,
+            dueOn: form.dueOn || '', startOn: form.startOn || '', priority: form.priority, status: form.recurFreq !== 'none' ? '' : form.status,
+            tags: form.labels, teamId: form.teamId || '', customFieldValues: form.customFieldValues }}
           onClose={(added) => { setSeveral(null); if (added) onClose(true); }} />
       )}
     </Modal>

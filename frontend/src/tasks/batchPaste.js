@@ -10,9 +10,14 @@
 // One task per line. A line indented under the one above (a tab, or two or
 // more spaces) is its subtask; deeper indents fold to that one level - a
 // task list is flat or one level deep, as the task drawer draws it. Bullets
-// ("-", "*", "•", "1.", "1)", "[ ]", "☐") are stripped, blank lines dropped.
+// ("-", "*", "•", "1.", "1)", "a.", "a)", "[ ]", "[x]", "☐") are stripped,
+// blank lines dropped; a ticked box is still an open task - the list is what
+// is still to do. A title is sent whole: the server cuts one over 500 and
+// says so in the dry run (the modal shows that warning).
 
-const BULLET = /^(?:[-*•◦▪‣]|\d{1,3}[.)]|\[[ xX]?\]|☐|☑|✓|✔)(?:\s+|$)/;
+const BULLET = /^(?:[-*•◦▪‣]|\d{1,3}[.)]|[a-zA-Z][.)]|\[[ xX]?\]|☐|☑|✓|✔)(?:\s+|$)/;
+// Windows, Unix and old-Mac line endings alike.
+const LINE_END = /\r\n?|\n/;
 
 /** Levels of indentation a line's leading whitespace reads as: a tab is one,
  *  every two spaces one (four-space indents still read as a level each). */
@@ -38,7 +43,7 @@ function stripBullets(text) {
  *  depth-0 line above). The shallowest line sets the base, so a whole list
  *  pasted with a common indent is flat. */
 export function parseTaskLines(text) {
-  const raw = String(text || '').split(/\r?\n/)
+  const raw = String(text || '').split(LINE_END)
     .filter((l) => l.trim())
     .map((l) => ({ indent: indentOf(l), title: stripBullets(l) }))
     .filter((l) => l.title);
@@ -50,15 +55,16 @@ export function parseTaskLines(text) {
     let depth = l.indent - base;
     if (i === 0) depth = 0;                 // nothing above to be under
     depth = Math.min(depth, prev + 1, 1);   // never a jump, never deeper than a subtask
-    out.push({ title: l.title.slice(0, 500), depth });
+    out.push({ title: l.title, depth });
     prev = depth;
   });
   return out;
 }
 
-/** Two or more lines with text on them: a list, not a title. */
+/** Two or more lines that read as tasks: a list, not a title. A trailing
+ *  lone dash (editors leave one) does not make a one-liner a list. */
 export function isTaskList(text) {
-  return String(text || '').split(/\r?\n/).filter((l) => l.trim()).length >= 2;
+  return parseTaskLines(text).length >= 2;
 }
 
 export function countLines(lines) {

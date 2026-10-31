@@ -151,6 +151,10 @@ export default function HomeView({ onNavigate }) {
   // A list pasted into the add row (Oct 31 2026): many tasks at once, confirmed in Add Several.
   const [several, setSeveral] = useState(null);   // { text, dueOn } while the modal is open
   const [addedNote, setAddedNote] = useState('');
+  // One timer for the note: a second list within 4s is not wiped by the first's timer, and an unmount clears it.
+  const noteTimer = useRef(null);
+  const noteAdded = (msg) => { clearTimeout(noteTimer.current); setAddedNote(msg); noteTimer.current = setTimeout(() => setAddedNote(''), 4000); };
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
   const [newTitle, setNewTitle] = useState('');
   const [newDue, setNewDue] = useState(null);
   // The quick-add row saves when you leave it - Enter, Tab away, or a click
@@ -572,7 +576,15 @@ export default function HomeView({ onNavigate }) {
               onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(false); if (e.key === 'Escape') cancelCreate(); }}
               // Two or more lines on the clipboard are a list, not a name: Add
               // Several takes them (one task per line) - a one-line paste is typed in as before.
-              onPaste={(e) => { const list = pastedTaskList(e); if (list) { e.preventDefault(); const due = newDue; cancelCreate(); setSeveral({ text: list, dueOn: due || '' }); } }}
+              onPaste={(e) => {
+                const list = pastedTaskList(e);
+                if (!list) return;
+                e.preventDefault();
+                // The due date and any text already typed travel; the typed text is the first line.
+                const due = newDue; const typed = newTitle.trim();
+                cancelCreate();
+                setSeveral({ text: typed ? `${typed}\n${list}` : list, dueOn: due || '' });
+              }}
               // Keyboard focus leaving the row saves; a pointer leaving it is the
               // document listener above (a click inside the calendar moves
               // focus too, and must not save).
@@ -593,7 +605,13 @@ export default function HomeView({ onNavigate }) {
         {several && (
           <AddSeveralModal defaults={{ text: several.text, dueOn: several.dueOn, assigneeIds: myEmail ? [myEmail] : [], source: 'paste' }}
             onClose={() => setSeveral(null)}
-            onDone={(r) => { const n = r?.created || 0; setAddedNote(`${n} task${n === 1 ? '' : 's'} added`); setTimeout(() => setAddedNote(''), 4000); }} />
+            onDone={(r) => {
+              // Top-level tasks, as the button counted them (subtasks ride along).
+              const n = r?.topLevelIds?.length ?? r?.created ?? 0;
+              noteAdded(`${n} task${n === 1 ? '' : 's'} added`);
+              // Undated tasks live under the collapsed No Due Date fold - open it so the new ones show.
+              if (!several?.dueOn) setShowUndated(true);
+            }} />
         )}
         <div id="home-tasks-panel" role="tabpanel" aria-label={pick ? pickLabel : tab}>{tasksList()}</div>
       </div>
