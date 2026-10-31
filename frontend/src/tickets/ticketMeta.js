@@ -10,7 +10,7 @@ export const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 // The UTC day. Only the date fallback for a ticket with no slaDueAt still
 // compares days (the server's _sla_breached does the same for such a row);
 // everything else is a moment - see slaState.
-export const today = () => new Date().toISOString().slice(0, 10);
+export const today = (now = Date.now()) => new Date(now).toISOString().slice(0, 10);
 
 // ── Ticket issue types ───────────────────────────────────────────────────────
 // `hint` is the one-line, plain-English "which one am I?" shown under the Type
@@ -426,20 +426,22 @@ export const fmtMoment = (iso) => (iso ? `${formatDate(asUtc(iso))} ${formatTime
 // urgent ticket's 24, 42 h of a low one's week), and never less than an hour.
 const atRiskMs = (t) => Math.max(1, (SLA_TARGET_HOURS[t.priority] ?? 72) / 4) * 3600 * 1000;
 // 'breached' | 'at_risk' | 'ok' | 'paused' | 'none'
-export function slaState(t) {
+// `now` (ms) lets a caller that counts many rows at once (the desk's queue
+// tabs) read them all against one clock; every other caller takes the default.
+export function slaState(t, now = Date.now()) {
   if (CLOSED_STATES.includes(t.status)) return 'none';
   if (t.slaDueAt) {
     if (slaPaused(t)) return 'paused';
-    const left = msOf(t.slaDueAt) - Date.now();
+    const left = msOf(t.slaDueAt) - now;
     if (Number.isNaN(left)) return 'none';
     if (left < 0) return 'breached';
     return left <= atRiskMs(t) ? 'at_risk' : 'ok';
   }
   // A row with no deadline yet (from before the datetime existed): its date.
   if (!t.slaDueOn) return 'none';
-  const now = today();
-  if (t.slaDueOn < now) return 'breached';
-  const soon = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const todayStr = today(now);
+  if (t.slaDueOn < todayStr) return 'breached';
+  const soon = new Date(now + 24 * 3600 * 1000).toISOString().slice(0, 10);
   if (t.slaDueOn <= soon) return 'at_risk';
   return 'ok';
 }
@@ -459,6 +461,75 @@ export function firstResponseState(t) {
   if (slaPaused(t)) return 'paused';
   return msOf(t.firstResponseDueAt) < Date.now() ? 'overdue' : 'due';
 }
+// ── Next Clock (Tickets desk re-cut, Neil 10/31/2026) - the ONE SLA wording on
+// a list row: whichever clock bites next, in words, with the exact deadline
+// in the tooltip. The reply clock while no first response has gone out (never
+// for a ticket its assignee raised for themselves), then the resolution clock;
+// a paused ticket says so and sorts after every live clock; resolved / closed
+// is empty. Red only when overdue, amber inside the at-risk window, plain
+// otherwise - so a red cell means something again. `now` is injectable for
+// tests. ──
+const HOUR_MS = 3600 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+// "30m" / "5h" / "3d" - days past a week too (an "Overdue 27d" is a fact the
+// desk should see), never months.
+export function spanWords(ms) {
+  const abs = Math.abs(ms);
+  if (abs < HOUR_MS) return `${Math.max(1, Math.floor(abs / 60000))}m`;
+  if (abs < DAY_MS) return `${Math.floor(abs / HOUR_MS)}h`;
+  return `${Math.floor(abs / DAY_MS)}d`;
+}
+// A date-only deadline (rows from before the datetime) is due at the end of
+// that local day.
+const endOfLocalDay = (ymd) => {
+  const [y, m, d] = String(ymd).split('-').map(Number);
+  return y && m && d ? new Date(y, m - 1, d, 23, 59, 59, 999).getTime() : NaN;
+};
+const PAUSED_AT = Number.MAX_SAFE_INTEGER;   // after every live clock, before "none" (Infinity)
+export function nextClock(t, now = Date.now()) {
+  const none = { kind: 'none', state: 'none', label: '', title: '', at: Infinity };
+  if (!t || CLOSED_STATES.includes(t.status)) return none;
+  if (slaPaused(t)) {
+    const since = msOf(t.slaPausedAt);
+    const known = !Number.isNaN(since);
+    return {
+      kind: 'paused', state: 'paused', at: PAUSED_AT,
+      label: known ? `Paused · ${spanWords(now - since)}` : 'Paused',
+      title: known ? `Paused since ${fmtMoment(t.slaPausedAt)}` : 'SLA clock paused',
+    };
+  }
+  const selfServed = !!t.requesterId && t.requesterId.toLowerCase() === (t.assigneeId || '').toLowerCase();
+  let kind; let at; let title; let riskMs;
+  if (!t.firstResponseAt && t.firstResponseDueAt && !selfServed) {
+    kind = 'reply'; at = msOf(t.firstResponseDueAt);
+    title = `First response due ${fmtMoment(t.firstResponseDueAt)}`;
+    riskMs = Math.max(1, (FIRST_RESPONSE_HOURS[t.priority] ?? 24) / 4) * HOUR_MS;
+  } else if (t.slaDueAt) {
+    kind = 'resolve'; at = msOf(t.slaDueAt);
+    title = `Resolution due ${fmtMoment(t.slaDueAt)}`;
+    riskMs = atRiskMs(t);
+  } else if (t.slaDueOn) {
+    kind = 'resolve'; at = endOfLocalDay(t.slaDueOn);
+    title = `Resolution due ${fmtDate(t.slaDueOn)}`;
+    riskMs = DAY_MS;
+  } else return none;
+  if (Number.isNaN(at)) return none;
+  const left = at - now;
+  const prefix = kind === 'reply' ? 'reply ' : '';
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  if (left < 0) return { kind, state: 'overdue', at, title, label: cap(`${prefix}overdue ${spanWords(left)}`) };
+  const state = left <= riskMs ? 'at_risk' : 'ok';
+  const label = left < 7 * DAY_MS ? `${prefix}due in ${spanWords(left)}` : `${prefix}due ${formatDate(new Date(at))}`;
+  return { kind, state, at, title, label: cap(label) };
+}
+// The color the Next Clock cell takes: red overdue, amber at risk, slate
+// paused, dim otherwise.
+export const NEXT_CLOCK_META = {
+  overdue: { color: NX.red,   Icon: ShieldAlert },
+  at_risk: { color: NX.amber, Icon: Timer },
+  paused:  { color: '#64748b', Icon: CirclePause },
+};
+
 export const SLA_META = {
   breached: { label: 'SLA Breached', color: NX.red, tint: 'rgba(220,38,38,0.14)', Icon: ShieldAlert },
   at_risk:  { label: 'Due Soon',     color: NX.amber, tint: 'rgba(217,119,6,0.16)', Icon: Timer },

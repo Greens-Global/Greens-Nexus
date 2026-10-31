@@ -278,6 +278,21 @@ keep the diff minimal.
   Tasks Home: on a wide window the Updates card leads (left column, first
   in the DOM) and Tasks + Bookmarks stack on the right; a feed that loaded
   empty leaves Tasks on the left; phones stay Tasks, Updates, Bookmarks.
+- **The Tickets desk is queues, not tiles** (Neil, 10/31/2026): the main
+  page's tabs (`tickets/queues.js`, in this order: Needs Reply, Unassigned,
+  Mine, Due Soon, Waiting, All Open, Done, then To Route / To Approve when
+  non-empty, then the person's saved views, then Raised by Me, then "+ View")
+  are filter presets over the tickets TasksContext holds, counted over the
+  WHOLE workspace (no count pill on Done, All Open or Raised by Me). The
+  server's `needsReply` flag on every `GET /task-tickets` row (`_needs_reply`
+  in routers/tickets.py) decides Needs Reply; the client copy in queues.js
+  is only a fallback for a row that arrived without the flag and must stay
+  identical to `_needs_reply`. The row's Next Clock
+  (`ticketMeta.nextClock`) is the ONE SLA wording on the list - red only
+  when overdue. The side pane (a row opens beside the list, ↑ ↓ Enter and
+  Previous / Next step the queue) is a per-person layout stored with the
+  list's columns (`useTableValue('tickets-v3', 'layout')`), desktop List
+  view only; phones, the Board, Reports and Support keep the popup drawer.
 - Timesheets are approved through review + Nexus Sign (`timesheet_review.py`;
   ONLY THE EMPLOYEE SIGNS - Neil, Oct 16 2026). After the period's last day
   the manager (else the company's HR contact; nobody at all = the Global
