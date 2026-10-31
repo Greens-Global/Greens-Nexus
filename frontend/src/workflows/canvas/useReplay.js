@@ -25,7 +25,7 @@ export const NODE_MS = 260;
 export const WAIT_MS = 1100;
 export const HOLD_MS = 2600;
 
-const NODE_CLASS = { lit: 'wfc-lit', waitlit: 'wfc-waitlit', failed: 'wfc-failed', skipped: 'wfc-skipped' };
+const NODE_CLASS = { lit: 'wfc-lit', waitlit: 'wfc-waitlit', failed: 'wfc-failed', skipped: 'wfc-skippedrun' };
 const EMPTY = { plan: null, nodes: {}, live: '', hot: {} };
 const key = (from, to) => `${from}>${to}`;
 const usable = (replay) => !!replay && Array.isArray(replay.order) && replay.order.length > 0;

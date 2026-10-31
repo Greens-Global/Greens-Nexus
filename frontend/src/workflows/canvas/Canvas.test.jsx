@@ -92,7 +92,8 @@ describe('Canvas', () => {
   });
 
   it('wears the replay statuses it is handed', () => {
-    mount({ replay: { order: ['trigger', 'gate', 'a1'], statusById: { a1: 'done', w1: 'waiting' }, note: 'Replaying run from 10/30/2026' } });
+    // the order is the path the run took (replayPlan); a status is worn only by a block on it
+    mount({ replay: { order: ['trigger', 'gate', 'a1', 'w1'], statusById: { trigger: 'done', a1: 'done', w1: 'waiting' }, note: 'Replaying run from 10/30/2026' } });
     expect(screen.getByRole('button', { name: /^Action: Send A Notification/i })).toHaveClass('wfc-lit');
     expect(screen.getByRole('button', { name: /^Wait: / })).toHaveClass('wfc-waitlit');
     expect(screen.getByRole('status')).toHaveTextContent('Replaying run from 10/30/2026');

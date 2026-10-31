@@ -16,6 +16,7 @@ import { bezierPoint, layout as layoutDefinition } from './layout';
 import { gridStyle } from './viewport';
 import { useCanvasView } from './useCanvasView';
 import { useDragDrop } from './useDragDrop';
+import { useReplay } from './useReplay';
 import { canMove as canMoveStep, insertKind, moveBetween } from './edits';
 import CanvasNode from './CanvasNode';
 import Minimap from './Minimap';
@@ -29,11 +30,9 @@ const EASE = 'cubic-bezier(.16,1,.3,1)';
 const SPRING = 'cubic-bezier(.34,1.4,.64,1)';
 const edgeKey = (e) => `${e.from}>${e.to}`;
 
-const REPLAY_CLASS = { done: 'wfc-lit', succeeded: 'wfc-lit', planned: 'wfc-lit', waiting: 'wfc-waitlit', retry: 'wfc-waitlit', failed: 'wfc-failed', skipped: 'wfc-skippedrun' };
-
 export default function Canvas({
   definition, catalog, ctx, skin = 'paper', onSkin, selectedId = null, onSelect, onChange, canEdit = true,
-  workflowStatus = 'draft', blanks = [], replay = null, panel = null, overlay = null, people = [], isNew, entityDef, eventDef, initialView = null,
+  workflowStatus = 'draft', blanks = [], replay = null, onReplayDone = null, panel = null, overlay = null, people = [], isNew, entityDef, eventDef, initialView = null,
 }) {
   const sheetRef = useRef(null);
   const worldRef = useRef(null);
@@ -110,17 +109,9 @@ export default function Canvas({
     prevPos.current = pos; prevD.current = ds;
   }, [L, animate]);
 
-  // ── replay classes (the sequencer hands statuses in; this just wears them) ──
-  const replayNode = useMemo(() => {
-    const m = new Map(); if (!replay) return m;
-    Object.entries(replay.statusById || {}).forEach(([id, st]) => { if (REPLAY_CLASS[st]) m.set(id, REPLAY_CLASS[st]); });
-    return m;
-  }, [replay]);
-  const replayEdges = useMemo(() => {
-    const s = new Set(); const order = replay?.order || [];
-    for (let i = 1; i < order.length; i++) s.add(`${order[i - 1]}>${order[i]}`);
-    return s;
-  }, [replay]);
+  // ── replay: useReplay tells the run's story one block at a time (all at
+  // once under reduced motion and in tests); the sheet just wears the classes ──
+  const rp = useReplay(replay, { reduced: reduced || TEST, onDone: onReplayDone });
 
   // ── keyboard: Escape clears the selection from the sheet too ──
   useEffect(() => {
@@ -166,7 +157,7 @@ export default function Canvas({
               {L.edges.map((e) => {
                 const key = edgeKey(e);
                 const toEnd = e.to === 'tail' || e.to === 'fault-tail' || e.to.startsWith('frame-');
-                const cls = ['wfc-edge', e.dashed ? 'is-dashed' : '', armed === `h-${e.id}` ? 'wfc-hot' : '', replayEdges.has(key) ? 'wfc-hot' : ''].filter(Boolean).join(' ');
+                const cls = ['wfc-edge', e.dashed ? 'is-dashed' : '', armed === `h-${e.id}` ? 'wfc-hot' : '', rp.edgeClass(`wfc-${e.id}`, e.from, e.to)].filter(Boolean).join(' ');
                 const lbl = e.label ? bezierPoint(e.a, e.b, 0.36) : null;
                 const lw = e.label ? e.label.length * 6.6 + 14 : 0;
                 return (
@@ -184,7 +175,7 @@ export default function Canvas({
               selected={selectedId === n.id}
               blank={n.step && n.path && n.path.length === 1 && isBlankStep(blanks, n.index, n.step.id)}
               listening={n.kind === 'trigger' && workflowStatus === 'active'}
-              replayClass={replayNode.get(n.id) || ''} armed={n.kind === 'ghost' && !!armedPath && armedPath === n.path.join('.')}
+              replayClass={rp.nodeClass(n.id)} armed={n.kind === 'ghost' && !!armedPath && armedPath === n.path.join('.')}
               onPointerDown={nodePointerDown}
               onSelect={n.kind === 'ghost' ? () => insert('action', { path: n.path, index: n.index }) : select} />
           ))}
@@ -199,7 +190,12 @@ export default function Canvas({
         </div>
         <div className="wfc-vignette" aria-hidden="true" />
         {overlay && <div className="wfc-overlay">{overlay}</div>}
-        {replay?.note && <div className="wfc-replaybar" role="status">{replay.note}</div>}
+        {replay && (
+          <div className="wfc-replaybar" role="status">
+            <span>{replay.label || 'Replaying the run'}{replay.note ? ` · ${replay.note}` : ''}</span>
+            <button type="button" className="wfc-replaystop" onClick={() => { rp.stop(); onReplayDone?.({ stoppedAt: null, failed: false }); }}>Stop</button>
+          </div>
+        )}
         {onSkin && (
           <div className="wfc-chrome wfc-skin" role="group" aria-label="Canvas skin">
             <button type="button" aria-pressed={skin === 'paper'} onClick={() => onSkin('paper')}>Paper</button>

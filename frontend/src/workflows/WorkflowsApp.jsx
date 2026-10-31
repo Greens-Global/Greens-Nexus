@@ -84,7 +84,7 @@ export default function WorkflowsApp({ sub, go }) {
     case 'builder':
       screen = (
         <Suspense fallback={<ViewLoading label="Opening the builder" />}>
-          <Builder id={parsed.id} go={go} />
+          <Builder id={parsed.id} runId={parsed.runId || ''} go={go} />
         </Suspense>
       );
       break;
