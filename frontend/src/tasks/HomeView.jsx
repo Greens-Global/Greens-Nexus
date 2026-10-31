@@ -145,6 +145,15 @@ export default function HomeView({ onNavigate }) {
   const [showUndated, setShowUndated] = useState(false);
   const tasksCardRef = useRef(null);
   const toTasksCard = () => { tasksCardRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); };
+  // A focus tile moves the keyboard to the Tasks card's selected tab once the
+  // switch has rendered: with Updates leading at a desk, a plain Tab from the
+  // tile would land in the Updates column first (10/31/2026).
+  const focusTasksTab = useRef(false);
+  useEffect(() => {
+    if (!focusTasksTab.current) return;
+    focusTasksTab.current = false;
+    tasksCardRef.current?.querySelector('[role=tab][aria-selected="true"]')?.focus();
+  });
   // My Tasks opens on the tab it was last left on; My Day's Open sets it first.
   const [, setMineView] = useTableValue('mytasks', 'view', 'list');
   const [creating, setCreating] = useState(false);
@@ -278,6 +287,9 @@ export default function HomeView({ onNavigate }) {
   const [updatesLimit, setUpdatesLimit] = useState(30);
   const [updatesNonce, setUpdatesNonce] = useState(0);
   const [updatesFailed, setUpdatesFailed] = useState(false);
+  // Which card leads the wide core, decided ONCE per visit by the first
+  // answer of the feed (see updatesLead below): 'updates' | 'tasks' | null.
+  const [lead, setLead] = useState(null);
   const updatesRead = useRef(false);
   // Not before the first task data is in (that load would only trigger a
   // second read). The card is core, so it is always on the page.
@@ -295,8 +307,13 @@ export default function HomeView({ onNavigate }) {
     readStamp.current = tasksStamp;
     const timer = setTimeout(() => {
       api.getMyTaskActivity({ limit: updatesLimit })
-        .then((rows) => { if (!alive) return; updatesRead.current = true; setUpdatesFailed(false); setUpdates(Array.isArray(rows) ? rows : []); })
-        .catch(() => { if (alive) setUpdatesFailed(true); });
+        .then((rows) => {
+          if (!alive) return;
+          const list = Array.isArray(rows) ? rows : [];
+          updatesRead.current = true; setUpdatesFailed(false); setUpdates(list);
+          setLead((l) => l ?? (list.length > 0 ? 'updates' : 'tasks'));
+        })
+        .catch(() => { if (!alive) return; setUpdatesFailed(true); setLead((l) => l ?? 'updates'); });
     }, updatesRead.current && taskMoved ? 800 : 0);
     return () => { alive = false; clearTimeout(timer); };
   }, [tasksStamp, showUpdates, updatesLimit, updatesNonce]);
@@ -336,6 +353,7 @@ export default function HomeView({ onNavigate }) {
     if (key === 'overdue') setTab('Overdue');
     else if (key === 'inProgress') setTab('In Progress');
     else { setTab('Upcoming'); setRange(key === 'today' ? 'day' : 'week'); }
+    focusTasksTab.current = true;
     toTasksCard();
   };
   const pickDay = (iso) => { setPick({ kind: 'day', iso }); toTasksCard(); };
@@ -444,12 +462,19 @@ export default function HomeView({ onNavigate }) {
   const coreWide = !isMobile && coreW >= CORE_WIDE;
   // Updates takes the left column unless its feed has loaded with nothing in
   // it (see the core below). A failed read still leads: the notice counts.
-  const updatesLead = coreWide && (updatesFailed || updates === null || updates.length > 0);
+  // Decided ONCE per visit, by the feed's first answer (`lead`, set where the
+  // read lands): a feed that fills up later (the poll, Load More, a row
+  // answered) must not swap the two columns under the person. The only move
+  // left is the one from the loading skeleton (Updates leads) to a feed that
+  // came back empty.
+  const updatesLead = coreWide && (lead ?? 'updates') === 'updates';
   // Takes no height of its own (absolute inside), so the Updates column is
   // exactly as tall as Tasks + Bookmarks - with a floor, for a quiet week
-  // with three tasks and no bookmarks.
+  // with three tasks and no bookmarks. Keyed, like the other two core cells,
+  // so a change of lead MOVES the card (its For You filter, open rows and
+  // scroll kept) instead of unmounting it.
   const updatesColumn = () => (
-    <div style={{ gridArea: 'updates', position: 'relative', minWidth: 0, minHeight: 520 }}>
+    <div key="updates" data-home-updates-column style={{ gridArea: 'updates', position: 'relative', minWidth: 0, minHeight: 520 }}>
       <div style={{ position: 'absolute', inset: 0 }}>{renderWidget('updates')}</div>
     </div>
   );
@@ -736,9 +761,10 @@ export default function HomeView({ onNavigate }) {
           loaded EMPTY (a new hire, no collaborators yet) would put an empty
           state in the primary slot, so that day Tasks keeps the left column
           as before; while the feed is still loading, and when it failed (the
-          notice is worth seeing), Updates leads. Stacked - Tasks, Updates,
-          Bookmarks - on a phone or a narrow window: there the add row and
-          today's work stay above the fold. */}
+          notice is worth seeing), Updates leads. The lead is fixed for the
+          visit by the feed's first answer (`lead`). Stacked - Tasks,
+          Updates, Bookmarks - on a phone or a narrow window: there the add
+          row and today's work stay above the fold. */}
       <div ref={coreRef} data-home-core={coreWide ? 'wide' : 'stacked'} data-home-core-lead={updatesLead ? 'updates' : 'tasks'}
         style={coreWide ? {
           display: 'grid', gap: 16, marginBottom: 16,
@@ -746,10 +772,12 @@ export default function HomeView({ onNavigate }) {
           gridTemplateAreas: updatesLead ? '"updates tasks" "updates bookmarks"' : '"tasks updates" "bookmarks updates"',
           gridTemplateRows: 'auto 1fr',
         } : { display: 'flex', flexDirection: 'column', gap: isMobile ? 12 : 16, marginBottom: 16 }}>
-        {coreWide && updatesLead && updatesColumn()}
-        <div style={{ gridArea: 'tasks', minWidth: 0 }}>{renderWidget('my_tasks')}</div>
-        {coreWide ? (!updatesLead && updatesColumn()) : <div style={{ minWidth: 0 }}>{renderWidget('updates')}</div>}
-        <div style={{ gridArea: 'bookmarks', minWidth: 0 }}>{renderWidget('projects')}</div>
+        {(() => {
+          const tasksCell = <div key="tasks" style={{ gridArea: 'tasks', minWidth: 0 }}>{renderWidget('my_tasks')}</div>;
+          const bookmarksCell = <div key="bookmarks" style={{ gridArea: 'bookmarks', minWidth: 0 }}>{renderWidget('projects')}</div>;
+          if (!coreWide) return [tasksCell, <div key="updates" style={{ minWidth: 0 }}>{renderWidget('updates')}</div>, bookmarksCell];
+          return updatesLead ? [updatesColumn(), tasksCell, bookmarksCell] : [tasksCell, updatesColumn(), bookmarksCell];
+        })()}
       </div>
 
       {/* Customize mode: add-widget tray (only unused widgets) */}
