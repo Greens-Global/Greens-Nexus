@@ -30,6 +30,8 @@ import { checkFormula, normalizeFormat, formulaContext, previewRows, fieldNamePr
 import { groupFieldChanges, foldBulkChanges } from './fieldHistory';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { TeamModal, deptIcon } from './TeamsView';
+import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
+import { dialog } from '../ui/dialog';
 // Manage > Labels, rarely opened: loaded with the tab (a ring meanwhile).
 const LabelsManageTab = lazy(() => import('./LabelsManageTab'));
 
@@ -1573,21 +1575,27 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
     }
   };
 
+  // Delete Forever is a hold (Neil, Oct 30 2026). One item holds on its own
+  // row; a project that took tasks into the bin with it is many records, so
+  // it asks in a dialog that names them and holds there, longer. Either way
+  // a refusal throws and the button rewinds with the reason.
+  const majorPurge = (t) => t.kind === 'project' && !!t.detail;
   const purgeNow = async (t) => {
-    // Naming what else goes with it: purging a project takes its tasks, and
-    // that is not recoverable.
-    const extra = t.detail && t.kind === 'project' ? `\n\nIts ${t.detail} will go too.` : '';
-    if (!window.confirm(`Permanently delete the ${KIND_LABEL[t.kind] || 'item'} "${t.name}"?${extra}\n\nThis cannot be undone.`)) return;
     setBusyId(t.id); setErr('');
     try {
       await api.purgeRecycleItem(t.kind, t.id);
-      drop([t.id]);
     } catch (e) {
-      setErr(e.message || `Could not delete that ${t.kind || 'item'}.`);
+      throw new Error(e.message || `Could not delete that ${t.kind || 'item'}.`, { cause: e });
     } finally {
       setBusyId('');
     }
   };
+  // Naming what else goes with it: purging a project takes its tasks, and
+  // that is not recoverable.
+  const purgeProject = (t) => dialog.confirm(
+    `The project "${t.name}" is deleted for good, and its ${t.detail} go too.\n\nThis cannot be undone.`,
+    { title: 'Delete Project Forever?', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Delete Forever', doneText: 'Deleted',
+      onConfirm: async () => { await purgeNow(t); drop([t.id]); } });
 
   // Batch. Sequential, not Promise.all: a purge cascades subtasks server-side,
   // and firing forty of those at once at rows that reference each other is how
@@ -1597,25 +1605,41 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
   const runBatch = async (action) => {
     const ids = [...picked];
     if (!ids.length) return;
-    if (action === 'purge' && !window.confirm(
-      `Permanently delete ${ids.length} task${ids.length === 1 ? '' : 's'}?\n\nThis cannot be undone.`)) return;
-    setBulkBusy(true); setErr('');
     const done = [];
-    try {
-      for (const id of ids) {
-        const row = rows.find((r) => r.id === id);
-        if (!row) continue;
-        if (action === 'purge') await api.purgeRecycleItem(row.kind, id);
-        else await api.restoreRecycleItem(row.kind, id);
-        done.push(id);
+    const run = async () => {
+      setBulkBusy(true); setErr('');
+      const now = [];
+      try {
+        for (const id of ids) {
+          if (done.includes(id)) continue;     // a second hold after a refusal skips what already went
+          const row = rows.find((r) => r.id === id);
+          if (!row) continue;
+          if (action === 'purge') await api.purgeRecycleItem(row.kind, id);
+          else await api.restoreRecycleItem(row.kind, id);
+          done.push(id); now.push(id);
+        }
+        if (action !== 'purge') store.refresh?.();
+      } catch (e) {
+        const msg = e.message || 'Some of those could not be updated.';
+        if (action === 'purge') throw new Error(msg, { cause: e });
+        setErr(msg);
+      } finally {
+        drop(now);
+        setBulkBusy(false);
       }
-      if (action !== 'purge') store.refresh?.();
-    } catch (e) {
-      setErr(e.message || 'Some of those could not be updated.');
-    } finally {
-      drop(done);
-      setBulkBusy(false);
-    }
+    };
+    if (action !== 'purge') { await run(); return; }
+    // Bulk Delete Forever is a major action (Neil, Oct 30 2026): the dialog
+    // says what goes, and its confirm is a hold that waits for the whole run.
+    const n = ids.length;
+    const projects = rows.filter((r) => ids.includes(r.id) && majorPurge(r));
+    const tasksToo = !projects.length ? ''
+      : projects.length === 1 ? ` The project "${projects[0].name}" is one of them - its ${projects[0].detail} go too.`
+        : ` ${projects.length} of them are projects and take the tasks binned with them.`;
+    await dialog.confirm(
+      `${n} item${n === 1 ? '' : 's'} in the Recycle Bin ${n === 1 ? 'is' : 'are'} deleted for good.${tasksToo}\n\nThis cannot be undone.`,
+      { title: `Delete ${n} Item${n === 1 ? '' : 's'} Forever?`, hold: true, holdMs: HOLD_MAJOR_MS,
+        confirmText: 'Delete Forever', doneText: 'Deleted', onConfirm: run });
   };
 
   const toggle = (id) => setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -1690,7 +1714,11 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
                   {left === null ? '' : left === 0 ? 'Purges today' : `${left}d left`}
                 </span>
                 <IconButton icon={RotateCcw} title="Restore" onClick={() => restore(t)} />
-                <IconButton icon={Trash2} title="Delete Forever" danger onClick={() => purgeNow(t)} />
+                {majorPurge(t)
+                  ? <IconButton icon={Trash2} title="Delete Forever" danger onClick={() => purgeProject(t)} />
+                  : <HoldButton size="sm" label="Delete Forever" doneLabel="Deleted" disabled={bulkBusy} ariaLabel={`Delete ${t.name} forever`}
+                      fallbackMessage={`Permanently delete the ${KIND_LABEL[t.kind] || 'item'} "${t.name}"? This cannot be undone.`}
+                      onConfirm={() => purgeNow(t)} onDone={() => drop([t.id])} />}
               </div>
             );
           })}
