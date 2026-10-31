@@ -301,10 +301,11 @@ export default function CredentialVaultApp({ activeSub }) {
   async function restore(c) {
     try { await api.cvRestore(c.id); await refresh(); flash(`${c.name} recovered.`); } catch (e) { flash(e?.message || "Could not recover.", "info"); }
   }
+  // Held on the drawer's Delete Permanently (Neil, Oct 30 2026): no dialog;
+  // a refusal throws so the button rewinds with the reason.
   async function purge(c) {
-    const ok = await dialog.confirm(`Delete ${c.name} permanently? This cannot be undone.`, { title: "Delete Permanently", confirmText: "Delete Permanently", danger: true });
-    if (!ok) return;
-    try { await api.cvPurge(c.id); closeDetail(); await refresh(); flash(`${c.name} deleted permanently.`, "info"); } catch (e) { flash(e?.message || "Could not delete.", "info"); }
+    try { await api.cvPurge(c.id); } catch (e) { throw new Error(e?.message || "Could not delete.", { cause: e }); }
+    closeDetail(); await refresh(); flash(`${c.name} deleted permanently.`, "info");
   }
   async function share(c, body) {
     setShareFor(null);
