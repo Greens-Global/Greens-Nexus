@@ -71,7 +71,10 @@ function Lane({ title, steps, onChange, ctx, depth }) {
   );
 }
 
-function Editor({ step, onChange, ctx, depth, idBase }) {
+// The controls one step takes. `lanes` draws the nested lanes (Then /
+// Otherwise, the answers, the loop body) as indented StepLists - the recipe
+// wants them, the canvas inspector does not (the sheet shows them).
+export function Editor({ step, onChange, ctx, depth = 0, idBase = `step-${step?.id || 'x'}`, lanes = true }) {
   const setParam = (key, v) => onChange({ params: { ...(step.params || {}), [key]: v } });
 
   if (step.kind === 'action') {
@@ -99,8 +102,8 @@ function Editor({ step, onChange, ctx, depth, idBase }) {
           <span style={fieldLabel}>If</span>
           <ConditionGroups groups={step.conditions || []} onChange={(c) => onChange({ conditions: c })} entityDef={ctx.entityDef} eventDef={ctx.eventDef} catalog={ctx.catalog} people={ctx.people} emptyText="Add a condition." />
         </div>
-        <Lane title="Then" steps={step.then || []} onChange={(s) => onChange({ then: s })} ctx={ctx} depth={depth} />
-        <Lane title="Otherwise" steps={step.else || []} onChange={(s) => onChange({ else: s })} ctx={ctx} depth={depth} />
+        {lanes && <Lane title="Then" steps={step.then || []} onChange={(s) => onChange({ then: s })} ctx={ctx} depth={depth} />}
+        {lanes && <Lane title="Otherwise" steps={step.else || []} onChange={(s) => onChange({ else: s })} ctx={ctx} depth={depth} />}
       </>
     );
   }
@@ -148,7 +151,7 @@ function Editor({ step, onChange, ctx, depth, idBase }) {
           <Switch checked={!!p.allowSelf} onChange={(v) => setParam('allowSelf', v)} label="Let the person decide about themselves" />
           Let the person decide about themselves
         </label>
-        {lanesOf(step).map((l) => (
+        {lanes && lanesOf(step).map((l) => (
           <Lane key={l.key} title={l.label} steps={step.branches?.[l.key] || []} onChange={(s) => onChange({ branches: { ...(step.branches || {}), [l.key]: s } })} ctx={ctx} depth={depth} />
         ))}
       </>
@@ -186,7 +189,7 @@ function Editor({ step, onChange, ctx, depth, idBase }) {
           <input id={`${idBase}-as`} type="text" value={step.as || ''} onChange={(e) => onChange({ as: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') || 'item' })} style={{ ...textInput, width: 160 }} />
           <div style={{ ...hint, marginTop: 4 }}>Steps inside can use {'{{ '}{step.as || 'item'}.name{' }}'}.</div>
         </div>
-        <Lane title={`For Each ${step.as || 'item'}`} steps={step.steps || []} onChange={(s) => onChange({ steps: s })} ctx={innerCtx} depth={depth} />
+        {lanes && <Lane title={`For Each ${step.as || 'item'}`} steps={step.steps || []} onChange={(s) => onChange({ steps: s })} ctx={innerCtx} depth={depth} />}
       </>
     );
   }
