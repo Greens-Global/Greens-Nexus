@@ -72,6 +72,8 @@ if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => 
 beforeEach(() => { PHONE = true; TICKETS = BASE_TICKETS; TOURS_SEEN = true; installMatchMedia(); });
 afterEach(() => { cleanup(); updateTicket.mockClear(); window.matchMedia = realMatchMedia; });
 
+// The filter sheet's Done, not the Done queue tab in the bar above it.
+const sheetDone = () => within(screen.getByRole('dialog')).getByRole('button', { name: 'Done' });
 const rowOrder = () => screen.getAllByText(/^(Printer jam|VPN down)$/).map((n) => n.textContent);
 
 describe('Tickets - rotating across the phone breakpoint', () => {
@@ -113,16 +115,16 @@ describe('Tickets - rotating across the phone breakpoint', () => {
     await flip(false);
     expect(screen.queryByText('1 selected')).toBeNull();
   });
-  it('rotates mid-tour (7 desktop steps -> 3 phone steps) without throwing', async () => {
+  it('rotates mid-tour (6 desktop steps -> 3 phone steps) without throwing', async () => {
     PHONE = false;
     TOURS_SEEN = false;
     render(<TicketsView />);
     await screen.findByText('Printer jam');
     const tour = await screen.findByRole('dialog', { name: 'Guided walkthrough' });
-    for (let n = 0; n < 5; n += 1) {
+    for (let n = 0; n < 4; n += 1) {
       await act(async () => { fireEvent.click(within(tour).getByRole('button', { name: /Next/ })); });
     }
-    expect(within(tour).getByText(/step 6 of 7/)).toBeTruthy();
+    expect(within(tour).getByText(/step 5 of 6/)).toBeTruthy();
     await flip(true);
     const after = screen.getByRole('dialog', { name: 'Guided walkthrough' });
     expect(within(after).getByText(/step 3 of 3/)).toBeTruthy();
@@ -148,27 +150,29 @@ describe('Tickets on a phone', () => {
     expect(box.value).toBe('');
   });
 
-  it('sorts from the filter sheet - Newest First by default', async () => {
+  // Needs Reply (the queue the desk opens on) sorts by its clock; the sheet
+  // can switch to any other order.
+  it('sorts from the filter sheet - the Next Clock order by default', async () => {
     render(<TicketsView />);
     await screen.findByText('Printer jam');
     expect(rowOrder()).toEqual(['VPN down', 'Printer jam']);
     fireEvent.click(screen.getByRole('button', { name: 'Filters & sort' }));
     expect(screen.getByText('Filter, Sort & Group')).toBeTruthy();
     expect(screen.getByText('Sort By')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Newest First/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Next Clock/ }));
     fireEvent.click(screen.getByText('Oldest First'));
-    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    fireEvent.click(sheetDone());
     expect(rowOrder()).toEqual(['Printer jam', 'VPN down']);
   });
 
   it('sorting by Due Date puts tickets with no SLA date last', async () => {
     render(<TicketsView />);
     await screen.findByText('Printer jam');
-    expect(rowOrder()).toEqual(['VPN down', 'Printer jam']);   // newest first
+    expect(rowOrder()).toEqual(['VPN down', 'Printer jam']);
     fireEvent.click(screen.getByRole('button', { name: 'Filters & sort' }));
-    fireEvent.click(screen.getByRole('button', { name: /Newest First/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Next Clock/ }));
     fireEvent.click(screen.getByText('Due Date'));
-    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    fireEvent.click(sheetDone());
     // VPN down has no slaDueOn - it no longer leads the list.
     expect(rowOrder()).toEqual(['Printer jam', 'VPN down']);
   });
@@ -181,14 +185,14 @@ describe('Tickets on a phone', () => {
     await screen.findByTestId('ticket-board');
     fireEvent.click(screen.getByRole('button', { name: 'Filters & sort' }));
     expect(screen.queryByText('Sort By')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Done' })).toBeTruthy();
+    expect(sheetDone()).toBeTruthy();
   });
 
   it('pins Done in a sticky footer and offers Clear All once a filter is on', async () => {
     render(<TicketsView />);
     await screen.findByText('Printer jam');
     fireEvent.click(screen.getByRole('button', { name: 'Filters & sort' }));
-    const done = screen.getByRole('button', { name: 'Done' });
+    const done = sheetDone();
     expect(done.parentElement.style.position).toBe('sticky');
     expect(screen.queryByRole('button', { name: 'Clear All' })).toBeNull();
 
@@ -257,7 +261,7 @@ describe('Tickets on a phone', () => {
     expect(container.querySelector('[data-tour="ticket-scope"]')).toBeTruthy();
     const tour = await screen.findByRole('dialog', { name: 'Guided walkthrough' });
     expect(tour.classList.contains('guided-tour')).toBe(true);
-    expect(within(tour).getByText(/Mine is what you raised; Assigned is what you are working/)).toBeTruthy();
+    expect(within(tour).getByText(/Needs Reply is where a day starts/)).toBeTruthy();
     expect(within(tour).queryByText(/My Requests/)).toBeNull();
   });
 });

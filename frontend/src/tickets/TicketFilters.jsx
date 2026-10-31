@@ -1,7 +1,7 @@
 // TicketFilters - split out of TicketsView.jsx (Oct 2026); the code below
 // moved verbatim, see TicketsView.jsx for the module overview.
 import { useRef, useState } from 'react';
-import { Plus, X, Bookmark, SlidersHorizontal } from 'lucide-react';
+import { Plus, X, Bookmark, SlidersHorizontal, MoreHorizontal, Download } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle } from '../tasks/theme';
 import { Modal } from '../tasks/components';
 import { BottomSheet } from '../tasks/MobileTaskBar';
@@ -18,6 +18,8 @@ import {
 // (TICKET_COLUMNS[].sort), each in the direction someone usually wants it.
 // Newest First (created, desc) is the list's default.
 const MOBILE_SORTS = [
+  ['updated:desc', 'Recently Updated'],
+  ['clock:asc', 'Next Clock'],
   ['created:desc', 'Newest First'],
   ['created:asc', 'Oldest First'],
   ['due:asc', 'Due Date'],
@@ -212,28 +214,60 @@ function TicketFilterMenu({
   );
 }
 
-// One overflow menu for every occasional control - saved views, group-by,
-// export - so the toolbar stays search + Filters + More (owner call, Jul 28).
-function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showGroup }) {
+// The desk's one overflow menu (10/31/2026): every occasional control in one
+// place - Group By, Columns, Export, the saved views (with their delete; the
+// views themselves are tabs in the bar), Save Current View, and the property
+// link clean-up - so the toolbar stays List / Board / Reports, search, Filters
+// and this. It renders the same on every view; what does not apply (grouping
+// and columns outside the list) is simply absent.
+function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showGroup,
+  onExport, columns, hidden, toggleHidden, cols, showColumns = false, suggestLinks = null }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef(null);
   const item = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, color: NX.ink, textAlign: 'left' };
   const sectionLabel = { padding: '8px 12px 4px', fontSize: 12, fontWeight: 600, color: NX.dim };
+  const rule = <div style={{ borderTop: `1px solid ${NX.border2}` }} />;
+  // Hiding the last data column would leave only the checkbox / type /
+  // resolved gutters - that one stays checked and disabled.
+  const hideable = (columns || []).filter((c) => !c.fixed);
+  const visibleCount = (cols || []).filter((c) => !c.fixed).length;
   return (
     <>
-      <button ref={btnRef} onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13 }} title="Views, grouping and export" aria-haspopup="menu" aria-expanded={open}>
-        <Bookmark size={15} />More
+      <button ref={btnRef} onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), padding: '7px 9px' }}
+        title="More" aria-label="More" aria-haspopup="menu" aria-expanded={open}>
+        <MoreHorizontal size={16} />
       </button>
       {/* The "Group by" TicketSelect's portaled list counts as inside. */}
-      <AnchoredMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)} align="end" minWidth={240}
-        style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', fontFamily: FONT }}>
+      <AnchoredMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)} align="end" minWidth={250}
+        style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', fontFamily: FONT, maxHeight: '70vh', overflowY: 'auto' }}>
         {showGroup && (
           <>
             <div style={sectionLabel}>Group By</div>
             <div style={{ padding: '0 12px 10px' }}>
               <TicketSelect value={groupBy} onChange={setGroupBy} options={groupByOptions()} style={{ width: '100%' }} />
             </div>
-            <div style={{ borderTop: `1px solid ${NX.border2}` }} />
+            {rule}
+          </>
+        )}
+        {showColumns && hideable.length > 0 && (
+          <>
+            <div style={sectionLabel}>Show Columns</div>
+            <div style={{ padding: '0 6px 6px' }}>
+              {hideable.map((c) => {
+                const checked = !(hidden || []).includes(c.key);
+                const lastOne = checked && visibleCount <= 1;
+                return (
+                  <label key={c.key} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '5px 6px', boxSizing: 'border-box',
+                    borderRadius: 6, cursor: lastOne ? 'default' : 'pointer', fontSize: 13, color: NX.ink,
+                  }}>
+                    <input type="checkbox" checked={checked} disabled={lastOne} onChange={() => toggleHidden(c.key)} />
+                    {c.label}
+                  </label>
+                );
+              })}
+            </div>
+            {rule}
           </>
         )}
         <div style={sectionLabel}>Saved Views</div>
@@ -247,6 +281,14 @@ function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showG
           </div>
         ))}
         <button onClick={() => { onSave(); setOpen(false); }} style={{ ...item, color: NX.blue, fontWeight: 600 }}><Plus size={14} />Save Current View…</button>
+        {rule}
+        {onExport && (
+          <button onClick={() => { setOpen(false); onExport(); }} style={item} title="Export the tickets on screen to CSV">
+            <Download size={14} style={{ color: NX.faint }} />Export CSV
+          </button>
+        )}
+        {/* The property clean-up's own button and dialog, styled as a row. */}
+        {suggestLinks && <div onClick={() => setOpen(false)}>{suggestLinks(item)}</div>}
       </AnchoredMenu>
     </>
   );
@@ -287,41 +329,4 @@ export function SaveViewDialog({ onSave, onClose }) {
   );
 }
 
-// Show/hide which non-fixed columns render in the desktop List table. `cols`
-// is the hook's already-filtered/ordered list (what's on screen right now),
-// used only to count how many data columns are currently visible - hiding
-// the last one would leave the table with nothing but the checkbox/type/
-// resolved gutters, so that one stays checked and disabled.
-function TicketColumnsMenu({ columns, hidden, toggleHidden, cols }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  const hideable = columns.filter((c) => !c.fixed);
-  const visibleCount = cols.filter((c) => !c.fixed).length;
-  return (
-    <>
-      <button ref={ref} onClick={() => setOpen((o) => !o)} title="Customize columns" style={btn('outline')} aria-haspopup="menu" aria-expanded={open}>
-        <SlidersHorizontal size={14} /> Customize
-      </button>
-      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} align="end"
-        style={{ width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 8 }}>
-        <div style={{ padding: '4px 6px 8px', fontSize: 12, fontWeight: 600, color: NX.dim }}>Show Columns</div>
-        {hideable.map((c) => {
-          const checked = !hidden.includes(c.key);
-          const lastOne = checked && visibleCount <= 1;
-          return (
-            <label key={c.key} style={{
-              display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 6px',
-              borderRadius: 6, cursor: lastOne ? 'default' : 'pointer', fontSize: 13, color: NX.ink,
-            }}>
-              <input type="checkbox" checked={checked} disabled={lastOne}
-                onChange={() => toggleHidden(c.key)} />
-              {c.label}
-            </label>
-          );
-        })}
-      </AnchoredMenu>
-    </>
-  );
-}
-
-export { TicketMobileFilters, TicketFilterMenu, MoreMenu, TicketColumnsMenu };
+export { TicketMobileFilters, TicketFilterMenu, MoreMenu };

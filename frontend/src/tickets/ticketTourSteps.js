@@ -18,21 +18,17 @@
 
 /**
  * @param {object} ctx
- * @param {(k: string) => void} ctx.setScope   switch the scope tab (all/mine/assigned/…)
+ * @param {(k: string) => void} ctx.setQueue   open a queue tab (needs_reply / unassigned / …)
  * @param {(k: string) => void} ctx.setView    switch the List/Board/Reports view
- * @param {boolean}             ctx.isMobile   phone layout (toolbar/tiles are hidden)
+ * @param {boolean}             ctx.isMobile   phone layout (toolbar is hidden, Create is the floating +)
  */
-export function buildTicketTourSteps({ setScope, setView, isMobile }) {
-  // The phone's scope strip is shorter-worded (All / Mine / Assigned) than the
-  // desktop's - the copy has to name the tabs the viewer is actually looking at.
-  const MINE = isMobile ? 'Mine' : 'My Requests';
-  const ASSIGNED = isMobile ? 'Assigned' : 'Assigned to Me';
+export function buildTicketTourSteps({ setQueue, setView, isMobile }) {
   const steps = [
     {
       target: 'ticket-scope',
-      before: () => { setScope('all'); setView('list'); },
-      title: 'Every ticket starts from these tabs',
-      body: `All shows everything you have access to. ${MINE} is what you raised; ${ASSIGNED} is what you are working. To Route and To Approve only appear when there is something waiting in them, and only for the people they belong to.`,
+      before: () => { setQueue('needs_reply'); setView('list'); },
+      title: 'Every tab is a queue',
+      body: 'Each tab is a live count of the whole desk, and opening it shows those tickets. Needs Reply is where a day starts - tickets waiting on an answer from the desk. Unassigned has nobody on it yet, Mine is what you are working, Due Soon is what is late or about to be, Waiting is parked on a user, a vendor or a hold, All Open is everything live, Done is finished. To Route and To Approve appear only with something in them; a view you save becomes a tab too.',
     },
     {
       target: 'ticket-views',
@@ -40,13 +36,6 @@ export function buildTicketTourSteps({ setScope, setView, isMobile }) {
       before: () => setView('list'),
       title: 'List, Board or Reports',
       body: 'List is the sortable table you land on. Board groups the same tickets into columns you drag between. Reports charts volume, SLA performance and where time is going - useful for a desk lead, not just an individual agent.',
-    },
-    {
-      target: 'ticket-tiles',
-      when: () => !isMobile,
-      before: () => { setScope('all'); setView('list'); },
-      title: 'Five tiles, five shortcuts',
-      body: 'Each one is a live count of the WHOLE queue, and clicking it filters the list to match - Open, Unassigned, SLA breached, Resolved or Closed. Unassigned and SLA breached overlap with Open on purpose, so those numbers double-count by design.',
     },
     {
       target: 'ticket-create',
@@ -58,23 +47,23 @@ export function buildTicketTourSteps({ setScope, setView, isMobile }) {
       target: 'ticket-toolbar',
       when: () => !isMobile,
       title: 'Search, filter, and save the combination',
-      body: 'Search checks the title, description and even the app named on the ticket. Filters narrows by status, priority, type, SLA, department or service area. More saves your current filters + view as a named view, and groups the list by any of those same fields.',
+      body: 'Search checks the title, description and even the app named on the ticket. Filters narrows by status, priority, type, SLA, department, service area or assignee. The three dots hold grouping, the columns you see, export and your saved views - "+ View" in the bar saves what you have on screen as a tab of its own.',
     },
     {
       target: 'ticket-body',
       before: () => setView('list'),
       title: 'Working a ticket',
       body: isMobile
-        ? 'Tap a card to open the full thread, attachments and history. Search sits above the list, and the filter button in the bar below narrows and sorts it. Resolved and Closed tickets collapse into their own section below so they do not crowd what is still open.'
-        : 'Click a row to open the full thread, attachments and history - or click State/Priority right in the list to change it without opening anything. Resolved and Closed tickets collapse into their own section below so they do not crowd what is still open.',
+        ? 'Tap a card to open the full thread, attachments and history. Search sits under the tabs, and the filter button in the bar below narrows and sorts the list. Finished tickets live under Done, out of the way.'
+        : 'Click a row to open the full thread, attachments and history - or click Status / Priority right in the list to change it without opening anything. Finished tickets live under Done, out of the way.',
     },
   ];
 
   steps.push({
     target: 'ticket-scope',
-    before: () => { setScope('all'); setView('list'); },
+    before: () => { setQueue('needs_reply'); setView('list'); },
     title: 'That is the tour',
-    body: `Day to day you will be in All, ${MINE} or ${ASSIGNED}, working tickets straight from the list. You can run this again any time from the profile menu's Tour row.`,
+    body: 'Day to day you will be in Needs Reply, Unassigned or Mine, working tickets straight from the list. You can run this again any time from the profile menu\'s Tour row.',
   });
 
   // `when` is ours, not GuidedTour's - strip it so the component only ever

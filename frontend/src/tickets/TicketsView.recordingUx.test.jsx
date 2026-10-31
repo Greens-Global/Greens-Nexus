@@ -35,19 +35,20 @@ const { default: TicketsView, TicketDrawer, CreateTicketModal } = await import('
 
 afterEach(cleanup);
 
-describe('Ticket summary tiles', () => {
-  // White cards with a dot (Neil, Oct 14 2026); Unassigned still leads, its
-  // dot amber, and its number amber while anything is unassigned.
-  it('lead with Unassigned, amber dot, then Open', async () => {
+describe('The desk bar', () => {
+  // One bar of work queues (Neil, 10/31/2026) in place of the summary tiles:
+  // Needs Reply leads, Unassigned next with its count in amber while anything
+  // has no owner (the Oct 14 call to act, carried over), Create at the end.
+  it('leads with Needs Reply, then Unassigned with an amber count, and no tiles', async () => {
     const { container } = render(<TicketsView />);
     await screen.findByText('Printer jam');
-    const tiles = [...container.querySelector('[data-tour="ticket-tiles"]').children];
-    expect(tiles[0].textContent).toContain('Unassigned');
-    expect(tiles[1].textContent).toContain('Open');
-    // With a ticket nobody owns, the whole tile is tinted amber (Neil, Oct 14: action required).
-    expect(tiles[0].style.background).toMatch(/color-mix\(in srgb, (#d97706|rgb\(217, 119, 6\)) 12%/);
-    const dot = tiles[0].querySelector('span > span');
-    expect(dot.style.background).toMatch(/217, 119, 6|#d97706/);
+    expect(container.querySelector('[data-tour="ticket-tiles"]')).toBeNull();
+    const tabs = [...container.querySelectorAll('[data-tour="ticket-scope"] button')];
+    expect(tabs[0].textContent).toContain('Needs Reply');
+    expect(tabs[1].textContent).toContain('Unassigned');
+    expect(tabs[1].querySelector('.hdr-tab-badge--alarm')).toBeTruthy();
+    expect(tabs[tabs.length - 1].textContent).toContain('+ View');
+    expect(screen.getByRole('button', { name: /Create/ })).toBeTruthy();
   });
 });
 
