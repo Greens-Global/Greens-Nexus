@@ -26,7 +26,8 @@ const { default: Templates } = await import('./Templates');
 
 const TEMPLATES = [
   { key: 'probation', name: 'Probation Ending Reminder', module: 'hr', description: 'Tells the manager two weeks before.',
-    blanks: ['steps.0.params.to', 'steps.1.params.letter_template'], definition: { trigger: { kind: 'date', event: 'probation ends' } } },
+    blanks: ['steps.0.params.to', 'steps.1.params.letter_template'], definition: { trigger: { kind: 'date', event: 'probation ends' } },
+    shape: [['action'], ['approval', [[['action']], [['stop']], []]]] },
   { key: 'overdue', name: 'Overdue Task Escalation', module: 'tasks', description: '', blanks: [],
     definition: { trigger: { kind: 'event', event: 'a task is overdue' } } },
 ];
@@ -48,6 +49,9 @@ describe('Workflows Templates', () => {
     expect(within(hr).getByText('Fill in:')).toBeTruthy();
     expect(within(hr).getByText('To')).toBeTruthy();
     expect(within(hr).getByText('Letter Template')).toBeTruthy();
+    // every card opens with its canvas silhouette, a shape-less one as the empty sheet
+    expect(within(hr).getByRole('img', { name: 'Probation Ending Reminder shape' })).toBeTruthy();
+    expect(screen.getAllByTestId('wf-thumb')).toHaveLength(2);
     const tasks = screen.getByRole('region', { name: 'Tasks' });
     expect(within(tasks).getByText('Overdue Task Escalation')).toBeTruthy();
     expect(within(tasks).queryByText('Fill in:')).toBeNull();

@@ -23,7 +23,7 @@ vi.mock('../ui/dialog', () => ({ dialog }));
 const { default: WorkflowList } = await import('./WorkflowList');
 
 const rows = [
-  { id: 'w1', name: 'Welcome Note', status: 'active', ownerName: 'Neil Kadakia', runs7d: 2 },
+  { id: 'w1', name: 'Welcome Note', status: 'active', ownerName: 'Neil Kadakia', runs7d: 2, shape: [['action'], ['if', [[['action']], []]]] },
   { id: 'w2', name: 'Exit Checklist', status: 'paused', ownerName: 'Neil Kadakia', runs7d: 0 },
 ];
 const deleteFor = () => screen.getAllByRole('button', { name: 'Delete, press and hold' })[0];
@@ -33,6 +33,19 @@ beforeEach(() => {
   api.wfList.mockImplementation(() => Promise.resolve(rows.map((r) => ({ ...r }))));
 });
 afterEach(() => { vi.useRealTimers(); });
+
+describe('WorkflowList thumbnails', () => {
+  it('draws every row as its canvas silhouette, a row with no shape as the empty sheet', async () => {
+    render(<WorkflowList go={vi.fn()} />);
+    await screen.findByText('Welcome Note');
+    const thumbs = screen.getAllByTestId('wf-thumb');
+    expect(thumbs).toHaveLength(2);
+    expect(screen.getByRole('img', { name: 'Welcome Note shape' })).toBeTruthy();
+    // the If fans into two lanes: more blocks than the bare row's trigger + slot
+    const blocks = (svg) => svg.querySelectorAll('g').length;
+    expect(blocks(thumbs[0])).toBeGreaterThan(blocks(thumbs[1]));
+  });
+});
 
 describe('WorkflowList Delete', () => {
   it('deletes on a full hold, with no dialog, and the row leaves', async () => {

@@ -21,6 +21,7 @@ import { describeTrigger } from './lib/text';
 import { useCatalog } from './lib/useCatalog';
 import { Card, Chip, FONT, Muted } from './ui';
 import { errorText } from './lib/errors';
+import Thumbnail from './canvas/Thumbnail';
 
 const SCOPES = [
   { key: 'mine', label: 'Mine' },
@@ -137,10 +138,10 @@ export default function WorkflowList({ go }) {
           {/* Between the phone cards and a wide desktop the table scrolls
               sideways inside the card instead of clipping its last columns. */}
           <div style={isMobile ? undefined : { overflowX: 'auto' }}>
-            <div style={isMobile ? undefined : { minWidth: 980 }}>
+            <div style={isMobile ? undefined : { minWidth: 1048 }}>
               {!isMobile && (
                 <div role="row" style={{ ...GRID, padding: '8px 16px', fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
-                  <span>Name</span><span>Trigger</span><span>Scope</span><span>Owner</span><span>Status</span><span style={{ textAlign: 'right' }}>Runs 7d</span><span>Last Run</span><span />
+                  <span aria-label="Shape" /><span>Name</span><span>Trigger</span><span>Scope</span><span>Owner</span><span>Status</span><span style={{ textAlign: 'right' }}>Runs 7d</span><span>Last Run</span><span />
                 </div>
               )}
               {shown.map((w) => {
@@ -161,6 +162,7 @@ export default function WorkflowList({ go }) {
                     <div key={w.id} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}
                       style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'grid', gap: 6, cursor: 'pointer' }}>
                       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <Thumbnail shape={w.shape} width={72} height={48} title={`${w.name} shape`} />
                         <span style={{ flex: 1, fontSize: 14, fontWeight: 700, minWidth: 0, overflowWrap: 'anywhere' }}>{w.name}</span>
                         <StatusLabel label={m.label} color={m.color} size="sm" />
                       </div>
@@ -175,6 +177,7 @@ export default function WorkflowList({ go }) {
                 return (
                   <div key={w.id} role="row" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}
                     style={{ ...GRID, padding: '10px 16px', borderTop: '1px solid var(--line)', alignItems: 'center', cursor: 'pointer', fontSize: 13.5 }}>
+                    <Thumbnail shape={w.shape} width={56} height={36} title={`${w.name} shape`} />
                     <span style={{ fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.description || ''}>{w.name}</span>
                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--muted)' }} title={triggerText(w)}>{triggerText(w)}</span>
                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.companyName || 'Every Company'}</span>
@@ -200,7 +203,7 @@ export default function WorkflowList({ go }) {
   );
 }
 
-const GRID = { display: 'grid', gridTemplateColumns: 'minmax(160px, 1.4fr) minmax(160px, 2fr) minmax(110px, 1fr) minmax(120px, 1fr) 112px 64px 140px 132px', gap: 12 };   // the last: four 30px row actions and their gaps, the same on every row
+const GRID = { display: 'grid', gridTemplateColumns: '56px minmax(160px, 1.4fr) minmax(160px, 2fr) minmax(110px, 1fr) minmax(120px, 1fr) 112px 64px 140px 132px', gap: 12 };   // the first: the canvas silhouette (10/30/2026); the last: four 30px row actions and their gaps, the same on every row
 
 // The company has workflows switched off in Settings > Workflows: the server
 // says so with companyEnabled: false (a row without the flag says nothing).

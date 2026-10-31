@@ -495,3 +495,34 @@ def test_delete_removes_the_workflow_and_keeps_its_past_runs(client, db):
     log = db.query(models.AuditLog).filter(models.AuditLog.action == "workflow.delete").one()
     assert log.user_email == EDDIE and log.resource_id == wid and '"Delete Me"' in log.details
     assert client.delete(f"/workflows/{wid}").status_code == 404
+
+
+# ── canvas silhouettes (Blueprint, 10/30/2026) ──────────────────────────────
+def test_list_rows_and_templates_carry_the_canvas_shape(client, db):
+    from workflows.shape import shape_of
+    approval = {"id": "ap", "kind": "approval", "params": {"options": ["Confirm", "Change It"]},
+                "branches": {"Confirm": [{"id": "a2", "kind": "action"}, {"id": "w1", "kind": "wait"}],
+                             "Change It": [{"id": "a4", "kind": "action"}, {"id": "s1", "kind": "stop"}], "expired": []}}
+    loop = {"id": "fe", "kind": "for_each", "steps": [{"id": "a5", "kind": "action"}]}
+    iff = {"id": "if1", "kind": "if", "then": [{"id": "t1", "kind": "action"}], "else": []}
+    assert shape_of({"steps": [NOTIFY, approval, loop, iff]}) == [
+        ["action"],
+        ["approval", [[["action"], ["wait"]], [["action"], ["stop"]], []]],
+        ["for_each", [[["action"]]]],
+        ["if", [[["action"]], []]],
+    ]
+    # the default options stand in when an approval names none; junk is harmless
+    assert shape_of({"steps": [{"kind": "approval", "branches": {"Decline": [{"kind": "stop"}]}}]}) == [["approval", [[], [["stop"]], []]]]
+    assert shape_of(None) == [] and shape_of({"steps": "nope"}) == [] and shape_of({"steps": [{"kind": "weird"}]}) == [["action"]]
+    # a list row carries its shape (the draft's when there is one), never the definition
+    wf = _published(db, name="Shaped")
+    as_user(EDDIE)
+    row = next(w for w in client.get("/workflows?scope=company").json() if w["name"] == "Shaped")
+    assert row["shape"] == [["action"]] and "definition" not in row
+    r = client.put(f"/workflows/{wf.id}/draft", json={"definition": {**DEFINITION, "steps": [NOTIFY, {"id": "s9", "kind": "stop", "enabled": True}]}})
+    assert r.status_code == 200, r.text
+    row = next(w for w in client.get("/workflows?scope=company").json() if w["name"] == "Shaped")
+    assert row["shape"] == [["action"], ["stop"]]
+    # every template carries one too
+    rows = client.get("/workflows/templates").json()
+    assert rows and all(isinstance(t["shape"], list) and t["shape"] for t in rows)
