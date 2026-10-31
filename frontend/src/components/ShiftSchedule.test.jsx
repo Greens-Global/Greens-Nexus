@@ -1228,7 +1228,7 @@ describe('Actuals: the schedule meets the clock', () => {
     expect(late.style.color).toBe('hsl(var(--color-orange))');
     expect(blockOf('s1').getAttribute('title')).toContain('Clocked in 9:04 AM (4 min late)\nClocked out 4:58 PM');
     expect(blockOf('s1').getAttribute('aria-label')).toBe('Shift 9:00 AM - 5:00 PM, Late');
-    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pGSTLate 4m');   // the exception in words is the only addition
+    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pLate 4m');   // the exception in words is the only addition
     // The line follows the people on screen.
     const dlg = viewOptions();
     fireEvent.change(within(dlg).getByLabelText('Search people'), { target: { value: 'amy' } });
