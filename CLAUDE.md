@@ -219,6 +219,18 @@ keep the diff minimal.
   (`lib/groupDirty.js`), so the Settings shell asks before the subject, the
   scope, the top tab, the module or the browser tab changes; the hook is a
   no-op wherever else the panel renders.
+- **Hold to confirm (Neil, Oct 30 2026, plan
+  https://claude.ai/artifact/MU1RMFQ9nHYxSB31XjDwQ1, PRs #883-#884):** an
+  action that cannot be taken back (delete forever, void, offboard, end
+  access, finalize) is confirmed by pressing and holding `ui/HoldButton.jsx`,
+  never a plain click-to-confirm. `HOLD_RECORD_MS` (1.2 s) for one record,
+  which holds right on its row with no dialog; `HOLD_MAJOR_MS` (1.8 s) for
+  many records or other people, inside `dialog.confirm(msg, { hold: true,
+  onConfirm })` so the dialog says what goes. `onConfirm` may return a
+  promise (a refusal shows under the button) or `{ undo }` (an Undo toast,
+  `dialog.undo`). Keyboard holds work, and a click with no press behind it
+  (assistive tech) falls back to the ordinary confirm - keep both. Never
+  lengthen the holds or add a second confirm component.
 
 ## Domain rules
 
@@ -414,6 +426,14 @@ keep the diff minimal.
   `weather_scope.py` is the one rule every weather path reads - never add a
   second one. New shift tables rely
   on `_enable_rls_everywhere`; run `get_advisors` after each release.
+  Holidays (Neil, Oct 30 2026): a country-tagged company holiday applies only
+  to people in that country, and a person with no country of their own takes
+  their company's (`holiday_policies.person_country` / `company_countries`) -
+  every holiday reader passes `person_country`, never the raw field. The
+  planner's day header names the holiday; Fill Automatically, the bulk add
+  and Copy Week leave each person's company holidays empty
+  (`skip_holidays`, on by default, `timeclock._holiday_days`) and say how
+  many they skipped.
 
 - **Settings is one tab (Neil, Oct 23 2026, plan
   https://claude.ai/artifact/UGtPmeFBrfU6wXhd474erx; `views/AdminConsole.jsx`).**
@@ -498,6 +518,24 @@ keep the diff minimal.
   the definition - `frontend/src/workflows/canvas/layout.js`; never store
   node coordinates, and the list's `shape` (`workflows/shape.py`,
   mirrored in `canvas/shape.js`) carries step kinds only.
+
+- **Notes (Neil, Oct 29-31 2026, `routers/notes.py`, `frontend/src/notes/`).**
+  Dashboard > Notes (the page), Quick Note (the slide-over from the + menu's
+  New Note, or `quickNoteKeys()` - Ctrl+Alt+N / Ctrl+Cmd+N) and the
+  dashboard's Notes widget read and write the same rows (`nexus_notes`,
+  `nexus_note_versions`, `nexus_note_presence` - each needs RLS on dev and prod). A
+  note is private to its owner and the Nexus People it is shared with
+  (404, never 403, to anyone else); a mention notifies nobody. Saves carry
+  the rev they were read with (409 = Keep Mine / Use Theirs); editors
+  co-type live over an ENCRYPTED Realtime channel (the module docstring has
+  the rules). Voice notes, videos and dictation (`lib/voice.js`,
+  `notes/noteMedia.jsx`) work on the web and the phone alike: on the web
+  they sit, named, at the top right of the toolbar - the formatting wraps,
+  never scrolls them out of sight - and in the "/" menu; on a phone they ride
+  the bar above the keyboard. Dictation is the browser's own speech
+  recognition (no AI, no key); a browser without it shows no microphone.
+  Make a Task works on the page and in Quick Note. A new editor feature goes
+  in BOTH the web toolbar and the phone bar (`NoteEditor.jsx`).
 
 ## Asana — removed (Sep 2026)
 

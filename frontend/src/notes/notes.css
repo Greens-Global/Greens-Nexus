@@ -104,10 +104,25 @@
 /* ── editor ── */
 .nt-editor { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; margin-top: 12px; }
 .nt-toolbar {
-  display: flex; align-items: center; gap: 1px; padding: 4px 0; border-top: 1px solid var(--wk-line2); border-bottom: 1px solid var(--wk-line2);
-  overflow-x: auto; scrollbar-width: none; position: sticky; top: 0; background: var(--card); z-index: 2;
+  display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; border-top: 1px solid var(--wk-line2); border-bottom: 1px solid var(--wk-line2);
+  position: sticky; top: 0; background: var(--card); z-index: 2; container-type: inline-size;
 }
-.nt-toolbar::-webkit-scrollbar { display: none; }
+/* The formatting wraps rather than scrolling out of sight; the capture
+   buttons (Dictate, Voice Note, Video, Make a Task) hold the top right. */
+.nt-tb-fmt { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 1px; flex: 1 1 auto; min-width: 0; }
+.nt-tb-capture { display: flex; align-items: center; gap: 2px; flex-shrink: 0; padding-left: 8px; border-left: 1px solid var(--wk-line2); }
+.nt-tb-text.is-on { color: var(--wk-green); background: var(--wk-hover); }
+.nt-tb-text.is-danger { color: var(--wk-red, #e2445c); }
+.nt-tb-text:disabled { opacity: .35; cursor: default; }
+/* Narrower: only Dictate keeps its name; narrowest: icons alone. */
+@container (max-width: 760px) {
+  .nt-tb-capture .nt-tb-text:not(.is-key) .nt-tb-word { display: none; }
+  .nt-tb-capture .nt-tb-text:not(.is-key) { padding: 0 7px; }
+}
+@container (max-width: 440px) {
+  .nt-tb-capture .nt-tb-word { display: none; }
+  .nt-tb-capture .nt-tb-text { padding: 0 7px; }
+}
 .nt-tb-btn {
   display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0;
   border: none; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer;
@@ -117,7 +132,7 @@
 .nt-tb-btn:disabled { opacity: .35; cursor: default; }
 .nt-tb-sep { width: 1px; height: 18px; background: var(--wk-line2); margin: 0 4px; flex-shrink: 0; }
 .nt-tb-text { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: none; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; flex-shrink: 0; }
-.nt-tb-text:hover { background: var(--wk-hover); }
+.nt-tb-text:hover:not(:disabled) { background: var(--wk-hover); }
 .nt-subbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--wk-line2); font-size: 12.5px; color: var(--muted); }
 .nt-subbar-label { font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
 .nt-subbar button { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 9px; border: 1px solid var(--wk-line2); border-radius: 6px; background: var(--card); color: var(--ink); font: inherit; font-size: 12.5px; cursor: pointer; }
@@ -215,6 +230,7 @@
 .nt-qn-switch { display: flex; gap: 2px; padding: 6px 14px 0; border-bottom: 1px solid var(--wk-line2); }
 .nt-qn-foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--wk-line2); font-size: 12px; color: var(--muted); }
 .nt-qn-keys { margin-left: auto; }
+.nt-qn-said { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); min-width: 0; }
 /* A note opened from the list on a phone (NotesPage PhoneSheet): the same
    sheet, under the shared Modal (4000) so Share and Version History open
    over it - level with the page's own full screen. */

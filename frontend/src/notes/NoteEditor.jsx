@@ -11,6 +11,9 @@
 // Voice Note and Add Video keep a player in the note; Dictate types what you
 // say. On a phone the formatting moves to a bar that rides on top of the
 // keyboard - lists, indent and the microphone first, the rest behind Aa.
+// On the web they sit, named, at the right of the toolbar, which never
+// scrolls them out of sight - the formatting wraps instead - and the "/" menu
+// offers them too (Neil, Oct 31 2026: "i can't seem to find them").
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -59,6 +62,17 @@ function Btn({ icon: Icon, label, active, disabled, onClick }) {
   );
 }
 const Sep = () => <span className="nt-tb-sep" aria-hidden="true" />;
+// The toolbar's capture buttons carry their name beside the icon (the name
+// folds away when the toolbar is narrow - notes.css).
+function TBtn({ icon: Icon, label, text, active, disabled, danger, keep, onClick }) {
+  return (
+    <button type="button" className={`nt-tb-text${active ? ' is-on' : ''}${danger ? ' is-danger' : ''}${keep ? ' is-key' : ''}`} title={label} aria-label={label}
+      aria-pressed={active === undefined ? undefined : String(!!active)} disabled={disabled} tabIndex={-1}
+      onMouseDown={(e) => { e.preventDefault(); if (!disabled) onClick(); }}>
+      <Icon size={15} strokeWidth={1.9} aria-hidden="true" /><span className="nt-tb-word">{text}</span>
+    </button>
+  );
+}
 
 // The phone bar's buttons: 44px, an action on click (the mousedown is
 // cancelled so the editor keeps its selection and the keyboard stays up).
@@ -142,6 +156,7 @@ export default function NoteEditor({
   const [more, setMore] = useState(false);      // the phone bar's Aa row
   const videoInput = useRef(null);
   const mediaRef = useRef(() => {});
+  const actRef = useRef({});
 
   const editor = useEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -263,6 +278,7 @@ export default function NoteEditor({
   const toggleVoice = () => { clearErr(); if (voice.recording) voice.stop(); else voice.start(); };
   const toggleDictate = () => { clearErr(); if (dictation.listening) dictation.stop(); else dictation.start(); };
   const pickVideo = () => { clearErr(); videoInput.current?.click(); };
+  useEffect(() => { actRef.current = { dictate: toggleDictate, voice: toggleVoice, video: pickVideo }; });
   const showPhoneBar = phone && toolbar && !readOnly && (focused || live || !!busy || !!err);
   const inset = useKeyboardInset(showPhoneBar);
 
@@ -289,8 +305,14 @@ export default function NoteEditor({
     if (!menu) return [];
     if (menu.kind === 'mention') return matchPeople(people || [], menu.query, { limit: 6 });
     const q = menu.query.toLowerCase();
-    return SLASH.filter((s) => !q || s.label.toLowerCase().includes(q) || (s.keys || '').includes(q)).slice(0, 12);
-  }, [menu, people]);
+    // Dictate, Voice Note and Video from the "/" menu too, where the browser can.
+    const capture = [
+      dictateOk && { key: 'dictate', label: 'Dictate', hint: 'Type what you say', icon: Mic, keys: 'voice speech talk speak mic', act: 'dictate' },
+      recordOk && { key: 'voice', label: 'Voice Note', hint: 'Record a clip that stays in the note', icon: AudioLines, keys: 'audio record recording mic', act: 'voice' },
+      { key: 'video', label: 'Video', hint: 'Add a clip from this computer', icon: Clapperboard, keys: 'movie clip film', act: 'video' },
+    ].filter(Boolean);
+    return [...SLASH, ...(live ? [] : capture)].filter((s) => !q || s.label.toLowerCase().includes(q) || (s.keys || '').includes(q)).slice(0, 12);
+  }, [menu, people, dictateOk, recordOk, live]);
 
   useEffect(() => {
     scanRef.current = (ed) => {
@@ -321,6 +343,9 @@ export default function NoteEditor({
         { type: 'text', marks: [{ type: 'link', attrs: { href: `mailto:${item.email}` } }], text: `@${item.name}` },
         { type: 'text', text: ' ' },
       ]).unsetMark('link').run();
+    } else if (item.act) {
+      editor.chain().focus().deleteRange(range).run();
+      actRef.current[item.act]?.();
     } else {
       item.run(editor.chain().focus().deleteRange(range)).run();
     }
@@ -381,6 +406,7 @@ export default function NoteEditor({
     <div className={`nt-editor${compact ? ' is-compact' : ''}${readOnly ? ' is-readonly' : ''}`}>
       {toolbar && !readOnly && !phone && (
         <div className="nt-toolbar" role="toolbar" aria-label="Formatting">
+          <div className="nt-tb-fmt">
           <Btn icon={Undo2} label="Undo (Ctrl+Z)" disabled={!e?.can().undo()} onClick={run((c) => c.undo())} />
           <Btn icon={Redo2} label="Redo (Ctrl+Y)" disabled={!e?.can().redo()} onClick={run((c) => c.redo())} />
           <Sep />
@@ -405,25 +431,22 @@ export default function NoteEditor({
           <Sep />
           <Btn icon={Quote} label="Quote" active={on('blockquote')} onClick={run((c) => c.toggleBlockquote())} />
           <Btn icon={SquareCode} label="Code Block" active={on('codeBlock')} onClick={run((c) => c.toggleCodeBlock())} />
+          <Btn icon={Minus} label="Divider" onClick={run((c) => c.setHorizontalRule())} />
           <Btn icon={Link2} label="Link (Ctrl+K)" active={on('link')} onClick={openLink} />
           <Btn icon={TableIcon} label="Insert Table" onClick={run((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
           <Sep />
           <Btn icon={AlignLeft} label="Align Left" active={on({ textAlign: 'left' })} onClick={run((c) => c.setTextAlign('left'))} />
           <Btn icon={AlignCenter} label="Align Center" active={on({ textAlign: 'center' })} onClick={run((c) => c.setTextAlign('center'))} />
           <Btn icon={AlignRight} label="Align Right" active={on({ textAlign: 'right' })} onClick={run((c) => c.setTextAlign('right'))} />
-          <Sep />
-          {dictateOk && <Btn icon={Mic} label={dictation.listening ? 'Stop Dictating' : 'Dictate - type what you say'} active={dictation.listening}
-            disabled={voice.recording} onClick={toggleDictate} />}
-          {recordOk && <Btn icon={AudioLines} label={voice.recording ? 'Stop and Save the Voice Note' : 'Record a Voice Note'} active={voice.recording}
-            disabled={dictation.listening} onClick={toggleVoice} />}
-          <Btn icon={Clapperboard} label="Add a Video" disabled={live} onClick={pickVideo} />
-          {onMakeTask && (<>
-            <Sep />
-            <button type="button" className="nt-tb-text" tabIndex={-1} title="Make a task from the selection or the current line"
-              onMouseDown={(ev) => { ev.preventDefault(); makeTask(); }}>
-              <ListPlus size={15} strokeWidth={1.9} aria-hidden="true" /> Make a Task
-            </button>
-          </>)}
+          </div>
+          <div className="nt-tb-capture">
+          {dictateOk && <TBtn icon={Mic} text={dictation.listening ? 'Stop' : 'Dictate'} label={dictation.listening ? 'Stop Dictating' : 'Dictate - type what you say'}
+            active={dictation.listening} danger={dictation.listening} keep disabled={voice.recording} onClick={toggleDictate} />}
+          {recordOk && <TBtn icon={AudioLines} text={voice.recording ? 'Stop and Save' : 'Voice Note'} label={voice.recording ? 'Stop and Save the Voice Note' : 'Record a Voice Note'}
+            active={voice.recording} danger={voice.recording} disabled={dictation.listening} onClick={toggleVoice} />}
+          <TBtn icon={Clapperboard} text="Video" label="Add a Video" disabled={live} onClick={pickVideo} />
+          {onMakeTask && <TBtn icon={ListPlus} text="Make a Task" label="Make a Task - from the selection or the current line" onClick={makeTask} />}
+          </div>
         </div>
       )}
       {!readOnly && !phone && <MediaStatus voice={voice} dictation={dictation} busy={busy} error={err} onDismiss={clearErr} />}
