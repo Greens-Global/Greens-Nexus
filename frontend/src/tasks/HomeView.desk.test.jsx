@@ -15,8 +15,10 @@ const mineView = vi.fn();
 const myDay = { status: 'ready', total: 0, open: [], done: [] };
 
 vi.mock('./TasksContext', () => ({ useTasks: () => store }));
+// The Updates feed: empty unless a test fills it (or makes it fail).
+let activity = () => Promise.resolve([]);
 vi.mock('../api', () => ({ api: {
-  getMyTaskActivity: () => Promise.resolve([]), markUpdatesSeen: () => Promise.resolve({ seenAt: '' }),
+  getMyTaskActivity: (...a) => activity(...a), markUpdatesSeen: () => Promise.resolve({ seenAt: '' }),
 } }));
 vi.mock('./myDay', () => ({ useMyDay: () => myDay }));
 vi.mock('./TaskDetailDrawer', () => ({ default: ({ taskId }) => <div data-testid="drawer">{taskId}</div> }));
@@ -50,6 +52,7 @@ const task = (o) => ({ id: `t${++n}`, title: `Task ${n}`, type: 'task', status: 
 beforeEach(() => {
   n = 0;
   savedHome = undefined;
+  activity = () => Promise.resolve([]);
   setHome.mockClear();
   mineView.mockClear();
   Object.assign(myDay, { status: 'ready', total: 0, open: [], done: [] });
@@ -295,5 +298,61 @@ describe('keyboard', () => {
     fireEvent.keyDown(screen.getByRole('tab', { name: 'Overdue' }), { key: 'ArrowLeft' });
     fireEvent.keyDown(screen.getByRole('button', { name: 'Open Open me' }), { key: 'Enter' });
     expect(screen.getByTestId('drawer').textContent).toBe(store.tasks[0].id);
+  });
+});
+
+// The core at a desk (Neil, 10/31/2026): Updates leads - the left column for
+// the full height of Tasks + Bookmarks, and first in the DOM - unless the
+// feed has loaded with nothing in it, when Tasks keeps the left column.
+describe('the core at a desk', () => {
+  const update = (over) => ({
+    id: 'g1', type: 'attached', actorId: SAGAR, at: new Date(Date.now() - 5 * 60e3).toISOString(), detail: 'attached "a.png"',
+    taskId: 't1', relation: 'assignee', entityTitle: 'Fix roof', forYou: false, preview: '', parts: [], ...over,
+  });
+  const wide = () => vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockReturnValue({ width: 1200, height: 400, top: 0, left: 0, right: 1200, bottom: 400, x: 0, y: 0 });
+  const h2s = () => [...document.querySelectorAll('[data-home-core] h2')].map((h) => h.textContent);
+  const core = () => document.querySelector('[data-home-core]');
+
+  it('Updates leads when there is anything in the feed, filling its column', async () => {
+    activity = () => Promise.resolve([update()]);
+    const rect = wide();
+    try {
+      render(<HomeView onNavigate={() => {}} />);
+      await flush();
+      expect(core().dataset.homeCore).toBe('wide');
+      expect(core().dataset.homeCoreLead).toBe('updates');
+      expect(h2s()).toEqual(['Updates', 'Tasks', 'Bookmarks']);
+      expect(core().style.gridTemplateAreas).toBe('"updates tasks" "updates bookmarks"');
+      // The fill column: Updates sits in the absolute box that spans the other two.
+      const column = screen.getByText('Updates').closest('[style*="position: absolute"]');
+      expect(column).toBeTruthy();
+      expect(column.parentElement.style.gridArea).toBe('updates');
+      expect(screen.getByText('Fix roof')).toBeTruthy();
+    } finally { rect.mockRestore(); }
+  });
+
+  it('Tasks keeps the left column when the feed has loaded empty', async () => {
+    const rect = wide();
+    try {
+      render(<HomeView onNavigate={() => {}} />);
+      await flush();
+      expect(core().dataset.homeCore).toBe('wide');
+      expect(core().dataset.homeCoreLead).toBe('tasks');
+      expect(h2s()).toEqual(['Tasks', 'Updates', 'Bookmarks']);
+      expect(core().style.gridTemplateAreas).toBe('"tasks updates" "bookmarks updates"');
+    } finally { rect.mockRestore(); }
+  });
+
+  it('a feed that could not be read still leads: the notice is worth seeing', async () => {
+    activity = () => Promise.reject(new Error('down'));
+    const rect = wide();
+    try {
+      render(<HomeView onNavigate={() => {}} />);
+      await flush();
+      expect(core().dataset.homeCoreLead).toBe('updates');
+      expect(h2s()[0]).toBe('Updates');
+      expect(screen.getByText(/Updates could not be loaded/)).toBeTruthy();
+    } finally { rect.mockRestore(); }
   });
 });
