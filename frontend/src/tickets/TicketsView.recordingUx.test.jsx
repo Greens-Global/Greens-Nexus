@@ -57,7 +57,7 @@ describe('Ticket list width', () => {
     await screen.findByText('Printer jam');
     const grid = container.querySelector('.nx-list-scroll > div');
     expect(grid.style.width).toBe('100%');
-    expect(grid.style.getPropertyValue('--nx-grid')).toContain('minmax(200px, 260fr)');   // Title
+    expect(grid.style.getPropertyValue('--nx-grid')).toContain('minmax(260px, 1fr)');   // Title takes the slack (10/31/2026)
   });
 });
 

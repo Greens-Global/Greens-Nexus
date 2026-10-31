@@ -20,7 +20,8 @@ import {
 const MOBILE_SORTS = [
   ['created:desc', 'Newest First'],
   ['created:asc', 'Oldest First'],
-  ['due:asc', 'Due Date'],
+  ['updated:desc', 'Recently Updated'],
+  ['clock:asc', 'Next Clock'],
   ['priority:asc', 'Priority'],
   ['state:asc', 'Status'],
   ['latestComment:desc', 'Latest Comment'],

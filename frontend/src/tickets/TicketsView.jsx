@@ -275,13 +275,21 @@ export default function TicketsView() {
   // follows them to another device. Requester drops out of the underlying
   // column set entirely on My Requests (rather than being hidden per-row), so
   // the grid template - and the reorder/resize state - never has to know about it.
+  // Company ships hidden while every loaded ticket is one company (desk
+  // re-cut, 10/31/2026) - it shows by itself once there are two, and is one
+  // click away in Columns either way.
+  const oneCompany = useMemo(() => new Set(tickets.map((t) => t.companyId || '')).size <= 1, [tickets]);
   const columnDefs = useMemo(
     () => TICKET_COLUMNS.filter((c) => !(scope === 'mine' && c.key === 'requester'))
+      .map((c) => (c.key === 'company' ? { ...c, defaultHidden: oneCompany } : c))
       .map((c) => (c.shrink ? { ...c, template: `minmax(${c.shrink}px, ${c.width}fr)` } : c)),
-    [scope],
+    [scope, oneCompany],
   );
+  // 'tickets-v3' (10/31/2026): the title went elastic and Status / Priority
+  // narrowed; saved widths win over defaults, so the key bumps once to
+  // retire everyone's old arrangement ('tickets' was the first key).
   const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps, hidden, toggleHidden } = useTableColumns({
-    table: 'tickets', cols: columnDefs,
+    table: 'tickets-v3', cols: columnDefs,
   });
   // Completed tickets (resolved/closed) collapse into their own section below
   // the main list (Pranshu, Sept 8 2026) rather than sitting inline with the
@@ -406,19 +414,16 @@ export default function TicketsView() {
     if (!col?.sort) return list;
     const ctx = { nameOf, companyName };
     const dir = sort.dir === 'asc' ? 1 : -1;
-    // Phones sort by due date from a picker with no "reverse" - undated
-    // tickets (still awaiting approval, no SLA) go last either way, so the
-    // ones actually due soonest lead. Desktop keeps its header behavior.
-    const undatedLast = isMobile && col.key === 'due';
+    // Next Clock sorts on the deadline itself (nextClock.at): paused after
+    // every live clock, no clock last - on phones and desktop alike.
     return [...list].sort((a, b) => {
       const av = col.sort(a, ctx); const bv = col.sort(b, ctx);
-      if (undatedLast && (!av || !bv)) return av === bv ? 0 : (!av ? 1 : -1);
       if (av < bv) return -1 * dir;
       if (av > bv) return 1 * dir;
       return 0;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sort, nameOf, companies, isMobile]);
+  }, [sort, nameOf, companies]);
 
   // Completed (resolved/closed) tickets never sit inline with the ones still in
   // flight - they collapse into their own section at the bottom (see

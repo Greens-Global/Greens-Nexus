@@ -4,7 +4,7 @@ import { PRIORITY_META } from '../tasks/theme';
 import {
   fmtDate, TICKET_TYPE_META,
   TICKET_STATUS_META,
-  fmtDueAt,
+  fmtDueAt, fmtMoment, nextClock,
   ticketNoShort,
   serviceAreaLabel,
   richToPlain,
@@ -21,14 +21,14 @@ function csvEscape(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
-  const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Due Date', 'Requester', 'Assignee', 'Created', 'Resolved At', 'Resolution', 'Description', 'Latest Comment'];
+  const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Next Clock', 'SLA Due', 'Requester', 'Assignee', 'Updated', 'Created', 'Resolved At', 'Resolution', 'Description', 'Latest Comment'];
   const body = rows.map((t) => [
     ticketNoShort(t.code) || '', t.subject || '', TICKET_TYPE_META[t.type]?.label || t.type || '',
     helpWithLabel(t), serviceAreaLabel(t.serviceArea) || '',
     companyName(t.companyId) || '', hrDeptName(t.hrDepartmentId) || '',
     TICKET_STATUS_META[t.status]?.label || t.status || '', PRIORITY_META[t.priority]?.label || t.priority || '',
-    (t.slaDueAt || t.slaDueOn) ? fmtDueAt(t) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
-    t.assigneeId ? (nameOf(t.assigneeId) || t.assigneeId) : '', t.createdAt ? fmtDate(t.createdAt) : '',
+    nextClock(t).label, (t.slaDueAt || t.slaDueOn) ? fmtDueAt(t) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
+    t.assigneeId ? (nameOf(t.assigneeId) || t.assigneeId) : '', (t.modifiedAt || t.createdAt) ? fmtMoment(t.modifiedAt || t.createdAt) : '', t.createdAt ? fmtDate(t.createdAt) : '',
     t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.resolutionNote || '', richToPlain(t.description),
     latestCommentText(t.latestComment, nameOf),
   ]);
