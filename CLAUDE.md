@@ -44,7 +44,7 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 | Area | Owner | Files |
 |---|---|---|
 | Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
-| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/assets.py`, `backend/routers/property_assets.py`, property models/tables |
+| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/property_assets.py`, property models/tables |
 
 Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
 the build-notes skill refuses commits by it) - change both together.
@@ -231,6 +231,12 @@ keep the diff minimal.
   `dialog.undo`). Keyboard holds work, and a click with no press behind it
   (assistive tech) falls back to the ordinary confirm - keep both. Never
   lengthen the holds or add a second confirm component.
+- **Full Screen (Neil, 10/31/2026):** a working surface that needs room
+  (the workflow builder, Operations) takes `components/FullScreenButton.jsx`
+  - `useFullScreen('<module>')` folds the left navigation away and trims the
+  page margins (`html.nx-fullscreen` in style.css), remembered per module in
+  this browser, computers only. The header stays (it carries the module's
+  tabs). Give another module the same button, never a second mode.
 
 ## Domain rules
 

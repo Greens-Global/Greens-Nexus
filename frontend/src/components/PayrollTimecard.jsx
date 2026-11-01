@@ -4,7 +4,6 @@ import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { useDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
 import { dialog } from '../ui/dialog';
-import HoldButton from '../ui/HoldButton';
 import { useWorkSites } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { takePendingOpen } from '../lib/pendingOpen';
@@ -55,7 +54,6 @@ function OwnCardHint() {
     </div>
   );
 }
-const LEGACY_FINALIZE = false;
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -865,28 +863,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
     || (em ? em.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '');
 
-  // Finalize Without Signatures (hidden behind LEGACY_FINALIZE) is held on
-  // the button (Hold to confirm, Neil, Oct 30 2026): one person's period, so
-  // no dialog first. It keeps the SwipeClock exception gate: a period with a
-  // missing or unmatched punch is blocked (the paired total would be wrong),
-  // with an explicit "Finalize anyway" override - the sign-off is on record
-  // either way. A refusal (or declining the override) rewinds the button with
-  // the reason; the card reloads once the check has shown (onDone). The
-  // button itself guards against a second run.
-  const finalizeMessage = `Finalize ${nameFor(email)}'s time sheet for ${periodLabel}? This locks all time records for the period - edits will need an unlock.`;
-  async function finalize() {
-    const call = (allow) => api.timeFinalize({ email, start: perStart, end: perEnd, allow_exceptions: allow });
-    const okMsg = 'Time sheet finalized - the period is locked.';
-    try { await call(false); toastOk?.(okMsg); return; }
-    catch (e) {
-      if (e?.detail?.code !== 'unresolved_exceptions') throw new Error(e?.message || 'Could not finalize.', { cause: e });
-      const go = await dialog.confirm(e.detail.message,
-        { title: 'Unresolved punch exceptions', confirmText: 'Finalize anyway', danger: true });
-      if (!go) throw new Error('Not finalized - the punch exceptions are still unresolved.', { cause: e });
-    }
-    try { await call(true); toastOk?.(`${okMsg} (exceptions overridden).`); }
-    catch (e2) { throw new Error(e2?.message || 'Could not finalize.', { cause: e2 }); }
-  }
   async function unfinalize() {
     // HR / Global Admin only (Neil, Oct 22): only HR changes it until the employee signs it again.
     const reason = await dialog.prompt(`Why is ${nameFor(email)}'s time sheet for ${periodLabel} being unlocked? Only HR can change it while it is unlocked, and ${nameFor(email)} signs the corrected time sheet again. The reason is printed on it.`,
@@ -1491,7 +1467,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
         periodNav={employeeSidebar ? null : periodNav(false)}
-        onFinalize={finalize} finalizeMessage={finalizeMessage} onUnfinalize={unfinalize}
+        onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
         setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard}
         adv={adv} me={myEmail} />
@@ -1935,16 +1911,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 </form>
               )}
               {/* Approving is now "Agree" in the review panel below; HR's
-                  signature there finalizes. Finalize Without Signatures is
-                  hidden for launch (Neil, 10/16: review + Nexus Sign is the
-                  only sign-off) - LEGACY_FINALIZE brings it back. Unlock stays
-                  as HR's correction path for a signed period. */}
+                  signature there finalizes. Review + Nexus Sign is the only
+                  sign-off (Neil, 10/16). Unlock stays as HR's correction path
+                  for a signed period. */}
               {fin && data.review?.canUnlock && (
                 <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period to correct it - the employee signs it again"
                   style={{ fontSize: 12.5 }}>Unlock</button>)}
-              {isAdmin && !fin && !ownCard && LEGACY_FINALIZE && (
-                <HoldButton size="sm" label="Finalize Without Signatures" doneLabel="Finalized" icon={Lock} onConfirm={finalize} onDone={() => load()}
-                  disabled={busy} fallbackMessage={finalizeMessage} />)}
             </div>
             )}
           </div>
@@ -2044,7 +2016,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, periodNav, onFinalize, finalizeMessage, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false, adv = null, me = '' }) {
+function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, periodNav, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false, adv = null, me = '' }) {
   const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
@@ -2464,13 +2436,9 @@ function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameF
               <span>Pending edits</span><span>{T.pendingEdits}</span>
             </div>
           )}
-          {!self && ((fin && data.review?.canUnlock) || (isAdmin && LEGACY_FINALIZE)) && (
+          {!self && fin && data.review?.canUnlock && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              {fin && data.review?.canUnlock && (
-                <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>)}
-              {isAdmin && !fin && !ownCard && LEGACY_FINALIZE && (
-                <HoldButton size="sm" label="Finalize Without Signatures" doneLabel="Finalized" icon={Lock} onConfirm={onFinalize} onDone={() => load()}
-                  disabled={busy} fallbackMessage={finalizeMessage} />)}
+              <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>
             </div>
           )}
         </div>

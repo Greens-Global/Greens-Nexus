@@ -68,10 +68,6 @@ export const SUBMENUS = {
       { sub: 'myitems', label: 'My Items' },
     ],
   },
-  it: [
-    { sub: 'network',     label: 'Network Dashboard' },
-    { sub: 'it-websites', label: 'Website Management' },
-  ],
   ops: [
     { sub: 'construction-dashboard', label: 'Project Dashboard' },
     { sub: 'construction-activity',  label: 'Site Activity' },

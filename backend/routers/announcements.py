@@ -22,7 +22,7 @@ Bell notifications
   manager-only by design, so an employee would never see it - per-person rows
   are the only route to the whole company. Cost: one nexus_notifications row
   per recipient (~180 for a company-wide post), written in the same commit.
-  No email or Teams message is sent (ANNOUNCEMENT_EMAIL_ENABLED below).
+  No email or Teams message is sent.
 
 Body text is PLAIN TEXT with line breaks; the tile renders it pre-wrapped and
 React escapes it, so no HTML is accepted or sanitized here.
@@ -41,10 +41,6 @@ from database import get_db
 from models import Announcement, AnnouncementRead, NexusEmployee, NexusNotification, NexusRole
 
 router = APIRouter(prefix="", tags=["Announcements"])
-
-# Future company setting (Admin Console > Notifications): also email / Teams
-# each new announcement to its audience. Off - the bell is the only channel.
-ANNOUNCEMENT_EMAIL_ENABLED = False
 
 TITLE_MAX = 200
 BODY_MAX = 20000
@@ -284,8 +280,7 @@ def _notify_audience(db: Session, a: Announcement, people: dict, author_scope, a
             company=people.get(em, {}).get("company", ""),
             created_at=now,
         ))
-    # ANNOUNCEMENT_EMAIL_ENABLED: when a company setting turns it on, hand
-    # `recipients` to the mail / Teams sender here. Bell only for now.
+    # Bell only: no mail or Teams sender here.
     return len(recipients)
 
 

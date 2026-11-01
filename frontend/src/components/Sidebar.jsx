@@ -9,7 +9,7 @@ import {
   Monitor, Wifi, Home, LayoutGrid, FileText,
   ClipboardCheck, Calculator,
   FileSpreadsheet, Landmark, BarChart3,
-  Users, LogIn, PenTool, Files, Megaphone, ExternalLink, Handshake,
+  Users, LogIn, PenTool, Files, Megaphone, Handshake,
   Settings, ChevronLeft, ChevronRight,
   HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale, TrendingUp,
   FlaskConical,
@@ -119,7 +119,6 @@ export const NAV = [
     view: "egnyte", code: "EGN", label: "Files", icon: HardDrive, minRole: 'supervisor',
     sub: [
       { subview: "browse",   label: "Browse Files",       icon: FolderOpen },
-      { subview: "property", label: "Property Documents", icon: Home },
     ],
   },
   {
@@ -137,7 +136,6 @@ export const NAV = [
     view: "it", code: "IT", label: "IT", icon: Monitor, minRole: 'supervisor',
     sub: [
       { subview: "network",               label: "Network Dashboard",    icon: Wifi },
-      { subview: "it-websites",           label: "Website Management",   icon: ExternalLink },
     ],
   },
   {

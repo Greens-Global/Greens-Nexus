@@ -8241,3 +8241,14 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   box-shadow: 0 8px 28px rgba(0,0,0,.24); animation: nx-fade-in var(--dur-sm, 160ms) ease-out;
 }
 .nx-undo button { background: none; border: none; padding: 0; color: inherit; font: 700 13.5px Inter, sans-serif; text-decoration: underline; cursor: pointer; }
+
+/* Full Screen (Neil, 10/31/2026; components/FullScreenButton.jsx): the
+   workflow builder and Operations fold the left navigation away and trim the
+   page margins. Computers only - phones are full width already. The header
+   stays: it carries the module's tabs. */
+@media (min-width: 901px) {
+  html.nx-fullscreen .sidebar { display: none; }
+  html.nx-fullscreen .main-content, html.nx-fullscreen .main-content.main-collapsed { margin-left: 0; }
+  html.nx-fullscreen .viewport:not(.viewport-flush) { padding: 14px 18px; }
+  html.nx-fullscreen .wfc { height: calc(100vh - 180px - var(--nx-announce-h, 0px)); }
+}

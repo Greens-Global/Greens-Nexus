@@ -21,7 +21,7 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
+from routers import tasks, purchases, reviews, marketing, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
@@ -4864,14 +4864,9 @@ app.include_router(tasks.router)
 app.include_router(purchases.router)
 app.include_router(reviews.router)
 app.include_router(marketing.router)
-app.include_router(external_links.router) # External Links: registered BEFORE assets.router so its real
-                                           # GET/POST/click routes win the match over assets.py's leftover
-                                           # /external-links stub (Starlette matches in registration order,
-                                           # first route added wins on a path collision) - see
-                                           # routers/external_links.py's module docstring.
+app.include_router(external_links.router) # External Links
 app.include_router(external_links.personal_router) # Personal Links: private, owner-scoped shortcuts (Aug 12)
 app.include_router(link_layouts.router) # Per-user Links Module layout (folders/ordering/favorites) (Aug 13)
-app.include_router(assets.router)
 app.include_router(property_assets.router)
 app.include_router(accounting.router)
 app.include_router(accounting_dashboard.router)
