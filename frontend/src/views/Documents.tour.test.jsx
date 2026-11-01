@@ -14,7 +14,6 @@ const markTourSeen = vi.fn(() => Promise.resolve({}));
 vi.mock('../api', () => ({
   api: {
     getDocumentLibrary: () => Promise.resolve([]),
-    listPacketDocuments: () => Promise.resolve([]),
     mySignatures: () => Promise.resolve([]),
     getDocFolders: () => Promise.resolve([]),
     getDocTemplates: () => Promise.resolve([]),
