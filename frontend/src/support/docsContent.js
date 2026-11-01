@@ -939,7 +939,6 @@ export const DOCS = [
       { name: 'Browse Files', desc: 'The folder browser, opening on your normal work folder. Search, sort by name, size or date, and resize columns.' },
       { name: 'Preview', desc: 'View files in Nexus. Files locked for editing in Egnyte are marked.' },
       { name: 'File Actions', desc: 'Open in Egnyte, Download, Rename, Move To, Copy To, Copy Egnyte Link, Edit Description and Delete.' },
-      { name: 'Property Documents', desc: 'Folders tied to each property, used by Asset Management and Construction.' },
     ],
     manager: {
       title: 'Admins',
@@ -1183,13 +1182,12 @@ export const DOCS = [
   // ───────────────────────────── Modules ─────────────────────────────
   {
     id: 'it', name: 'IT', group: 'Modules', icon: 'Monitor', view: 'it',
-    tagline: 'Network health and company websites, watched in one place.',
+    tagline: 'Network health at every site, watched in one place.',
     where: 'Left menu > IT',
     access: 'Supervisors and above with the IT grant',
-    purpose: 'IT shows the health of the company network (from UniFi) and the status of every company website: uptime, SSL certificates and domain renewals. Problems show up here before someone has to report them.',
+    purpose: 'IT shows the health of the company network (from UniFi). Problems show up here before someone has to report them.',
     gains: [
       'See offline devices and internet issues at every site immediately.',
-      'Never let an SSL certificate or domain expire by surprise.',
     ],
     walkthroughs: [
       {
@@ -1200,18 +1198,9 @@ export const DOCS = [
           'Click a device to open it in UniFi.',
         ],
       },
-      {
-        title: 'Add a Website to Watch',
-        steps: [
-          'Click the Website Management tab.',
-          'Click Add Site.',
-          'Enter the name, URL, platform and hosting details, then save.',
-        ],
-      },
     ],
     features: [
       { name: 'Network Dashboard', desc: 'Devices, clients, offline devices, internet issues, WAN status and firmware updates.' },
-      { name: 'Website Management', desc: 'Every site with status, uptime, SSL expiry and domain expiry, plus SSL alerts.' },
     ],
     manager: { title: 'Admins', points: ['IT Admins also manage hardware in Item Management and access in Settings.'] },
     tips: [],
@@ -1271,7 +1260,6 @@ export const DOCS = [
     },
     tips: [
       'Not on any project? You will see an empty list. Ask your project manager to add you.',
-      'The Logistics & Supply Chain and Equipment Status cards on the Project Dashboard are sample data for now.',
     ],
   },
   {

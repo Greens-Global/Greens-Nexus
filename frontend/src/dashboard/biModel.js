@@ -65,10 +65,6 @@ const ACTIONS = {
     signed_7d: ['documents', 'documents-esign', 'Open Nexus Sign'],
   },
   credential_vault: { pending_shares: ['credvault', 'approvals', 'Review Share Requests'] },
-  it: {
-    sites_down: ['it', 'it-websites', 'Open Websites'],
-    ssl_expiring: ['it', 'it-websites', 'Open Websites'],
-  },
   construction: { '*': ['ops', 'construction-dashboard', 'Open Construction'] },
   asset_management: { '*': ['property-asset', 'asset-portfolio', 'Open the Portfolio'] },
 };

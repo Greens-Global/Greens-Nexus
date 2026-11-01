@@ -370,7 +370,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {screen === 'overview' && <Overview data={data} facilities={facilities} scope={scope} many={many} range={range} focus={focus} go={go} onPick={setPicked} onJump={jump} />}
           {screen === 'collections' && <Collections data={data} scope={scope} trend={state.data.trend} many={many} range={range} focus={focus} go={go} />}
           {screen === 'units' && <Units data={data} many={many} focus={focus} go={go}
-            unitClasses={state.data.unitClasses} canEditClasses={canSeeKeyHint} onClassesSaved={() => load(true)} />}
+            />}
           {screen === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
           {screen === 'market' && <RateManagement facility={single && !isThirdParty(single) ? single : null} section={view} onSection={onView('market')} />}
           {screen === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} section={view} onSection={onView('reports')} />}
