@@ -57,12 +57,12 @@ const TICKET_COLUMNS = [
   { key: 'priority', label: 'Priority', width: 110, shrink: 100, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
   // Whichever SLA clock bites next, in words; sorts by that deadline (paused
   // after every live clock, no clock last).
-  { key: 'clock', label: 'Next Clock', width: 150, shrink: 130, sort: (t) => nextClock(t).at },
+  { key: 'clock', label: 'Next Clock', width: 175, shrink: 165, sort: (t) => nextClock(t).at },
   { key: 'requester', label: 'Requester', width: 140, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
   { key: 'assignee', label: 'Assignee', width: 140, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
   // The last change to the ticket, as an age ("3h ago"); the exact moment is
   // the tooltip. A ticket saved before modified_at existed uses its creation.
-  { key: 'updated', label: 'Updated', width: 100, shrink: 88, sort: (t) => t.modifiedAt || t.createdAt || '' },
+  { key: 'updated', label: 'Updated', width: 110, shrink: 100, sort: (t) => t.modifiedAt || t.createdAt || '' },
   { key: 'created', label: 'Created', width: 110, shrink: 92, defaultHidden: true, sort: (t) => t.createdAt || '' },
   // The newest reply, last (Neil, Oct 1 2026) - see LatestComment.jsx. Wide
   // enough by default for a picture and a line of the preview; sorts by when.
