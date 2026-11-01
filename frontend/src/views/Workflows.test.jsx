@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Render-smoke for Workflows (/workflows): every tab paints something in
@@ -32,6 +32,13 @@ const { invalidateCatalog } = await import('../workflows/lib/useCatalog');
 const { doneWord } = await import('../lib/approvalActions');
 
 const T = '2026-10-28T12:00:00Z';
+
+// The paging-cursor test picks day 15 on the To calendar, which opens on the
+// real current month - the clock must sit in October 2026 with the mocked
+// runs, or the 10/28 row lands inside the range and the test breaks (it did
+// when October rolled into November).
+beforeAll(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(2026, 9, 28, 12, 0, 0)); });
+afterAll(() => { vi.useRealTimers(); });
 const EMPTY_OVERVIEW = { needsAttention: [], last24h: { runs: 0, succeeded: 0, failed: 0 }, recent: [], pausedAll: { paused: false } };
 const OVERVIEW = {
   needsAttention: [{ id: 'w2', name: 'Probation Ending Reminder', reason: 'Owner has left the company', since: T }],

@@ -1,9 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Accounting -> Allocations (Oct 2): the basis per person, the entry
 // preview, unmapped sites blocking the export, the mapping editor, Keep Run
 // and the export of a kept run.
+
+// The tab defaults to the previous calendar month, and the mocked preview is
+// for 2026-09 - the clock must sit in October 2026 or the month mismatch
+// disables Keep Run and the exports (it did when October rolled into
+// November).
+beforeAll(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(2026, 9, 15, 12, 0, 0)); });
+afterAll(() => { vi.useRealTimers(); });
 
 const preview = {
   month: '2026-09', start: '2026-09-01', end: '2026-09-30', currencies: ['USD'],
