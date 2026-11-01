@@ -976,10 +976,10 @@ export const DOCS = [
       {
         title: 'Create a Document From a Template',
         steps: [
-          'Click New Document (Dashboard or My Documents tab).',
-          'Pick a template, or Blank Document.',
-          'Fill in the details. Merge fields fill themselves.',
-          'Save it to a folder, or send it for signature.',
+          'Click New Document on the Documents tab, or Use Template on the Templates tab.',
+          'Pick a template, or Blank Document, and who it is for. Its name fills in as the template and the person.',
+          'Fill in the details. Merge fields fill themselves. It is made from the wording last published.',
+          'It opens beside the list. Send it for signature from there, or put it in a folder.',
         ],
       },
       {
@@ -995,9 +995,9 @@ export const DOCS = [
       {
         title: "Find a Person's HR Documents",
         steps: [
-          'Open Documents > HR Records (shown to People editors only).',
+          'Open Documents and pick HR Records in the list of views (shown to People editors only). They also appear in All Documents and the search.',
           'Every document an HR packet generated is listed - offer letters, NDAs, promotion letters, separation packages - with the person, the template version it came from and where it stands (In Review, Out For Signature, Signed...).',
-          'Open shows the document (the sealed, signed copy once it is signed). Documents that show pay open only with Pay & Benefits access.',
+          'Click a row to see it beside the list; Download gives you the document, and Open Signed Copy the sealed copy once it is signed. Documents that show pay open only with Pay & Benefits access.',
           'These records are never edited. To change the wording for future packets, click Open Template, edit it and Publish.',
         ],
       },
@@ -1008,7 +1008,7 @@ export const DOCS = [
           'When the wording is final, click Publish Changes at the top of the template (a template that was never published shows Publish).',
           'Every HR packet that has not been sent yet switches to the new wording. Documents already out for signature never change.',
           'In the Templates list, Not Published and Unpublished Changes show which templates still need a Publish.',
-          'A new template starts as a Draft: the top of the editor says Draft - Not Usable Yet with an Activate button. A Draft cannot make documents or go in an HR packet; Activate makes it Active and publishes it (v1). The Templates list shows Active And Draft together, so a new draft never disappears.',
+          'A new template starts as a Draft: the top of the editor says Draft - Not Usable Yet with a Publish button. A Draft cannot make documents or go in an HR packet; Publish is the one step that makes it usable (v1). Later edits show as Unpublished Changes, and new documents and HR packets keep using the published wording until you click Publish Changes.',
         ],
       },
       {
@@ -1023,9 +1023,8 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Dashboard', desc: 'Shortcuts to New Document, New Template and Send for Signature, plus what is waiting.' },
-      { name: 'My Documents', desc: 'Your documents in folders with tags. Edit, Duplicate, Archive, Restore or Delete.' },
-      { name: 'Templates', desc: 'Reusable templates with categories, an owning department, draft or active status, and a default per type. The letterheads they print on are Settings > Branding & Email > Letterheads.' },
+      { name: 'Documents', desc: 'One list of every document you may see, with who it is for, where it stands, the company and the last update. The views on the left narrow it: Needs Me, All Documents, My Drafts, Out For Signature, Signed, HR Records (People editors), Archived and your folders. One search covers title, person, signer and tag. Click a row and it opens beside the list with the page, who signed and who is next, its versions, and Open, Download, Remind, Send For Signature, Folder And Tags, Duplicate, Archive and Delete (drafts, press and hold).' },
+      { name: 'Templates', desc: 'A list of reusable templates with one status each: Draft, Published, Unpublished Changes or Archived. Use Template makes a document from what is published. Click a row for the page, Publish, Edit, Change Department, Duplicate, Archive and Delete (press and hold). The letterheads they print on are Settings > Branding & Email > Letterheads.' },
       { name: 'Nexus Sign', desc: 'Envelopes with statuses: Awaiting Signatures, Partially Executed, Fully Executed, Declined, Voided, Expired. Each signer shows Waiting, Notified, Viewed or Signed. Signed Time Sheets are not listed here: they open from the Time Sheet (Open Signed Copy) for the employee, the approving manager, the company HR contact, Full HR and Global Admins only.' },
       { name: 'Signing Fields', desc: 'Signature, Initials, Name, Date Signed, Text, Checkbox, Dropdown, Radio and File Upload.' },
       { name: 'Electronic Signature Consent', desc: 'Before signing, each signer reads the electronic records disclosure and agrees to sign electronically. It names the company sending the document (its legal name from Settings > Companies), and the certificate records the exact text they agreed to.' },

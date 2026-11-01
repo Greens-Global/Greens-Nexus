@@ -294,7 +294,7 @@ def load_snaps(db: Session, template_ids: list) -> tuple:
             problems.append("A document in this packet no longer exists in Documents - remove it from the packet.")
             continue
         if tpl.status != "active":
-            problems.append(f'"{tpl.name}" is {tpl.status} in Documents - activate it, or take it out of the packet.')
+            problems.append(f'"{tpl.name}" is {tpl.status} in Documents - publish it, or take it out of the packet.')
             continue
         try:
             content, meta, version = published_snapshot(db, tpl)

@@ -558,6 +558,24 @@ keep the diff minimal.
   Make a Task works on the page and in Quick Note. A new editor feature goes
   in BOTH the web toolbar and the phone bar (`NoteEditor.jsx`).
 
+- **Documents (Neil, 10/31/2026, plan https://claude.ai/artifact/VZxM4iUKKnmPfxsNvxxPdJ,
+  `routers/documents.py`, `components/DocumentsBrowser.jsx`,
+  `lib/documentLibrary.js`).** Four tabs: Documents (one library, `documents-browse`;
+  the old Dashboard, My Documents and HR Records tabs and their subs land here),
+  Templates, Nexus Sign (its own tab, unchanged - Neil's call) and PDF Tools.
+  `GET /documents/library` is every document and envelope the caller may see, one
+  row each, no content, and never a second access rule: documents as
+  `list_documents` filters them, an envelope for its parties and sender and for HR
+  readers as `/esign/requests` lists it, its people only for those who could
+  already see them. HR packet rows stay behind `/hr/packet-documents`. A row
+  opens beside the list (`DocumentSidePanel.jsx`). Status words live in
+  `rowStatus`; the screen says Signed while Nexus Sign and the sealed PDF keep
+  Fully Executed. Templates have ONE status (`_template_state`: draft, published,
+  changes, archived) and ONE Publish: publishing a draft is the only step that
+  makes it usable, a document is made from the published wording
+  (`_released`) exactly as an HR packet prints it, and a template live since
+  before this is released as it stands on first use or first edit.
+
 ## Asana — removed (Sep 2026)
 
 The Asana workspace is gone and the two-way sync, import, OAuth, webhook and

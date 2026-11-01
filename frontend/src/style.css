@@ -8233,6 +8233,90 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .nx-hold[data-holding] .nx-hold-fill { clip-path: inset(0 var(--nx-hold-left, 100%) 0 0); }
   .nx-hold[data-working] .nx-hold-fill { animation: none; }
 }
+/* The Documents library and Templates list (Neil, 10/31/2026): a left list of
+   views, a flat table, a panel beside it. Status is a dot and a word. */
+.nx-dl { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 20px; align-items: start; margin-top: 4px; }
+.nx-dl.nx-dl-open { grid-template-columns: 196px minmax(0, 1fr) minmax(360px, 34%); }
+.nx-dl.nx-dl-norail { grid-template-columns: minmax(0, 1fr); }
+.nx-dl.nx-dl-norail.nx-dl-open { grid-template-columns: minmax(0, 1fr) minmax(360px, 34%); }
+.nx-dl-rail { display: flex; flex-direction: column; gap: 1px; position: sticky; top: 12px; }
+.nx-dl-rail button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 7px 10px; background: none; border: none; border-left: 2px solid transparent; font: 500 13px Inter, sans-serif; color: var(--muted); text-align: left; cursor: pointer; }
+.nx-dl-rail button:hover { color: var(--ink); background: var(--mist); }
+.nx-dl-rail button.on { color: var(--ink); font-weight: 650; border-left-color: var(--pine); background: var(--mist); }
+.nx-dl-rail button > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-dl-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.nx-dl-rail-head { margin: 14px 0 4px; padding: 0 12px; font: 650 11px Inter, sans-serif; color: var(--muted); }
+.nx-dl-rail .nx-dl-rail-add { justify-content: flex-start; color: var(--muted); }
+.nx-dl-main { min-width: 0; }
+.nx-dl-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.nx-dl-search { position: relative; flex: 1 1 240px; min-width: 200px; }
+.nx-dl-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.nx-dl-search input { width: 100%; padding-left: 30px; font-size: 13px; }
+.nx-dl-table { border-top: 1px solid var(--line); overflow-x: auto; }
+.nx-dl-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.nx-dl-table th { text-align: left; padding: 8px 10px; font: 650 11.5px Inter, sans-serif; color: var(--muted); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.nx-dl-table th button { display: inline-flex; align-items: center; gap: 3px; background: none; border: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.nx-dl-table th button:hover { color: var(--ink); }
+.nx-dl-table td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.nx-dl-table tbody tr { cursor: pointer; }
+.nx-dl-table tbody tr:hover { background: var(--mist); }
+.nx-dl-table tbody tr.sel { background: var(--mist); box-shadow: inset 2px 0 0 var(--pine); }
+.nx-dl-table tbody tr:focus-visible { outline: 2px solid var(--pine); outline-offset: -2px; }
+.nx-dl-name { font-weight: 600; color: var(--ink); }
+.nx-dl-for { white-space: nowrap; }
+.nx-dl-open .nx-dl-co { display: none; }
+.nx-dl-date { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.nx-dl-rowact { text-align: right; white-space: nowrap; }
+.nx-dl-rowact .secondary-btn { font-size: 12px; padding: 4px 10px; }
+.nx-dl-status { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.nx-dl-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.nx-dl-green { background: hsl(var(--color-green)); }
+.nx-dl-blue { background: hsl(var(--color-blue)); }
+.nx-dl-amber { background: hsl(var(--color-orange)); }
+.nx-dl-red { background: hsl(var(--color-red)); }
+.nx-dl-ink { background: var(--ink); }
+.nx-dl-muted { font-size: 12px; color: var(--muted); }
+.nx-dl-empty { padding: 56px 20px; text-align: center; color: var(--muted); }
+.nx-dl-empty svg { opacity: .35; margin-bottom: 10px; }
+.nx-dl-empty p { font-size: 13.5px; margin: 0 0 14px; }
+.nx-dl-panel { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 14px; max-height: calc(100vh - 92px - var(--nx-announce-h, 0px)); overflow-y: auto; padding: 0 0 16px 18px; border-left: 1px solid var(--line); min-width: 0; }
+.nx-dl-panel-head { display: flex; align-items: flex-start; gap: 10px; }
+.nx-dl-panel-title { font-size: 15px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; margin-bottom: 4px; }
+.nx-dl-icon { flex: none; display: flex; padding: 6px; background: none; border: none; color: var(--muted); cursor: pointer; }
+.nx-dl-icon:hover { color: var(--ink); }
+.nx-dl-page { flex: none; width: 100%; height: 420px; border: 1px solid var(--line); background: var(--card); }
+.nx-dl-page-note { display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; font-size: 12.5px; color: var(--muted); }
+.nx-dl-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.nx-dl-actions button { font-size: 12.5px; }
+.nx-dl-section { display: flex; flex-direction: column; gap: 8px; }
+.nx-dl-section h4 { margin: 0; font-size: 12.5px; font-weight: 650; color: var(--ink); }
+.nx-dl-step { display: flex; gap: 9px; font-size: 13px; color: var(--ink); }
+.nx-dl-step .nx-dl-dot { margin-top: 6px; }
+.nx-dl-step small { display: block; font-size: 11.5px; color: var(--muted); }
+.nx-dl-version { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; }
+.nx-dl-facts { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.nx-dl-facts > div { display: flex; gap: 12px; font-size: 13px; }
+.nx-dl-facts dt { flex: 0 0 96px; color: var(--muted); }
+.nx-dl-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
+.nx-dl-lock { display: flex; align-items: center; gap: 6px; }
+.nx-dl-cards { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.nx-dl-card { display: flex; flex-direction: column; gap: 4px; padding: 12px 2px; background: none; border: none; border-bottom: 1px solid var(--line); text-align: left; font: 13px Inter, sans-serif; color: var(--ink); cursor: pointer; min-height: 44px; }
+.nx-dl-card-foot { display: flex; justify-content: space-between; gap: 10px; }
+@media (max-width: 1180px) {
+  .nx-dl, .nx-dl.nx-dl-open, .nx-dl.nx-dl-norail, .nx-dl.nx-dl-norail.nx-dl-open { grid-template-columns: minmax(0, 1fr); }
+  .nx-dl-rail { position: static; flex-direction: row; overflow-x: auto; scrollbar-width: none; gap: 2px; border-bottom: 1px solid var(--line); }
+  .nx-dl-rail::-webkit-scrollbar { display: none; }
+  .nx-dl-rail button { width: auto; flex: none; border-left: none; border-bottom: 2px solid transparent; }
+  .nx-dl-rail button.on { border-left: none; border-bottom-color: var(--pine); background: none; }
+  .nx-dl-rail-head { display: none; }
+  .nx-dl-panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 100vw); max-height: none; z-index: 1100; padding: 16px; background: var(--card); box-shadow: var(--shadow-lg); border-left: 1px solid var(--line); }
+}
+@media (max-width: 900px) {
+  .nx-dl-tools .primary-btn, .nx-dl-tools .secondary-btn { flex: 1 1 auto; justify-content: center; text-align: center; }
+}
+@media (max-width: 640px) {
+  .nx-dl-panel { width: 100vw; border-left: none; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+}
 /* the Undo toast after a hold (ui/dialog.jsx dialog.undo) */
 .nx-undo {
   position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 100001;

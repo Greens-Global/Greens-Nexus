@@ -19,15 +19,15 @@ afterEach(cleanup);
 describe('Documents bottom bar', () => {
   it('lists every Documents tab, in the desktop strip order', () => {
     render(<MobileNav activeView="documents" activeSub="documents-browse" />);
-    expect(labels()).toEqual(['Dashboard', 'My Docs', 'Templates', 'Sign', 'PDF Tools']);
+    expect(labels()).toEqual(['Documents', 'Templates', 'Sign', 'PDF Tools']);
   });
 
-  it('marks the open tab, defaulting to the dashboard before any navigation', () => {
+  it('marks the open tab, defaulting to the library before any navigation', () => {
     const { unmount } = render(<MobileNav activeView="documents" activeSub="documents-templates" />);
     expect(activeLabel()).toBe('Templates');
     unmount();
     render(<MobileNav activeView="documents" activeSub="" />);
-    expect(activeLabel()).toBe('Dashboard');
+    expect(activeLabel()).toBe('Documents');
   });
 
   it('keeps the e-sign deep links on the Sign tab', () => {
@@ -38,7 +38,7 @@ describe('Documents bottom bar', () => {
   it('navigates on tap', () => {
     const onNav = vi.fn();
     window.addEventListener('nexus:navigate', onNav);
-    render(<MobileNav activeView="documents" activeSub="documents-dashboard" />);
+    render(<MobileNav activeView="documents" activeSub="documents-browse" />);
     fireEvent.click(screen.getByText('PDF Tools'));
     window.removeEventListener('nexus:navigate', onNav);
     expect(onNav.mock.calls[0][0].detail).toEqual({ view: 'documents', sub: 'documents-pdf' });
