@@ -308,6 +308,7 @@ class TemplateVersionLinkTests(_ApiTests):
         bumped = self.client.patch(f"/documents/templates/{tpl['id']}", json={
             "content": {"pages": [{"id": "p1", "json": {"type": "doc", "content": []}}]}}).json()
         self.assertGreater(bumped["version"], tpl["version"])
+        self.client.post(f"/documents/templates/{tpl['id']}/publish", json={})
         second = self.client.post("/documents", json={"title": "new", "templateId": tpl["id"]}).json()
         # Old document unchanged, new one on the new version.
         self.assertEqual(self.client.get(f"/documents/{first['id']}").json()["templateVersion"], tpl["version"])

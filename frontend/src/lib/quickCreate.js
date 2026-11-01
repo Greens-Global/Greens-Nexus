@@ -10,7 +10,7 @@
 //   go      - a { view, sub } the module answers by opening its own create
 //             dialog - "<thing>:new" style subs, the convention "purchase:new"
 //             started (Workday > Purchase Requests):
-//               documents / documents-new         My Documents > New Document
+//               documents / documents-new         Documents > New Document
 //               inventory / catalog               the item catalog's Request
 //
 // Who sees a row is the left menu's own rule (Sidebar's isNavItemVisible)

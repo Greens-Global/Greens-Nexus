@@ -1,0 +1,122 @@
+// The Documents library's rules (Neil, 10/31/2026): one row per document, one
+// set of status words, the left views. No React here so the screen and its tests
+// read the same answers. Rows come from GET /documents/library, plus the HR
+// packet rows from GET /hr/packet-documents for whoever may read them.
+
+const TONE_OF_HR = {
+  Signed: 'green', 'Out For Signature': 'blue', 'In Review': 'amber', 'Waiting On Details': 'amber', Declined: 'red',
+};
+
+/** An HR Records row in the library's shape. */
+export function hrRow(r) {
+  return {
+    id: `hr:${r.documentId}`, kind: 'hr', title: r.title, forName: r.person, company: '', tags: [], folderId: '',
+    hrStatus: r.status, packet: r.packet, templateId: r.templateId, templateName: r.templateName,
+    templateVersion: r.templateVersion, locked: !!r.locked, eventId: r.eventId, documentId: r.documentId,
+    signRequestId: r.signRequestId || '', signed: !!r.signed, updatedAt: r.updatedAt || '',
+    status: r.status === 'Archived' ? 'archived' : 'final', parties: [],
+  };
+}
+
+/** The library plus HR Records; a person's own copy of a packet envelope shows once. */
+export function mergeRows(library, hr) {
+  const hrRows = (hr || []).map(hrRow);
+  const covered = new Set(hrRows.map((r) => r.signRequestId).filter(Boolean));
+  const own = (library || []).filter((r) => r.kind !== 'envelope' || !covered.has(r.signRequestId));
+  return [...own, ...hrRows].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+}
+
+/** The one status a row shows: a word and the color of its dot. */
+export function rowStatus(row) {
+  if (row.kind === 'hr') return { label: row.hrStatus, tone: TONE_OF_HR[row.hrStatus] || 'muted' };
+  if (row.status === 'archived') return { label: 'Archived', tone: 'muted' };
+  if (row.myTurn) return { label: 'Your Signature Needed', tone: 'amber' };
+  switch (row.signStatus) {
+    case 'pending':
+      return { label: row.signers ? `Out For Signature - ${row.signed || 0} of ${row.signers}` : 'Out For Signature', tone: 'blue' };
+    case 'completed': return { label: 'Signed', tone: 'green' };
+    case 'declined': return { label: 'Declined', tone: 'red' };
+    case 'voided': return { label: 'Voided', tone: 'muted' };
+    case 'expired': return { label: 'Expired', tone: 'muted' };
+    default: break;
+  }
+  return row.status === 'draft' ? { label: 'Draft', tone: 'muted' } : { label: 'Final', tone: 'ink' };
+}
+
+const SIGNING_ROLES = ['signer', 'countersigner', 'witness'];
+
+/** Who a row is for: its person, else whoever signs it. Older documents have neither. */
+export function rowFor(row) {
+  if (row.forName) return row.forName;
+  const names = (row.parties || []).filter((p) => SIGNING_ROLES.includes(p.role) && p.name).map((p) => p.name);
+  if (!names.length) return '';
+  return names.length > 2 ? `${names.slice(0, 2).join(', ')} +${names.length - 2}` : names.join(', ');
+}
+
+const isSigned = (r) => (r.kind === 'hr' ? r.hrStatus === 'Signed' : r.signStatus === 'completed');
+const isOut = (r) => (r.kind === 'hr' ? r.hrStatus === 'Out For Signature' : r.signStatus === 'pending');
+
+export const VIEWS = [
+  { key: 'needs', label: 'Needs Me', empty: 'Nothing is waiting on you.', match: (r) => !!r.myTurn },
+  { key: 'all', label: 'All Documents', empty: 'No documents yet.', match: (r) => r.status !== 'archived' },
+  { key: 'drafts', label: 'My Drafts', empty: 'No drafts. Documents you are still writing appear here.', match: (r) => r.status === 'draft' && !!r.mine },
+  { key: 'out', label: 'Out For Signature', empty: 'Nothing is out for signature.', match: (r) => r.status !== 'archived' && isOut(r) },
+  { key: 'signed', label: 'Signed', empty: 'No signed documents yet.', match: (r) => r.status !== 'archived' && isSigned(r) },
+  { key: 'hr', label: 'HR Records', hrOnly: true, empty: 'No HR packet documents yet.', match: (r) => r.kind === 'hr' },
+  { key: 'archived', label: 'Archived', empty: 'Nothing is archived.', match: (r) => r.status === 'archived' },
+];
+
+const folderKey = (id) => `folder:${id}`;
+export { folderKey };
+
+/** The rows of a left view, a folder included. */
+export function rowsInView(rows, view) {
+  const v = VIEWS.find((x) => x.key === view);
+  if (v) return rows.filter(v.match);
+  if (String(view).startsWith('folder:')) {
+    const id = view.slice('folder:'.length);
+    return rows.filter((r) => r.folderId === id && r.status !== 'archived');
+  }
+  return rows;
+}
+
+/** One search: title, person, signer, tag, folder, company, status. */
+export function searchRows(rows, q, folders = []) {
+  const needle = String(q || '').trim().toLowerCase();
+  if (!needle) return rows;
+  const nameOf = new Map(folders.map((f) => [f.id, f.name]));
+  return rows.filter((r) => [
+    r.title, r.forName, r.company, nameOf.get(r.folderId), rowStatus(r).label, r.packet,
+    ...(r.tags || []), ...(r.parties || []).map((p) => p.name),
+  ].some((x) => String(x || '').toLowerCase().includes(needle)));
+}
+
+const SORTS = {
+  title: (r) => String(r.title || '').toLowerCase(),
+  for: (r) => rowFor(r).toLowerCase(),
+  status: (r) => rowStatus(r).label.toLowerCase(),
+  company: (r) => String(r.company || '').toLowerCase(),
+  updatedAt: (r) => String(r.updatedAt || ''),
+};
+
+export function sortRows(rows, key, dir) {
+  const read = SORTS[key] || SORTS.updatedAt;
+  const sign = dir === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => sign * read(a).localeCompare(read(b)));
+}
+
+/** Where Documents opens: what is waiting on you, otherwise everything. */
+export const startView = (rows) => (rows.some((r) => r.myTurn) ? 'needs' : 'all');
+
+// ── Templates (Neil, 10/31/2026: Active and Published are one step) ──────────
+
+export const TEMPLATE_STATES = {
+  draft: { label: 'Draft', tone: 'muted' },
+  published: { label: 'Published', tone: 'green' },
+  changes: { label: 'Unpublished Changes', tone: 'amber' },
+  archived: { label: 'Archived', tone: 'muted' },
+};
+
+export const templateStatus = (t) => TEMPLATE_STATES[t.state] || TEMPLATE_STATES[t.status] || TEMPLATE_STATES.draft;
+/** Anything published makes documents, in its published wording. */
+export const templateUsable = (t) => t.state === 'published' || t.state === 'changes';

@@ -5,7 +5,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 // document and deleting a template are row holds of HOLD_RECORD_MS, with no
 // window.confirm in front; a refusal rewinds the button with the reason.
 const calls = vi.hoisted(() => ({
-  getDocFolders: vi.fn(), getDocuments: vi.fn(), deleteDocument: vi.fn(),
+  getDocFolders: vi.fn(), getDocumentLibrary: vi.fn(), deleteDocument: vi.fn(),
   getDocTemplates: vi.fn(), getDocLetterheads: vi.fn(), deleteDocTemplate: vi.fn(),
 }));
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_t, k) => (...a) => (calls[k] ? calls[k](...a) : Promise.resolve([])) }) }));
@@ -23,10 +23,10 @@ const press = (el) => fireEvent.pointerDown(el, { button: 0, pointerId: 1 });
 beforeEach(() => {
   Object.values(calls).forEach((f) => f.mockReset());
   calls.getDocFolders.mockResolvedValue([]);
-  calls.getDocuments.mockResolvedValue([{ id: 'd1', title: 'Vendor Agreement', folderId: '', status: 'draft', currentVersion: 1,
-    updatedAt: '2026-09-01T10:00:00Z', tags: [], signRequestId: '', signStatus: '' }]);
+  calls.getDocumentLibrary.mockResolvedValue([{ id: 'd1', kind: 'document', title: 'Vendor Agreement', folderId: '', status: 'draft', canManage: true, mine: true,
+    updatedAt: '2026-09-01T10:00:00Z', tags: [], parties: [], signRequestId: '', signStatus: '' }]);
   calls.getDocLetterheads.mockResolvedValue([]);
-  calls.getDocTemplates.mockResolvedValue([{ id: 't1', name: 'Offer Letter', category: 'hr', status: 'active', department: '', requiresLetterhead: false }]);
+  calls.getDocTemplates.mockResolvedValue([{ id: 't1', name: 'Offer Letter', category: 'hr', status: 'active', state: 'published', department: '', requiresLetterhead: false }]);
 });
 afterEach(() => { vi.useRealTimers(); });
 
@@ -35,6 +35,7 @@ describe('Delete a draft document', () => {
     calls.deleteDocument.mockResolvedValue({});
     const toastOk = vi.fn();
     render(<DocumentsBrowser toastOk={toastOk} toastErr={vi.fn()} />);
+    fireEvent.click(await screen.findByText('Vendor Agreement'));
     const btn = await screen.findByRole('button', { name: 'Delete Vendor Agreement, press and hold' });
     vi.useFakeTimers();
     press(btn);
@@ -42,7 +43,7 @@ describe('Delete a draft document', () => {
     expect(calls.deleteDocument).toHaveBeenCalledTimes(1);
     expect(calls.deleteDocument).toHaveBeenCalledWith('d1');
     expect(toastOk).toHaveBeenCalledWith('Deleted');
-    expect(calls.getDocuments.mock.calls.length).toBeGreaterThan(1);
+    expect(calls.getDocumentLibrary.mock.calls.length).toBeGreaterThan(1);
   });
 });
 
@@ -50,6 +51,7 @@ describe('Delete a template', () => {
   it('a refusal (409) rewinds the button and says to archive instead', async () => {
     calls.deleteDocTemplate.mockRejectedValue(Object.assign(new Error('Conflict'), { status: 409 }));
     render(<DocumentTemplates toastOk={vi.fn()} toastErr={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('cell', { name: 'Offer Letter' }));
     const btn = await screen.findByRole('button', { name: 'Delete template Offer Letter, press and hold' });
     vi.useFakeTimers();
     press(btn);

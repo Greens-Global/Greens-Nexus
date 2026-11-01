@@ -1,22 +1,28 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 
-// Render-smoke + behavior for My Documents (Documents module). Covers the
-// list itself and the two organize surfaces that were backend-only for a long
-// time: creating a shared folder, and setting a document's folder/tags.
+// The Documents library (Neil, 10/31/2026): views, one row per document, one
+// search, a row opening beside the list, and the two organize surfaces.
 
 const getDocFolders = vi.fn();
-const getDocuments = vi.fn();
+const getDocumentLibrary = vi.fn();
+const listPacketDocuments = vi.fn();
 const createDocFolder = vi.fn();
 const updateDocument = vi.fn();
+const createDocument = vi.fn();
 vi.mock('../api', () => ({
   api: {
     getDocFolders: (...a) => getDocFolders(...a),
-    getDocuments: (...a) => getDocuments(...a),
+    getDocumentLibrary: (...a) => getDocumentLibrary(...a),
+    listPacketDocuments: (...a) => listPacketDocuments(...a),
     createDocFolder: (...a) => createDocFolder(...a),
     updateDocument: (...a) => updateDocument(...a),
-    getDocTemplates: () => Promise.resolve([]),
+    createDocument: (...a) => createDocument(...a),
+    getDocTemplates: () => Promise.resolve([{ id: 't1', name: 'Offer Letter', state: 'published' }]),
+    getDocTemplate: () => Promise.resolve({ id: 't1', fieldDefs: [], releasedFieldDefs: [] }),
+    getDocumentVersions: () => Promise.resolve([]),
+    exportDocumentPdf: () => new Promise(() => {}),
     duplicateDocument: () => Promise.resolve({}),
     archiveDocument: () => Promise.resolve({}),
     restoreDocument: () => Promise.resolve({}),
@@ -25,9 +31,17 @@ vi.mock('../api', () => ({
 }));
 
 // The editor is a ~2,000-line TipTap surface with its own upload/import deps -
-// out of scope here, and it only mounts once you click Edit.
+// out of scope here, and it only mounts once you click Open.
 vi.mock('./DocumentBuilder', () => ({ default: () => <div>document builder</div> }));
 vi.mock('./EgnyteBrowser', () => ({ default: () => <div>egnyte</div> }));
+vi.mock('../tasks/components', () => ({
+  PersonSelect: ({ people, onChange, ariaLabel }) => (
+    <select aria-label={ariaLabel} onChange={(e) => onChange(e.target.value)}>
+      <option value="">None</option>
+      {people.map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
+    </select>
+  ),
+}));
 
 let isAdmin = true;
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => isAdmin }) }));
@@ -38,100 +52,218 @@ const FOLDERS = [
   { id: 'f-hr', name: 'HR', key: 'hr', isSystem: true, ownerEmail: '' },
   { id: 'f-me', name: 'Personal', key: 'personal', isSystem: true, ownerEmail: 'me@greensglobal.com' },
 ];
+const doc = (over) => ({ kind: 'document', folderId: '', status: 'final', version: 1, tags: [], parties: [], mine: true, canManage: true,
+  company: '', forName: '', signRequestId: '', signStatus: '', updatedAt: '2026-08-20T10:00:00Z', ...over });
 const DOCS = [
-  { id: 'd1', title: 'Vendor Agreement', folderId: 'f-hr', status: 'draft', currentVersion: 3,
-    updatedAt: '2026-09-01T10:00:00Z', tags: ['legal', 'vendor'], signRequestId: '', signStatus: '' },
-  { id: 'd2', title: 'Untagged Note', folderId: '', status: 'final', currentVersion: 1,
-    updatedAt: '2026-08-20T10:00:00Z', tags: [], signRequestId: '', signStatus: '' },
+  doc({ id: 'd1', title: 'Vendor Agreement', folderId: 'f-hr', status: 'draft', tags: ['legal', 'vendor'], company: 'Greens Global', updatedAt: '2026-09-01T10:00:00Z' }),
+  doc({ id: 'd2', title: 'Employment Agreement', forName: 'Jordan Lee', signRequestId: 'r1', signStatus: 'pending', signed: 1, signers: 2, canManageEnvelope: true,
+    parties: [{ name: 'Jordan Lee', role: 'signer', status: 'signed', signedAt: '2026-10-29T16:12:00Z' }, { name: 'Company Signatory', role: 'signer', status: 'viewed', viewedAt: '2026-10-29T16:13:00Z' }] }),
+  doc({ id: 'd3', title: 'Employment Agreement', forName: 'Sam Rivera', signRequestId: 'r2', signStatus: 'completed', signed: 2, signers: 2, partyId: 'p9', updatedAt: '2026-08-21T10:00:00Z' }),
+  doc({ id: 'sign:r3', kind: 'envelope', title: 'Lease', myTurn: true, signStatus: 'pending', signRequestId: 'r3', partyId: 'p3', canManage: false, signers: 1, signed: 0 }),
+  doc({ id: 'd4', title: 'Old Note', status: 'archived' }),
 ];
+
+const rail = () => screen.getByRole('navigation', { name: 'Document views' });
+const openView = (name) => fireEvent.click(within(rail()).getByRole('button', { name: new RegExp(`^${name}`) }));
 
 beforeEach(() => {
   isAdmin = true;
   getDocFolders.mockReset().mockResolvedValue(FOLDERS);
-  getDocuments.mockReset().mockResolvedValue(DOCS);
+  getDocumentLibrary.mockReset().mockResolvedValue(DOCS);
+  listPacketDocuments.mockReset().mockRejectedValue(new Error('403'));
   createDocFolder.mockReset().mockResolvedValue({ id: 'f-new', name: 'Board Minutes', key: '', ownerEmail: '' });
-  updateDocument.mockReset().mockResolvedValue({ ...DOCS[0], tags: ['legal', 'vendor', 'signed'] });
+  updateDocument.mockReset().mockResolvedValue(DOCS[0]);
+  createDocument.mockReset().mockResolvedValue(doc({ id: 'd9', title: 'Made', status: 'final' }));
 });
 
-describe('DocumentsBrowser', () => {
-  it('renders the document list with its tags and a US-format updated date', async () => {
+describe('The library', () => {
+  it('opens on Needs Me when something waits on you, otherwise on All Documents', async () => {
     render(<DocumentsBrowser />);
-    expect(await screen.findByText('Vendor Agreement')).toBeTruthy();
-    expect(screen.getByText('legal')).toBeTruthy();
-    expect(screen.getByText('vendor')).toBeTruthy();
-    // MM/DD/YYYY, never ISO - the app-wide date rule.
-    expect(screen.getByText(/09\/01\/2026/)).toBeTruthy();
-    expect(screen.queryByText(/2026-09-01/)).toBeNull();
+    expect(await screen.findByText('Lease')).toBeTruthy();
+    expect(screen.queryByText('Vendor Agreement')).toBeNull();
+    expect(screen.getByText('Your Signature Needed')).toBeTruthy();
   });
 
-  it('creates a shared folder and adds it to the picker', async () => {
+  it('starts on All Documents with nothing waiting, and archived rows stay out of it', async () => {
+    getDocumentLibrary.mockResolvedValue(DOCS.filter((d) => !d.myTurn));
+    render(<DocumentsBrowser />);
+    expect(await screen.findByText('Vendor Agreement')).toBeTruthy();
+    expect(screen.queryByText('Old Note')).toBeNull();
+    // MM/DD/YYYY, never ISO - the app-wide date rule.
+    expect(screen.getByText('09/01/2026')).toBeTruthy();
+  });
+
+  it('two rows with one title read differently: who for and where it stands', async () => {
+    render(<DocumentsBrowser />);
+    await screen.findByText('Lease');
+    openView('All Documents');
+    expect(screen.getByText('Jordan Lee')).toBeTruthy();
+    expect(screen.getByText('Sam Rivera')).toBeTruthy();
+    expect(screen.getByText('Out For Signature - 1 of 2')).toBeTruthy();
+    expect(within(screen.getByText('Sam Rivera').closest('tr')).getByText('Signed')).toBeTruthy();
+  });
+
+  it('the views filter: drafts, out for signature, signed, archived, a folder', async () => {
+    render(<DocumentsBrowser />);
+    await screen.findByText('Lease');
+    openView('My Drafts');
+    expect(screen.getByText('Vendor Agreement')).toBeTruthy();
+    expect(screen.queryByText('Lease')).toBeNull();
+    openView('Archived');
+    expect(screen.getByText('Old Note')).toBeTruthy();
+    openView('Signed');
+    expect(screen.getByText('Sam Rivera')).toBeTruthy();
+    expect(screen.queryByText('Jordan Lee')).toBeNull();
+    openView('HR');   // a folder named HR, not the HR Records view
+    expect(screen.getByText('Vendor Agreement')).toBeTruthy();
+  });
+
+  it('one search reaches the person, the signer and the tag', async () => {
+    render(<DocumentsBrowser />);
+    await screen.findByText('Lease');
+    openView('All Documents');
+    const box = screen.getByLabelText('Search documents');
+    fireEvent.change(box, { target: { value: 'company signatory' } });
+    expect(screen.getByText('Jordan Lee')).toBeTruthy();
+    expect(screen.queryByText('Sam Rivera')).toBeNull();
+    fireEvent.change(box, { target: { value: 'vendor' } });
+    expect(screen.getByText('Vendor Agreement')).toBeTruthy();
+    fireEvent.change(box, { target: { value: 'nothing like this' } });
+    expect(screen.getByText('Nothing matches that search.')).toBeTruthy();
+  });
+
+  it('a row opens beside the list and says who signed and who is next', async () => {
+    render(<DocumentsBrowser />);
+    await screen.findByText('Lease');
+    openView('All Documents');
+    fireEvent.click(screen.getByText('Jordan Lee'));
+    const panel = await screen.findByRole('complementary', { name: 'Employment Agreement' });
+    expect(within(panel).getByText('Signatures - 1 of 2')).toBeTruthy();
+    expect(within(panel).getByText('Jordan Lee signed')).toBeTruthy();
+    expect(within(panel).getByText('Company Signatory - viewed, not signed')).toBeTruthy();
+    expect(within(panel).getByRole('button', { name: 'Remind' })).toBeTruthy();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('complementary')).toBeNull();
+  });
+
+  it('Open starts the editor; someone who does not own a row sees no owner actions', async () => {
+    getDocumentLibrary.mockResolvedValue([doc({ id: 'd7', title: 'Shared', canManage: false, mine: false })]);
+    render(<DocumentsBrowser />);
+    fireEvent.click(await screen.findByText('Shared'));
+    const panel = await screen.findByRole('complementary', { name: 'Shared' });
+    expect(within(panel).queryByRole('button', { name: 'Archive' })).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'Folder And Tags' })).toBeNull();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Open' }));
+    expect(await screen.findByText('document builder')).toBeTruthy();
+  });
+
+  it('HR Records shows only for someone the server lets read them, and pay stays locked', async () => {
+    listPacketDocuments.mockResolvedValue([{ documentId: 'h1', title: 'Offer Letter', person: 'Priya Shah', packet: 'Hire', status: 'In Review',
+      locked: true, eventId: 'e1', signRequestId: '', signed: false, templateId: 't1', templateName: 'Offer', templateVersion: 2, updatedAt: '2026-10-24T10:00:00Z' }]);
+    render(<DocumentsBrowser />);
+    await screen.findByText('Lease');
+    openView('HR Records');
+    fireEvent.click(screen.getByText('Priya Shah'));
+    const panel = await screen.findByRole('complementary', { name: 'Offer Letter' });
+    expect(within(panel).getByText(/Opening it needs Pay & Benefits access/)).toBeTruthy();
+    expect(within(panel).queryByRole('button', { name: 'Download' })).toBeNull();
+    expect(within(panel).getByRole('button', { name: 'Open Template' })).toBeTruthy();
+  });
+
+  it('no HR Records view for anyone else', async () => {
+    render(<DocumentsBrowser />);
+    await screen.findByText('Lease');
+    expect(within(rail()).queryByRole('button', { name: /^HR Records/ })).toBeNull();
+  });
+});
+
+describe('Folders and tags', () => {
+  it('creates a shared folder and adds it to the rail', async () => {
     render(<DocumentsBrowser toastOk={() => {}} />);
-    await screen.findByText('Vendor Agreement');
+    await screen.findByText('Lease');
     fireEvent.click(screen.getByTitle('New Folder'));
     fireEvent.change(screen.getByPlaceholderText('e.g. Board Minutes'), { target: { value: 'Board Minutes' } });
     fireEvent.click(screen.getByText('Create Folder'));
     await waitFor(() => expect(createDocFolder).toHaveBeenCalledWith({ name: 'Board Minutes' }));
-    await waitFor(() => expect(screen.getByRole('option', { name: 'Board Minutes' })).toBeTruthy());
+    await waitFor(() => expect(within(rail()).getByRole('button', { name: /^Board Minutes/ })).toBeTruthy());
   });
 
   it('hides New Folder from non-administrators (the endpoint would 403)', async () => {
     isAdmin = false;
     render(<DocumentsBrowser />);
-    await screen.findByText('Vendor Agreement');
+    await screen.findByText('Lease');
     expect(screen.queryByTitle('New Folder')).toBeNull();
   });
 
-  it('saves folder and tags together, keeping the tags already on the document', async () => {
+  const organize = async (title) => {
     render(<DocumentsBrowser toastOk={() => {}} />);
-    await screen.findByText('Vendor Agreement');
-    fireEvent.click(screen.getAllByTitle('Folder & Tags')[0]);
+    await screen.findByText('Lease');
+    openView('All Documents');
+    fireEvent.click(screen.getByText(title));
+    const panel = await screen.findByRole('complementary');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Folder And Tags' }));
+    return screen.findByLabelText('Add a tag');
+  };
 
-    const tagInput = await screen.findByLabelText('Add a tag');
+  it('saves folder and tags together, keeping the tags already on the document', async () => {
+    const tagInput = await organize('Vendor Agreement');
     fireEvent.change(tagInput, { target: { value: 'Signed' } });
     fireEvent.keyDown(tagInput, { key: 'Enter' });
     fireEvent.change(screen.getByDisplayValue('HR'), { target: { value: 'f-me' } });
     fireEvent.click(screen.getByText('Save'));
-
     await waitFor(() => expect(updateDocument).toHaveBeenCalledWith('d1', {
       folderId: 'f-me', tags: ['legal', 'vendor', 'signed'],
     }));
   });
 
   it('does not drop a tag that was typed but never committed with Enter', async () => {
-    render(<DocumentsBrowser toastOk={() => {}} />);
-    await screen.findByText('Untagged Note');
-    fireEvent.click(screen.getAllByTitle('Folder & Tags')[1]);
-
-    const tagInput = await screen.findByLabelText('Add a tag');
+    const tagInput = await organize('Vendor Agreement');
     fireEvent.change(tagInput, { target: { value: 'draftonly' } });
     fireEvent.click(screen.getByText('Save'));
-
-    await waitFor(() => expect(updateDocument).toHaveBeenCalledWith('d2', {
-      folderId: '', tags: ['draftonly'],
+    await waitFor(() => expect(updateDocument).toHaveBeenCalledWith('d1', {
+      folderId: 'f-hr', tags: ['legal', 'vendor', 'draftonly'],
     }));
   });
 
   it('removes a tag chip', async () => {
-    render(<DocumentsBrowser toastOk={() => {}} />);
-    await screen.findByText('Vendor Agreement');
-    fireEvent.click(screen.getAllByTitle('Folder & Tags')[0]);
+    await organize('Vendor Agreement');
     fireEvent.click(await screen.findByLabelText('Remove legal'));
     fireEvent.click(screen.getByText('Save'));
     await waitFor(() => expect(updateDocument).toHaveBeenCalledWith('d1', {
       folderId: 'f-hr', tags: ['vendor'],
     }));
   });
+});
 
+describe('New Document', () => {
+  const EMPLOYEES = [{ id: 'emp-1', firstName: 'Jordan', lastName: 'Lee', workEmail: 'jordan@greensglobal.com', company: 'ent-1' }];
+  const ENTITIES = [{ id: 'ent-1', name: 'Greens Global' }];
+
+  it('picking a template and a person names the document and tells it who it is for', async () => {
+    render(<DocumentsBrowser openCreateSignal={1} employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
+    const person = await screen.findByLabelText('Who this document is for');
+    const option = await screen.findByRole('option', { name: 'Offer Letter' });
+    fireEvent.change(option.closest('select'), { target: { value: 't1' } });
+    fireEvent.change(person, { target: { value: 'jordan@greensglobal.com' } });
+    expect(screen.getByDisplayValue('Offer Letter - Jordan Lee')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Make Document' }));
+    await waitFor(() => expect(createDocument).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Offer Letter - Jordan Lee', templateId: 't1', employeeId: 'emp-1', entityId: 'ent-1',
+    })));
+  });
+});
+
+describe('Empty and failing', () => {
   it('renders an empty state instead of a blank screen', async () => {
-    getDocuments.mockResolvedValue([]);
+    getDocumentLibrary.mockResolvedValue([]);
     render(<DocumentsBrowser />);
-    expect(await screen.findByText('No documents match here yet.')).toBeTruthy();
+    expect(await screen.findByText('No documents yet.')).toBeTruthy();
   });
 
-  it('survives the folders and documents calls failing', async () => {
+  it('says so when the list cannot load, and the folders failing does not matter', async () => {
     getDocFolders.mockRejectedValue(new Error('403'));
-    getDocuments.mockRejectedValue(new Error('500'));
+    getDocumentLibrary.mockRejectedValue(new Error('The server said no'));
     render(<DocumentsBrowser />);
-    expect(await screen.findByText('No documents match here yet.')).toBeTruthy();
+    await waitFor(() => expect(document.body.textContent).toContain('The server said no'));
   });
 });

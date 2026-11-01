@@ -2363,8 +2363,10 @@ function PhoneHint({ phone }) {
 
 export function templateAskFields(t) {
   const prettyLabel = (token) => token.replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-  const defs = (t?.fieldDefs || []).filter(fd => !RESERVED_FIELD_TYPES.includes(fd.type));
-  const declared = new Set((t?.fieldDefs || []).map(fd => fd.token));
+  // What the document will be made from: the published fields (Neil, 10/31/2026).
+  const fields = t?.releasedFieldDefs || t?.fieldDefs || [];
+  const defs = fields.filter(fd => !RESERVED_FIELD_TYPES.includes(fd.type));
+  const declared = new Set(fields.map(fd => fd.token));
   const loose = (t?.tokens || []).filter(tk => !declared.has(tk))
     .map(tk => ({ token: tk, label: prettyLabel(tk), type: 'text' }));
   return [...defs, ...loose];

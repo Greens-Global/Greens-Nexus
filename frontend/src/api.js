@@ -2652,8 +2652,11 @@ export const api = {
   reopenPacketIntake:  (eid) => req(`/hr/life-events/${eid}/reopen-intake`, { method: 'POST' }),
   // A promotion letter built from Documents: generated, then verified and sent.
   startPromotion:      (eid, data) => req(`/hr/employees/${eid}/promotion/start`, { method: 'POST', body: JSON.stringify(data) }),
-  // Documents > HR Records: every document HR packets generated (HR only).
+  // Documents > HR Records view: every document HR packets generated (HR only).
   listPacketDocuments: ({ q = '', status = '' } = {}) => req(`/hr/packet-documents?${new URLSearchParams({ q, status })}`),
+  // Documents > Documents (Neil, 10/31/2026): the one list, and a template's page.
+  getDocumentLibrary: () => req('/documents/library'),
+  docTemplatePreviewPdf: (id) => reqBlob(`/documents/templates/${id}/preview`),
   // Signs Once (Oct 14): the company signs a packet once - a one-time code,
   // then the signature goes on every packet until someone else holds the role.
   // Ready To Send (Oct 14): the packet's checklist, read again after a fix.
