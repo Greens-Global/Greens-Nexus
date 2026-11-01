@@ -822,8 +822,12 @@ def _test_out(db, run: models.WorkflowRun, wf: models.Workflow, user: Optional[d
     out = store.serialize_run(db, run, steps=True, viewer=user)
     return {"runId": run.id, "status": run.status, "summary": run.summary or "", "subjectLabel": run.subject_label or "",
             "trace": out.get("trace", []), "conditionsPassed": out.get("conditionsPassed", True),
+            # `output` carries only the lane a branch took (an If's `branch`, an
+            # approval's `outcome`): the canvas replays the planned path with it
             "steps": [{"stepId": s["stepId"], "kind": s["kind"], "action": s["action"], "label": s["label"],
-                       "status": s["status"], "detail": s["detail"]} for s in out.get("steps", [])],
+                       "status": s["status"], "detail": s["detail"],
+                       "output": {k: v for k, v in (s.get("output") or {}).items() if k in ("branch", "outcome")}}
+                      for s in out.get("steps", [])],
             "testedAt": wf.last_tested_at or "", "testedCurrent": store.tested_current(wf)}
 
 

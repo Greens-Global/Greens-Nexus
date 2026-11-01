@@ -49,7 +49,6 @@ const toneColor = (tone) => C(TONE_COLOR[tone] || 'blue');
 // so color on this board always means "look here".
 const valueColor = (tone) => (tone === 'critical' || tone === 'warning' ? toneColor(tone) : 'var(--ink)');
 const REFRESH_MS = 30000;
-const ATTENTION_SHOWN = 8;
 const TABLE_SHOWN = 4;   // a card is one fixed size; More opens the module for the rest
 // en-US grouping on purpose: a bare toLocaleString() groups by the viewer's
 // locale, which reads 1,23,456 for India staff.
@@ -82,9 +81,8 @@ function ModuleIcon({ moduleId, nav, size = 16 }) {
 }
 
 // ── Needs Attention: every critical/warning count above zero ─────────────────
+// All of them, always - no Show All / Show Fewer (Neil, Oct 30 2026).
 function AttentionStrip({ rows, onDrill }) {
-  const [all, setAll] = useState(false);
-  const shown = all ? rows : rows.slice(0, ATTENTION_SHOWN);
   const critical = rows.filter((r) => r.tone === 'critical').length;
   return (
     <section className="bi-section">
@@ -96,11 +94,6 @@ function AttentionStrip({ rows, onDrill }) {
               : `${critical} critical and ${rows.length - critical} warning signal${rows.length - critical === 1 ? '' : 's'} across the company.`}
           </div>
         </div>
-        {rows.length > ATTENTION_SHOWN && (
-          <button type="button" className="secondary-btn" onClick={() => setAll((v) => !v)}>
-            {all ? 'Show Fewer' : `Show All ${rows.length}`}
-          </button>
-        )}
       </div>
       {rows.length === 0 ? (
         <div className="bi-calm">
@@ -112,7 +105,7 @@ function AttentionStrip({ rows, onDrill }) {
         </div>
       ) : (
         <div className="bi-attention">
-          {shown.map((r) => (
+          {rows.map((r) => (
             // No colored edge bar (Neil, 10/28/2026): the module's own icon
             // says where it comes from, the count's color and the dotted
             // level word say how bad it is.

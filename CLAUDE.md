@@ -44,7 +44,7 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 | Area | Owner | Files |
 |---|---|---|
 | Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
-| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/assets.py`, `backend/routers/property_assets.py`, property models/tables |
+| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/property_assets.py`, property models/tables |
 
 Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
 the build-notes skill refuses commits by it) - change both together.
@@ -219,6 +219,24 @@ keep the diff minimal.
   (`lib/groupDirty.js`), so the Settings shell asks before the subject, the
   scope, the top tab, the module or the browser tab changes; the hook is a
   no-op wherever else the panel renders.
+- **Hold to confirm (Neil, Oct 30 2026, plan
+  https://claude.ai/artifact/MU1RMFQ9nHYxSB31XjDwQ1, PRs #883-#884):** an
+  action that cannot be taken back (delete forever, void, offboard, end
+  access, finalize) is confirmed by pressing and holding `ui/HoldButton.jsx`,
+  never a plain click-to-confirm. `HOLD_RECORD_MS` (1.2 s) for one record,
+  which holds right on its row with no dialog; `HOLD_MAJOR_MS` (1.8 s) for
+  many records or other people, inside `dialog.confirm(msg, { hold: true,
+  onConfirm })` so the dialog says what goes. `onConfirm` may return a
+  promise (a refusal shows under the button) or `{ undo }` (an Undo toast,
+  `dialog.undo`). Keyboard holds work, and a click with no press behind it
+  (assistive tech) falls back to the ordinary confirm - keep both. Never
+  lengthen the holds or add a second confirm component.
+- **Full Screen (Neil, 10/31/2026):** a working surface that needs room
+  (the workflow builder, Operations) takes `components/FullScreenButton.jsx`
+  - `useFullScreen('<module>')` folds the left navigation away and trims the
+  page margins (`html.nx-fullscreen` in style.css), remembered per module in
+  this browser, computers only. The header stays (it carries the module's
+  tabs). Give another module the same button, never a second mode.
 
 ## Domain rules
 
@@ -256,6 +274,31 @@ keep the diff minimal.
   muted rows are dropped; nothing left = nothing sent). Mentions, deletions,
   urgent tasks and tasks due today/tomorrow never wait. New task email events
   go through `notify_task_event` - never mail directly - so they batch too.
+- **Many tasks at once go through the import engine** (Neil, 10/31/2026):
+  a pasted list in any task name box (Home's add row, My Day, the Create
+  Task title, the phone quick-add) and the Create form's "Add Several"
+  open `tasks/AddSeveralModal.jsx`, which sends rows to `POST /tasks/import`
+  (`task_import.run_import`, `source` paste / typed, a project or none) -
+  one transaction, one bell and one batched email per person, the same
+  dry run first. Never add a second bulk-create path or loop POST /tasks.
+  Tasks Home: on a wide window the Updates card leads (left column, first
+  in the DOM) and Tasks + Bookmarks stack on the right; a feed that loaded
+  empty leaves Tasks on the left; phones stay Tasks, Updates, Bookmarks.
+- **The Tickets desk is queues, not tiles** (Neil, 10/31/2026): the main
+  page's tabs (`tickets/queues.js`, in this order: Needs Reply, Unassigned,
+  Mine, Due Soon, Waiting, All Open, Done, then To Route / To Approve when
+  non-empty, then the person's saved views, then Raised by Me, then "+ View")
+  are filter presets over the tickets TasksContext holds, counted over the
+  WHOLE workspace (no count pill on Done, All Open or Raised by Me). The
+  server's `needsReply` flag on every `GET /task-tickets` row (`_needs_reply`
+  in routers/tickets.py) decides Needs Reply; the client copy in queues.js
+  is only a fallback for a row that arrived without the flag and must stay
+  identical to `_needs_reply`. The row's Next Clock
+  (`ticketMeta.nextClock`) is the ONE SLA wording on the list - red only
+  when overdue. The side pane (a row opens beside the list, ↑ ↓ Enter and
+  Previous / Next step the queue) is a per-person layout stored with the
+  list's columns (`useTableValue('tickets-v3', 'layout')`), desktop List
+  view only; phones, the Board, Reports and Support keep the popup drawer.
 - Timesheets are approved through review + Nexus Sign (`timesheet_review.py`;
   ONLY THE EMPLOYEE SIGNS - Neil, Oct 16 2026). After the period's last day
   the manager (else the company's HR contact; nobody at all = the Global
@@ -404,6 +447,14 @@ keep the diff minimal.
   `weather_scope.py` is the one rule every weather path reads - never add a
   second one. New shift tables rely
   on `_enable_rls_everywhere`; run `get_advisors` after each release.
+  Holidays (Neil, Oct 30 2026): a country-tagged company holiday applies only
+  to people in that country, and a person with no country of their own takes
+  their company's (`holiday_policies.person_country` / `company_countries`) -
+  every holiday reader passes `person_country`, never the raw field. The
+  planner's day header names the holiday; Fill Automatically, the bulk add
+  and Copy Week leave each person's company holidays empty
+  (`skip_holidays`, on by default, `timeclock._holiday_days`) and say how
+  many they skipped.
 
 - **Settings is one tab (Neil, Oct 23 2026, plan
   https://claude.ai/artifact/UGtPmeFBrfU6wXhd474erx; `views/AdminConsole.jsx`).**
@@ -484,6 +535,46 @@ keep the diff minimal.
   `workflow_events`, `workflow_runs`, `workflow_run_steps`,
   `workflow_waits`, `workflow_approvals`, `workflow_subject_marks`) need RLS
   on dev and prod - run `get_advisors` after each release.
+  The builder's canvas (Blueprint, Neil, 10/30/2026) is a computed layout of
+  the definition - `frontend/src/workflows/canvas/layout.js`; never store
+  node coordinates, and the list's `shape` (`workflows/shape.py`,
+  mirrored in `canvas/shape.js`) carries step kinds only.
+
+- **Notes (Neil, Oct 29-31 2026, `routers/notes.py`, `frontend/src/notes/`).**
+  Dashboard > Notes (the page), Quick Note (the slide-over from the + menu's
+  New Note, or `quickNoteKeys()` - Ctrl+Alt+N / Ctrl+Cmd+N) and the
+  dashboard's Notes widget read and write the same rows (`nexus_notes`,
+  `nexus_note_versions`, `nexus_note_presence` - each needs RLS on dev and prod). A
+  note is private to its owner and the Nexus People it is shared with
+  (404, never 403, to anyone else); a mention notifies nobody. Saves carry
+  the rev they were read with (409 = Keep Mine / Use Theirs); editors
+  co-type live over an ENCRYPTED Realtime channel (the module docstring has
+  the rules). Voice notes, videos and dictation (`lib/voice.js`,
+  `notes/noteMedia.jsx`) work on the web and the phone alike: on the web
+  they sit, named, at the top right of the toolbar - the formatting wraps,
+  never scrolls them out of sight - and in the "/" menu; on a phone they ride
+  the bar above the keyboard. Dictation is the browser's own speech
+  recognition (no AI, no key); a browser without it shows no microphone.
+  Make a Task works on the page and in Quick Note. A new editor feature goes
+  in BOTH the web toolbar and the phone bar (`NoteEditor.jsx`).
+
+- **Documents (Neil, 10/31/2026, plan https://claude.ai/artifact/VZxM4iUKKnmPfxsNvxxPdJ,
+  `routers/documents.py`, `components/DocumentsBrowser.jsx`,
+  `lib/documentLibrary.js`).** Four tabs: Documents (one library, `documents-browse`;
+  the old Dashboard, My Documents and HR Records tabs and their subs land here),
+  Templates, Nexus Sign (its own tab, unchanged - Neil's call) and PDF Tools.
+  `GET /documents/library` is every document and envelope the caller may see, one
+  row each, no content, and never a second access rule: documents as
+  `list_documents` filters them, an envelope for its parties and sender and for HR
+  readers as `/esign/requests` lists it, its people only for those who could
+  already see them. HR packet rows stay behind `/hr/packet-documents`. A row
+  opens beside the list (`DocumentSidePanel.jsx`). Status words live in
+  `rowStatus`; the screen says Signed while Nexus Sign and the sealed PDF keep
+  Fully Executed. Templates have ONE status (`_template_state`: draft, published,
+  changes, archived) and ONE Publish: publishing a draft is the only step that
+  makes it usable, a document is made from the published wording
+  (`_released`) exactly as an HR packet prints it, and a template live since
+  before this is released as it stands on first use or first edit.
 
 ## Asana — removed (Sep 2026)
 

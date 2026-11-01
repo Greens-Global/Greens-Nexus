@@ -571,6 +571,20 @@ class ReviewFixesCase(unittest.TestCase):
         for got in self._each_order(self.XMAS_2027, read):
             self.assertEqual(got, {A_US: self.XMAS_DAY})
 
+    def test_1_no_country_follows_the_company(self):
+        # Neil, Oct 30 2026: a person with no country on their record keeps
+        # their company's country holidays (Thanksgiving is picked for US).
+        nobody = "hol.nocountry@greensglobal.com"
+        self.db.add(models.NexusEmployee(id="emp-hol-nc", work_email=nobody, first_name="T", last_name="NC",
+                                         company=CO_A, country="", status="active"))
+        self._own(CO_A, "2026-11-26", "Thanksgiving Day")
+        want = {"2026-11-26": {"name": "Thanksgiving Day", "type": "mandatory"}}
+        self.assertEqual(self._pay(nobody, "2026-11-01", "2026-11-30"), want)
+        self.assertEqual(timeclock._company_holidays_for_many(self.db, {nobody: self._emp(nobody)}, "2026-11-01", "2026-11-30"),
+                         {nobody: want})
+        # someone whose own country is set still follows their own
+        self.assertEqual(timeclock._company_holidays_for_many(self.db, {A_IN: self._emp(A_IN)}, "2026-11-01", "2026-11-30"), {})
+
     def test_1_reader_india_gazetted_beats_restricted(self):
         import shift_attendance
         rows = [("2027-08-15", "Independence Day", "mandatory", "IN"), ("2027-08-15", "Parsi New Year", "optional", "IN"),

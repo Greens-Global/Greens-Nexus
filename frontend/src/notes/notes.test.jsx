@@ -28,6 +28,7 @@ vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => 
 import NotesPage from './NotesPage';
 import NotesWidget from './NotesWidget';
 import QuickNotePanel from './QuickNotePanel';
+import { HOLD_RECORD_MS } from '../ui/HoldButton';
 import { isQuickNoteKey, htmlToMarkdown, markdownToHtml, groupByDay, dayHeading, addDays } from './notesModel';
 
 beforeEach(() => {
@@ -87,8 +88,24 @@ describe('Notes page', () => {
     render(<NotesPage activeSub="notes:note_1" onSubChange={vi.fn()} />);
     expect(await screen.findByText(/This note is in the Trash/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Restore/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Delete Forever/ }));
-    expect(screen.getByText(/This cannot be undone/)).toBeTruthy();
+    // Delete Forever is a hold right on the banner (Neil, Oct 30 2026): no second step.
+    expect(screen.getByRole('button', { name: 'Delete Forever, press and hold' })).toBeTruthy();
+  });
+
+  it('Delete Forever deletes the trashed note once the hold completes', async () => {
+    apiMock.noteGet.mockResolvedValue(note({ trashedAt: new Date().toISOString(), pinned: false }));
+    apiMock.noteDeleteForever.mockResolvedValue({ ok: true });
+    render(<NotesPage activeSub="notes:note_1" onSubChange={vi.fn()} />);
+    const btn = await screen.findByRole('button', { name: 'Delete Forever, press and hold' });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(btn, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(HOLD_RECORD_MS - 200); });
+      expect(apiMock.noteDeleteForever).not.toHaveBeenCalled();
+      await act(async () => { vi.advanceTimersByTime(200); });
+      expect(apiMock.noteDeleteForever).toHaveBeenCalledTimes(1);
+      expect(apiMock.noteDeleteForever).toHaveBeenCalledWith('note_1');
+    } finally { vi.useRealTimers(); }
   });
 
   it('a note shared to read shows who shared it and no editing controls', async () => {

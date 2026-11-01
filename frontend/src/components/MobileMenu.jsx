@@ -43,7 +43,7 @@ export const SUBMENUS = {
   shifts: {
     manager: [
       { sub: 'shifts', label: 'Shifts' },
-      { sub: 'schedule', label: 'Schedule' },
+      { sub: 'schedule', label: 'Shift Planner' },
       { sub: 'requests', label: 'Requests' },
       { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
       { sub: 'contact', label: 'Directory' },
@@ -68,10 +68,6 @@ export const SUBMENUS = {
       { sub: 'myitems', label: 'My Items' },
     ],
   },
-  it: [
-    { sub: 'network',     label: 'Network Dashboard' },
-    { sub: 'it-websites', label: 'Website Management' },
-  ],
   ops: [
     { sub: 'construction-dashboard', label: 'Project Dashboard' },
     { sub: 'construction-activity',  label: 'Site Activity' },

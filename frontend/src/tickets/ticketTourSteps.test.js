@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { buildTicketTourSteps } from './ticketTourSteps';
 
 const build = (over = {}) =>
-  buildTicketTourSteps({ setScope: vi.fn(), setView: vi.fn(), isMobile: false, ...over });
+  buildTicketTourSteps({ setQueue: vi.fn(), setView: vi.fn(), isMobile: false, ...over });
 
 const targets = (steps) => steps.map((s) => s.target);
 
@@ -30,7 +30,6 @@ describe('buildTicketTourSteps', () => {
     const t = targets(build({ isMobile: true }));
     expect(t).not.toContain('ticket-create');
     expect(t).not.toContain('ticket-views');
-    expect(t).not.toContain('ticket-tiles');
     expect(t).not.toContain('ticket-toolbar');
   });
 
@@ -38,7 +37,8 @@ describe('buildTicketTourSteps', () => {
     const t = targets(build({ isMobile: false }));
     expect(t).toContain('ticket-create');
     expect(t).toContain('ticket-views');
-    expect(t).toContain('ticket-tiles');
+    // The five tiles are gone (10/31/2026) - the queue tabs carry the counts.
+    expect(t).not.toContain('ticket-tiles');
     expect(t).toContain('ticket-toolbar');
   });
 
@@ -59,29 +59,28 @@ describe('buildTicketTourSteps', () => {
     expect(steps[steps.length - 1].target).toBe('ticket-scope');
   });
 
-  it('names the scope tabs the way each layout labels them', () => {
-    // The phone strip reads All / Mine / Assigned; the desktop one My Requests /
-    // Assigned to Me. Copy naming a tab that is not on screen sends people looking.
+  it('names the queue tabs both layouts show, and never a desktop-only gesture on a phone', () => {
+    // The same queue strip renders on desktop and phone (10/31/2026), so the
+    // copy names the queues; a phone step must not say "click a row".
     const desk = build({ isMobile: false });
-    expect(desk[0].body).toMatch(/My Requests is what you raised; Assigned to Me is what you are working/);
-    expect(desk[desk.length - 1].body).toMatch(/All, My Requests or Assigned to Me/);
+    expect(desk[0].body).toMatch(/Needs Reply is where a day starts/);
+    expect(desk[desk.length - 1].body).toMatch(/Needs Reply, Unassigned or Mine/);
     const phone = build({ isMobile: true });
-    expect(phone[0].body).toMatch(/Mine is what you raised; Assigned is what you are working/);
-    expect(phone[phone.length - 1].body).toMatch(/All, Mine or Assigned,/);
+    expect(phone[0].body).toMatch(/Needs Reply is where a day starts/);
     for (const step of phone) {
-      expect(step.body).not.toMatch(/My Requests|Assigned to Me|Click a row|click State/);
+      expect(step.body).not.toMatch(/My Requests|Assigned to Me|Click a row|click Status/);
     }
   });
 
-  it('resets scope and view before pointing at a screen', () => {
+  it('resets the queue and view before pointing at a screen', () => {
     // Without before(), a step could spotlight the right element while it is
-    // showing a stale scope/view left over from an earlier step.
-    const setScope = vi.fn();
+    // showing a stale queue/view left over from an earlier step.
+    const setQueue = vi.fn();
     const setView = vi.fn();
-    const steps = buildTicketTourSteps({ setScope, setView, isMobile: false });
+    const steps = buildTicketTourSteps({ setQueue, setView, isMobile: false });
     const first = steps[0];
     first.before();
-    expect(setScope).toHaveBeenCalledWith('all');
+    expect(setQueue).toHaveBeenCalledWith('needs_reply');
     expect(setView).toHaveBeenCalledWith('list');
   });
 });

@@ -526,9 +526,6 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         _safe_insight(modules, "documents", "Documents", "documents", documents_block)
 
         def it_block():
-            sites = db.query(M.Website)
-            sites_down = sites.filter(M.Website.status != "Online").count()
-            ssl_expiring = sites.filter(M.Website.ssl_days <= 30).count()
             hw = db.query(M.HardwareAsset)
             hw_unassigned = hw.filter(M.HardwareAsset.assigned_to == "Unassigned").count()
             warranties_expiring = hw.filter(
@@ -536,8 +533,6 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
                 M.HardwareAsset.warranty_end <= month_ahead).count()
             return {
                 "stats": [
-                    {"key": "sites_down", "label": "Sites Down / Degraded", "value": sites_down, "tone": "critical"},
-                    {"key": "ssl_expiring", "label": "SSL Expiring (30d)", "value": ssl_expiring, "tone": "warning"},
                     {"key": "warranties_expiring", "label": "Warranties Expiring (30d)", "value": warranties_expiring, "tone": "warning"},
                     {"key": "hw_unassigned", "label": "Unassigned Hardware", "value": hw_unassigned, "tone": "neutral"},
                 ],
@@ -728,7 +723,7 @@ DRILLABLE = {
     "knowledge_base": {"pending_review", "changes_requested", "draft"},
     "operations": {"pending_requisitions", "open_purchases", "pending_inventory"},
     "documents": {"pending_signatures", "needs_attention", "signed_7d"},
-    "it": {"sites_down", "ssl_expiring", "warranties_expiring", "hw_unassigned"},
+    "it": {"warranties_expiring", "hw_unassigned"},
     "construction": {"logs_pending", "overdue_rfis", "pending_submittals", "at_risk_milestones"},
     "asset_management": {"warranties_expiring", "inspections_due"},
     "people": {"open_candidates", "interviews_7d", "leave_pending", "docs_expiring"},
@@ -867,14 +862,6 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
         raise HTTPException(404, "No breakdown for this metric")
 
     if module == "it":
-        if metric == "sites_down":
-            rows = db.query(M.Website).filter(M.Website.status != "Online").all()
-            items = sorted(((r.name or r.domain, r.status) for r in rows), key=lambda r: r[0])
-            return _list(items, "Sites Down / Degraded")
-        if metric == "ssl_expiring":
-            rows = db.query(M.Website).filter(M.Website.ssl_days <= 30).order_by(M.Website.ssl_days).all()
-            items = [(r.name or r.domain, f"{r.ssl_days}d left") for r in rows]
-            return _list(items, "SSL Expiring Soon")
         if metric == "warranties_expiring":
             rows = db.query(M.HardwareAsset).filter(
                 M.HardwareAsset.warranty_end != "", M.HardwareAsset.warranty_end >= today,
@@ -1168,6 +1155,8 @@ def company_holidays(user: dict = Depends(get_current_user), db: Session = Depen
     # (Diwali etc.) on their calendar before this. A manual, no-country
     # holiday still applies company-wide. `type` (Sep 22, Pranshu: "in bracket
     # either its mandatory or optional") lets the widget label each one.
-    country = (emp.country or "") if emp else ""
+    # No country on the person = their company's (holiday_policies.person_country).
+    import holiday_policies
+    country = holiday_policies.person_country(emp, holiday_policies.company_countries(db, [company_id]).get(company_id, ""))
     return {"holidays": [{"date": h.date, "name": h.name, "type": h.type or "mandatory"} for h in rows
-                         if not h.country_code or country in h.country_code.split(",")]}
+                         if holiday_policies.applies_to(h, country)]}

@@ -242,11 +242,19 @@ export function useTableColumns({ table, cols, trailing = '' }) {
   const saved = useTablePrefs(table);
   const orderedCols = useMemo(() => applyOrder(cols, saved.order), [cols, saved.order]);
   const widths = useMemo(() => saved.widths || {}, [saved.widths]);
-  const hidden = useMemo(() => saved.hidden || [], [saved.hidden]);
+  // A column may ship hidden (`defaultHidden`, the ticket desk's Created and
+  // Company - Oct 31 2026). That default applies only while `hidden` has
+  // NEVER been saved for this table: the first toggle stores the whole list,
+  // and an empty stored list is a real "show everything", exactly as
+  // useTableSetting treats its fallback.
+  const hidden = useMemo(
+    () => (Array.isArray(saved.hidden) ? saved.hidden : cols.filter((c) => c.defaultHidden).map((c) => c.key)),
+    [saved.hidden, cols],
+  );
   // A `fixed` column (checkbox, type, resolved, ...) is structure, not data,
-  // and stays hideable-proof. No saved `hidden` (every list until someone
-  // opens Customize) means an empty set here, so this is a no-op and every
-  // column renders exactly as it did before hiding existed.
+  // and stays hideable-proof. No saved `hidden` and no defaults (every list
+  // until someone opens Customize) means an empty set here, so this is a
+  // no-op and every column renders exactly as it did before hiding existed.
   const visibleCols = useMemo(() => {
     if (!hidden.length) return orderedCols;
     const hiddenSet = new Set(hidden);

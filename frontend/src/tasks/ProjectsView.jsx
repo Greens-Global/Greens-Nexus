@@ -19,6 +19,7 @@ import ProjectIcon from './ProjectIcon';
 import ProjectLookPicker from './ProjectLookPicker';
 import { projectLook } from './projectLook';
 import { isFollowing } from './followRules';
+import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
 
 const EMPTY_FORM = {
   name: '', description: '', color: NX.blue, icon: '', ownerId: null,
@@ -119,7 +120,7 @@ export default function ProjectsView({ onNavigate }) {
   const setFieldFilter = (fieldId, optionId) =>
     setFieldFilters((f) => (optionId ? { ...f, [fieldId]: optionId } : Object.fromEntries(Object.entries(f).filter(([k]) => k !== fieldId))));
   const [editing, setEditing] = useState(null);    // form object | null
-  const [deleting, setDeleting] = useState(null);  // { project, busy, err } | null
+  const [deleting, setDeleting] = useState(null);  // { project } | null
   const [duplicating, setDuplicating] = useState(null);  // project being copied | null
   const [templating, setTemplating] = useState(null);    // project being saved as a template | null
   // Grid or list, in the user's profile with everything else they set here -
@@ -193,17 +194,24 @@ export default function ProjectsView({ onNavigate }) {
   // Asana severed (Aug 27): the backend now refuses a live delete-in-Asana
   // call anyway, so offering the choice was a dead end. The project's own
   // Asana link/mapping is still cleared locally either way (deleteProject).
-  const remove = (p) => setDeleting({ project: p, busy: false, err: '' });
+  const remove = (p) => setDeleting({ project: p });
 
+  // The modal's Delete Project is a hold (Neil, Oct 30 2026): many records
+  // and everyone working in the project. A refusal throws so the button
+  // rewinds with the reason; the modal closes once the check has shown.
+  // The project goes to the Recycle Bin, so the Undo toast restores it
+  // through the same call the Recycle Bin's Restore makes.
   const confirmRemove = async () => {
     const { project } = deleting;
-    setDeleting((d) => ({ ...d, busy: true, err: '' }));
     try {
       await deleteProject(project.id);
-      setDeleting(null);
     } catch (e) {
-      setDeleting((d) => ({ ...d, busy: false, err: e.message || 'Could not delete the project.' }));
+      throw new Error(e.message || 'Could not delete the project.', { cause: e });
     }
+    return {
+      undoMessage: `${project.name} moved to the Recycle Bin.`,
+      undo: () => api.restoreRecycleItem('project', project.id).then(() => store.refresh?.()).catch(() => {}),
+    };
   };
 
   return (
@@ -621,29 +629,26 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
 }
 
 
-function DeleteProjectModal({ state, onConfirm, onClose }) {
-  const { project, busy, err } = state;
+export function DeleteProjectModal({ state, onConfirm, onClose }) {
+  const { project } = state;
 
   return (
     <Modal
       title={`Delete "${project.name}"?`}
-      onClose={busy ? () => {} : onClose}
+      onClose={onClose}
       footer={(
         <>
-          <button onClick={onClose} disabled={busy} style={btn('outline')}>Cancel</button>
-          <button onClick={onConfirm} disabled={busy}
-            style={{ ...btn('primary'), background: NX.red, borderColor: NX.red, opacity: busy ? 0.6 : 1 }}>
-            {busy ? 'Deleting…' : 'Delete'}
-          </button>
+          <button onClick={onClose} style={btn('outline')}>Cancel</button>
+          <HoldButton label="Delete Project" doneLabel="Deleted" holdMs={HOLD_MAJOR_MS} clickRuns
+            onConfirm={onConfirm} onDone={onClose} />
         </>
       )}
     >
       <p style={{ fontSize: 13.5, color: NX.ink, marginBottom: 12 }}>
-        This permanently deletes the project, <strong>all of its tasks</strong> (subtasks, comments and
-        attachments included), and its teams. This can’t be undone.
+        The project and <strong>all of its tasks</strong> (subtasks, comments and attachments included)
+        move to the Recycle Bin and disappear for everyone working in it. Whoever deleted it, or a
+        manager, can restore it from the Recycle Bin until it is purged for good.
       </p>
-
-      {err && <div style={{ marginTop: 10, fontSize: 12.5, color: NX.red }}>{err}</div>}
     </Modal>
   );
 }

@@ -2,26 +2,31 @@
 // timeline - a status label, the times, each step's input and output as a
 // definition list (the catalog's labels for an action's inputs), its
 // detail, and the error in red - the event payload folded away, Replay for
-// a failed run, Cancel for one still waiting, and "Open <subject>" into the
-// subject's own module. GET /workflows/runs/{id}. Mounted with key={id}, so
-// a different run starts from the skeleton.
+// a failed run, Cancel for one still waiting, "Open <subject>" into the
+// subject's own module, and Show On Canvas (10/30/2026) into the builder,
+// which walks the run step by step on its canvas (wf:<id>:run:<runId>).
+// GET /workflows/runs/{id}. Mounted with key={id}, so a different run
+// starts from the skeleton.
 import { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, RotateCcw, XCircle } from 'lucide-react';
+import { ExternalLink, RotateCcw, Workflow as WorkflowIcon, XCircle } from 'lucide-react';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import { formatDateTime } from '../lib/datetime';
+import { useIsMobile } from '../lib/useIsMobile';
 import { dialog } from '../ui/dialog';
 import { Modal } from '../tasks/components';
 import { runStatusMeta } from './lib/status';
+import { buildSub } from './lib/sub';
 import { findAction } from './lib/text';
 import { useCatalog } from './lib/useCatalog';
 import { FONT, Muted } from './ui';
 import { errorText } from './lib/errors';
 import { goTo } from './lib/navigate';
 
-export default function RunDrawer({ id, onClose, onChanged }) {
+export default function RunDrawer({ id, onClose, onChanged, go }) {
   const { catalog } = useCatalog();
+  const isMobile = useIsMobile();   // phones keep the recipe builder: no canvas to replay on
   const [run, setRun] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -62,6 +67,12 @@ export default function RunDrawer({ id, onClose, onChanged }) {
       {run?.subjectLink?.view && (
         <button type="button" className="secondary-btn" onClick={() => { goTo(run.subjectLink); onClose(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <ExternalLink size={13} /> Open {run.subjectLabel || 'Subject'}
+        </button>
+      )}
+      {typeof go === 'function' && run?.workflowId && steps.length > 0 && !isMobile && (
+        <button type="button" className="secondary-btn" onClick={() => go(buildSub('builder', run.workflowId, run.id))}
+          title="Open the workflow and watch this run walk through it" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <WorkflowIcon size={13} /> Show On Canvas
         </button>
       )}
       <span style={{ flex: 1 }} />

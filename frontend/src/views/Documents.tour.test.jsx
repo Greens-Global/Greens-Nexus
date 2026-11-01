@@ -13,7 +13,7 @@ const getToursSeen = vi.fn(() => Promise.resolve({ seen: seen.value }));
 const markTourSeen = vi.fn(() => Promise.resolve({}));
 vi.mock('../api', () => ({
   api: {
-    getDocuments: () => Promise.resolve([]),
+    getDocumentLibrary: () => Promise.resolve([]),
     mySignatures: () => Promise.resolve([]),
     getDocFolders: () => Promise.resolve([]),
     getDocTemplates: () => Promise.resolve([]),
@@ -40,7 +40,7 @@ beforeEach(() => { seen.value = {}; getToursSeen.mockClear(); markTourSeen.mockC
 
 describe('Documents tour', () => {
   it('opens by itself on the first visit, and closing it marks it seen', async () => {
-    render(<Documents activeSub="documents-dashboard" onSubChange={() => {}} />);
+    render(<Documents activeSub="documents-browse" onSubChange={() => {}} />);
     expect(await screen.findByText('Welcome to Documents')).toBeTruthy();
     fireEvent.click(screen.getByText('Skip'));
     await waitFor(() => expect(markTourSeen).toHaveBeenCalledWith('documents'));
@@ -49,7 +49,7 @@ describe('Documents tour', () => {
 
   it('does not open again once seen', async () => {
     seen.value = { documents: '2026-10-01T00:00:00Z' };
-    render(<Documents activeSub="documents-dashboard" onSubChange={() => {}} />);
+    render(<Documents activeSub="documents-browse" onSubChange={() => {}} />);
     await waitFor(() => expect(getToursSeen).toHaveBeenCalled());
     await act(async () => {});
     expect(screen.queryByText('Welcome to Documents')).toBeNull();
@@ -57,7 +57,7 @@ describe('Documents tour', () => {
 
   it('replays from the profile menu (nexus:documents-tour)', async () => {
     seen.value = { documents: '2026-10-01T00:00:00Z' };
-    render(<Documents activeSub="documents-dashboard" onSubChange={() => {}} />);
+    render(<Documents activeSub="documents-browse" onSubChange={() => {}} />);
     await act(async () => {});
     act(() => { window.dispatchEvent(new CustomEvent('nexus:documents-tour')); });
     expect(await screen.findByText('Welcome to Documents')).toBeTruthy();
@@ -65,14 +65,14 @@ describe('Documents tour', () => {
 
   it('never nags when "seen" cannot be read', async () => {
     getToursSeen.mockImplementationOnce(() => Promise.reject(new Error('offline')));
-    render(<Documents activeSub="documents-dashboard" onSubChange={() => {}} />);
+    render(<Documents activeSub="documents-browse" onSubChange={() => {}} />);
     await act(async () => {});
     expect(screen.queryByText('Welcome to Documents')).toBeNull();
   });
 
   it('walks every tab in order, and Done marks it seen', async () => {
     const go = vi.fn();
-    render(<Documents activeSub="documents-dashboard" onSubChange={go} />);
+    render(<Documents activeSub="documents-browse" onSubChange={go} />);
     await screen.findByText('Welcome to Documents');
     for (let i = 0; i < 20; i += 1) {
       const done = screen.queryByRole('button', { name: /Done/ });
@@ -81,7 +81,7 @@ describe('Documents tour', () => {
     }
     await waitFor(() => expect(markTourSeen).toHaveBeenCalledWith('documents'));
     expect(go.mock.calls.map((c) => c[0])).toEqual(expect.arrayContaining(
-      ['documents-dashboard', 'documents-browse', 'documents-templates', 'documents-esign', 'documents-pdf']));
+      ['documents-browse', 'documents-templates', 'documents-esign', 'documents-pdf']));
   });
 });
 

@@ -1,10 +1,11 @@
 // Task Module - Asana-style floating bottom bar for mobile: [filter] · [view ⇅] · [+].
 // Replaces the stacked view-tabs strip + filter row on phones. Used by MyTasksView
 // and TasksWorkspace; desktop keeps its own toolbars (this renders only on mobile).
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SlidersHorizontal, Plus, ChevronsUpDown, X, Check, ChevronLeft } from 'lucide-react';
 import { NX, FONT, btn } from './theme';
+import { useEscapeLayer } from './components';
 import { useVisualViewport } from '../lib/useVisualViewport';
 import { useIsMobile } from '../lib/useIsMobile';
 import { useScrollLock } from '../lib/useScrollLock';
@@ -27,11 +28,10 @@ export function BottomSheet({ title, onClose, onBack, children }) {
   const overlayRef = useRef(null);
   const panelRef = useRef(null);
   const titleId = useId();
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') (onBack || onClose)(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, onBack]);
+  // Escape belongs to the topmost layer (components.useEscapeLayer): with a
+  // Modal open over the sheet (Add Several over the quick-add), one Escape
+  // closes the modal only - the sheet and what was typed in it stay.
+  useEscapeLayer(() => (onBack || onClose)());
   useDialogFocus(panelRef);
   // The phone's Back button does what Escape does: steps out of a drill-in
   // level when there is one, otherwise closes the sheet - asking first if

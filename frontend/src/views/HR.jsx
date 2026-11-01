@@ -28,6 +28,7 @@ import { formatDistance, metersToFeet, feetToMeters } from '../lib/distance';
 import { timeTrackingText } from '../lib/timeTracking';
 import { useNameResolver } from '../lib/useNameResolver';
 import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
@@ -3581,10 +3582,18 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
     } catch (e) { toastErr(e?.message || 'Could not save company.'); }
     setBusy(false);
   }
+  // A company reaches every worker linked to it, so its Delete is a held
+  // dialog (Hold to confirm, Neil, Oct 30 2026): the dialog waits for the
+  // call and stays open with the reason when it is refused.
   async function remove(en) {
-    if (!await dialog.confirm(`Delete "${en.name}"? Workers keep their record but lose this company link.`, { title: 'Delete company', confirmText: 'Delete', danger: true })) return;
-    try { await api.deleteEntity(en.id); await onChangedEntities(); toastOk('Company deleted.'); }
-    catch (e) { toastErr(e?.message || 'Could not delete company.'); }
+    await dialog.confirm(`Delete "${en.name}"? Workers keep their record but lose this company link.`, {
+      title: 'Delete Company', confirmText: 'Delete Company', doneText: 'Deleted', hold: true, holdMs: HOLD_MAJOR_MS,
+      onConfirm: async () => {
+        try { await api.deleteEntity(en.id); }
+        catch (e) { throw new Error(e?.message || 'Could not delete company.', { cause: e }); }
+        await onChangedEntities(); toastOk('Company deleted.');
+      },
+    });
   }
   async function seedDefaults() {
     setBusy(true);

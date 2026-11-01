@@ -24,6 +24,7 @@ import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
 import { useScrollLock } from '../lib/useScrollLock';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { matchPeople } from '../lib/peopleSearch';
+import HoldButton from '../ui/HoldButton';
 import NoteEditor from './NoteEditor';
 import { useNoteSync } from './useNoteSync';
 import { useNoteCollab, collabEligible } from './useNoteCollab';
@@ -398,11 +399,10 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   useEffect(() => { collabRef.current = collab; }, [collab]);
   const [menu, setMenu] = useState('');      // '' | 'color' | 'more'
   const [dialog, setDialog] = useState('');  // '' | 'share' | 'history'
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const titleRef = useRef(null);
 
   useEffect(() => { if (id) rememberLastNote(id); }, [id]);
-  useEffect(() => { setConfirmDelete(false); setMenu(''); }, [id]);
+  useEffect(() => { setMenu(''); }, [id]);
   // A brand-new note starts in its title.
   useEffect(() => {
     if (note && !note.title && !note.preview && note.mine && !note.trashedAt && note.kind !== 'daily') titleRef.current?.focus();
@@ -424,7 +424,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
         <div className="nt-empty" style={{ margin: 'auto' }}>
           <StickyNote size={28} aria-hidden="true" style={{ color: 'var(--wk-faint)', marginBottom: 8 }} />
           <strong>Pick a note or start a new one</strong>
-          Everything you write saves by itself and follows you to Quick Note in the top bar.
+          Everything you write saves by itself and follows you to Quick Note - New Note in the top bar's + menu.
         </div>
       </div>
     );
@@ -458,7 +458,9 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     try { const n = await api.noteRestore(note.id); sync.replace(n); onTrashChanged(n, 'restore'); toast('Restored'); } catch (e) { toast(e.message || 'Could not restore'); }
   };
   const deleteForever = async () => {
-    try { await api.noteDeleteForever(note.id); onTrashChanged(note, 'delete'); toast('Deleted forever'); } catch (e) { toast(e.message || 'Could not delete'); }
+    // Held on the banner (Neil, Oct 30 2026): a refusal throws so the button rewinds with the reason.
+    try { await api.noteDeleteForever(note.id); } catch (e) { throw new Error(e.message || 'Could not delete', { cause: e }); }
+    onTrashChanged(note, 'delete'); toast('Deleted forever');
   };
   const leave = async () => {
     setMenu('');
@@ -561,13 +563,8 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             <div className="nt-banner is-bad" role="status">
               <span className="nt-banner-text">This note is in the Trash. Restore it to edit it again.</span>
               <button type="button" className="nt-text-btn" onClick={restore}><RotateCcw size={14} /> Restore</button>
-              {!confirmDelete
-                ? <button type="button" className="nt-text-btn is-danger" onClick={() => setConfirmDelete(true)}><Trash2 size={14} /> Delete Forever</button>
-                : (<>
-                  <span>Delete forever? This cannot be undone.</span>
-                  <button type="button" className="nt-text-btn is-danger" onClick={deleteForever}>Delete Forever</button>
-                  <button type="button" className="nt-text-btn" onClick={() => setConfirmDelete(false)}>Cancel</button>
-                </>)}
+              <HoldButton size="sm" label="Delete Forever" doneLabel="Deleted" onConfirm={deleteForever}
+                fallbackMessage={`Delete "${note.title || 'Untitled Note'}" forever? This cannot be undone.`} />
             </div>
           )}
           {conflict && (
@@ -775,7 +772,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
               {data && groups.length === 0 && (
                 <div className="nt-empty">
                   <strong>{q ? 'No notes match' : view === 'trash' ? 'The Trash is empty' : view === 'shared' ? 'Nothing shared with you yet' : view === 'pinned' ? 'No pinned notes' : view === 'today' ? 'Nothing for today yet' : `No notes in ${monthLabel(month)}`}</strong>
-                  {q ? 'Try fewer words.' : view === 'all' || view === 'today' ? 'Start one with New Note, or jot something in Quick Note from the top bar.' : ''}
+                  {q ? 'Try fewer words.' : view === 'all' || view === 'today' ? 'Start one with New Note, or jot something in Quick Note from the + menu in the top bar.' : ''}
                 </div>
               )}
               {groups.map((g) => (

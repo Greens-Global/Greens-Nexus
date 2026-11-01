@@ -3,7 +3,7 @@
 // toggle between teams" (the owner, looking at eight teams stacked). The
 // button says which team, how many people and their hours this week; the
 // menu lists every team with its people, hours and anything waiting
-// (drafts, open shifts), then All Teams (the stacked view, kept) and People
+// (unshared changes, open shifts - in words), then All Teams (the stacked view, kept) and People
 // Without a Team. Searchable past six teams; arrows + Enter, Esc closes.
 // Used by the Schedule toolbar (desktop and phone) and My Shifts' Group
 // Shifts.
@@ -28,10 +28,9 @@ const Glyph = ({ Icon }) => (
     <Icon size={11} />
   </span>
 );
-const Count = ({ n, label, tone }) => (n > 0 ? (
-  <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, whiteSpace: 'nowrap',
-    background: `hsla(var(--color-${tone}),0.12)`, color: `hsl(var(--color-${tone}))` }}>{n} {label}</span>
-) : null);
+// What waits on a team, in words on its second line (Oct 30 2026: no
+// colored pills) - "2 unshared · 1 open".
+const waiting = (o) => [o.drafts > 0 ? `${o.drafts} unshared` : '', o.open > 0 ? `${o.open} open` : ''].filter(Boolean);
 
 export default function TeamPicker({ teams = [], value, onChange, all = null, none = null, compact = false, ariaLabel = 'Choose a team', width = 380, shortcuts = false, style }) {
   const [open, setOpen] = useState(false);
@@ -103,11 +102,9 @@ export default function TeamPicker({ teams = [], value, onChange, all = null, no
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
               <span style={{ fontSize: 13, fontWeight: on ? 700 : 600, color: o.kind === 'archived' ? 'var(--muted)' : 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.name}</span>
-              <Count n={o.drafts} label={o.drafts === 1 ? 'draft' : 'drafts'} tone="orange" />
-              <Count n={o.open} label="open" tone="green" />
             </span>
             <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {[Number.isFinite(o.people) ? people(o.people) : '', o.hint || '', o.kind === 'all' ? 'Every team, stacked' : ''].filter(Boolean).join(' · ')}
+              {[Number.isFinite(o.people) ? people(o.people) : '', o.hint || '', o.kind === 'all' ? 'Every team, stacked' : '', ...waiting(o)].filter(Boolean).join(' · ')}
             </span>
           </span>
           {Number.isFinite(o.min) && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{fmtHrs(o.min)}</span>}

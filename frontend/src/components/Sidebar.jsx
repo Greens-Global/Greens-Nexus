@@ -9,7 +9,7 @@ import {
   Monitor, Wifi, Home, LayoutGrid, FileText,
   ClipboardCheck, Calculator,
   FileSpreadsheet, Landmark, BarChart3,
-  Users, LogIn, PenTool, Files, Megaphone, ExternalLink, Handshake,
+  Users, LogIn, PenTool, Files, Megaphone, Handshake,
   Settings, ChevronLeft, ChevronRight,
   HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale, TrendingUp,
   FlaskConical,
@@ -88,17 +88,16 @@ export const NAV = [
     view: "shifts", code: "TEAM", label: "Team", icon: Handshake, grants: ['shifts', 'employee-tracking', 'workforce-scorecard'],
     sub: [
       { subview: "shifts",   label: "Shifts",           icon: CalendarClock },
-      { subview: "schedule", label: "Schedule",         icon: Calendar,      minRole: 'manager' },
+      { subview: "schedule", label: "Shift Planner",    icon: Calendar,      minRole: 'manager' },
       // Requests = the manager's inbox (Charmi, 09/30); staff ask in Workday >
       // Time Off, and shift types / groups live in Settings > Global Settings.
       { subview: "requests", label: "Requests",         icon: ClipboardList, minRole: 'manager' },
       { subview: "contact",  label: "Directory", icon: Contact },
     ],
   },
-  // Approvals (Neil, Oct 27 2026): everything waiting on your decision,
-  // across modules (views/Approvals.jsx). Everyone - an employee has swaps
-  // and signatures too; its count is the Approvals registry's total.
-  { view: "approvals", code: "APR", label: "Approvals", icon: Inbox },
+  // Approvals (Neil, Oct 27 2026) lived here until Oct 30 2026; it is now the
+  // Approvals tab of Dashboard (approvals/ApprovalsCenter.jsx). The view id
+  // still resolves - App.jsx remaps it - and its count rides on Dashboard.
   { divider: true },
   // Tasks + Tickets are grant-driven like every other module (Aug 10): they
   // only appear when an Access Group / job role grants them (most job roles
@@ -120,7 +119,6 @@ export const NAV = [
     view: "egnyte", code: "EGN", label: "Files", icon: HardDrive, minRole: 'supervisor',
     sub: [
       { subview: "browse",   label: "Browse Files",       icon: FolderOpen },
-      { subview: "property", label: "Property Documents", icon: Home },
     ],
   },
   {
@@ -138,7 +136,6 @@ export const NAV = [
     view: "it", code: "IT", label: "IT", icon: Monitor, minRole: 'supervisor',
     sub: [
       { subview: "network",               label: "Network Dashboard",    icon: Wifi },
-      { subview: "it-websites",           label: "Website Management",   icon: ExternalLink },
     ],
   },
   {

@@ -19,6 +19,7 @@ import { renderNotifBody } from '../components/NotificationBell';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import { toViewUrl } from '../lib/storageView';
+import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 // Controlled item types - mirror _ITEM_TYPES in backend/routers/items.py. Add/edit
@@ -4660,10 +4661,9 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
             <p style={{ margin:'0 0 18px', fontSize:13, color:'var(--muted)', lineHeight:1.55 }}>{confirmState.message}</p>
             <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
               <button className="secondary-btn" onClick={() => setConfirmState(null)}>Cancel</button>
-              <button onClick={() => { const fn = confirmState.fn; setConfirmState(null); fn?.(); }}
-                style={{ background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                Apply to {items.length}
-              </button>
+              {/* Overwrites every item's photo: held (Hold to confirm, Neil, Oct 30 2026). */}
+              <HoldButton label={`Apply To ${items.length}`} doneLabel="Applied" icon={Image} holdMs={HOLD_MAJOR_MS} clickRuns
+                onConfirm={() => confirmState.fn?.()} onDone={() => setConfirmState(null)} />
             </div>
           </div>
         </div>
@@ -4838,7 +4838,6 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
   const [list, setList] = useState(types);
   const [newType, setNewType] = useState('');
   const [busy, setBusy] = useState(false);
-  const [confirmDel, setConfirmDel] = useState(null); // type pending an in-use delete confirm
 
   async function add() {
     const name = newType.trim();
@@ -4848,16 +4847,19 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
     catch (e) { toast?.(e?.message || 'Could not add type.', 'error'); }
     finally { setBusy(false); }
   }
+  // Every delete is held on its row (Hold to confirm, Neil, Oct 30 2026 - P4:
+  // even zero-count types shouldn't vanish on a stray click). Types still in
+  // use keep their text but stop being pickable. Undo adds it back (at the end).
   async function remove(name) {
-    if (busy) return;
-    setBusy(true); setConfirmDel(null);
+    setBusy(true);
     try { const updated = await api.deleteItemType(name); setList(updated); onChanged?.(updated); }
-    catch (e) { toast?.(e?.message || 'Could not remove type.', 'error'); }
+    catch (e) { throw new Error(e?.message || 'Could not remove type.', { cause: e }); }
     finally { setBusy(false); }
+    return { undoMessage: `Removed "${name}".`, undo: async () => {
+      try { const updated = await api.addItemType(name); setList(updated); onChanged?.(updated); }
+      catch (e) { toast?.(e?.message || 'Could not add type.', 'error'); }
+    } };
   }
-  // Every delete needs a confirm now (P4: even zero-count types shouldn't vanish on
-  // a stray click). Types still in use keep their text but stop being pickable.
-  const askRemove = name => setConfirmDel(name);
 
   const dirty = newType.trim() !== '';
   const guard = useUnsavedGuard(dirty, onClose, dirty ? async () => { await add(); onClose(); } : undefined);
@@ -4890,19 +4892,10 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
                   </span>
                 </span>
                 {t.toLowerCase() !== 'other' && (
-                  <button onClick={() => askRemove(t)} disabled={busy} title="Remove type"
-                    style={{ background:'none', border:'none', cursor:'pointer', color:'hsl(var(--color-red))', display:'flex', padding:3, flexShrink:0 }}><Trash2 size={14} /></button>
+                  <HoldButton size="sm" label="Remove" doneLabel="Removed" ariaLabel={`Remove type ${t}`} onConfirm={() => remove(t)}
+                    fallbackMessage={(counts[t] || 0) > 0 ? `${counts[t]} item${counts[t] !== 1 ? 's' : ''} use this - remove anyway?` : 'Remove this type?'} />
                 )}
               </div>
-              {confirmDel === t && (
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, fontSize:12 }}>
-                  <span style={{ color:'var(--muted)' }}>{(counts[t] || 0) > 0 ? `${counts[t]} item${counts[t] !== 1 ? 's' : ''} use this - remove anyway?` : 'Remove this type?'}</span>
-                  <span style={{ display:'flex', gap:6, flexShrink:0 }}>
-                    <button className="secondary-btn" style={{ fontSize:11.5, padding:'3px 10px' }} onClick={() => setConfirmDel(null)} disabled={busy}>Cancel</button>
-                    <button onClick={() => remove(t)} disabled={busy} style={{ fontSize:11.5, padding:'3px 10px', borderRadius:7, border:'none', background:'hsl(var(--color-red))', color:'#fff', fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Remove</button>
-                  </span>
-                </div>
-              )}
             </div>
           ))}
         </div>
@@ -4922,7 +4915,6 @@ export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
   const [appliesTo,  setAppliesTo]  = useState('');
   const [saving,     setSaving]     = useState(false);
   const [busyId,     setBusyId]     = useState(null);
-  const [confirmDelId, setConfirmDelId] = useState(null); // in-app confirm (no native confirm)
 
   async function add() {
     if (!label.trim() || saving) return;
@@ -4940,11 +4932,12 @@ export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
       toast?.(e?.message || 'Could not add field.', 'error');
     } finally { setSaving(false); }
   }
+  // Delete is held on the row (Hold to confirm, Neil, Oct 30 2026); a refusal
+  // rewinds the button with the reason; the list re-reads once the check shows.
   async function remove(f) {
-    setConfirmDelId(null);
     setBusyId(f.id);
-    try { await api.deleteItemCustomField(f.id); onChanged?.(); }
-    catch (e) { toast?.(e?.message || 'Could not delete field.', 'error'); }
+    try { await api.deleteItemCustomField(f.id); }
+    catch (e) { throw new Error(e?.message || 'Could not delete field.', { cause: e }); }
     finally { setBusyId(null); }
   }
 
@@ -4975,20 +4968,9 @@ export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
                         {f.fieldType === 'select' && f.options?.length ? ` · ${f.options.join(', ')}` : ''}
                       </div>
                     </div>
-                    <button onClick={() => setConfirmDelId(f.id)} disabled={busyId === f.id}
-                      style={{ background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 9px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', display:'inline-flex', alignItems:'center', gap:4 }}>
-                      {busyId === f.id ? <Spinner size={12} /> : <Trash2 size={12} />}
-                    </button>
+                    <HoldButton size="sm" label="Delete" doneLabel="Deleted" ariaLabel={`Delete the ${f.label} field`} onConfirm={() => remove(f)} onDone={() => onChanged?.()} disabled={!!busyId && busyId !== f.id}
+                      fallbackMessage={`Delete the "${f.label}" field? Existing values stay stored but stop showing.`} />
                   </div>
-                  {confirmDelId === f.id && (
-                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, fontSize:12 }}>
-                      <span style={{ color:'var(--muted)' }}>Delete the "{f.label}" field? Existing values stay stored but stop showing.</span>
-                      <span style={{ display:'flex', gap:6, flexShrink:0 }}>
-                        <button className="secondary-btn" style={{ fontSize:11.5, padding:'3px 10px' }} onClick={() => setConfirmDelId(null)} disabled={busyId === f.id}>Cancel</button>
-                        <button onClick={() => remove(f)} disabled={busyId === f.id} style={{ fontSize:11.5, padding:'3px 10px', borderRadius:7, border:'none', background:'hsl(var(--color-red))', color:'#fff', fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Delete</button>
-                      </span>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
