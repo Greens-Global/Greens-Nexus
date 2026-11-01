@@ -10,7 +10,8 @@
 // Pause / Resume, Duplicate, Archive, Delete, Run for a manual trigger, and Save As
 // Template (full level, once published). A workflow just made from a
 // template opens with its blanks named above the recipe and the steps they
-// sit in outlined (lib/blanks.js).
+// sit in outlined (lib/blanks.js). Full Screen (Neil, 10/31/2026) folds the
+// left navigation away so the canvas gets nearly the whole window.
 //
 // Edits land in `draft`; the active version keeps running until Publish.
 // The builder renders only what the catalog serves - nothing about a
@@ -43,6 +44,7 @@ import { takeBlanks } from './lib/blanks';
 import { Muted } from './ui';
 import { errorProblems, errorText } from './lib/errors';
 import Canvas from './canvas/Canvas';
+import FullScreenButton, { useFullScreen } from '../components/FullScreenButton';
 import { builderView, canvasSkin, setBuilderView, setCanvasSkin } from './canvas/prefs';
 import { replayPlan } from './canvas/replay';
 import { runStatusMeta } from './lib/status';
@@ -72,6 +74,7 @@ export default function Builder({ id, go, runId = '' }) {
   const { catalog, loading: catalogLoading, error: catalogError, isNew } = useCatalog();
   const role = useRole() || {};
   const isMobile = useIsMobile();
+  const [full, toggleFull] = useFullScreen('workflows');
   const isGlobalAdmin = role.myRole === 'owner';
   const canSaveTemplate = typeof role.canAccessModule === 'function' && role.canAccessModule('workflows', 'administrator', 'full');
 
@@ -337,7 +340,7 @@ export default function Builder({ id, go, runId = '' }) {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: isMobile ? '12px 16px 40px' : '16px 20px 40px', fontFamily: 'inherit' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: isMobile ? '12px 16px 40px' : full ? '4px 4px 16px' : '16px 20px 40px', fontFamily: 'inherit' }}>
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <button type="button" onClick={() => go('list')} aria-label="Back to Workflows" style={{ ...btn('ghost'), padding: 6 }}><ArrowLeft size={16} /></button>
@@ -360,6 +363,7 @@ export default function Builder({ id, go, runId = '' }) {
             ))}
           </span>
         )}
+        <FullScreenButton on={full} onToggle={toggleFull} style={btn('outline')} />
         <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
           {trigger?.kind === 'manual' && status === 'active' && (
             <button type="button" onClick={() => setRunOpen(true)} style={btn('outline')}><Play size={14} /> Run</button>

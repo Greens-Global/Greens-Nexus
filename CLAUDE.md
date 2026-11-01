@@ -231,6 +231,12 @@ keep the diff minimal.
   `dialog.undo`). Keyboard holds work, and a click with no press behind it
   (assistive tech) falls back to the ordinary confirm - keep both. Never
   lengthen the holds or add a second confirm component.
+- **Full Screen (Neil, 10/31/2026):** a working surface that needs room
+  (the workflow builder, Operations) takes `components/FullScreenButton.jsx`
+  - `useFullScreen('<module>')` folds the left navigation away and trims the
+  page margins (`html.nx-fullscreen` in style.css), remembered per module in
+  this browser, computers only. The header stays (it carries the module's
+  tabs). Give another module the same button, never a second mode.
 
 ## Domain rules
 

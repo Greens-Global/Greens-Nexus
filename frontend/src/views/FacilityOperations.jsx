@@ -5,7 +5,8 @@
 // of Cubby the server syncs into the database every 15 minutes (Oct 15).
 // One fetch feeds all four tabs and the facility picker, so switching either
 // is instant. Nexus only reads - payments, leases and tenant edits stay in
-// Cubby, and each tenant row links there.
+// Cubby, and each tenant row links there. Full Screen (Neil, 10/31/2026)
+// folds the left navigation away for the wide tables and maps.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp, Gauge, Map as MapIcon, Lightbulb, Users, LineChart, Tags, ArrowUpRight, ShieldAlert, Percent, Target, CalendarClock, Wrench, Download, MapPinned } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
@@ -26,6 +27,7 @@ import ThirdPartyPanel from '../operations/ThirdPartyPanel';
 import { isThirdParty } from '../operations/thirdParty';
 import FacilityPicker, { StatePicker } from '../operations/FacilityPicker';
 import { useRole } from '../contexts/RoleContext';
+import FullScreenButton, { useFullScreen } from '../components/FullScreenButton';
 import '../operations/ops.css';
 // Ops Budget (Oct 21): results vs budget and last year per site. Lazy, its own chunk.
 const OpsBudget = lazy(() => import('../operations/OpsBudget'));
@@ -184,6 +186,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   const [notice, setNotice] = useState('');
   // Only managers and above are told about the missing key; everyone sees the delayed chip.
   const role = useRole();
+  const [full, toggleFull] = useFullScreen('operations');
   const canSeeKeyHint = role?.can?.('manager') ?? false;
   const canRevenue = role?.canAccessModule ? role.canAccessModule('operations', 'manager', 'full') : canSeeKeyHint;
   const tabs = canRevenue ? TABS : STAFF_TABS;
@@ -295,12 +298,15 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
               : 'Storage facility figures from Cubby'}
           </p>
         </div>
-        {state.data && (
-          <button type="button" className="secondary-btn" onClick={refresh} disabled={refreshing}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <RefreshCw size={14} aria-hidden="true" /> {refreshing ? 'Syncing…' : 'Refresh'}
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <FullScreenButton on={full} onToggle={toggleFull} className="secondary-btn" />
+          {state.data && (
+            <button type="button" className="secondary-btn" onClick={refresh} disabled={refreshing}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <RefreshCw size={14} aria-hidden="true" /> {refreshing ? 'Syncing…' : 'Refresh'}
+            </button>
+          )}
+        </div>
       </div>
       {notice && <p className="ops-note" role="status" style={{ margin: '0 0 12px' }}>{notice}</p>}
 
