@@ -182,6 +182,52 @@ class LeaveBalanceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             lb.save_policies(self.db, {"us-ca": {**us_ca, "extraTypes": [{"id": "BAD ID", "method": "lump"}]}}, HR_EMAIL)
 
+    def test_extra_type_requests_count_once_and_carry_reasons(self):
+        """Phase 1D: balances() is policy-aware for upcoming / pending - a
+        request that draws from an extra type is counted on that type only,
+        even when its name also keyword-matches sick / vacation. The payload
+        carries drawFromReasons so the request form mirrors bucket_of()."""
+        self._cutover()
+        pols = lb.policies(self.db)
+        us_ca = {**pols["us-ca"]}
+        us_ca["extraTypes"] = us_ca["extraTypes"] + [{
+            "id": "medical_leave", "name": "Medical Leave", "paid": True, "method": "lump",
+            "waitingDays": 0, "annualHours": 40, "balanceCapHours": 40,
+            "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+            "drawFromReasons": ["medical"]}]
+        lb.save_policies(self.db, {"us-ca": us_ca}, HR_EMAIL)
+        self.db.add(models.TimeOffRequest(id="to-1d-1", employee_email=A, type="Medical Appointment",
+                                          start_date="2026-10-26", end_date="2026-10-26", status="approved",
+                                          created_at="2026-10-19T00:00:00"))
+        self.db.add(models.TimeOffRequest(id="to-1d-2", employee_email=A, type="Bereavement",
+                                          start_date="2026-10-27", end_date="2026-10-27", status="pending",
+                                          created_at="2026-10-19T00:00:00"))
+        self.db.commit()
+        b = lb.balances(self.db, A, today=TODAY)
+        extras = {t["id"]: t for t in b["extraTypes"]}
+        # "Medical Appointment" keyword-matches sick, but the policy routes it
+        # to medical_leave - once, there.
+        self.assertEqual(b["sick"]["upcoming"], 0)
+        self.assertEqual(extras["medical_leave"]["upcoming"], 8)
+        self.assertEqual(extras["bereavement"]["pending"], 8)
+        self.assertEqual(extras["bereavement"]["drawFromReasons"], ["bereavement", "funeral"])
+
+    def test_adjust_an_extra_type_bucket(self):
+        """Phase 1D: HR's Adjust accepts an extra type's bucket; an unknown
+        bucket stays refused."""
+        self._cutover()
+        resp = self.client.post("/leave-balances/adjust",
+                                json={"email": A, "bucket": "bereavement", "hours": -8,
+                                      "note": "Took a day before the opening import"})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["bucket"], "bereavement")
+        # The adjust row is dated the person's today, so read the balance there.
+        extras = {t["id"]: t for t in lb.balances(self.db, A)["extraTypes"]}
+        self.assertEqual(extras["bereavement"]["available"], 24 - 8)   # the annual grant minus the day
+        self.assertEqual(self.client.post("/leave-balances/adjust",
+                                          json={"email": A, "bucket": "wat_is_this", "hours": 4,
+                                                "note": "No such type"}).status_code, 400)
+
     def test_policy_by_country_and_rule(self):
         self.assertEqual(lb.policy_for(self.db, A)["id"], "us-ca")
         self.assertEqual(lb.policy_for(self.db, IN)["id"], "in")

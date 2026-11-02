@@ -224,8 +224,10 @@ def adjust(body: AdjustIn, user: dict = Depends(get_current_user), db: Session =
     _require_manage(db, me, email)
     if not lb.cutover_for(db, email):
         raise HTTPException(400, "Set the start date first.")
-    if body.bucket not in lb.BUCKETS:
-        raise HTTPException(400, "bucket must be vacation or sick")
+    # Phase 1D: an extra type a saved policy defines (bereavement,
+    # floating_holiday, ...) can be adjusted like vacation and sick.
+    if body.bucket not in lb.all_buckets(db):
+        raise HTTPException(400, "bucket must be vacation, sick, or a configured leave type")
     if not body.hours or abs(body.hours) > 5000:
         raise HTTPException(400, "Enter the hours to add (or a negative number to take away).")
     note = (body.note or "").strip()

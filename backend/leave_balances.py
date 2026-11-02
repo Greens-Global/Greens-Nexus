@@ -602,8 +602,11 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
               .filter(models.TimeOffRequest.employee_email == email,
                       models.TimeOffRequest.status.in_(["approved", "pending"]),
                       models.TimeOffRequest.end_date >= today.isoformat()).all()):
-        b = bucket_of(r.type)
-        if not b:
+        # Phase 1D: policy-aware, so a request that draws from an extra type
+        # (whose name may also keyword-match vacation / sick) is counted once,
+        # by the extras loop below - never here too.
+        b = bucket_of(r.type, pol)
+        if b not in upcoming:
             continue
         (upcoming if r.status == "approved" else pending)[b] += request_hours(r, hpd)
 
@@ -675,6 +678,8 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
                              and (not eligible_on or eligible_on <= today.isoformat())),
             "carriesOver": bool(t.get("carryoverMax") or 0),
             "payoutOnTerm": bool(t.get("payoutOnTerm", False)),
+            # Phase 1D: the request form mirrors bucket_of() client-side.
+            "drawFromReasons": reasons,
         })
     out["extraTypes"] = extras_out
     if with_entries:

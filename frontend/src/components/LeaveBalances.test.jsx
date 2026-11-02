@@ -45,6 +45,19 @@ describe('leave balances', () => {
     expect(fmtLeave(16, { unit: 'days', hoursPerDay: 8 })).toBe('2 days');
   });
 
+  it('routes a type to an extra bucket through drawFromReasons (Phase 1D)', () => {
+    const balance = { extraTypes: [
+      { id: 'bereavement', drawFromReasons: ['bereavement', 'funeral'] },
+      { id: 'medical_leave', drawFromReasons: ['medical'] },
+    ] };
+    expect(bucketOf('Bereavement', balance)).toBe('bereavement');
+    expect(bucketOf('Funeral Leave', balance)).toBe('bereavement');
+    // The policy wins over the sick keyword - one bucket, not two.
+    expect(bucketOf('Medical Appointment', balance)).toBe('medical_leave');
+    expect(bucketOf('Vacation', balance)).toBe('vacation');
+    expect(bucketOf('Bereavement')).toBe('');
+  });
+
   it('shows the employee card only once balances are live', () => {
     const { container, rerender } = render(<LeaveBalanceCard balance={{ live: false }} />);
     expect(container.textContent).toBe('');
@@ -80,6 +93,46 @@ describe('leave balances', () => {
   it('warns when a request is bigger than the balance', () => {
     render(<RequestBalanceHint balance={BAL} type="vacation" hours={8} />);
     expect(screen.getByText(/the part over your balance would be unpaid/)).toBeTruthy();
+  });
+
+  it('answers for an extra leave type on the request form (Phase 1D)', () => {
+    const balance = { ...BAL, extraTypes: [
+      { id: 'bereavement', name: 'Bereavement', paid: true, method: 'lump',
+        available: 24, upcoming: 0, pending: 0, drawFromReasons: ['bereavement', 'funeral'] },
+      { id: 'jury_duty', name: 'Jury Duty', paid: true, method: 'tracked_only',
+        available: 0, upcoming: 0, pending: 0, drawFromReasons: ['jury', 'jury duty'] },
+    ] };
+    const { rerender } = render(<RequestBalanceHint balance={balance} type="Bereavement" hours={8} />);
+    expect(screen.getByText(/Bereavement balance: 24 h available/)).toBeTruthy();
+    rerender(<RequestBalanceHint balance={balance} type="Jury Duty" hours={8} />);
+    expect(screen.getByText(/Jury Duty days are logged - no balance to run down/)).toBeTruthy();
+  });
+
+  it('shows extra types on the HR table and the Adjust picker (Phase 1D)', async () => {
+    const extras = [
+      { id: 'bereavement', name: 'Bereavement', paid: true, method: 'lump',
+        available: 24, upcoming: 0, pending: 0, eligible: true, drawFromReasons: ['bereavement'] },
+      { id: 'jury_duty', name: 'Jury Duty', paid: true, method: 'tracked_only',
+        available: 0, upcoming: 0, pending: 0, eligible: true, drawFromReasons: ['jury'] },
+    ];
+    leaveAdmin.mockResolvedValue({
+      cutover: '2026-09-01', canSetup: true, defaults: ['us-ca'], policies: [POLICY],
+      people: [{ email: 'alice@greensglobal.com', name: 'Alice Test', ...BAL, extraTypes: extras }],
+    });
+    leavePersonBalance.mockResolvedValue({ ...BAL, extraTypes: extras, canEdit: true,
+      entries: [{ id: 'e1', bucket: 'bereavement', hours: -8, kind: 'adjust', date: '2026-10-20', note: 'Day taken' }] });
+    render(<LeaveBalancesAdmin toastOk={() => {}} toastErr={() => {}} />);
+    await screen.findByText('Alice Test');
+    expect(screen.getByText('Other Leave')).toBeTruthy();
+    expect(screen.getAllByText(/Bereavement 24 h/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText('Alice Test'));
+    await screen.findByText(/Day taken/);
+    // The ledger line names the extra bucket, and Adjust offers it (never a
+    // tracked-only type - there is no balance to adjust).
+    const picker = screen.getByLabelText('Balance');
+    const options = Array.from(picker.querySelectorAll('option')).map(o => o.textContent);
+    expect(options).toContain('Bereavement');
+    expect(options.join(' ')).not.toContain('Jury Duty');
   });
 
   it('renders HR panel and imports pasted rows', async () => {
