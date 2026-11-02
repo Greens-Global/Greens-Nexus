@@ -246,4 +246,12 @@ describe('FillForm', () => {
     }
     expect(screen.getByRole('button', { name: '3 of 5' })).toHaveStyle({ padding: '9px' });
   });
+
+  it('a location that does not answer says how to turn it on', async () => {
+    getPosition.mockResolvedValue(null);
+    render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    fireEvent.click(screen.getByRole('button', { name: 'Stamp My Location' }));
+    expect(await screen.findByText('Location is off or did not answer. Allow location for Nexus in your browser settings, then tap Stamp My Location again.')).toBeTruthy();
+  });
 });

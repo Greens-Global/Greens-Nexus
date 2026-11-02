@@ -120,7 +120,7 @@ function GpsField({ value, onChange, workSites, disabled, phone }) {
     setBusy(true); setErr('');
     const pos = await getPosition(GPS_MS);
     setBusy(false);
-    if (!pos) { setErr('Location is off or did not answer - allow location for this site and try again.'); return; }
+    if (!pos) { setErr('Location is off or did not answer. Allow location for Nexus in your browser settings, then tap Stamp My Location again.'); return; }
     const lat = Number(pos.lat), lng = Number(pos.lng);
     const near = nearestSite(workSites, lat, lng);
     onChange({ lat, lng, accuracyM: Number(pos.accuracy_m) || 0, siteName: near?.name || '', siteId: near?.id || '', siteDistanceM: near?.distanceM ?? null, at: new Date().toISOString() });
