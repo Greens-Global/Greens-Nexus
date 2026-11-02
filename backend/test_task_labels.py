@@ -51,8 +51,8 @@ AEMP = {"email": "aemp@greensglobal.com", "level": 1}
 BEMP = {"email": "bemp@greensglobal.com", "level": 1}
 BMGR = {"email": "bmgr@greensglobal.com", "level": 3}
 OUTSIDER = {"email": "outsider@greensglobal.com", "level": 1}
-GA = {"email": "ga@greensglobal.com", "level": 4}       # bootstrap Global Admin, home company A
-GA_NONE = {"email": "ga2@greensglobal.com", "level": 4}  # Global Admin with no company of their own
+GA = {"email": "ga@greensglobal.com", "level": 5}       # Super Administrator (level 5), home company A
+GA_NONE = {"email": "ga2@greensglobal.com", "level": 5}  # Super Administrator with no company of their own
 
 _CLEAR = (models.Task, models.TaskProject, models.TaskActivity, models.TaskNotification,
           models.NexusNotification, models.NexusEmployee, models.NexusSetting, models.HrEntity,

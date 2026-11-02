@@ -3059,6 +3059,7 @@ def request_team_approval(team_id: str, user: dict = Depends(get_current_user),
     task_notify(db, kind="team_approval_requested", for_email="admins",
                 title="A Team Is Waiting for Approval",
                 body=f"{t.name} - requested by {user['email']}",
+                department_id=t.id,   # the team: its company picks the Administrators told
                 nexus_action={"view": "tasks", "sub": "manage", "label": "Review in Manage"})
     db.commit()
     db.refresh(t)

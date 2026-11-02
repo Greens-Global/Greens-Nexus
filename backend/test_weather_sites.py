@@ -27,7 +27,7 @@ import database    # noqa: E402
 import main        # noqa: E402
 import models      # noqa: E402
 
-BOSS = "wx.boss@greensglobal.com"     # administrator
+BOSS = "wx.boss@greensglobal.com"     # Super Administrator
 MGR = "wx.mgr@greensglobal.com"       # manager: may decide
 EMP = "wx.emp@greensglobal.com"       # employee: may not
 SITE, BARE = "site-wx-harbor", "site-wx-yard"
@@ -59,7 +59,7 @@ class WeatherSiteTests(unittest.TestCase):
                                             status="active", deleted_at="", company="ent-site" if em == EMP else "",
                                             department="Construction" if em == EMP else ""))
             db.add(models.HrDepartment(id="d-site-con", company_id="ent-site", name="Construction"))
-            db.add(models.NexusRole(email=BOSS, role="administrator", assigned_by="test"))
+            db.add(models.NexusRole(email=BOSS, role="owner", assigned_by="test"))
             db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
             db.add(models.HrWorkSite(id=SITE, name="Harbor View", latitude="33.12", longitude="-117.32"))
             db.add(models.HrWorkSite(id=BARE, name="Yard", latitude="", longitude=""))

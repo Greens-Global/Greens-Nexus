@@ -44,9 +44,10 @@ HRC = "conf.hrc@greensglobal.com"        # HR contact of CO
 ADM = "conf.adm@greensglobal.com"        # administrator
 NOMGR = "conf.nomgr@greensglobal.com"    # no manager on file, company CO -> HR contact decides
 ORPHAN = "conf.orphan@greensglobal.com"  # no manager, company without an HR contact -> admins decide
+SUPER = "conf.super@greensglobal.com"    # a Super Administrator (company CO): every company
 CO, CO2, GRANT = "co-conf-test", "co-conf-test-2", "grant-conf-ed"
 MON, NEXT_MON = "2026-11-16", "2026-11-23"
-ALL = (EMP, MGR, PEER, HRG, HRC, ADM, NOMGR, ORPHAN)
+ALL = (EMP, MGR, PEER, HRG, HRC, ADM, NOMGR, ORPHAN, SUPER)
 
 
 class _Base(unittest.TestCase):
@@ -61,13 +62,14 @@ class _Base(unittest.TestCase):
             db.add(models.HrEntity(id=CO, name="Conf Co", hr_contact_email=HRC))
             db.add(models.HrEntity(id=CO2, name="Conf Co 2", hr_contact_email=""))
             for em, mgr, co in ((EMP, MGR, CO), (MGR, ADM, CO), (PEER, ADM, CO), (HRG, ADM, CO), (HRC, ADM, CO),
-                                (ADM, "", CO), (NOMGR, "", CO), (ORPHAN, "", CO2)):
+                                (ADM, "", CO), (NOMGR, "", CO), (ORPHAN, "", CO2), (SUPER, "", CO)):
                 db.add(models.NexusEmployee(id=f"emp-{em}", first_name=em.split(".")[1].split("@")[0].title(),
                                             last_name="Test", work_email=em, manager_email=mgr, company=co,
                                             status="active", deleted_at=""))
             db.add(models.NexusRole(email=MGR, role="manager"))
             db.add(models.NexusRole(email=PEER, role="administrator"))
             db.add(models.NexusRole(email=ADM, role="administrator"))
+            db.add(models.NexusRole(email=SUPER, role="owner"))
             db.add(models.NexusGroup(id=GRANT, name="conf-ed", allowed_modules="hr:editor"))
             for em in (PEER, HRG, HRC):
                 db.add(models.NexusGroupMember(group_id=GRANT, email=em))
@@ -206,9 +208,13 @@ class DecisionTests(_Base):
     def test_administrators_decide_when_there_is_nobody_else(self):
         req = self._request(who=ORPHAN)
         self.assertEqual(self._decide(HRC, req["id"]).status_code, 403)
-        row = self._listed(ADM, req["id"])
+        # ORPHAN works for CO2: CO's Administrator is walled from them (Neil,
+        # 11/02/2026); a Super Administrator decides.
+        self.assertIsNone(self._listed(ADM, req["id"]))
+        self.assertNotEqual(self._decide(ADM, req["id"]).status_code, 200)
+        row = self._listed(SUPER, req["id"])
         self.assertEqual((row["type"], row["canDecide"]), ("sick", True))
-        self.assertEqual(self._decide(ADM, req["id"]).status_code, 200)
+        self.assertEqual(self._decide(SUPER, req["id"]).status_code, 200)
 
     def test_plain_requests_are_decided_as_before(self):
         req = self._request(type_="vacation", confidential=False)

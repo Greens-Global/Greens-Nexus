@@ -90,8 +90,8 @@ class AnnouncementsSiteTests(unittest.TestCase):
                                             work_email=email, department="Operations", status="active", deleted_at="",
                                             company=co, work_site_ids=json.dumps(sites) if sites else "", work_site_id=single))
                 db.add(models.NexusRole(email=email, role=role))
-            # A populated Global Admins group: ADMIN is a company-walled
-            # administrator, not a global one (auth.is_global_admin).
+            # A populated Super Administrators group: ADMIN is a company-walled
+            # Administrator, GA crosses companies (auth.is_global_admin).
             db.add(models.NexusGroup(id="g-site-ga", name="Global Admins", is_global_admin=1))
             db.add(models.NexusGroupMember(group_id="g-site-ga", email=GA))
             db.commit()
@@ -198,7 +198,11 @@ class AnnouncementsSiteTests(unittest.TestCase):
         self.assertEqual(a["workSiteId"], "")
         self.assertEqual(a["workSiteName"], "")
         self.assertIn(ANYSITE, self._bells(a["id"]))
-        self.assertIn(BFAR, self._bells(a["id"]))
+        # Alpha's Administrator is walled to Alpha (11/02/2026): Beta's people
+        # are not in a company post of theirs; a Super Administrator's reaches them.
+        self.assertNotIn(BFAR, self._bells(a["id"]))
+        b = self._post(as_email=GA, audience="company", work_site_id="").json()
+        self.assertIn(BFAR, self._bells(b["id"]))
 
     # ── Not yet acknowledged ────────────────────────────────────────────────
 
@@ -234,15 +238,17 @@ class AnnouncementsSiteTests(unittest.TestCase):
         r = self._post(work_site_id="site-nowhere")
         self.assertEqual(r.status_code, 422, r.text)
         self.assertEqual(r.json()["detail"], "That work site does not exist.")
-        # Walls off: every company is the author's - Beta's site is fine.
-        self.assertEqual(self._post(work_site_id=FAR).status_code, 201)
-        # Walls on: Alpha's administrator may not post to Beta's site.
+        # An Administrator is walled to their companies whatever the switch
+        # says (Neil, 11/02/2026): Beta's site is refused with walls off too.
+        r = self._post(work_site_id=FAR)
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertEqual(r.json()["detail"], "That work site is not one of your companies' sites.")
         self._walls("on")
         r = self._post(work_site_id=FAR)
         self.assertEqual(r.status_code, 422, r.text)
         self.assertEqual(r.json()["detail"], "That work site is not one of your companies' sites.")
         self.assertEqual(self._post(work_site_id=DEPOT).status_code, 201)
-        # The Global Admin reaches every company.
+        # A Super Administrator (the flagged group) reaches every company.
         self.assertEqual(self._post(as_email=GA, work_site_id=FAR).status_code, 201)
 
     def test_patch_keeps_or_changes_the_site(self):

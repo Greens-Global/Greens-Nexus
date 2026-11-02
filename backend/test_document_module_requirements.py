@@ -182,7 +182,7 @@ class _ApiTests(unittest.TestCase):
         email = os.environ.get("NEXUS_DEV_EMAIL", "dev@localhost").lower()
         with SessionLocal() as db:
             if not db.query(models.NexusRole).filter(models.NexusRole.email == email).first():
-                db.add(models.NexusRole(email=email, role="administrator", assigned_by="test"))
+                db.add(models.NexusRole(email=email, role="owner", assigned_by="test"))   # Super Administrator
             # One signing template to migrate, so the migration test has
             # something real to move rather than depending on whatever happens
             # to be in the developer's own database.

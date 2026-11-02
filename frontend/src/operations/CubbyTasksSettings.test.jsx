@@ -93,6 +93,6 @@ describe('Cubby Tasks settings', () => {
     expect((await screen.findByRole('switch', { name: 'Bring Cubby Tasks Into Nexus' })).disabled).toBe(true);
     expect(screen.getByRole('combobox', { name: 'Project for 01 - GS Temecula' }).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: /Sync Now/ })).toBeNull();
-    expect(screen.getByText(/Only a Global Admin/)).toBeTruthy();
+    expect(screen.getByText(/Only a Super Administrator/)).toBeTruthy();
   });
 });

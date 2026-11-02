@@ -176,7 +176,7 @@ def clean_settings_patch(db, patch: dict, user: dict | None = None) -> dict:
                    or ("inboundMailbox" in patch
                        and str(patch.get("inboundMailbox") or "").strip().lower() != mailbox_of(current)))
         if changes and not auth.is_global_admin(user, db):
-            raise PermissionError("Only a Global Admin can turn Email to Ticket on or off or change its mailbox.")
+            raise PermissionError("Only a Super Administrator can turn Email to Ticket on or off or change its mailbox.")
     if "inboundMailbox" in patch:
         mb = str(patch.get("inboundMailbox") or "").strip().lower()
         if mb and ("@" not in mb or " " in mb):

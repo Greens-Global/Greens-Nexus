@@ -63,7 +63,7 @@ export default function AddStepMenu({ catalog, isNew, onAdd, label = 'Add Step',
                   <button key={a.key} type="button" role="menuitem" onClick={() => add('action', a)} style={row}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Zap size={14} style={{ color: 'var(--nx-dim)' }} />{a.label}</span>
                     <span style={{ display: 'inline-flex', gap: 4 }}>
-                      {a.adminOnly && <span style={{ ...chip, fontSize: 10.5, padding: '1px 6px' }}>Global Admins</span>}
+                      {a.adminOnly && <span style={{ ...chip, fontSize: 10.5, padding: '1px 6px' }}>Super Administrators</span>}
                       {isNew?.(a.key) && <span style={{ ...chip, fontSize: 10.5, padding: '1px 6px', color: 'var(--nx-primary)', borderColor: 'var(--nx-primary)' }}>New</span>}
                     </span>
                   </button>

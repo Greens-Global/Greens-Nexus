@@ -6,7 +6,7 @@
 // that already exists) and Delete rewrite the label on every task in the
 // company, so each asks first and says how many tasks it will change.
 //
-// Behind the company walls the labels are the company's own; a Global Admin
+// Behind the company walls the labels are the company's own; a Super Administrator
 // (or someone in several companies) picks which company's labels to manage.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Trash2, Merge, Palette, Search, Tag } from 'lucide-react';

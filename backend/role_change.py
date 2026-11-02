@@ -212,7 +212,7 @@ def change_now(db: Session, user: dict, emp: models.NexusEmployee, role_id: str,
     from routers.hr import _hr_notify
     from routers.jobroles import apply_job_role
     if not can_change_roles(db, user):
-        raise RoleChangeError("Only HR, an IT Admin or a Global Admin can change someone's role.", 403)
+        raise RoleChangeError("Only HR, an Administrator or a Super Administrator can change someone's role.", 403)
     emp, email, jr, cur, warning = _checked(db, user, emp, role_id)
     reason = (reason or "").strip()[:1000]
     if not reason:
@@ -222,7 +222,7 @@ def change_now(db: Session, user: dict, emp: models.NexusEmployee, role_id: str,
     # (check_can_assign, hr_path) - to others. Their own role is somebody
     # else's call.
     if email == me:
-        raise RoleChangeError("Someone else in HR, or a Global Admin, changes your own role.", 403)
+        raise RoleChangeError("Someone else in HR, or a Super Administrator, changes your own role.", 403)
     from_title = emp.job_title or (cur.name if cur else "")
     apply_job_role(db, jr, email, me)
     if jr.department:
@@ -278,7 +278,7 @@ def decide(db: Session, user: dict, req_id: str, approve: bool, note: str = "") 
     # Approving changes the role, so it is the role changers' call now (Neil,
     # Oct 22) - not the manager named on the request.
     if not can_change_roles(db, user):
-        raise RoleChangeError("Only HR, an IT Admin or a Global Admin can decide this request.", 403)
+        raise RoleChangeError("Only HR, an Administrator or a Super Administrator can decide this request.", 403)
     note = (note or "").strip()[:1000]
     if approve:
         from routers.jobroles import check_can_assign
@@ -290,7 +290,7 @@ def decide(db: Session, user: dict, req_id: str, approve: bool, note: str = "") 
             raise RoleChangeError(f"The {req.to_role_name} role was deleted - decline this request.", 409)
         email = emp.work_email.lower()
         if email == me:
-            raise RoleChangeError("Someone else in HR, or a Global Admin, changes your own role.", 403)
+            raise RoleChangeError("Someone else in HR, or a Super Administrator, changes your own role.", 403)
         try:   # the decider is the one changing it now - their tier limits apply
             check_can_assign(db, user, jr, email, hr_path=True)
         except HTTPException as e:

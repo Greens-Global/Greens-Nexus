@@ -37,7 +37,8 @@ FULL = "full.comp.test@greensglobal.com"        # accounting:full
 VIEWER = "viewer.comp.test@greensglobal.com"    # accounting:viewer - not enough
 LIMITED = "limited.comp.test@greensglobal.com"  # accounting:full but limited to one entity
 NOBODY = "nobody.comp.test@greensglobal.com"
-ADMIN = "admin.comp.test@greensglobal.com"      # administrator role, no group
+ADMIN = "admin.comp.test@greensglobal.com"      # Super Administrator (owner) role, no group
+WALLED = "walled.comp.test@greensglobal.com"    # Administrator role, no entities set (walled, 11/02/2026)
 GROUP_F, GROUP_V = "grp-comp-test-full", "grp-comp-test-viewer"
 VALINDA, ENTITY = "emp-comp-test-valinda", "ent-comp-test-oversite"
 
@@ -236,7 +237,8 @@ class RouteTests(unittest.TestCase):
             db.add(models.NexusGroupMember(group_id=GROUP_F, email=LIMITED))
             db.add(models.NexusGroupMember(group_id=GROUP_V, email=VIEWER))
             db.add(models.NexusAccessScope(id=str(uuid.uuid4()), email=LIMITED, module_id="accounting", scope_type="ledger", scope_id="15000"))
-            db.add(models.NexusRole(email=ADMIN, role="administrator"))
+            db.add(models.NexusRole(email=ADMIN, role="owner"))
+            db.add(models.NexusRole(email=WALLED, role="administrator"))
             # Valinda in People (her Intacct employee ID is her employee code) with a workers' comp rate.
             db.add(models.HrEntity(id=ENTITY, name="Oversite Management, Inc"))
             db.add(models.NexusEmployee(id=VALINDA, employee_code="E-0084", first_name="Valinda", last_name="Cranfill", work_email="Valinda@X.com",
@@ -283,7 +285,7 @@ class RouteTests(unittest.TestCase):
             db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_((GROUP_F, GROUP_V))).delete(synchronize_session=False)
             db.query(models.NexusGroup).filter(models.NexusGroup.id.in_((GROUP_F, GROUP_V))).delete(synchronize_session=False)
             db.query(models.NexusAccessScope).filter(models.NexusAccessScope.email == LIMITED).delete(synchronize_session=False)
-            db.query(models.NexusRole).filter(models.NexusRole.email == ADMIN).delete(synchronize_session=False)
+            db.query(models.NexusRole).filter(models.NexusRole.email.in_((ADMIN, WALLED))).delete(synchronize_session=False)
             db.query(models.WorkersCompRate).filter(models.WorkersCompRate.employee_id == VALINDA).delete(synchronize_session=False)
             db.query(models.NexusEmployee).filter(models.NexusEmployee.id == VALINDA).delete(synchronize_session=False)
             db.query(models.HrEntity).filter(models.HrEntity.id == ENTITY).delete(synchronize_session=False)
@@ -323,6 +325,9 @@ class RouteTests(unittest.TestCase):
             out[who] = r.json()
         self.assertEqual(out[FULL], out[ADMIN])
         self.assertEqual(len(out[FULL]["months"]), 9)
+        # An Administrator (level 4) is walled: no entities set = no whole payroll.
+        _as(WALLED)
+        self.assertEqual(self.client.get("/accounting/compensation/people?from=2026-01&to=2026-09").status_code, 403)
 
     def test_too_large_and_too_slow_answer_422_with_a_reason(self):
         _as(FULL)

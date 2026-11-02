@@ -66,8 +66,8 @@ class ShiftRequestTests(unittest.TestCase):
             # Changing shifts needs a manager (Sep 29). Since Oct 6 (People:
             # the Manager tier sees only its own team) a manager's People grant
             # is team-limited, so the company-wide scope these tests exercise
-            # is an administrator's.
-            db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
+            # is a Super Administrator's (Neil, 11/02/2026: an Administrator is company-walled).
+            db.add(models.NexusRole(email=ADMIN, role="owner", assigned_by="test"))
             db.add(models.ShiftGroup(id=GROUP, name="Store"))
             db.add(models.ShiftGroup(id="group-sreq-other", name="Other Store"))
             db.add(models.ShiftGroupMember(id="sgm-sreq-a", group_id=GROUP, employee_email=A))

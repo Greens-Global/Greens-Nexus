@@ -969,7 +969,7 @@
         },
         {
           "key": "global_admins",
-          "label": "Global Admins"
+          "label": "Super Administrators"
         }
       ]
     },

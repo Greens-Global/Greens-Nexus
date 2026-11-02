@@ -63,6 +63,11 @@ class LeakCase(unittest.TestCase):
         self.db.commit()
         self.db.add(models.HrEntity(id=CO, name="Leak Co", hr_contact_email=HR))
         self.db.add(models.HrEntity(id=OTHER, name="Other Co", hr_contact_email=""))
+        # The actor works on the walled Administrator's side: the audit feed
+        # shows a walled caller only their companies' people's events (Neil,
+        # 11/02/2026), and the HR ticket must stay hidden even then.
+        self.db.add(models.NexusEmployee(id="e-leak", first_name="Emp", last_name="Leak", work_email=EMP,
+                                         company=OTHER, status="active"))
         self.db.add(models.TaskTicket(id="t-hr", code="000500", subject="My visa renewal", confidential_desk="hr",
                                       company_id=CO, requester_email=EMP))
         self.db.add(models.TaskTicket(id="t-plain", code="000010", subject="Printer jammed", company_id=CO,
