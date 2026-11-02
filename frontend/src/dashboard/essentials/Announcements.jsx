@@ -13,22 +13,44 @@
 // composer in the card; each row gets Edit / Delete and a "Read by N" link
 // that opens the read receipts inline. Body text is plain text with line
 // breaks (the server accepts nothing else) - rendered pre-wrapped.
+//
+// Reach (Neil, 11/02/2026): a post may carry ONE picture or ONE file (browser
+// -> the private task-files bucket under announcements/, opened through the
+// signed viewer; Ctrl+V pastes a picture), be published later (Publish Later:
+// a DateField + 12-hour TimeField, sent as an ISO instant; administrators
+// see "Scheduled for ..." and staff see nothing until then) and say how the
+// audience hears about it (Notify: Quiet / Push And Teams / Email - the bell
+// always rings). Administrators read who acknowledged in the meta line.
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Megaphone, Pin, Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import { Megaphone, Pin, Plus, ChevronDown, ChevronUp, ImagePlus, Paperclip, X, CalendarClock } from 'lucide-react';
 
 import { api } from '../../api';
 import { LoadingState } from '../../components/AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { pollWhileVisible } from '../../lib/pollWhileVisible';
+import { toViewUrl } from '../../lib/storageView';
 import { useIsMobile } from '../../lib/useIsMobile';
+import { DateField, TimeField } from '../../tasks/components';
+import { filesFromPaste, storeTaskFile } from '../../tasks/lib';
 import { dialog } from '../../ui/dialog.jsx';
 import { DashCard } from '../widgets.jsx';
 import { noteStyle } from '../workdayWidgets.jsx';
 
 const SHOW_FIRST = 7;
 const REFRESH_MS = 60000;
-const EMPTY_FORM = { title: '', body: '', audience: 'company', department: '', pinned_until: '', requires_ack: false };
+const EMPTY_FORM = {
+  title: '', body: '', audience: 'company', department: '', pinned_until: '', requires_ack: false,
+  image_url: '', file_url: '', file_name: '', publish_at: '', notify: 'quiet',
+};
+const UPLOAD_FOLDER = 'announcements';
+const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const FILE_MAX_BYTES = 25 * 1024 * 1024;
+export const NOTIFY_OPTIONS = [
+  { value: 'quiet', label: 'Quiet (Bell Only)' },
+  { value: 'push_teams', label: 'Push And Teams' },
+  { value: 'email', label: 'Email' },
+];
 
 const linkBtn = { background: 'none', border: 'none', padding: 0, color: 'var(--wk-brand, var(--brand, #2563eb))', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' };
 const fieldStyle = { width: '100%', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: 13, padding: '8px 10px', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: 'var(--card, #fff)', color: 'var(--ink)' };
@@ -43,7 +65,36 @@ export function formOf(a) {
   return {
     title: a.title || '', body: a.body || '', audience: a.audience === 'department' ? 'department' : 'company',
     department: a.department || '', pinned_until: a.pinned_until || '', requires_ack: !!a.requires_ack,
+    image_url: a.image_url || '', file_url: a.file_url || '', file_name: a.file_name || '',
+    publish_at: a.publish_at || '', notify: NOTIFY_OPTIONS.some(o => o.value === a.notify) ? a.notify : 'quiet',
   };
+}
+
+/** "Acknowledged by Ana Diaz, Bob Lee and 3 more" from the first names the
+ *  server sends and the full count; '' when nobody has. */
+export function ackSummary(a) {
+  const count = a?.ack_count ?? 0;
+  const names = (a?.ack_names || []).filter(Boolean);
+  if (!count) return '';
+  if (!names.length) return `Acknowledged by ${count}`;
+  const rest = count - names.length;
+  return `Acknowledged by ${names.join(', ')}${rest > 0 ? ` and ${rest} more` : ''}`;
+}
+
+const pad2 = (n) => String(n).padStart(2, '0');
+/** An ISO instant -> { date: 'YYYY-MM-DD', time: 'HH:MM' } on this computer's clock. */
+export function splitLocal(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return { date: '', time: '' };
+  return { date: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`, time: `${pad2(d.getHours())}:${pad2(d.getMinutes())}` };
+}
+/** A local date + 'HH:MM' -> ISO instant; '' until both are set. */
+export function joinLocal(date, time) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '') || !/^\d{2}:\d{2}$/.test(time || '')) return '';
+  const [y, m, d] = date.split('-').map(Number);
+  const [hh, mm] = time.split(':').map(Number);
+  const dt = new Date(y, m - 1, d, hh, mm, 0, 0);
+  return Number.isNaN(dt.getTime()) ? '' : dt.toISOString();
 }
 
 export default function Announcements({ phone }) {
@@ -155,7 +206,7 @@ export default function Announcements({ phone }) {
           {visible.map(a => (
             <AnnouncementRow key={a.id} a={a} expanded={open.has(a.id)} isAdmin={isAdmin} isMobile={isMobile} myEmail={myEmail}
               onToggle={() => toggle(a)} onAck={() => ack(a)}
-              onEdit={() => setComposer({ id: a.id, form: formOf(a) })} onDelete={() => remove(a)}
+              onEdit={() => setComposer({ id: a.id, form: { ...formOf(a), notified_at: a.notified_at || '' } })} onDelete={() => remove(a)}
               onReads={() => showReads(a)} reads={readsFor?.id === a.id ? readsFor : null} />
           ))}
           {list.length > SHOW_FIRST && (
@@ -179,6 +230,7 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
   const metaLink = isMobile ? { ...linkBtn, minHeight: 36, padding: '0 6px', display: 'inline-flex', alignItems: 'center' } : linkBtn;
   const meta = [a.author_name || a.author_email, formatDate(a.created_at)].filter(Boolean).join(' - ');
   const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
+  const acks = isAdmin ? ackSummary(a) : '';
   return (
     <div className={needsAck ? 'nx-needs-you--row' : undefined} style={{ borderBottom: '1px solid var(--line, #eef0f3)' }}>
       <div role="button" tabIndex={0} aria-expanded={expanded} onClick={onToggle}
@@ -205,13 +257,30 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
             : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere', fontSize: 12.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>
             {a.body}
           </span>
+          {expanded && a.image_url && (
+            <img src={toViewUrl(a.image_url)} alt="" data-testid="ann-image"
+              style={{ display: 'block', marginTop: 8, maxWidth: '100%', maxHeight: 280, borderRadius: 8, border: '1px solid var(--line, #e5e7eb)' }} />
+          )}
+          {a.file_url && (
+            <a href={toViewUrl(a.file_url)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+              style={{ ...linkBtn, display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6, textDecoration: 'none', ...(isMobile ? { minHeight: 36 } : {}) }}>
+              <Paperclip size={12} /> {a.file_name || 'Attachment'}
+            </a>
+          )}
           <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 12px', fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
             <span>{meta}</span>
             {a.pinned && a.pinned_until && <span>Pinned until {formatDate(a.pinned_until)}</span>}
+            {!expanded && a.image_url && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><ImagePlus size={11} /> Picture</span>}
+            {isAdmin && a.scheduled && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'hsl(var(--color-orange))', fontWeight: 600 }}>
+                <CalendarClock size={12} /> Scheduled for {formatDateTime(a.publish_at)}
+              </span>
+            )}
             {a.acknowledged_at && <span style={{ color: 'hsl(var(--color-green))', fontWeight: 600 }}>Acknowledged</span>}
             {isAdmin && (
               <>
-                <button type="button" onClick={stop(onReads)} style={metaLink}>Read by {a.read_count ?? 0}{a.requires_ack ? `, acknowledged by ${a.ack_count ?? 0}` : ''}</button>
+                <button type="button" onClick={stop(onReads)} style={metaLink}>Read by {a.read_count ?? 0}{a.requires_ack && !acks ? `, acknowledged by ${a.ack_count ?? 0}` : ''}</button>
+                {acks && <span data-testid="ann-acks">{acks}</span>}
                 <button type="button" onClick={stop(onEdit)} style={metaLink}>Edit</button>
                 <button type="button" onClick={stop(onDelete)} style={{ ...metaLink, color: 'hsl(var(--color-red))' }}>Delete</button>
               </>
@@ -256,8 +325,36 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
   const [form, setForm] = useState(() => ({ ...EMPTY_FORM, ...initial }));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  // Publish Later: on when the post being edited is still scheduled; the
+  // date and time are this computer's clock, sent as one ISO instant.
+  const published = !!initial?.notified_at;
+  const [later, setLater] = useState(() => !!initial?.publish_at && !published);
+  const [when, setWhen] = useState(() => splitLocal(initial?.publish_at));
+  const [upload, setUpload] = useState(null);   // null | { kind: 'image'|'file', pct }
+  const imageRef = useRef(null);
+  const fileRef = useRef(null);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
   const tap = isMobile ? { minHeight: 44 } : {};
+
+  const attach = async (file, kind) => {
+    if (!file) return;
+    if (kind === 'image' && !file.type?.startsWith('image/')) { setErr('That file is not a picture.'); return; }
+    setErr(''); setUpload({ kind, pct: 0 });
+    try {
+      const folder = `${UPLOAD_FOLDER}/${editingId || 'new'}`;
+      const url = await storeTaskFile(file, (p) => setUpload({ kind, pct: p }), folder, kind === 'image' ? IMAGE_MAX_BYTES : FILE_MAX_BYTES);
+      if (!url) throw new Error('Could not upload that file. Try again.');
+      setForm(f => (kind === 'image' ? { ...f, image_url: url } : { ...f, file_url: url, file_name: file.name || 'Attachment' }));
+    } catch (ex) {
+      setErr(ex?.message || 'Could not upload that file.');
+    } finally {
+      setUpload(null);
+    }
+  };
+  const onPaste = (e) => {
+    const [img] = filesFromPaste(e);
+    if (img) { e.preventDefault(); attach(img, 'image'); }
+  };
   // 16px on a phone: iOS zooms the page into any smaller focused field.
   const field = isMobile ? { ...fieldStyle, fontSize: 16 } : fieldStyle;
   // The composer opens at the top of the card's scroll area; Edit is pressed
@@ -272,11 +369,22 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
     if (!title) { setErr('Give the announcement a title.'); return; }
     if (!body) { setErr('Write the announcement.'); return; }
     if (form.audience === 'department' && !form.department.trim()) { setErr('Name the department.'); return; }
+    if (upload) { setErr('Wait for the upload to finish.'); return; }
+    let publish_at = '';
+    if (later && !published) {
+      publish_at = joinLocal(when.date, when.time);
+      if (!publish_at) { setErr('Pick the date and time to publish.'); return; }
+      if (new Date(publish_at).getTime() < Date.now()) { setErr('The publish time has already passed.'); return; }
+    }
     const payload = {
       title, body, audience: form.audience,
       department: form.audience === 'department' ? form.department.trim() : '',
       pinned_until: form.pinned_until || '', requires_ack: !!form.requires_ack,
+      image_url: form.image_url || '', file_url: form.file_url || '', file_name: form.file_url ? (form.file_name || '') : '',
+      notify: form.notify || 'quiet',
     };
+    // A published post keeps its publish time (the server refuses a change).
+    if (!published) payload.publish_at = publish_at;
     setBusy(true); setErr('');
     try {
       if (editingId) await api.updateAnnouncement(editingId, payload);
@@ -298,8 +406,35 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
       </label>
       <label>
         <span style={labelStyle}>Body</span>
-        <textarea value={form.body} onChange={set('body')} maxLength={20000} rows={isMobile ? 5 : 4} placeholder="Plain text, line breaks are kept." style={{ ...field, resize: 'vertical' }} />
+        <textarea value={form.body} onChange={set('body')} onPaste={onPaste} maxLength={20000} rows={isMobile ? 5 : 4} placeholder="Plain text, line breaks are kept." style={{ ...field, resize: 'vertical' }} />
       </label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        <input ref={imageRef} type="file" accept="image/*" aria-label="Picture file" style={{ display: 'none' }}
+          onChange={(e) => { attach(e.target.files?.[0], 'image'); e.target.value = ''; }} />
+        <input ref={fileRef} type="file" aria-label="Attachment file" style={{ display: 'none' }}
+          onChange={(e) => { attach(e.target.files?.[0], 'file'); e.target.value = ''; }} />
+        {form.image_url ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <img src={toViewUrl(form.image_url)} alt="" data-testid="ann-image-preview" style={{ width: 56, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)' }} />
+            <button type="button" onClick={() => setForm(f => ({ ...f, image_url: '' }))} aria-label="Remove picture" style={{ ...linkBtn, display: 'inline-flex', alignItems: 'center', gap: 3, ...tap }}><X size={12} /> Remove Picture</button>
+          </span>
+        ) : (
+          <button type="button" className="secondary-btn" disabled={!!upload} onClick={() => imageRef.current?.click()} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, ...tap }}>
+            <ImagePlus size={13} /> {upload?.kind === 'image' ? `Uploading ${Math.round((upload.pct || 0) * 100)}%` : 'Add Picture'}
+          </button>
+        )}
+        {form.file_url ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink)' }}>
+            <Paperclip size={12} /> {form.file_name || 'Attachment'}
+            <button type="button" onClick={() => setForm(f => ({ ...f, file_url: '', file_name: '' }))} aria-label="Remove file" style={{ ...linkBtn, display: 'inline-flex', alignItems: 'center', gap: 3, ...tap }}><X size={12} /> Remove</button>
+          </span>
+        ) : (
+          <button type="button" className="secondary-btn" disabled={!!upload} onClick={() => fileRef.current?.click()} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, ...tap }}>
+            <Paperclip size={13} /> {upload?.kind === 'file' ? `Uploading ${Math.round((upload.pct || 0) * 100)}%` : 'Add File'}
+          </button>
+        )}
+        {!form.image_url && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or press Ctrl+V in the body to paste a picture</span>}
+      </div>
       <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10 }}>
         <label style={{ flex: 1 }}>
           <span style={labelStyle}>Audience</span>
@@ -316,8 +451,39 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
         )}
         <label style={{ flex: 1 }}>
           <span style={labelStyle}>Pinned Until</span>
-          <input type="date" value={form.pinned_until} onChange={set('pinned_until')} style={{ ...field, ...tap }} />
+          <DateField value={form.pinned_until} onChange={(v) => setForm(f => ({ ...f, pinned_until: v || '' }))} placeholder="Not pinned" title="Pinned until" style={{ ...field, ...tap }} />
         </label>
+      </div>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10 }}>
+        <label style={{ flex: 1 }}>
+          <span style={labelStyle}>Notify</span>
+          <select value={form.notify} onChange={set('notify')} aria-label="Notify" style={{ ...field, ...tap }}>
+            {NOTIFY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+            Everyone gets a bell. Push reaches people who installed Nexus on their phone; Teams and email reach everyone.
+          </span>
+        </label>
+        <div style={{ flex: 1 }}>
+          {published ? (
+            <>
+              <span style={labelStyle}>Published</span>
+              <div style={{ fontSize: 12.5, color: 'var(--ink)', padding: '8px 0' }}>{formatDateTime(initial.notified_at)}</div>
+            </>
+          ) : (
+            <>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ink)', ...tap }}>
+                <input type="checkbox" checked={later} onChange={(e) => setLater(e.target.checked)} /> Publish Later
+              </label>
+              {later && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <DateField value={when.date} onChange={(v) => setWhen(w => ({ ...w, date: v || '' }))} placeholder="Date" title="Publish date" noPast style={{ ...field, flex: 1, ...tap }} />
+                  <TimeField value={when.time} onChange={(v) => setWhen(w => ({ ...w, time: v }))} ariaLabel="Publish time" style={{ ...field, flex: 1, ...tap }} />
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ink)', ...tap }}>
         <input type="checkbox" checked={!!form.requires_ack} onChange={set('requires_ack')} /> Requires acknowledgment
@@ -325,7 +491,7 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
       {err && <div role="alert" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>{err}</div>}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <button type="button" className="secondary-btn" onClick={onCancel} disabled={busy} style={tap}>Cancel</button>
-        <button type="submit" className="primary-btn" disabled={busy} style={tap}>{busy ? 'Saving...' : editingId ? 'Save Changes' : 'Post Announcement'}</button>
+        <button type="submit" className="primary-btn" disabled={busy} style={tap}>{busy ? 'Saving...' : editingId ? 'Save Changes' : later && !published ? 'Schedule Announcement' : 'Post Announcement'}</button>
       </div>
     </form>
   );
