@@ -415,6 +415,41 @@ describe('Approvals on a phone', () => {
     });
   });
 
+  it('Done, Cancel and the note submit leave through the sheet exit the X plays', async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    decideReimbursement.mockResolvedValue({});
+    await withMotion(async () => {
+      render(<Approvals activeSub="" onSubChange={() => {}} />);
+      await screen.findByText(TIME_OFF);
+      vi.useFakeTimers({ shouldAdvanceTime: false });
+      const closing = () => document.querySelector('.nx-overlay.is-closing');
+      openFilters();
+      fireEvent.click(within(sheet()).getByRole('button', { name: 'Done' }));
+      expect(closing()).toBeTruthy();                                  // sliding out, still drawn
+      await act(async () => { vi.advanceTimersByTime(MOTION.md + 20); });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      // Cancel on the note sheet: the same exit, and nothing decided.
+      fireEvent.click(btn(/^Reject: Reimbursement/));
+      fireEvent.click(within(sheet()).getByRole('button', { name: 'Cancel' }));
+      expect(closing()).toBeTruthy();
+      await act(async () => { vi.advanceTimersByTime(MOTION.md + 20); });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByText(MONEY, { selector: '.apv-ph-ttl' })).toBeTruthy();
+      // Submit: the sheet slides out first, then the card goes.
+      await act(async () => { vi.advanceTimersByTime(400); });
+      fireEvent.click(btn(/^Reject: Reimbursement/));
+      fireEvent.change(within(sheet()).getByRole('textbox', { name: 'Why?' }), { target: { value: 'No receipt' } });
+      fireEvent.click(within(sheet()).getByRole('button', { name: 'Reject' }));
+      expect(closing()).toBeTruthy();
+      expect(screen.getByText(MONEY, { selector: '.apv-ph-ttl' })).toBeTruthy();
+      await act(async () => { vi.advanceTimersByTime(MOTION.md + 20); });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Reject: Reimbursement/ })).toBeNull();   // decided (its ghost is leaving)
+      await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
+      expect(decideReimbursement).toHaveBeenCalledWith('r1', { action: 'reject', note: 'No receipt' });
+    });
+  });
+
   // Review Focus 5: a row that only opens its module shows Review and Open.
   it('a row that cannot run inline shows Review and Open, never a disabled Approve', async () => {
     approvalsInbox.mockResolvedValue(INBOX);

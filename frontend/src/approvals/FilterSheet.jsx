@@ -43,12 +43,14 @@ export default function FilterSheet({ filters, setFilters, clearFilters, onClose
   const priorities = withCurrent(PRIORITIES, filters.prioFilter, DESKTOP_ONLY.priority);
   const toggle = (name) => (v) => setFilters({ [name]: filters[name] === v ? '' : v });
   return (
-    <Modal title="Filter" onClose={onClose} footer={
+    // Done leaves through the Modal's exit, like the X. Clear Filters stays:
+    // it resets the choices in place, so the next one is a tap away.
+    <Modal title="Filter" onClose={onClose} footer={(close) => (
       <>
         <button type="button" className="secondary-btn apv-ph-fbtn" onClick={clearFilters}>Clear Filters</button>
-        <button type="button" className="primary-btn apv-ph-fbtn" onClick={onClose}>Done</button>
+        <button type="button" className="primary-btn apv-ph-fbtn" onClick={() => close()}>Done</button>
       </>
-    }>
+    )}>
       <div className="apv-ph-fs">
         <div className="apv-search">
           <Search size={14} aria-hidden="true" />
