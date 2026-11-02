@@ -33,6 +33,8 @@ vi.mock('../api', () => ({
     formsMine: (...a) => formsMine(...a),
   },
 }));
+const mode = vi.hoisted(() => ({ phone: false }));
+vi.mock('../lib/useIsMobile', () => ({ useIsMobile: () => mode.phone }));
 vi.mock('../forms/FillForm', () => ({ default: ({ templateId, shiftId }) => <div>Filling {templateId} for {shiftId}</div> }));
 
 const { api } = await import('../api');
@@ -53,6 +55,7 @@ const FORMS = [
 ];
 
 beforeEach(() => {
+  mode.phone = false;
   api.timeMySchedule.mockReset().mockResolvedValue(sched);
   formsMine.mockReset().mockResolvedValue(FORMS);   // GET /forms/mine is a bare array
 });
@@ -73,5 +76,12 @@ describe('My Shifts form buttons', () => {
     render(<MyShifts part="mine" embedded />);
     expect(await screen.findByText('Front Desk')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^Fill / })).toBeNull();
+  });
+
+  it('on a phone the small Fill button under a shift is big enough for a thumb', async () => {
+    mode.phone = true;
+    render(<MyShifts part="mine" embedded />);
+    const fill = await screen.findByRole('button', { name: 'Fill Vehicle Check' });
+    expect(fill).toHaveStyle({ minHeight: '28px', padding: '4px 9px' });
   });
 });

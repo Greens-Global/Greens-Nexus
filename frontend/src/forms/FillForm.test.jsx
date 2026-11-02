@@ -25,6 +25,8 @@ vi.mock('../components/ESign', () => ({
     </div>
   ),
 }));
+const mode = vi.hoisted(() => ({ phone: false }));
+vi.mock('../lib/useIsMobile', () => ({ useIsMobile: () => mode.phone }));
 vi.mock('../lib/geoPosition', () => ({ getPosition: (...a) => getPosition(...a) }));
 
 const FillForm = (await import('./FillForm')).default;
@@ -52,6 +54,7 @@ const typeIn = (label, value) => fireEvent.change(screen.getByLabelText(label), 
 const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
 
 beforeEach(() => {
+  mode.phone = false;
   localStorage.clear();
   formGet.mockReset().mockResolvedValue(TEMPLATE);
   formSubmit.mockReset().mockResolvedValue(ENTRY);
@@ -231,5 +234,16 @@ describe('FillForm', () => {
     expect(formGet).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Submit' })).toBeNull();
     expect(screen.getByText(/Preview/)).toBeTruthy();
+  });
+
+  it('on a phone the chips, Yes / No and the rating stars are 44px tap targets', async () => {
+    mode.phone = true;
+    const tpl = { ...TEMPLATE, fieldDefs: [...TEMPLATE.fieldDefs, { token: 'score', label: 'Score', type: 'rating', section: 'Damage' }] };
+    render(<FillForm template={tpl} onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    for (const name of ['Yes', 'No', 'Take a Photo', 'Upload', 'Stamp My Location', 'Sign', '3 of 5']) {
+      expect(screen.getByRole('button', { name })).toHaveStyle({ minHeight: '44px' });
+    }
+    expect(screen.getByRole('button', { name: '3 of 5' })).toHaveStyle({ padding: '9px' });
   });
 });
