@@ -342,5 +342,57 @@ class JobRoleTests(_Base):
         self.assertEqual(self.client.get(f"/jobroles/effective/{AEMP}").status_code, 200)
 
 
+class ActAsTests(_Base):
+    """Item 3: Act As stays inside the real actor's companies."""
+
+    def test_targets_and_start_are_walled(self):
+        self._walls_off()
+        self._as(ADMIN_A)
+        listed = {r["email"] for r in self.client.get("/act-as/eligible-targets").json()}
+        self.assertIn(AEMP, listed)
+        self.assertIn(AMGR, listed)
+        self.assertIn(GUEST, listed, "a guest has no company - shared")
+        self.assertNotIn(BEMP, listed)
+        self.assertEqual(self.client.post("/act-as/start", json={"target_email": BEMP}).status_code, 404)
+        self._as(SUPER)
+        listed = {r["email"] for r in self.client.get("/act-as/eligible-targets").json()}
+        self.assertIn(BEMP, listed)
+        self.assertEqual(self.client.post("/act-as/start", json={"target_email": BEMP}).status_code, 200)
+
+    def test_the_acting_identity_is_capped_at_the_real_actors_companies(self):
+        self._walls_off()
+        self._as(ADMIN_A)
+        r = self.client.post("/act-as/start", json={"target_email": AMGR})
+        self.assertEqual(r.status_code, 200, r.text)
+        sid = r.json()["session_id"]
+        import act_as
+        db = self._db()
+        try:
+            target = act_as.resolve_target(sid, ADMIN_A, db)
+            self.assertEqual((target["email"], target["level"], target["real_level"]), (AMGR, 3, 4))
+            # A level-3 person with the walls off is unrestricted on their own...
+            self.assertIsNone(auth.company_scope({"email": AMGR, "level": 3}, db))
+            # ...but acting for company A's Administrator they reach only company A.
+            self.assertEqual(auth.company_scope(target, db), {COA})
+            self.assertFalse(auth.company_ok(COB, auth.company_scope(target, db)))
+        finally:
+            db.close()
+        # Through a real request too: acting as the manager, company B's
+        # people stay out of the manager's own (walls-off) lists.
+        ppl = self.client.get("/act-as/eligible-targets", headers={"X-Act-As-Session": sid})
+        self.assertEqual(ppl.status_code, 200, ppl.text)
+        emails = {r["email"] for r in ppl.json()}
+        self.assertIn(AEMP, emails)
+        self.assertNotIn(BEMP, emails)
+        # A Super Administrator acting caps nothing.
+        self._as(SUPER)
+        sid2 = self.client.post("/act-as/start", json={"target_email": AMGR}).json()["session_id"]
+        db = self._db()
+        try:
+            self.assertIsNone(auth.company_scope(act_as.resolve_target(sid2, SUPER, db), db))
+        finally:
+            db.close()
+
+
 if __name__ == "__main__":
     unittest.main()

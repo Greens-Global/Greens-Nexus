@@ -753,7 +753,7 @@ def hr_scope(user: dict, db: Session):
     boundary as every other module."""
     if hr_team_limited(user):
         return TeamScope(team_emails(db, user["email"]))
-    if user.get("level", 0) >= _LEVELS["administrator"] or _company_walls_on(db):
+    if user.get("level", 0) >= _LEVELS["administrator"] or _company_walls_on(db) or acting_capped(user, db):
         return company_scope(user, db)
     from models import NexusAccessScope
     rows = (db.query(NexusAccessScope.scope_id)
@@ -925,6 +925,30 @@ def is_global_admin(user: dict, db: Session) -> bool:
 
 
 def company_scope(user: dict, db: Session):
+    """THE tenant boundary - see _own_company_scope for the rule by tier.
+
+    Act As (Neil, 11/02/2026): while someone acts as another person the
+    acting identity is the target's, but its reach is CAPPED at the real
+    actor's - an Administrator of company A acting as a level 1-3 person
+    with the walls off would otherwise become unrestricted. The cap is the
+    real actor's own scope (resolve_target carries `real_email` and
+    `real_level`); None (a Super Administrator acting) caps nothing."""
+    own = _own_company_scope(user, db)
+    if user.get("acting_as") and user.get("real_email"):
+        cap = _own_company_scope({"email": user["real_email"], "level": int(user.get("real_level", 0) or 0)}, db)
+        if cap is not None:
+            own = set(cap) if own is None else (set(own) & set(cap))
+    return own
+
+
+def acting_capped(user: dict, db: Session) -> bool:
+    """True while `user` is an Act As identity whose real actor is walled."""
+    if not (user.get("acting_as") and user.get("real_email")):
+        return False
+    return _own_company_scope({"email": user["real_email"], "level": int(user.get("real_level", 0) or 0)}, db) is not None
+
+
+def _own_company_scope(user: dict, db: Session):
     """THE tenant boundary. Which HrEntity companies may this caller see and act
     within? Returns:
       - None   → unrestricted (the caller is a Super Administrator / Global

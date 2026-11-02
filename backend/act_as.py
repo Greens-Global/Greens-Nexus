@@ -35,6 +35,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
+import auth
 from auth import get_current_user, require_level_or_module, _role_for, _LEVELS, tier_of
 from models import ActAsSession, NexusRole, NexusEmployee, HrEntity
 import security_config as _sec
@@ -101,9 +102,12 @@ def resolve_target(session_id: str, real_email: str, db: Session) -> Optional[di
     result = None
     if row and not row.ended_at and row.real_email == real_email.lower() and row.expires_at > _iso(_now()):
         role, level = _role_for(row.target_email, db)
+        # real_level travels with the identity so auth.company_scope caps the
+        # target's reach at the real actor's (Neil, 11/02/2026).
         result = {
             "email": row.target_email, "role": role, "level": level,
             "acting_as": True, "real_email": row.real_email,
+            "real_level": _role_for(row.real_email, db)[1],
         }
     _session_cache[cache_key] = (result, time.time())
     return result
@@ -134,10 +138,16 @@ def eligible_targets(user: dict = Depends(_act_as_gate), db: Session = Depends(g
     # Company names, so the header's Act As search can match "india" or
     # "greens" as well as a name (Neil, Oct 25 2026: 100+ people).
     companies = {c.id: c.name for c in db.query(HrEntity.id, HrEntity.name).all()}
+    # Below a Super Administrator, only people inside the caller's companies
+    # (or with no company - a guest / external): an Administrator is walled
+    # whether or not the switch is on (Neil, 11/02/2026).
+    scope = auth.company_scope(user, db)
     out = []
     for e in employees:
         email = (e.work_email or "").lower().strip()
         if not email or email == user["email"]:
+            continue
+        if not auth.company_ok(e.company or "", scope, shared_when_blank=True):
             continue
         role_row = roles.get(email)
         role = role_row.role if role_row else "employee"
@@ -174,6 +184,8 @@ def start_session(body: StartIn, request: Request,
     if target_email == user["email"]:
         raise HTTPException(status_code=400, detail="You can't Act As yourself")
 
+    # Outside the caller's companies: 404, as if they were not there.
+    auth.assert_person_in_scope(target_email, user, db)
     target_row = db.query(NexusRole).filter(NexusRole.email == target_email).first()
     target_role = target_row.role if target_row else "employee"
     target_level = _LEVELS.get(target_role, 1)
