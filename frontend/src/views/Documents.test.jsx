@@ -25,6 +25,7 @@ vi.mock('../api', () => ({
     listPacketDocuments: (...a) => listPacketDocuments(...a),
     // Form entries (Neil, 11/02/2026): the library's Form Entries view and the Forms tab.
     getFormEntries: (...a) => getFormEntries(...a),
+    getFormEntry: (id) => Promise.resolve({ id, title: 'Vehicle Check', status: 'submitted', templateId: '', answers: {} }),
     getWorkSites: () => Promise.reject(new Error('403')),
     getPeopleDirectory: () => Promise.resolve([]),
     searchDocuments: () => Promise.resolve([]),
@@ -100,6 +101,13 @@ describe('Documents module', () => {
     await waitFor(() => expect(getDocTemplates).toHaveBeenCalled());
     screen.getByRole('tab', { name: 'Entries' }).click();
     await waitFor(() => expect(getFormEntries).toHaveBeenCalled());
+  });
+
+  it('a bell or workflow link (documents-forms:entry:<id>) opens that entry beside the Entries list', async () => {
+    render(<Documents activeSub="documents-forms:entry:e9" onSubChange={() => {}} />);
+    expect(await screen.findByRole('tab', { name: 'Entries', selected: true })).toBeTruthy();
+    await waitFor(() => expect(getFormEntries).toHaveBeenCalled());
+    expect(await screen.findByText('Vehicle Check')).toBeTruthy();
   });
 
   it('renders Nexus Sign, including its deep-linked requests sub-tab', () => {

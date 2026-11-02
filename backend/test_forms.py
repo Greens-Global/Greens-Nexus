@@ -410,7 +410,10 @@ class FormsTests(unittest.TestCase):
             self.assertIn("Check tire 2", bells[0].body)
             self.assertNotIn("—", bells[0].body)
             self.assertNotRegex(bells[0].body, r"\d{4}-\d{2}-\d{2}")   # never a raw ISO date
-            self.assertEqual(json.loads(bells[0].action)["entryId"], e["id"])
+            action = json.loads(bells[0].action)
+            self.assertEqual(action["entryId"], e["id"])
+            # The sub opens that entry, not just the Forms tab.
+            self.assertEqual((action["view"], action["sub"]), ("documents", f"documents-forms:entry:{e['id']}"))
         finally:
             db.close()
 

@@ -324,7 +324,9 @@ def _bell_submitter(db: Session, entry: DocFormEntry, reviewer: str) -> None:
     body = f"{who} marked your {entry.title} from {form_entry_pdf.us_datetime(entry.submitted_at)} as {word}."
     if entry.review_note:
         body += f" Note: {entry.review_note}"
-    action = json.dumps({"view": "documents", "sub": "documents-forms", "entryId": entry.id, "label": "Open Entry"})
+    # The sub opens THIS entry beside the list (views/Documents.jsx -> FormsTab).
+    action = json.dumps({"view": "documents", "sub": f"documents-forms:entry:{entry.id}", "entryId": entry.id,
+                         "label": "Open Entry"})
     ref = f"form-entry:{entry.id}"
     row = (db.query(NexusNotification)
            .filter(NexusNotification.type == NOTICE_TYPE, NexusNotification.ref_id == ref,

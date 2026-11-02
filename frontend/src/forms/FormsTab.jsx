@@ -8,7 +8,6 @@ import { ClipboardList, Plus, Search } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
-import { takePendingOpen } from '../lib/pendingOpen';
 import { TEMPLATE_STATES, templateStatus } from '../lib/documentLibrary';
 import { PanelShell, StatusWord } from '../components/DocumentSidePanel';
 import { Spinner } from '../components/AsyncState';
@@ -116,10 +115,12 @@ function FormPanel({ template: t, onClose, onBuild, onChanged, toastOk, toastErr
 }
 
 const SEGMENTS = [['templates', 'Templates'], ['entries', 'Entries']];
+/** The entry id a 'documents-forms:entry:<id>' sub names, else ''. */
+const subEntry = (sub) => /^documents-forms:entry:(.+)$/.exec(String(sub || ''))?.[1] || '';
 
 export default function FormsTab({ toastOk, toastErr, activeSub = '' }) {
   const isMobile = useIsMobile();
-  const [segment, setSegment] = useState(() => (takePendingOpen('form-entries') ? 'entries' : 'templates'));
+  const [segment, setSegment] = useState(() => (subEntry(activeSub) ? 'entries' : 'templates'));
   const [templates, setTemplates] = useState(null);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
@@ -127,11 +128,12 @@ export default function FormsTab({ toastOk, toastErr, activeSub = '' }) {
   const [selectedId, setSelectedId] = useState('');
   const [building, setBuilding] = useState('');
   const [creating, setCreating] = useState(false);
-  const [entry, setEntry] = useState(() => { const id = takePendingOpen('form-entry'); return id ? { id } : null; });
-  // A bell or "Open the Entry" lands on documents-forms:entry:<id> (views/Documents.jsx).
+  const [entry, setEntry] = useState(() => { const id = subEntry(activeSub); return id ? { id } : null; });
+  // A bell, a workflow link or "Open the Entry" lands on
+  // documents-forms:entry:<id> (views/Documents.jsx) - the one way in.
   useEffect(() => {
-    const m = /^documents-forms:entry:(.+)$/.exec(String(activeSub || ''));
-    if (m) { setSegment('entries'); setEntry({ id: m[1] }); }
+    const id = subEntry(activeSub);
+    if (id) { setSegment('entries'); setEntry((e) => (e?.id === id ? e : { id })); }
   }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [entriesKey, setEntriesKey] = useState(0);
 
