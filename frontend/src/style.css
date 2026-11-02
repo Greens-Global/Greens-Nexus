@@ -8285,8 +8285,11 @@ body:has(.apv-phone) { overflow-x: clip; }
 .apv-ph-btn { flex: 1 1 0; min-width: 0; min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border-radius: 10px; border: 1px solid transparent; font: inherit; font-size: 15px; font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform var(--dur-xs) var(--ease-standard); }
 .apv-ph-btn:active { transform: scale(.97); }
 .apv-ph-btn svg { flex-shrink: 0; }
-.apv-ph-yes { background: color-mix(in srgb, #16a34a 14%, var(--card)); color: #15803d; }
+.apv-ph-yes { background: color-mix(in srgb, #16a34a 14%, var(--card)); color: #166534; }
 .apv-ph-no { background: color-mix(in srgb, #dc2626 12%, var(--card)); color: #b91c1c; }
+/* On the dark card the tints go dark too: light text keeps the words legible. */
+[data-theme="dark"] .apv-ph-yes { color: #4ade80; }
+[data-theme="dark"] .apv-ph-no { color: #f87171; }
 .apv-ph-review { background: color-mix(in srgb, var(--ink) 9%, var(--card)); color: var(--ink); }
 .apv-ph-open { flex: 0 1 auto; padding: 0 16px; background: var(--card); border-color: var(--line); color: var(--ink); }
 .apv-ph-more { flex: 0 0 44px; width: 44px; min-height: 48px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--muted); display: inline-grid; place-items: center; cursor: pointer; -webkit-tap-highlight-color: transparent; }
