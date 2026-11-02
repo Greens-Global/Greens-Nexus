@@ -12250,6 +12250,16 @@ class _TimeoffPrivacy:
         self._stand_ins = {}
         self._any_deleg = None
         self._hr = {}
+        self._recommend_memo = None
+
+    def recommend_memo(self):
+        """One timeoff_recommend.Memo for every row this viewer is shown -
+        the settings per company, the policies and each person's balances
+        are read once per list, not once per pending row (11/02/2026)."""
+        if self._recommend_memo is None:
+            import timeoff_recommend
+            self._recommend_memo = timeoff_recommend.Memo(self.db, emp_lookup=self._emp)
+        return self._recommend_memo
 
     def _emp(self, email: str):
         if self._emps is None:
@@ -12381,7 +12391,7 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" 
             # Approve" / "Check First" with reasons, for the DECIDER only -
             # a hint beside the buttons, never a decision (timeoff_recommend).
             import timeoff_recommend
-            rec = timeoff_recommend.for_decider(priv.db, r)
+            rec = timeoff_recommend.for_decider(priv.db, r, priv.recommend_memo())
             if rec:
                 out["recommendation"] = rec
         # Who decides it, whenever the viewer cannot: a confidential request,

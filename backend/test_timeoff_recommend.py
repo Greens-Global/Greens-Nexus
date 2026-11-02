@@ -237,5 +237,57 @@ class RecommendTests(unittest.TestCase):
         self.assertEqual(self.db.get(models.TimeOffRequest, "to-ser").status, "pending")
 
 
+    def test_a_list_shares_one_memo_so_settings_policies_and_balances_are_read_once(self):
+        """40 pending rows used to cost 40 settings reads, 40 policy loads and
+        a balance pass each (11/02/2026): `_TimeoffPrivacy` now hands one
+        timeoff_recommend.Memo to every row it serializes."""
+        from sqlalchemy import event
+        extra = ("rec.pat@greensglobal.com", "rec.quin@greensglobal.com")
+        for em, first in zip(extra, ("Pat", "Quin")):
+            self.db.add(models.NexusEmployee(id=f"emp-{first}", work_email=em, first_name=first, last_name="Test",
+                                             manager_email=MGR, status="active", deleted_at="", company=ENTITY,
+                                             country="US", start_date="2024-01-01", employment_type="full_time"))
+            self.db.add(models.PayrollRate(employee_email=em, pay_type="hourly", hourly_rate=20.0,
+                                           overtime_rule="ca", currency="USD"))
+        self.db.commit()
+        people = (EMP, MATE) + extra + (EMP,)          # five pending rows, one person twice
+        for who in set(people):
+            self._opening(who, 40)
+        mon = _next_monday(14)
+        rows = [self._request(f"to-memo-{i}", who, mon + timedelta(days=i), mon + timedelta(days=i))
+                for i, who in enumerate(people)]
+        self.db.expire_all()
+
+        statements = []
+
+        def count(*_a, **_k):
+            statements.append(1)
+
+        def run(shared: bool):
+            statements.clear()
+            event.listen(database.engine, "before_cursor_execute", count)
+            try:
+                if shared:
+                    priv = tc._TimeoffPrivacy(self.db, MGR)
+                    out = [tc._ser_timeoff(r, priv=priv) for r in rows]
+                    return out, len(statements), priv
+                out = [tc._ser_timeoff(r, priv=tc._TimeoffPrivacy(self.db, MGR)) for r in rows]
+                return out, len(statements), None
+            finally:
+                event.remove(database.engine, "before_cursor_execute", count)
+
+        alone, n_alone, _ = run(shared=False)
+        shared, n_shared, priv = run(shared=True)
+        self.assertTrue(all(o["canDecide"] and "recommendation" in o for o in shared))
+        self.assertEqual([o["recommendation"] for o in shared], [o["recommendation"] for o in alone])
+        self.assertLess(n_shared, n_alone, (n_shared, n_alone))
+        memo = priv.recommend_memo()
+        self.assertEqual(list(memo._settings), [ENTITY])           # one settings read for the company
+        self.assertIsNotNone(memo._pols)                            # the policies once
+        self.assertEqual(set(memo._balances), set(people))         # one balance pass per person, not per row
+        self.assertEqual(set(memo._today), set(people))
+        self.assertEqual(list(memo._mates), [MGR])                  # the team once
+
+
 if __name__ == "__main__":
     unittest.main()
