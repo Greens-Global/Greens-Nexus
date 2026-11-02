@@ -20,6 +20,7 @@ import { NX, FONT, btn, input as inputStyle, card } from './theme';
 import SaveRow from '../components/SaveRow';
 import { useDraft } from '../lib/useDraft';
 import { useGroupDirty } from '../lib/groupDirty';
+import { dialog } from '../ui/dialog';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const field = { marginBottom: 14 };
@@ -91,7 +92,9 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
   useEffect(() => { api.getTaskNotifySettings().then(setCfg).catch((e) => setErr(e.message || String(e))); }, []);
 
   const typedSaved = useMemo(() => (cfg ? typedOf(cfg) : null), [cfg]);
-  const { draft, setDraft, patch: editDraft, dirty, reset } = useDraft(typedSaved);
+  // rebase: a switch that also sets a typed field (the reply mailbox below)
+  // keeps the rest of the typed draft.
+  const { draft, setDraft, patch: editDraft, dirty, reset } = useDraft(typedSaved, { rebase: true });
   const say = (ok, text) => {
     const fn = ok ? toastOk : toastErr;
     if (fn) fn(text); else setNotice({ ok, text });
@@ -143,6 +146,21 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
   if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
   const setEvent = (k, on) => instant({ enabledEvents: { [k]: on } }, EVENT_LABELS[k]);
+  // Turning replies on starts reading a mailbox at once: with none saved (or
+  // one typed and not saved yet) ask which one first, and save the two
+  // together - never start reading the reply-to address by surprise.
+  const toggleInbound = async () => {
+    if (cfg.inboundEnabled) { instant({ inboundEnabled: false }, 'Email replies'); return; }
+    const saved = (cfg.inboundMailbox || '').trim();
+    const typed = (draft.inboundMailbox || '').trim();
+    if (saved && typed === saved) { instant({ inboundEnabled: true }, 'Email replies'); return; }
+    const mailbox = await dialog.prompt('Enter the mailbox Nexus reads task email replies from.', {
+      title: 'Turn On Email Replies', confirmText: 'Turn On', placeholder: 'tasks@companydomain.com',
+      defaultValue: typed || cfg.replyTo || '', required: true,
+    });
+    if (!mailbox || !mailbox.trim()) return;
+    instant({ inboundEnabled: true, inboundMailbox: mailbox.trim() }, 'Email replies');
+  };
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
@@ -195,7 +213,7 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
                   <Toggle label="Let People Turn Off Overdue Reminders" on={!!cfg.allowUserOverdueOff}
                     onChange={() => instant({ allowUserOverdueOff: !cfg.allowUserOverdueOff }, 'Overdue reminder choice')} />
                 </Field>
-                <InboundSwitch on={!!cfg.inboundEnabled} onChange={() => instant({ inboundEnabled: !cfg.inboundEnabled }, 'Email replies')} />
+                <InboundSwitch on={!!cfg.inboundEnabled} onChange={toggleInbound} />
               </div>
             </div>
 
