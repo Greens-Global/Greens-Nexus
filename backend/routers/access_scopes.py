@@ -19,8 +19,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
+import auth
 from auth import require_administrator, require_owner
-from models import NexusAccessScope
+from models import NexusAccessScope, HrEntity
 
 router = APIRouter(prefix="/access-scopes", tags=["Access Scopes"])
 
@@ -32,8 +33,45 @@ def _serialize(s: NexusAccessScope) -> dict:
             "scopeType": s.scope_type, "scopeId": s.scope_id}
 
 
+def _guard_walled(user: dict, db: Session, email: str, scope_type: str = "",
+                  module_id: str = "", scope_id: str = "") -> None:
+    """The company wall on scope rows (Neil, 11/02/2026). A Super
+    Administrator (company_scope None) is never limited. Anyone walled - an
+    Administrator, always - may work only on a person inside their companies
+    (404 otherwise), never on themself or on another Administrator / Super
+    Administrator (403), and never on an `entity` row (403): entity rows
+    WIDEN company_scope(), so they are the walls themselves. A scope id that
+    names a company, or any id on the `hr` / `company` modules (read as
+    company ids by hr_scope), must be one of the caller's companies, and a
+    `project` id must be a project of theirs."""
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return
+    email = (email or "").lower()
+    auth.assert_person_in_scope(email, user, db)
+    if scope_type == "entity":
+        raise HTTPException(403, "Only a Super Administrator limits a person to companies")
+    if email == (user.get("email") or "").lower():
+        raise HTTPException(403, "You can't change your own access limits")
+    if auth.level_for(email, db) >= auth._LEVELS["administrator"]:
+        raise HTTPException(403, "Only a Super Administrator changes an Administrator's access limits")
+    sid = (scope_id or "").strip()
+    if not sid:
+        return
+    names_company = db.query(HrEntity.id).filter(HrEntity.id == sid).first() is not None
+    if (names_company or module_id in ("hr", "company")) and sid not in scope:
+        raise HTTPException(404, "Not found")
+    if scope_type == "project":
+        from models import TaskProject
+        from routers.task_util import row_company
+        proj = db.query(TaskProject).filter(TaskProject.id == sid).first()
+        if not proj or not auth.company_ok(row_company(db, proj), scope):
+            raise HTTPException(404, "Not found")
+
+
 @router.get("/{email}")
 def list_scopes(email: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    auth.assert_person_in_scope(email.lower(), user, db)
     rows = (db.query(NexusAccessScope)
             .filter(NexusAccessScope.email == email.lower())
             .order_by(NexusAccessScope.module_id, NexusAccessScope.scope_type).all())
@@ -53,6 +91,7 @@ def add_scope(email: str, body: ScopeIn, user: dict = Depends(require_administra
         raise HTTPException(400, "module_id and scope_id are required")
     if body.scope_type not in _SCOPE_TYPES:
         raise HTTPException(400, f"scope_type must be one of {_SCOPE_TYPES}")
+    _guard_walled(user, db, email, body.scope_type, body.module_id.strip(), body.scope_id)
     # Idempotent: don't stack duplicate (module, scope) rows for the same person.
     existing = (db.query(NexusAccessScope)
                 .filter(NexusAccessScope.email == email,
@@ -73,7 +112,11 @@ def remove_scope(email: str, scope_id: str, user: dict = Depends(require_adminis
     row = (db.query(NexusAccessScope)
            .filter(NexusAccessScope.id == scope_id,
                    NexusAccessScope.email == email.lower()).first())
+    auth.assert_person_in_scope(email.lower(), user, db)
     if row:
+        # Removing a limit WIDENS what the person sees, so it passes the same
+        # wall as adding one (an entity row is a Super Administrator's alone).
+        _guard_walled(user, db, email, row.scope_type, row.module_id, row.scope_id)
         db.delete(row); db.commit()
     rows = db.query(NexusAccessScope).filter(NexusAccessScope.email == email.lower()).all()
     return [_serialize(s) for s in rows]

@@ -999,3 +999,24 @@ def company_of_email_map(db: Session) -> dict:
     return {(e.work_email or "").lower(): (e.company or "")
             for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all()
             if e.work_email}
+
+
+def person_in_scope(email: str, scope, db: Session) -> bool:
+    """Does `scope` (a company_scope() result) admit the PERSON behind
+    `email`? None admits everyone. Otherwise their People record's company
+    must be in the set - except a person whose record carries no company (a
+    guest / external, or an untagged People row) or who has no record at
+    all: they are SHARED people, admitted for every walled caller (Neil,
+    11/02/2026 - an Administrator manages the externals of their company,
+    and those rows carry no company). The person-shaped twin of company_ok
+    for the Roles & Access writes (scopes, group members, Act As, tiers)."""
+    if scope is None:
+        return True
+    return company_ok(company_of(email, db), scope, shared_when_blank=True)
+
+
+def assert_person_in_scope(email: str, user: dict, db: Session) -> None:
+    """404 (never 403 - existence must not leak across the wall) when the
+    caller's company scope does not admit the person behind `email`."""
+    if not person_in_scope(email, company_scope(user, db), db):
+        raise HTTPException(status_code=404, detail="Not found")

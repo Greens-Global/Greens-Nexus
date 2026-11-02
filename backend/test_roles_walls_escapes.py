@@ -1,0 +1,187 @@
+"""Tiers, security pass A (Neil, 11/02/2026): the ways an Administrator
+(level 4) could still step past their company walls, closed one by one.
+Every case runs with the `company_walls` switch OFF - an Administrator is
+walled whether or not it is on - and pits a company A Administrator against
+company B's people and records; a Super Administrator (level 5) still
+reaches everything.
+
+    python -m pytest test_roles_walls_escapes.py
+"""
+import os
+import tempfile
+import unittest
+
+# A throwaway sqlite of its own (CLAUDE.md: one file per process).
+_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+_tmp.close()
+os.environ["DATABASE_URL"] = f"sqlite:///{_tmp.name}"
+os.environ["NEXUS_SKIP_AUTH"] = "true"
+
+from fastapi.testclient import TestClient  # noqa: E402
+import auth  # noqa: E402
+import cache  # noqa: E402
+import database  # noqa: E402
+import main  # noqa: E402
+import models  # noqa: E402
+
+models.Base.metadata.create_all(bind=database.engine)
+
+COA, COB = "ent-esc-a", "ent-esc-b"
+SUPER = "esc.super@greensglobal.com"      # owner (level 5), company A
+ADMIN_A = "esc.admina@greensglobal.com"   # administrator (level 4), company A
+ADMIN_B = "esc.adminb@greensglobal.com"   # administrator (level 4), company B
+AMGR = "esc.amgr@greensglobal.com"        # manager, company A
+AEMP = "esc.aemp@greensglobal.com"        # employee, company A
+BEMP = "esc.bemp@greensglobal.com"        # employee, company B
+GUEST = "esc.guest@partner.example"       # a guest: no company
+PLAIN = "grp-esc-plain"                   # a shared (company '') group
+GRP_A = "grp-esc-a"                       # company A's group
+GRP_B = "grp-esc-b"                       # company B's group
+
+PEOPLE = {SUPER: (COA, "owner"), ADMIN_A: (COA, "administrator"), ADMIN_B: (COB, "administrator"),
+          AMGR: (COA, "manager"), AEMP: (COA, "employee"), BEMP: (COB, "employee"),
+          GUEST: ("", "employee")}
+
+TABLES = ("NexusRole", "NexusEmployee", "NexusGroup", "NexusGroupMember", "HrEntity", "NexusSetting",
+          "NexusAccessScope", "AuditLog", "TaskProject", "JobRole", "ActAsSession")
+
+
+class _Base(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(main.app)
+        self._skip = auth.SKIP_AUTH
+        auth.SKIP_AUTH = True
+        self._email = os.environ.get("NEXUS_DEV_EMAIL")
+        db = database.SessionLocal()
+        try:
+            for name in TABLES:
+                m = getattr(models, name, None)
+                if m is not None:
+                    db.query(m).execution_options(include_deleted=True, include_confidential=True).delete(synchronize_session=False)
+            db.add(models.HrEntity(id=COA, name="Alpha Co"))
+            db.add(models.HrEntity(id=COB, name="Beta Co"))
+            for em, (co, role) in PEOPLE.items():
+                db.add(models.NexusEmployee(id=f"e-{em}", first_name=em.split(".")[1].split("@")[0].title(),
+                                            last_name="Esc", work_email=em, status="active", deleted_at="",
+                                            company=co, identity_type="guest" if em == GUEST else "internal"))
+                db.add(models.NexusRole(email=em, role=role))
+            db.add(models.NexusGroup(id=PLAIN, name="Shared Group", allowed_modules="tasks:viewer", company_id=""))
+            db.add(models.NexusGroup(id=GRP_A, name="Alpha Group", allowed_modules="tasks:viewer", company_id=COA))
+            db.add(models.NexusGroup(id=GRP_B, name="Beta Group", allowed_modules="tasks:viewer", company_id=COB))
+            db.add(models.NexusGroupMember(group_id=GRP_B, email=BEMP))
+            db.commit()
+        finally:
+            db.close()
+        self._flush()
+
+    def tearDown(self):
+        auth.SKIP_AUTH = self._skip
+        if self._email is None:
+            os.environ.pop("NEXUS_DEV_EMAIL", None)
+        else:
+            os.environ["NEXUS_DEV_EMAIL"] = self._email
+        self._flush()
+
+    def _flush(self):
+        cache.settings_config.invalidate()
+        cache.module_grants.invalidate()
+        cache.people_directory.invalidate()
+        auth.invalidate_role_cache()
+
+    def _as(self, email):
+        os.environ["NEXUS_DEV_EMAIL"] = email
+        self._flush()
+
+    def _db(self):
+        return database.SessionLocal()
+
+    def _walls_off(self):
+        db = self._db()
+        try:
+            self.assertFalse(auth._company_walls_on(db))
+        finally:
+            db.close()
+
+
+class AccessScopeTests(_Base):
+    """Item 1: scope rows from a walled caller."""
+
+    def _add(self, email, **body):
+        return self.client.post(f"/access-scopes/{email}", json={"module_id": "property-asset",
+                                                                  "scope_type": "property",
+                                                                  "scope_id": "prop-1", **body})
+
+    def _scopes(self, email):
+        db = self._db()
+        try:
+            return [(s.module_id, s.scope_type, s.scope_id)
+                    for s in db.query(models.NexusAccessScope).filter(models.NexusAccessScope.email == email)]
+        finally:
+            db.close()
+
+    def test_entity_rows_are_super_only(self):
+        self._walls_off()
+        self._as(ADMIN_A)
+        # The escape: an Administrator limiting THEMSELF to company B widened their walls.
+        r = self._add(ADMIN_A, module_id="company", scope_type="entity", scope_id=COB)
+        self.assertIn(r.status_code, (403, 404), r.text)
+        r = self._add(AEMP, module_id="hr", scope_type="entity", scope_id=COA)
+        self.assertEqual(r.status_code, 403, r.text)
+        self.assertEqual(self._scopes(ADMIN_A) + self._scopes(AEMP), [])
+        db = self._db()
+        try:
+            self.assertEqual(auth.company_scope({"email": ADMIN_A, "level": 4}, db), {COA})
+        finally:
+            db.close()
+        self._as(SUPER)
+        r = self._add(AEMP, module_id="hr", scope_type="entity", scope_id=COA)
+        self.assertEqual(r.status_code, 201, r.text)
+
+    def test_target_must_be_inside_the_callers_companies(self):
+        self._as(ADMIN_A)
+        self.assertEqual(self._add(BEMP).status_code, 404)
+        self.assertEqual(self.client.get(f"/access-scopes/{BEMP}").status_code, 404)
+        self.assertEqual(self._add(ADMIN_A).status_code, 403, "never the caller themself")
+        self.assertEqual(self._add(SUPER).status_code, 403, "never a Super Administrator")
+        self.assertEqual(self._add(AEMP).status_code, 201)
+        self.assertEqual(self._add(GUEST).status_code, 201, "a guest has no company - shared")
+        self.assertEqual(self.client.get(f"/access-scopes/{AEMP}").status_code, 200)
+        self._as(SUPER)
+        self.assertEqual(self._add(BEMP).status_code, 201)
+
+    def test_scope_id_must_be_inside_the_callers_companies(self):
+        self._as(ADMIN_A)
+        # A company-B id on the hr module (read by hr_scope as a company) is refused.
+        r = self._add(AEMP, module_id="hr", scope_type="property", scope_id=COB)
+        self.assertEqual(r.status_code, 404, r.text)
+        r = self._add(AEMP, module_id="tasks", scope_type="project", scope_id="proj-b")
+        self.assertEqual(r.status_code, 404, r.text)
+        db = self._db()
+        try:
+            db.add(models.TaskProject(id="proj-a", name="A", company_id=COA))
+            db.add(models.TaskProject(id="proj-b", name="B", company_id=COB))
+            db.commit()
+        finally:
+            db.close()
+        self.assertEqual(self._add(AEMP, module_id="tasks", scope_type="project", scope_id="proj-b").status_code, 404)
+        self.assertEqual(self._add(AEMP, module_id="tasks", scope_type="project", scope_id="proj-a").status_code, 201)
+
+    def test_removing_an_entity_row_is_super_only(self):
+        db = self._db()
+        try:
+            db.add(models.NexusAccessScope(id="sc-esc-1", email=AEMP, module_id="hr", scope_type="entity", scope_id=COA))
+            db.add(models.NexusAccessScope(id="sc-esc-2", email=BEMP, module_id="property-asset",
+                                           scope_type="property", scope_id="p"))
+            db.commit()
+        finally:
+            db.close()
+        self._as(ADMIN_A)
+        self.assertEqual(self.client.delete(f"/access-scopes/{AEMP}/sc-esc-1").status_code, 403)
+        self.assertEqual(self.client.delete(f"/access-scopes/{BEMP}/sc-esc-2").status_code, 404)
+        self.assertEqual(len(self._scopes(AEMP)) + len(self._scopes(BEMP)), 2)
+        self._as(SUPER)
+        self.assertEqual(self.client.delete(f"/access-scopes/{AEMP}/sc-esc-1").status_code, 200)
+
+
+if __name__ == "__main__":
+    unittest.main()
