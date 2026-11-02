@@ -5096,13 +5096,13 @@
             ctx.fillStyle = '#ffffff';
             ctx.fill();
             ctx.lineWidth = 1.5;
-            ctx.strokeStyle = '#7c5cfc';
+            ctx.strokeStyle = '#1f7a40';
             ctx.stroke();
             // circular arrow
             ctx.beginPath();
             ctx.arc(0, 0, 5.5, -Math.PI * 0.25, Math.PI * 1.1);
             ctx.lineWidth = 1.8;
-            ctx.strokeStyle = '#7c5cfc';
+            ctx.strokeStyle = '#1f7a40';
             ctx.stroke();
             // arrowhead at the arc start
             const ax = 5.5 * Math.cos(-Math.PI * 0.25), ay = 5.5 * Math.sin(-Math.PI * 0.25);
@@ -5111,7 +5111,7 @@
             ctx.lineTo(ax - 1.5, ay - 3.5);
             ctx.lineTo(ax + 1.5, ay + 3);
             ctx.closePath();
-            ctx.fillStyle = '#7c5cfc';
+            ctx.fillStyle = '#1f7a40';
             ctx.fill();
             ctx.restore();
         };
@@ -5535,8 +5535,8 @@
             top: cropStartPoint.y,
             width: 0,
             height: 0,
-            fill: 'rgba(124, 92, 252, 0.15)',
-            stroke: '#7c5cfc',
+            fill: 'rgba(31, 122, 64, 0.15)',
+            stroke: '#1f7a40',
             strokeWidth: 2,
             strokeDashArray: [6, 3],
             selectable: false,
@@ -5601,7 +5601,7 @@
         if (!_cropDimsEl) {
             _cropDimsEl = document.createElement('div');
             _cropDimsEl.style.cssText = 'position:fixed;z-index:10002;display:none;pointer-events:none;' +
-                'background:#7c5cfc;color:#fff;font-size:11px;font-weight:700;padding:3px 9px;' +
+                'background:#1f7a40;color:#fff;font-size:11px;font-weight:700;padding:3px 9px;' +
                 'border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,0.3);font-family:Inter,Arial,sans-serif;';
             document.body.appendChild(_cropDimsEl);
         }

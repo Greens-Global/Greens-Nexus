@@ -201,7 +201,7 @@
       '.nx-open-from button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 14px;' +
       ' background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius);' +
       ' font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: border-color .12s, color .12s; }' +
-      '.nx-open-from button:hover { border-color: var(--accent); color: var(--accent); }' +
+      '.nx-open-from button:hover { border-color: var(--accent); color: var(--accent-text); }' +
       '.nx-open-from button:focus-visible, #nxOpenMenu .dropdown-item:focus-visible, #nxSaveGroup .dropdown-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }' +
       '#nxSaveGroup { max-width: 240px; }' +
       '#nxSaveGroup .dropdown-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }';

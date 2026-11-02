@@ -671,7 +671,7 @@
   }
 
   const GROUPS = [
-    { id: 'edit',     label: 'Edit & Mark Up',  tint: '#b06ee8',
+    { id: 'edit',     label: 'Edit & Mark Up',  tint: '#2e9e57',
       desc: 'Text, draw, highlight, measure, stamps, images',
       members: [el('#textTool'), el('[data-tool="edittext"]'), el('#drawTool'), el('#highlightTool'), el('#measureTool'), el('#shapeTool'), wrapOf('#stampBtn'), el('#imageTool'), el('#cropTool'), el('#toolOptions')] },
     { id: 'organize', label: 'Organize Pages',  tint: '#4caf7d',
