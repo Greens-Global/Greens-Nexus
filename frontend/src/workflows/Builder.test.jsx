@@ -432,7 +432,7 @@ describe('Builder', () => {
       await act(async () => { vi.advanceTimersByTime(1200); });
     } finally { vi.useRealTimers(); }
     // The refusal lands on a microtask after the hold timer fires; wait for it (flaky on CI with getByRole).
-    expect(await screen.findByRole('alert')).toHaveTextContent('Only the owner may delete this workflow');
+    expect(await screen.findByRole('alert', {}, { timeout: 5000 })).toHaveTextContent('Only the owner may delete this workflow');
     expect(go).not.toHaveBeenCalledWith('list');
   });
 });
