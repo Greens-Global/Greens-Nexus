@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react';
-import { Camera, Palette, Check, Copy, Mail, CalendarDays, Signature, User, Info, Smartphone } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Camera, Palette, Check, Copy, Mail, CalendarDays, Signature, User, Info, Smartphone, ShieldCheck } from 'lucide-react';
 import { api } from '../api';
+import { dialog } from '../ui/dialog';
+import { StatusLabel } from './StatusLabel';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
 import { ZONE_GROUPS, MAX_ZONES, LOCAL_TZ, currentZones, setZones, zoneOptionLabel } from '../lib/worldClockZones';
 import { Spinner } from './AsyncState';
 import EmailSettingsPanel from '../tasks/MyEmailSettings';
 import KbTrainingEmailPref from './KbTrainingEmailPref';
-import { DATE_FORMATS, getDateFormat, setDateFormat, formatDate } from '../lib/datetime';
+import { DATE_FORMATS, getDateFormat, setDateFormat, formatDate, formatDateTime } from '../lib/datetime';
 import { Modal, useIsMobile } from '../tasks/components';
 import { SettingCard, SettingRow, SwitchRow } from './settings/SettingsUI';
 import { useRailMotion, FOLLOW_COMPANY } from '../lib/railMotion';
@@ -30,16 +32,19 @@ const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ea
 // switches (components/settings/SettingsUI.jsx). Switches and selects save
 // on change; the signature's typed fields save through one Save row.
 // `focusEmail`: opened from the "Email Settings" link in a task email - it
-// opens on Task Emails.
+// opens on Task Emails. `initialSection` is the general form (TopHeader's
+// ?profile=<section> and the { view: 'profile', sub } bell): the new sign-in
+// notice lands on Security (Neil, 11/02/2026).
 const SECTIONS = [
   ['appearance', 'Appearance', Palette],
   ['time', 'Date & Time', CalendarDays],
   ['signature', 'Email Signature', Signature],
   ['email', 'Task Emails', Mail],
   ['push', 'Phone Notifications', Smartphone],
+  ['security', 'Security', ShieldCheck],
 ];
 
-export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme, setWkTheme, sidebarPinned, onSidebarPinnedChange, focusEmail = false }) {
+export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme, setWkTheme, sidebarPinned, onSidebarPinnedChange, focusEmail = false, initialSection = '' }) {
   // How the left navigation moves (Neil, 11/01/2026) - the person's own
   // choice over the company default (lib/railMotion.js). A pick saves at once.
   const railMotion = useRailMotion();
@@ -49,7 +54,8 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const installer = useInstallPrompt();
   const pushSub = usePushSubscription();
   const isMobile = useIsMobile();
-  const [section, setSection] = useState(focusEmail ? 'email' : 'appearance');
+  const [section, setSection] = useState(
+    SECTIONS.some(([k]) => k === initialSection) ? initialSection : (focusEmail ? 'email' : 'appearance'));
   // The settings API answers 403 for an account with no Task module access -
   // say so plainly instead of showing controls that cannot be saved.
   const [emailUnavailable, setEmailUnavailable] = useState(false);
@@ -389,6 +395,9 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
         )}
       </>
     ),
+    // Security (Neil, 11/02/2026): where you are signed in, sign the other
+    // devices out, and the recent sign-ins the new-device notice is about.
+    security: <SecuritySection isMobile={isMobile} />,
   };
   const current = SECTIONS.find(([k]) => k === section) || SECTIONS[0];
 
@@ -428,5 +437,109 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
         </section>
       </div>
     </Modal>
+  );
+}
+
+// ── Security ────────────────────────────────────────────────────────────────
+// Neil, 11/02/2026: "people [should] know when their account is logged in to
+// a new location ... help to log them out of any other device." Backend:
+// routers/me_sessions.py (own rows only; a session is named by a hash, the
+// cookie value never comes back) and sign_in_watch.py (the notice). Sign Out
+// on a row is hold-free - the device simply signs in again; signing every
+// other device out asks first (dialog.confirm). The row for THIS device
+// carries a chip instead of a button: this device signs out from the menu.
+const CHIP_NEW = '#2563eb';
+const CHIP_HERE = '#16a34a';
+
+function _place(parts) {
+  return parts.filter(Boolean).join(' - ');
+}
+
+function SecuritySection({ isMobile }) {
+  const [sessions, setSessions] = useState(null);
+  const [signIns, setSignIns] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState('');
+
+  const load = useCallback(() => {
+    api.mySessions().then((r) => setSessions(r?.sessions || []))
+      .catch((e) => { setSessions([]); setError(e?.message || 'Could not load where you are signed in.'); });
+    api.mySignIns().then((r) => setSignIns(r?.signIns || [])).catch(() => setSignIns([]));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const others = (sessions || []).filter((s) => !s.current);
+  const plural = (n) => `${n} other device${n === 1 ? '' : 's'}`;
+
+  async function signOutOne(s) {
+    setBusy(s.id); setMsg('');
+    try {
+      await api.signOutSession(s.id);
+      setMsg(`Signed out ${s.device || 'that device'}.`);
+      load();
+    } catch (e) { setMsg(e?.message || 'Could not sign that device out.'); }
+    setBusy('');
+  }
+
+  async function signOutOthers() {
+    const ok = await dialog.confirm(
+      `Sign out every other device? ${plural(others.length)} will need to sign in again. This device stays signed in.`,
+      { title: 'Sign Out Other Devices', confirmText: 'Sign Out Other Devices', danger: true });
+    if (!ok) return;
+    setBusy('others'); setMsg('');
+    try {
+      const r = await api.signOutOtherSessions();
+      setMsg(`Signed out ${plural(r?.signedOut ?? 0)}.`);
+      load();
+    } catch (e) { setMsg(e?.message || 'Could not sign the other devices out.'); }
+    setBusy('');
+  }
+
+  const sub = { margin: '0 0 8px', fontSize: 13, fontWeight: 600, color: 'var(--ink)' };
+  const hint = { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55, margin: '0 0 12px' };
+  const chip = (label, color) => <StatusLabel label={label} color={color} size="sm" />;
+
+  return (
+    <>
+      <h4 style={sub}>Where You Are Signed In</h4>
+      <p style={hint}>Every device with a live Nexus sign-in. A new device sends you a bell and an email the moment it signs in.</p>
+      {error && <p style={{ ...hint, color: 'hsl(var(--color-red))' }}>{error}</p>}
+      {sessions === null ? <Spinner size="section" /> : (
+        <SettingCard>
+          {sessions.length === 0 && <SettingRow title="No live sign-ins" desc="Sign in on a device and it shows here." muted />}
+          {sessions.map((s) => (
+            <SettingRow key={s.id} title={s.device || 'Unrecognized device'}
+              desc={_place([s.location, s.ip, s.lastSeen ? `Last seen ${formatDateTime(s.lastSeen)}` : ''])}
+              control={s.current ? chip('This Device', CHIP_HERE) : (
+                <button type="button" className="secondary-btn" onClick={() => signOutOne(s)} disabled={busy !== ''}
+                  style={{ fontSize: 12.5 }}>
+                  {busy === s.id ? 'Signing Out...' : 'Sign Out'}
+                </button>
+              )} />
+          ))}
+        </SettingCard>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '12px 0 22px' }}>
+        <button type="button" className="secondary-btn" onClick={signOutOthers}
+          disabled={busy !== '' || others.length === 0} style={{ fontSize: 12.5 }}>
+          {busy === 'others' ? 'Signing Out...' : 'Sign Out Other Devices'}
+        </button>
+        {msg && <span role="status" style={{ fontSize: 12.5, color: /Could not/.test(msg) ? 'hsl(var(--color-red))' : 'var(--muted)' }}>{msg}</span>}
+      </div>
+
+      <h4 style={sub}>Recent Sign-Ins</h4>
+      <p style={hint}>The last 20 sign-ins to your account. New marks a device you had not used in the last 180 days.</p>
+      {signIns === null ? <Spinner size="section" /> : (
+        <SettingCard>
+          {signIns.length === 0 && <SettingRow title="No sign-ins recorded yet" muted />}
+          {signIns.map((s) => (
+            <SettingRow key={s.id} title={formatDateTime(s.at)}
+              desc={_place([s.location, s.device || 'Unrecognized device', isMobile ? '' : s.ip])}
+              control={s.isNew ? chip('New', CHIP_NEW) : null} />
+          ))}
+        </SettingCard>
+      )}
+    </>
   );
 }

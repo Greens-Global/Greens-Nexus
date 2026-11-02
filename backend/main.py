@@ -1431,6 +1431,12 @@ def _run_migrations():
             "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
             # Work-site audience (Neil, 11/02/2026).
             "ALTER TABLE nexus_announcements ADD COLUMN work_site_id VARCHAR DEFAULT ''",
+            # Sign-in notices (Neil, 11/02/2026): where each session signed in
+            # from (sign_in_watch.record). models.ServerSession.
+            "ALTER TABLE server_sessions ADD COLUMN ip VARCHAR DEFAULT ''",
+            "ALTER TABLE server_sessions ADD COLUMN user_agent VARCHAR DEFAULT ''",
+            "ALTER TABLE server_sessions ADD COLUMN ua_summary VARCHAR DEFAULT ''",
+            "ALTER TABLE server_sessions ADD COLUMN location VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3418,6 +3424,14 @@ def _run_migrations():
         "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
         # Work-site audience (Neil, 11/02/2026).
         "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
+        # Sign-in notices (Neil, 11/02/2026): where each session signed in from
+        # (sign_in_watch.record) and the new nexus_sign_ins table's RLS.
+        # models.ServerSession / NexusSignIn.
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS ip VARCHAR DEFAULT ''",
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS user_agent VARCHAR DEFAULT ''",
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS ua_summary VARCHAR DEFAULT ''",
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_sign_ins ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4555,6 +4569,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] notification retention sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] notification retention sweep skipped: {e}")
+        # Sign-in watch sweep (Neil, 11/02/2026): idle server sessions and
+        # sign-ins past 180 days go; the notice itself runs in the sign-in
+        # doors, not here. Deployed-worker gated like the two sweeps above.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from sign_in_watch import sign_in_watch_loop
+                _tasks.append(_a.create_task(sign_in_watch_loop()))
+            else:
+                print("[startup] sign-in watch sweep skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] sign-in watch sweep skipped: {e}")
         # "What's New" drafts itself (Sept 2026): the same generation the
         # Manage > "Generate from git" button runs, fired a few minutes after
         # each merge by the GitHub push webhook and daily as a backstop, so dev
@@ -5201,3 +5227,5 @@ from routers import kb_reminder_settings  # noqa: E402
 app.include_router(kb_reminder_settings.router)  # Training Reminders switches - Settings > Emails & Reminders (Sagar, Oct 28 2026)
 from routers import notes as notes_router  # noqa: E402 - two new tables: create_all + explicit RLS lines
 app.include_router(notes_router.router)  # Notes: the scratchpad that follows you - Dashboard > Notes, Quick Note, the Notes widget (Neil, Oct 29 2026)
+from routers import me_sessions as me_sessions_router  # noqa: E402 - nexus_sign_ins: create_all + explicit RLS line
+app.include_router(me_sessions_router.router)  # My Profile > Security: where you are signed in, sign out other devices, recent sign-ins (Neil, 11/02/2026)

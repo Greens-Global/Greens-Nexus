@@ -4664,19 +4664,6 @@ def _stamp_pdf(source: bytes, fields: list, parties: List[HrSignParty],
     return out.getvalue()
 
 
-_OS_PATTERNS = [   # order matters - see the iPhone note below
-    ("Windows NT 10.0", "Windows 10/11"), ("Windows NT 11", "Windows 11"),
-    # iOS/iPadOS agents say "like Mac OS X", so they MUST be matched before
-    # the desktop token or every iPhone signature is certified as a Mac.
-    ("iPhone", "iOS"), ("iPad", "iPadOS"), ("Android", "Android"),
-    ("Mac OS X", "macOS"), ("CrOS", "ChromeOS"), ("Linux", "Linux"),
-]
-_BROWSER_PATTERNS = [   # order matters - Edge/Chrome both say "Chrome"
-    ("Edg/", "Edge"), ("OPR/", "Opera"), ("Chrome/", "Chrome"),
-    ("Firefox/", "Firefox"), ("Safari/", "Safari"),
-]
-
-
 def _stamp_envelope_id(pdf_bytes: bytes, envelope_id: str) -> bytes:
     """Print the envelope ID in the bottom margin of EVERY content page.
 
@@ -4722,19 +4709,10 @@ def _stamp_envelope_id(pdf_bytes: bytes, envelope_id: str) -> bytes:
     return out.getvalue()
 
 
-def _ua_summary(ua: str) -> str:
-    """'Windows 10/11 - Chrome' from a User-Agent string. Best effort and
-    deliberately coarse: the raw UA is preserved verbatim in the event log, so
-    this is only the human-readable gloss on the certificate. Never guesses -
-    an unrecognized agent is reported as such rather than mislabeled."""
-    ua = (ua or "").strip()
-    if not ua:
-        return ""
-    os_name = next((label for token, label in _OS_PATTERNS if token in ua), "")
-    browser = next((label for token, label in _BROWSER_PATTERNS if token in ua), "")
-    if os_name and browser:
-        return f"{os_name} - {browser}"
-    return os_name or browser or "Unrecognized user agent"
+# 'Windows 10/11 - Chrome' from a User-Agent string - the ONE gloss, shared
+# with the certificate and the new sign-in notice (ua_summary.py, 11/02/2026).
+# The raw UA is preserved verbatim in the event log; this is only the human line.
+from ua_summary import summarize as _ua_summary
 
 
 def _auth_method(party: HrSignParty) -> str:

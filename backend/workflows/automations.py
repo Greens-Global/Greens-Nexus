@@ -204,6 +204,9 @@ def jobs() -> list[dict]:
         _job("asset_geocode", "Asset Map Points", "Looks each asset's address up once.", "Continuous"),
         _job("trash_purge", "Task Trash Purge", "Permanently purges tasks deleted 90+ days ago.", "Daily"),
         _job("notification_retention", "Notification Retention", "Removes closed notices after 30 days.", "Daily"),
+        _job("sign_in_watch", "Sign-In Watch",
+             "Removes sign-in sessions idle past the Security limit and sign-ins older than 180 days; the "
+             "new-device notice itself keeps going.", "Daily", "security"),
         _job("changelog_generate", "What's New Drafts", "Drafts What's New from git after each merge.", "Daily"),
         _job("ops_report_schedule", "Ops Report Schedules", "Saved reports emailed weekly or monthly.", "Hourly",
              "operations"),
