@@ -23,6 +23,7 @@ import { formatDate, formatTime } from '../lib/datetime';
 import { useDraft } from '../lib/useDraft';
 import { useGroupDirty } from '../lib/groupDirty';
 import SaveRow from './SaveRow';
+import { Switch } from './settings/SettingsUI';
 import { SettingCard, SwitchRow } from './settings/SettingsUI';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -112,12 +113,12 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
 
   if (!can('administrator')) {
     return (
-      <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>
+      <div style={{ padding: 40, textAlign: 'center', color: NX.dim, fontSize: 13.5 }}>
         Administrator access is required to view Weekly Digest settings.
       </div>
     );
   }
-  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
+  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.dim }}>{err}</div> : <LoadingState />;
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
@@ -125,7 +126,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
         <CalendarDays size={18} style={{ color: NX.dim }} />
         <div style={{ fontSize: 18, fontWeight: 700 }}>Weekly Digest</div>
       </div>
-      <div style={{ fontSize: 12.5, color: NX.faint, marginBottom: 14 }}>
+      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14 }}>
         One email a week listing each employee's overdue tasks with their due dates, and a button to extend each
         one, plus everything else still waiting on them (approvals, time off to decide, time sheet, items, tickets,
         documents to sign). Managers also see which of their reports have overdue work. Separate from the Daily Briefing.
@@ -142,7 +143,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
       {tab === 'log' ? <DigestDeliveryLog /> : (
       <>
       {notice && (
-        <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? NX.green : NX.red }}>{notice.text}</div>
+        <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>{notice.text}</div>
       )}
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Mode</label>
@@ -157,7 +158,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
                 onChange={() => pickMode(m.key)} style={{ marginTop: 3 }} />
               <span>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.label}</div>
-                <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>{m.hint}</div>
+                <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{m.hint}</div>
               </span>
             </label>
           ))}
@@ -192,8 +193,8 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-            <input type="checkbox" checked={cfg.includeNoShift !== false}
-              onChange={(e) => instant({ includeNoShift: e.target.checked }, 'No-shift sending')} />
+            <Switch checked={cfg.includeNoShift !== false} label="Send When There Is No Shift That Day"
+              onChange={(on) => instant({ includeNoShift: on }, 'No-shift sending')} />
             No shift that day: send at
           </label>
           <select aria-label="Fallback send time" disabled={cfg.includeNoShift === false} value={cfg.defaultSendTime || '08:00'}
@@ -205,7 +206,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
             {withCurrent(ZONES, cfg.defaultTimeZone || 'America/Los_Angeles').map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
-        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+        <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 6 }}>
           The default is Monday, 120 minutes before each shift, in the shift's own time zone. People with no shift
           that day get it at the time above in their shift time zone, else the one picked here.
         </div>
@@ -237,7 +238,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
             <label style={fieldLabel} htmlFor="weekly-digest-recipients">Test Recipients</label>
             <input id="weekly-digest-recipients" value={draft.recipients} onChange={(e) => editDraft({ recipients: e.target.value })}
               placeholder="you@company.com, another@company.com" style={inputStyle} />
-            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+            <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 4 }}>
               Comma-separated. Each employee's digest is built from their own tasks and sent here instead, with a
               "[TEST -&gt; original]" subject prefix.
             </div>
@@ -308,13 +309,13 @@ function SendTestDigest({ testRecipients }) {
           <Send size={14} /> {busy ? 'Sending…' : 'Send Test'}
         </button>
       </div>
-      <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+      <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 6 }}>
         Builds this person's real digest now and sends it to {testRecipients.length ? testRecipients.join(', ') : 'you'}, whatever
         the mode or day. Nothing is logged and nobody else is emailed. Only a test of your own digest includes Extend Due Date and
         the other task buttons, since those act as the person.
       </div>
       {result && (
-        <div role="status" style={{ fontSize: 12.5, marginTop: 8, fontWeight: 600, color: result.ok ? NX.green : NX.red }}>
+        <div role="status" style={{ fontSize: 12.5, marginTop: 8, fontWeight: 600, color: result.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>
           {result.text}
         </div>
       )}
@@ -324,12 +325,12 @@ function SendTestDigest({ testRecipients }) {
 
 // A blank sentAt means one of three things; mode and the counts tell them apart.
 function statusOf(row) {
-  if (row.sentAt) return { label: 'Sent', color: NX.green, Icon: CheckCircle2 };
-  if (row.mode === 'off') return { label: 'Off (scan only)', color: NX.faint, Icon: MinusCircle };
+  if (row.sentAt) return { label: 'Sent', color: 'var(--nx-tag-green-fg)', Icon: CheckCircle2 };
+  if (row.mode === 'off') return { label: 'Off (Scan Only)', color: NX.dim, Icon: MinusCircle };
   // The log counts overdue work only; a digest with only "Needs Your Attention" items
   // that went out shows as Sent above.
-  if (!((row.overdueCount || 0) + (row.teamCount || 0))) return { label: 'Nothing to send', color: NX.faint, Icon: MinusCircle };
-  return { label: 'Send failed', color: NX.red, Icon: XCircle };
+  if (!((row.overdueCount || 0) + (row.teamCount || 0))) return { label: 'Nothing to Send', color: NX.dim, Icon: MinusCircle };
+  return { label: 'Send Failed', color: NX.red, Icon: XCircle };
 }
 
 const LOG_LIMIT = 25;
@@ -387,12 +388,12 @@ function DigestDeliveryLog() {
           placeholder="Filter by employee email…" style={{ ...inputStyle, width: 260, maxWidth: '100%' }} />
         <button style={btn('ghost')} onClick={() => { setOffset(0); load(); }} title="Refresh" aria-label="Refresh"><RefreshCw size={14} /></button>
         {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
-        {note && <span role="status" style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>{note}</span>}
+        {note && <span role="status" style={{ fontSize: 12.5, color: 'var(--nx-tag-green-fg)', fontWeight: 600 }}>{note}</span>}
       </div>
       {rows === null ? (
         <LoadingState compact />
       ) : rows.length === 0 ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>No weekly scans logged yet.</div>
+        <div style={{ fontSize: 13, color: NX.dim, padding: 16, textAlign: 'center' }}>No weekly scans logged yet.</div>
       ) : (
         <>
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
@@ -403,8 +404,8 @@ function DigestDeliveryLog() {
                   <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.employeeEmail}>{r.employeeEmail}</span>
                   <span style={{ color: NX.dim, flexShrink: 0 }} title="Week starting">{formatDate(r.weekStart)}</span>
-                  <span style={{ color: NX.faint, flexShrink: 0, width: 50, textTransform: 'capitalize' }}>{r.mode}</span>
-                  <span style={{ color: NX.faint, flexShrink: 0 }}>
+                  <span style={{ color: NX.dim, flexShrink: 0, width: 50, textTransform: 'capitalize' }}>{r.mode}</span>
+                  <span style={{ color: NX.dim, flexShrink: 0 }}>
                     {r.overdueCount} overdue{r.teamCount ? ` / ${r.teamCount} team` : ''}
                   </span>
                   <span style={{ color: meta.color, fontWeight: 600, flexShrink: 0, width: 120 }}>{meta.label}</span>
@@ -421,7 +422,7 @@ function DigestDeliveryLog() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, paddingTop: 14 }}>
               <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - LOG_LIMIT))}
                 style={{ ...btn('ghost'), opacity: offset === 0 ? 0.4 : 1 }}>← Prev</button>
-              <span style={{ fontSize: 12, color: NX.faint }}>Page {currentPage} of {totalPages}</span>
+              <span style={{ fontSize: 12, color: NX.dim }}>Page {currentPage} of {totalPages}</span>
               <button disabled={offset + LOG_LIMIT >= total} onClick={() => setOffset(offset + LOG_LIMIT)}
                 style={{ ...btn('ghost'), opacity: offset + LOG_LIMIT >= total ? 0.4 : 1 }}>Next →</button>
             </div>

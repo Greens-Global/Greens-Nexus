@@ -1011,7 +1011,7 @@ function DepartmentOwnersCard({ entityId, people, onOpenDepartments, onTicked, t
                     <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 26 }}>
                       <Avatar name={em ? nameOf(em) : ''} empty={!em} />
                       <span style={{ fontSize: 12, color: 'var(--wk-faint)', width: 46 }}>{lbl}</span>
-                      <b style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: em ? 'var(--wk-ink)' : 'var(--wk-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{em ? nameOf(em) : 'Not set'}</b>
+                      <b style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: em ? 'var(--wk-ink)' : 'var(--wk-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{em ? nameOf(em) : 'Not Set'}</b>
                     </div>
                   ))}
                 </div>

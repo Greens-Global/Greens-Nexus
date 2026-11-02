@@ -102,13 +102,13 @@ describe('Timing', () => {
     expect(time.selectedOptions[0].textContent).toBe('7:00 AM');
     expect(time.disabled).toBe(true);
     expect(screen.getByLabelText('Default time zone').value).toBe('America/Los_Angeles');
-    expect(screen.getByLabelText(/People with no shift today/).checked).toBe(false);
+    expect(screen.getByLabelText('Send to People With No Shift Today').checked).toBe(false);
   });
 
   it('saves the no-shift switch and time at once, and the minutes with Save', async () => {
     render(<DailyBriefingSettings />);
     fireEvent.change(await screen.findByLabelText('Minutes before shift start'), { target: { value: '90' } });
-    fireEvent.click(screen.getByLabelText(/People with no shift today/));
+    fireEvent.click(screen.getByLabelText('Send to People With No Shift Today'));
     await waitFor(() => expect(updateDailyBriefingConfig).toHaveBeenCalledWith({ includeNoShift: true }));
     await waitFor(() => expect(screen.getByLabelText('Default send time').disabled).toBe(false));
     fireEvent.change(screen.getByLabelText('Default send time'), { target: { value: '18:30' } });

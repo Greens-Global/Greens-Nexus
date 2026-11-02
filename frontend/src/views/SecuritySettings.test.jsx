@@ -21,6 +21,7 @@ vi.mock('../api', () => ({
 }));
 
 const SecuritySettings = (await import('./SecuritySettings')).default;
+const { dialog } = await import('../ui/dialog');
 
 const int = (value, min, max, unit, source = 'default', extra = {}) => ({
   value, source, default: value, type: 'int', locked: false, hasEnv: false, envValue: null,
@@ -67,10 +68,10 @@ describe('SecuritySettings', () => {
     render(<SecuritySettings />);
     await screen.findByText('Sessions');
     expect(screen.getByText('Guest Sign-In')).toBeTruthy();
-    expect(screen.getByText('Set by server config')).toBeTruthy();
+    expect(screen.getByText('Set by Server Config')).toBeTruthy();
     expect(screen.getByText('Saved')).toBeTruthy();
     expect(screen.getByText('Allowed: 15 to 480 minutes')).toBeTruthy();
-    expect(screen.getByText('Save Changes').closest('button').disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /^Save$/ }).disabled).toBe(true);
 
     expect(screen.queryByText('Re-Authentication for Sensitive Actions')).toBeNull();
     expect(screen.queryByLabelText('Require Re-Authentication')).toBeNull();
@@ -85,9 +86,9 @@ describe('SecuritySettings', () => {
     const input = await screen.findByLabelText('Act As Session Length');
     fireEvent.change(input, { target: { value: '600' } });
     expect(screen.getByText('Must be 15 to 480 minutes.')).toBeTruthy();
-    expect(screen.getByText('Save Changes').closest('button').disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /^Save$/ }).disabled).toBe(true);
     fireEvent.change(input, { target: { value: '60' } });
-    const save = screen.getByText('Save Changes').closest('button');
+    const save = screen.getByRole('button', { name: /^Save$/ });
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
     // No boolean toggle is shown any more, so nothing can weaken sign-in -
@@ -101,7 +102,7 @@ describe('SecuritySettings', () => {
     await screen.findByText('Sessions');
     fireEvent.click(screen.getByLabelText('Reset Act As Session Length to Default'));
     expect(screen.getByLabelText('Act As Session Length').value).toBe('240');
-    fireEvent.click(screen.getByText('Save Changes'));
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(updateSecuritySettings).toHaveBeenCalledWith({ actAsMinutes: null }, false));
   });
 
@@ -110,7 +111,32 @@ describe('SecuritySettings', () => {
     render(<SecuritySettings />);
     await screen.findByText('You can view these settings. Only a Super Administrator can change them.');
     expect(screen.getByLabelText('Act As Session Length').disabled).toBe(true);
-    expect(screen.queryByText('Save Changes')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Save$/ })).toBeNull();
+  });
+
+  it('asks before lowering the idle limit (it signs people out), and saves a raise without asking', async () => {
+    getSecuritySettings.mockResolvedValue(payload(true, { webSessionIdleDays: int(14, 1, 30, 'days', 'saved', { default: 30 }) }));
+    const confirm = vi.spyOn(dialog, 'confirm').mockResolvedValue(false);
+    render(<SecuritySettings />);
+    const input = await screen.findByLabelText('Web Session Idle Limit');
+    fireEvent.change(input, { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(confirm.mock.calls[0][0]).toMatch(/from 14 to 7 days signs out/);
+    expect(updateSecuritySettings).not.toHaveBeenCalled();
+
+    confirm.mockClear();
+    fireEvent.change(input, { target: { value: '21' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(updateSecuritySettings).toHaveBeenCalledWith({ webSessionIdleDays: 21 }, false));
+    expect(confirm).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('says a value in seconds the way people say it', async () => {
+    getSecuritySettings.mockResolvedValue(payload(true, { vaultOtpUnlockSec: int(900, 60, 1800, 'seconds') }));
+    render(<SecuritySettings />);
+    expect(await screen.findByText('seconds (15 minutes)')).toBeTruthy();
   });
 
   it('shows a retry instead of a blank screen when loading fails', async () => {

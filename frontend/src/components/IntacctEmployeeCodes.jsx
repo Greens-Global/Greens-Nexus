@@ -10,7 +10,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { api } from '../api';
 import { Modal } from '../tasks/components';
-import { ErrorBanner, SkeletonBlocks } from './AsyncState';
+import { ErrorBanner, SkeletonBlocks, Spinner } from './AsyncState';
+import { Switch } from './settings/SettingsUI';
 import { formatDateTime } from '../lib/datetime';
 
 export const ACTION_META = {
@@ -74,10 +75,17 @@ export function IntacctNightlySync({ company = '', embedded = false, toastOk, to
       {settings && companies.length === 0 && (
         <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{company ? 'This company is not set up for the Intacct sync yet.' : 'No companies set up yet.'}</div>
       )}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 18px' }}>
-        {companies.map(c => (
-          <label key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" role="switch" checked={!!c.nightly} disabled={saving === c.id} onChange={e => setNightly(c, e.target.checked)} /> {c.name}
+      {/* One row per company (the Settings row look): its name, the shared switch. */}
+      <div>
+        {companies.map((c, i) => (
+          <label key={c.id} className="nx-set-row-main" htmlFor={`intacct-nightly-${c.id}`}
+            style={{ padding: '10px 0', borderTop: i ? '1px solid var(--line)' : 'none' }}>
+            <span className="nx-set-row-text"><span className="nx-set-row-title">{c.name}</span></span>
+            <span className="nx-set-row-control">
+              {saving === c.id && <Spinner size={12} />}
+              <Switch id={`intacct-nightly-${c.id}`} label={`Nightly Sync for ${c.name}`} checked={!!c.nightly}
+                disabled={saving === c.id} onChange={(on) => setNightly(c, on)} />
+            </span>
           </label>
         ))}
       </div>

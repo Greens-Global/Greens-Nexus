@@ -15,6 +15,9 @@
 // screen, the same as before this page existed. Only Sessions and Guest
 // Sign-In are shown.
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import SaveRow from '../components/SaveRow';
+import { SettingRow } from '../components/settings/SettingsUI';
+import { dialog } from '../ui/dialog';
 import { useGroupDirty } from '../lib/groupDirty';
 import { RotateCcw, Lock } from 'lucide-react';
 import { api } from '../api';
@@ -53,7 +56,7 @@ const GROUPS = [
   },
 ];
 
-const SOURCE_LABEL = { saved: 'Saved', env: 'Set by server config', default: 'Default' };
+const SOURCE_LABEL = { saved: 'Saved', env: 'Set by Server Config', default: 'Default' };
 
 function friendly(value, unit) {
   if (unit === 'seconds') {
@@ -70,13 +73,17 @@ function rangeText(s) {
   return lo && hi && s.unit !== 'minutes' ? `${base} (${lo} to ${hi})` : base;
 }
 
-function Badge({ children, tone = 'muted' }) {
-  const color = tone === 'brand' ? 'var(--wk-brand)' : 'var(--muted)';
-  return (
-    <span style={{ fontSize: 11, fontWeight: 600, color, border: '1px solid var(--line)', borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' }}>
-      {children}
-    </span>
-  );
+// A value in its stored unit, said the way people say it when that reads
+// better: 900 seconds is "15 minutes", 240 minutes "4 hours".
+function spoken(value, unit) {
+  if (!Number.isInteger(value)) return null;
+  if (unit === 'seconds' && value >= 60) return friendly(value, unit);
+  if (unit === 'minutes' && value >= 60) {
+    if (value % 60 === 0) return friendly(value, unit);
+    const h = Math.floor(value / 60), m = value % 60;
+    return `${h} hour${h === 1 ? '' : 's'} ${m} minute${m === 1 ? '' : 's'}`;
+  }
+  return null;
 }
 
 export default function SecuritySettings({ toastOk, toastErr }) {
@@ -123,7 +130,6 @@ export default function SecuritySettings({ toastOk, toastErr }) {
   }, [changes, settings]);
 
   const dirty = Object.keys(changes).length > 0;
-  useGroupDirty(dirty);
   const valid = Object.keys(errors).length === 0;
 
   const valueOf = (key) => {
@@ -135,21 +141,38 @@ export default function SecuritySettings({ toastOk, toastErr }) {
     return s.value;
   };
 
+  // Resolves true once saved (the prompt's Save and Leave).
   async function save() {
+    if (!dirty || !valid || busy) return !dirty;
     // No boolean toggle is shown on this page any more (the safety-toggle
     // group was removed), so nothing here can weaken sign-in - the "are you
     // sure" confirm that used to guard turning one off is gone with it.
+    // A SHORTER idle limit signs people out (bff_session._idle_expired checks
+    // every request against it), so lowering it asks first; raising it does not.
+    if ('webSessionIdleDays' in changes) {
+      const s = settings.webSessionIdleDays;
+      const next = changes.webSessionIdleDays === null ? (s.hasEnv ? s.envValue : s.default) : changes.webSessionIdleDays;
+      if (Number.isInteger(next) && next < s.value) {
+        const ok = await dialog.confirm(
+          `Lowering the Web Session Idle Limit from ${s.value} to ${next} ${next === 1 ? 'day' : 'days'} signs out everyone who has not used Nexus in the last ${next === 1 ? 'day' : `${next} days`}, the next time they open it.`,
+          { title: 'Shorten the Idle Limit?', confirmText: 'Lower the Limit', cancelText: 'Keep Editing' });
+        if (!ok) return false;
+      }
+    }
     setBusy(true);
     try {
       const d = await api.updateSecuritySettings(changes, false);
       setData(d); setDraft({});
       toastOk?.('Security settings saved.');
+      return true;
     } catch (e) {
       toastErr?.(e?.message || 'Could not save security settings.');
+      return false;
     } finally {
       setBusy(false);
     }
   }
+  useGroupDirty(dirty, save);
 
   if (error) {
     return (
@@ -161,84 +184,78 @@ export default function SecuritySettings({ toastOk, toastErr }) {
   }
   if (!data) return <SkeletonBlocks count={4} height={56} borderRadius={10} />;
 
+  // Rows on the group's one card (the group is flush): each section's name
+  // as a small heading, its settings as Settings rows, one Save row at the foot.
   return (
     <div>
       {!canEdit && (
-        <div role="note" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--paper)', fontSize: 12.5, color: 'var(--muted)', marginBottom: 16 }}>
-          <Lock size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+        <div role="note" className="nx-set-note" style={{ borderTop: 'none', borderBottom: '1px solid var(--line)' }}>
+          <Lock size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
           <span>You can view these settings. Only a Super Administrator can change them.</span>
         </div>
       )}
 
-      {GROUPS.map(g => (
-        <section key={g.title} style={{ marginBottom: 22 }}>
-          <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{g.title}</h4>
-          <p style={{ margin: '3px 0 10px', fontSize: 12, color: 'var(--muted)' }}>{g.desc}</p>
-          <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-            {g.fields.filter(f => settings[f.key]).map((f, i) => {
-              const s = settings[f.key];
-              const v = valueOf(f.key);
-              const inputId = `sec-${f.key}`;
-              const pendingReset = draft[f.key] === null;
-              const disabled = !canEdit || busy || s.locked;
-              const edited = f.key in changes && !pendingReset;
-              const shownSource = pendingReset ? (s.hasEnv ? 'env' : 'default') : (edited ? 'saved' : s.source);
-              return (
-                <div key={f.key} style={{ padding: '12px 14px', borderTop: i ? '1px solid var(--line)' : 'none', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
-                  <div style={{ flex: '1 1 260px', minWidth: 0 }}>
-                    <label htmlFor={inputId} style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{f.label}</label>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.5 }}>{f.desc}</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, alignItems: 'center' }}>
-                      <Badge tone={shownSource === 'saved' ? 'brand' : 'muted'}>{SOURCE_LABEL[shownSource]}{(f.key in changes) ? ' (unsaved)' : ''}</Badge>
-                      {s.locked && <Badge>Required by server config</Badge>}
-                      {s.type === 'int' && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Allowed: {rangeText(s)}</span>}
-                      {s.outOfRange && <span style={{ fontSize: 11.5, color: 'hsl(var(--color-amber, 38 92% 50%))' }}>The server config value is outside the allowed range.</span>}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    {s.type === 'bool' ? (
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: disabled ? 'default' : 'pointer' }}>
-                        <input id={inputId} type="checkbox" checked={!!v} disabled={disabled}
-                          onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.checked }))} />
-                        {v ? 'On' : 'Off'}
-                      </label>
-                    ) : (
-                      <>
-                        <input id={inputId} className="form-input" type="number" inputMode="numeric"
-                          min={s.min} max={s.max} step={1} value={v} disabled={disabled}
-                          aria-invalid={!!errors[f.key]}
-                          onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.value === '' ? '' : Number(e.target.value) }))}
-                          style={{ width: 96 }} />
-                        <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{s.unit}</span>
-                      </>
-                    )}
-                    {canEdit && !s.locked && !pendingReset && (s.source === 'saved' || f.key in draft) && (
-                      <button className="secondary-btn" disabled={busy} title="Reset to Default" aria-label={`Reset ${f.label} to Default`}
-                        onClick={() => setDraft(d => {
-                          const n = { ...d };
-                          if (s.source === 'saved') n[f.key] = null; else delete n[f.key];
-                          return n;
-                        })}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
-                        <RotateCcw size={12} /> Reset to Default
-                      </button>
-                    )}
-                  </div>
-                  {errors[f.key] && <div role="alert" style={{ flexBasis: '100%', fontSize: 12, color: 'hsl(var(--color-red))' }}>{errors[f.key]}</div>}
-                </div>
-              );
-            })}
+      {GROUPS.map((g, gi) => (
+        <section key={g.title} aria-label={g.title}>
+          <div className="nx-set-pad" style={{ borderTop: gi || !canEdit ? '1px solid var(--line)' : 'none', background: 'var(--paper)' }}>
+            <h5 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{g.title}</h5>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--muted)' }}>{g.desc}</p>
           </div>
+          {g.fields.filter(f => settings[f.key]).map(f => {
+            const s = settings[f.key];
+            const v = valueOf(f.key);
+            const inputId = `sec-${f.key}`;
+            const pendingReset = draft[f.key] === null;
+            const disabled = !canEdit || busy || s.locked;
+            const edited = f.key in changes && !pendingReset;
+            const shownSource = pendingReset ? (s.hasEnv ? 'env' : 'default') : (edited ? 'saved' : s.source);
+            const said = s.type === 'int' ? spoken(typeof v === 'number' ? v : NaN, s.unit) : null;
+            return (
+              <div key={f.key} style={{ borderTop: '1px solid var(--line)' }}>
+                <SettingRow htmlFor={inputId} title={f.label} desc={f.desc}
+                  control={s.type === 'bool' ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                      <input id={inputId} type="checkbox" role="switch" className="nx-switch" checked={!!v} disabled={disabled}
+                        aria-label={f.label} aria-describedby={`${inputId}-desc`}
+                        onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.checked }))} />
+                    </span>
+                  ) : (
+                    <>
+                      <input id={inputId} className="form-input" type="number" inputMode="numeric"
+                        min={s.min} max={s.max} step={1} value={v} disabled={disabled}
+                        aria-invalid={!!errors[f.key]} aria-label={f.label} aria-describedby={`${inputId}-desc`}
+                        onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.value === '' ? '' : Number(e.target.value) }))}
+                        style={{ width: 96 }} />
+                      <span style={{ fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.unit}{said ? ` (${said})` : ''}</span>
+                    </>
+                  )}>
+                  <span className={`nx-set-badge${shownSource === 'saved' ? ' is-own' : ''}`}>{SOURCE_LABEL[shownSource]}{(f.key in changes) ? ' (Unsaved)' : ''}</span>
+                  {s.locked && <span className="nx-set-badge">Required by Server Config</span>}
+                  {s.type === 'int' && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Allowed: {rangeText(s)}</span>}
+                  {s.outOfRange && <span style={{ fontSize: 12, color: 'var(--nx-own)' }}>The server config value is outside the allowed range.</span>}
+                  {canEdit && !s.locked && !pendingReset && (s.source === 'saved' || f.key in draft) && (
+                    <button type="button" className="secondary-btn" disabled={busy} aria-label={`Reset ${f.label} to Default`}
+                      onClick={() => setDraft(d => {
+                        const n = { ...d };
+                        if (s.source === 'saved') n[f.key] = null; else delete n[f.key];
+                        return n;
+                      })}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
+                      <RotateCcw size={12} aria-hidden="true" /> Reset to Default
+                    </button>
+                  )}
+                  {errors[f.key] && <div role="alert" style={{ flexBasis: '100%', fontSize: 12, color: 'hsl(var(--color-red))' }}>{errors[f.key]}</div>}
+                </SettingRow>
+              </div>
+            );
+          })}
         </section>
       ))}
 
       {canEdit && (
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-          <button className="secondary-btn" disabled={!dirty || busy} onClick={() => setDraft({})}>Discard Changes</button>
-          <button className="primary-btn" disabled={!dirty || !valid || busy} onClick={save}>
-            {busy ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
+        <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={() => setDraft({})} saveDisabled={!valid}
+          style={{ margin: 0, padding: '12px 18px' }}
+          note="A change reaches every server within a minute. A lower idle limit ends sessions already idle longer than it, on their next visit." />
       )}
     </div>
   );

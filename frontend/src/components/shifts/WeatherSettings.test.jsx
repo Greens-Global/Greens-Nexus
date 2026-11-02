@@ -55,8 +55,8 @@ describe('Weather Alerts settings', () => {
     expect(sacred.checked).toBe(false);
     expect(screen.getByRole('button', { name: /Save/ }).disabled).toBe(true);      // nothing changed yet
     fireEvent.click(sacred);
-    fireEvent.change(screen.getByLabelText('Major: chance of rain (%)'), { target: { value: '80' } });
-    fireEvent.change(screen.getByLabelText('Quiet hours start'), { target: { value: '22:00' } });
+    fireEvent.change(screen.getByLabelText('Major: Chance of Rain (%)'), { target: { value: '80' } });
+    fireEvent.change(screen.getByLabelText('Quiet Hours Start'), { target: { value: '22:00' } });
     fireEvent.click(screen.getByLabelText('Post a quiet Teams line for a heads-up'));
     fireEvent.click(screen.getByRole('button', { name: /Save/ }));
     await waitFor(() => expect(weatherWatchSettingsSave).toHaveBeenCalledTimes(1));

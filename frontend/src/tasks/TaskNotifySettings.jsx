@@ -18,6 +18,7 @@ import TaskDetailDrawer from './TaskDetailDrawer';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { NX, FONT, btn, input as inputStyle, card } from './theme';
 import SaveRow from '../components/SaveRow';
+import { Switch } from '../components/settings/SettingsUI';
 import { useDraft } from '../lib/useDraft';
 import { useGroupDirty } from '../lib/groupDirty';
 import { dialog } from '../ui/dialog';
@@ -25,45 +26,41 @@ import { dialog } from '../ui/dialog';
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const field = { marginBottom: 14 };
 const EVENT_LABELS = {
-  created: 'Task created', assigned: 'Task assigned', due_soon: 'Due date reminder',
-  overdue: 'Overdue reminder', completed: 'Task completed', commented: 'New comment',
-  mentioned: 'Mentioned in a comment',
-  follower_added: 'Added as collaborator', modified: 'Task details changed', deleted: 'Task deleted',
-  recurring: 'Recurring task due',
-  automation: 'Automation rule emails',
+  created: 'Task Created', assigned: 'Task Assigned', due_soon: 'Due Date Reminder',
+  overdue: 'Overdue Reminder', completed: 'Task Completed', commented: 'New Comment',
+  mentioned: 'Mentioned in a Comment',
+  follower_added: 'Added as Collaborator', modified: 'Task Details Changed', deleted: 'Task Deleted',
+  recurring: 'Recurring Task Due',
+  automation: 'Automation Rule Emails',
 };
 const STATUS_META = {
-  sent: { color: NX.green, Icon: CheckCircle2 }, failed: { color: NX.red, Icon: AlertTriangle },
-  pending: { color: NX.dim, Icon: Clock }, retrying: { color: NX.amber, Icon: RotateCcw },
+  sent: { color: 'var(--nx-tag-green-fg)', Icon: CheckCircle2 }, failed: { color: NX.red, Icon: AlertTriangle },
+  pending: { color: NX.dim, Icon: Clock }, retrying: { color: 'var(--nx-own)', Icon: RotateCcw },
 };
 // An inbound reply ends in one of four states - see TaskInboundEmail.status.
 // "Ignored" and "Refused" are deliberately different words: ignored is a message
 // that was never meant to be a comment (an out-of-office), refused is one that
 // tried and was not allowed.
 const INBOUND_META = {
-  posted:   { color: NX.green, Icon: MessageSquare, label: 'Posted' },
-  rejected: { color: NX.amber, Icon: Ban, label: 'Refused' },
+  posted:   { color: 'var(--nx-tag-green-fg)', Icon: MessageSquare, label: 'Posted' },
+  rejected: { color: 'var(--nx-own)', Icon: Ban, label: 'Refused' },
   ignored:  { color: NX.dim, Icon: MinusCircle, label: 'Ignored' },
   failed:   { color: NX.red, Icon: AlertTriangle, label: 'Failed' },
 };
 
-function Toggle({ on, onChange, label }) {
-  return (
-    <button type="button" role="switch" aria-checked={!!on} aria-label={label} onClick={onChange} title={on ? 'Enabled' : 'Disabled'} style={{
-      position: 'relative', width: 38, height: 22, borderRadius: 999, border: 'none', cursor: 'pointer',
-      background: on ? NX.green : NX.border, transition: 'background 0.15s', flexShrink: 0,
-    }}>
-      <span style={{ position: 'absolute', top: 2, left: on ? 18 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
-    </button>
-  );
+// The Settings switch (components/settings/SettingsUI.jsx), named by the
+// setting it turns on.
+function Toggle({ on, onChange, label, id }) {
+  return <Switch id={id} label={label} checked={!!on} onChange={() => onChange()} />;
 }
 
-function Field({ label, hint, children }) {
+// A visible label tied to its box (`id`), and the hint under it.
+function Field({ label, hint, id, children }) {
   return (
     <div style={field}>
-      <label style={fieldLabel}>{label}</label>
+      <label style={fieldLabel} htmlFor={id}>{label}</label>
       {children}
-      {hint && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 4 }}>{hint}</div>}
     </div>
   );
 }
@@ -138,12 +135,12 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
 
   if (myLevel < 3) {
     return (
-      <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>
+      <div style={{ padding: 40, textAlign: 'center', color: NX.dim, fontSize: 13.5 }}>
         Manager access or above is required to view task notification settings.
       </div>
     );
   }
-  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
+  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.dim }}>{err}</div> : <LoadingState />;
 
   const setEvent = (k, on) => instant({ enabledEvents: { [k]: on } }, EVENT_LABELS[k]);
   // Turning replies on starts reading a mailbox at once: with none saved (or
@@ -168,7 +165,7 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
         {[['settings', 'Settings'], ['log', 'Delivery Log'], ['replies', 'Replies']].map(([k, lab]) => (
           <button key={k} onClick={() => setTab(k)} style={{
             ...btn('ghost'), fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 0,
-            color: tab === k ? NX.blue : NX.dim, borderBottom: `2px solid ${tab === k ? NX.blue : 'transparent'}`,
+            color: tab === k ? 'var(--wk-brand)' : NX.dim, borderBottom: `2px solid ${tab === k ? 'var(--wk-brand)' : 'transparent'}`, marginBottom: -1,
           }}>{lab}</button>
         ))}
       </div>
@@ -176,7 +173,7 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
       {tab === 'settings' ? (
         <>
           {notice && (
-            <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? NX.green : NX.red }}>{notice.text}</div>
+            <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>{notice.text}</div>
           )}
           {/* Two cards side by side on a wide screen: the switches (each saves
               when clicked) first, then the typed mail fields with the one Save
@@ -196,8 +193,8 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
                     sent together once the oldest has waited this long, so five
                     assignments in a row arrive as one email. Backend:
                     task_notify.flush_batches. */}
-                <Field label="Batch Task Emails" hint="Updates on someone's tasks are gathered and sent as one email once the first has waited this long. Mentions, deletions, urgent tasks and tasks due today or tomorrow always go out right away.">
-                  <select aria-label="Batch Task Emails" value={cfg.batchWindowMinutes ?? 60} onChange={(e) => instant({ batchWindowMinutes: Number(e.target.value) }, 'Batching')}
+                <Field label="Batch Task Emails" id="task-notify-batch" hint="Updates on someone's tasks are gathered and sent as one email once the first has waited this long. Mentions, deletions, urgent tasks and tasks due today or tomorrow always go out right away.">
+                  <select id="task-notify-batch" value={cfg.batchWindowMinutes ?? 60} onChange={(e) => instant({ batchWindowMinutes: Number(e.target.value) }, 'Batching')}
                     style={{ ...inputStyle, width: 'auto', appearance: 'auto', cursor: 'pointer' }}>
                     <option value={0}>Off - send each email right away</option>
                     <option value={15}>15 minutes</option>
@@ -209,8 +206,8 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
                 {/* The two reminder numbers are the COMPANY DEFAULT: each
                     person can change their own in Email Settings (My Tasks).
                     This decides whether "Off" is one of their choices. */}
-                <Field label="Let People Turn Off Overdue Reminders" hint="The reminder settings are everyone's default; each person can adjust their own in Tasks, Email Settings. When this is off, the least anyone can choose is once a week or only once.">
-                  <Toggle label="Let People Turn Off Overdue Reminders" on={!!cfg.allowUserOverdueOff}
+                <Field label="Let People Turn Off Overdue Reminders" id="task-notify-overdue-off" hint="The reminder settings are everyone's default; each person can adjust their own in Tasks, Email Settings. When this is off, the least anyone can choose is once a week or only once.">
+                  <Toggle id="task-notify-overdue-off" label="Let People Turn Off Overdue Reminders" on={!!cfg.allowUserOverdueOff}
                     onChange={() => instant({ allowUserOverdueOff: !cfg.allowUserOverdueOff }, 'Overdue reminder choice')} />
                 </Field>
                 <InboundSwitch on={!!cfg.inboundEnabled} onChange={toggleInbound} />
@@ -218,25 +215,25 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
             </div>
 
             <div style={{ ...card, padding: 18 }}>
-              <Field label="Shared Mailbox (Sender)" hint="Leave blank to send from the default Nexus mailbox.">
-                <input aria-label="Shared Mailbox (Sender)" value={draft.fromMailbox} onChange={(e) => editDraft({ fromMailbox: e.target.value })}
+              <Field label="Shared Mailbox (Sender)" id="task-notify-from" hint="Leave blank to send from the default Nexus mailbox.">
+                <input id="task-notify-from" value={draft.fromMailbox} onChange={(e) => editDraft({ fromMailbox: e.target.value })}
                   placeholder="tasks@companydomain.com" style={inputStyle} />
               </Field>
-              <Field label="Default CC" hint="Comma-separated. Applied to every task notification.">
-                <input aria-label="Default CC" value={draft.cc} onChange={(e) => editDraft({ cc: e.target.value })} placeholder="ops@companydomain.com" style={inputStyle} />
+              <Field label="Default CC" id="task-notify-cc" hint="Comma-separated. Applied to every task notification.">
+                <input id="task-notify-cc" value={draft.cc} onChange={(e) => editDraft({ cc: e.target.value })} placeholder="ops@companydomain.com" style={inputStyle} />
               </Field>
-              <Field label="Reply-To Address">
-                <input aria-label="Reply-To Address" value={draft.replyTo} onChange={(e) => editDraft({ replyTo: e.target.value })} placeholder="tasks@companydomain.com" style={inputStyle} />
+              <Field label="Reply-To Address" id="task-notify-reply">
+                <input id="task-notify-reply" value={draft.replyTo} onChange={(e) => editDraft({ replyTo: e.target.value })} placeholder="tasks@companydomain.com" style={inputStyle} />
               </Field>
-              <Field label="Company Logo URL" hint="Shown in the email header. Blank uses the Greens Global wordmark.">
-                <input aria-label="Company Logo URL" value={draft.logoUrl} onChange={(e) => editDraft({ logoUrl: e.target.value })} placeholder="https://…/logo.png" style={inputStyle} />
+              <Field label="Company Logo URL" id="task-notify-logo" hint="Shown in the email header. Blank uses the logo from Settings > Branding & Email.">
+                <input id="task-notify-logo" value={draft.logoUrl} onChange={(e) => editDraft({ logoUrl: e.target.value })} placeholder="https://…/logo.png" style={inputStyle} />
               </Field>
-              <Field label="Due-Soon Reminder (Days Before Due Date)" hint="0 disables due-soon reminders entirely (overdue reminders are controlled separately below).">
-                <input type="number" min={0} aria-label="Due-Soon Reminder (Days Before Due Date)" value={draft.dueSoonDays} onChange={(e) => editDraft({ dueSoonDays: e.target.value })}
+              <Field label="Due-Soon Reminder (Days Before Due Date)" id="task-notify-due-soon" hint="0 disables due-soon reminders entirely (overdue reminders are controlled separately below).">
+                <input type="number" min={0} id="task-notify-due-soon" value={draft.dueSoonDays} onChange={(e) => editDraft({ dueSoonDays: e.target.value })}
                   style={{ ...inputStyle, width: 120 }} />
               </Field>
-              <Field label="Overdue Re-Reminder Interval (Days)" hint="Once a task is overdue, remind again every N days until it's done or reassigned. 0 = remind only once, right when it first goes overdue.">
-                <input type="number" min={0} aria-label="Overdue Re-Reminder Interval (Days)" value={draft.overdueRepeatDays} onChange={(e) => editDraft({ overdueRepeatDays: e.target.value })}
+              <Field label="Overdue Re-Reminder Interval (Days)" id="task-notify-overdue" hint="Once a task is overdue, remind again every N days until it's done or reassigned. 0 = remind only once, right when it first goes overdue.">
+                <input type="number" min={0} id="task-notify-overdue" value={draft.overdueRepeatDays} onChange={(e) => editDraft({ overdueRepeatDays: e.target.value })}
                   style={{ ...inputStyle, width: 120 }} />
               </Field>
 
@@ -270,7 +267,7 @@ function InboundSwitch({ on, onChange }) {
     <div style={{ ...field, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600 }}>Accept Replies by Email</div>
-        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>
+        <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 2 }}>
           When someone replies to a task notification, post their reply as a comment on that
           task, with any files they attached.
         </div>
@@ -300,11 +297,11 @@ function InboundSection({ cfg, draft, editDraft }) {
 
   return (
     <div style={{ ...field, borderTop: `1px solid ${NX.border2}`, paddingTop: 14 }}>
-      <Field label="Mailbox to Read"
+      <Field label="Mailbox to Read" id="task-notify-inbound"
         hint={draft.inboundMailbox
           ? 'Overrides the reply-to address above.'
           : `Blank uses the reply-to address above${cfg.replyTo ? ` (${cfg.replyTo})` : ''}.`}>
-        <input aria-label="Mailbox to Read" value={draft.inboundMailbox} onChange={(e) => editDraft({ inboundMailbox: e.target.value })}
+        <input id="task-notify-inbound" value={draft.inboundMailbox} onChange={(e) => editDraft({ inboundMailbox: e.target.value })}
           placeholder={cfg.replyTo || 'tasks@companydomain.com'} style={inputStyle} />
       </Field>
 
@@ -312,7 +309,7 @@ function InboundSection({ cfg, draft, editDraft }) {
           mailbox - worth showing, because it is the first thing that looks
           wrong to an admin reading a sent notification. */}
       {mailbox.includes('@') && (
-        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: -6, marginBottom: 14 }}>
+        <div style={{ fontSize: 11.5, color: NX.dim, marginTop: -6, marginBottom: 14 }}>
           Notifications are sent with a per-task reply address like{' '}
           <code style={{ fontSize: 11, color: NX.dim }}>
             {mailbox.split('@')[0]}+a1b2…@{mailbox.split('@')[1]}
@@ -334,10 +331,10 @@ function InboundSection({ cfg, draft, editDraft }) {
         <button type="button" style={{ ...btn('outline'), opacity: busy ? 0.6 : 1 }} onClick={runNow} disabled={busy}>
           <Play size={13} /> {busy ? 'Checking…' : 'Check Mailbox Now'}
         </button>
-        {result && <span style={{ fontSize: 12, color: NX.green }}>{result}</span>}
+        {result && <span style={{ fontSize: 12, color: 'var(--nx-tag-green-fg)' }}>{result}</span>}
         {err && <span style={{ fontSize: 12, color: NX.red }}>{err}</span>}
       </div>
-      <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+      <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 6 }}>
         Save first - this checks the mailbox using the settings already saved. The deployed
         API checks it every minute on its own.
       </div>
@@ -359,7 +356,7 @@ function LogPager({ offset, setOffset, total, limit = LOG_LIMIT }) {
         style={{ ...btn('ghost'), padding: '5px 14px', fontSize: 12, opacity: offset === 0 ? 0.4 : 1, cursor: offset === 0 ? 'default' : 'pointer' }}>
         ← Prev
       </button>
-      <span style={{ fontSize: 12, color: NX.faint }}>Page {currentPage} of {totalPages}</span>
+      <span style={{ fontSize: 12, color: NX.dim }}>Page {currentPage} of {totalPages}</span>
       <button
         disabled={offset + limit >= total}
         onClick={() => setOffset(offset + limit)}
@@ -400,7 +397,7 @@ function RepliesLog({ replyTo, enabled }) {
           ...card, padding: 12, marginBottom: 12, fontSize: 12.5, color: NX.dim,
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          <AlertTriangle size={14} style={{ color: NX.amber, flexShrink: 0 }} />
+          <AlertTriangle size={14} style={{ color: 'var(--nx-own)', flexShrink: 0 }} />
           Replies are not being read right now. Turn on "Accept replies by email" under Settings.
         </div>
       )}
@@ -418,7 +415,7 @@ function RepliesLog({ replyTo, enabled }) {
       {rows === null ? (
         <LoadingState compact />
       ) : rows.length === 0 ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>
+        <div style={{ fontSize: 13, color: NX.dim, padding: 16, textAlign: 'center' }}>
           {status ? 'No replies in this state.'
             : `Nothing has been received yet${replyTo ? ` at ${replyTo}` : ''}.`}
         </div>
@@ -440,7 +437,7 @@ function RepliesLog({ replyTo, enabled }) {
                   cursor: task ? 'pointer' : 'default',
                 }}>
                 <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
-                <span style={{ fontWeight: 700, flexShrink: 0, width: 78, color: task ? NX.blue : NX.faint }}
+                <span style={{ fontWeight: 700, flexShrink: 0, width: 78, color: task ? NX.blue : NX.dim }}
                   title={task?.title}>
                   {task?.code || (r.taskId ? '-' : '')}
                 </span>
@@ -451,7 +448,7 @@ function RepliesLog({ replyTo, enabled }) {
                   {r.subject || '(no subject)'}
                 </span>
                 {r.attachmentCount > 0 && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: NX.faint, flexShrink: 0 }}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: NX.dim, flexShrink: 0 }}
                     title={`${r.attachmentCount} file${r.attachmentCount === 1 ? '' : 's'}`}>
                     <Paperclip size={12} />{r.attachmentCount}
                   </span>
@@ -460,10 +457,10 @@ function RepliesLog({ replyTo, enabled }) {
                 {/* The reason is the whole point of the row when it is not a
                     comment - and on a posted one it names a file that could not
                     be filed, so it is shown either way. */}
-                <span style={{ color: NX.faint, flexShrink: 0, width: 210, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.reason}>
+                <span style={{ color: NX.dim, flexShrink: 0, width: 210, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.reason}>
                   {r.reason || ''}
                 </span>
-                <span style={{ color: NX.faint, flexShrink: 0 }} title={formatDateTime(r.receivedAt)}>
+                <span style={{ color: NX.dim, flexShrink: 0 }} title={formatDateTime(r.receivedAt)}>
                   {formatDate(r.processedAt)}
                 </span>
               </div>
@@ -511,7 +508,7 @@ function DeliveryLog() {
       {rows === null ? (
         <LoadingState compact />
       ) : rows.length === 0 ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>No notification attempts yet.</div>
+        <div style={{ fontSize: 13, color: NX.dim, padding: 16, textAlign: 'center' }}>No notification attempts yet.</div>
       ) : (
         <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
           {rows.map((r) => {
@@ -523,7 +520,7 @@ function DeliveryLog() {
                 <span style={{ color: NX.dim, flexShrink: 0, width: 100, textTransform: 'capitalize' }}>{r.eventType?.replace('_', ' ')}</span>
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.subject}>{r.recipient}</span>
                 <span style={{ color: meta.color, fontWeight: 600, flexShrink: 0, textTransform: 'capitalize' }}>{r.status}</span>
-                <span style={{ color: NX.faint, flexShrink: 0 }}>{r.attempts}x</span>
+                <span style={{ color: NX.dim, flexShrink: 0 }}>{r.attempts}x</span>
                 {r.error && <span style={{ color: NX.red, flexShrink: 0, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.error}>{r.error}</span>}
               </div>
             );

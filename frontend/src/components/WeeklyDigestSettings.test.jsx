@@ -73,11 +73,11 @@ describe('WeeklyDigestSettings', () => {
   it('puts a switch back when its save fails', async () => {
     updateWeeklyDigestConfig.mockRejectedValue(new Error('Server said no.'));
     render(<WeeklyDigestSettings />);
-    const box = await screen.findByLabelText(/No shift that day/);
+    const box = await screen.findByLabelText('Send When There Is No Shift That Day');
     expect(box.checked).toBe(true);
     fireEvent.click(box);
     expect(await screen.findByText('Server said no.')).toBeTruthy();
-    expect(screen.getByLabelText(/No shift that day/).checked).toBe(true);
+    expect(screen.getByLabelText('Send When There Is No Shift That Day').checked).toBe(true);
   });
 
   it('refuses an out-of-range lead time without calling the API', async () => {
@@ -124,7 +124,7 @@ describe('WeeklyDigestSettings', () => {
     expect(await screen.findByText('amy@greensglobal.com')).toBeTruthy();
     expect(screen.getByText('09/28/2026')).toBeTruthy();
     // Test mode, something overdue, but nothing sent: the send failed.
-    expect(screen.getByText('Send failed')).toBeTruthy();
+    expect(screen.getByText('Send Failed')).toBeTruthy();
     fireEvent.click(screen.getByText('Force Resend'));
     await waitFor(() => expect(forceResendWeeklyDigest).toHaveBeenCalledWith('w1'));
     expect(await screen.findByText("Sent amy@greensglobal.com's weekly digest.")).toBeTruthy();
