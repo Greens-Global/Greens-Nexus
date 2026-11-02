@@ -12141,6 +12141,7 @@
             save: () => downloadPDF(),
             state: () => ({ page: state.currentPage, total: state.totalPages, zoom: state.zoom }),
             pdfDoc: () => state.pdfDoc,
+            pdfDoc: () => state.pdfDoc,
             pdfBytes: () => state.pdfBytes,
             author: async () => { const d = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true }); return d.getAuthor(); },
             setLock: (v) => { state.organizeLocked = !!v; _applyOrganizeLock(); return !!state.organizeLocked; },

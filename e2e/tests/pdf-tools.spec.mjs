@@ -369,6 +369,14 @@ async function editView(page) {
 async function fitPage(page) {
   await page.click('#zoomFitPage');
   await settle(page);
+  // A slow render moves the canvas late; a drag aimed at the old place would miss.
+  let last = '';
+  for (let i = 0; i < 40; i++) {
+    const now = JSON.stringify(await page.locator('.upper-canvas').boundingBox());
+    if (now === last) break;
+    last = now;
+    await settle(page, 200);
+  }
 }
 const settle = (page, ms = 450) => page.waitForTimeout(ms);
 async function canvasPoint(page, xr, yr) {
@@ -413,6 +421,8 @@ async function redactBox(page, a, b) {
   await page.waitForFunction(() => !window.isScrollMode());
   await fitPage(page);
   await drag(page, a, b);
+  // Tell a box that was never drawn apart from a redaction that failed to redact.
+  expect(await page.evaluate(() => window.__pdfEngine.info().redacted), 'the redaction box was drawn').toBe(true);
 }
 // Run an action, take the one download it triggers, return its bytes.
 async function download(page, action, { timeout = 60_000, confirm = true } = {}) {
@@ -1920,5 +1930,41 @@ test.describe('4. the final check', () => {
     await page.context().route('**/libs/pdf.worker.min.js*', (r) => r.abort());
     const { buf } = await saved(page);
     await expectPages(v, buf, [['ONE', REDHEX]]);
+  });
+});
+
+test.describe('a page that renders slowly', () => {
+  test('a box drawn while a heavy page renders is known to the save, and the file is redacted', async ({ browser }) => {
+    const v = await verifier(browser);
+    const page = await openEngine(browser, await secretPdf(), 'secret.pdf', { query: HOOKS });
+    await settle(page, 1500);
+    // A heavy page: every render waits a second and a half.
+    await page.evaluate(() => {
+      const d = window.__hooks.pdfDoc();
+      window.__getPage = d.getPage;
+      d.getPage = async function (n) { await new Promise((r) => setTimeout(r, 1500)); return window.__getPage.call(d, n); };
+    });
+    await group(page, 'Optimize');
+    await page.click('#redactBtn');
+    await page.locator('.modal-overlay [data-choice="go"]').click();
+    await page.waitForFunction(() => !window.isScrollMode());
+    // Draw at once, while the page is still on its way.
+    const [x1, y1] = await canvasPoint(page, 0.1, 0.1);
+    const [x2, y2] = await canvasPoint(page, 0.8, 0.8);
+    await page.mouse.move(x1, y1);
+    await page.mouse.down();
+    await page.mouse.move(x2, y2, { steps: 4 });
+    await page.mouse.up();
+    const early = await page.evaluate(() => ({
+      boxes: window.__hooks.fabric().getObjects().filter((o) => o._isRedact).length,
+      redacted: window.__pdfEngine.info().redacted,
+    }));
+    expect(early.boxes > 0 && !early.redacted, 'a box on screen that a save would not know about').toBe(false);
+    await page.evaluate(() => { window.__hooks.pdfDoc().getPage = window.__getPage; });
+    await fitPage(page);
+    await drag(page, REDACT_A, REDACT_B);
+    const { buf } = await saveAll(page);
+    assertNoSecrets(buf, 'slow page');
+    expect(await fillOf(v, buf, 1, BLACK, [0.09, 0.09, 0.61, 0.13])).toBeGreaterThan(0.98);
   });
 });
