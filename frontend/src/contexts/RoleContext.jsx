@@ -81,9 +81,9 @@ export const EXTERNAL_ROLE_META = {
 export const ROLES = {
   employee:      { label: 'Employee',      level: 1, color: 'var(--color-blue)',   bg: 'hsla(var(--color-blue),0.12)',   description: 'Raise requests, view own activity' },
   supervisor:    { label: 'Supervisor',     level: 2, color: 'var(--color-green)',  bg: 'hsla(var(--color-green),0.12)',  description: 'Allocate items, manage returns' },
-  manager:       { label: 'Manager',        level: 3, color: 'var(--color-orange)', bg: 'hsla(var(--color-orange),0.12)', description: 'Approve requests, team oversight - no access-granting or deletion rights' },
-  administrator: { label: 'IT Admin',       level: 4, color: 'var(--color-purple)', bg: 'hsla(var(--color-purple),0.12)', description: 'Manage settings & inventory, grant access up to Manager - cannot manage other admins or delete core records' },
-  owner:         { label: 'Global Admin',   level: 5, color: 'var(--color-gold)',   bg: 'hsla(var(--color-gold),0.12)',   description: 'Full, unrestricted access - including managing other admins and deleting core records' },
+  manager:       { label: 'Manager',        level: 3, color: 'var(--color-orange)', bg: 'hsla(var(--color-orange),0.12)', description: 'Leads a team: approvals and schedules for their people.' },
+  administrator: { label: 'Administrator',       level: 4, color: 'var(--color-purple)', bg: 'hsla(var(--color-purple),0.12)', description: 'Runs their company: people, settings, modules and approvals inside their company.' },
+  owner:         { label: 'Super Administrator', level: 5, color: 'var(--color-gold)',   bg: 'hsla(var(--color-gold),0.12)',   description: 'Runs Nexus for every company: security, tiers, the organization\'s settings.' },
 };
 
 export function RoleProvider({ children }) {

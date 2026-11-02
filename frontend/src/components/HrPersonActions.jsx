@@ -38,8 +38,8 @@ function Warn({ children }) {
 }
 
 // Change Role (Pranshu, Oct 13): "it should be simple" - ask whether it is a
-// promotion. Without one, the role changes now - only HR, IT Admins and
-// Global Admins see this (Neil, Oct 22: no approval, but never without a
+// promotion. Without one, the role changes now - only HR, Administrators and
+// Super Administrators see this (Neil, Oct 22: no approval, but never without a
 // logged reason). A promotion goes to the letter. Used in People and in
 // Settings > Access (which passes its own `roles`, no onPromote, and knows
 // the person by workEmail).

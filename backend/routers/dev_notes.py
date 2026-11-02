@@ -487,7 +487,7 @@ def _is_ga(user: dict, db: Session) -> bool:
 
 def _own_or_admin(n_owner: str, user: dict, db: Session, what: str) -> None:
     if (n_owner or "").lower() != (user.get("email") or "").lower() and not _is_ga(user, db):
-        raise HTTPException(403, f"Only the author or a Global Admin can {what}")
+        raise HTTPException(403, f"Only the author or a Super Administrator can {what}")
 
 
 # ── settings ──────────────────────────────────────────────────────────────────
@@ -584,7 +584,7 @@ def _assign_owner(db: Session, n: DevNote) -> None:
             f"({code_owners.normalize(_source_file(n))}). It waits for you - release it to Claude Code "
             "or handle it yourself.")
     if not _owner_has_access(db, n.owner_email):
-        body += " Ask a Global Admin for the Build Mode grant if the link does not open."
+        body += " Ask a Super Administrator for the Build Mode grant if the link does not open."
     _notify(db, type="dev_note_owner", recipient=n.owner_email, title=f"Pin #{n.number} On Your Area",
             body=body, ref_id=n.id)
 
@@ -1140,7 +1140,7 @@ def purge_media(db: Session) -> int:
 @router.post("/purge")
 def purge(user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
     if not _is_ga(user, db):
-        raise HTTPException(403, "Only a Global Admin can purge Build Mode media")
+        raise HTTPException(403, "Only a Super Administrator can purge Build Mode media")
     n = purge_media(db)
     _audit(db, user, "purge", "", {"purged": n}, kind="delete")
     db.commit()
@@ -1369,7 +1369,7 @@ def _release(db: Session, n: DevNote, user: dict) -> None:
     is a no-op."""
     email = (user.get("email") or "").lower()
     if email != (n.owner_email or "").lower() and not _is_ga(user, db):
-        raise HTTPException(403, "Only the owner of this area or a Global Admin can release this pin")
+        raise HTTPException(403, "Only the owner of this area or a Super Administrator can release this pin")
     if not _held(n):
         if not n.owner_released_at:
             raise HTTPException(409, f"Pin #{n.number} is not waiting for an owner")

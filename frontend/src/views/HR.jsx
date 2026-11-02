@@ -1795,8 +1795,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const { canAccessModule: canAccessHr, myEmail: viewerEmail } = useRole();
   const canEditChecklist = canAccessHr('hr', 'administrator', 'editor');
   const canEditProfile = canAccessHr('hr', 'manager', 'editor');
-  // Promote / Change Role: HR editors outside a team view, IT Admins and
-  // Global Admins only (Neil, Oct 22 - "Manager calls HR"); the server's
+  // Promote / Change Role: HR editors outside a team view, Administrators and
+  // Super Administrators only (Neil, Oct 22 - "Manager calls HR"); the server's
   // role_change.can_change_roles is the same rule.
   const canChangeRole = !teamView && canAccessHr('hr', 'administrator', 'editor');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit

@@ -820,7 +820,7 @@ def config_company_for_new(db: Session, user: dict, project_ids=None) -> str:
     if len(scope) == 1:
         return next(iter(scope))
     raise HTTPException(403, "Your account is not placed in one company, so this cannot be "
-                             "created for a company. Ask a Global Admin.")
+                             "created for a company. Ask a Super Administrator.")
 
 
 def assert_config_editable(db: Session, user: dict, company_id: str) -> None:
@@ -835,7 +835,7 @@ def assert_config_editable(db: Session, user: dict, company_id: str) -> None:
     if c and c not in scope:
         raise HTTPException(404, "Not found")
     if not c:
-        raise HTTPException(403, "This is shared by every company - only a Global Admin can change it.")
+        raise HTTPException(403, "This is shared by every company - only a Super Administrator can change it.")
 
 
 # ── Project access roles (Share panel, Jul 2026) ─────────────────────────────

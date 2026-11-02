@@ -745,7 +745,7 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                     <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>+ {g.name}</span>
                     {g.is_global_admin
-                      ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(230,50%,55%,0.14)', color: 'hsl(230,45%,50%)' }}>Global Admins</span>
+                      ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(230,50%,55%,0.14)', color: 'hsl(230,45%,50%)' }}>Super Administrators</span>
                       : g.company_id
                         ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))' }}>{companies.find(c => c.id === g.company_id)?.name || 'Company role'}</span>
                         : null}
@@ -1615,7 +1615,7 @@ function CompanyWallsPanel({ toastOk, toastErr }) {
   async function toggle() {
     const on = !state.on;
     const msg = on
-      ? `Turn the company walls ON? Every company becomes private - people, tasks and tickets only show within someone's own company, and only Global Admins see across.${noGlobals ? '\n\nHeads up: no Global Admins are set yet. Mark a group "Global Admins" and add yourself first, or you could lose your org-wide view.' : ''}`
+      ? `Turn the company walls ON? Every company becomes private - people, tasks and tickets only show within someone's own company, and only Super Administrators see across.${noGlobals ? '\n\nHeads up: no Super Administrators are set yet. Mark a group "Super Administrators" and add yourself first, or you could lose your org-wide view.' : ''}`
       : 'Turn the company walls OFF? Everyone goes back to seeing across all companies.';
     if (!await dialog.confirm(msg, { title: on ? 'Arm company walls' : 'Disarm company walls', confirmText: on ? 'Arm walls' : 'Disarm' })) return;
     setBusy(true);
@@ -1633,7 +1633,7 @@ function CompanyWallsPanel({ toastOk, toastErr }) {
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
           {state.on ? 'Each company is private - staff only see their own company.' : 'Off - everyone sees across all companies.'}
-          {` · ${state.globalAdmins} global admin${state.globalAdmins === 1 ? '' : 's'}`}
+          {` · ${state.globalAdmins} super administrator${state.globalAdmins === 1 ? '' : 's'}`}
           {noGlobals && <span style={{ color: '#b45309', fontWeight: 600 }}> · none set yet</span>}
         </div>
       </div>
@@ -1675,7 +1675,7 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
         <label style={fieldLabel}>Name
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Accounting - Viewer" style={input} /></label>
         {/* Multi-company walls: bind this group to a company (a per-company role) or
-            mark it the Global Admins group (members see past every company wall). */}
+            mark it the Super Administrators group (members see past every company wall). */}
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <label style={{ ...fieldLabel, flex: 1, minWidth: 220, opacity: globalAdmin ? 0.5 : 1 }}>Company (per-company role)
             <select value={companyId} onChange={e => setCompanyId(e.target.value)} disabled={globalAdmin} style={input}>
@@ -1684,13 +1684,13 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
             </select></label>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, padding: '9px 0' }}>
             <input type="checkbox" checked={globalAdmin} onChange={e => setGlobalAdmin(e.target.checked)} />
-            Global Admins (sees every company)
+            Super Administrators (sees every company)
           </label>
         </div>
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: -6 }}>
           {globalAdmin ? 'Members are unrestricted across all companies - the only role that sees past the walls.'
             : companyId ? 'Members are confined to this company once the walls are armed.'
-            : 'Org-wide group - members are placed by their own company (or the Global Admins group).'}
+            : 'Org-wide group - members are placed by their own company (or the Super Administrators group).'}
         </div>
         <div>
           <div style={{ ...sectLabel, marginTop: 4 }}>Modules this group grants</div>
@@ -1717,7 +1717,7 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
   const [warning, setWarning] = useState('');
   const roleCompany = role.company_id || '';
   // Someone who already holds ANOTHER job role is a role change (Neil, Oct 22):
-  // HR, IT Admins and Global Admins only (the server's can_change_roles), with
+  // HR, Administrators and Super Administrators only (the server's can_change_roles), with
   // one required reason for everyone picked. People with no role go straight on.
   const canSwap = !hrTeam && typeof canAccessModule === 'function' && canAccessModule('hr', 'administrator', 'editor');
   const [heldRole, setHeldRole] = useState({});   // email -> the other role they hold now
@@ -1790,7 +1790,7 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
               <button key={p.email} {...nav.optionProps(i)} onClick={() => pick(p)} disabled={!!busy || isAdded || (held && !canSwap)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: isAdded ? 'hsla(var(--color-green),0.07)' : 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: isAdded ? 'default' : 'pointer', opacity: (busy && !isAdded && busy !== p.email) ? 0.6 : 1 }}>
                 <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.email}{roleCompany && !p.company ? ' · No company set' : ''}</div>
-                  {held && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Holds {held}{canSwap ? '' : ' - only HR, an IT Admin or a Global Admin can change their role'}</div>}</div>
+                  {held && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Holds {held}{canSwap ? '' : ' - only HR, an Administrator or a Super Administrator can change their role'}</div>}</div>
                 {busy === p.email ? <Spinner size={15} />
                   : picked ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'var(--pine)' }}><Check size={14} /> Picked</span>
                   : isAdded ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-green))' }}><Check size={14} /> Added</span>

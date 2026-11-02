@@ -39,7 +39,7 @@ it ran.
 Access is the `workflows` grant (Settings > People & Access): viewer sees
 workflows and runs in their company scope; editor builds, tests and publishes
 their own; full manages everyone's in scope and the company's templates;
-Global Admins reach every company, "Every company" scope, webhooks and
+Super Administrators reach every company, "Every company" scope, webhooks and
 Settings > Workflows.
 
 ### The builder
@@ -101,7 +101,7 @@ Each one stops everything below it and says so on every affected screen.
    scan, the overtime watch, the weekly scorecard...) are listed under
    Automations with what they do, how often, and a link to the setting
    that controls them where one exists. Each one has its own off switch
-   (Oct 28 2026, `backend/job_switch.py`): Global Admins only, one
+   (Oct 28 2026, `backend/job_switch.py`): Super Administrators only, one
    organization-wide list in the `automations.off` setting, read by every
    loop's tick through a 30-second process cache, so a flip takes effect
    within a minute and needs no restart. Off never loses anything: a job
@@ -133,7 +133,7 @@ Every record a workflow touched shows "Workflow: <name>" in its own history
 with a link to the run. A failed run always bells its owner. A workflow that
 runs more than its hourly cap, loses its owner, or names an action that no
 longer exists is paused as Needs Attention with a bell to the owner and the
-Global Admins. Publish, pause, resume, re-own and restore are written to the
+Super Administrators. Publish, pause, resume, re-own and restore are written to the
 Audit Log (Settings > Logs). The Monday **Owner Digest** (Settings >
 Workflows) lists each owned workflow's runs, failures and what it did most.
 
@@ -353,7 +353,7 @@ pausedAt, ownerDigest, maxRunsPerHourCap (500), maxRecipientsCap (200),
 nexusRunAs, webhookHosts, webhookSecretsSet, override, companies}`; `PUT`
 takes the same keys plus `webhookSecrets: {host: secret}` for secrets typed
 this time (write-only; stored in `secret_box`) and `override: false` to drop
-a company's override. `POST /workflows/settings/pause-all` is Global Admins
+a company's override. `POST /workflows/settings/pause-all` is Super Administrators
 only, as is `POST /workflows/automations/jobs/{key}/off` (`{off: bool}`,
 an `automation.off` / `automation.on` AuditLog row; `GET
 /workflows/automations` carries `off` on every job). The frontend panel is `frontend/src/workflows/WorkflowsSettings.jsx`,

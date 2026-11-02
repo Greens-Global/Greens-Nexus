@@ -585,7 +585,7 @@ keep the diff minimal.
   automatic weekend pay and its Rs 500 floor are gone for them. ONE
   calculation: `india_contractor_pay.reconcile`, called from `_fixed_card`;
   claims in `routers/extra_time.py` (approver = the HR contact, else the
-  Global Admins; HR - administrator / owner / Full HR grant - only within
+  Super Administrators; HR - administrator / owner / Full HR grant - only within
   the contractor's company scope, `extra_time.hr_for`; never your own;
   Review & Approve waits for every claim). For them only, an APPROVED
   Vacation / Sick time off request is paid leave with no punch (Oct 27

@@ -45,7 +45,7 @@ describe('Operations settings', () => {
     api.getOpsSettings.mockResolvedValue({ ...OFF, canEdit: false });
     render(<OpsSettings />);
     expect((await screen.findByRole('switch', { name: 'Push to Cubby' })).disabled).toBe(true);
-    expect(screen.getByText(/Only a Global Admin, an IT Admin or someone with Full access to Operations/)).toBeTruthy();
+    expect(screen.getByText(/Only a Super Administrator, an Administrator or someone with Full access to Operations/)).toBeTruthy();
   });
 
   it('shows an error with a retry when it cannot load', async () => {

@@ -1255,7 +1255,7 @@ def _tell_manager(db: Session, r: TimesheetReview, actor: str, title: str, body:
 
 def _hr_only(db: Session, r: TimesheetReview, actor: str) -> None:
     if not is_hr(db, actor, r.employee_email):
-        raise HTTPException(403, "Only HR or a Global Admin can do this.")
+        raise HTTPException(403, "Only HR or a Super Administrator can do this.")
     if r.status != CORRECTING:
         raise HTTPException(409, "This time sheet is not unlocked for corrections.")
 

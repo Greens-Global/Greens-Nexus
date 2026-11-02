@@ -388,7 +388,7 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
       <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Set Up Your Personal Vault Password" subtitle="Choose a password to protect your Personal Vault." />
       {msaTag}
       <div style={{ borderRadius: 12, background: "var(--cv-amber-bg)", border: "1px solid var(--cv-amber-line)", padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "var(--cv-amber)" }}>
-        Your Personal Vault will be bound to <strong>{userEmail}</strong>. No one else - including Global Admin - can access it. Don't forget this password: you'll need SMS or Email to reset it.
+        Your Personal Vault will be bound to <strong>{userEmail}</strong>. No one else - including a Super Administrator - can access it. Don't forget this password: you'll need SMS or Email to reset it.
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <Field label="New password" required>

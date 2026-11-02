@@ -2428,7 +2428,7 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(get_current_user)
     import timesheet_review as _tsr
     email = body.email.strip().lower()
     if not _tsr.is_hr(db, user["email"], email):
-        raise HTTPException(403, "Only HR or a Global Admin can unlock a finalized time sheet.")
+        raise HTTPException(403, "Only HR or a Super Administrator can unlock a finalized time sheet.")
     reason = (body.reason or "").strip()
     if len(reason) < 5:
         raise HTTPException(422, "Give a reason of at least 5 characters - it is logged on the time sheet.")

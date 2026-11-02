@@ -144,7 +144,7 @@ export default function CredentialVaultApp({ activeSub }) {
 
   // ── derived ─────────────────────────────────────────────────────────────
   const ctx = useMemo(() => ({ favorites, myEmail }), [favorites, myEmail]);
-  // Overview scope (Pranshu, Oct 29 2026): a Global Admin sees every login;
+  // Overview scope (Pranshu, Oct 29 2026): a Super Administrator sees every login;
   // an owner, backup owner or department head sees the ones they manage plus
   // what is shared with them - never the whole company's list or health.
   const inScope = useCallback((c) => isAdmin || c.canEdit || c.access === "shared" || c.access === "person", [isAdmin]);

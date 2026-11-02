@@ -195,7 +195,7 @@ def assign_role(
     target_level    = ROLE_LEVEL.get(new_role, 1)
 
     if requester_level < ROLE_LEVEL["administrator"]:
-        raise HTTPException(status_code=403, detail="Need IT Admin or Global Admin role to manage roles")
+        raise HTTPException(status_code=403, detail="Need Administrator or Super Administrator role to manage roles")
 
     # IT Admins can delegate access, but only "down" - strictly below their own
     # level - and may not create, edit, or demote peer/other admins. Creating
@@ -206,7 +206,7 @@ def assign_role(
             raise HTTPException(status_code=403, detail="You can only grant access up to one level below your own role")
         existing_role = _get_role(target_email, db)
         if ROLE_LEVEL.get(existing_role, 1) >= ROLE_LEVEL["administrator"]:
-            raise HTTPException(status_code=403, detail="Only a Global Admin can change another admin's access")
+            raise HTTPException(status_code=403, detail="Only a Super Administrator can change another admin's access")
 
     display_name = (body.display_name or "").strip()
 

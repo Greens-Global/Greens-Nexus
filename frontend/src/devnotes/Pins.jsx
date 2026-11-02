@@ -214,8 +214,8 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
   const reopenedOnPreview = pinReopened(pin);
   const waiting = waitingForClaude(pin);
   const closed = pin.status === 'done' || pin.status === 'dismissed';
-  // The server says what this viewer may do (owner or Global Admin may
-  // release; author or Global Admin may judge the preview). No flag = no button.
+  // The server says what this viewer may do (owner or Super Administrator may
+  // release; author or Super Administrator may judge the preview). No flag = no button.
   const rights = { release: pin.canRelease === true, verdict: pin.canVerdict === true };
   const held = pinHeld(pin);
   const ready = pinReady(pin);

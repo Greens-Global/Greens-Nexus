@@ -75,7 +75,7 @@ PEOPLE_LABELS = {
     "self": "The Person", "manager": "Manager", "hr_contact": "HR Contact", "assignees": "Assignees",
     "assignee": "Assignee", "creator": "Creator", "followers": "Followers", "approver": "Approver",
     "owner": "Owner", "requester": "Requester", "participants": "Participants",
-    "project_owner": "Project Owner", "global_admins": "Global Admins", "borrower": "Borrower",
+    "project_owner": "Project Owner", "global_admins": "Super Administrators", "borrower": "Borrower",
 }
 # Modules every employee may read without a grant: their events are offered
 # to every owner. Any other module needs the grant of the same id (or an

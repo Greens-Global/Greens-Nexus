@@ -59,7 +59,7 @@ describe('Assign dialog: a role change needs a reason', () => {
   it('someone who cannot change roles gets a plain message, not a swap', async () => {
     canChange = false;
     open();
-    expect(await screen.findByText(/only HR, an IT Admin or a Global Admin can change their role/)).toBeTruthy();
+    expect(await screen.findByText(/only HR, an Administrator or a Super Administrator can change their role/)).toBeTruthy();
     fireEvent.click(screen.getByText('Amy Poe'));
     expect(screen.queryByText(/Reason For The Change/)).toBeNull();
     expect(assignJobRole).not.toHaveBeenCalled();

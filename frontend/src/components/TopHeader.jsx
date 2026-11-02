@@ -94,7 +94,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // External guests read "External", never a tier name (Visesh, Aug 18).
   const roleMeta = isExternal ? EXTERNAL_ROLE_META : (ROLES[myRole] ?? ROLES.employee);
   // What Teams shows under your name is your job title, not an access level -
-  // "Global Admin" there is meaningless to a colleague who just wants to know
+  // "Super Administrator" there is meaningless to a colleague who just wants to know
   // what you do. Nexus's own permission tier stays visible as the badge in the
   // dropdown card below; this only replaces the compact pill's subtitle, and
   // falls back to the access-level label for anyone with no HR record yet
