@@ -56,6 +56,18 @@
         _isDirty = d;
         const btn = document.getElementById('downloadBtn');
         if (btn) btn.classList.toggle('dirty', d);
+        _emitEngineState();
+    }
+    // The host page hears about the document here: an event on this window for
+    // anything in the same frame, and the postMessage the Nexus shell listens to.
+    let _lastEngineState = '';
+    function _emitEngineState() {
+        const detail = { hasDoc: !!state.pdfDoc, dirty: !!_isDirty, name: state.fileName || '', pages: state.totalPages || 0 };
+        const key = JSON.stringify(detail);
+        if (key === _lastEngineState) return;
+        _lastEngineState = key;
+        try { window.dispatchEvent(new CustomEvent('pdf-engine:state', { detail })); } catch (_) {}
+        try { window.parent && window.parent.postMessage({ type: 'pdf-editor:doc-state', hasDoc: detail.hasDoc, dirty: detail.dirty }, '*'); } catch (_) {}
     }
     window.addEventListener('beforeunload', (e) => {
         if (_isDirty) { e.preventDefault(); e.returnValue = ''; }
@@ -435,8 +447,9 @@
     }
 
     // Rasterize the signature to a transparent PNG and add it to the canvas as an image.
-    function insertSignature(name, fontFamily, color) {
+    async function insertSignature(name, fontFamily, color) {
         if (!fabricCanvas) return;
+        await _exitScrollForOp();      // the signature lands on the visible, live page
         const fontSize = 96;           // render large for crispness, then scale down
         const pad = 24;
 
@@ -1243,7 +1256,8 @@
             if (o && !_isRestoring && !o.excludeFromExport && o._layerId === undefined) {
                 o._layerId = state.activeLayer;
             }
-            saveAnnotationState();
+            // UI helpers (crop box, guides) are not part of the document.
+            if (!(o && o.excludeFromExport)) saveAnnotationState();
             updateUndoRedoButtons();
         });
         fabricCanvas.on('object:removed', (e) => {
@@ -1253,6 +1267,7 @@
                 updateCropDims();
                 if (typeof _syncCropApply === 'function') _syncCropApply();
             }
+            if (!_isRestoring && e && e.target && !e.target.excludeFromExport) markDirty();
             updateUndoRedoButtons();
         });
 
@@ -1417,14 +1432,21 @@
     }
 
     // ── Render Page ──
-    async function renderPage(pageNum) {
-        if (!state.pdfDoc) return;
-
-        // Save current page annotations before switching
-        if (fabricCanvas && state.currentPage !== pageNum) {
-            saveCurrentAnnotations();
-        }
-
+    // Only the newest render may touch the canvas; _canvasReady() waits for it.
+    let _renderGen = 0;
+    let _renderChain = Promise.resolve();
+    function renderPage(pageNum) {
+        if (!state.pdfDoc) return Promise.resolve();
+        const gen = ++_renderGen;
+        const run = _renderPageNow(pageNum, gen);
+        _renderChain = _renderChain.then(() => run, () => run);
+        return run;
+    }
+    async function _canvasReady() {
+        let seen;
+        do { seen = _renderChain; await seen.catch(() => {}); } while (seen !== _renderChain);
+    }
+    async function _renderPageNow(pageNum, gen) {
         state.currentPage = pageNum;
         dom.pageInput.value = pageNum;
         // Each sheet can carry its own stored scale (Store Scale in Page).
@@ -1437,6 +1459,7 @@
             // and leave the page blank until the next successful pass.
             if (state._renderTask) { try { state._renderTask.cancel(); } catch (_) {} }
             const page = await state.pdfDoc.getPage(pageNum);
+            if (gen !== _renderGen) return;
             const viewport = page.getViewport({ scale: state.zoom * 1.5 }); // 1.5 for retina
 
             // Resize PDF canvas
@@ -1450,6 +1473,7 @@
             const ctx = pdfCanvas.getContext('2d');
             state._renderTask = page.render({ canvasContext: ctx, viewport });
             try { await state._renderTask.promise; } catch (e) { if (e && e.name === 'RenderingCancelledException') return; throw e; }
+            if (gen !== _renderGen) return;
             state._renderTask = null;
 
             // Resize Fabric canvas to match display size
@@ -1462,7 +1486,8 @@
             _textItemsCache = null;
 
             // Restore annotations for this page
-            restoreAnnotations(pageNum);
+            await restoreAnnotations(pageNum, gen);
+            if (gen !== _renderGen) return;
 
             // Update thumbnail active state
             updateThumbnailActive();
@@ -1561,43 +1586,67 @@
     }
 
     // ── Annotation Persistence (per page) ──
+    // Which page, at which zoom, the live canvas holds right now. state.currentPage
+    // moves first and the canvas follows after an async render (and in scroll mode
+    // it does not follow at all), so "save the current page" could write one page's
+    // objects onto another. Saving always goes by what the canvas actually holds.
+    let _canvasPage = null;
+    let _canvasZoom = 1;
     function saveCurrentAnnotations() {
-        if (!fabricCanvas) return;
-        if (window.isScrollMode && window.isScrollMode()) return; // scroll mode: editor canvas is frozen
-        // Store fabricData + the zoom level at which it was captured so
-        // downloadPDF can correctly scale coordinates back to PDF space.
-        state.annotations[state.currentPage] = {
-            fabricData: fabricCanvas.toJSON(),
-            zoom: state.zoom,
-        };
+        if (!fabricCanvas || _canvasPage == null) return;
+        const data = _safeCanvasJSON();
+        if (!data) return;
+        // Stored with the zoom it was captured at, so every reader can scale it.
+        state.annotations[_canvasPage] = { fabricData: data, zoom: _canvasZoom };
+    }
+    // Before a page operation: bank the canvas, cut it loose, and stop any render.
+    function _detachCanvas() {
+        saveCurrentAnnotations();
+        _canvasPage = null;
+        _renderGen++;
+    }
+    function _syncCanvasZoom() {
+        if (_canvasPage == null || Math.abs(_canvasZoom - state.zoom) < 1e-6) return;
+        rescaleCanvasObjects(state.zoom / _canvasZoom);
+        _canvasZoom = state.zoom;
     }
 
-    function restoreAnnotations(pageNum) {
-        if (!fabricCanvas) return;
+    function restoreAnnotations(pageNum, gen = _renderGen) {
+        if (!fabricCanvas) return Promise.resolve();
+        // Anything added since the last save belongs to the page the canvas holds.
+        saveCurrentAnnotations();
+        _canvasPage = null;
         _isRestoring = true;
         fabricCanvas.clear();
         const entry = state.annotations[pageNum];
-        if (entry) {
-            // Support both the new { fabricData, zoom } format and old plain-JSON format
-            const data = entry.fabricData || entry;
-            fabricCanvas.loadFromJSON(data, () => {
-                // Drop orphans of deleted layers, then apply layer visibility.
-                const ids = new Set(state.layers.map(l => l.id));
-                fabricCanvas.forEachObject((o) => {
-                    if (o._layerId !== undefined && !ids.has(o._layerId)) fabricCanvas.remove(o);
-                });
-                applyLayerVisibility();
-                _isRestoring = false;
-                fabricCanvas.renderAll();
-                applyToolMode();
-                renderImportedCommentMarks(pageNum);
-            });
-        } else {
+        const done = (zoom) => {
+            if (gen !== _renderGen) { _isRestoring = false; return; }  // a newer render owns the canvas
+            _canvasPage = pageNum;
+            _canvasZoom = zoom;
+            _syncCanvasZoom();    // stored at another zoom: scale it onto this page
+            applyLayerVisibility();
             _isRestoring = false;
+            fabricCanvas.renderAll();
             applyToolMode();
             renderImportedCommentMarks(pageNum);
-        }
-        updateUndoRedoButtons();
+            updateUndoRedoButtons();
+        };
+        if (!entry) { done(state.zoom); return Promise.resolve(); }
+        // Support both the new { fabricData, zoom } format and old plain-JSON format
+        const data = entry.fabricData || entry;
+        return new Promise((resolve) => {
+            fabricCanvas.loadFromJSON(data, () => {
+                if (gen === _renderGen) {
+                    // Drop orphans of deleted layers.
+                    const ids = new Set(state.layers.map(l => l.id));
+                    fabricCanvas.forEachObject((o) => {
+                        if (o._layerId !== undefined && !ids.has(o._layerId)) fabricCanvas.remove(o);
+                    });
+                }
+                done(entry.zoom || state.zoom);
+                resolve();
+            });
+        });
     }
 
     // Rotate a page's stored annotations by `deg` (90/180/270, CW) so markups
@@ -1693,7 +1742,7 @@
         if (_isRestoring) return;
         markDirty();
         _scheduleThumbRefresh();   // reflect the new/changed markup in thumbnails (B8)
-        const page = state.currentPage;
+        const page = _canvasPage != null ? _canvasPage : state.currentPage;
         if (!state.undoStacks[page]) state.undoStacks[page] = [];
         _sanitizeTextStyles();   // ensure serialization can't throw (A5/A6)
         // Seed a baseline snapshot representing the canvas *before* this action so
@@ -1704,7 +1753,7 @@
         }
         const snap = _safeCanvasJSON();
         if (!snap) { updateUndoRedoButtons(); return; }   // never abort silently
-        snap.__zoom = state.zoom; // snapshot is only valid at this zoom
+        snap.__zoom = _canvasZoom; // snapshot is only valid at this zoom
         state.undoStacks[page].push(JSON.stringify(snap));
         // Limit stack size
         if (state.undoStacks[page].length > 50) {
@@ -1723,6 +1772,11 @@
 
     let _undoNavigating = false;   // suppress order-mutation during an undo-jump
     function undo(_forcedPage) {
+        // The canvas behind the continuous view is not on screen: undo on the page.
+        if (window.isScrollMode && window.isScrollMode() && (_undoOrder.length || _docUndoStack.length)) {
+            _exitScrollForOp().then(() => undo(_forcedPage));
+            return;
+        }
         // A5: a SINGLE chronological timeline. The most recent action anywhere is
         // the last entry in _undoOrder - undo that, jumping to its page first if
         // needed. The jump is bundled into THIS press (one click = one action):
@@ -1741,7 +1795,7 @@
             _undoNavigating = true;
             goToPage(targetPage);
             // Finish the SAME undo after the page renders - one press, jump bundled.
-            setTimeout(() => { _undoNavigating = false; undo(targetPage); }, 220);
+            _canvasReady().then(() => { _undoNavigating = false; undo(targetPage); });
             return;
         }
         const page = targetPage;
@@ -1757,11 +1811,19 @@
 
         const prev = stack[stack.length - 1];
         const fabricData = JSON.parse(prev);
+        _loadSnapshot(page, fabricData);
+    }
+
+    // Put an undo/redo snapshot on the canvas. It was taken at its own zoom, so it
+    // is scaled onto the current one; the page counts as changed afterward.
+    function _loadSnapshot(page, fabricData) {
         const snapZoom = fabricData.__zoom || state.zoom;
+        _canvasPage = null;
         _isRestoring = true;
         fabricCanvas.loadFromJSON(fabricData, () => {
-            // The snapshot was taken at snapZoom — rescale to the current zoom.
-            if (Math.abs(snapZoom - state.zoom) > 0.001) rescaleCanvasObjects(state.zoom / snapZoom);
+            _canvasPage = page;
+            _canvasZoom = snapZoom;
+            _syncCanvasZoom();
             const liveIds = new Set(state.layers.map(l => l.id));
             fabricCanvas.forEachObject((o) => {
                 if (o._layerId !== undefined && !liveIds.has(o._layerId)) fabricCanvas.remove(o);
@@ -1771,6 +1833,7 @@
             fabricCanvas.renderAll();
             applyToolMode();
             saveCurrentAnnotations(); // re-tag with the CURRENT zoom, coords now match
+            markDirty();
             _scheduleThumbRefresh();  // A2: refresh the thumbnail so undone markups clear
             if (window.renderMeasureList) window.renderMeasureList();
         });
@@ -1778,6 +1841,10 @@
     }
 
     function redo() {
+        if (window.isScrollMode && window.isScrollMode() && _redoOrder.length) {
+            _exitScrollForOp().then(() => redo());
+            return;
+        }
         // A5: redo follows the global timeline too - the last undone action is
         // the last entry in _redoOrder.
         const targetPage = _redoOrder.length ? _redoOrder[_redoOrder.length - 1] : state.currentPage;
@@ -1788,7 +1855,7 @@
         }
         if (targetPage !== state.currentPage) {
             goToPage(targetPage);
-            setTimeout(() => redo(), 250);
+            _canvasReady().then(() => redo());
             return;
         }
         const page = targetPage;
@@ -1800,23 +1867,7 @@
         state.undoStacks[page].push(next);
 
         const fabricData = JSON.parse(next);
-        const snapZoom = fabricData.__zoom || state.zoom;
-        _isRestoring = true;
-        fabricCanvas.loadFromJSON(fabricData, () => {
-            if (Math.abs(snapZoom - state.zoom) > 0.001) rescaleCanvasObjects(state.zoom / snapZoom);
-            const liveIds = new Set(state.layers.map(l => l.id));
-            fabricCanvas.forEachObject((o) => {
-                if (o._layerId !== undefined && !liveIds.has(o._layerId)) fabricCanvas.remove(o);
-            });
-            applyLayerVisibility();
-            _isRestoring = false;
-            fabricCanvas.renderAll();
-            applyToolMode();
-            saveCurrentAnnotations();
-            _scheduleThumbRefresh();  // A2
-            if (window.renderMeasureList) window.renderMeasureList();
-        });
-        updateUndoRedoButtons();
+        _loadSnapshot(page, fabricData);
     }
 
     function updateUndoRedoButtons() {
@@ -1828,16 +1879,21 @@
     // ── Page Navigation ──
     // If continuous scroll is active, drop back to single-page mode before any
     // structural change so ops target the real editor canvas, not stale pages.
-    function _exitScrollForOp() { if (window.isScrollMode && window.isScrollMode()) setScrollMode(false); }
+    // Await it before touching the canvas: the page render it starts would otherwise
+    // clear anything added meanwhile (that was the lost-stamp bug).
+    function _exitScrollForOp() {
+        if (window.isScrollMode && window.isScrollMode()) setScrollMode(false);
+        return _canvasReady();
+    }
 
     function goToPage(num) {
-        if (num < 1 || num > state.totalPages) return;
+        if (num < 1 || num > state.totalPages) return Promise.resolve();
         // In continuous-scroll mode, scroll to the page and stay in scroll mode
         // (what a user expects from clicking a thumbnail). Only fall back to the
         // single-page renderer when scroll mode isn't active.
-        if (window.isScrollMode && window.isScrollMode() && window.scrollToScrollPage(num)) return;
+        if (window.isScrollMode && window.isScrollMode() && window.scrollToScrollPage(num)) return Promise.resolve();
         saveCurrentAnnotations();
-        renderPage(num);
+        return renderPage(num);
     }
 
     // ── Zoom ──
@@ -1852,18 +1908,23 @@
             if (o.type === 'i-text' || o.type === 'text' || o.type === 'textbox') {
                 // Scale font size (keeps text crisp) rather than object scale
                 o.fontSize = (o.fontSize || 16) * ratio;
+                if (o.type === 'textbox') o.width = (o.width || 0) * ratio;
+                if (o.initDimensions) o.initDimensions();
             } else {
                 o.scaleX = (o.scaleX || 1) * ratio;
                 o.scaleY = (o.scaleY || 1) * ratio;
             }
-            if (o.strokeWidth) o.strokeWidth = o.strokeWidth * ratio;
+            // Fabric scales a stroke along with the object unless it is uniform;
+            // scaling it here too would fatten it at every zoom step.
+            if (o.strokeWidth && (o.strokeUniform || o.type === 'i-text' || o.type === 'text' || o.type === 'textbox')) {
+                o.strokeWidth = o.strokeWidth * ratio;
+            }
             o.setCoords();
         });
         fabricCanvas.renderAll();
     }
 
     function setZoom(level) {
-        const oldZoom = state.zoom;
         state.zoom = Math.max(0.25, Math.min(4, level));
         dom.zoomLevel.textContent = Math.round(state.zoom * 100) + '%';
         // In continuous-scroll mode, rebuild the stacked pages at the new zoom
@@ -1874,7 +1935,7 @@
         }
         // Rescale live annotations to the new zoom, THEN save — so the stored
         // coordinates and the stored zoom label always stay consistent.
-        rescaleCanvasObjects(state.zoom / oldZoom);
+        _syncCanvasZoom();
         saveCurrentAnnotations();
         renderPage(state.currentPage);
     }
@@ -1884,14 +1945,13 @@
     // scroll the single-page canvas is frozen, so renderPage() would do nothing
     // (that was the "Fit does nothing" bug) - re-render the scroll view instead.
     function _applyFitZoom(newZoom) {
-        const oldZoom = state.zoom;
         state.zoom = Math.max(0.25, Math.min(4, newZoom));
         dom.zoomLevel.textContent = Math.round(state.zoom * 100) + '%';
-        rescaleCanvasObjects(state.zoom / oldZoom);
-        saveCurrentAnnotations();
         if (window.isScrollMode && window.isScrollMode()) {
             window.rerenderScrollForZoom();   // resize every scroll page to the new zoom
         } else {
+            _syncCanvasZoom();
+            saveCurrentAnnotations();
             renderPage(state.currentPage);
         }
     }
@@ -3924,7 +3984,8 @@
         });
     }
     async function _goToMarkup(pg, idx) {
-        if (pg !== state.currentPage) { await goToPage(pg); await new Promise(r => setTimeout(r, 150)); }
+        await _exitScrollForOp();
+        if (pg !== state.currentPage) await goToPage(pg);
         // Select the object at that stored index on the (now current) page.
         try {
             const objs = fabricCanvas.getObjects().filter(o => !o.excludeFromExport);
@@ -5326,12 +5387,17 @@
     async function undoDocChange() {
         const snap = _docUndoStack.pop();
         if (!snap) return false;
-        // Restore per-page state EXACTLY as it was (crop modes shift/delete it)
-        try { state.annotations = JSON.parse(snap.ann); } catch (_) {}
-        try { state.comments = JSON.parse(snap.comments); } catch (_) {}
-        state.undoStacks = {}; state.redoStacks = {};
-        state.currentPage = snap.page;
-        await _reloadFromBytes(new Uint8Array(snap.bytes), snap.label + ' undone', true);
+        await _reloadFromBytes(new Uint8Array(snap.bytes), snap.label + ' undone', {
+            skipSave: true,
+            page: snap.page,
+            beforeSwap: () => {
+                // Restore per-page state EXACTLY as it was (crop modes shift/delete it)
+                try { state.annotations = JSON.parse(snap.ann); } catch (_) {}
+                try { state.comments = JSON.parse(snap.comments); } catch (_) {}
+                state.undoStacks = {}; state.redoStacks = {};
+                _undoOrder.length = 0; _redoOrder.length = 0;
+            },
+        });
         updateUndoRedoButtons();
         return true;
     }
@@ -5671,7 +5737,8 @@
         if (!file) return;
 
         const reader = new FileReader();
-        reader.onload = function (event) {
+        reader.onload = async function (event) {
+            await _exitScrollForOp();
             fabric.Image.fromURL(event.target.result, (img) => {
                 // Scale image to fit reasonably
                 const maxWidth = fabricCanvas.width * 0.5;
@@ -5889,7 +5956,7 @@
 
     // ── Merge PDF ──
     async function handleMergeSelect(e) {
-        _exitScrollForOp();
+        await _exitScrollForOp();
         const files = Array.from(e.target.files);
         if (!files.length) return;
         e.target.value = '';
@@ -5953,48 +6020,14 @@
             }
             const insertedCount = cursor - insertAt;
 
-            // Shift existing page-keyed state (annotations, comments, undo/redo)
-            // for pages at or after the insertion point, so markups stay on their
-            // original pages instead of drifting. Mirrors the blank-page insert
-            // remap. insertAt is 0-based; page keys are 1-based, so any page
-            // number > insertAt moves up by insertedCount.
-            if (insertAt < state.totalPages && insertedCount > 0) {
-                const shiftMap = (obj) => {
-                    if (!obj) return obj;
-                    const out = {};
-                    for (const k of Object.keys(obj)) {
-                        const pn = parseInt(k, 10);
-                        out[pn > insertAt ? pn + insertedCount : pn] = obj[k];
-                    }
-                    return out;
-                };
-                state.annotations = shiftMap(state.annotations);
-                state.comments    = shiftMap(state.comments);
-                state.undoStacks  = shiftMap(state.undoStacks);
-                state.redoStacks  = shiftMap(state.redoStacks);
-                // Keep the user on the SAME content they were viewing: if pages
-                // were inserted before the current page, advance past them.
-                if (state.currentPage > insertAt) state.currentPage += insertedCount;
-            }
-
-            // Save merged PDF
+            // Pages at or after the insertion point move up, so markups stay on
+            // their own pages, and the user stays on the content they were viewing.
+            // insertAt is 0-based; page keys are 1-based.
             const mergedBytes = await mainDoc.save();
-            state.pdfBytes = mergedBytes.slice().buffer;
-
-            // Reload into PDF.js
-            const pdf = await pdfjsLib.getDocument({ data: mergedBytes.slice(), fontExtraProperties: true }).promise;
-            if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
-            state.pdfDoc = pdf;
-            state.totalPages = pdf.numPages;
-
-            // Update UI
-            dom.totalPages.textContent = state.totalPages;
-            dom.pageInput.max = state.totalPages;
-            dom.fileInfo.textContent = `${state.fileName} | ${state.totalPages} page(s)`;
-
-            // Regenerate thumbnails and re-render
-            await generateThumbnails();
-            renderPage(state.currentPage);
+            await _reloadFromBytes(mergedBytes, null, {
+                remap: (pn) => (pn > insertAt ? pn + insertedCount : pn),
+                page: state.currentPage > insertAt ? state.currentPage + insertedCount : state.currentPage,
+            });
 
             const where = insertAt === 0 ? 'at the start'
                         : insertAt >= (state.totalPages - insertedCount) ? 'at the end'
@@ -6011,7 +6044,7 @@
     // ── Add Blank Page ──
     async function addBlankPage() {
         if (_guardStructural()) return;
-        _exitScrollForOp();
+        await _exitScrollForOp();
         if (!state.pdfBytes) return;
 
         // Let the user choose the new page's size instead of silently copying
@@ -6054,47 +6087,11 @@
             pdfLibDoc.insertPage(insertIndex, [width, height]);
 
             const newBytes = await pdfLibDoc.save();
-            state.pdfBytes = newBytes.slice().buffer;
-
-            // Shift annotations/comments for pages after the insertion point
-            const newAnnotations = {};
-            const newUndoStacks = {};
-            const newRedoStacks = {};
-            const newComments = {};
-            for (let i = state.totalPages; i >= 1; i--) {
-                if (i > state.currentPage) {
-                    // Shift up by 1
-                    if (state.annotations[i]) newAnnotations[i + 1] = state.annotations[i];
-                    if (state.undoStacks[i]) newUndoStacks[i + 1] = state.undoStacks[i];
-                    if (state.redoStacks[i]) newRedoStacks[i + 1] = state.redoStacks[i];
-                    if (state.comments[i]) newComments[i + 1] = state.comments[i];
-                } else {
-                    if (state.annotations[i]) newAnnotations[i] = state.annotations[i];
-                    if (state.undoStacks[i]) newUndoStacks[i] = state.undoStacks[i];
-                    if (state.redoStacks[i]) newRedoStacks[i] = state.redoStacks[i];
-                    if (state.comments[i]) newComments[i] = state.comments[i];
-                }
-            }
-            state.annotations = newAnnotations;
-            state.undoStacks = newUndoStacks;
-            state.redoStacks = newRedoStacks;
-            state.comments = newComments;
-
-            // Reload
-            const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
-            if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
-            state.pdfDoc = pdf;
-            state.totalPages = pdf.numPages;
-
-            dom.totalPages.textContent = state.totalPages;
-            dom.pageInput.max = state.totalPages;
-            dom.fileInfo.textContent = `${state.fileName} | ${state.totalPages} page(s)`;
-
-            // Go to the new blank page
-            state.currentPage = state.currentPage + 1;
-
-            await generateThumbnails();
-            renderPage(state.currentPage);
+            const after = state.currentPage;
+            await _reloadFromBytes(newBytes, null, {
+                remap: (p) => (p > after ? p + 1 : p),
+                page: after + 1,   // go to the new blank page
+            });
 
             setStatus('Blank page added');
             showToast('Blank page added after page ' + (state.currentPage - 1));
@@ -6218,35 +6215,12 @@
             });
 
             const newBytes = await pdfLibDoc.save();
-            state.pdfBytes = newBytes.slice().buffer;
-
-            // 3. Shift annotations/comments for pages after the insertion point
-            const newAnnotations = {}, newUndoStacks = {}, newRedoStacks = {}, newComments = {};
-            for (let i = state.totalPages; i >= 1; i--) {
-                const to = i > state.currentPage ? i + 1 : i;
-                if (state.annotations[i]) newAnnotations[to] = state.annotations[i];
-                if (state.undoStacks[i]) newUndoStacks[to] = state.undoStacks[i];
-                if (state.redoStacks[i]) newRedoStacks[to] = state.redoStacks[i];
-                if (state.comments[i]) newComments[to] = state.comments[i];
-            }
-            state.annotations = newAnnotations;
-            state.undoStacks = newUndoStacks;
-            state.redoStacks = newRedoStacks;
-            state.comments = newComments;
-
-            // 4. Reload
-            const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
-            if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
-            state.pdfDoc = pdf;
-            state.totalPages = pdf.numPages;
-
-            dom.totalPages.textContent = state.totalPages;
-            dom.pageInput.max = state.totalPages;
-            dom.fileInfo.textContent = `${state.fileName} | ${state.totalPages} page(s)`;
-
-            state.currentPage = state.currentPage + 1;
-            await generateThumbnails();
-            renderPage(state.currentPage);
+            // 3. Pages after the insertion point move up, with their markups
+            const after = state.currentPage;
+            await _reloadFromBytes(newBytes, null, {
+                remap: (p) => (p > after ? p + 1 : p),
+                page: after + 1,
+            });
 
             setStatus('Template page added');
             showToast(usedDoc
@@ -6305,46 +6279,13 @@
             const copiedPages = await newDoc.copyPages(srcDoc, order);
             copiedPages.forEach((page) => newDoc.addPage(page));
 
-            // Save reordered PDF
+            // Save reordered PDF; markups and comments follow their pages.
             const newBytes = await newDoc.save();
-            state.pdfBytes = newBytes.slice().buffer;
-
-            // Remap annotations and comments
-            const newAnnotations = {};
-            const newUndoStacks = {};
-            const newRedoStacks = {};
-            const newComments = {};
-            for (let i = 0; i < totalPages; i++) {
-                const oldPageNum = order[i] + 1;
-                const newPageNum = i + 1;
-                if (state.annotations[oldPageNum]) {
-                    newAnnotations[newPageNum] = state.annotations[oldPageNum];
-                }
-                if (state.undoStacks[oldPageNum]) {
-                    newUndoStacks[newPageNum] = state.undoStacks[oldPageNum];
-                }
-                if (state.redoStacks[oldPageNum]) {
-                    newRedoStacks[newPageNum] = state.redoStacks[oldPageNum];
-                }
-                if (state.comments[oldPageNum]) {
-                    newComments[newPageNum] = state.comments[oldPageNum];
-                }
-            }
-            state.annotations = newAnnotations;
-            state.undoStacks = newUndoStacks;
-            state.redoStacks = newRedoStacks;
-            state.comments = newComments;
-
-            // Reload into PDF.js
-            const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
-            if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
-            state.pdfDoc = pdf;
-
-            // Follow the moved page
-            state.currentPage = toPage;
-
-            await generateThumbnails();
-            renderPage(state.currentPage);
+            const position = new Map(order.map((oldIdx, i) => [oldIdx + 1, i + 1]));
+            await _reloadFromBytes(newBytes, null, {
+                remap: (p) => (position.has(p) ? position.get(p) : null),
+                page: toPage,   // follow the moved page
+            });
 
             setStatus('Pages reordered');
             showToast('Page ' + fromPage + ' moved to position ' + toPage);
@@ -6359,7 +6300,7 @@
     let dragSrcPage = null;
 
     async function deletePage(pageNum) {
-        _exitScrollForOp();
+        await _exitScrollForOp();
         if (state.totalPages <= 1) {
             showToast('Cannot delete the only page');
             return;
@@ -6379,47 +6320,11 @@
             pdfLibDoc.removePage(pageNum - 1);
 
             const newBytes = await pdfLibDoc.save();
-            state.pdfBytes = newBytes.slice().buffer;
-
-            // Remap annotations and comments (shift pages after deleted page)
-            const newAnnotations = {};
-            const newUndoStacks = {};
-            const newRedoStacks = {};
-            const newComments = {};
-            for (let i = 1; i <= state.totalPages; i++) {
-                if (i < pageNum) {
-                    if (state.annotations[i]) newAnnotations[i] = state.annotations[i];
-                    if (state.undoStacks[i]) newUndoStacks[i] = state.undoStacks[i];
-                    if (state.redoStacks[i]) newRedoStacks[i] = state.redoStacks[i];
-                    if (state.comments[i]) newComments[i] = state.comments[i];
-                } else if (i > pageNum) {
-                    if (state.annotations[i]) newAnnotations[i - 1] = state.annotations[i];
-                    if (state.undoStacks[i]) newUndoStacks[i - 1] = state.undoStacks[i];
-                    if (state.redoStacks[i]) newRedoStacks[i - 1] = state.redoStacks[i];
-                    if (state.comments[i]) newComments[i - 1] = state.comments[i];
-                }
-            }
-            state.annotations = newAnnotations;
-            state.undoStacks = newUndoStacks;
-            state.redoStacks = newRedoStacks;
-            state.comments = newComments;
-
-            // Reload
-            const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
-            if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
-            state.pdfDoc = pdf;
-            state.totalPages = pdf.numPages;
-
-            if (state.currentPage > state.totalPages) {
-                state.currentPage = state.totalPages;
-            }
-
-            dom.totalPages.textContent = state.totalPages;
-            dom.pageInput.max = state.totalPages;
-            dom.fileInfo.textContent = `${state.fileName} | ${state.totalPages} page(s)`;
-
-            await generateThumbnails();
-            renderPage(state.currentPage);
+            // Markups and comments of later pages move down; the deleted page's go.
+            await _reloadFromBytes(newBytes, null, {
+                remap: (p) => (p === pageNum ? null : p > pageNum ? p - 1 : p),
+                page: state.currentPage > pageNum ? state.currentPage - 1 : state.currentPage,
+            });
 
             setStatus('Page deleted');
             showToast('Page ' + pageNum + ' deleted');
@@ -6517,9 +6422,9 @@
     // hidden-layer + helper objects so the thumbnail matches the page.
     async function _drawAnnotationsOnThumb(ctx, pageNum, thumbW, thumbH) {
         try {
-            // Flush the live canvas for the current page so freshly-added markups
+            // Flush the live canvas for the page it holds so freshly-added markups
             // are included (they may not be in state.annotations yet).
-            if (pageNum === state.currentPage) { try { saveCurrentAnnotations(); } catch (_) {} }
+            if (pageNum === _canvasPage) { try { saveCurrentAnnotations(); } catch (_) {} }
             const entry = state.annotations[pageNum];
             const data = entry && (entry.fabricData || entry);
             const objs = data && data.objects;
@@ -8629,7 +8534,7 @@
 
     // ── Rotate Page ──
     async function rotatePage() {
-        _exitScrollForOp();
+        await _exitScrollForOp();
         if (!state.pdfBytes) return;
         if (_guardStructural()) return;
 
@@ -8649,20 +8554,14 @@
             page.setRotation(PDFLib.degrees((currentRotation + 90) % 360));
 
             const newBytes = await pdfLibDoc.save();
-            state.pdfBytes = newBytes.slice().buffer;
-
+            const rotated = state.currentPage;
             // Rotate this page's annotations 90 deg CW to follow the page (M4)
             // instead of deleting them. Measurements keep their values (geomPx is
-            // rotation-invariant); only positions/angles change. Must run BEFORE
+            // rotation-invariant); only positions/angles change. Runs BEFORE
             // state.pdfDoc is replaced, since it reads the pre-rotation viewport.
-            await _rotatePageAnnotations(state.currentPage, 90);
-
-            const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
-            if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
-            state.pdfDoc = pdf;
-
-            renderPage(state.currentPage);
-            generateThumbnails();
+            await _reloadFromBytes(newBytes, null, {
+                beforeSwap: () => _rotatePageAnnotations(rotated, 90),
+            });
 
             setStatus('Page rotated 90\u00B0');
             showToast('Page ' + state.currentPage + ' rotated');
@@ -8804,7 +8703,7 @@
 
     async function addStamp(stampText) {
         if (!fabricCanvas) return;
-        _exitScrollForOp();   // A2: place on the visible single-page edit canvas
+        await _exitScrollForOp();   // A2: place on the visible single-page edit canvas
 
         // Per-preset default colors (green = approved, red = warning, grey = draft).
         const PRESET_COLORS = {
@@ -9350,25 +9249,12 @@
             if (!ocrCancelled) {
                 // Save the searchable PDF
                 const newBytes = await pdfLibDoc.save();
-                state.pdfBytes = newBytes.slice().buffer;
-
-                // Reload into PDF.js
-                const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
-                if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
-                state.pdfDoc = pdf;
-                // Keep totalPages in sync with the reloaded doc — the search loop
-                // iterates 1..totalPages, so a stale value would limit search to
-                // fewer pages (this is why search only covered the current page).
-                state.totalPages = pdf.numPages;
-                if (dom.totalPages) dom.totalPages.textContent = state.totalPages;
+                await _reloadFromBytes(newBytes);
 
                 dom.ocrProgressBar.style.width = '100%';
                 dom.ocrStatus.textContent = 'OCR complete!';
                 showToast('PDF is now searchable');
                 setStatus('OCR completed - PDF is now searchable');
-
-                // Re-render current page
-                renderPage(state.currentPage);
 
                 setTimeout(() => {
                     dom.ocrProgress.style.display = 'none';
@@ -9463,7 +9349,38 @@
         return false;
     }
 
-    async function _reloadFromBytes(newBytes, msg, skipSave) {
+    // ONE door for swapping the document. Every page operation comes through here
+    // so markups follow their page, dirty is set, and the view stays right.
+    //   opts === true is { skipSave: true }. Otherwise:
+    //   skipSave     the caller already set state.annotations
+    //   beforeSwap   runs after validation, while the old document is still open
+    //   remap        (oldPage) => newPage or null for page-keyed state
+    //   clearMarkups the operation baked them into the bytes
+    //   page         the page to land on
+    function _remapPageState(mapPage) {
+        const move = (obj) => {
+            const out = {};
+            for (const k of Object.keys(obj || {})) {
+                const to = mapPage(parseInt(k, 10));
+                if (to != null) out[to] = obj[k];
+            }
+            return out;
+        };
+        state.annotations = move(state.annotations);
+        state.undoStacks = move(state.undoStacks);
+        state.redoStacks = move(state.redoStacks);
+        state.comments = move(state.comments);
+        const scales = move(_pageScales);
+        Object.keys(_pageScales).forEach(k => delete _pageScales[k]);
+        Object.assign(_pageScales, scales);
+        for (const list of [_undoOrder, _redoOrder]) {
+            const next = list.map(mapPage).filter(p => p != null);
+            list.length = 0;
+            list.push(...next);
+        }
+    }
+    async function _reloadFromBytes(newBytes, msg, opts) {
+        const o = opts === true ? { skipSave: true } : (opts || {});
         // TRANSACTIONAL: validate the NEW bytes fully (parse + a real page render)
         // BEFORE we destroy or swap the current document. A structural op that
         // partially failed (e.g. on an encrypted PDF whose content can't be copied)
@@ -9481,7 +9398,13 @@
             throw new Error('The operation could not be completed on this document (' + (e && e.message || 'unknown error') + '). Your document is unchanged.');
         }
         // New bytes are good - now it's safe to swap.
-        if (!skipSave) saveCurrentAnnotations(); // keep markups on the visible page
+        if (o.skipSave) { _canvasPage = null; _renderGen++; } else _detachCanvas();
+        if (o.beforeSwap) await o.beforeSwap();
+        if (o.clearMarkups) {
+            state.annotations = {}; state.undoStacks = {}; state.redoStacks = {};
+            _undoOrder.length = 0; _redoOrder.length = 0;
+        }
+        if (o.remap) _remapPageState(o.remap);
         if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} } // L4: free worker memory
         if (typeof destroyScrollView === 'function') destroyScrollView();
         _savedScrollTop = null;
@@ -9492,8 +9415,12 @@
         dom.pageInput.max = state.totalPages;
         dom.fileInfo.textContent = `${state.fileName} | ${state.totalPages} page(s)`;
         markDirty();   // only NOW is the document actually changed
+        const target = Math.max(1, Math.min(o.page != null ? o.page : state.currentPage, state.totalPages));
+        await renderPage(target);
+        // The continuous view was torn down with the old document: build the new one.
+        if (window.isScrollMode && window.isScrollMode()) await buildScrollView();
         await generateThumbnails();
-        renderPage(Math.min(state.currentPage, state.totalPages));
+        if (window.renderMeasureList) { try { window.renderMeasureList(); } catch (_) {} }
         if (msg) { setStatus(msg); showToast(msg); }
     }
 
@@ -9773,7 +9700,7 @@
         if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
         const beforeMB = ((state.pdfBytes.byteLength || state.pdfBytes.length) / 1048576).toFixed(1);
         const v = await _toolModal('Compress PDF', `
-            <p class="modal-hint" style="margin:0 0 10px;">Current size: <b>${beforeMB} MB</b>. Save your markups first — compression works on the saved document content.</p>
+            <p class="modal-hint" style="margin:0 0 10px;">Current size: <b>${beforeMB} MB</b>. Your markups stay editable on top of the compressed pages.</p>
             <label class="modal-label">Compression level:</label>
             <select class="modal-input" data-k="level">
                 <option value="light">Light — keeps text selectable (small gain)</option>
@@ -9812,6 +9739,7 @@
             const afterMB = (outBytes.length / 1048576).toFixed(1);
             // Apply in the editor (like the other tools) so the user can review
             // the result and Save when ready, instead of a forced download.
+            pushDocSnapshot('Compress');
             await _reloadFromBytes(outBytes, 'Compressed ' + beforeMB + ' MB -> ' + afterMB + ' MB - Save when ready');
             showToast('Compressed ' + beforeMB + ' MB -> ' + afterMB + ' MB');
         } catch (err) { console.error(err); showToast('Compression failed'); }
@@ -10457,8 +10385,12 @@
         if (_guardStructural()) return;
         setStatus('Scanning for blank pages...');
         try {
+            saveCurrentAnnotations();
             const blanks = [];
+            const filter = _markupFilter();
             for (let p = 1; p <= state.totalPages; p++) {
+                // A page someone drew on is not blank, whatever the PDF underneath holds.
+                if (_entryObjects(state.annotations[p]).some(o => filter.isInk(o) || filter.isRedaction(o))) continue;
                 const pg = await state.pdfDoc.getPage(p);
                 const tc = await pg.getTextContent();
                 const hasText = tc.items.some(i => i.str && i.str.trim());
@@ -10487,15 +10419,16 @@
                 '? This cannot be undone after you Download.',
                 [{ key: 'remove', label: 'Remove ' + blanks.length + ' page' + (blanks.length > 1 ? 's' : '') }]);
             if (choice !== 'remove') { setStatus('Ready'); return; }
-            saveCurrentAnnotations();
             pushDocSnapshot('Remove blank pages');
             const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
-            blanks.sort((a, b) => b - a).forEach(p => doc.removePage(p - 1));
+            [...blanks].sort((a, b) => b - a).forEach(p => doc.removePage(p - 1));
             const out = await doc.save();
-            // _reloadFromBytes validates before swapping - only clear state on success.
-            state.annotations = {}; state.undoStacks = {}; state.redoStacks = {};
-            state.currentPage = 1;
-            await _reloadFromBytes(out, 'Removed ' + blanks.length + ' blank page(s)');
+            // Every kept page keeps its markups, at its new number.
+            const gone = new Set(blanks);
+            const moved = (p) => { if (gone.has(p)) return null; let n = p; for (const b of blanks) if (b < p) n--; return n; };
+            let landing = moved(state.currentPage);
+            if (landing == null) landing = Math.max(1, state.currentPage - blanks.filter(b => b < state.currentPage).length);
+            await _reloadFromBytes(out, 'Removed ' + blanks.length + ' blank page(s)', { remap: moved, page: landing });
         } catch (err) { console.error(err); setStatus('Remove blank pages failed - document unchanged'); showToast('Could not remove blank pages'); }
     }
     window.removeBlankPagesTool = removeBlankPagesTool;
@@ -10526,8 +10459,11 @@
         // 'image' (pdf.js render - works on ANY compression). embedPdf decodes
         // lazily at save() time, so a bad-compression PDF only throws THERE - we
         // run the whole build+save and, on failure, retry in image mode.
+        // N-up redraws pages at new sizes and new numbers, so markups cannot stay
+        // live: it lays out the TRUE document, with them burned in.
+        let trueDoc = null;
         const buildNup = async (mode) => {
-            const src = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
+            const src = await PDFLib.PDFDocument.load(new Uint8Array(trueDoc.bytes), { ignoreEncryption: true });
             const out = await PDFLib.PDFDocument.create();
             const first = src.getPage(0);
             const pw = first.getWidth(), ph = first.getHeight();
@@ -10543,7 +10479,7 @@
             } else {
                 for (let i = 0; i < total; i++) {
                     setStatus('Building N-up... rendering page ' + (i + 1) + '/' + total);
-                    const pg = await state.pdfDoc.getPage(i + 1);
+                    const pg = await trueDoc.pdf.getPage(i + 1);
                     const vp = pg.getViewport({ scale: 1.5 });
                     const canvas = document.createElement('canvas');
                     canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
@@ -10585,6 +10521,8 @@
         };
 
         try {
+            const built = await _buildTrueDocument();
+            trueDoc = { bytes: built.bytes, pdf: await pdfjsLib.getDocument({ data: built.bytes.slice(), fontExtraProperties: true }).promise };
             let bytes;
             try {
                 bytes = await buildNup('vector');
@@ -10594,9 +10532,10 @@
                 bytes = await buildNup('image');   // works on any compression
             }
             // Apply IN the editor - don't force a download.
-            await _reloadFromBytes(bytes, n + '-up layout applied - keep editing, then Save when ready');
+            await _reloadFromBytes(bytes, n + '-up layout applied - keep editing, then Save when ready', { clearMarkups: true, page: 1 });
             showToast('Created a ' + n + ' pages-per-sheet layout - download it with Save when ready');
         } catch (err) { console.error(err); showToast('N-up failed: ' + err.message); }
+        finally { if (trueDoc && trueDoc.pdf) { try { trueDoc.pdf.destroy(); } catch (_) {} } }
     }
     window.nUpTool = nUpTool;
 
@@ -10805,13 +10744,14 @@
             await page.render({ canvasContext: ctx, viewport: vp }).promise;
             // flatten this page's saved annotations on top (read-only preview)
             const entry = state.annotations[el.page];
-            const objs = entry && (entry.fabricData || entry).objects;
-            if (objs && objs.length) {
+            const filter = _markupFilter();
+            const objs = _entryObjects(entry).filter(o => filter.isInk(o) || filter.isRedaction(o));
+            if (objs.length) {
                 const f = vp.width / page.getViewport({ scale: (entry.zoom || 1) }).width;
-                const insts = await new Promise((res) => fabric.util.enlivenObjects(objs.filter(o => !o.excludeFromExport), res));
+                const insts = await _enliven(objs);
                 const tmp = new fabric.StaticCanvas(null, { width: el.canvas.width, height: el.canvas.height });
                 tmp.setZoom(f);
-                insts.forEach(o => { if (o) tmp.add(o); });
+                insts.forEach(o => { if (o) { o.visible = true; tmp.add(o); } });
                 tmp.renderAll();
                 ctx.drawImage(tmp.lowerCanvasEl, 0, 0, el.canvas.width, el.canvas.height);
             }
@@ -10835,6 +10775,7 @@
 
     function setScrollMode(on) {
         if (!state.pdfDoc) return;
+        let rendered = Promise.resolve();
         _scrollOn = on;
         const cw = dom.canvasWrapper;
         const btn = document.getElementById('scrollModeBtn');
@@ -10852,6 +10793,12 @@
                     dom.canvasScrollWrapper.scrollTop = _savedScrollTop;
                 }
                 _reattachScrollHandler();
+                // The kept pages were drawn before this edit: redraw any with markups.
+                for (const el of _scrollEls) {
+                    if (!state.annotations[el.page]) continue;
+                    el.rendered = false;
+                    renderScrollPage(el.page - 1);
+                }
             } else {
                 buildScrollView();  // first time (or torn down): build it
             }
@@ -10866,7 +10813,7 @@
             }
             if (existing) existing.style.display = 'none';
             if (cw) cw.style.display = '';
-            renderPage(state.currentPage);
+            rendered = renderPage(state.currentPage);
             // Reset the scroll position to the top of the single page. Coming
             // from a scrolled-down continuous view, the wrapper kept its old
             // scrollTop, so the edited page appeared stuck at its bottom. Reset
@@ -10879,6 +10826,7 @@
             setStatus('Edit mode — page ' + state.currentPage);
         }
         if (btn) btn.classList.toggle('active', on);
+        return rendered;
     }
     window.setScrollMode = setScrollMode;
     window.isScrollMode = () => _scrollOn;
@@ -11997,6 +11945,7 @@ Rewritten text:`;
     //  AI PAGE TEXT REPLACE (stanza / paragraph edit)
     // ═══════════════════════════════════════════════════
     async function aiReplaceText() {
+        await _exitScrollForOp();
         const findText    = dom.aiReplaceFind.value.trim();
         const instruction = dom.aiReplaceInstruction.value.trim();
 
@@ -12564,6 +12513,7 @@ Replacement:`;
         const list = [...files].filter(f => /^image\/(png|jpe?g)$/i.test(f.type));
         if (!list.length) { showToast('Choose PNG or JPG images'); return; }
         setStatus('Adding ' + list.length + ' image' + (list.length > 1 ? 's' : '') + ' to the PDF...');
+        pushDocSnapshot('Add images');
         try {
             const { PDFDocument } = PDFLib;
             const src = state.pdfBytes instanceof ArrayBuffer ? new Uint8Array(state.pdfBytes) : state.pdfBytes;
@@ -12578,7 +12528,8 @@ Replacement:`;
                 page.drawImage(emb, { x: 0, y: 0, width: w, height: h });
             }
             const out = await doc.save();
-            await loadPDF(new File([out], state.fileName || 'document.pdf', { type: 'application/pdf' }));
+            // New pages go on the end: every existing page, and its markups, stays put.
+            await _reloadFromBytes(out, null);
             setStatus('Added ' + list.length + ' image page' + (list.length > 1 ? 's' : '') + ' — click "Save" to keep them');
             showToast('Images added as new pages');
         } catch (err) {
