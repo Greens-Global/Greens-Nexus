@@ -349,17 +349,32 @@ const CHUNK_EXEMPT = {
   // Aug 4, 2026 - if this grows, prefer converting HEIC server-side (pillow +
   // pillow-heif) over raising this number again.
   'vendor-heic': 1400,
-  // The whiteboard engine (Notes boards, Neil 11/02/2026). Its main file is
-  // one 1.8 MB module the package does not split; it is reached only by the
-  // lazy import in notes/board/engine/index.js (loadEngine), never on first
-  // paint. Measured
-  // 11/02/2026: 2,961 KB (3,031 kB in the build log). If it grows past this,
-  // look for a new engine dependency leaking in before touching the number.
-  'vendor-excalidraw': 3200,
+  // vendor-react is the catch-all for every node_modules file no other rule
+  // names (vite.config.js). 11/02/2026: the whiteboard engine's shared
+  // dependencies (@radix-ui, @floating-ui, zustand, jotai, tslib...) landed
+  // here once the engine lost its manual chunk - 875 -> 1,005 KB, all on
+  // first paint. Accepted for the 2.7 MB first-paint win that change made;
+  // the follow-up is a home for those engine-only libraries that does not
+  // pull the engine's static tree with it (see the vite.config.js note).
+  'vendor-react': 1100,
+  // The whiteboard engine (Notes boards) has no manual chunk since 11/02/2026
+  // (see vite.config.js); rolldown's own split is excalidraw-nx2-* at about
+  // 540 KB, under the ordinary cap, and the first-paint guard below is what
+  // keeps it off the entry.
 };
-const capFor = (file) => {
+// Exemptions by CONTENT, for chunks rolldown names by hash. The whiteboard
+// engine's font subsetting payload (a harfbuzz build plus woff2 tables as
+// base64, about 1.8 MB) is reached only from the engine's own export code,
+// two dynamic imports deep, never on first paint (the guard below proves it).
+const CONTENT_EXEMPT = [
+  { why: 'whiteboard engine font subsetting (harfbuzz + woff2)', cap: 2000,
+    test: (src) => /harfbuzz/.test(src) && /woff2/.test(src) },
+];
+const capFor = (file, src = '') => {
   const hit = Object.keys(CHUNK_EXEMPT).find((k) => file.startsWith(k));
-  return hit ? CHUNK_EXEMPT[hit] : PER_CHUNK_KB;
+  if (hit) return CHUNK_EXEMPT[hit];
+  const byContent = CONTENT_EXEMPT.find((e) => e.test(src));
+  return byContent ? byContent.cap : PER_CHUNK_KB;
 };
 
 let total = 0;
@@ -368,29 +383,36 @@ for (const f of readdirSync(DIST)) {
   if (!f.endsWith('.js')) continue;
   const kb = statSync(join(DIST, f)).size / 1024;
   total += kb;
-  const cap = capFor(f);
+  const cap = capFor(f, kb > PER_CHUNK_KB ? readFileSync(join(DIST, f), 'utf8') : '');
   if (kb > cap) offenders.push(`${f}: ${Math.round(kb)} KB (budget ${cap} KB)`);
 }
 
 if (total > TOTAL_KB) offenders.push(`TOTAL JS: ${Math.round(total)} KB (budget ${TOTAL_KB} KB)`);
 
-// The whiteboard engine is meant to be reached by import() alone
-// (notes/board/engine/index.js). Measured 11/02/2026: it is NOT - on rolldown
-// the vendor-excalidraw manual chunk pulls the engine's shared dependencies
-// (react/jsx-runtime, @radix-ui/*, @floating-ui/*, tslib, lodash.throttle,
-// zustand...) in with it (advancedChunks.includeDependenciesRecursively,
-// default true), so the entry and ~230 chunks import the 3 MB chunk
-// statically and it ships on first paint. Neither budget above sees that.
-// Reported here, not failed: the cure is moving the whole manualChunks map
-// in vite.config.js to advancedChunks groups with priorities (any
-// advancedChunks setting makes rolldown ignore manualChunks, so it is all or
-// nothing) - a deliberate change for Neil, not a side effect of a feature
-// PR. The entry's preload map may NAME the chunk; only `from "./vendor-
-// excalidraw..."` / `import "./vendor-excalidraw..."` is a static import.
-const STATIC_ENGINE_IMPORT = /(?:from|import)\s*["']\.\/vendor-excalidraw/;
-const engineImporters = readdirSync(DIST).filter((f) => f.endsWith('.js') && STATIC_ENGINE_IMPORT.test(readFileSync(join(DIST, f), 'utf8')));
-if (engineImporters.some((f) => /^index-.*\.js$/.test(f))) {
-  console.warn(`bundle note: the entry and ${engineImporters.length - 1} other chunks import vendor-excalidraw statically (the engine ships on first paint) - see the note in scripts/check-bundle-size.mjs`);
+// First-paint budget (11/02/2026): everything the entry imports STATICALLY,
+// followed through every chunk it reaches the same way, is what every person
+// downloads before Nexus draws anything. A lazy chunk that gets pulled into
+// that graph by a shared dependency ships on first paint even though its
+// size looks fine above - the whiteboard engine did exactly that (5,448 KB
+// first paint with its manual chunk, 2,628 KB without). `from "./x.js"` and
+// `import "./x.js"` are static; an import() or a preload list is not.
+const FIRST_PAINT_KB = 3000;
+const jsFiles = readdirSync(DIST).filter((f) => f.endsWith('.js'));
+const srcOf = Object.fromEntries(jsFiles.map((f) => [f, readFileSync(join(DIST, f), 'utf8')]));
+const staticImports = (f) => {
+  const out = new Set(); const re = /(?:from|import)\s*["']\.\/([^"']+\.js)["']/g; let m;
+  while ((m = re.exec(srcOf[f]))) out.add(m[1]);
+  return [...out];
+};
+const entry = jsFiles.find((f) => /^index-.*\.js$/.test(f));
+if (entry) {
+  const seen = new Set([entry]); const queue = [entry];
+  while (queue.length) { const f = queue.pop(); for (const d of staticImports(f)) if (srcOf[d] && !seen.has(d)) { seen.add(d); queue.push(d); } }
+  const firstPaint = [...seen].reduce((a, f) => a + statSync(join(DIST, f)).size / 1024, 0);
+  const engine = [...seen].find((f) => /excalidraw/.test(f));
+  if (engine) offenders.push(`FIRST PAINT pulls the whiteboard engine in statically (${engine}) - see vite.config.js`);
+  if (firstPaint > FIRST_PAINT_KB) offenders.push(`FIRST PAINT JS: ${Math.round(firstPaint)} KB over ${seen.size} chunks (budget ${FIRST_PAINT_KB} KB)`);
+  console.log(`first paint: ${Math.round(firstPaint)} KB over ${seen.size} chunks (cap ${FIRST_PAINT_KB} KB)`);
 }
 
 if (offenders.length) {

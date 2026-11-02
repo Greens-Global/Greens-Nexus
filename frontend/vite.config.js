@@ -193,26 +193,22 @@ export default defineConfig(({ command }) => ({
         // Split vendors into separate cached chunks — same approach as Amazon, Netflix, etc.
         // Each chunk loads in parallel and is cached independently by the browser.
         manualChunks(id) {
-          // The whiteboard engine (Notes boards, Neil 11/02/2026): the package
-          // and the libraries only it uses, in one lazy chunk reached by
-          // notes/board/engine/index.js's import() of the adapter
-          // (engine/excalidraw.jsx, the one file that imports the package)
-          // alone - never on first paint. Its small shared-looking deps
-          // (clsx, nanoid, pako, lodash.*, @radix-ui/*) stay in the catch-all
-          // so no other chunk ever has to pull this one in to reach them. The
-          // adapter module itself is NOT listed here: on rolldown a manual
+          // The whiteboard engine (Notes boards, Neil 11/02/2026) has NO manual
+          // chunk on purpose. It is reached only by the import() in
+          // notes/board/engine/index.js (the adapter, engine/excalidraw.jsx,
+          // is the one file that imports the package), and left alone rolldown
+          // splits that import into its own lazy chunk (excalidraw-nx2-*, about
+          // 540 KB plus the shared pieces in their usual chunks). A manual
+          // 'vendor-excalidraw' chunk did the opposite: on rolldown a manual
           // chunk takes a module's whole static tree with it
-          // (advancedChunks.includeDependenciesRecursively, default true), and
-          // the adapter imports scene.js and boardSync.js (yjs) - listing it
-          // dragged them, and every chunk that needs them, onto this 3 MB
-          // chunk (measured 11/02/2026). The same pull already puts the
-          // engine's shared React-side deps (react/jsx-runtime, @radix-ui,
-          // tslib...) in here, so the entry imports this chunk statically
-          // today - check-bundle-size.mjs reports it; the cure is moving this
-          // whole map to advancedChunks groups with priorities (Neil's call).
-          // Budget: check-bundle-size.mjs CHUNK_EXEMPT['vendor-excalidraw'].
-          if (id.includes(EXCALIDRAW_LOCALE_STUB) || id.includes(EXCALIDRAW_MERMAID_STUB) || id.includes('node_modules/@excalidraw/')
-            || /node_modules\/(roughjs|points-on-curve|perfect-freehand|jotai|jotai-scope|tunnel-rat|fractional-indexing|es6-promise-pool|browser-fs-access|image-blob-reduce|pica|png-chunk-text|png-chunks-encode|png-chunks-extract|open-color|fuzzy|@braintree\/sanitize-url|canvas-roundrect-polyfill)\//.test(id)) return 'vendor-excalidraw';
+          // (advancedChunks.includeDependenciesRecursively, default true), so it
+          // swallowed react/jsx-runtime, @radix-ui/*, tslib, lodash.* and 50
+          // other shared modules, every chunk that needed them imported the
+          // 3 MB chunk statically, and the engine shipped on FIRST PAINT for
+          // everyone. Measured 11/02/2026: entry static graph 5,448 KB with the
+          // manual chunk, 2,628 KB without. check-bundle-size.mjs now guards
+          // the first-paint graph (FIRST_PAINT_KB). Do not add one back.
+          if (id.includes(EXCALIDRAW_LOCALE_STUB) || id.includes(EXCALIDRAW_MERMAID_STUB) || id.includes('node_modules/@excalidraw/')) return undefined;
           if (id.includes('@azure/msal-browser') || id.includes('@azure/msal-react')) return 'vendor-msal';
           if (id.includes('@supabase/supabase-js'))  return 'vendor-supabase';
           if (id.includes('lucide-react'))            return 'vendor-icons';
