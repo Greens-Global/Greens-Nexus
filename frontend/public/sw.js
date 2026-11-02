@@ -31,7 +31,14 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const url = (event.notification.data && event.notification.data.url) || '/';
-  const target = new URL(url, self.location.origin).href;
+  // The payload's url is a Nexus screen, never another site: anything that
+  // resolves off this origin (an absolute link, a protocol-relative //host)
+  // opens Nexus home instead.
+  let target = new URL('/', self.location.origin).href;
+  try {
+    const parsed = new URL(url, self.location.origin);
+    if (parsed.origin === self.location.origin) target = parsed.href;
+  } catch { /* an unparsable url: home */ }
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     // An open Nexus window takes the tap: focus it and move it to the screen.

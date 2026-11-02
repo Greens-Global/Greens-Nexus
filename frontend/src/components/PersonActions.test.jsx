@@ -22,6 +22,17 @@ describe('PersonActions', () => {
     rerender(<PersonActions email="" name="Nobody" />);
     expect(container.firstChild).toBeNull();
   });
+  it('renders nothing for an address that is not in Nexus People (known={false}), e.g. a ticket mailed in from outside', () => {
+    const { container } = render(<PersonActions email="vendor@outside.com" name="vendor@outside.com" known={false} />);
+    expect(container.firstChild).toBeNull();
+  });
+  it('the pill variant carries the words Message and Call for the hover card row', () => {
+    render(<PersonActions email="ana@greensglobal.com" name="Ana Diaz" variant="pill" />);
+    const msg = screen.getByRole('link', { name: 'Message Ana Diaz on Teams' });
+    expect(msg.textContent.trim()).toBe('Message');
+    expect(screen.getByRole('link', { name: 'Call Ana Diaz on Teams' }).textContent.trim()).toBe('Call');
+    expect(msg.getAttribute('href')).toBe('https://teams.microsoft.com/l/chat/0/0?users=ana%40greensglobal.com');
+  });
   it('keeps a click from reaching the row behind it', () => {
     const onRow = vi.fn();
     render(<div onClick={onRow}><PersonActions email="a@x.com" name="A" call={false} /></div>);

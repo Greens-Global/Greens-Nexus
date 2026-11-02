@@ -80,7 +80,9 @@ vi.mock('../api', () => ({
   },
 }));
 
-const ShiftSchedule = (await import('./ShiftSchedule')).default;
+const ShiftScheduleModule = await import('./ShiftSchedule');
+const ShiftSchedule = ShiftScheduleModule.default;
+const { laborText } = ShiftScheduleModule;
 
 // jsdom has no PointerEvent; the grid drags and long-presses with pointer events.
 if (!window.PointerEvent) {
@@ -1399,17 +1401,29 @@ describe('Scheduled labor line', () => {
     timeSchedule.mockResolvedValue(data([shift()]));
     timeScheduleLabor.mockResolvedValue({ hours: 312, cost: 7840, currency: 'USD', payHidden: false, peopleWithoutRate: 2, fixedPayPeople: 1, days: [] });
     const { unmount } = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
-    const line = await screen.findByText('Scheduled 312 h · $7,840 · 2 people without a rate · 1 on fixed pay');
-    expect(line.getAttribute('title')).toMatch(/net of unpaid breaks/);
+    const line = await screen.findByText('Scheduled 312 h · $7,840 · 2 people without a rate · 1 person on fixed pay');
+    expect(line.getAttribute('title')).toBe('Scheduled hours for your team, published and draft shifts together, not counting unpaid breaks, at each person\'s hourly rate for that day. People on fixed pay are counted in the hours, not the cost.');
     expect(timeScheduleLabor).toHaveBeenCalledWith(expect.any(String), expect.any(String));
     unmount();
     timeScheduleLabor.mockResolvedValue({ hours: 8.5, cost: null, currency: 'USD', payHidden: true, peopleWithoutRate: null, fixedPayPeople: null, days: [] });
     const r2 = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
-    expect(await screen.findByText('Scheduled 8.5 h')).toBeTruthy();
+    const hidden = await screen.findByText('Scheduled 8.5 h');
+    expect(hidden.getAttribute('title')).toBe('Scheduled hours for your team, published and draft shifts together, not counting unpaid breaks.');
     r2.unmount();
     timeScheduleLabor.mockResolvedValue({ hours: 0, cost: 0, currency: 'USD', payHidden: false, peopleWithoutRate: 0, fixedPayPeople: 0, days: [] });
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
     await screen.findByText('Amy Adams');
     expect(document.querySelector('[data-labor-line]')).toBeNull();
+  });
+
+  it('laborText: thousands separators, one person / several people, and a scope across currencies printed per currency', () => {
+    expect(laborText({ hours: 1250, cost: 98400, currency: 'USD', payHidden: false, peopleWithoutRate: 1, fixedPayPeople: 3 }))
+      .toBe('Scheduled 1,250 h · $98,400 · 1 person without a rate · 3 people on fixed pay');
+    expect(laborText({ hours: 1250.5, cost: 12.5, currency: 'USD', payHidden: false })).toBe('Scheduled 1,250.5 h · $12.50');
+    // Mixed currencies: the server sends no total; each currency stands alone.
+    expect(laborText({ hours: 400, cost: null, currency: '', costs: { USD: 7840, INR: 52000 }, payHidden: false, fixedPayPeople: 1 }))
+      .toBe('Scheduled 400 h · $7,840 and ₹52,000 · 1 person on fixed pay');
+    // No total and one currency (nothing priced yet): hours only.
+    expect(laborText({ hours: 40, cost: null, currency: 'USD', costs: {}, payHidden: false })).toBe('Scheduled 40 h');
   });
 });

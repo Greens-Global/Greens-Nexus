@@ -33,10 +33,10 @@ const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ea
 // opens on Task Emails.
 const SECTIONS = [
   ['appearance', 'Appearance', Palette],
-  ['push', 'Phone Notifications', Smartphone],
   ['time', 'Date & Time', CalendarDays],
   ['signature', 'Email Signature', Signature],
   ['email', 'Task Emails', Mail],
+  ['push', 'Phone Notifications', Smartphone],
 ];
 
 export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme, setWkTheme, sidebarPinned, onSidebarPinnedChange, focusEmail = false }) {
@@ -280,9 +280,10 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             : installer.canInstall ? <button type="button" className="primary-btn" style={{ fontSize: 12.5 }} onClick={() => installer.install()}>Install</button>
               : null} />
         <SwitchRow id="profile-push" title="Push to This Device"
-          desc={!pushSub.supported ? 'Not available in this browser. On an iPhone, install Nexus first and open it from the home screen.'
+          desc={!pushSub.supported ? (installer.isStandalone ? 'Not available on this phone. Update it to iOS 16.4 or later.'
+            : 'Not available in this browser. On an iPhone, install Nexus first and open it from the home screen.')
             : !pushSub.loaded ? 'Checking...'
-              : !pushSub.enabled ? 'Not set up yet - the server has no push keys.'
+              : !pushSub.enabled ? 'Not set up for the company yet. Ask your administrator.'
                 : pushSub.permission === 'denied' ? 'Notifications are blocked for Nexus in this browser. Allow them in the browser or phone settings, then turn this on.'
                   : pushSub.error ? pushSub.error
                     : pushSub.subscribed ? 'The same notices as your bell, as notifications on this device.'

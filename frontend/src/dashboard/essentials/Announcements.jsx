@@ -19,10 +19,10 @@
 // signed viewer; Ctrl+V pastes a picture), be published later (Publish Later:
 // a DateField + 12-hour TimeField, sent as an ISO instant; administrators
 // see "Scheduled for ..." and staff see nothing until then) and say how the
-// audience hears about it (Notify: Quiet / Push And Teams / Email - the bell
+// audience hears about it (Notify: Bell / Bell and Teams / Bell and Email - the bell
 // always rings). Administrators read who acknowledged in the meta line.
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Megaphone, Pin, Plus, ChevronDown, ChevronUp, ImagePlus, Paperclip, X, CalendarClock } from 'lucide-react';
+import { Megaphone, Pin, Plus, ChevronDown, ChevronUp, Image, ImagePlus, Paperclip, X, CalendarClock } from 'lucide-react';
 
 import { api } from '../../api';
 import { LoadingState } from '../../components/AsyncState';
@@ -45,11 +45,12 @@ const EMPTY_FORM = {
 };
 const UPLOAD_FOLDER = 'announcements';
 const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const NARROW_PX = 520;
 const FILE_MAX_BYTES = 25 * 1024 * 1024;
 export const NOTIFY_OPTIONS = [
-  { value: 'quiet', label: 'Quiet (Bell Only)' },
-  { value: 'push_teams', label: 'Push And Teams' },
-  { value: 'email', label: 'Email' },
+  { value: 'quiet', label: 'Bell' },
+  { value: 'push_teams', label: 'Bell and Teams' },
+  { value: 'email', label: 'Bell and Email' },
 ];
 
 const linkBtn = { background: 'none', border: 'none', padding: 0, color: 'var(--wk-brand, var(--brand, #2563eb))', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' };
@@ -78,7 +79,10 @@ export function ackSummary(a) {
   if (!count) return '';
   if (!names.length) return `Acknowledged by ${count}`;
   const rest = count - names.length;
-  return `Acknowledged by ${names.join(', ')}${rest > 0 ? ` and ${rest} more` : ''}`;
+  // Two names and nobody else: "Ana Diaz and Bob Lee"; otherwise a comma list
+  // with the remainder counted.
+  const list = rest > 0 ? names.join(', ') : names.length === 2 ? names.join(' and ') : names.join(', ');
+  return `Acknowledged by ${list}${rest > 0 ? ` and ${rest} more` : ''}`;
 }
 
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -228,7 +232,8 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
   // The admin links sit in the meta line: 36px tall on a phone (a 16px text
   // link is not a tap target), inline text on a desktop.
   const metaLink = isMobile ? { ...linkBtn, minHeight: 36, padding: '0 6px', display: 'inline-flex', alignItems: 'center' } : linkBtn;
-  const meta = [a.author_name || a.author_email, formatDate(a.created_at)].filter(Boolean).join(' - ');
+  // A scheduled post is dated by the day it published, not the day it was written.
+  const meta = [a.author_name || a.author_email, formatDate(a.shown_at || a.created_at)].filter(Boolean).join(' - ');
   const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
   const acks = isAdmin ? ackSummary(a) : '';
   return (
@@ -258,7 +263,7 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
             {a.body}
           </span>
           {expanded && a.image_url && (
-            <img src={toViewUrl(a.image_url)} alt="" data-testid="ann-image"
+            <img src={toViewUrl(a.image_url)} alt={`Picture for ${a.title}`} data-testid="ann-image"
               style={{ display: 'block', marginTop: 8, maxWidth: '100%', maxHeight: 280, borderRadius: 8, border: '1px solid var(--line, #e5e7eb)' }} />
           )}
           {a.file_url && (
@@ -270,7 +275,7 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
           <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 12px', fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
             <span>{meta}</span>
             {a.pinned && a.pinned_until && <span>Pinned until {formatDate(a.pinned_until)}</span>}
-            {!expanded && a.image_url && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><ImagePlus size={11} /> Picture</span>}
+            {!expanded && a.image_url && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Image size={11} /> Picture</span>}
             {isAdmin && a.scheduled && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'hsl(var(--color-orange))', fontWeight: 600 }}>
                 <CalendarClock size={12} /> Scheduled for {formatDateTime(a.publish_at)}
@@ -339,6 +344,9 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
   const attach = async (file, kind) => {
     if (!file) return;
     if (kind === 'image' && !file.type?.startsWith('image/')) { setErr('That file is not a picture.'); return; }
+    // Size first, in a sentence - the uploader's own refusal is terse.
+    if (kind === 'image' && file.size > IMAGE_MAX_BYTES) { setErr('That picture is larger than 10 MB.'); return; }
+    if (kind === 'file' && file.size > FILE_MAX_BYTES) { setErr('That file is larger than 25 MB.'); return; }
     setErr(''); setUpload({ kind, pct: 0 });
     try {
       const folder = `${UPLOAD_FOLDER}/${editingId || 'new'}`;
@@ -361,6 +369,17 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
   // on a row that may be far below it - bring the form into view.
   const formRef = useRef(null);
   useEffect(() => { formRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); }, [editingId]);
+  // The tile can sit in a one-third desktop column: under 520px the paired
+  // rows (Audience | Pinned Until, Notify | Publish Later) stack like a phone.
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const el = formRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver((entries) => { const w = entries[0]?.contentRect?.width || 0; setNarrow(w > 0 && w <= NARROW_PX); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const stack = isMobile || narrow;
 
   const submit = async (e) => {
     e.preventDefault();
@@ -415,7 +434,7 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
           onChange={(e) => { attach(e.target.files?.[0], 'file'); e.target.value = ''; }} />
         {form.image_url ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <img src={toViewUrl(form.image_url)} alt="" data-testid="ann-image-preview" style={{ width: 56, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)' }} />
+            <img src={toViewUrl(form.image_url)} alt="Picture to post" data-testid="ann-image-preview" style={{ width: 56, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)' }} />
             <button type="button" onClick={() => setForm(f => ({ ...f, image_url: '' }))} aria-label="Remove picture" style={{ ...linkBtn, display: 'inline-flex', alignItems: 'center', gap: 3, ...tap }}><X size={12} /> Remove Picture</button>
           </span>
         ) : (
@@ -433,9 +452,9 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
             <Paperclip size={13} /> {upload?.kind === 'file' ? `Uploading ${Math.round((upload.pct || 0) * 100)}%` : 'Add File'}
           </button>
         )}
-        {!form.image_url && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or press Ctrl+V in the body to paste a picture</span>}
+        {!form.image_url && !isMobile && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or press Ctrl+V in the body to paste a picture</span>}
       </div>
-      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10 }}>
+      <div style={{ display: 'flex', flexDirection: stack ? 'column' : 'row', gap: 10 }}>
         <label style={{ flex: 1 }}>
           <span style={labelStyle}>Audience</span>
           <select value={form.audience} onChange={set('audience')} style={{ ...field, ...tap }}>
@@ -454,14 +473,14 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
           <DateField value={form.pinned_until} onChange={(v) => setForm(f => ({ ...f, pinned_until: v || '' }))} placeholder="Not pinned" title="Pinned until" style={{ ...field, ...tap }} />
         </label>
       </div>
-      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10 }}>
+      <div style={{ display: 'flex', flexDirection: stack ? 'column' : 'row', gap: 10 }}>
         <label style={{ flex: 1 }}>
           <span style={labelStyle}>Notify</span>
           <select value={form.notify} onChange={set('notify')} aria-label="Notify" style={{ ...field, ...tap }}>
             {NOTIFY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
-            Everyone gets a bell. Push reaches people who installed Nexus on their phone; Teams and email reach everyone.
+            Everyone in the audience gets a bell, and a phone notification if they installed Nexus. Teams sends each person a message as you; Email sends a mail.
           </span>
         </label>
         <div style={{ flex: 1 }}>
@@ -486,7 +505,7 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
         </div>
       </div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ink)', ...tap }}>
-        <input type="checkbox" checked={!!form.requires_ack} onChange={set('requires_ack')} /> Requires acknowledgment
+        <input type="checkbox" checked={!!form.requires_ack} onChange={set('requires_ack')} /> Requires Acknowledgment
       </label>
       {err && <div role="alert" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>{err}</div>}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>

@@ -86,20 +86,35 @@ export function urlBase64ToUint8Array(base64) {
   return out;
 }
 
+// Chrome / Edge / Android fire `beforeinstallprompt` ONCE, during page load,
+// long before My Profile mounts - so the event is caught here, at module load
+// (main.jsx imports this file first thing), and the hook reads the kept event.
+let deferredPrompt = null;
+const promptWatchers = new Set();
+function notifyPromptWatchers() { promptWatchers.forEach((fn) => { try { fn(deferredPrompt); } catch { /* a watcher that unmounted mid-call */ } }); }
+if (hasWindow()) {
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; notifyPromptWatchers(); });
+  window.addEventListener('appinstalled', () => { deferredPrompt = null; notifyPromptWatchers(); });
+}
+/** Test seam: forget a kept prompt. */
+export function _resetInstallPrompt() { deferredPrompt = null; }
+
 /** Install Nexus to the home screen. `canInstall` only ever turns on where the
  *  browser offered a prompt (Chrome, Edge, Android); iOS is `isIos` + not
  *  standalone, which the UI turns into the Share > Add to Home Screen hint. */
 export function useInstallPrompt() {
-  const [deferred, setDeferred] = useState(null);
+  const [deferred, setDeferred] = useState(() => deferredPrompt);
   const [standalone, setStandalone] = useState(isStandalone);
   useEffect(() => {
     if (!hasWindow()) return undefined;
-    const onPrompt = (e) => { e.preventDefault(); setDeferred(e); };
+    // A prompt that fired before this render (the usual case), or a re-fire later.
+    setDeferred(deferredPrompt);
+    const watch = (ev) => setDeferred(ev);
+    promptWatchers.add(watch);
     const onInstalled = () => { setDeferred(null); setStandalone(true); };
-    window.addEventListener('beforeinstallprompt', onPrompt);
     window.addEventListener('appinstalled', onInstalled);
     return () => {
-      window.removeEventListener('beforeinstallprompt', onPrompt);
+      promptWatchers.delete(watch);
       window.removeEventListener('appinstalled', onInstalled);
     };
   }, []);
@@ -108,39 +123,92 @@ export function useInstallPrompt() {
     try {
       deferred.prompt();
       const choice = await deferred.userChoice;
-      if (choice?.outcome === 'accepted') { setDeferred(null); return 'accepted'; }
+      if (choice?.outcome === 'accepted') { deferredPrompt = null; setDeferred(null); return 'accepted'; }
       return 'dismissed';
     } catch { return 'unavailable'; }
   }, [deferred]);
   return { canInstall: !!deferred && !standalone, install, isStandalone: standalone, isIos: isIos() };
 }
 
+export const SUBSCRIBE_ERROR = 'Could not turn this on. Try again, or reload Nexus.';
+
+function readPermission() {
+  try { return hasWindow() && 'Notification' in window ? Notification.permission : 'default'; } catch { return 'default'; }
+}
+
+/** The server's copy of THIS browser's subscription, by endpoint: `none` (the
+ *  server never heard of it, or dropped it), `disabled` (it failed too often),
+ *  or `ok`. Any other person's rows are not in the list, so a device another
+ *  person signed in on reads `none` too and is re-posted under the caller. */
+async function serverStateFor(endpoint) {
+  const rows = await api.pushSubscriptions();
+  const list = Array.isArray(rows) ? rows : (rows?.subscriptions || rows?.items || []);
+  const mine = list.find((r) => r && r.endpoint === endpoint);
+  if (!mine) return 'none';
+  return mine.disabled ? 'disabled' : 'ok';
+}
+
+async function postSubscription(sub) {
+  const json = sub.toJSON();
+  await api.pushSubscribe({ endpoint: json.endpoint, keys: json.keys, userAgent: navigator.userAgent || '' });
+}
+
 /** Push on this device. `enabled` is the server (keys present); `subscribed`
- *  is this browser's own subscription, checked against the registration. */
+ *  is this browser's own subscription AND the server holding it - a browser
+ *  subscription the server lacks (dropped after failures, or taken over by
+ *  another person who signed in here) is re-posted on load so the switch and
+ *  the server agree. */
 export function usePushSubscription() {
   const supported = pushSupported();
   const [enabled, setEnabled] = useState(false);
   const [publicKey, setPublicKey] = useState('');
   const [subscribed, setSubscribed] = useState(false);
-  const [permission, setPermission] = useState(() => (hasWindow() && 'Notification' in window ? Notification.permission : 'default'));
+  const [permission, setPermission] = useState(readPermission);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
 
+  // The person allows notifications in the browser's settings and comes back:
+  // read the permission again so the Blocked copy does not need a reload.
+  useEffect(() => {
+    if (!hasWindow()) return undefined;
+    const refresh = () => setPermission(readPermission());
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
+
   useEffect(() => {
     let alive = true;
     (async () => {
+      let on = false;
       try {
         const cfg = await api.pushConfig();
         if (!alive) return;
-        setEnabled(!!cfg?.enabled);
+        on = !!cfg?.enabled;
+        setEnabled(on);
         setPublicKey(cfg?.publicKey || '');
       } catch { /* the server did not answer; the row says not set up */ }
       if (supported) {
         try {
           const reg = await readyRegistration();
           const sub = reg ? await reg.pushManager.getSubscription() : null;
-          if (alive) setSubscribed(!!sub);
+          let have = false;
+          if (sub) {
+            let state = 'none';
+            try { state = await serverStateFor(sub.endpoint); } catch { state = 'unknown'; }
+            if (state === 'ok') have = true;
+            else if (state === 'unknown') have = true;      // the list did not answer; trust the browser
+            else if (on) {
+              // Self-heal: the browser is subscribed, the server is not (or
+              // disabled it) - post it again under this person.
+              try { await postSubscription(sub); have = true; } catch (e) { console.warn('[pwa] could not re-register this device:', e?.message || e); }
+            }
+          }
+          if (alive) setSubscribed(have);
         } catch { /* no registration here */ }
       }
       if (alive) setLoaded(true);
@@ -157,13 +225,23 @@ export function usePushSubscription() {
       if (perm !== 'granted') { setBusy(false); return false; }
       const reg = await readyRegistration();
       if (!reg) throw new Error('No service worker here.');
-      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
-      const json = sub.toJSON();
-      await api.pushSubscribe({ endpoint: json.endpoint, keys: json.keys, userAgent: navigator.userAgent || '' });
+      const opts = { userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) };
+      let sub;
+      try {
+        sub = await reg.pushManager.subscribe(opts);
+      } catch (e) {
+        // An older subscription made with another server key: drop it and try once more.
+        if (e?.name !== 'InvalidStateError') throw e;
+        const old = await reg.pushManager.getSubscription();
+        if (old) { try { await old.unsubscribe(); } catch { /* gone already */ } }
+        sub = await reg.pushManager.subscribe(opts);
+      }
+      await postSubscription(sub);
       setSubscribed(true);
       return true;
     } catch (e) {
-      setError(e?.message || 'Could not turn push on.');
+      console.warn('[pwa] subscribe failed:', e?.message || e);
+      setError(SUBSCRIBE_ERROR);
       return false;
     } finally { setBusy(false); }
   }, [supported, enabled, publicKey]);
@@ -180,7 +258,8 @@ export function usePushSubscription() {
       setSubscribed(false);
       return true;
     } catch (e) {
-      setError(e?.message || 'Could not turn push off.');
+      console.warn('[pwa] unsubscribe failed:', e?.message || e);
+      setError('Could not turn this off. Try again, or reload Nexus.');
       return false;
     } finally { setBusy(false); }
   }, []);

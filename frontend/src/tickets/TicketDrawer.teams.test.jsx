@@ -44,6 +44,22 @@ describe('Teams actions on a ticket', () => {
     expect(screen.getByRole('link', { name: 'Call Rita Req on Teams' })).toBeTruthy();
     expect(screen.queryByRole('link', { name: /Dan Desk on Teams/ })).toBeNull();
   });
+  it('shows nothing for a requester who is not in Nexus People (a ticket mailed in from outside)', async () => {
+    store.tickets = [{ ...TICKET, requesterId: 'vendor@outside.com' }];
+    render(<TicketDrawer ticketId="t27" onClose={() => {}} />);
+    await screen.findByText('vendor@outside.com');
+    expect(screen.queryByRole('link', { name: /on Teams/ })).toBeNull();
+    store.tickets = [TICKET];
+  });
+  it('the assignee\'s icons sit beside the picker, with no second copy of the name', async () => {
+    store.tickets = [{ ...TICKET, assigneeId: 'req@greensglobal.com', requesterId: 'desk@greensglobal.com' }];
+    render(<TicketDrawer ticketId="t27" onClose={() => {}} />);
+    const msg = await screen.findByRole('link', { name: 'Message Rita Req on Teams' });
+    // One "Rita Req" on the drawer's Assign To picker; the actions row adds none.
+    expect(screen.getAllByText('Rita Req').length).toBe(1);
+    expect(msg.closest('.nx-person-actions').parentElement.querySelector('button, input, [role="combobox"]')).toBeTruthy();
+    store.tickets = [TICKET];
+  });
   it('shows nothing for an external assignee', async () => {
     store.tickets = [{ ...TICKET, assigneeId: 'guest@partner.com' }];
     render(<TicketDrawer ticketId="t27" onClose={() => {}} />);

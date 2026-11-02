@@ -1356,16 +1356,26 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
               completes it for all (one row, one flag). */}
           <PersonMultiSelect value={taskAssignees(task)} people={people} addTitle="Add assignee"
             onChange={(list) => patch({ assigneeIds: list })} placeholder="Unassigned" />
-          {/* Message / Call each assignee on Teams (Frontline Reach, 11/02/2026). */}
-          {taskAssignees(task).filter((e) => e && e.toLowerCase() !== (myEmail || '').toLowerCase()).length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 6 }}>
-              {taskAssignees(task).map((e) => (
-                <span key={e} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--muted)' }}>
-                  <PersonActions email={e} name={nameOf(e)} external={!!people?.find((p) => (p.email || '').toLowerCase() === e.toLowerCase())?.external} myEmail={myEmail} size="sm" />
-                </span>
-              ))}
-            </div>
-          )}
+          {/* Message / Call each assignee on Teams (Frontline Reach, 11/02/2026):
+              the first name before each pair, so three assignees are not six
+              identical icons; only people in Nexus People, never yourself. */}
+          {(() => {
+            const rows = taskAssignees(task).map((e) => {
+              const p = people?.find((x) => (x.email || '').toLowerCase() === (e || '').toLowerCase());
+              return { e, p, show: !!p && !p.external && !!e && e.toLowerCase() !== (myEmail || '').toLowerCase() };
+            }).filter((r) => r.show);
+            if (!rows.length) return null;
+            return (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 6 }}>
+                {rows.map(({ e }) => (
+                  <span key={e} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--muted)' }}>
+                    <span>{(nameOf(e) || e).split(' ')[0]}</span>
+                    <PersonActions email={e} name={nameOf(e)} myEmail={myEmail} size="sm" />
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </Row>
 
