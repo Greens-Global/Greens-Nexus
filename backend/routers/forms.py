@@ -399,7 +399,7 @@ def fill_payload(tid: str, user: dict = Depends(get_current_user), db: Session =
     tpl = _fillable(db, tid, user)
     defs, version = _defs(db, tpl)
     company = auth.company_of(user["email"], db)
-    sites = [{"id": s.id, "name": s.name} for s in company_sites(db, company)]
+    sites = [{"id": s.id, "name": s.name, "lat": s.latitude, "lng": s.longitude} for s in company_sites(db, company)]
     out = _ser_form(tpl, version)
     out.update({"fieldDefs": defs, "sections": form_rules.sections(defs), "workSites": sites})
     return out

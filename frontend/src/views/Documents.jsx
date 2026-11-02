@@ -52,7 +52,9 @@ const CREATE_SUBS = { 'documents-new': 'documents-browse', 'documents-esign-send
 export default function Documents({ activeSub, onSubChange }) {
   // Deep-links: 'documents-esign' / 'documents-esign-requests' both live on the
   // E-Sign tab - ESign reads the raw activeSub to pick its own sub-tab.
-  const navSub = OLD_SUBS[activeSub] || CREATE_SUBS[activeSub] || (String(activeSub || '').startsWith('documents-esign') ? 'documents-esign' : activeSub);
+  const navSub = OLD_SUBS[activeSub] || CREATE_SUBS[activeSub] || (String(activeSub || '').startsWith('documents-esign') ? 'documents-esign'
+    // Forms (11/02/2026): 'documents-forms:entry:<id>' is the Forms tab with that entry open.
+    : String(activeSub || '').startsWith('documents-forms') ? 'documents-forms' : activeSub);
   const tabs = TABS;
   const sub = tabs.some(t => t.key === navSub) ? navSub : 'documents-browse';
   // The + menu's New Document asks the library to pop its create dialog open - a
@@ -177,7 +179,7 @@ export default function Documents({ activeSub, onSubChange }) {
 
       {sub === 'documents-forms' && (
         <Suspense fallback={<SkeletonBlocks count={6} height={44} />}>
-          <FormsTab toastOk={toastOk} toastErr={toastErr} />
+          <FormsTab toastOk={toastOk} toastErr={toastErr} activeSub={activeSub} />
         </Suspense>
       )}
 

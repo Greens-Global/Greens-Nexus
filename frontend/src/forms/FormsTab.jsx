@@ -117,7 +117,7 @@ function FormPanel({ template: t, onClose, onBuild, onChanged, toastOk, toastErr
 
 const SEGMENTS = [['templates', 'Templates'], ['entries', 'Entries']];
 
-export default function FormsTab({ toastOk, toastErr }) {
+export default function FormsTab({ toastOk, toastErr, activeSub = '' }) {
   const isMobile = useIsMobile();
   const [segment, setSegment] = useState(() => (takePendingOpen('form-entries') ? 'entries' : 'templates'));
   const [templates, setTemplates] = useState(null);
@@ -128,6 +128,11 @@ export default function FormsTab({ toastOk, toastErr }) {
   const [building, setBuilding] = useState('');
   const [creating, setCreating] = useState(false);
   const [entry, setEntry] = useState(() => { const id = takePendingOpen('form-entry'); return id ? { id } : null; });
+  // A bell or "Open the Entry" lands on documents-forms:entry:<id> (views/Documents.jsx).
+  useEffect(() => {
+    const m = /^documents-forms:entry:(.+)$/.exec(String(activeSub || ''));
+    if (m) { setSegment('entries'); setEntry({ id: m[1] }); }
+  }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [entriesKey, setEntriesKey] = useState(0);
 
   const load = () => api.getDocTemplates({}).then((rows) => setTemplates((rows || []).filter(isForm))).catch(() => setTemplates([]));

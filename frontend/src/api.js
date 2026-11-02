@@ -3415,6 +3415,7 @@ api.formTemplateCsv = (tid, params = {}) => {
 // retry files the same entry once. Photos and signatures go to task-files
 // under forms/<entryKey>/ first (tasks/lib storeTaskFile); the body carries
 // their URLs. body: {entryKey, answers, workSiteId?, shiftId?, source, gps?}.
-api.formsMine = () => req('/forms/mine');
-api.formGet = (templateId) => req(`/forms/${encodeURIComponent(templateId)}`);
-api.formSubmit = (templateId, body) => req(`/forms/${encodeURIComponent(templateId)}/entries`, { method: 'POST', body: JSON.stringify(body) });
+// The same three calls under the names the fill screen uses (one definition above).
+api.formsMine = (...a) => api.getFormsMine(...a);
+api.formGet = (...a) => api.getFormFill(...a);
+api.formSubmit = (...a) => api.submitFormEntry(...a);
