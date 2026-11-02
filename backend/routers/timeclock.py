@@ -7655,7 +7655,9 @@ def schedule_labor(start: str, end: str, user: dict = Depends(require_schedule_w
     rate counts in `peopleWithoutRate`. Published and draft shifts are split
     as well as summed. Cancelled (weather) days, shifts being removed and
     open shifts (nobody to price) are left out. The manager tier never sees
-    pay (_pay_hidden): they get hours only, `payHidden: true`."""
+    pay (_pay_hidden): they get hours only, `payHidden: true`. People paid in
+    more than one currency: `cost` is null, `currency` '', `costs` per
+    currency (a sum across currencies is not a number)."""
     d0 = _parse_day(start, "start date")
     d1 = _parse_day(end, "end date")
     if d1 < d0:
@@ -7708,7 +7710,13 @@ def schedule_labor(start: str, end: str, user: dict = Depends(require_schedule_w
     hours = lambda m: round(m / 60.0, 2)   # noqa: E731
     total_min = sum(d["min"] for d in days.values())
     total_cost = round(sum(d["cost"] for d in days.values()), 2)
-    currency = max(currencies, key=currencies.get) if currencies else "USD"
+    # One currency: the total is priced in it. Several: there is no honest
+    # single number ($ and Rs do not add), so `cost` is null and `costs` holds
+    # each; the planner prints the parts.
+    mixed = len(currencies) > 1
+    currency = "" if mixed else (next(iter(currencies)) if currencies else "USD")
+    if mixed:
+        total_cost = None
     out = {
         "start": d0.isoformat(), "end": d1.isoformat(),
         "hours": hours(total_min), "payHidden": pay_hidden,
