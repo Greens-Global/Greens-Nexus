@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MapPin } from 'lucide-react';
 import { api } from '../api';
+import { setPendingOpen } from '../lib/pendingOpen';
 import { formatDateTime } from '../lib/datetime';
 import { StatusLabel } from '../components/StatusLabel';
 import { PanelShell, saveBlob } from '../components/DocumentSidePanel';
@@ -16,6 +17,15 @@ import { TicketComposer, TaskComposer } from './entryMounts';
 import { REVIEW_ACTIONS, entryState, entryTitle, entryBody, entryFiles, formatAnswer, groupBySection, mapsLink } from './formsModel';
 
 const go = (view, detail) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, ...detail } }));
+// The linked ticket / task opens itself, not just its module - both halves of
+// the bell's handoff (components/NotificationBell.jsx, lib/pendingOpen.js):
+// the note for a module still loading, the event for one already up.
+const openLinked = (kind, id) => {
+  const detail = kind === 'ticket' ? { ticketId: id } : { taskId: id };
+  go(kind === 'ticket' ? 'tickets' : 'tasks', detail);
+  setPendingOpen(kind, id);
+  setTimeout(() => window.dispatchEvent(new CustomEvent(`nexus:open-${kind}`, { detail })), 0);
+};
 
 function Photos({ label, urls, onOpen }) {
   return (
@@ -237,8 +247,8 @@ export default function EntryPanel({ entry: given, onClose, onChanged, toastOk, 
       </div>
       {(entry.linkedTicketId || entry.linkedTaskId || entry.linkedAssetId) && (
         <div className="nx-dl-actions" aria-label="Linked records">
-          {entry.linkedTicketId && <button type="button" className="secondary-btn" onClick={() => go('tickets', { ticketId: entry.linkedTicketId })}>Open Ticket</button>}
-          {entry.linkedTaskId && <button type="button" className="secondary-btn" onClick={() => go('tasks', { taskId: entry.linkedTaskId })}>Open Task</button>}
+          {entry.linkedTicketId && <button type="button" className="secondary-btn" onClick={() => openLinked('ticket', entry.linkedTicketId)}>Open Ticket</button>}
+          {entry.linkedTaskId && <button type="button" className="secondary-btn" onClick={() => openLinked('task', entry.linkedTaskId)}>Open Task</button>}
           {entry.linkedAssetId && <button type="button" className="secondary-btn" onClick={() => go('property-asset', { sub: `a:${entry.linkedAssetId}:overview` })}>Open Asset</button>}
         </div>
       )}

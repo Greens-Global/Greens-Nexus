@@ -34,6 +34,7 @@ vi.mock('./entryMounts', () => ({
 }));
 
 const EntryPanel = (await import('./EntryPanel')).default;
+const { takePendingOpen } = await import('../lib/pendingOpen');
 
 const TEMPLATE = {
   id: 'f1', name: 'Vehicle Check', docType: 'form', fieldDefs: [
@@ -176,5 +177,23 @@ describe('Entry panel', () => {
     open();
     const panel = await screen.findByRole('complementary');
     expect(await within(panel).findByText('48210')).toBeTruthy();
+  });
+  it('Open Ticket / Open Task land on the record itself, not just its module', async () => {
+    open({ linkedTicketId: 'tk-7', linkedTaskId: 'ta-3' });
+    const seen = [];
+    const listen = (e) => seen.push([e.type, e.detail]);
+    for (const t of ['nexus:navigate', 'nexus:open-ticket', 'nexus:open-task']) window.addEventListener(t, listen);
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: 'Open Ticket' }));
+      expect(takePendingOpen('ticket')).toBe('tk-7');
+      fireEvent.click(screen.getByRole('button', { name: 'Open Task' }));
+      expect(takePendingOpen('task')).toBe('ta-3');
+      await waitFor(() => expect(seen.map(([t]) => t)).toEqual(expect.arrayContaining(['nexus:open-ticket', 'nexus:open-task'])));
+      expect(seen).toContainEqual(['nexus:open-ticket', { ticketId: 'tk-7' }]);
+      expect(seen).toContainEqual(['nexus:open-task', { taskId: 'ta-3' }]);
+      expect(seen.find(([t]) => t === 'nexus:navigate')[1]).toMatchObject({ view: 'tickets' });
+    } finally {
+      for (const t of ['nexus:navigate', 'nexus:open-ticket', 'nexus:open-task']) window.removeEventListener(t, listen);
+    }
   });
 });
