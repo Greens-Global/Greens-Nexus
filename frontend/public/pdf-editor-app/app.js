@@ -8978,7 +8978,7 @@
             await pdf.getPage(1);
         } catch (e) {
             if (pdf && pdf.destroy) { try { pdf.destroy(); } catch (_) {} }
-            throw new Error('The operation could not be completed on this document (' + (e && e.message || 'unknown error') + '). Your document is unchanged.');
+            throw new Error('The operation could not be completed on this document (' + (e && e.message || 'unknown error') + '). Your document is unchanged.', { cause: e });
         }
         // New bytes are good - now it's safe to swap.
         if (!skipSave) saveCurrentAnnotations(); // keep markups on the visible page
@@ -10476,6 +10476,17 @@
         dom.statusText.textContent = msg;
     }
 
+    // A promise nobody caught used to fail in silence: the button just did nothing.
+    // Cancelled renders and aborted transfers are routine, not failures.
+    window.addEventListener('unhandledrejection', (e) => {
+        const name = e.reason && e.reason.name;
+        if (name === 'RenderingCancelledException' || name === 'AbortException' || name === 'AbortError') return;
+        console.error('Unhandled rejection:', e.reason);
+        const detail = (e.reason && e.reason.message) || (typeof e.reason === 'string' && e.reason) || '';
+        showToast('That did not work' + (detail ? ': ' + detail : '') + '. Try again.');
+        setStatus('Ready');
+    });
+
     function showToast(msg) {
         let toast = document.querySelector('.toast');
         if (!toast) {
@@ -10513,17 +10524,6 @@
     }
     window.showComingSoon = showComingSoon;
 
-    async function extractAllText(maxPages) {
-        const pages = maxPages || state.totalPages;
-        const texts = [];
-        for (let i = 1; i <= pages; i++) {
-            const page = await state.pdfDoc.getPage(i);
-            const content = await page.getTextContent();
-            const lines = groupTextIntoLines(content.items);
-            texts.push(`--- Page ${i} ---\n${lines.join('\n')}`);
-        }
-        return texts.join('\n\n');
-    }
     // ═══════════════════════════════════════════════════
     //  TEXT FORMAT BAR
     // ═══════════════════════════════════════════════════
@@ -10751,8 +10751,8 @@
         .replace(/\uFB00/g, 'ff').replace(/\uFB01/g, 'fi').replace(/\uFB02/g, 'fl')
         .replace(/\uFB03/g, 'ffi').replace(/\uFB04/g, 'ffl')
         .replace(/[‘’‚]/g, "'").replace(/[“”„]/g, '"')
-        .replace(/[–—]/g, '-').replace(/…/g, '...').replace(/ /g, ' ')
-        .replace(/[^\x00-\xFF]/g, '?');
+        .replace(/[–—]/g, '-').replace(/…/g, '...').replace(/\u00A0/g, ' ')
+        .replace(/[\u0100-\uFFFF]/g, '?');
 
     // Inline nodes → styled runs [{text, bold, italic}]; lists/tables/images
     // are lifted out as their own blocks.
