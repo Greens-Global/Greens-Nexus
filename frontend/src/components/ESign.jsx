@@ -1758,9 +1758,18 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
           (review section 7). */}
       {payload.myTurn && (
         <div ref={finishBarRef} className="nx-finish-bar" data-testid="finish-bar"
-          style={{ position: 'sticky', top: 0, zIndex: 26, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10,
+          style={{ position: 'sticky', top: 0, zIndex: 26, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
             background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
             padding: narrow ? 'calc(8px + env(safe-area-inset-top, 0px)) 12px 8px' : '8px 14px' }}>
+          {/* The server's 422 sentence, once more here above Finish: the field
+              it names may be on page 4 of a 5-page I-9 while the signer is
+              looking at page 1. The field's own note is the live region (the
+              alert); this line is a plain repeat, so it is not announced twice. */}
+          {fieldErr && (
+            <span data-testid="finish-bar-error" style={{ flexBasis: '100%', fontSize: 12, fontWeight: 600, color: '#b91c1c', lineHeight: 1.35 }}>
+              {fieldErr.message}
+            </span>
+          )}
           {actsNotSigns || !required.length ? (
             <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {actsNotSigns ? 'Nothing to fill in' : 'Ready to sign'}
