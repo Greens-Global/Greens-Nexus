@@ -224,8 +224,8 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
   // selects save the moment they change. Each part drafts only its own
   // numbers, so a sibling group's save never wipes this one's edits.
   const numKeys = NUM_KEYS.filter((k) => !part || SHIFT_SETTING_PARTS[part].includes(k));
-  const { draft: nums, patch: patchNum, dirty: numsDirty, reset: resetNums } = useDraft(cfg ? numbersOf(cfg, numKeys) : null);
-  useGroupDirty(numsDirty);
+  // `rebase`: a switch saved beside a half-typed number never wipes it.
+  const { draft: nums, setDraft: setNums, patch: patchNum, dirty: numsDirty, reset: resetNums } = useDraft(cfg ? numbersOf(cfg, numKeys) : null, { rebase: true });
   const [savingNums, setSavingNums] = useState(false);
   useEffect(() => {
     let live = true;
@@ -261,21 +261,27 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
   // Only the key(s) that changed go to the API: a company's override stays
   // sparse (the server stores what differs from the tenant and says whether
   // anything is left - hasOverride), and nothing stale is written back.
-  async function save(patch) {
+  // A switch or select shows its new value at once (`optimistic`) and goes
+  // back on a refusal; the typed numbers stay as typed until the save lands,
+  // so a refusal leaves them a draft. The saved settings once the save
+  // landed, else null.
+  async function save(patch, { optimistic = true } = {}) {
     const before = cfg;
     const next = { ...cfg, ...patch };
-    setCfg(next);
+    if (optimistic) setCfg(next);
     try {
       const r = await api.shiftRequestSettingsSaveFor(patch, company);
       const saved = { ...next, hasOverride: !!company, ...(r || {}) };
       setCfg(saved);
       tell({ saved: true });
       toastOk?.(company ? `Shift settings saved for ${companyName}.` : 'Shift settings saved.');
+      return saved;
     } catch (e) {
       toastErr?.(e.message || 'Could not save the settings.');
       setCfg(before);
       // Another part may have saved since this one read: take the server's copy.
       loadShiftSettings(company).then((r) => { if (r) setCfg(r); }).catch(() => {});
+      return null;
     }
   }
   async function saveNums() {
@@ -288,11 +294,20 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
       if (typed === '' || !Number.isFinite(n)) continue;
       patch[k] = Math.max(NUM_MIN[k] ?? 0, Math.min(NUM_MAX[k], Math.round(n)));
     }
-    if (!Object.keys(patch).length) { resetNums(); return; }
+    if (!Object.keys(patch).length) { resetNums(); return true; }
     setSavingNums(true);
-    await save(patch);
+    const saved = await save(patch, { optimistic: false });
+    // The boxes it saved show what the server kept (a clamped number); a box
+    // it skipped (blank, not a number) stays as typed.
+    if (saved) setNums((d) => ({ ...d, ...numbersOf(saved, Object.keys(patch)) }));
     setSavingNums(false);
+    return !!saved;
   }
+  useGroupDirty(numsDirty, saveNums);
+  // The Save row names what it saves: on a card that mixes switches and
+  // boxes, only the boxes wait for it.
+  const numNames = numKeys.filter((k) => NUM_LABELS[k] && (hrPlus || !SHIFT_SETTING_PARTS.labor.includes(k))).map((k) => NUM_LABELS[k]);
+  const numNote = `Saves ${numNames.length > 2 ? `${numNames.slice(0, -1).join(', ')} and ${numNames[numNames.length - 1]}` : numNames.join(' and ')}. Switches and lists save as you go.`;
   async function useDefaults() {
     const ok = await dialog.confirm(`Drop the shift settings ${companyName} has of its own? It then follows the default settings, and whatever changes there.`, { title: 'Use the Default', confirmText: 'Use the Default' });
     if (!ok) return;
@@ -365,6 +380,8 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                       <option value="sunday">Sunday</option>
                     </select>
                   )} />
+                {/* The two above save when changed; the box below waits for the Save row under it. */}
+                <div className="nx-set-note" data-instant-split="">The time zone and the week start save when changed. Default Grace saves with the Save button below.</div>
                 <SettingRow title="Default Grace" desc="Late starts this many minutes after the shift start for a shift with no shift type. A shift type carries its own grace."
                   control={<NumberBox label="Default grace" min={0} max={120} unit="minutes" value={nums?.defaultGraceMin ?? ''} onChange={(v) => patchNum({ defaultGraceMin: v })} />} />
               </>
@@ -457,7 +474,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
             {numKeys.length > 0 && (
               <SaveRow dirty={numsDirty} busy={savingNums} onSave={saveNums} onDiscard={resetNums}
                 style={part ? { margin: 0, padding: '12px 18px' } : { marginTop: 2 }}
-                note={part ? undefined : 'Switches and lists save as you go; the numbers above save together.'} />
+                note={part ? numNote : 'Switches and lists save as you go; the numbers above save together.'} />
             )}
           </div>
         )}
@@ -531,6 +548,16 @@ const NUM_DEFAULT = {
   timeOffNoticeDays: 7, timeOffShortDays: 3,
 };
 const NUM_KEYS = Object.keys(NUM_MAX);
+// What each box is called on screen, for the Save row's note.
+const NUM_LABELS = {
+  defaultGraceMin: 'Default Grace', noShowAlertMin: 'No-Show Alert', leftEarlyMin: 'Left Early', earlyPunchAlertMin: 'Early Punch Alert',
+  timesheetEscalateDays: 'Escalate Unapproved Time Sheets', breakNudgeMin: 'Still on Break Reminder', mealReminderMin: 'Meal Reminder',
+  otAlertDailyLeadMin: 'Daily Overtime Warning', otAlertWeeklyLeadMin: 'Weekly Overtime Warning',
+  ruleMinRestHours: 'Minimum Rest', ruleMaxDaysInRow: 'Most Days In A Row', ruleDailyOtHours: 'Daily Overtime After',
+  ruleWeeklyOtHours: 'Weekly Overtime After', ruleMaxWeekHours: 'Most Hours Per Week',
+  laborBudgetHours: 'Hours Per Week', laborBudgetAmount: 'Amount Per Week',
+  timeOffNoticeDays: 'Time Off Notice', timeOffShortDays: 'Short Request',
+};
 // What the boxes show, as text: the saved value, else the default - so a
 // default typed back in is no change, and a blank box saves nothing.
 const numbersOf = (cfg, keys = NUM_KEYS) => Object.fromEntries(keys.map((k) => [k, String(cfg?.[k] ?? NUM_DEFAULT[k])]));

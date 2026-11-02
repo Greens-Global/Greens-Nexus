@@ -1,8 +1,9 @@
 // Settings > Workflows (Oct 28 2026): whether workflows run, the ceilings,
 // the owner digest and the organization-wide pause. An organization default
 // a company may override (`GET /workflows/settings?company=`), drawn with
-// the Settings rows (SettingsUI.jsx): a switch saves on click, the typed
-// fields go through one Save row that shows only once something changed.
+// the Settings rows (SettingsUI.jsx): a switch saves on click (only that
+// switch - a half-typed cap beside it stays a draft), the typed fields are a
+// draft (lib/useDraft.js) with ONE Save row at the foot (components/SaveRow.jsx).
 // Org-only rows (Pause All, Nexus run-as, webhooks) are Super Administrators'.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Trash2, Plus } from 'lucide-react';
@@ -13,6 +14,9 @@ import { useRole } from '../contexts/RoleContext';
 import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
 import { errorText } from './lib/errors';
+import SaveRow from '../components/SaveRow';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
 
 const RUNS_CAP = 500;
 const RECIPIENTS_CAP = 200;
@@ -23,20 +27,23 @@ const pick = (m) => ({
   nexusRunAs: !!m?.nexusRunAs, webhookHosts: Array.isArray(m?.webhookHosts) ? [...m.webhookHosts] : [],
 });
 const clamp = (v, max) => Math.min(max, Math.max(1, Number(v) || 0));
-const sameHosts = (a, b) => a.length === b.length && a.every((h, i) => h === b[i]);
+// The typed part of the settings: what the Save row saves.
+const typedPart = (m) => {
+  const p = pick(m);
+  return { maxRunsPerHourCap: p.maxRunsPerHourCap, maxRecipientsCap: p.maxRecipientsCap, webhookHosts: p.webhookHosts };
+};
 
 export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr }) {
   const { myRole } = useRole();
   const isGA = myRole === 'owner';
   const orgFace = !company;
   const [meta, setMeta] = useState(null);
-  const [vals, setVals] = useState(pick(null));
   const [secrets, setSecrets] = useState({});
   const [loadErr, setLoadErr] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
-    api.wfSettings(company).then((m) => { setLoadErr(''); setMeta(m); setVals(pick(m)); setSecrets({}); })
+    api.wfSettings(company).then((m) => { setLoadErr(''); setMeta(m); })
       .catch((e) => setLoadErr(errorText(e, 'Could not load the settings.')));
   }, [company]);
   useEffect(() => { load(); }, [load]);
@@ -46,13 +53,13 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
   const canEdit = orgFace ? isGA : true;
 
   const saved = useMemo(() => pick(meta), [meta]);
-  const dirty = !!meta && (
-    String(vals.maxRunsPerHourCap) !== String(saved.maxRunsPerHourCap)
-    || String(vals.maxRecipientsCap) !== String(saved.maxRecipientsCap)
-    || !sameHosts(vals.webhookHosts, saved.webhookHosts)
-    || Object.values(secrets).some((s) => s)
-  );
+  const savedTyped = useMemo(() => (meta ? typedPart(meta) : null), [meta]);
+  const { draft, setDraft, dirty: typedDirty, reset: resetTyped } = useDraft(savedTyped, { rebase: true });
+  const vals = { ...saved, ...(draft || {}) };
+  const dirty = typedDirty || Object.values(secrets).some((s) => s);
+  const discard = () => { resetTyped(); setSecrets({}); };
 
+  // Writes `next` over what is saved; true once it landed.
   async function save(next, { reset = false, typed = {} } = {}) {
     setBusy(true);
     try {
@@ -69,11 +76,21 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
       if (Object.keys(typedSecrets).length) body.webhookSecrets = typedSecrets;
       if (reset) body.override = false;
       const m = await api.wfSettingsSave(body, company);
-      setMeta(m); setVals(pick(m)); setSecrets({});
+      if (next === draft || reset) { setSecrets({}); setDraft(typedPart(m)); }
+      setMeta(m);
       toastOk?.(reset ? 'Back to the default for every company.' : 'Saved.');
-    } catch (e) { toastErr?.(errorText(e, 'Could not save.')); load(); }
+      return true;
+    } catch (e) { toastErr?.(errorText(e, 'Could not save.')); load(); return false; }
     finally { setBusy(false); }
   }
+  // A switch saves only itself, never the typed draft beside it.
+  const flip = (key) => (v) => save({ [key]: v });
+  const saveTyped = () => save(draft, { typed: secrets });
+  useGroupDirty(dirty && canEdit, saveTyped);
+  const setVals = (fn) => setDraft((d) => {
+    const next = fn({ ...saved, ...d });
+    return { maxRunsPerHourCap: next.maxRunsPerHourCap, maxRecipientsCap: next.maxRecipientsCap, webhookHosts: next.webhookHosts };
+  });
 
   async function pauseAll(paused) {
     if (paused && !(await dialog.confirm('Pause every workflow in every company? Nothing starts until a Super Administrator turns them back on; events keep queuing for 7 days.', { title: 'Pause All Workflows', confirmText: 'Pause All', danger: true }))) return;
@@ -101,14 +118,14 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
       <SettingCard>
         <SwitchRow id={`wf-enabled-${company || 'all'}`} title="Workflows On"
           desc={company ? 'Off: no workflow starts a run for this company\'s records; its workflows show "Paused: company switch".' : 'The default for every company. Off: no run starts anywhere a company has not switched workflows on itself.'}
-          checked={vals.enabled} disabled={off} onChange={(v) => save({ ...vals, enabled: v })} />
+          checked={vals.enabled} disabled={off} onChange={flip('enabled')} />
         {orgFace && (
           <SwitchRow id="wf-pause-all" title="Pause All Workflows" desc={pausedLine}
             checked={!!meta.pausedAll} disabled={!isGA || busy} onChange={pauseAll} />
         )}
         <SwitchRow id={`wf-digest-${company || 'all'}`} title="Owner Digest"
           desc="A Monday email to each workflow owner: last week's runs, failures and what each workflow did most."
-          checked={vals.ownerDigest} disabled={off} onChange={(v) => save({ ...vals, ownerDigest: v })} />
+          checked={vals.ownerDigest} disabled={off} onChange={flip('ownerDigest')} />
         <SettingRow title="Runs Per Hour Cap"
           desc={`The most runs one workflow may start in an hour before it is paused for attention. A workflow sets its own limit below this; the ceiling is ${RUNS_CAP}.`}
           control={<NumberBox label="Runs per hour cap" min={1} max={RUNS_CAP} unit="runs" disabled={off} value={vals.maxRunsPerHourCap}
@@ -120,7 +137,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
         {orgFace && (
           <SwitchRow id="wf-nexus-run-as" title="Nexus Run-As"
             desc="Lets a Super Administrator set a workflow to run as Nexus for organization-wide housekeeping. Nexus can only message: notify, email, wait and stop; every module action still needs a person."
-            checked={vals.nexusRunAs} disabled={!isGA || busy} onChange={(v) => save({ ...vals, nexusRunAs: v })} />
+            checked={vals.nexusRunAs} disabled={!isGA || busy} onChange={flip('nexusRunAs')} />
         )}
         {orgFace && (
           <SettingRow title="Webhook Hosts"
@@ -152,11 +169,9 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
           The default for every company is changed by a Super Administrator. Pick your company to set its own.
         </p>
       ) : (
-        <div className="nx-set-pad" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {dirty && <button type="button" className="primary-btn" disabled={busy} onClick={() => save(vals, { typed: secrets })}>{busy ? 'Saving...' : 'Save'}</button>}
-          {dirty && <button type="button" className="secondary-btn" disabled={busy} onClick={() => { setVals(pick(meta)); setSecrets({}); }}>Discard Changes</button>}
-          {!!company && !!meta.override && <button type="button" className="secondary-btn" disabled={busy} onClick={() => save(pick(meta), { reset: true })}>Use the Default</button>}
-        </div>
+        <SaveRow dirty={dirty} busy={busy} onSave={saveTyped} onDiscard={discard} style={{ margin: 0, padding: '12px 18px' }}
+          onUseDefault={company && meta.override ? () => save(pick(meta), { reset: true }) : undefined}
+          note={orgFace ? 'Saves the caps and the webhook hosts. The switches save when clicked.' : 'Saves the caps for this company. The switches save when clicked.'} />
       )}
     </div>
   );

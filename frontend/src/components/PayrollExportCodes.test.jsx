@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // Payroll Export Codes (Neil, Oct 17 2026): one box per pay class with the
-// default as its placeholder, per company; Save sends the typed names, Reset
-// to Default sends none.
+// default as its placeholder, per company; Save sends the typed names, Use
+// the Default sends none. One Save row: Save disabled until a box changes.
 
 const apiMock = vi.hoisted(() => ({ getEntities: vi.fn(), timeExportCodesGet: vi.fn(), timeExportCodesSet: vi.fn() }));
 vi.mock('../api', () => ({ api: apiMock }));
@@ -33,19 +33,19 @@ describe('PayrollExportCodes', () => {
     expect(screen.getByLabelText('Double Time (2x) code').getAttribute('placeholder')).toBe('Double-time Pay');
     expect(screen.getAllByRole('textbox')).toHaveLength(8);   // seven pay classes + the QuickBooks company name
     expect(apiMock.timeExportCodesGet).toHaveBeenCalledWith('co-a');
-    // Nothing changed and nothing custom yet: no Save, no Reset.
-    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Reset to Default' })).toBeNull();
+    // Nothing changed and nothing custom yet: Save disabled, no Use the Default.
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Use the Default' })).toBeNull();
   });
 
-  it('shows Save and Discard Changes only once a box changes', async () => {
+  it('enables Save and shows Discard Changes only once a box changes', async () => {
     render(<PayrollExportCodes />);
     const sick = await screen.findByLabelText('Sick code');
     fireEvent.change(sick, { target: { value: 'SICK' } });
-    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
     expect(sick.value).toBe('');
-    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
   it('names the meal and rest premium classes instead of showing their keys', async () => {
@@ -85,7 +85,7 @@ describe('PayrollExportCodes', () => {
     render(<PayrollExportCodes />);
     fireEvent.change(await screen.findByLabelText('Company'), { target: { value: 'co-b' } });
     await waitFor(() => expect(screen.getByLabelText('Regular code').value).toBe('REG-IN'));
-    fireEvent.click(screen.getByRole('button', { name: 'Reset to Default' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use the Default' }));
     await waitFor(() => expect(apiMock.timeExportCodesSet).toHaveBeenCalledWith('co-b', {}, ''));
     await waitFor(() => expect(screen.getByLabelText('Regular code').value).toBe(''));
   });
@@ -98,7 +98,22 @@ describe('PayrollExportCodes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(apiMock.timeExportCodesSet).toHaveBeenCalled());
     expect(apiMock.timeExportCodesSet.mock.calls[0][2]).toBe('Greens Global, Inc.');
-    expect(await screen.findByRole('button', { name: 'Reset to Default' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Use the Default' })).toBeTruthy();
+  });
+
+  it('asks before its own company select drops unsaved names', async () => {
+    const guard = await import('../lib/dialogGuard');
+    const ask = vi.spyOn(guard, 'confirmDiscard').mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    render(<PayrollExportCodes />);
+    fireEvent.change(await screen.findByLabelText('Sick code'), { target: { value: 'SICK' } });
+    fireEvent.change(screen.getByLabelText('Company'), { target: { value: 'co-b' } });
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText('Sick code').value).toBe('SICK');
+    expect(apiMock.timeExportCodesGet).not.toHaveBeenCalledWith('co-b');
+    fireEvent.change(screen.getByLabelText('Company'), { target: { value: 'co-b' } });
+    await waitFor(() => expect(screen.getByLabelText('Regular code').value).toBe('REG-IN'));
+    expect(screen.getByLabelText('Sick code').value).toBe('');
+    ask.mockRestore();
   });
 
   it('shows an error with Retry when the codes cannot load', async () => {
