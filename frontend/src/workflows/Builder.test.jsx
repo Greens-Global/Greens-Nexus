@@ -410,6 +410,9 @@ describe('Builder', () => {
   // the button with no dialog; a refusal rewinds it with the reason.
   it('deletes on a full hold of Delete, with no dialog, then goes back to the list', async () => {
     const go = open();
+    // Delete renders disabled until the workflow has loaded; a press before
+    // that is ignored (the CI runner is slow enough to lose the hold - 11/02/2026).
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
     const del = await screen.findByRole('button', { name: 'Delete, press and hold' });
     vi.useFakeTimers();
     try {
