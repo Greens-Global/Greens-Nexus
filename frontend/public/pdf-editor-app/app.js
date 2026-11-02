@@ -639,8 +639,6 @@
             if (e.target.files?.length) appendImagesAsPages(e.target.files);
             e.target.value = ''; // allow re-selecting the same files later
         });
-        const templatePageBtn = document.getElementById('templatePageBtn');
-        if (templatePageBtn) templatePageBtn.addEventListener('click', addTemplatePage);
 
         // Comments
         dom.commentToggle.addEventListener('click', toggleCommentPanel);
@@ -1065,8 +1063,6 @@
             _ocrRunning = false;
             const sigBtn = document.getElementById('signatureBtn');
             if (sigBtn) sigBtn.disabled = false;
-            const tplBtn = document.getElementById('templatePageBtn');
-            if (tplBtn) tplBtn.disabled = false;
             for (const id of ['watermarkBtn', 'pageNumBtn', 'compressBtn', 'formsBtn',
                               'protectBtn', 'compareBtn', 'sanitizeBtn', 'rmBlankBtn', 'nupBtn', 'addImagePageBtn']) {
                 const b = document.getElementById(id);
@@ -4130,8 +4126,7 @@
         const base = (state.fileName || 'document').replace(/\.pdf$/i, '') + '_measurements';
         try {
             if (typeof XLSX === 'undefined') {
-                await loadScript('libs/xlsx.full.min.js')
-                    .catch(() => loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'));
+                await loadScript('libs/xlsx.full.min.js');
             }
             const wb = XLSX.utils.book_new();
             const wsD = XLSX.utils.json_to_sheet(detail, { header: ['Type', 'Subject', 'Page', 'Value', 'Unit', 'Unit cost', 'Extended cost', 'Label'] });
@@ -6064,160 +6059,6 @@
         }
     }
 
-    // ── Template Page System ──
-    // Analyze the CURRENT document for its own recurring header/footer text so a
-    // new page can reuse the document's existing branding. Falls back to defaults.
-    const TEMPLATE_BRAND = 'Greens Global';
-    const TEMPLATE_WATERMARK = 'GREENS GLOBAL — CONFIDENTIAL';
-
-    async function analyzeTemplate() {
-        const result = { headerText: '', footerText: '' };
-        if (!state.pdfDoc) return result;
-
-        const pagesToScan = Math.min(state.totalPages, 6);
-        const topCounts = {};
-        const botCounts = {};
-
-        for (let p = 1; p <= pagesToScan; p++) {
-            try {
-                const page = await state.pdfDoc.getPage(p);
-                const vp = page.getViewport({ scale: 1 });
-                const tc = await page.getTextContent();
-                const H = vp.height;
-                for (const it of tc.items) {
-                    const s = (it.str || '').trim();
-                    if (s.length < 3 || /^\d+$/.test(s) || /^page\s*\d+/i.test(s)) continue;
-                    // viewport y: 0 = top of page, increases downward
-                    const [, y] = vp.convertToViewportPoint(it.transform[4], it.transform[5]);
-                    if (y < H * 0.10) topCounts[s] = (topCounts[s] || 0) + 1;
-                    else if (y > H * 0.90) botCounts[s] = (botCounts[s] || 0) + 1;
-                }
-            } catch (_) { /* skip unreadable page */ }
-        }
-
-        // Pick the most frequent string that recurs on >= 2 pages (i.e. real branding).
-        const pickRecurring = (map) => {
-            let best = '', bestN = 1;
-            for (const [s, n] of Object.entries(map)) {
-                if (n >= 2 && n > bestN) { best = s; bestN = n; }
-            }
-            return best;
-        };
-
-        result.headerText = pickRecurring(topCounts);
-        result.footerText = pickRecurring(botCounts);
-        return result;
-    }
-
-    async function addTemplatePage() {
-        if (!state.pdfBytes) return;
-        setStatus('Analyzing document & adding template page...');
-
-        try {
-            saveCurrentAnnotations();
-
-            // 1. Detect the document's own branding (or fall back to Greens Global defaults)
-            const analysis = await analyzeTemplate();
-            const usedDoc = !!(analysis.headerText || analysis.footerText);
-            const headerText = analysis.headerText || TEMPLATE_BRAND;
-            const footerText = analysis.footerText || (TEMPLATE_BRAND + ' — Confidential');
-
-            const bytesToLoad = state.pdfBytes instanceof ArrayBuffer
-                ? new Uint8Array(state.pdfBytes)
-                : state.pdfBytes;
-            const pdfLibDoc = await PDFLib.PDFDocument.load(bytesToLoad, { ignoreEncryption: true });
-
-            const currentPdfPage = pdfLibDoc.getPages()[state.currentPage - 1];
-            const { width, height } = currentPdfPage.getSize();
-
-            const insertIndex = state.currentPage; // 0-based → after current
-            const newPage = pdfLibDoc.insertPage(insertIndex, [width, height]);
-
-            // 2. Draw the template onto the new page
-            const helv = await pdfLibDoc.embedFont(PDFLib.StandardFonts.Helvetica);
-            const helvBold = await pdfLibDoc.embedFont(PDFLib.StandardFonts.HelveticaBold);
-            const green = PDFLib.rgb(0.05, 0.32, 0.15);
-            const grey = PDFLib.rgb(0.42, 0.42, 0.42);
-            const margin = 40;
-
-            // Header
-            newPage.drawText(headerText, {
-                x: margin, y: height - margin, size: 12, font: helvBold, color: green,
-            });
-            newPage.drawLine({
-                start: { x: margin, y: height - margin - 8 },
-                end: { x: width - margin, y: height - margin - 8 },
-                thickness: 1, color: green, opacity: 0.6,
-            });
-
-            // Footer
-            newPage.drawLine({
-                start: { x: margin, y: 46 }, end: { x: width - margin, y: 46 },
-                thickness: 0.8, color: grey, opacity: 0.5,
-            });
-            newPage.drawText(footerText, { x: margin, y: 32, size: 9, font: helv, color: grey });
-            const rightFooter = `Page ${insertIndex + 1}  |  ${new Date().toLocaleDateString()}`;
-            const rfW = helv.widthOfTextAtSize(rightFooter, 9);
-            newPage.drawText(rightFooter, { x: width - margin - rfW, y: 32, size: 9, font: helv, color: grey });
-
-            // Diagonal CONFIDENTIAL watermark, scaled to span the page and centered
-            const wm = TEMPLATE_WATERMARK;
-            let wmSize = 40;
-            let wmW = helvBold.widthOfTextAtSize(wm, wmSize);
-            const diag = Math.sqrt(width * width + height * height);
-            wmSize = wmSize * (diag * 0.62 / wmW);
-            wmW = helvBold.widthOfTextAtSize(wm, wmSize);
-            const theta = 35 * Math.PI / 180;
-            newPage.drawText(wm, {
-                x: width / 2 - (wmW / 2) * Math.cos(theta),
-                y: height / 2 - (wmW / 2) * Math.sin(theta),
-                size: wmSize, font: helvBold,
-                color: PDFLib.rgb(0.85, 0.1, 0.1), opacity: 0.10,
-                rotate: PDFLib.degrees(35),
-            });
-
-            const newBytes = await pdfLibDoc.save();
-            state.pdfBytes = newBytes.slice().buffer;
-
-            // 3. Shift annotations/comments for pages after the insertion point
-            const newAnnotations = {}, newUndoStacks = {}, newRedoStacks = {}, newComments = {};
-            for (let i = state.totalPages; i >= 1; i--) {
-                const to = i > state.currentPage ? i + 1 : i;
-                if (state.annotations[i]) newAnnotations[to] = state.annotations[i];
-                if (state.undoStacks[i]) newUndoStacks[to] = state.undoStacks[i];
-                if (state.redoStacks[i]) newRedoStacks[to] = state.redoStacks[i];
-                if (state.comments[i]) newComments[to] = state.comments[i];
-            }
-            state.annotations = newAnnotations;
-            state.undoStacks = newUndoStacks;
-            state.redoStacks = newRedoStacks;
-            state.comments = newComments;
-
-            // 4. Reload
-            const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
-            if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
-            state.pdfDoc = pdf;
-            state.totalPages = pdf.numPages;
-
-            dom.totalPages.textContent = state.totalPages;
-            dom.pageInput.max = state.totalPages;
-            dom.fileInfo.textContent = `${state.fileName} | ${state.totalPages} page(s)`;
-
-            state.currentPage = state.currentPage + 1;
-            await generateThumbnails();
-            renderPage(state.currentPage);
-
-            setStatus('Template page added');
-            showToast(usedDoc
-                ? 'Template page added (reused this document\'s header/footer)'
-                : 'Greens Global template page added');
-        } catch (err) {
-            console.error(err);
-            setStatus('Template page failed: ' + err.message);
-            showToast('Template page failed');
-        }
-    }
-
     // ── Page Reorder ──
     async function movePageUp(pageNum) {
         if (pageNum <= 1) return;
@@ -7060,7 +6901,7 @@
         const data = name && _pdfFontRegistry[name];
         if (!data) return null;
         try {
-            if (!window.fontkit) await loadScript('libs/fontkit.umd.min.js').catch(() => loadScript('https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js'));
+            if (!window.fontkit) await loadScript('libs/fontkit.umd.min.js');
             if (!_exportFontCache || _exportFontCache.doc !== pdfLibDoc) {
                 _exportFontCache = { doc: pdfLibDoc, fonts: {} };
             }
@@ -7916,7 +7757,7 @@
 
         // Try JSZip (lazy load), fallback to sequential downloads
         try {
-            await loadScript('libs/jszip.min.js').catch(() => loadScript('https://cdn.jsdelivr.net/npm/jszip@3/dist/jszip.min.js'));
+            await loadScript('libs/jszip.min.js');
             const zip = new JSZip();
             for (const { canvas, name } of canvases) {
                 const blob = await new Promise((res) => canvas.toBlob(res, mimeType, quality));
@@ -7964,7 +7805,7 @@
         // Lazy-load docx library
         if (!window.docx) {
             try {
-                await loadScript('libs/docx.umd.js').catch(() => loadScript('https://cdn.jsdelivr.net/npm/docx@8/build/index.umd.js'));
+                await loadScript('libs/docx.umd.js');
             } catch (e) {
                 // Fallback: export as HTML-based .doc
                 await exportWordFallback();
@@ -8055,7 +7896,7 @@
         // Lazy-load SheetJS
         if (!window.XLSX) {
             try {
-                await loadScript('libs/xlsx.full.min.js').catch(() => loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'));
+                await loadScript('libs/xlsx.full.min.js');
             } catch (e) {
                 // Fallback: export as HTML-based .xls
                 await exportExcelFallback();
@@ -8825,11 +8666,10 @@
         dom.ocrBtn.disabled = true;
 
         try {
-            // OCR engine is BUNDLED — fully offline (CDN only as last resort)
+            // OCR engine is bundled: fully offline
             if (!window.Tesseract) {
                 try {
-                    await loadScript('libs/tesseract/tesseract.min.js')
-                        .catch(() => loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js'));
+                    await loadScript('libs/tesseract/tesseract.min.js');
                 } catch (e) {
                     dom.ocrProgress.style.display = 'none';
                     dom.ocrBtn.disabled = false;
@@ -9599,18 +9439,7 @@
     let _encLib = null;
     async function encLib() {
         if (_encLib) return _encLib;
-        if (!window.PDFLibEncrypt) {
-            const mainLib = window.PDFLib; // guard: CDN fallback UMD is named PDFLib and would clobber it
-            try {
-                await loadScript('libs/pdf-lib-encrypt.js');
-            } catch (_) {
-                await loadScript('https://cdn.jsdelivr.net/npm/@cantoo/pdf-lib@2/dist/pdf-lib.min.js');
-                if (window.PDFLib && window.PDFLib !== mainLib) {
-                    window.PDFLibEncrypt = window.PDFLib; // capture the fork
-                    window.PDFLib = mainLib;              // restore the real main lib
-                }
-            }
-        }
+        if (!window.PDFLibEncrypt) await loadScript('libs/pdf-lib-encrypt.js');
         _encLib = window.PDFLibEncrypt || window.PDFLib;
         return _encLib;
     }
@@ -9660,226 +9489,6 @@
         } catch (err) { console.error(err); showToast('Encryption failed: ' + err.message); }
     }
     window.addPasswordTool = addPasswordTool;
-
-    // ── Unlock: remove the password / encryption from the open PDF ──
-    // The file is already decrypted in memory (the user supplied the password on
-    // open, or it was never encrypted). We reload with ignoreEncryption and save
-    // WITHOUT calling encrypt() - producing an unprotected copy. Fully local, no
-    // API. Mirrors iLovePDF's Unlock, minus the cloud.
-    async function unlockPdfTool() {
-        if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
-        setStatus('Removing password...');
-        try {
-            let bytes;
-
-            // The original bytes in state.pdfBytes are STILL ENCRYPTED - pdf.js
-            // decrypted them in memory using the password the user typed on open,
-            // but never wrote a plaintext copy back. pdf-lib's ignoreEncryption
-            // only SKIPS the error; it cannot read encrypted streams, so
-            // re-saving the encrypted original produced a broken/still-locked
-            // file. That was the bug.
-            //
-            // For a file that WAS password-protected, get the real DECRYPTED
-            // bytes from pdf.js (which holds the opened, unlocked document) via
-            // saveDocument(). Saving those with no encryption yields a clean,
-            // openable PDF with the password removed.
-            if (state.pdfPassword && state.pdfDoc && state.pdfDoc.saveDocument) {
-                const dec = await state.pdfDoc.saveDocument();
-                // Re-save through pdf-lib so the output is a plain, unencrypted
-                // PDF (and normalized), never re-applying encryption.
-                const L = await encLib();
-                const doc = await L.PDFDocument.load(dec, { ignoreEncryption: true });
-                bytes = await doc.save();
-            } else {
-                // Not password-protected (or no pdf.js save available): a plain
-                // pdf-lib round-trip strips any permissions/owner-password flags.
-                const L = await encLib();
-                const doc = await L.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
-                bytes = await doc.save();
-            }
-
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-            a.download = state.fileName.replace(/\.pdf$/i, '') + '_unlocked.pdf';
-            a.click();
-            URL.revokeObjectURL(a.href);
-            setStatus('Saved unlocked PDF (no password)');
-            showToast('Saved an unlocked copy - the password has been removed');
-        } catch (err) {
-            console.error(err);
-            showToast('Could not unlock: ' + (err && err.message || 'unknown error'));
-            setStatus('Unlock failed');
-        }
-    }
-    window.unlockPdfTool = unlockPdfTool;
-
-    // ── Standalone Lock / Unlock: pick a file directly, no need to open it in
-    //    the editor first (Pranshu). One entry point handles both:
-    //      • a password-protected file  → asks the password, removes it
-    //      • an unprotected file        → offers to ADD a password (lock)
-    //    Fully local: pdf.js decrypts (it takes the password), pdf-lib re-saves.
-    function _pickPdfFile() {
-        return new Promise((resolve) => {
-            const inp = document.createElement('input');
-            inp.type = 'file';
-            inp.accept = 'application/pdf,.pdf';
-            inp.style.display = 'none';
-            let settled = false;
-            const done = (f) => { if (settled) return; settled = true; inp.remove(); resolve(f || null); };
-            inp.addEventListener('change', () => done(inp.files && inp.files[0]));
-            // If the picker is dismissed (Cancel), the change event never fires.
-            // When focus returns to the window, resolve null on the next tick so
-            // the await never hangs and the input element doesn't leak.
-            const onFocus = () => {
-                window.removeEventListener('focus', onFocus);
-                setTimeout(() => done(null), 300); // give a real 'change' time to win
-            };
-            document.body.appendChild(inp);
-            inp.click();
-            window.addEventListener('focus', onFocus);
-        });
-    }
-
-    async function lockUnlockPdfFile() {
-        // Ask UPFRONT what the user wants - Lock or Unlock - one button, like
-        // Word<->PDF (Pranshu). No silent auto-detection guesswork.
-        const mode = await _choiceModal('Unlock / Lock PDF',
-            'What would you like to do?', [
-                { key: 'unlock', label: 'Unlock a PDF (remove lock/restrictions)' },
-                { key: 'lock',   label: 'Lock a PDF (restrict actions)' },
-            ]);
-        if (!mode) return;
-
-        const file = await _pickPdfFile();
-        if (!file) { setStatus('Ready'); return; }
-        setStatus('Reading PDF...');
-        try {
-            const buf = await file.arrayBuffer();
-            const baseName = file.name.replace(/\.pdf$/i, '');
-            const L = await encLib();
-
-            let wasEncrypted = false;
-
-            if (mode === 'unlock') {
-                // UNLOCK by RE-RENDERING each page. pdf.js decrypts the content to
-                // display it; we render every page to a canvas and rebuild a fresh,
-                // unencrypted PDF from those images. This is the only method that
-                // reliably works with these bundled libs - stripping the Encrypt
-                // dict (pdf-lib) OR saveDocument()/getData() (pdf.js) both left the
-                // content streams still encrypted, so pages came out BLANK. Verified
-                // in a real browser: this renders the actual content, no password.
-                // Trade-off: the unlocked page becomes an image (not selectable
-                // text), which is the accepted cost of guaranteed-correct unlock.
-                setStatus('Removing lock...');
-                let pdf = null, password = null;
-                for (let attempt = 0; ; attempt++) {
-                    try {
-                        pdf = await pdfjsLib.getDocument({ data: buf.slice(0), ...(password ? { password } : {}) }).promise;
-                        break;
-                    } catch (err) {
-                        if (err && err.name === 'PasswordException' && attempt < 3) {
-                            wasEncrypted = true;
-                            password = await customPrompt(
-                                attempt === 0 ? 'This PDF has an open-password. Enter it to unlock:'
-                                              : 'Wrong password - try again:', 'Password');
-                            if (!password) { setStatus('Cancelled'); return; }
-                            continue;
-                        }
-                        throw err;
-                    }
-                }
-                const outDoc = await L.PDFDocument.create();
-                for (let i = 1; i <= pdf.numPages; i++) {
-                    setStatus('Removing lock... page ' + i + '/' + pdf.numPages);
-                    const pg = await pdf.getPage(i);
-                    const vp = pg.getViewport({ scale: 2 });   // 2x for crisp output
-                    const canvas = document.createElement('canvas');
-                    canvas.width = Math.ceil(vp.width);
-                    canvas.height = Math.ceil(vp.height);
-                    await pg.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
-                    const png = await outDoc.embedPng(canvas.toDataURL('image/png'));
-                    const base = pg.getViewport({ scale: 1 });
-                    const np = outDoc.addPage([base.width, base.height]);
-                    np.drawImage(png, { x: 0, y: 0, width: base.width, height: base.height });
-                }
-                const bytes = await outDoc.save();
-
-                // Ask what to do with the unlocked file (Pranshu): open it in the
-                // editor to work on it, or just download the unlocked copy.
-                const removedWhat = wasEncrypted ? 'The password has been removed.'
-                                                 : 'The restrictions have been removed.';
-                const choice = await _choiceModal('PDF unlocked',
-                    removedWhat + ' What would you like to do?', [
-                        { key: 'edit',     label: 'Open in editor' },
-                        { key: 'download', label: 'Download unlocked copy' },
-                    ]);
-                if (choice === 'edit') {
-                    state.fileName = baseName + '_unlocked.pdf';
-                    await loadPDF(new File([bytes], state.fileName, { type: 'application/pdf' }));
-                    setStatus('Opened the unlocked PDF');
-                } else if (choice === 'download') {
-                    _downloadBytes(bytes, baseName + '_unlocked.pdf');
-                    setStatus('Saved unlocked PDF');
-                    showToast(wasEncrypted ? 'Password removed - saved an unlocked copy'
-                                           : 'Restrictions removed - saved an unlocked copy');
-                } else {
-                    setStatus('Ready'); // cancelled
-                }
-            } else {  // mode === 'lock'
-                // LOCK with RESTRICTIONS only (owner password + permissions), NOT
-                // an open-password. The file still OPENS for anyone to view, but
-                // printing/copying/editing are blocked - and crucially, Unlock can
-                // strip that WITHOUT needing any password (unlike a userPassword,
-                // which truly encrypts the content and could never be removed
-                // without it).
-                const v = await _toolModal('Lock this PDF', `
-                    <p class="modal-hint" style="margin:0 0 10px;">Restrict what people can do with this PDF. The file still opens for viewing - no password needed to open it - but the chosen actions are blocked. You can remove these restrictions later with Unlock (no password required).</p>
-                    <label class="modal-label">Restrict:</label>
-                    <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noPrint" checked><span>No printing</span></label>
-                    <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noCopy" checked><span>No copying text</span></label>
-                    <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noModify" checked><span>No editing</span></label>`,
-                    'Lock & Save');
-                if (!v) { setStatus('Ready'); return; }
-                if (!v.noPrint && !v.noCopy && !v.noModify) { showToast('Pick at least one restriction'); return; }
-                setStatus('Locking...');
-                const doc = await L.PDFDocument.load(new Uint8Array(buf), { ignoreEncryption: true });
-                // Owner password is internal-only (never shown) - it just backs the
-                // permission flags. No userPassword => the file opens freely.
-                doc.encrypt({
-                    ownerPassword: 'greens-nexus-lock',
-                    permissions: {
-                        printing: v.noPrint ? false : 'highResolution',
-                        copying: v.noCopy ? false : true,
-                        modifying: v.noModify ? false : true,
-                        annotating: v.noModify ? false : true,
-                        fillingForms: v.noModify ? false : true,
-                        contentAccessibility: true,
-                        documentAssembly: v.noModify ? false : true,
-                    },
-                });
-                const bytes = await doc.save();
-                _downloadBytes(bytes, baseName + '_locked.pdf');
-                setStatus('Saved restricted PDF');
-                showToast('Restrictions added - the file still opens for viewing');
-            }
-        } catch (err) {
-            console.error(err);
-            showToast('Could not process: ' + (err && err.message || 'unknown error'));
-            setStatus('Failed');
-        }
-    }
-    function _downloadBytes(bytes, name) {
-        const a = document.createElement('a');
-        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-        a.href = url;
-        a.download = name;
-        a.click();
-        // Defer revocation - a.click() starts the download asynchronously, so
-        // revoking synchronously can race the browser's blob read (empty/failed
-        // download for large files).
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-    }
-    window.lockUnlockPdfFile = lockUnlockPdfFile;
 
     // ── PDF → Markdown: extract text as a .md file, using layout heuristics ──
     // Fully local (pdf.js text extraction). Headings inferred from font size,
@@ -11103,7 +10712,7 @@
     async function _extractDocxHeaderFooter(file) {
         const out = { headerText: '', footerText: '', headerImg: null, footerImg: null };
         try {
-            if (!window.JSZip) await loadScript('libs/jszip.min.js').catch(() => loadScript('https://cdn.jsdelivr.net/npm/jszip@3/dist/jszip.min.js'));
+            if (!window.JSZip) await loadScript('libs/jszip.min.js');
             if (!window.JSZip) return out;
             const zip = await JSZip.loadAsync(await file.arrayBuffer());
 
@@ -11166,7 +10775,7 @@
     async function convertWordToPdf(file) {
         setStatus('Converting Word to PDF...');
         try {
-            if (!window.mammoth) await loadScript('libs/mammoth.browser.min.js').catch(() => loadScript('https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js'));
+            if (!window.mammoth) await loadScript('libs/mammoth.browser.min.js');
             const { PDFDocument, StandardFonts, rgb } = PDFLib;
 
             const { value: html } = await window.mammoth.convertToHtml(
@@ -11488,7 +11097,7 @@
         if (!state.pdfDoc) { showToast('Open a PDF first'); return; }
         setStatus('Exporting exact-look Word...');
         try {
-            if (!window.docx) await loadScript('libs/docx.umd.js').catch(() => loadScript('https://cdn.jsdelivr.net/npm/docx@8/build/index.umd.js'));
+            if (!window.docx) await loadScript('libs/docx.umd.js');
             const children = [];
             for (let i = 1; i <= state.totalPages; i++) {
                 setStatus('Rendering page ' + i + '/' + state.totalPages + '...');
@@ -11580,7 +11189,7 @@
         if (!state.pdfDoc) { showToast('Open a PDF first'); return; }
         setStatus('Exporting to Word...');
         try {
-            if (!window.docx) await loadScript('libs/docx.umd.js').catch(() => loadScript('https://cdn.jsdelivr.net/npm/docx@8/build/index.umd.js'));
+            if (!window.docx) await loadScript('libs/docx.umd.js');
             const children = [];
 
             // Editable mode. Layout reconstruction based on pdf2docx's published
