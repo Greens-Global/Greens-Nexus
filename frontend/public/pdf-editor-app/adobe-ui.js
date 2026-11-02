@@ -1036,7 +1036,7 @@
       { title: 'Optimize', cards: [
         ['Compress PDF',  'Reduce the file size',          '#5c9e57', IC.compress,  () => pickPdfThen(() => revealTool('optimize', '#compressBtn'))],
         ['Sanitize PDF',  'Remove attachments, scripts and link actions', '#6b7280', IC.sanitize,  () => pickPdfThen(() => revealTool('optimize', '#sanitizeBtn'))],
-        ['OCR (scanned)', 'Make scans searchable',         '#7dc243', IC.ocr,       () => pickPdfThen(() => revealTool('optimize', '#ocrBtn'))],
+        ['OCR (Scanned)', 'Make scans searchable',         '#7dc243', IC.ocr,       () => pickPdfThen(() => revealTool('optimize', '#ocrBtn'))],
         ['Lock PDF',      'Password-protect the file',     '#d4506e', IC.protect,   () => pickPdfThen(() => revealTool('sign', '#protectBtn'))],
       ]},
     ];
@@ -1061,7 +1061,7 @@
       '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
       '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M12 3v13M7 8l5-5 5 5"/></svg></span>' +
       '<span class="welcome-drop-txt">' +
-      '<span class="welcome-drop-t">Drop your PDF here to get started</span>' +
+      '<span class="welcome-drop-t">Drop Your PDF Here to Get Started</span>' +
       '<span class="welcome-drop-s">or click the button below to browse your files</span>' +
       '</span>' +
       '<span class="welcome-drop-btn">Choose File</span>' +
@@ -1260,7 +1260,7 @@
   closeDoc.className = 'tool-btn close-doc-btn';
   closeDoc.title = 'Close this document and return to Home';
   closeDoc.innerHTML =
-    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Close file</span>';
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Close File</span>';
   closeDoc.style.display = 'none';
   closeDoc.addEventListener('click', () => {
     if (!window.confirm('Close this document? Unsaved changes will be lost.')) return;
