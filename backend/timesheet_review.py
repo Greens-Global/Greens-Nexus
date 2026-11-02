@@ -163,7 +163,8 @@ def hr_of(db: Session, email: str) -> str:
 
 def is_hr(db: Session, actor: str, employee_email: str) -> bool:
     """HR, the one override on a timesheet (Neil, Oct 16): the company's HR
-    contact, an administrator, or a Full HR grant. Never on their own card -
+    contact, a Super Administrator, an Administrator inside their companies
+    (hr_access.is_hr_for), or a Full HR grant. Never on their own card -
     there they are the employee like anyone else. A manager is not HR."""
     actor, employee_email = (actor or "").strip().lower(), (employee_email or "").strip().lower()
     if not actor or actor == employee_email:
@@ -171,8 +172,14 @@ def is_hr(db: Session, actor: str, employee_email: str) -> bool:
     if actor == hr_of(db, employee_email):
         return True
     from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, level_for
-    if level_for(actor, db) >= _LEVELS["administrator"]:
+    level = level_for(actor, db)
+    if level >= _LEVELS["owner"]:
         return True
+    if level >= _LEVELS["administrator"]:
+        # An Administrator is HR only inside their companies (Neil,
+        # 11/02/2026 - walled, the switch on or off): the one scoped rule.
+        import hr_access
+        return hr_access.is_hr_for(db, actor, employee_email)
     return _module_level(actor, "hr", db) >= _MODULE_LEVEL_RANK["full"]
 
 

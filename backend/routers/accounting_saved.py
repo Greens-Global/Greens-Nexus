@@ -504,14 +504,21 @@ def _holders(db: Session) -> dict[str, int]:
             mid, _, level = part.strip().partition(":")
             if mid == "accounting" and email:
                 out[email.lower()] = max(out.get(email.lower(), 0), _MODULE_LEVEL_RANK.get(level, 1))
+    # An Administrator opens Accounting by role (the grant's Full, through the
+    # bypass) and is walled to the entities set for them here (Neil,
+    # 11/02/2026), so they are listed as a Full holder whose entities change.
+    for e, in db.query(models.NexusRole.email).filter(models.NexusRole.role == "administrator").all():
+        if e:
+            out[e.lower()] = _MODULE_LEVEL_RANK["full"]
     admins = _admins(db)
     return {e: lvl for e, lvl in out.items() if e not in admins}
 
 
 def _admins(db: Session) -> dict[str, str]:
-    """{email: "administrator" | "owner"} - they open Accounting by role and
-    are never limited to entities (accounting.entity_scope)."""
-    admin_roles = [name for name, lvl in _LEVELS.items() if lvl >= _LEVELS["administrator"]]
+    """{email: "owner"} - Super Administrators open Accounting by role and are
+    never limited to entities (accounting.allowed_entities). An Administrator
+    is walled (Neil, 11/02/2026): their entities are set here like anyone's."""
+    admin_roles = [name for name, lvl in _LEVELS.items() if lvl >= _LEVELS["owner"]]
     out: dict[str, str] = {}
     for e, role in db.query(models.NexusRole.email, models.NexusRole.role).filter(models.NexusRole.role.in_(admin_roles)).all():
         if e and _LEVELS.get(role, 0) > _LEVELS.get(out.get(e.lower(), ""), 0):
@@ -622,7 +629,7 @@ async def apply_entity_access_from_intacct(body: IntacctApplyBody, user: dict = 
         for r in rows:
             if r["email"] not in wanted or not r["matched"] or r.get("unknown"):
                 continue
-            if r["email"] == me and user["level"] < _LEVELS["administrator"]:
+            if r["email"] == me and user["level"] < _LEVELS["owner"]:
                 continue
             codes = r["entities"][:400]
             before = r["current"]
@@ -648,10 +655,10 @@ def set_entity_access(email: str, body: EntityAccessBody, user: dict = Depends(_
     target = email.strip().lower()
     if not target:
         raise HTTPException(status_code=400, detail="Whose access?")
-    if target == user["email"].lower() and user["level"] < _LEVELS["administrator"]:
+    if target == user["email"].lower() and user["level"] < _LEVELS["owner"]:
         raise HTTPException(status_code=400, detail="Someone else has to change your own entity access.")
     if target in _admins(db):
-        raise HTTPException(status_code=400, detail="An administrator always reads every entity.")
+        raise HTTPException(status_code=400, detail="A Super Administrator always reads every entity.")
     codes = sorted({c.strip() for c in body.entities if c and c.strip()})[:400]
     before = _limits(db, [target]).get(target, [])
     (db.query(models.NexusAccessScope)

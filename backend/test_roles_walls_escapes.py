@@ -394,5 +394,65 @@ class ActAsTests(_Base):
             db.close()
 
 
+class LevelFourShortcutTests(_Base):
+    """Item 4: the remaining level >= 4 cross-company shortcuts."""
+
+    def test_timeclock_visible_emails(self):
+        from routers import timeclock
+        db = self._db()
+        try:
+            seen = timeclock._visible_emails(db, {"email": ADMIN_A, "level": 4, "role": "administrator"})
+            self.assertIsNotNone(seen)
+            self.assertIn(AEMP, seen)
+            self.assertNotIn(BEMP, seen)
+            self.assertIsNone(timeclock._visible_emails(db, {"email": SUPER, "level": 5, "role": "owner"}))
+        finally:
+            db.close()
+
+    def test_timesheet_is_hr(self):
+        import timesheet_review
+        db = self._db()
+        try:
+            self.assertTrue(timesheet_review.is_hr(db, ADMIN_A, AEMP))
+            self.assertFalse(timesheet_review.is_hr(db, ADMIN_A, BEMP))
+            self.assertTrue(timesheet_review.is_hr(db, SUPER, BEMP))
+        finally:
+            db.close()
+
+    def test_roles_list_and_assign(self):
+        self._as(ADMIN_A)
+        listed = {r["email"] for r in self.client.get("/roles").json()}
+        self.assertIn(AEMP, listed)
+        self.assertNotIn(BEMP, listed)
+        self.assertNotIn(ADMIN_B, listed)
+        r = self.client.put(f"/roles/{BEMP}", json={"role": "manager", "assigned_by": ADMIN_A})
+        self.assertEqual(r.status_code, 404, r.text)
+        r = self.client.put(f"/roles/{AEMP}", json={"role": "manager", "assigned_by": ADMIN_A})
+        self.assertEqual(r.status_code, 200, r.text)
+        self._as(SUPER)
+        self.assertIn(BEMP, {r["email"] for r in self.client.get("/roles").json()})
+        self.assertEqual(self.client.put(f"/roles/{BEMP}", json={"role": "manager", "assigned_by": SUPER}).status_code, 200)
+
+    def test_reimbursements_for_a_company_b_person(self):
+        self._as(ADMIN_A)
+        self.assertEqual(self.client.get(f"/reimbursements/person/{BEMP}").status_code, 404)
+        self.assertEqual(self.client.get(f"/reimbursements/person/{AEMP}").status_code, 200)
+        self._as(SUPER)
+        self.assertEqual(self.client.get(f"/reimbursements/person/{BEMP}").status_code, 200)
+
+    def test_accounting_entities_are_not_all(self):
+        from routers import accounting
+        db = self._db()
+        try:
+            self.assertEqual(accounting.allowed_entities({"email": ADMIN_A, "level": 4}, db), set())
+            self.assertIsNone(accounting.allowed_entities({"email": SUPER, "level": 5}, db))
+            db.add(models.NexusAccessScope(id="sc-esc-acct", email=ADMIN_A, module_id="accounting",
+                                           scope_type="ledger", scope_id="15000"))
+            db.commit()
+            self.assertEqual(accounting.allowed_entities({"email": ADMIN_A, "level": 4}, db), {"15000"})
+        finally:
+            db.close()
+
+
 if __name__ == "__main__":
     unittest.main()
