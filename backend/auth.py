@@ -373,7 +373,7 @@ MODULE_API_PREFIXES = {
     "investor-relations": ("/investor-relations",),
     "hr":                 ("/hr",),
     "hr_comp":            ("/hr",),          # compensation reveal self-gates on the hr_comp grant
-    "documents":          ("/documents", "/esign"),
+    "documents":          ("/documents", "/esign", "/pdf-tools"),
     "marketing":          ("/marketing-campaigns", "/marketing/"),
     "external-links":     ("/external-links", "/link-layout"),
     "inventory":          ("/items",),

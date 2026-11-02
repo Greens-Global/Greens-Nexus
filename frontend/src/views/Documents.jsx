@@ -12,6 +12,9 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { buildDocumentsTourSteps } from './documentsTourSteps';
 import { registerTour } from '../lib/tours';
 import { SkeletonBlocks } from '../components/AsyncState';
+import { askToLeave, hasUnsavedWork } from '../lib/dialogGuard';
+import { takePendingOpen } from '../lib/pendingOpen';
+import { ESIGN_PREFILL_PENDING } from '../lib/pdfToolsHandoff';
 
 // Forms (Neil, 11/02/2026): the builder, the entries table and the entry
 // panel, loaded when the tab is opened.
@@ -48,6 +51,13 @@ const DOCUMENTS_TOUR_ID = 'documents';
 // its New Document dialog open, "documents-esign-send" is Nexus Sign with the
 // Send for Signature wizard open; the address then goes back to the tab.
 const CREATE_SUBS = { 'documents-new': 'documents-browse', 'documents-esign-send': 'documents-esign' };
+
+// The tab strip and the tour change the sub directly, not through App's navigate(),
+// so unsaved work in PDF Tools (lib/dialogGuard.js) is asked about here.
+function changeTab(onSubChange, next) {
+  if (!hasUnsavedWork()) { onSubChange?.(next); return; }
+  askToLeave().then((ok) => { if (ok) onSubChange?.(next); });
+}
 
 export default function Documents({ activeSub, onSubChange }) {
   // Deep-links: 'documents-esign' / 'documents-esign-requests' both live on the
@@ -111,7 +121,7 @@ export default function Documents({ activeSub, onSubChange }) {
   const [tourSteps, setTourSteps] = useState(null);
   useEffect(() => {
     const openTour = () => setTourSteps(buildDocumentsTourSteps({
-      go: (k) => onSubChangeRef.current?.(k), isMobile: isMobileRef.current }));
+      go: (k) => changeTab(onSubChangeRef.current, k), isMobile: isMobileRef.current }));
     let cancelled = false;
     api.getToursSeen()
       .then(({ seen }) => { if (!cancelled && !seen?.[DOCUMENTS_TOUR_ID]) openTour(); })
@@ -149,6 +159,19 @@ export default function Documents({ activeSub, onSubChange }) {
     return () => window.removeEventListener('nexus:navigate', onNav);
   }, []);
 
+  // PDF Tools' Send For Signature (views/PdfEditorModule.jsx): the built PDF waits
+  // here in a note for the Nexus Sign tab. A note, not window.__esignPrefill: from
+  // the /pdf-editor address this view remounts, and the leaving instance's
+  // nexus:navigate listener above would take the stash with it. No sourceDocumentId:
+  // a Sign envelope from here must not mark some library document final.
+  useEffect(() => {
+    if (sub !== 'documents-esign') return;
+    const fromPdfTools = takePendingOpen(ESIGN_PREFILL_PENDING);
+    if (!fromPdfTools) return;
+    esignSourceDocRef.current = null;
+    setEsignPrefill(fromPdfTools);
+  }, [sub]);
+
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {/* No module header. Sagar, Sep 17: "we don't need this on any page,
@@ -165,7 +188,7 @@ export default function Documents({ activeSub, onSubChange }) {
           icon-over-label treatment the Task and Item modules use), so the
           in-page strip is suppressed there - two strips would be the same
           navigation twice. */}
-      {!pdfFullBleed && <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} mobileInline={false} overflow />}
+      {!pdfFullBleed && <ModuleTabs tabs={tabs} active={sub} onChange={(k) => changeTab(onSubChange, k)} mobileInline={false} overflow />}
 
       <div data-tour={`documents-screen-${sub}`}>
       {sub === 'documents-browse' && (
