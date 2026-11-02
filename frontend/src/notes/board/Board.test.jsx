@@ -44,7 +44,10 @@ vi.mock('./exportBoard', () => ({
   exportThumb, exportPng: vi.fn(async () => new Blob(['x'])), exportSvg: vi.fn(async () => '<svg/>'), copyPng: vi.fn(async () => {}),
   downloadBlob: vi.fn(), downloadScene: vi.fn(),
 }));
-vi.mock('../../tasks/lib', () => ({ dataUrlToFile: (d, name) => new File(['x'], name, { type: 'image/png' }) }));
+const storeTaskFile = vi.hoisted(() => vi.fn(async () => 'https://x.supabase.co/storage/v1/object/public/task-files/notes/boards/note_1/markup.png'));
+const attachMarkup = vi.hoisted(() => vi.fn(async () => ({ id: 'att_1' })));
+vi.mock('../../tasks/lib', () => ({ dataUrlToFile: (d, name) => new File(['x'], name, { type: 'image/png' }), storeTaskFile }));
+vi.mock('../../api', () => ({ api: { attachMarkup } }));
 
 import Board from './Board';
 import { SCENE_TYPE, FONT_SANS, FONT_HAND } from './scene';
@@ -172,5 +175,24 @@ describe('Board', () => {
     await act(async () => { render(<Board note={note()} isPhone />); });
     expect(screen.getByTestId('nx-board').className).toContain('is-phone');
     expect(engine.props.renderTopRightUI).toBeUndefined();     // the look toggle lives in the menu on a phone
+  });
+
+  it('a board made from a ticket offers Attach to <ticket>, which stores a PNG and posts it back through api.attachMarkup', async () => {
+    storeTaskFile.mockClear(); attachMarkup.mockClear();
+    const source = { kind: 'ticket', id: 't_1', label: 'Ticket #4 Leak', url: '/tickets?ticket=t_1' };
+    render(<Board note={note({ source })} />);
+    await act(async () => {});
+    const item = screen.getByRole('button', { name: 'Attach to Ticket #4 Leak' });
+    await act(async () => { fireEvent.click(item); });
+    expect(storeTaskFile).toHaveBeenCalledTimes(1);
+    expect(storeTaskFile.mock.calls[0][2]).toBe('notes/boards/note_1');
+    expect(attachMarkup).toHaveBeenCalledWith(source, expect.objectContaining({ name: 'Yard.png', url: expect.stringContaining('markup.png') }));
+    expect(fakeApi.setToast).toHaveBeenCalledWith(expect.objectContaining({ message: 'Attached to Ticket #4 Leak' }));
+  });
+
+  it('a board with a file or walkthrough source has no Attach item', async () => {
+    render(<Board note={note({ source: { kind: 'walkthrough', id: 'p1', label: 'Walkthrough: lobby', url: '' } })} />);
+    await act(async () => {});
+    expect(screen.queryByRole('button', { name: /^Attach to/ })).toBeNull();
   });
 });
