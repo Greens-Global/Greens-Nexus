@@ -231,13 +231,20 @@ def submit_entry(tid: str, body: EntryIn, user: dict = Depends(get_current_user)
         if isinstance(stamp, dict) and "lat" in stamp and "lng" in stamp:
             answers["_location"] = stamp
 
-    site_id = (body.workSiteId or "").strip() or (tpl.work_site_id or "")
-    if site_id and db.query(HrWorkSite.id).filter(HrWorkSite.id == site_id).first() is None:
-        raise HTTPException(400, "Unknown work site")
+    # A site form is filed at its site whatever the client sent; any other
+    # form at one of the submitter's company's sites (the list the fill
+    # screen offers), or at none.
+    company = auth.company_of(me, db)
+    if tpl.work_site_id:
+        site_id = tpl.work_site_id
+    else:
+        site_id = (body.workSiteId or "").strip()
+        if site_id and site_id not in {s.id for s in company_sites(db, company)}:
+            raise HTTPException(400, "Unknown work site")
     now = _now_iso()
     row = DocFormEntry(id=str(uuid.uuid4()), template_id=tpl.id, template_version=version,
                        title=tpl.name, entry_key=key, answers=answers,
-                       company=auth.company_of(me, db), work_site_id=site_id,
+                       company=company, work_site_id=site_id,
                        shift_id=(body.shiftId or "").strip()[:80], submitted_by=me, submitted_at=now,
                        source=source, status="submitted", deleted_at="")
     db.add(row)

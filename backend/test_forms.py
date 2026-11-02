@@ -57,6 +57,7 @@ def _drop():
 
 CO_A, CO_B = "forms-co-a", "forms-co-b"
 SITE_A, SITE_B = "forms-site-a", "forms-site-b"
+SITE_C = "forms-site-c"                      # co-b's only site
 ADMIN = "forms.admin@greensglobal.com"      # administrator, co-a, Operations
 MGR = "forms.mgr@greensglobal.com"          # manager, co-a, Operations; schedules nothing, REP reports to them
 REP = "forms.rep@greensglobal.com"          # employee, reports to MGR, site A
@@ -149,8 +150,8 @@ class FormsTests(unittest.TestCase):
                .filter(models.NexusEmployee.work_email.like("forms.%")).delete(synchronize_session=False))
             db.query(models.NexusRole).filter(models.NexusRole.email.like("forms.%")).delete(synchronize_session=False)
             db.query(models.HrEntity).filter(models.HrEntity.id.in_([CO_A, CO_B])).delete(synchronize_session=False)
-            db.query(models.HrWorkSite).filter(models.HrWorkSite.id.in_([SITE_A, SITE_B])).delete(synchronize_session=False)
-            db.query(models.HrCompanyWorkSite).filter(models.HrCompanyWorkSite.company_id == CO_A).delete(synchronize_session=False)
+            db.query(models.HrWorkSite).filter(models.HrWorkSite.id.in_([SITE_A, SITE_B, SITE_C])).delete(synchronize_session=False)
+            db.query(models.HrCompanyWorkSite).filter(models.HrCompanyWorkSite.company_id.in_([CO_A, CO_B])).delete(synchronize_session=False)
             db.query(models.ShiftGroupMember).filter(models.ShiftGroupMember.group_id == "forms-g1").delete(synchronize_session=False)
             db.query(models.ShiftGroup).filter(models.ShiftGroup.id == "forms-g1").delete(synchronize_session=False)
             db.query(models.DocFormEntry).delete(synchronize_session=False)
@@ -541,6 +542,27 @@ class FormsTests(unittest.TestCase):
         self.assertEqual(row[header.index("reviewNote")], "'@SUM(A1)")
         self.assertEqual(row[header.index("form")], "'=Danger")
         self.assertEqual(row[header.index("n")], "-5")              # a number is left alone
+
+
+    def test_a_site_form_files_at_its_site_and_any_other_site_must_be_the_companys(self):
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrWorkSite(id=SITE_C, name="Other Co Yard"))
+            db.add(models.HrCompanyWorkSite(id=f"{CO_B}:{SITE_C}", company_id=CO_B, site_id=SITE_C))
+            db.commit()
+        finally:
+            db.close()
+        site_form = self._template("North Yard Walk", audience="site", workSiteId=SITE_A)
+        e = self._submit(site_form["id"], REP, workSiteId=SITE_B)      # the client's pick is ignored
+        self.assertEqual(e["workSiteId"], SITE_A)
+        e = self._submit(site_form["id"], REP)
+        self.assertEqual(e["workSiteId"], SITE_A)
+        tpl = self._template()
+        self.assertEqual(self._submit(tpl["id"], REP, workSiteId=SITE_B)["workSiteId"], SITE_B)
+        self.assertEqual(self._submit(tpl["id"], REP)["workSiteId"], "")
+        r = self._submit(tpl["id"], REP, workSiteId=SITE_C, status=400)   # another company's site
+        self.assertIn("work site", r["detail"])
+        self._submit(tpl["id"], REP, workSiteId="no-such-site", status=400)
 
 
 if __name__ == "__main__":
