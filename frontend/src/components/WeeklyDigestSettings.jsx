@@ -6,15 +6,23 @@
 // to just work - these settings exist to test it and switch it on, not for
 // every employee to tune. Same Global-Admin bar, off/test/live modes and
 // "confirm before going live" speed bump as DailyBriefingSettings.jsx.
-import { useEffect, useState } from 'react';
+//
+// The Settings save pattern (Oct 23 2026): Mode, the send day, the no-shift
+// switch, time and zone, and the Outlook Card save the moment they change
+// (going Live asks first), with a toast, and roll back when the save fails;
+// the typed fields - the minutes before the shift and the test recipients -
+// are a draft with one Save row under them.
+import { useEffect, useMemo, useState } from 'react';
 import { LoadingState } from './AsyncState';
-import { CalendarDays, Save, Send, AlertTriangle, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
+import { CalendarDays, Send, AlertTriangle, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle } from '../tasks/theme';
 import { formatDate, formatTime } from '../lib/datetime';
-import SavedCheck from './SavedCheck';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
+import SaveRow from './SaveRow';
 import { SettingCard, SwitchRow } from './settings/SettingsUI';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -33,23 +41,74 @@ const SLOTS = Array.from({ length: 48 }, (_, i) => `${String(i >> 1).padStart(2,
 let ZONES = [];
 try { ZONES = Intl.supportedValuesOf('timeZone'); } catch { /* older browser: current zone only */ }
 const withCurrent = (list, v) => (v && !list.includes(v) ? [v, ...list] : list);
+const splitList = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
+const typedOf = (c) => ({ recipients: (c.test_recipients || []).join(', '), leadMinutes: String(c.leadMinutes ?? 120) });
 
-export default function WeeklyDigestSettings() {
+// `toastOk` / `toastErr` (optional): the Settings shell's toasts; without
+// them the panel says so on a line of its own.
+export default function WeeklyDigestSettings({ toastOk, toastErr }) {
   const { can } = useRole();
   const [tab, setTab] = useState('settings');   // settings | log
   const [cfg, setCfg] = useState(null);
-  const [savedMode, setSavedMode] = useState(null);
-  const [recipientsInput, setRecipientsInput] = useState('');
-  const [confirmLive, setConfirmLive] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [notice, setNotice] = useState(null);
   const [err, setErr] = useState('');
 
   useEffect(() => {
-    api.getWeeklyDigestConfig()
-      .then((c) => { setCfg(c); setSavedMode(c.mode); setRecipientsInput((c.test_recipients || []).join(', ')); })
-      .catch((e) => setErr(e.message || String(e)));
+    api.getWeeklyDigestConfig().then(setCfg).catch((e) => setErr(e.message || String(e)));
   }, []);
+
+  const typedSaved = useMemo(() => (cfg ? typedOf(cfg) : null), [cfg]);
+  const { draft, patch: editDraft, dirty, reset } = useDraft(typedSaved);
+  const say = (ok, text) => {
+    const fn = ok ? toastOk : toastErr;
+    if (fn) fn(text); else setNotice({ ok, text });
+  };
+  const instant = async (patch, what) => {
+    const prev = cfg;
+    setCfg((c) => ({ ...c, ...patch }));
+    try {
+      setCfg(await api.updateWeeklyDigestConfig(patch));
+      say(true, `${what} saved.`);
+    } catch (e) {
+      setCfg(prev);
+      say(false, e.message || `Could not save ${what.toLowerCase()}.`);
+    }
+  };
+  // Only a switch INTO live asks (same rule as the daily settings).
+  const pickMode = async (mode) => {
+    if (mode === cfg.mode) return;
+    if (mode === 'live') {
+      const ok = await dialog.confirm(
+        'Everyone with an overdue task or other work waiting gets their digest on the next send day. Check Test mode with a few real people first.',
+        { title: 'Send to Every Employee?', confirmText: 'Turn On Live', danger: true },
+      );
+      if (!ok) return;
+    }
+    instant({ mode }, 'Mode');
+  };
+
+  const save = async () => {
+    if (!dirty || saving) return false;
+    const lead = Number(draft.leadMinutes);
+    if (!Number.isInteger(lead) || lead < LEAD_MIN || lead > LEAD_MAX) {
+      setErr(`Minutes before shift must be a whole number from ${LEAD_MIN} to ${LEAD_MAX}.`);
+      return false;
+    }
+    const body = {};
+    if (draft.recipients !== typedSaved.recipients) body.test_recipients = splitList(draft.recipients);
+    if (draft.leadMinutes !== typedSaved.leadMinutes) body.leadMinutes = lead;
+    setSaving(true); setErr('');
+    try {
+      setCfg(await api.updateWeeklyDigestConfig(body));
+      say(true, 'Weekly Digest saved.');
+      return true;
+    } catch (e) {
+      setErr(e.message || String(e));
+      return false;
+    } finally { setSaving(false); }
+  };
+  useGroupDirty(dirty, save);
 
   if (!can('administrator')) {
     return (
@@ -58,41 +117,7 @@ export default function WeeklyDigestSettings() {
       </div>
     );
   }
-  if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
-
-  // Only an actual switch INTO live needs the tick - re-saving while already
-  // live must not ask again (same rule as the daily settings).
-  const goingLive = cfg.mode === 'live';
-  const switchingToLive = goingLive && savedMode !== 'live' && !confirmLive;
-  const lead = Number(cfg.leadMinutes ?? 120);
-
-  const save = async () => {
-    if (switchingToLive) return;
-    if (!Number.isInteger(lead) || lead < LEAD_MIN || lead > LEAD_MAX) {
-      setErr(`Minutes before shift must be a whole number from ${LEAD_MIN} to ${LEAD_MAX}.`);
-      return;
-    }
-    setSaving(true); setErr(''); setSaved(false);
-    try {
-      const next = await api.updateWeeklyDigestConfig({
-        mode: cfg.mode,
-        test_recipients: recipientsInput.split(',').map((s) => s.trim()).filter(Boolean),
-        sendDay: Number(cfg.sendDay) || 1,
-        leadMinutes: lead,
-        includeNoShift: cfg.includeNoShift !== false,
-        defaultSendTime: cfg.defaultSendTime || '08:00',
-        defaultTimeZone: cfg.defaultTimeZone || 'America/Los_Angeles',
-        outlookCard: cfg.outlookCard !== false,
-      });
-      setCfg(next);
-      setSavedMode(next.mode);
-      setRecipientsInput((next.test_recipients || []).join(', '));
-      setConfirmLive(false);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (e) { setErr(e.message || String(e)); }
-    finally { setSaving(false); }
-  };
+  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
@@ -116,6 +141,9 @@ export default function WeeklyDigestSettings() {
 
       {tab === 'log' ? <DigestDeliveryLog /> : (
       <>
+      {notice && (
+        <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? NX.green : NX.red }}>{notice.text}</div>
+      )}
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Mode</label>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -126,8 +154,7 @@ export default function WeeklyDigestSettings() {
               background: cfg.mode === m.key ? 'var(--wk-brand-tint)' : 'transparent', cursor: 'pointer',
             }}>
               <input type="radio" name="weekly-digest-mode" checked={cfg.mode === m.key}
-                onChange={() => { setCfg((c) => ({ ...c, mode: m.key })); setConfirmLive(false); }}
-                style={{ marginTop: 3 }} />
+                onChange={() => pickMode(m.key)} style={{ marginTop: 3 }} />
               <span>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.label}</div>
                 <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>{m.hint}</div>
@@ -137,43 +164,44 @@ export default function WeeklyDigestSettings() {
         </div>
       </div>
 
-      {cfg.mode === 'test' && (
-        <div style={{ marginBottom: 16 }}>
-          <label style={fieldLabel} htmlFor="weekly-digest-recipients">Test Recipients</label>
-          <input id="weekly-digest-recipients" value={recipientsInput} onChange={(e) => setRecipientsInput(e.target.value)}
-            placeholder="you@company.com, another@company.com" style={inputStyle} />
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
-            Comma-separated. Each employee's digest is built from their own tasks and sent here instead, with a
-            "[TEST -&gt; original]" subject prefix.
+      {cfg.mode === 'live' && (
+        <div style={{
+          display: 'flex', gap: 10, padding: '12px 14px', borderRadius: 8, marginBottom: 16,
+          background: 'hsla(var(--color-red), 0.08)', border: '1px solid hsla(var(--color-red), 0.35)',
+        }}>
+          <ShieldAlert size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-red))' }}>
+              Live: every employee in the company gets a real email
+            </div>
+            <div style={{ fontSize: 12, color: NX.dim, marginTop: 3 }}>
+              Everyone with an overdue task or other work waiting gets their digest on the next send day. Switch to Test or Off to stop it.
+            </div>
           </div>
         </div>
       )}
 
       <div style={{ marginBottom: 16, fontSize: 13 }}>
-        <label style={fieldLabel}>Timing</label>
+        <label style={fieldLabel}>Send Day</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
           Every
           <select aria-label="Send day" value={cfg.sendDay || 1}
-            onChange={(e) => setCfg((c) => ({ ...c, sendDay: Number(e.target.value) }))} style={{ ...inputStyle, width: 'auto' }}>
+            onChange={(e) => instant({ sendDay: Number(e.target.value) }, 'Send day')} style={{ ...inputStyle, width: 'auto' }}>
             {DAYS.map((d, i) => <option key={d} value={i + 1}>{d}</option>)}
           </select>
-          <input type="number" min={LEAD_MIN} max={LEAD_MAX} step={5} aria-label="Minutes before shift start"
-            value={cfg.leadMinutes ?? 120} onChange={(e) => setCfg((c) => ({ ...c, leadMinutes: e.target.value }))}
-            style={{ ...inputStyle, width: 80 }} />
-          minutes before the person's shift starts
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
             <input type="checkbox" checked={cfg.includeNoShift !== false}
-              onChange={(e) => setCfg((c) => ({ ...c, includeNoShift: e.target.checked }))} />
+              onChange={(e) => instant({ includeNoShift: e.target.checked }, 'No-shift sending')} />
             No shift that day: send at
           </label>
           <select aria-label="Fallback send time" disabled={cfg.includeNoShift === false} value={cfg.defaultSendTime || '08:00'}
-            onChange={(e) => setCfg((c) => ({ ...c, defaultSendTime: e.target.value }))} style={{ ...inputStyle, width: 'auto' }}>
+            onChange={(e) => instant({ defaultSendTime: e.target.value }, 'Send time')} style={{ ...inputStyle, width: 'auto' }}>
             {withCurrent(SLOTS, cfg.defaultSendTime).map((t) => <option key={t} value={t}>{formatTime(`2000-01-01T${t}:00`)}</option>)}
           </select>
           <select aria-label="Default time zone" disabled={cfg.includeNoShift === false} value={cfg.defaultTimeZone || 'America/Los_Angeles'}
-            onChange={(e) => setCfg((c) => ({ ...c, defaultTimeZone: e.target.value }))} style={{ ...inputStyle, width: 'auto' }}>
+            onChange={(e) => instant({ defaultTimeZone: e.target.value }, 'Time zone')} style={{ ...inputStyle, width: 'auto' }}>
             {withCurrent(ZONES, cfg.defaultTimeZone || 'America/Los_Angeles').map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
@@ -188,44 +216,40 @@ export default function WeeklyDigestSettings() {
           <SwitchRow id="weekly-digest-card" title="Outlook Card"
             desc="Approve and reject in Outlook, on top of the digest. The card refreshes each time the email is opened, so anything already decided drops off. Shown only on a person's own copy, in Outlook, where Actionable Messages are set up - everyone else gets the email alone."
             checked={cfg.outlookCard !== false}
-            onChange={(on) => setCfg((c) => ({ ...c, outlookCard: on }))} />
+            onChange={(on) => instant({ outlookCard: on }, 'Outlook card')} />
         </SettingCard>
       </div>
 
-      {goingLive && (
-        <div style={{
-          display: 'flex', gap: 10, padding: '12px 14px', borderRadius: 8, marginBottom: 16,
-          background: 'hsla(var(--color-red), 0.08)', border: '1px solid hsla(var(--color-red), 0.35)',
-        }}>
-          <ShieldAlert size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0, marginTop: 1 }} />
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-red))' }}>
-              This sends a real email to every employee in the company
-            </div>
-            <div style={{ fontSize: 12, color: NX.dim, marginTop: 3 }}>
-              Everyone with an overdue task or other work waiting gets their digest on the next send day. Check Test mode with a few real
-              people first.
-            </div>
-            {savedMode !== 'live' && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12.5, cursor: 'pointer' }}>
-                <input type="checkbox" checked={confirmLive} onChange={(e) => setConfirmLive(e.target.checked)} />
-                I understand this goes out to every employee company-wide.
-              </label>
-            )}
+      {/* The typed fields, with the one Save row under them. */}
+      <div style={{ borderTop: `1px solid ${NX.border}`, paddingTop: 16 }}>
+        <div style={{ marginBottom: 16, fontSize: 13 }}>
+          <label style={fieldLabel}>Timing</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <input type="number" min={LEAD_MIN} max={LEAD_MAX} step={5} aria-label="Minutes before shift start"
+              value={draft.leadMinutes} onChange={(e) => editDraft({ leadMinutes: e.target.value })}
+              style={{ ...inputStyle, width: 80 }} />
+            minutes before the person's shift starts
           </div>
         </div>
-      )}
 
-      {err && <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.red, margin: '0 0 12px' }}>
-        <AlertTriangle size={13} /> {err}
-      </div>}
+        {(cfg.mode === 'test' || draft.recipients !== typedSaved.recipients) && (
+          <div style={{ marginBottom: 4 }}>
+            <label style={fieldLabel} htmlFor="weekly-digest-recipients">Test Recipients</label>
+            <input id="weekly-digest-recipients" value={draft.recipients} onChange={(e) => editDraft({ recipients: e.target.value })}
+              placeholder="you@company.com, another@company.com" style={inputStyle} />
+            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+              Comma-separated. Each employee's digest is built from their own tasks and sent here instead, with a
+              "[TEST -&gt; original]" subject prefix.
+            </div>
+          </div>
+        )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button style={{ ...btn('primary'), opacity: (saving || switchingToLive) ? 0.6 : 1 }}
-          onClick={save} disabled={saving || switchingToLive}>
-          <Save size={14} /> {saving ? 'Saving…' : 'Save Settings'}
-        </button>
-        <SavedCheck show={saved} />
+        {err && <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.red, margin: '12px 0 0' }}>
+          <AlertTriangle size={13} /> {err}
+        </div>}
+
+        <SaveRow dirty={dirty} busy={saving} onSave={save} onDiscard={() => { reset(); setErr(''); }}
+          note={cfg.mode === 'test' ? 'Saves the minutes before shift start and the test recipients.' : 'Saves the minutes before shift start.'} />
       </div>
 
       <SendTestDigest testRecipients={cfg.test_recipients || []} />
@@ -271,7 +295,7 @@ function SendTestDigest({ testRecipients }) {
   };
 
   return (
-    <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${NX.border}` }}>
+    <div data-nx-noguard="" style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${NX.border}` }}>
       <label style={fieldLabel} htmlFor="weekly-digest-test-who">Send Test Digest</label>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <input id="weekly-digest-test-who" list="weekly-digest-people" value={who} onChange={(e) => setWho(e.target.value)}

@@ -43,7 +43,7 @@ beforeEach(() => {
 
 const openReplies = async () => {
   render(<TaskNotifySettings />);
-  await screen.findByText('Accept replies by email');
+  await screen.findByText('Accept Replies by Email');
   fireEvent.click(screen.getByText('Replies'));
 };
 
@@ -51,12 +51,12 @@ describe('inbound email settings', () => {
   it('renders the switch without a mailbox configured', async () => {
     api.getTaskNotifySettings.mockResolvedValue({ ...settings, replyTo: '', inboundMailbox: '' });
     render(<TaskNotifySettings />);
-    expect(await screen.findByText('Accept replies by email')).toBeTruthy();
+    expect(await screen.findByText('Accept Replies by Email')).toBeTruthy();
   });
 
   it('hides the mailbox details until replies are switched on', async () => {
     render(<TaskNotifySettings />);
-    await screen.findByText('Accept replies by email');
+    await screen.findByText('Accept Replies by Email');
     expect(screen.queryByText('Check Mailbox Now')).toBeNull();
   });
 

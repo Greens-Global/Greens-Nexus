@@ -205,7 +205,7 @@ const TaskNotifySettingsWrapped = lazy(async () => {
     import('../tasks/TasksContext'),
     import('../tasks/TaskNotifySettings'),
   ]);
-  return { default: () => <TasksProvider><TaskNotifySettings /></TasksProvider> };
+  return { default: (props) => <TasksProvider><TaskNotifySettings {...props} /></TasksProvider> };
 });
 
 const ModalFallback = ModalLoading;
@@ -954,11 +954,11 @@ function ServiceDeskSection({ chrome, company = '' }) {
   );
 }
 
-function TaskNotificationsSection({ chrome }) {
+function TaskNotificationsSection({ chrome, toastOk, toastErr }) {
   return (
     <Group {...GROUP_META['task-notifications']} {...chrome}>
       <Suspense fallback={<SectionFallback />}>
-        <TaskNotifySettingsWrapped />
+        <TaskNotifySettingsWrapped toastOk={toastOk} toastErr={toastErr} />
       </Suspense>
     </Group>
   );
@@ -967,30 +967,30 @@ function TaskNotificationsSection({ chrome }) {
 // ── Daily Briefing ─────────────────────────────────────────────────────────
 // Global-Admin only (see DailyBriefingSettings.jsx, which shows its own
 // "access required" note to anyone else).
-function DailyBriefingSection({ chrome }) {
+function DailyBriefingSection({ chrome, toastOk, toastErr }) {
   return (
     <Group {...GROUP_META['daily-briefing']} {...chrome}>
-      <DailyBriefingSettings />
+      <DailyBriefingSettings toastOk={toastOk} toastErr={toastErr} />
     </Group>
   );
 }
 
 // ── Weekly Digest ──────────────────────────────────────────────────────────
 // Global-Admin only, like the Daily Briefing (WeeklyDigestSettings.jsx).
-function WeeklyDigestSection({ chrome }) {
+function WeeklyDigestSection({ chrome, toastOk, toastErr }) {
   return (
     <Group {...GROUP_META['weekly-digest']} {...chrome}>
-      <WeeklyDigestSettings />
+      <WeeklyDigestSettings toastOk={toastOk} toastErr={toastErr} />
     </Group>
   );
 }
 
 // ── Workforce Scorecard ────────────────────────────────────────────────────
 // Global-Admin only, like the Weekly Digest (WorkforceScorecardSettings.jsx).
-function WorkforceScorecardSection({ chrome }) {
+function WorkforceScorecardSection({ chrome, toastOk, toastErr }) {
   return (
     <Group {...GROUP_META['workforce-scorecard']} {...chrome}>
-      <WorkforceScorecardSettings />
+      <WorkforceScorecardSettings toastOk={toastOk} toastErr={toastErr} />
     </Group>
   );
 }
@@ -1841,10 +1841,10 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
       case 'email-signature':      return <EmailSignatureSection key={key} chrome={chrome} company={company} toastOk={toastOk} toastErr={toastErr} />;
       case 'work-sites':           return <WorkSiteLibrarySection key={key} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'service-desk':         return <ServiceDeskSection key={key} chrome={chrome} company={company} />;
-      case 'task-notifications':   return <TaskNotificationsSection key={key} chrome={chrome} />;
-      case 'daily-briefing':       return <DailyBriefingSection key={key} chrome={chrome} />;
-      case 'weekly-digest':        return <WeeklyDigestSection key={key} chrome={chrome} />;
-      case 'workforce-scorecard':  return <WorkforceScorecardSection key={key} chrome={chrome} />;
+      case 'task-notifications':   return <TaskNotificationsSection key={key} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'daily-briefing':       return <DailyBriefingSection key={key} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'weekly-digest':        return <WeeklyDigestSection key={key} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'workforce-scorecard':  return <WorkforceScorecardSection key={key} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'hr-reminders':         return <HrRemindersSection key={key} chrome={chrome} />;
       case 'equipment-reminders':  return <LazyPanelSection key={key} id={id} Panel={EquipmentReminderSettings} chrome={chrome} />;
       case 'kb-reminders':         return <LazyPanelSection key={key} id={id} Panel={KbReminderSettings} chrome={chrome} />;
