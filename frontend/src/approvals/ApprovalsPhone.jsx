@@ -34,6 +34,9 @@ import { YES_KEYS, needsNote, sectionize } from './shared';
 // shows); a section label sticks right under it.
 const STICKY_TOP = 'calc(64px + var(--nx-announce-h, 0px))';
 const GHOST_MS = MOTION.xs + MOTION.exit;
+// After a decision the list ignores taps until the neighbors have glided up:
+// a double tap must never decide the card that slid under the finger.
+const LOCK_MS = Math.max(MOTION.md + 150, 350);
 
 export default function ApprovalsPhone({
   tab, setTab, rows, ownRows, hiddenKeys, groupLabels, counts, kind, setKind,
@@ -47,6 +50,7 @@ export default function ApprovalsPhone({
   const listRef = useRef(null);
   const cardEls = useRef(new Map());
   const timers = useRef(new Set());
+  const lockUntil = useRef(0);
   const reduce = useReducedMotion();
   useFlip(listRef);
   useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear(); }, []);
@@ -64,6 +68,7 @@ export default function ApprovalsPhone({
   // The card leaves the data at once (onAct -> decide -> hide); with motion
   // on, a ghost of it holds its spot for the beat so the eye sees it go.
   const fire = (row, action, note) => {
+    lockUntil.current = Date.now() + LOCK_MS;
     const wait = motionWait(GHOST_MS);
     const el = cardEls.current.get(row.key);
     const root = listRef.current;
@@ -80,6 +85,7 @@ export default function ApprovalsPhone({
     onAct(row, action, note);
   };
   const act = (row, action) => {
+    if (Date.now() < lockUntil.current) return;
     if (action.key === 'open' || !runsInline(row, action.key)) { onAct(row, action); return; }
     if (needsNote(action)) { setAsking({ row, action }); return; }
     fire(row, action, '');

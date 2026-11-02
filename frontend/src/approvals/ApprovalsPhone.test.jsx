@@ -181,6 +181,26 @@ describe('Approvals on a phone', () => {
     expect(timeOffDecide).not.toHaveBeenCalled();
   });
 
+  // A double tap lands its second tap on the card that just slid up under
+  // the finger: the list ignores taps until the glide is over.
+  it('a double tap never decides the next card', async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    render(<Approvals activeSub="" onSubChange={() => {}} />);
+    await screen.findByText(TIME_OFF);
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    fireEvent.click(btn(/^Approve: Time Off/));
+    // The reimbursement is now where Time Off was; the second tap of the double tap lands on it.
+    await act(async () => { vi.advanceTimersByTime(120); });
+    fireEvent.click(btn(/^Approve: Reimbursement/));
+    expect(titles()).toEqual([LETTER, MONEY, SHEETS, ITEM]);
+    expect(screen.getByText('Approved - Priya Sharma, Time Off')).toBeTruthy();
+    // Under reduced motion the floor is 350 ms; with motion it is the glide plus 150.
+    await act(async () => { vi.advanceTimersByTime(Math.max(MOTION.md + 150, 350)); });
+    fireEvent.click(btn(/^Approve: Reimbursement/));
+    expect(titles()).toEqual([LETTER, SHEETS, ITEM]);
+    expect(screen.getByText('Approved 2 Requests')).toBeTruthy();
+  });
+
   // Review Focus 2: a no that needs a note opens the note sheet first and
   // never fires without it; the desktop prompt is never used on a phone.
   it('a reject that needs a note opens the note sheet and never fires without the note', async () => {
@@ -289,6 +309,7 @@ describe('Approvals on a phone', () => {
       expect(screen.getByText(TIME_OFF, { selector: '.apv-ph-ttl' })).toBeTruthy();
       // Motion on: the card stays as a leaving ghost for the beat, then goes.
       reduce = false;
+      await act(async () => { vi.advanceTimersByTime(400); });   // past the double-tap lock
       fireEvent.click(btn(/^Approve: Time Off/));
       const ghost = document.querySelector('.apv-ph-ghost');
       expect(ghost).toBeTruthy();
