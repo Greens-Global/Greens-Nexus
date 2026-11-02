@@ -3409,3 +3409,12 @@ api.formTemplateCsv = (tid, params = {}) => {
   const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null));
   return reqBlob(`/forms/templates/${encodeURIComponent(tid)}/export.csv${q.toString() ? `?${q}` : ''}`);
 };
+// Forms & Checklists (Neil, 11/02/2026; backend routers/forms.py). The forms
+// this person may fill (the server's audience rule), one form's released
+// fields for the fill screen, and the send - idempotent on `entryKey`, so a
+// retry files the same entry once. Photos and signatures go to task-files
+// under forms/<entryKey>/ first (tasks/lib storeTaskFile); the body carries
+// their URLs. body: {entryKey, answers, workSiteId?, shiftId?, source, gps?}.
+api.formsMine = () => req('/forms/mine');
+api.formGet = (templateId) => req(`/forms/${encodeURIComponent(templateId)}`);
+api.formSubmit = (templateId, body) => req(`/forms/${encodeURIComponent(templateId)}/entries`, { method: 'POST', body: JSON.stringify(body) });
