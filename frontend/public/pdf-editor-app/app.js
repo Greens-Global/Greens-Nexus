@@ -10553,6 +10553,9 @@
         const ov = document.createElement('div');
         ov.className = 'word-preview-overlay';
         ov.id = 'compareResult';
+        ov.setAttribute('role', 'dialog');
+        ov.setAttribute('aria-modal', 'true');
+        ov.setAttribute('aria-label', 'Comparison result');
         ov.innerHTML =
             '<div class="word-preview-modal">' +
               '<div class="word-preview-head">' +
@@ -10567,7 +10570,11 @@
               '</div>' +
             '</div>';
         document.body.appendChild(ov);
-        ov.querySelector('.wp-cancel').addEventListener('click', () => ov.remove());
+        const close = () => { document.removeEventListener('keydown', onKey, true); ov.remove(); };
+        const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
+        document.addEventListener('keydown', onKey, true);
+        ov.querySelector('.wp-cancel').addEventListener('click', close);
+        ov.querySelector('.wp-cancel').focus();
         ov.querySelector('.wp-download').addEventListener('click', () => {
             _offerDownload(bytes, fileName, 'application/pdf');
             setStatus('Saved ' + fileName);
@@ -13146,6 +13153,7 @@ Replacement:`;
             setLock: (v) => { state.organizeLocked = !!v; _applyOrganizeLock(); return !!state.organizeLocked; },
             guardStructural: () => _guardStructural(),
             annotations: () => { saveCurrentAnnotations(); return state.annotations; },
+            movePage: (a, b) => movePageTo(a, b),
             setLayerVisible: (id, v) => { const l = state.layers.find(x => x.id === id); if (l) l.visible = v; applyLayerVisibility(); },
         };
     }
