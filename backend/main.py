@@ -1429,6 +1429,10 @@ def _run_migrations():
             # Posts from before these columns were belled at create: stamp them
             # published, or the first publish pass would bell everyone again.
             "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
+            # Forms (Neil 11/02/2026): a form is a DocTemplate with its audience. models.DocTemplate.
+            "ALTER TABLE doc_templates ADD COLUMN audience VARCHAR DEFAULT 'company'",
+            "ALTER TABLE doc_templates ADD COLUMN work_site_id VARCHAR DEFAULT ''",
+            "ALTER TABLE doc_templates ADD COLUMN show_on_shifts INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3414,6 +3418,12 @@ def _run_migrations():
         # Posts from before these columns were belled at create: stamp them
         # published, or the first publish pass would bell everyone again.
         "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
+        # Forms (Neil 11/02/2026): a form is a DocTemplate with an audience;
+        # its entries are a new table - RLS per CLAUDE.md. models.DocTemplate / DocFormEntry.
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS audience VARCHAR DEFAULT 'company'",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS show_on_shifts INTEGER DEFAULT 0",
+        "ALTER TABLE doc_form_entries ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5197,3 +5207,5 @@ from routers import kb_reminder_settings  # noqa: E402
 app.include_router(kb_reminder_settings.router)  # Training Reminders switches - Settings > Emails & Reminders (Sagar, Oct 28 2026)
 from routers import notes as notes_router  # noqa: E402 - two new tables: create_all + explicit RLS lines
 app.include_router(notes_router.router)  # Notes: the scratchpad that follows you - Dashboard > Notes, Quick Note, the Notes widget (Neil, Oct 29 2026)
+from routers import forms as forms_router  # noqa: E402 - doc_form_entries: create_all + the explicit RLS line above
+app.include_router(forms_router.router)  # Forms & Checklists: fill a form on the phone, entries, review, PDF, CSV (Neil, 11/02/2026)

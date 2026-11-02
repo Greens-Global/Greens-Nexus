@@ -37,6 +37,8 @@ import re
 import uuid
 from datetime import date, datetime, timezone
 
+import form_audience
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -144,11 +146,13 @@ def _is_scheduled(a: Announcement, now: str) -> bool:
 def _can_see(a: Announcement, *, email: str, department: str, is_admin: bool, now: str = "") -> bool:
     if _is_scheduled(a, now or _now()) and not is_admin:
         return False
-    if (a.audience or "company") != "department":
-        return True
     if is_admin or (a.author_email or "").lower() == email:
         return True
-    return bool(department) and (a.department or "").strip().lower() == department.lower()
+    # The one audience rule, shared with Forms (form_audience.in_audience).
+    # Company walls are the caller's business (list_announcements), so the
+    # company part is not asked here.
+    return form_audience.in_audience({"department": department}, audience=a.audience or "company",
+                                     department=a.department or "")
 
 
 def _serialize(a: Announcement, *, people: dict, db: Session, mark=None, counts=None, today: str = "",
@@ -351,9 +355,9 @@ def _audience_emails(a: Announcement, people: dict, author_scope) -> list[str]:
     dept = (a.department or "").strip().lower()
     out = []
     for em, p in people.items():
-        if em == author or p["external"] or p["status"] in ("inactive", "offboarded"):
+        if em == author or not form_audience.eligible(p):
             continue
-        if (a.audience or "company") == "department" and p["department"].lower() != dept:
+        if not form_audience.in_audience(p, audience=a.audience or "company", department=dept):
             continue
         if author_scope is not None and not auth.company_ok(p["company"], author_scope, shared_when_blank=True):
             continue
