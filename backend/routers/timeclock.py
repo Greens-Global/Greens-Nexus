@@ -8023,6 +8023,8 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
                         key=lambda g: (g.id not in member_set, (g.name or "").lower())):
             ems = sorted(set(members_by_group.get(g.id, [])), key=lambda em: (em != email, names.get(em, em)))
             teams.append({"id": g.id, "name": g.name, "isMember": g.id in member_set,
+                          # Forms (11/02/2026): a site-scoped form shows on the shift card of this team's site.
+                          "workSiteId": g.work_site_id or "",
                           "members": [{"email": em, "name": names.get(em, em), "isMe": em == email,
                                        "photoUrl": photos.get(em, ""),
                                        "shift": defaults.get(em), "scheduled": placed.get(em, []),

@@ -1433,6 +1433,12 @@ def _run_migrations():
             # Posts from before these columns were belled at create: stamp them
             # published, or the first publish pass would bell everyone again.
             "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
+            # Forms (Neil 11/02/2026): a form is a DocTemplate with its audience. models.DocTemplate.
+            "ALTER TABLE doc_templates ADD COLUMN audience VARCHAR DEFAULT 'company'",
+            "ALTER TABLE doc_templates ADD COLUMN work_site_id VARCHAR DEFAULT ''",
+            "ALTER TABLE doc_templates ADD COLUMN show_on_shifts INTEGER DEFAULT 0",
+            # A published version keeps its field list (entries read against it). models.DocTemplateVersion.
+            "ALTER TABLE doc_template_versions ADD COLUMN field_defs JSON",
             # Work-site audience (Neil, 11/02/2026).
             "ALTER TABLE nexus_announcements ADD COLUMN work_site_id VARCHAR DEFAULT ''",
             # Federal forms in hiring packets (Neil, 11/02/2026) - see the Postgres list.
@@ -3436,6 +3442,14 @@ def _run_migrations():
         # Posts from before these columns were belled at create: stamp them
         # published, or the first publish pass would bell everyone again.
         "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
+        # Forms (Neil 11/02/2026): a form is a DocTemplate with an audience;
+        # its entries are a new table - RLS per CLAUDE.md. models.DocTemplate / DocFormEntry.
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS audience VARCHAR DEFAULT 'company'",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS show_on_shifts INTEGER DEFAULT 0",
+        "ALTER TABLE doc_form_entries ENABLE ROW LEVEL SECURITY",
+        # A published version keeps its field list (entries read against it). models.DocTemplateVersion.
+        "ALTER TABLE doc_template_versions ADD COLUMN IF NOT EXISTS field_defs JSONB",
         # Work-site audience (Neil, 11/02/2026).
         "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
         # Federal forms in hiring packets (Neil, 11/02/2026): which of the W-4,
@@ -5267,5 +5281,7 @@ from routers import kb_reminder_settings  # noqa: E402
 app.include_router(kb_reminder_settings.router)  # Training Reminders switches - Settings > Emails & Reminders (Sagar, Oct 28 2026)
 from routers import notes as notes_router  # noqa: E402 - two new tables: create_all + explicit RLS lines
 app.include_router(notes_router.router)  # Notes: the scratchpad that follows you - Dashboard > Notes, Quick Note, the Notes widget (Neil, Oct 29 2026)
+from routers import forms as forms_router  # noqa: E402 - doc_form_entries: create_all + the explicit RLS line above
+app.include_router(forms_router.router)  # Forms & Checklists: fill a form on the phone, entries, review, PDF, CSV (Neil, 11/02/2026)
 from routers import me_sessions as me_sessions_router  # noqa: E402 - nexus_sign_ins: create_all + explicit RLS line
 app.include_router(me_sessions_router.router)  # My Profile > Security: where you are signed in, sign out other devices, recent sign-ins (Neil, 11/02/2026)

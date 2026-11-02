@@ -228,6 +228,11 @@ export default defineConfig(({ command }) => ({
           if (id.includes('mammoth'))                 return 'vendor-docx';
           if (id.includes('leaflet'))                 return 'vendor-maps';
           if (id.includes('qrcode'))                  return 'vendor-qr';
+          // jsqr (Forms & Checklists, Neil 11/02/2026): the QR fallback for a
+          // browser with no BarcodeDetector, reached only by FillForm's
+          // ScanField `await import()`. In the catch-all it added ~130 KB to
+          // vendor-react on first paint for everyone.
+          if (id.includes('node_modules/jsqr'))       return 'vendor-jsqr';
           // heic2any bundles libheif (~1.4MB of wasm-ish decoder). It is only
           // reached from construction/lib/upload.js's `await import()`, and only
           // when a worker actually uploads an iPhone HEIC - which most uploads

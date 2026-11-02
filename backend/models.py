@@ -2246,6 +2246,15 @@ class DocTemplate(Base):
     published_meta      = Column(JSON, default=dict)
     published_by        = Column(String, default="")
     published_at        = Column(String, default="")
+    # Forms (Neil, 11/02/2026): a form IS a template (doc_type 'form'). Who
+    # may fill it is the Announcements audience rule (form_audience.py):
+    # 'company' = the creator's company, 'department' = `department` above,
+    # 'site' = people whose allowed work sites include `work_site_id`.
+    # show_on_shifts = 1 puts the form on the shift card of anyone scheduled
+    # at that site.
+    audience            = Column(String, default="company")   # company|department|site
+    work_site_id        = Column(String, default="")          # HrWorkSite.id for a site form
+    show_on_shifts      = Column(Integer, default=0)
 
 
 class Document(Base):
@@ -2308,6 +2317,11 @@ class DocTemplateVersion(Base):
     edited_by   = Column(String, default="")
     edited_at   = Column(String, default="")
     note        = Column(String, default="")
+    # The field list this version was PUBLISHED with (Forms, 11/02/2026): a
+    # form entry pins `template_version` and is read against these, so a later
+    # publish that renames a field never relabels an old entry. None = not
+    # stored (published before this column, or never published).
+    field_defs  = Column(JSON, nullable=True)
 
 
 # ── Time tracking (SwipeClock replacement) ────────────────────────────────────
@@ -9693,6 +9707,36 @@ class NexusPushOutbox(Base):
     error       = Column(String, default="")
 
 
+class DocFormEntry(Base):
+    """One filled form (Forms & Checklists, Neil 11/02/2026). The template is
+    a DocTemplate with doc_type 'form'; `template_version` pins the published
+    version the answers were given against. `answers` is {token: value}: a
+    photo field is a list of storage URLs, gps an object {lat, lng, accuracyM,
+    siteName}, a repeat group a list of answer maps under the group's name,
+    a signature a PNG URL. Files live in the private task-files bucket under
+    forms/<entry_key>/. Nothing here changes state by itself: status moves
+    only when a person reviews it. Soft-deleted rows keep deleted_at."""
+    __tablename__ = "doc_form_entries"
+    id               = Column(String, primary_key=True)                # uuid
+    template_id      = Column(String, index=True, nullable=False)
+    template_version = Column(Integer, default=0)
+    title            = Column(String, default="")                      # the template's title when filled
+    entry_key        = Column(String, unique=True, nullable=False)     # client-made UUID: a retry never files twice
+    answers          = Column(JSON, default=dict)
+    company          = Column(String, default="", index=True)          # the submitter's HrEntity id
+    work_site_id     = Column(String, default="", index=True)
+    shift_id         = Column(String, default="")
+    submitted_by     = Column(String, index=True, nullable=False)
+    submitted_at     = Column(String, default="", index=True)
+    source           = Column(String, default="web")                   # web | phone
+    status           = Column(String, default="submitted", index=True) # submitted | reviewed | follow_up | closed
+    reviewer_email   = Column(String, default="")
+    reviewed_at      = Column(String, default="")
+    review_note      = Column(String, default="")
+    linked_ticket_id = Column(String, default="")
+    linked_task_id   = Column(String, default="")
+    linked_asset_id  = Column(String, default="")
+    deleted_at       = Column(String, default="")
 class NexusSignIn(Base):
     """One BFF sign-in (sign_in_watch.record, Neil 11/02/2026): who, when, from
     which device and roughly where. `device_key` = sha256(ua_summary + the
