@@ -11,10 +11,12 @@ fixed in the Jul 7 audit._
 Three layers, checked in this order:
 
 1. **Baseline screens** — every signed-in employee gets these. No setup needed.
-2. **Role** (Employee → Supervisor → Manager → IT Admin → Global Admin) — decides
-   what someone can *do* (approve, allocate, manage) and unlocks the two admin
-   screens. IT/Global Admins see every screen so they can manage access.
-3. **Access Group grants** — below IT Admin, restricted screens are visible
+2. **Role** (Employee → Supervisor → Manager → Administrator → Super Administrator,
+   see `docs/Roles.md`) — decides what someone can *do* (approve, allocate, manage)
+   and unlocks the two admin screens. Administrators and Super Administrators see
+   every screen so they can manage access (an Administrator only inside their own
+   companies).
+3. **Access Group grants** — below Administrator, restricted screens are visible
    **only via a group grant**. A grant is `screen + level`
    (Viewer / Editor / Full / Owner). Grants are **additive** — they can only ever
    widen access, never take anything away.
@@ -36,13 +38,13 @@ Three layers, checked in this order:
 | Support | ✅ everyone | — | n/a |
 | Manager Dashboard | Supervisor+ (role) | supervisors/managers | approval APIs role-gated ✅ |
 | HR | ❌ grant-only | **HR team only** (Charmi editor; assistants viewer). NOT managers, NOT GG India | `hr:*` grants ✅ |
-| HR — Compensation | ❌ separate `hr_comp` grant | payroll only (today: Global Admins; optionally Charmi) | `hr_comp` grants, owner bypass ✅ |
+| HR — Compensation | ❌ separate `hr_comp` grant | payroll only (today: Super Administrators; optionally Charmi) | `hr_comp` grants, owner bypass ✅ |
 | E-Sign (inside HR) | follows `hr` grants | HR team | `hr:*` grants ✅ |
 | Accounting | ❌ grant-only | accounting team | `accounting:viewer`+ ✅ |
 | Asset Management | ❌ grant-only | asset team | **✅ fixed Jul 7** — workspace API now needs `property-asset` grant (was open to all logins, incl. writes) |
 | IT | ❌ grant-only | IT staff | UniFi gated ✅; legacy assets API login-only (legacy, folding into Items) |
 | Construction / Operations / Development / Marketing / Investor Relations | ❌ grant-only | the respective team | mock data — login-only APIs (acceptable until real) |
-| Nexus Access Manager | IT Admin+ (role only, never grantable) | admins | ✅ |
+| Nexus Access Manager | Administrator+ (role only, never grantable) | admins | ✅ |
 
 ## 3. Target groups (the curated plan)
 
@@ -66,13 +68,13 @@ Cleanups from the audit:
   personal data. Remove unless someone specifically does HR data entry.
 - Empty shell groups (Accounting, Construction, IT, Investor, Leadership,
   Managers) — either fill them per the table or delete to reduce noise.
-- **Prod hygiene:** 7 Global Admins exist on dev (the dev team). On prod this
-  must be Neil + Visesh (+1 at most) — every Global Admin can read salaries and
-  delete core records.
+- **Prod hygiene:** the Super Administrators are the five Neil named on 11/02/2026
+  (`docs/Roles.md`) — every Super Administrator can read salaries and delete core
+  records, so keep the set that small.
 
 ## 4. Walkthrough — doing this in the app
 
-All of it lives in **Nexus Access Manager → Users & Roles** (IT Admin+ only).
+All of it lives in **Nexus Access Manager → Users & Roles** (Administrator+ only).
 
 **Create / edit a group**
 1. Click **Create Group** (or ✏️ on an existing one).
@@ -90,7 +92,7 @@ All of it lives in **Nexus Access Manager → Users & Roles** (IT Admin+ only).
 - A person can be in many groups; they get the **highest** level any group gives.
 - Removing someone from a group removes what it granted — instantly, next load.
 - **Bulk role assignment** (bottom of the modal) changes members' global ROLE —
-  it is not a screen grant. Never bulk-apply Global Admin.
+  it is not a screen grant. Never bulk-apply Super Administrator.
 - Grants can't give the Access Manager itself — that's role-locked, by design.
 
 **Adding a new person (checklist)**
