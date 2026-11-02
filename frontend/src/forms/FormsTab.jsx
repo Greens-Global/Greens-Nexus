@@ -11,6 +11,8 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { TEMPLATE_STATES, templateStatus } from '../lib/documentLibrary';
 import { PanelShell, StatusWord } from '../components/DocumentSidePanel';
 import { Spinner } from '../components/AsyncState';
+import { ColumnResizer } from '../components/accounting/reportControls';
+import { useColumnWidths } from '../components/accounting/tableHooks';
 import HoldButton from '../ui/HoldButton';
 import { Modal } from '../tasks/components';
 import FormBuilder, { FormPreview } from './FormBuilder';
@@ -115,6 +117,9 @@ function FormPanel({ template: t, onClose, onBuild, onChanged, toastOk, toastErr
 }
 
 const SEGMENTS = [['templates', 'Templates'], ['entries', 'Entries']];
+// The templates table (house rule): every column resizes, each person's widths kept.
+const TEMPLATE_COLUMNS = [['form', 'Form'], ['category', 'Category'], ['status', 'Status'], ['audience', 'Who Fills It'], ['updated', 'Updated']];
+const TEMPLATE_WIDTHS = { form: 240, category: 150, status: 140, audience: 190, updated: 120 };
 /** The entry id a 'documents-forms:entry:<id>' sub names, else ''. */
 const subEntry = (sub) => /^documents-forms:entry:(.+)$/.exec(String(sub || ''))?.[1] || '';
 
@@ -136,6 +141,7 @@ export default function FormsTab({ toastOk, toastErr, activeSub = '' }) {
     if (id) { setSegment('entries'); setEntry((e) => (e?.id === id ? e : { id })); }
   }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [entriesKey, setEntriesKey] = useState(0);
+  const cols = useColumnWidths('form-templates', TEMPLATE_WIDTHS);
 
   const load = () => api.getDocTemplates({}).then((rows) => setTemplates((rows || []).filter(isForm))).catch(() => setTemplates([]));
   useEffect(() => { load(); }, []);
@@ -240,16 +246,25 @@ export default function FormsTab({ toastOk, toastErr, activeSub = '' }) {
             </div>
           ) : (
             <div className="nx-dl-table">
-              <table>
-                <thead><tr><th>Form</th><th>Category</th><th>Status</th><th>Who Fills It</th><th>Updated</th><th aria-label="Actions" /></tr></thead>
+              <table style={{ tableLayout: 'fixed' }}>
+                <thead>
+                  <tr>
+                    {TEMPLATE_COLUMNS.map(([key, label]) => (
+                      <th key={key} style={{ position: 'relative', width: cols.width(key) }}>
+                        {label}<ColumnResizer {...cols.resizer(key, label)} />
+                      </th>
+                    ))}
+                    <th aria-label="Actions" style={{ width: 90 }} />
+                  </tr>
+                </thead>
                 <tbody>
                   {visible.map((t) => (
                     <tr key={t.id} data-row={t.id} tabIndex={0} className={selectedId === t.id ? 'sel' : ''} aria-selected={selectedId === t.id}
                       onClick={() => setSelectedId(t.id)} onKeyDown={(e) => onRowKey(e, t)}>
-                      <td className="nx-dl-name">{t.name}</td>
-                      <td>{categoryLabel(t.category)}</td>
+                      <td className="nx-dl-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</td>
+                      <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{categoryLabel(t.category)}</td>
                       <td><StatusWord status={templateStatus(t)} /></td>
-                      <td>{audienceWords(t)}</td>
+                      <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{audienceWords(t)}</td>
                       <td className="nx-dl-date">{formatDate(t.updatedAt)}</td>
                       <td className="nx-dl-rowact"><button type="button" className="secondary-btn" onClick={(e) => { e.stopPropagation(); setBuilding(t.id); }}>Build</button></td>
                     </tr>
