@@ -449,6 +449,72 @@ describe('AdminConsole', () => {
     }
   });
 
+  // Review fixes (11/02/2026).
+  it('Pay Rules: "10" typed and saved leaves the form clean (no Unsaved changes after a save that worked)', async () => {
+    payRules({ rounding: { enabled: true } });
+    render(<AdminConsole activeSub="pay:timeclock-policy" onSubChange={() => {}} />);
+    await screen.findByRole('switch', { name: 'Punch Rounding' }, { timeout: 5000 });
+    fireEvent.change(screen.getByLabelText('Nearest'), { target: { value: '10' } });
+    const region = screen.getByRole('region', { name: 'Pay Rules' });
+    expect(within(region).getByText('Unsaved changes')).toBeInTheDocument();
+    fireEvent.click(within(region).getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(apiOverrides.timeRoundingSet).toHaveBeenCalledWith({ enabled: true, nearestMin: 10 }, ''));
+    await waitFor(() => expect(within(region).getByText(/^Saved /)).toBeInTheDocument());
+    expect(within(region).queryByText('Unsaved changes')).not.toBeInTheDocument();
+    const { hasUnsavedWork } = await import('../lib/dialogGuard');
+    await waitFor(() => expect(hasUnsavedWork()).toBe(false));
+  });
+
+  it('Discard on the app-wide prompt (browser Back, a bell) really drops the draft', async () => {
+    const { default: DialogGuard } = await import('../components/DialogGuard');
+    const { askToLeave, hasUnsavedWork } = await import('../lib/dialogGuard');
+    render(<><DialogGuard /><AdminConsole activeSub="shifts" onSubChange={() => {}} /></>);
+    fireEvent.change(await screen.findByLabelText('Weather note', {}, { timeout: 5000 }), { target: { value: 'rain' } });
+    let left;
+    act(() => { left = askToLeave(); });
+    const ask = await screen.findByRole('alertdialog');
+    expect(within(ask).getByText(/Your changes to Weather Alerts/)).toBeInTheDocument();
+    fireEvent.click(within(ask).getByRole('button', { name: 'Discard Changes' }));
+    await expect(left).resolves.toBe(true);
+    await waitFor(() => expect(screen.getByLabelText('Weather note')).toHaveValue(''));
+    expect(hasUnsavedWork()).toBe(false);
+  });
+
+  it('leaving for Tools reports Settings clean: nothing stays dirty, no stale save is offered', async () => {
+    const { hasUnsavedWork, unsavedSummary } = await import('../lib/dialogGuard');
+    const onSubChange = vi.fn();
+    const { rerender } = render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
+    fireEvent.change(await screen.findByLabelText('Weather note', {}, { timeout: 5000 }), { target: { value: 'rain' } });
+    expect(hasUnsavedWork()).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /^Tools$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
+    expect(onSubChange).toHaveBeenCalledWith('tools');
+    rerender(<AdminConsole activeSub="tools" onSubChange={onSubChange} />);
+    await waitFor(() => expect(hasUnsavedWork()).toBe(false));
+    expect(unsavedSummary().labels).toEqual([]);
+  });
+
+  it('browser Back to another group of the same subject goes through without asking; another subject asks', async () => {
+    const { rememberEntry, guardPopstate } = await import('../lib/dialogGuard');
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    fireEvent.change(await screen.findByLabelText('Weather note', {}, { timeout: 5000 }), { target: { value: 'rain' } });
+    window.history.replaceState({ depth: 1 }, '', '/admin-console/shifts');
+    rememberEntry();
+    window.history.replaceState({ depth: 0 }, '', '/admin-console/shifts:shift-weather');
+    const apply = vi.fn();
+    expect(guardPopstate({ state: { depth: 0 } }, apply)).toBe(true);
+    expect(apply).toHaveBeenCalled();
+    window.history.replaceState({ depth: 0 }, '', '/admin-console/pay');
+    const go = vi.spyOn(window.history, 'go').mockImplementation(() => {});
+    expect(guardPopstate({ state: { depth: -1 } }, vi.fn())).toBe(false);
+    expect(go).toHaveBeenCalledWith(1);
+    guardPopstate({ state: { depth: 0 } }, vi.fn());   // the step back, swallowed
+    const { subscribe } = await import('../lib/dialogGuard');
+    const off = subscribe((p) => { p?.resolve(false); });   // Keep Editing, to tidy up
+    off();
+    await act(async () => { await Promise.resolve(); });
+  });
+
   it('has Shifts & Scheduling with the settings, shift types, groups and weather, all open (Charmi, 09/30)', async () => {
     const onSubChange = vi.fn();
     render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);

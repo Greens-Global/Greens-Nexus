@@ -92,44 +92,68 @@ export function hasUnsavedWork() { return hasDirtyDialog() || inlineDirty.size >
 // What the plain prompt can say about the unsaved work: the names of the
 // inline forms, and one save for them all - only when nothing else (a dirty
 // popup, a screen's own guard) is unsaved and every form can save itself.
+// A dirty popup is what the prompt is about when one is open: then it names
+// nothing and offers no save, and its Discard leaves the forms alone.
+// `discard` lets a form drop its draft for real (the Settings groups remount)
+// when the person discards on the way out.
 export function unsavedSummary() {
+  if (hasDirtyDialog() || leaveAsk) return { labels: [], save: null, discard: null };
   const entries = [...inlineDirty.values()];
   const labels = [...new Set(entries.flatMap(m => m.labels || []))];
   const saves = entries.map(m => m.save);
-  const save = entries.length && !hasDirtyDialog() && !leaveAsk && saves.every(s => typeof s === 'function')
+  const save = entries.length && saves.every(s => typeof s === 'function')
     ? async () => {
       try { return (await Promise.all(saves.map(s => s()))).every(r => r === true); } catch { return false; }
     }
     : null;
-  return { labels, save };
+  const discard = entries.some(m => typeof m.discard === 'function') ? () => entries.forEach(m => m.discard?.()) : null;
+  return { labels, save, discard };
 }
 
 // The browser's Back / Forward with unsaved work (App.jsx's popstate): the
-// address has already moved, so put the entry we were on back, ask, and on
-// Discard (or a save that landed) step back again to where the person was
-// going - that second popstate goes through. `rememberEntry` notes the entry
-// on screen after every move.
+// address has already moved, so step back to the entry we were on, ask, and
+// on Discard (or a save that landed) step again to where the person was
+// going - that second popstate goes through. The way back is `history.go`
+// by the entries' `depth` (App.jsx stamps it), so the other direction's
+// history and the entry's own address (a later replaceState) survive; an
+// entry without a depth is pushed back instead. `rememberEntry` notes the
+// entry on screen after every move.
 let lastEntry = null;
-let leavingPop = false;
+let leavingPop = false;   // the step after Discard: goes through
+let returning = false;    // the step back to the entry on screen: swallowed
+let guarding = false;     // a question from Back is open
+let stayHere = null;      // does the new address keep every form mounted?
 export function rememberEntry() {
   if (typeof window === 'undefined') return;
   lastEntry = { state: window.history.state, url: window.location.href };
 }
+// A screen whose forms survive some moves (Settings: another group of the
+// same subject and scope only scrolls) says so, and those moves never ask.
+export function setPopStay(fn) { stayHere = fn || null; }
+const depthOf = (st) => (st && Number.isFinite(st.depth) ? st.depth : null);
 export function guardPopstate(e, apply) {
-  if (!leavingPop && lastEntry && hasUnsavedWork()) {
-    const back = lastEntry;
-    window.history.pushState(back.state, '', back.url);
-    askToLeave().then(ok => {
-      if (!ok) return;
-      leavingPop = true;
-      window.history.back();
-    });
-    return false;
+  if (returning) { returning = false; return false; }
+  if (leavingPop || !lastEntry || !hasUnsavedWork() || stayHere?.()) {
+    leavingPop = false;
+    apply(e);
+    rememberEntry();
+    return true;
   }
-  leavingPop = false;
-  apply(e);
-  rememberEntry();
-  return true;
+  const from = depthOf(lastEntry.state), to = depthOf(e?.state);
+  const steps = from != null && to != null && from !== to ? to - from : 0;
+  if (steps) { returning = true; window.history.go(-steps); }
+  else window.history.pushState(lastEntry.state, '', lastEntry.url);
+  // One question at a time: a second Back while one is open (this one, or a
+  // screen's own prompt) only puts the entry back.
+  if (guarding || (typeof document !== 'undefined' && document.querySelector('[data-nx-prompt]'))) return false;
+  guarding = true;
+  askToLeave().then(ok => {
+    guarding = false;
+    if (!ok) return;
+    leavingPop = true;
+    window.history.go(steps || -1);
+  });
+  return false;
 }
 
 // A screen with its own Save / Keep Editing / Discard prompt (the shift

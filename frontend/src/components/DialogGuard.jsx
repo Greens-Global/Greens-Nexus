@@ -14,7 +14,7 @@ export default function DialogGuard() {
     return subscribe(setPending);
   }, []);
   if (!pending) return null;
-  const { labels, save } = pending.summary?.() || { labels: [], save: null };
+  const { labels, save, discard } = pending.summary?.() || { labels: [], save: null, discard: null };
   const saveAndLeave = save ? async () => {
     setSaving(true);
     const ok = await save();
@@ -25,7 +25,7 @@ export default function DialogGuard() {
     <UnsavedChangesPrompt
       what={labels}
       onKeepEditing={() => pending.resolve(false)}
-      onDiscard={() => pending.resolve(true)}
+      onDiscard={() => { discard?.(); pending.resolve(true); }}
       onSave={saveAndLeave} saving={saving} saveText="Save and Leave"
     />
   );

@@ -93,7 +93,7 @@ import SaveRow from '../components/SaveRow';
 import { dialog } from '../ui/dialog';
 import { useDraft } from '../lib/useDraft';
 import { GroupDirtyContext, useGroupDirty, makeGroupReporter, saveAll } from '../lib/groupDirty';
-import { setInlineDirty } from '../lib/dialogGuard';
+import { setInlineDirty, setPopStay } from '../lib/dialogGuard';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
@@ -1703,11 +1703,19 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
     const saves = [...dirtyGroups.values()].flat();
     return saves.length && saves.every(s => typeof s === 'function') ? () => saveAll(saves) : null;
   }, [dirtyGroups]);
-  useEffect(() => { onDirtyChange?.(dirty, { labels: dirtyTitles, save: saveDirty }); }, [dirty, dirtyTitles, saveDirty, onDirtyChange]);
   // Discard Changes really discards: the dirty groups remount from the saved
   // values (a dirty group stays mounted while hidden by the filter, so a
-  // move that keeps it in the tree would otherwise keep its draft).
+  // move that keeps it in the tree would otherwise keep its draft). The
+  // app-wide prompt (browser Back, a bell) calls it too, through the meta.
   const [generation, setGeneration] = useState({});
+  const discardDirty = useCallback(() => {
+    const ids = [...dirtyGroups.keys()];
+    setGeneration(gen => ids.reduce((m, id) => ({ ...m, [id]: (m[id] || 0) + 1 }), gen));
+  }, [dirtyGroups]);
+  useEffect(() => { onDirtyChange?.(dirty, { labels: dirtyTitles, save: saveDirty, discard: discardDirty }); }, [dirty, dirtyTitles, saveDirty, discardDirty, onDirtyChange]);
+  // Leaving the Settings tab (Tools, Logs) unmounts every form: nothing is
+  // unsaved any more, and no save of an unmounted form may be offered.
+  useEffect(() => () => onDirtyChange?.(false, null), [onDirtyChange]);
   const [pending, setPending] = useState(null);
   const [saving, setSaving] = useState(false);
   const go = useCallback((target) => { setQuery(''); setPending(null); onNavigate(target); }, [onNavigate]);
@@ -1727,11 +1735,19 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
     }
     if (dirty) setPending(target); else go(target);
   };
-  const discardAndGo = () => {
-    const ids = [...dirtyGroups.keys()];
-    setGeneration(gen => ids.reduce((m, id) => ({ ...m, [id]: (m[id] || 0) + 1 }), gen));
-    go(pending);
-  };
+  const discardAndGo = () => { discardDirty(); go(pending); };
+  // Browser Back / Forward to another group of the subject and scope on
+  // screen only scrolls - every form stays mounted, so it never asks.
+  const hereKey = `${activeSubject?.key}|${company}|${narrow && home ? 'home' : ''}`;
+  useEffect(() => {
+    setPopStay(() => {
+      const m = window.location.pathname.match(/^\/admin-console(?:\/([^/]*))?/);
+      if (!m) return false;
+      const r = resolveSub(decodeURIComponent(m[1] || ''));
+      return r.tab === 'settings' && `${r.subject}|${r.company || ''}|${narrow && r.home ? 'home' : ''}` === hereKey;
+    });
+    return () => setPopStay(null);
+  }, [hereKey, narrow]);
   const saveAndGo = async () => {
     if (!saveDirty) return;
     setSaving(true);
@@ -2300,6 +2316,13 @@ const RULE_SETTERS = {
   autoLunch: (body, company) => api.timeAutoLunchSet(body, company),
   breakPolicy: (body, company) => api.timeBreakPolicySet(body, company),
 };
+// Undo reads the rule fresh: minutes saved since the switch (here or in
+// another tab) must never be written back over.
+const RULE_GETTERS = {
+  rounding: (company) => api.timeRoundingGet(company),
+  autoLunch: (company) => api.timeAutoLunchGet(company),
+  breakPolicy: (company) => api.timeBreakPolicyGet(company),
+};
 const RULE_LABELS = { rounding: 'Punch rounding', autoLunch: 'Auto-lunch', breakPolicy: 'CA paid breaks' };
 const num = (v, fallback) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : fallback; };
 // What a save writes: each rule whole, with its numbers clamped (the server
@@ -2331,7 +2354,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   // writes only the rules whose numbers changed. `rebase`: a rule that saved
   // follows the server, and a rule whose save failed - or whose switch was
   // just flipped beside a half-typed number - keeps the person's edits.
-  const { draft, patch, dirty, reset } = useDraft(cfg, { rebase: true });
+  const { draft, patch, dirty, reset, begin, settle } = useDraft(cfg, { rebase: true });
   const edit = (key, p) => patch({ [key]: { ...draft[key], ...p } });
   // The latest saved rules and draft, for an Undo that runs after more changes landed.
   const cfgRef = useRef(cfg);
@@ -2341,12 +2364,12 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   // A switch saves on click (Neil, 11/02/2026), with an Undo toast that
   // writes the previous value back. Only the switch is sent: the rule's
   // saved numbers go with it, a draft number stays a draft.
-  const writeSwitch = async (key, on) => {
-    const saved = cfgRef.current?.[key];
-    if (!saved) return false;
-    const body = cleanRules({ ...cfgRef.current, [key]: { ...saved, enabled: on } })[key];
+  const writeSwitch = async (key, on, { fresh = false } = {}) => {
     setSwitching(key);
     try {
+      const saved = fresh ? await RULE_GETTERS[key](company) : cfgRef.current?.[key];
+      if (!saved) return false;
+      const body = cleanRules({ ...cfgRef.current, [key]: { ...saved, enabled: on } })[key];
       const out = await RULE_SETTERS[key](body, company);
       const next = { ...cfgRef.current, [key]: out };
       cfgRef.current = next;
@@ -2366,7 +2389,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
     if (await writeSwitch(key, on)) {
       dialog.undo(`${RULE_LABELS[key]} turned ${on ? 'on' : 'off'}${company ? ' for this company' : ''}.`, async () => {
         setSwitch(key, was);
-        if (await writeSwitch(key, was)) toastOk?.(`${RULE_LABELS[key]} is back ${was ? 'on' : 'off'}.`);
+        if (await writeSwitch(key, was, { fresh: true })) toastOk?.(`${RULE_LABELS[key]} is back ${was ? 'on' : 'off'}.`);
         else setSwitch(key, on);
       });
     } else {
@@ -2376,21 +2399,24 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
 
   // Resolves true once every changed rule saved (the prompt's Save and Leave).
   const save = async () => {
-    if (!dirty || busy) return !dirty;
+    if (!dirty || busy || switching) return !dirty;
     const next = cleanRules(draft), was = cleanRules(cfg);
     const changed = Object.keys(next).filter(k => JSON.stringify(next[k]) !== JSON.stringify(was[k]));
     if (!changed.length) { reset(); return true; }
     setBusy(true);
+    begin();
     const out = { ...cfg };
+    const done = [];
     let ok = true;
     try {
-      for (const k of changed) out[k] = await RULE_SETTERS[k](next[k], company);
+      for (const k of changed) { out[k] = await RULE_SETTERS[k](next[k], company); done.push(k); }
       toastOk?.(company ? 'Pay rules saved for this company.' : 'Pay rules saved.');
     } catch (e) {
       ok = false;
       toastErr?.(e?.message || 'Could not save the pay rules.');
     }
     setCfg(out);   // what did save, saved; the rest stays a draft (rebase)
+    settle(done);  // the saved rules take the server's numbers ("10" typed, 10 back)
     setBusy(false);
     return ok;
   };
@@ -2439,7 +2465,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
         <PolicyNumber label="Rest break up to" min={1} max={120} value={breakPolicy.restMaxMin} onChange={v => edit('breakPolicy', { restMaxMin: v })} />
         <PolicyNumber label="Flag breaks over" min={15} max={600} value={breakPolicy.longBreakMin} onChange={v => edit('breakPolicy', { longBreakMin: v })} />
       </PolicyCard>
-      <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} style={{ margin: 0, padding: '12px 18px' }}
+      <SaveRow dirty={dirty} busy={busy} saveDisabled={!!switching} onSave={save} onDiscard={reset} style={{ margin: 0, padding: '12px 18px' }}
         note={`Switches save as you click them; Save writes the minutes${company ? ' as this company\'s own' : ''}.`} />
     </div>
   );
