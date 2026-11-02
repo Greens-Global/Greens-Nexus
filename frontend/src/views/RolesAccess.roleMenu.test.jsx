@@ -26,19 +26,35 @@ vi.mock('../api', () => ({
       if (key === 'getEntities') return vi.fn(() => Promise.resolve([{ id: 'acme', name: 'Acme Co' }]));
       if (key === 'getEffectiveAccess') return vi.fn(() => Promise.resolve(eff));
       if (key === 'assignJobRole') return assignJobRole;
+      if (key === 'getMyRole') return vi.fn(() => Promise.resolve(myRoleAnswer.value));
       return vi.fn(() => Promise.resolve([]));
     },
   }),
+  setActAsSessionId: vi.fn(),
+  getActAsSessionId: () => null,
 }));
+// The real /roles/me answer for the "from the provider" case below.
+const myRoleAnswer = { value: { role: 'administrator', level: 4, title: 'IT Lead', email: 'me@example.com' } };
+vi.mock('@azure/msal-react', () => ({
+  useMsal: () => ({ instance: {}, accounts: [{ name: 'Me', username: 'me@example.com' }], inProgress: 'none' }),
+}));
+vi.mock('../bffAuth', () => ({ BFF_MODE: false, bffLogout: vi.fn() }));
+// useRole is mocked as an owner by default; a test that sets `viaProvider`
+// gets the REAL hook, fed by the REAL RoleProvider mounted around the screen.
+const viaProvider = { on: false };
 vi.mock('../contexts/RoleContext', async (importOriginal) => {
   const real = await importOriginal();
-  return { ...real, useRole: () => ({ can: () => true, myRole: 'owner', myLevel: 5, myEmail: 'me@example.com', assignRole: vi.fn() }) };
+  return {
+    ...real,
+    useRole: () => (viaProvider.on ? real.useRole() : { can: () => true, myRole: 'owner', myLevel: 5, myEmail: 'me@example.com', assignRole: vi.fn() }),
+  };
 });
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: vi.fn(() => Promise.resolve(true)) } }));
 
 const RolesAccess = (await import('./RolesAccess')).default;
+const { RoleProvider } = await import('../contexts/RoleContext');
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); viaProvider.on = false; });
 
 describe('Access > People > role picker', () => {
   it('opens a popover, groups roles, filters by search, and assigns on pick', async () => {
@@ -80,5 +96,18 @@ describe('Access > People > role picker', () => {
     // on a tap as well as a click.
     fireEvent.pointerDown(document.body);
     expect(screen.queryByPlaceholderText('Search roles')).not.toBeInTheDocument();
+  });
+
+  it('myLevel comes from the provider: an Administrator may hand out only the tiers below their own', async () => {
+    // Before 11/02/2026 the provider computed myLevel but never exposed it, so
+    // `level < undefined` was false and an Administrator saw NO tier to give.
+    // (A Manager cannot open Access at all - the screen is Administrator+.)
+    viaProvider.on = true;
+    myRoleAnswer.value = { role: 'administrator', level: 4, title: 'IT Lead', email: 'me@example.com' };
+    render(<RoleProvider><RolesAccess embedded /></RoleProvider>);
+    fireEvent.click(await screen.findByText('Amy Poe'));
+    const select = await screen.findByDisplayValue('Override tier for this person…');
+    const offered = [...select.querySelectorAll('option')].map((o) => o.textContent).filter(Boolean).slice(1);
+    expect(offered).toEqual(['Employee', 'Supervisor', 'Manager']);
   });
 });

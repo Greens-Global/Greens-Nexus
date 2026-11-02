@@ -26,6 +26,7 @@ import { NX, FONT } from '../tasks/theme';
 import { useRole } from '../contexts/RoleContext';
 import { useIsMobile } from '../lib/useIsMobile';
 import { LoadingState, ErrorBanner } from '../components/AsyncState';
+import TierMark from '../components/TierMark';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { CONTACT_OPEN_KIND, CONTACT_EVENT } from '../lib/contactNav';
 import { openPersonProfile } from '../lib/personNav';
@@ -486,7 +487,7 @@ function PersonRow({ p, me, active, focused, onSelect, depth = 0, mobile = false
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <span style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-            {p.name}{p.email === (me || '').toLowerCase() && <span style={{ color: NX.faint, fontWeight: 500 }}> (you)</span>}<RoleBadge role={p.departmentRole} />
+            {p.name}{p.email === (me || '').toLowerCase() && <span style={{ color: NX.faint, fontWeight: 500 }}> (you)</span>}<TierMark tier={p.tier} size={13} /><RoleBadge role={p.departmentRole} />
           </span>
           {!mobile && pills}
         </div>

@@ -876,9 +876,12 @@ def people_directory(include_external: bool = False,
     # company is the ENTITY ID on the employee row; resolve the display name once
     # so pickers can offer company/department filters without an HR-gated call.
     ent_names = {en.id: en.name for en in db.query(HrEntity).all()}
+    # The tier mark beside the name (Neil, 11/02/2026) - auth.tier_of, one query.
+    tiers = auth.tiers_by_email(db)
     out = [{"email": e.work_email, "name": _person_name(e), "photoUrl": e.photo_url or "",
             "company": e.company or "", "companyName": ent_names.get(e.company or "", ""),
             "department": e.department or "", "title": e.job_title or "",
+            "tier": tiers.get((e.work_email or "").lower(), ""),
             # Flagged, not silently mixed in - a picker that offers externals
             # should be able to say which ones they are.
             "external": (e.identity_type or "") in ("guest", "external")}
@@ -906,10 +909,13 @@ def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session
             match = e
     if not match:
         raise HTTPException(404, "No matching person")
+    import auth
     return {"name": _person_name(match),
             "jobTitle": match.job_title, "department": match.department,
             "photoUrl": match.photo_url, "workEmail": match.work_email,
-            "location": match.location, "status": match.status}
+            "location": match.location, "status": match.status,
+            # The tier mark after the name on the hover card (Neil, 11/02/2026).
+            "tier": auth.tier_for(match.work_email or "", db)}
 
 
 # ── My equipment - items assigned / checked out to me ────────────────────────

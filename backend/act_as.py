@@ -35,7 +35,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from auth import get_current_user, require_level_or_module, _role_for, _LEVELS
+from auth import get_current_user, require_level_or_module, _role_for, _LEVELS, tier_of
 from models import ActAsSession, NexusRole, NexusEmployee, HrEntity
 import security_config as _sec
 
@@ -156,7 +156,9 @@ def eligible_targets(user: dict = Depends(_act_as_gate), db: Session = Depends(g
                     # Contact Directory already shows, nothing more.
                     "title": e.job_title or "", "department": e.department or "",
                     "company": companies.get(e.company or "", "") or e.external_company or "",
-                    "site": e.location or "", "role": role})
+                    "site": e.location or "", "role": role,
+                    # The tier mark after the name in the finder (Neil, 11/02/2026).
+                    "tier": tier_of(_LEVELS.get(role, 1))})
     return out
 
 

@@ -8,7 +8,7 @@ import OrgChartLens from './OrgChartLens';
 const P = (email, name, managerEmail = '') => ({
   email, name, firstName: name.split(' ')[0], lastName: name.split(' ')[1], jobTitle: 'Analyst', department: 'Accounting',
   departmentRole: '', company: 'co1', companyName: 'Greens Co', managerEmail, managerName: '', mobile: '', officePhone: '',
-  photoUrl: '', status: 'active', availability: null, division: '',
+  photoUrl: '', status: 'active', availability: null, division: '', tier: '',
 });
 const people = () => [P('bo@x', 'Bo Boss'), P('sam@x', 'Sam Staff', 'bo@x'), P('kim@x', 'Kim Kay', 'sam@x'), P('lee@x', 'Lee Leave', 'bo@x')];
 const onChart = () => [...screen.getByRole('region', { name: 'Organization chart' }).querySelectorAll('[data-orgkey]')].map((n) => n.getAttribute('data-orgkey')).sort();
@@ -36,5 +36,16 @@ describe('Org Chart lens', () => {
     expect(onChart()).not.toContain('kim@x');
     rerender(<OrgChartLens {...props} people={people()} />);
     expect(onChart()).not.toContain('kim@x');
+  });
+
+  it('a card carries the tier mark after the name, never the tier word (Neil, 11/02/2026)', () => {
+    const props = { query: '', me: '', selected: '', onSelect: vi.fn(), mobile: false, canOpenPeople: false };
+    const ppl = people();
+    ppl[0].tier = 'admin';
+    render(<OrgChartLens {...props} people={ppl} />);
+    const card = screen.getByRole('button', { name: /^Bo Boss/ });
+    expect(card.querySelector('[aria-label="Administrator"]')).toBeTruthy();
+    expect(card.textContent).not.toContain('Administrator');
+    expect(screen.getByRole('button', { name: /^Sam Staff/ }).querySelector('[aria-label="Manager"], [aria-label="Administrator"], [aria-label="Super Administrator"]')).toBeNull();
   });
 });
