@@ -252,7 +252,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             control={segmented(wkTheme, WK_THEMES, (k) => setWkTheme(k), 'Theme')} />
         )}
         <SettingRow title="Navigation Motion" desc="How the left navigation moves when you hover and click."
-          control={segmented(railMotion.personal, [[FOLLOW_COMPANY, 'Company Default'], ['off', 'Off'], ['subtle', 'Subtle'], ['lively', 'Lively'], ['bold', 'Bold']],
+          control={segmented(railMotion.personal, [[FOLLOW_COMPANY, `Company Default (${railMotion.company.charAt(0).toUpperCase()}${railMotion.company.slice(1)})`], ['off', 'Off'], ['subtle', 'Subtle'], ['lively', 'Lively'], ['bold', 'Bold']],
             (k) => railMotion.setPersonal(k), 'Navigation Motion')} />
         {onSidebarPinnedChange && (
           <SettingRow title="Sidebar"

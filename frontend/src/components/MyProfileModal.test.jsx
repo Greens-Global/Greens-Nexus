@@ -41,11 +41,12 @@ describe('Profile - Date Format (Oct 20 2026)', () => {
 });
 
 describe('Profile - Navigation Motion (Neil, 11/01/2026)', () => {
-  it('offers Company Default, Off, Subtle, Lively and Bold under Appearance, and a pick saves at once', async () => {
+  it('offers Company Default (with the company value), Off, Subtle, Lively and Bold under Appearance, and a pick saves at once', async () => {
     render(<MyProfileModal onClose={() => {}} theme="light" onThemeToggle={() => {}} wkTheme="cobalt" setWkTheme={() => {}} />);
     const group = screen.getByRole('radiogroup', { name: 'Navigation Motion' });
-    expect(within(group).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Company Default', 'Off', 'Subtle', 'Lively', 'Bold']);
-    expect(within(group).getByRole('radio', { name: 'Company Default' }).getAttribute('aria-checked')).toBe('true');
+    // Nothing saved for the company: its default reads Lively.
+    expect(within(group).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Company Default (Lively)', 'Off', 'Subtle', 'Lively', 'Bold']);
+    expect(within(group).getByRole('radio', { name: 'Company Default (Lively)' }).getAttribute('aria-checked')).toBe('true');
     fireEvent.click(within(group).getByRole('radio', { name: 'Subtle' }));
     await waitFor(() => expect(apiSpies.saveTaskTablePrefs).toHaveBeenCalledWith('nav', { motion: 'subtle' }));
     expect(within(group).getByRole('radio', { name: 'Subtle' }).getAttribute('aria-checked')).toBe('true');

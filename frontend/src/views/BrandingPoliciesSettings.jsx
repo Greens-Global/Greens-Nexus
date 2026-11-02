@@ -81,7 +81,7 @@ export function BrandColorPanel({ toastOk, toastErr }) {
       setBrandAccent(r);
       // An open sidebar follows the new default at once (lib/railMotion.js).
       window.dispatchEvent(new CustomEvent('nexus:rail-motion', { detail: { navMotion: r.navMotion } }));
-      toastOk('Brand color saved. Everyone sees it the next time Nexus loads.');
+      toastOk('Brand color and navigation motion saved. Everyone sees the color the next time Nexus loads.');
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
     setBusy(false);
   }
