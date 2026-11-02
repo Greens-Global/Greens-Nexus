@@ -3233,6 +3233,10 @@ export const api = {
     if (source?.kind === "ticket") return api.addTicketAttachment(source.id, data);
     return Promise.reject(new Error("Only a task or a ticket can take a markup back."));
   },
+  // One kept copy of a note in full (11/02/2026): noteVersions' rows are
+  // light (a board's carry shapes / words, never its scene); this one
+  // carries the board's scene for a preview or a restore.
+  noteVersionGet: (noteId, versionId) => req(`/notes/${encodeURIComponent(noteId)}/versions/${encodeURIComponent(versionId)}`),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with
