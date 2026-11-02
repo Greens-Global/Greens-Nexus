@@ -456,7 +456,7 @@ export default function NoteEditor({
         </div>
       )}
       {!readOnly && !phone && <MediaStatus voice={voice} dictation={dictation} busy={busy} error={err} onDismiss={clearErr} />}
-      <BoardPicker open={boardPick} onClose={() => setBoardPick(false)} onPick={insertBoard} />
+      {boardPick && <BoardPicker onClose={() => setBoardPick(false)} onPick={insertBoard} />}
       {!readOnly && inTable && (
         <div className="nt-subbar" role="toolbar" aria-label="Table">
           <span className="nt-subbar-label">Table</span>

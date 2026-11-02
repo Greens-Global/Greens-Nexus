@@ -13,7 +13,7 @@ import { isOwnImageUrl } from '../../lib/storageView';
 import { openBoard } from '../newBoard';
 import { EDITED } from '../noteMedia';
 
-export const NOTE_REF = /^note_[A-Za-z0-9]{1,64}$/;
+const NOTE_REF = /^note_[A-Za-z0-9]{1,64}$/;
 const safeId = (v) => (typeof v === 'string' && NOTE_REF.test(v) ? v : '');
 const safeThumb = (v) => (typeof v === 'string' && isOwnImageUrl(v) && !/^data:/i.test(v) ? v : '');
 const safeTitle = (v) => (typeof v === 'string' ? v.slice(0, 200) : '');

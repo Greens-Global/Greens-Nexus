@@ -165,8 +165,9 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   // Mark Up Anything (11/02/2026): a board made from a task's or a ticket's
   // picture goes back there as a PNG attachment - the ordinary attachment
   // path (api.attachMarkup), the picture stored like every board image.
-  const source = note?.source && ['task', 'ticket'].includes(note.source.kind) ? note.source : null;
+  const attachable = ['task', 'ticket'].includes(note?.source?.kind);
   const doAttach = useCallback(async () => {
+    const source = note?.source;
     if (!api || !source) return;
     try {
       const blob = await exportPng(api);
@@ -179,7 +180,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     } catch (e) {
       toast(`Could not attach: ${e?.message || 'try again'}`);
     }
-  }, [api, source, note?.title, note?.id, toast]);
+  }, [api, note, toast]);
 
   const uiOptions = useMemo(() => ({
     canvasActions: {
@@ -233,8 +234,8 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
             <MainMenu.Item icon={<Download size={14} />} onSelect={doExportSvg}>Export SVG</MainMenu.Item>
             <MainMenu.Item icon={<Copy size={14} />} onSelect={doCopy}>Copy as Image</MainMenu.Item>
             <MainMenu.Item icon={<FileJson size={14} />} onSelect={doDownload}>Download Board File</MainMenu.Item>
-            {source && <MainMenu.Separator />}
-            {source && <MainMenu.Item icon={<Paperclip size={14} />} onSelect={doAttach}>{`Attach to ${source.label}`}</MainMenu.Item>}
+            {attachable && <MainMenu.Separator />}
+            {attachable && <MainMenu.Item icon={<Paperclip size={14} />} onSelect={doAttach}>{`Attach to ${note.source.label}`}</MainMenu.Item>}
             {canEdit && <MainMenu.Separator />}
             {canEdit && <MainMenu.DefaultItems.ChangeCanvasBackground />}
             {canEdit && <MainMenu.DefaultItems.ClearCanvas />}

@@ -8,7 +8,9 @@ import { api } from '../../api';
 import { noteTitle } from '../notesModel';
 import { formatDate } from '../../lib/datetime';
 
-export default function BoardPicker({ open, onClose, onPick, excludeId = '' }) {
+// Mounted only while open (NoteEditor renders it conditionally), so its
+// state starts fresh each time without a reset in an effect.
+export default function BoardPicker({ open = true, onClose, onPick, excludeId = '' }) {
   const [boards, setBoards] = useState(null);     // null = loading
   const [error, setError] = useState('');
   const [q, setQ] = useState('');
@@ -16,7 +18,6 @@ export default function BoardPicker({ open, onClose, onPick, excludeId = '' }) {
   useEffect(() => {
     if (!open) return undefined;
     let alive = true;
-    setBoards(null); setError(''); setQ('');
     api.notesList({ view: 'all' })
       .then((r) => { if (alive) setBoards((r?.notes || []).filter((n) => n.kind === 'board' && n.id !== excludeId && !n.trashedAt)); })
       .catch((e) => { if (alive) { setBoards([]); setError(e?.message || 'Could not load your boards'); } });
