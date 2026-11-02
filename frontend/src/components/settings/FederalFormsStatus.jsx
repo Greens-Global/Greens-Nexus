@@ -43,7 +43,9 @@ export default function FederalFormsStatus() {
           <SettingRow key={f.kind} title={f.title}
             desc={(
               <>
-                {`Edition ${f.editionLabel || '-'}${f.expires ? ` - expires ${f.expires}` : ''}. ${f.message || ''}`}
+                {/* The message usually carries the date itself ("... through 01/31/2027.");
+                    "- expires" is added only when it does not, so a date never reads twice. */}
+                {`Edition ${f.editionLabel || '-'}${f.expires && !/\d{2}\/\d{2}\/\d{4}/.test(f.message || '') ? ` - expires ${f.expires}` : ''}. ${f.message || ''}`}
                 {' '}
                 {http
                   ? <a href={f.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--wk-brand, var(--pine))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>Source <ExternalLink size={11} aria-hidden="true" /></a>
