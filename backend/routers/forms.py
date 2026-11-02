@@ -321,7 +321,8 @@ def _bell_submitter(db: Session, entry: DocFormEntry, reviewer: str) -> None:
     word = form_entry_pdf.STATUS_WORDS.get(entry.status, entry.status.title())
     title = f"{entry.title} {word}"
     who = form_entry_pdf.person_name(db, reviewer)
-    body = f"{who} marked your {entry.title} from {form_entry_pdf.us_datetime(entry.submitted_at)} as {word}."
+    when = form_entry_pdf.us_datetime(entry.submitted_at, form_entry_pdf.person_zone(db, to))   # the reader's clock
+    body = f"{who} marked your {entry.title} from {when} as {word}."
     if entry.review_note:
         body += f" Note: {entry.review_note}"
     # The sub opens THIS entry beside the list (views/Documents.jsx -> FormsTab).
@@ -429,19 +430,20 @@ META_COLUMNS = ("entryId", "form", "templateVersion", "submittedBy", "submittedB
                 "reviewNote", "linkedTicketId", "linkedTaskId", "linkedAssetId")
 
 
-def _csv_rows(defs: list, entries: list) -> list:
+def _csv_rows(defs: list, entries: list, zone: str = "") -> list:
     """Header + one row per entry: the meta columns, then one column per
     token in form order. A repeat group's token holds its rows' values
-    joined with ' | '; photo URLs are joined with spaces."""
+    joined with ' | '; photo URLs are joined with spaces. Times read in
+    `zone` (the exporter's)."""
     tokens = [d["token"] for d in defs if d.get("token")]
     by_token = {d["token"]: d for d in defs if d.get("token")}
     rows = [list(META_COLUMNS) + tokens]
     for e in entries:
         answers = e["answers"]
         meta = [e["id"], e["title"], e["templateVersion"], e["submittedBy"], e["submittedByName"],
-                form_entry_pdf.us_datetime(e["submittedAt"]), e["workSiteId"], e["workSiteName"], e["shiftId"],
+                form_entry_pdf.us_datetime(e["submittedAt"], zone), e["workSiteId"], e["workSiteName"], e["shiftId"],
                 e["source"], form_entry_pdf.STATUS_WORDS.get(e["status"], e["status"]), e["reviewerEmail"],
-                form_entry_pdf.us_datetime(e["reviewedAt"]), e["reviewNote"], e["linkedTicketId"],
+                form_entry_pdf.us_datetime(e["reviewedAt"], zone), e["reviewNote"], e["linkedTicketId"],
                 e["linkedTaskId"], e["linkedAssetId"]]
         values = []
         for t in tokens:
@@ -478,7 +480,7 @@ def export_csv(tid: str, from_: str = Query("", alias="from"), to: str = "", sta
     entries = _serialize_many(db, rows, reach)
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\r\n")
-    for line in _csv_rows(defs, entries):
+    for line in _csv_rows(defs, entries, form_entry_pdf.person_zone(db, user["email"])):
         writer.writerow(["" if v is None else v for v in line])
     name = f"{tpl.name} entries {date.today().strftime('%m-%d-%Y')}"
     return Response(content=buf.getvalue().encode("utf-8-sig"), media_type="text/csv; charset=utf-8",

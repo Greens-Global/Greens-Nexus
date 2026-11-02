@@ -417,6 +417,58 @@ class FormsTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_times_read_in_the_readers_zone(self):
+        """The bell in the recipient's zone, the PDF in the submitter's (with
+        its short name), the CSV in the exporter's - an India crew member
+        reads India time, never UTC."""
+        import form_entry_pdf
+        # 08:44 UTC on 11/02/2026 is 2:14 PM in India and 12:44 AM in California (PST).
+        self.assertEqual(form_entry_pdf.us_datetime("2026-11-02T08:44:00Z", "Asia/Kolkata"), "11/02/2026 2:14 PM")
+        self.assertEqual(form_entry_pdf.us_datetime("2026-11-02T08:44:00", "Asia/Kolkata", named=True),
+                         "11/02/2026 2:14 PM IST")
+        self.assertEqual(form_entry_pdf.us_datetime("2026-11-02T08:44:00Z", "America/Los_Angeles", named=True),
+                         "11/02/2026 12:44 AM PT")
+        self.assertEqual(form_entry_pdf.us_datetime("2026-11-02T08:44:00Z"), "11/02/2026 8:44 AM")
+        self.assertEqual(form_entry_pdf.us_datetime("2026-11-02T08:44:00Z", "Not/AZone"), "11/02/2026 8:44 AM")
+
+        tpl = self._template()
+        e = self._submit(tpl["id"], REP)
+        db = database.SessionLocal()
+        try:
+            # REP works an India shift preset; MGR has none (the company default, Pacific).
+            db.add(models.Shift(id="forms-ist", name="India Day", timezone="Asia/Kolkata"))
+            db.add(models.ShiftAssignment(id="forms-ist-rep", employee_email=REP, shift_id="forms-ist"))
+            row = db.query(models.DocFormEntry).filter(models.DocFormEntry.id == e["id"]).first()
+            row.submitted_at = "2026-11-02T08:44:00"
+            db.commit()
+        finally:
+            db.close()
+        try:
+            self._as(MGR)
+            self.assertEqual(self.client.post(f"/forms/entries/{e['id']}/review",
+                                              json={"status": "reviewed"}).status_code, 200)
+            db = database.SessionLocal()
+            try:
+                bell = db.query(models.NexusNotification).filter(models.NexusNotification.recipient == REP).one()
+                self.assertIn("from 11/02/2026 2:14 PM as Reviewed", bell.body)
+                row = db.query(models.DocFormEntry).filter(models.DocFormEntry.id == e["id"]).first()
+                tpl_row = db.query(models.DocTemplate).filter(models.DocTemplate.id == tpl["id"]).first()
+                text = json.dumps(form_entry_pdf.build_blocks(db, row, tpl_row, tpl_row.field_defs or []))
+                self.assertIn("on 11/02/2026 2:14 PM IST", text)
+            finally:
+                db.close()
+            rows = list(csv.reader(io.StringIO(self.client.get(f"/forms/templates/{tpl['id']}/export.csv").text)))
+            header = rows[0]
+            self.assertEqual(rows[1][header.index("submittedAt")], "11/02/2026 12:44 AM")
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(models.ShiftAssignment).filter(models.ShiftAssignment.id == "forms-ist-rep").delete()
+                db.query(models.Shift).filter(models.Shift.id == "forms-ist").delete()
+                db.commit()
+            finally:
+                db.close()
+
     def test_links_are_stored_on_the_entry(self):
         tpl = self._template()
         e = self._submit(tpl["id"], REP)
