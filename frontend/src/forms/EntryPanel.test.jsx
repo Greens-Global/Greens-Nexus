@@ -97,6 +97,20 @@ describe('Entry panel', () => {
     expect(fact('Sent From')).toBe('Phone');
   });
 
+  it('an entry the server no longer shows says so instead of an empty panel', async () => {
+    getFormEntry.mockReset().mockRejectedValue(Object.assign(new Error('Entry not found'), { status: 404 }));
+    render(<EntryPanel entry={{ id: 'gone1', title: 'Vehicle Check' }} onClose={() => {}} onChanged={() => {}} toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('This entry is not available.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Make a Ticket' })).toBeNull();
+  });
+
+  it('reads the answers with the fields the entry was filled on when the server sends them', async () => {
+    open({ fieldDefs: [{ token: 'odometer', label: 'Odometer Then', type: 'number', section: 'Back Then' }] });
+    const panel = await screen.findByRole('complementary', { name: 'Vehicle Check' });
+    expect(await within(panel).findByText('Odometer Then')).toBeTruthy();
+    expect(within(panel).getByRole('heading', { name: 'Back Then' })).toBeTruthy();
+  });
+
   it('a photo opens the viewer', async () => {
     open();
     const [first] = await screen.findAllByRole('img', { name: /Damage Photos/ });

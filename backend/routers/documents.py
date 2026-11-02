@@ -20,6 +20,7 @@ Design notes:
 """
 import base64
 import copy
+import math
 import re
 import uuid
 from datetime import datetime, timezone
@@ -1048,10 +1049,14 @@ def create_template(body: TemplateIn, user: dict = Depends(get_current_user), db
     if not body.name.strip():
         raise HTTPException(400, "name is required")
     department = (body.department or "").strip()
-    _require_template_manager(db, user, department)
     doc_type = body.docType or "document"
     if doc_type not in _TEMPLATE_TYPES:
         raise HTTPException(400, f"docType must be one of {', '.join(_TEMPLATE_TYPES)}")
+    if (doc_type == "form" and not department and _MANAGER_LEVEL <= user.get("level", 0) < _ADMIN_LEVEL):
+        # A manager's new form is their department's (they may manage it);
+        # company-wide forms stay an administrator's.
+        department = _caller_department(db, user)
+    _require_template_manager(db, user, department)
     status = body.status or "active"
     if status not in _TEMPLATE_STATUSES:
         raise HTTPException(400, f"status must be one of {', '.join(_TEMPLATE_STATUSES)}")
@@ -1582,7 +1587,16 @@ def _publish(db: Session, tpl: DocTemplate, by: str, note: str = "") -> int:
     publishing existed have none): tpl.content IS version tpl.version, because
     update_template is the only writer of template content and it bumps
     version on every write. The caller flushes pending rows first
-    (autoflush is off) and commits."""
+    (autoflush is off) and commits.
+
+    The version row keeps the field list it was published with
+    (`field_defs`), and a FORM whose fields changed since its last publish
+    with no content edit gets a new version number here - its entries pin
+    the number (routers/forms.py), so one number never means two field
+    lists."""
+    if ((tpl.doc_type or "") == "form" and tpl.published_version and tpl.version == tpl.published_version
+            and (tpl.field_defs or []) != (tpl.published_meta or {}).get("fieldDefs", [])):
+        tpl.version = (tpl.version or 1) + 1
     v = (db.query(DocTemplateVersion)
            .filter(DocTemplateVersion.template_id == tpl.id,
                    DocTemplateVersion.version_no == tpl.version).first())
@@ -1592,6 +1606,7 @@ def _publish(db: Session, tpl: DocTemplate, by: str, note: str = "") -> int:
                                edited_at=_now_iso(), note="")
         db.add(v)
     v.note = ((v.note or "") + " (published)" + (f" - {note}" if note else "")).strip()
+    v.field_defs = copy.deepcopy(tpl.field_defs or [])
     tpl.published_version = tpl.version
     tpl.published_meta = _publish_meta(tpl)
     tpl.published_by, tpl.published_at = by, _now_iso()
@@ -1981,6 +1996,13 @@ def _clean_repeat(raw) -> Optional[dict]:
     return {"group": group, "max": max(1, min(_REPEAT_MAX_CAP, mx))}
 
 
+# Keys a form entry's answers share a space with: the workflow event's own
+# fields and `extra`'s reserved keys (routers/forms.py emits the answers FLAT
+# beside `form` / `decision` / `note`), and the GPS stamp `_location`. A
+# field may not be named one of them - it would be shadowed or shadow.
+_FORM_RESERVED_TOKENS = ("id", "key", "at", "actor", "form", "decision", "note", "_location")
+
+
 def _clean_field_defs(defs: list, *, form: bool = False) -> list:
     """Template Builder (Phase 13) - validate/normalize field_defs before
     persisting: dedupe by token (last one wins), enforce the token shape
@@ -2004,6 +2026,8 @@ def _clean_field_defs(defs: list, *, form: bool = False) -> list:
         # accepts is never silently dropped here.
         if not is_valid_token(token):
             continue
+        if form and token in _FORM_RESERVED_TOKENS:
+            raise HTTPException(400, f'"{token}" is a reserved name on a form - name the field something else')
         ftype = d.get("type")
         if ftype not in _FIELD_TYPES and not (form and ftype in _FORM_FIELD_TYPES):
             continue
@@ -2038,6 +2062,20 @@ def _clean_field_defs(defs: list, *, form: bool = False) -> list:
         if ftype in ("dropdown", "radio"):
             clean["options"] = [str(o)[:200] for o in (d.get("options") or []) if str(o).strip()][:50]
         if form:
+            # A form checks min / max at every submit: they are numbers or
+            # nothing, so a stored "ten" can never 500 a crew's entry.
+            for key in ("min", "max"):
+                raw = clean["validation"].get(key)
+                if raw in (None, ""):
+                    clean["validation"].pop(key, None)
+                    continue
+                try:
+                    num = float(raw)
+                    if isinstance(raw, bool) or not math.isfinite(num):
+                        raise ValueError
+                except (TypeError, ValueError):
+                    raise HTTPException(400, f'"{clean["label"]}" {key} must be a number')
+                clean["validation"][key] = int(num) if num.is_integer() else num
             section = str(d.get("section") or "").strip()[:120]
             if section:
                 clean["section"] = section
@@ -2053,6 +2091,9 @@ def _clean_field_defs(defs: list, *, form: bool = False) -> list:
                 clean["formula"] = formula[:task_formula.MAX_LENGTH]
             repeat = _clean_repeat(d.get("repeat"))
             if repeat:
+                if repeat.get("group") in _FORM_RESERVED_TOKENS:
+                    raise HTTPException(400, f'"{repeat["group"]}" is a reserved name on a form - '
+                                             f'name the repeat group something else')
                 clean["repeat"] = repeat
         by_token[token] = clean
     return list(by_token.values())

@@ -57,6 +57,7 @@ def _drop():
 
 CO_A, CO_B = "forms-co-a", "forms-co-b"
 SITE_A, SITE_B = "forms-site-a", "forms-site-b"
+SITE_C = "forms-site-c"                      # co-b's only site
 ADMIN = "forms.admin@greensglobal.com"      # administrator, co-a, Operations
 MGR = "forms.mgr@greensglobal.com"          # manager, co-a, Operations; schedules nothing, REP reports to them
 REP = "forms.rep@greensglobal.com"          # employee, reports to MGR, site A
@@ -149,8 +150,8 @@ class FormsTests(unittest.TestCase):
                .filter(models.NexusEmployee.work_email.like("forms.%")).delete(synchronize_session=False))
             db.query(models.NexusRole).filter(models.NexusRole.email.like("forms.%")).delete(synchronize_session=False)
             db.query(models.HrEntity).filter(models.HrEntity.id.in_([CO_A, CO_B])).delete(synchronize_session=False)
-            db.query(models.HrWorkSite).filter(models.HrWorkSite.id.in_([SITE_A, SITE_B])).delete(synchronize_session=False)
-            db.query(models.HrCompanyWorkSite).filter(models.HrCompanyWorkSite.company_id == CO_A).delete(synchronize_session=False)
+            db.query(models.HrWorkSite).filter(models.HrWorkSite.id.in_([SITE_A, SITE_B, SITE_C])).delete(synchronize_session=False)
+            db.query(models.HrCompanyWorkSite).filter(models.HrCompanyWorkSite.company_id.in_([CO_A, CO_B])).delete(synchronize_session=False)
             db.query(models.ShiftGroupMember).filter(models.ShiftGroupMember.group_id == "forms-g1").delete(synchronize_session=False)
             db.query(models.ShiftGroup).filter(models.ShiftGroup.id == "forms-g1").delete(synchronize_session=False)
             db.query(models.DocFormEntry).delete(synchronize_session=False)
@@ -209,6 +210,44 @@ class FormsTests(unittest.TestCase):
         for d in doc["fieldDefs"]:
             for key in ("section", "showIf", "formula", "repeat"):
                 self.assertNotIn(key, d, d)
+
+    def test_a_manager_creates_a_form_for_their_own_department(self):
+        self._as(MGR)
+        r = self.client.post("/documents/templates", json={"name": "Yard Walk", "docType": "form",
+                                                             "category": "safety", "fieldDefs": FIELDS[:1]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["department"], "Operations")
+        self.assertEqual(r.json()["audience"], "company")
+        # Theirs to change afterwards.
+        r = self.client.patch(f"/documents/templates/{r.json()['id']}", json={"name": "Yard Walk 2"})
+        self.assertEqual(r.status_code, 200, r.text)
+        # A document template still needs its department named; an employee may not create a form.
+        r = self.client.post("/documents/templates", json={"name": "Letter", "docType": "document",
+                                                             "category": "hr"})
+        self.assertEqual(r.status_code, 403, r.text)
+        self._as(REP)
+        r = self.client.post("/documents/templates", json={"name": "Mine", "docType": "form",
+                                                             "category": "safety", "fieldDefs": FIELDS[:1]})
+        self.assertEqual(r.status_code, 403, r.text)
+
+    def test_a_form_refuses_reserved_field_names(self):
+        self._as(ADMIN)
+        for token in ("id", "key", "at", "actor", "form", "decision", "note", "_location"):
+            fields = [{"token": "odometer", "label": "Odometer", "type": "number"},
+                      {"token": token, "label": "Reserved", "type": "text"}]
+            r = self.client.post("/documents/templates", json={"name": "Reserved", "docType": "form",
+                                                                 "category": "vehicle", "fieldDefs": fields})
+            self.assertEqual(r.status_code, 400, (token, r.text))
+            self.assertIn(f'"{token}"', r.json()["detail"])
+        fields = [{"token": "psi", "label": "PSI", "type": "number", "repeat": {"group": "note", "max": 3}}]
+        r = self.client.post("/documents/templates", json={"name": "Reserved", "docType": "form",
+                                                             "category": "vehicle", "fieldDefs": fields})
+        self.assertEqual(r.status_code, 400, r.text)
+        # A document template keeps its own rules: "note" is an ordinary variable there.
+        r = self.client.post("/documents/templates", json={"name": "Memo", "docType": "document", "category": "hr",
+                                                             "fieldDefs": [{"token": "note", "label": "Note",
+                                                                            "type": "text"}]})
+        self.assertEqual(r.status_code, 200, r.text)
 
     def test_a_form_audience_needs_its_department_or_site(self):
         self._as(ADMIN)
@@ -319,6 +358,69 @@ class FormsTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_a_retry_after_archiving_returns_the_first_entry_and_a_key_is_never_anothers(self):
+        tpl = self._template()
+        self._as(REP)
+        key = str(uuid.uuid4())
+        first = self.client.post(f"/forms/{tpl['id']}/entries",
+                                 json={"entryKey": key, "answers": _answers(), "source": "phone"})
+        self.assertEqual(first.status_code, 200, first.text)
+        db = database.SessionLocal()
+        try:
+            db.query(models.DocTemplate).filter(models.DocTemplate.id == tpl["id"]).update({"status": "archived"})
+            db.commit()
+        finally:
+            db.close()
+        again = self.client.post(f"/forms/{tpl['id']}/entries",
+                                 json={"entryKey": key, "answers": _answers(), "source": "phone"})
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertEqual(again.json()["id"], first.json()["id"])
+        # A new key on the archived form is refused as before.
+        self._submit(tpl["id"], REP, status=404)
+        # Someone else sending the same key gets a 409, never REP's entry.
+        self._as(STR)
+        r = self.client.post(f"/forms/{tpl['id']}/entries",
+                             json={"entryKey": key, "answers": _answers(), "source": "phone"})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertNotIn(first.json()["id"], r.text)
+
+    def test_a_raced_insert_applies_the_same_owner_check(self):
+        from unittest import mock
+
+        import form_rules
+        tpl = self._template()
+        real_compute = form_rules.compute
+
+        def racing(owner):
+            def compute(defs, answers, **kw):
+                # Another request files the same key between the check and the insert.
+                db = database.SessionLocal()
+                try:
+                    db.add(models.DocFormEntry(id=f"raced-{owner}", template_id=tpl["id"], template_version=1,
+                                               title="Vehicle Check", entry_key=key, answers={}, company=CO_A,
+                                               work_site_id="", shift_id="", submitted_by=owner,
+                                               submitted_at="2026-11-02T10:00:00+00:00", source="phone",
+                                               status="submitted", deleted_at=""))
+                    db.commit()
+                finally:
+                    db.close()
+                return real_compute(defs, answers, **kw)
+            return compute
+
+        self._as(REP)
+        key = str(uuid.uuid4())
+        with mock.patch.object(form_rules, "compute", racing(REP)):
+            r = self.client.post(f"/forms/{tpl['id']}/entries",
+                                 json={"entryKey": key, "answers": _answers(), "source": "phone"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["id"], f"raced-{REP}")      # the first one's row is the entry
+        key = str(uuid.uuid4())
+        with mock.patch.object(form_rules, "compute", racing(STR)):
+            r = self.client.post(f"/forms/{tpl['id']}/entries",
+                                 json={"entryKey": key, "answers": _answers(), "source": "phone"})
+        self.assertEqual(r.status_code, 409, r.text)           # another person's key: never their entry
+        self.assertNotIn(f"raced-{STR}", r.text)
+
     def test_submit_validates_formats_photos_and_runs_formulas(self):
         tpl = self._template()
         e = self._submit(tpl["id"], REP, _answers(
@@ -350,6 +452,140 @@ class FormsTests(unittest.TestCase):
         # An unknown token is dropped, never stored.
         e3 = self._submit(tpl["id"], REP, _answers(not_a_field="x"))
         self.assertNotIn("not_a_field", e3["answers"])
+
+    def test_formulas_that_overflow_are_blank_never_a_500(self):
+        fields = [
+            {"token": "d", "label": "D", "type": "date"},
+            {"token": "n", "label": "N", "type": "number"},
+            {"token": "shifted", "label": "Shifted", "type": "date", "formula": "{D} + {N}"},
+            {"token": "start", "label": "Start", "type": "date"},
+            {"token": "end", "label": "End", "type": "date"},
+            {"token": "wd", "label": "Workdays", "type": "number", "formula": "WORKDAYS({Start}, {End})"},
+            {"token": "near", "label": "Near", "type": "date", "formula": "{D} + 30"},
+        ]
+        tpl = self._template("Overflow", fields=fields)
+        e = self._submit(tpl["id"], REP, {"d": "2026-11-02", "n": 1e15, "start": "0001-01-01", "end": "9999-12-31"})
+        self.assertIsNone(e["answers"]["shifted"])               # past year 9999: blank, not a 500
+        self.assertEqual(e["answers"]["wd"], 2608615)            # 9999 years, worked out not walked
+        self.assertEqual(e["answers"]["near"], "2026-12-02")
+        e = self._submit(tpl["id"], REP, {"d": "2026-11-02", "n": 40000})
+        self.assertIsNone(e["answers"]["shifted"])               # over the 36,500-day clamp
+
+    def test_a_location_keeps_when_and_which_site(self):
+        tpl = self._template()
+        spot = {"lat": 33.1, "lng": -117.1, "accuracyM": 8, "siteName": "North Yard", "siteId": SITE_A,
+                "at": "2026-11-02T21:14:00.000Z", "junk": "x"}
+        e = self._submit(tpl["id"], REP, _answers(location=spot), gps=spot)
+        for where in (e["answers"]["location"], e["answers"]["_location"]):
+            self.assertEqual(where["at"], "2026-11-02T21:14:00.000Z")
+            self.assertEqual(where["siteId"], SITE_A)
+            self.assertEqual(where["siteName"], "North Yard")
+            self.assertEqual((where["lat"], where["lng"], where["accuracyM"]), (33.1, -117.1, 8))
+            self.assertNotIn("junk", where)
+        e = self._submit(tpl["id"], REP, _answers(location={"lat": 1, "lng": 2, "at": "yesterday-ish"}))
+        self.assertNotIn("at", e["answers"]["location"])          # not an ISO moment: dropped
+
+    def test_a_formula_field_hidden_by_show_if_is_not_worked_out(self):
+        fields = [
+            {"token": "fuel", "label": "Fuel", "type": "yesno"},
+            {"token": "qty", "label": "Qty", "type": "number"},
+            {"token": "total", "label": "Total", "type": "number", "formula": "{Qty} * 2",
+             "showIf": {"token": "fuel", "op": "eq", "value": True}},
+            {"token": "kind", "label": "Kind", "type": "dropdown", "options": ["a", "b"],
+             "repeat": {"group": "rows", "max": 5}},
+            {"token": "n", "label": "N", "type": "number", "repeat": {"group": "rows", "max": 5}},
+            {"token": "dbl", "label": "Double", "type": "number", "formula": "{N} * 2",
+             "showIf": {"token": "kind", "op": "eq", "value": "a"}, "repeat": {"group": "rows", "max": 5}},
+        ]
+        tpl = self._template("Hidden Formula", fields=fields)
+        rows = [{"kind": "a", "n": 3}, {"kind": "b", "n": 4, "dbl": 99}]
+        e = self._submit(tpl["id"], REP, {"fuel": False, "qty": 5, "total": 77, "rows": rows})
+        self.assertNotIn("total", e["answers"])
+        self.assertEqual(e["answers"]["rows"][0]["dbl"], 6)
+        self.assertNotIn("dbl", e["answers"]["rows"][1])
+        e = self._submit(tpl["id"], REP, {"fuel": True, "qty": 5, "rows": []})
+        self.assertEqual(e["answers"]["total"], 10)
+
+    def test_a_non_numeric_min_is_refused_at_save_and_a_stored_one_never_500s(self):
+        self._as(ADMIN)
+        bad = [{"token": "n", "label": "Count", "type": "number", "validation": {"min": "ten"}}]
+        r = self.client.post("/documents/templates", json={"name": "Bad Min", "docType": "form",
+                                                             "category": "vehicle", "fieldDefs": bad})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("Count", r.text)
+        ok = [{"token": "n", "label": "Count", "type": "number", "validation": {"min": "2", "max": 9}}]
+        tpl = self._template("Good Min", fields=ok)
+        self.assertEqual(tpl["fieldDefs"][0]["validation"], {"min": 2, "max": 9})
+        # A limit stored before the check (straight into the row) is no limit.
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.DocTemplate).filter(models.DocTemplate.id == tpl["id"]).first()
+            stale = [{"token": "n", "label": "Count", "type": "number", "required": True,
+                      "validation": {"min": "ten", "max": ["x"], "maxLength": "long"}}]
+            row.field_defs = stale
+            row.published_meta = {**(row.published_meta or {}), "fieldDefs": stale}
+            db.commit()
+        finally:
+            db.close()
+        e = self._submit(tpl["id"], REP, {"n": 1})
+        self.assertEqual(e["answers"]["n"], 1)
+
+    def test_a_bad_formula_is_refused_at_template_save_naming_the_field(self):
+        self._as(ADMIN)
+        fields = [{"token": "a", "label": "Hours", "type": "number"},
+                  {"token": "b", "label": "Overtime", "type": "number", "formula": 'field("x")'}]
+        r = self.client.post("/documents/templates", json={"name": "Bad Formula", "docType": "form",
+                                                             "category": "vehicle", "fieldDefs": fields})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("Overtime", r.json()["detail"])
+        tpl = self._template("Fine Formula", fields=fields[:1])
+        r = self.client.patch(f"/documents/templates/{tpl['id']}", json={"fieldDefs": fields})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("Overtime", r.json()["detail"])
+
+    def test_an_entry_keeps_the_labels_of_the_version_it_was_filled_on(self):
+        fields = [{"token": "odometer", "label": "Odometer", "type": "number", "section": "Vehicle"},
+                  {"token": "fuel", "label": "Fuel", "type": "text", "section": "Vehicle"}]
+        tpl = self._template("Truck Check", fields=fields)
+        v1 = self._submit(tpl["id"], REP, {"odometer": 100, "fuel": "Full"}, workSiteId=SITE_A)
+        self.assertEqual(v1["templateVersion"], tpl["publishedVersion"])
+        # v2 renames Odometer to Mileage and drops Fuel - fields only, no content edit.
+        self._as(ADMIN)
+        renamed = [{"token": "odometer", "label": "Mileage", "type": "number", "section": "Truck"}]
+        r = self.client.patch(f"/documents/templates/{tpl['id']}", json={"fieldDefs": renamed})
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self.client.post(f"/documents/templates/{tpl['id']}/publish", json={"note": "v2"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertGreater(r.json()["publishedVersion"], tpl["publishedVersion"])   # a new number, never the same one
+        v2 = self._submit(tpl["id"], REP, {"odometer": 200}, workSiteId=SITE_A)
+        self.assertEqual(v2["templateVersion"], r.json()["publishedVersion"])
+
+        self._as(MGR)
+        old = self.client.get(f"/forms/entries/{v1['id']}").json()
+        self.assertEqual([(d["token"], d["label"]) for d in old["fieldDefs"]], [("odometer", "Odometer"), ("fuel", "Fuel")])
+        self.assertEqual(old["fieldDefs"][0]["section"], "Vehicle")
+        new = self.client.get(f"/forms/entries/{v2['id']}").json()
+        self.assertEqual([(d["token"], d["label"]) for d in new["fieldDefs"]], [("odometer", "Mileage")])
+        self.assertTrue(self.client.get(f"/forms/entries/{v1['id']}/pdf").content.startswith(b"%PDF"))
+        # The CSV keeps a column for the field only v1 had.
+        rows = list(csv.reader(io.StringIO(self.client.get(f"/forms/templates/{tpl['id']}/export.csv").text)))
+        header = [h.lstrip("\ufeff") for h in rows[0]]
+        self.assertIn("fuel", header)
+        by_id = {row[header.index("entryId")]: row for row in rows[1:]}
+        self.assertEqual(by_id[v1["id"]][header.index("fuel")], "Full")
+        self.assertEqual(by_id[v2["id"]][header.index("odometer")], "200")
+        # A version published before versions kept their fields reads the released ones.
+        db = database.SessionLocal()
+        try:
+            (db.query(models.DocTemplateVersion)
+               .filter(models.DocTemplateVersion.template_id == tpl["id"],
+                       models.DocTemplateVersion.version_no == v1["templateVersion"])
+               .update({"field_defs": None}))
+            db.commit()
+        finally:
+            db.close()
+        old = self.client.get(f"/forms/entries/{v1['id']}").json()
+        self.assertEqual([d["label"] for d in old["fieldDefs"]], ["Mileage"])
 
     # ── Reach (Review Focus 5) ───────────────────────────────────────────────
 
@@ -506,18 +742,61 @@ class FormsTests(unittest.TestCase):
             self.assertNotIn("Photo 1 of 3", json.dumps(blocks))
 
     def test_links_are_stored_on_the_entry(self):
-        tpl = self._template()
-        e = self._submit(tpl["id"], REP)
-        self._as(MGR)
-        r = self.client.post(f"/forms/entries/{e['id']}/link", json={"ticketId": "tk-1"})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["linkedTicketId"], "tk-1")
-        r = self.client.post(f"/forms/entries/{e['id']}/link", json={"taskId": "task-9", "assetId": "asset-3"})
-        self.assertEqual(r.json()["linkedTaskId"], "task-9")
-        self.assertEqual(r.json()["linkedAssetId"], "asset-3")
-        self.assertEqual(r.json()["linkedTicketId"], "tk-1")
-        self._as(STR_B)
-        self.assertEqual(self.client.post(f"/forms/entries/{e['id']}/link", json={"ticketId": "x"}).status_code, 404)
+        db = database.SessionLocal()
+        try:
+            db.add(models.TaskTicket(id="forms-tk-1", subject="Tire", company_id=CO_A))
+            db.add(models.TaskTicket(id="forms-tk-b", subject="Other co", company_id=CO_B))
+            db.add(models.TaskTicket(id="forms-tk-hr", subject="Private", company_id=CO_A, confidential_desk="hr"))
+            db.add(models.Task(id="forms-task-9", title="Fix tire", company_id=CO_A))
+            db.add(models.Task(id="forms-task-b", title="Other co", company_id=CO_B))
+            db.add(models.PropertyAsset(id="forms-asset-3", name="Truck 3", payload={"kind": "vehicle"}))
+            db.add(models.PropertyAsset(id="forms-asset-p", name="Vault", payload={"private": True}))
+            db.add(models.NexusSetting(key="company_walls", value="on"))
+            db.commit()
+        finally:
+            db.close()
+        self._flush()
+        try:
+            tpl = self._template()
+            e = self._submit(tpl["id"], REP)
+            self._as(MGR)
+            r = self.client.post(f"/forms/entries/{e['id']}/link", json={"ticketId": "forms-tk-1"})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["linkedTicketId"], "forms-tk-1")
+            r = self.client.post(f"/forms/entries/{e['id']}/link",
+                                 json={"taskId": "forms-task-9", "assetId": "forms-asset-3"})
+            self.assertEqual(r.json()["linkedTaskId"], "forms-task-9")
+            self.assertEqual(r.json()["linkedAssetId"], "forms-asset-3")
+            self.assertEqual(r.json()["linkedTicketId"], "forms-tk-1")
+            # A record that does not exist, sits behind the company wall, is a
+            # confidential ticket or a private asset: 404, nothing stored.
+            for body in ({"ticketId": "no-such"}, {"ticketId": "forms-tk-b"}, {"ticketId": "forms-tk-hr"},
+                         {"taskId": "no-such"}, {"taskId": "forms-task-b"},
+                         {"assetId": "no-such"}, {"assetId": "forms-asset-p"}):
+                r = self.client.post(f"/forms/entries/{e['id']}/link", json=body)
+                self.assertEqual(r.status_code, 404, (body, r.text))
+            r = self.client.post(f"/forms/entries/{e['id']}/link", json={"ticketId": ""})   # a blank clears it
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["linkedTicketId"], "")
+            self.assertEqual(r.json()["linkedTaskId"], "forms-task-9")
+            self._as(REP)   # the submitter sees it but may not review it, so may not link it
+            self.assertEqual(self.client.post(f"/forms/entries/{e['id']}/link",
+                                              json={"ticketId": "forms-tk-1"}).status_code, 403)
+            self._as(STR_B)
+            self.assertEqual(self.client.post(f"/forms/entries/{e['id']}/link",
+                                              json={"ticketId": "forms-tk-1"}).status_code, 404)
+        finally:
+            db = database.SessionLocal()
+            try:
+                (db.query(models.TaskTicket).execution_options(include_confidential=True)
+                   .filter(models.TaskTicket.id.like("forms-%")).delete(synchronize_session=False))
+                db.query(models.Task).filter(models.Task.id.like("forms-%")).delete(synchronize_session=False)
+                db.query(models.PropertyAsset).filter(models.PropertyAsset.id.like("forms-%")).delete(synchronize_session=False)
+                db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
+                db.commit()
+            finally:
+                db.close()
+            self._flush()
 
     def test_pdf_and_csv(self):
         tpl = self._template()
@@ -555,6 +834,66 @@ class FormsTests(unittest.TestCase):
         self._as(REP)
         rows = list(csv.reader(io.StringIO(self.client.get(f"/forms/templates/{tpl['id']}/export.csv").text)))
         self.assertEqual(len(rows), 2)
+
+
+    def test_csv_export_is_404_to_an_outsider_and_checks_its_status(self):
+        tpl = self._template()
+        site_form = self._template("North Yard Walk", audience="site", workSiteId=SITE_A)
+        self._submit(tpl["id"], REP, workSiteId=SITE_A)
+
+        def export(who, t, **params):
+            self._as(who)
+            return self.client.get(f"/forms/templates/{t['id']}/export.csv", params=params)
+
+        self.assertEqual(export(OTHER, tpl).status_code, 404)          # another company, no reach
+        self.assertEqual(export(STR_B, site_form).status_code, 404)    # not in the site form's audience
+        self.assertEqual(export(REP, site_form).status_code, 200)      # may fill it: their own rows
+        self.assertEqual(export(MGR, site_form).status_code, 200)      # a manager with people
+        self.assertEqual(export(HR_A, site_form).status_code, 200)     # HR for the company
+        self.assertEqual(export(MGR, tpl, status="bogus").status_code, 400)
+        self.assertEqual(export(MGR, tpl, status="submitted").status_code, 200)
+
+    def test_csv_cells_that_would_run_as_formulas_open_as_text(self):
+        from routers import forms as forms_router
+        self.assertEqual(forms_router.csv_safe("=1+1"), "'=1+1")
+        for lead in ("+", "-", "@", "\t", "\r"):
+            self.assertEqual(forms_router.csv_safe(lead + "x"), "'" + lead + "x")
+        self.assertEqual(forms_router.csv_safe("Fine"), "Fine")
+        self.assertEqual(forms_router.csv_safe(-5), -5)
+        fields = [{"token": "remark", "label": "Remark", "type": "text"},
+                  {"token": "n", "label": "N", "type": "number"}]
+        tpl = self._template("=Danger", fields=fields)
+        e = self._submit(tpl["id"], REP, {"remark": '=HYPERLINK("http://evil.example")', "n": -5}, workSiteId=SITE_A)
+        self._as(MGR)
+        r = self.client.post(f"/forms/entries/{e['id']}/review", json={"status": "reviewed", "note": "@SUM(A1)"})
+        self.assertEqual(r.status_code, 200, r.text)
+        rows = list(csv.reader(io.StringIO(self.client.get(f"/forms/templates/{tpl['id']}/export.csv").text)))
+        header, row = rows[0], rows[1]
+        self.assertEqual(row[header.index("remark")], '\'=HYPERLINK("http://evil.example")')
+        self.assertEqual(row[header.index("reviewNote")], "'@SUM(A1)")
+        self.assertEqual(row[header.index("form")], "'=Danger")
+        self.assertEqual(row[header.index("n")], "-5")              # a number is left alone
+
+
+    def test_a_site_form_files_at_its_site_and_any_other_site_must_be_the_companys(self):
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrWorkSite(id=SITE_C, name="Other Co Yard"))
+            db.add(models.HrCompanyWorkSite(id=f"{CO_B}:{SITE_C}", company_id=CO_B, site_id=SITE_C))
+            db.commit()
+        finally:
+            db.close()
+        site_form = self._template("North Yard Walk", audience="site", workSiteId=SITE_A)
+        e = self._submit(site_form["id"], REP, workSiteId=SITE_B)      # the client's pick is ignored
+        self.assertEqual(e["workSiteId"], SITE_A)
+        e = self._submit(site_form["id"], REP)
+        self.assertEqual(e["workSiteId"], SITE_A)
+        tpl = self._template()
+        self.assertEqual(self._submit(tpl["id"], REP, workSiteId=SITE_B)["workSiteId"], SITE_B)
+        self.assertEqual(self._submit(tpl["id"], REP)["workSiteId"], "")
+        r = self._submit(tpl["id"], REP, workSiteId=SITE_C, status=400)   # another company's site
+        self.assertIn("work site", r["detail"])
+        self._submit(tpl["id"], REP, workSiteId="no-such-site", status=400)
 
 
 if __name__ == "__main__":

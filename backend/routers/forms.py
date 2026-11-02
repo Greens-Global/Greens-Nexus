@@ -52,8 +52,8 @@ import form_rules
 import workflows
 from auth import get_current_user
 from database import get_db
-from models import DocFormEntry, DocTemplate, HrWorkSite, NexusEmployee, NexusNotification
-from routers.documents import _content_disposition, _released
+from models import DocFormEntry, DocTemplate, DocTemplateVersion, HrWorkSite, NexusEmployee, NexusNotification
+from routers.documents import _content_disposition, _released, _require_template_manager
 from routers.hr import company_sites
 from routers.items import _validate_photo_url
 
@@ -143,6 +143,19 @@ def _defs(db: Session, tpl: DocTemplate) -> tuple:
     return list(released.get("fieldDefs") or []), int(released.get("version") or tpl.version or 1)
 
 
+def _entry_defs(db: Session, tpl: DocTemplate, version: int) -> list:
+    """The field defs an entry was filled against: its pinned version's, as
+    that version was published (DocTemplateVersion.field_defs), else - a
+    version published before versions kept their fields - the released
+    ones."""
+    if version:
+        v = (db.query(DocTemplateVersion)
+             .filter(DocTemplateVersion.template_id == tpl.id, DocTemplateVersion.version_no == int(version)).first())
+        if v is not None and isinstance(v.field_defs, list):
+            return list(v.field_defs)
+    return _defs(db, tpl)[0]
+
+
 def _ser_form(tpl: DocTemplate, version: int) -> dict:
     return {"id": tpl.id, "title": tpl.name, "category": tpl.category or "other",
             "description": "", "version": version,
@@ -202,6 +215,18 @@ def _check_file_urls(defs: list, answers: dict) -> None:
             check(d, answers[d["token"]])
 
 
+def _same_key(db: Session, key: str, tid: str, me: str):
+    """The entry already filed under `key`, or None. 409 when the key is
+    another person's or another form's - a key never opens someone else's
+    entry."""
+    row = db.query(DocFormEntry).filter(DocFormEntry.entry_key == key).first()
+    if row is None:
+        return None
+    if _norm(row.submitted_by) != me or row.template_id != tid:
+        raise HTTPException(409, "That entry key belongs to another entry")
+    return row
+
+
 @router.post("/{tid}/entries")
 def submit_entry(tid: str, body: EntryIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """File one entry. The same entryKey a second time (a retry after a
@@ -209,13 +234,14 @@ def submit_entry(tid: str, body: EntryIn, user: dict = Depends(get_current_user)
     key = (body.entryKey or "").strip()[:80]
     if not key:
         raise HTTPException(400, "entryKey is required")
-    tpl = _fillable(db, tid, user)
     me = _norm(user["email"])
-    existing = db.query(DocFormEntry).filter(DocFormEntry.entry_key == key).first()
+    # Before the fill check: a retry of an entry already filed returns it even
+    # when the form was archived (or the person moved out of its audience)
+    # since the first send.
+    existing = _same_key(db, key, tid, me)
     if existing is not None:
-        if _norm(existing.submitted_by) != me or existing.template_id != tpl.id:
-            raise HTTPException(409, "That entry key belongs to another entry")
         return _serialize_many(db, [existing], form_audience.viewer_reach(db, user))[0]
+    tpl = _fillable(db, tid, user)
 
     defs, version = _defs(db, tpl)
     source = (body.source or "web").strip().lower()
@@ -232,13 +258,20 @@ def submit_entry(tid: str, body: EntryIn, user: dict = Depends(get_current_user)
         if isinstance(stamp, dict) and "lat" in stamp and "lng" in stamp:
             answers["_location"] = stamp
 
-    site_id = (body.workSiteId or "").strip() or (tpl.work_site_id or "")
-    if site_id and db.query(HrWorkSite.id).filter(HrWorkSite.id == site_id).first() is None:
-        raise HTTPException(400, "Unknown work site")
+    # A site form is filed at its site whatever the client sent; any other
+    # form at one of the submitter's company's sites (the list the fill
+    # screen offers), or at none.
+    company = auth.company_of(me, db)
+    if tpl.work_site_id:
+        site_id = tpl.work_site_id
+    else:
+        site_id = (body.workSiteId or "").strip()
+        if site_id and site_id not in {s.id for s in company_sites(db, company)}:
+            raise HTTPException(400, "Unknown work site")
     now = _now_iso()
     row = DocFormEntry(id=str(uuid.uuid4()), template_id=tpl.id, template_version=version,
                        title=tpl.name, entry_key=key, answers=answers,
-                       company=auth.company_of(me, db), work_site_id=site_id,
+                       company=company, work_site_id=site_id,
                        shift_id=(body.shiftId or "").strip()[:80], submitted_by=me, submitted_at=now,
                        source=source, status="submitted", deleted_at="")
     db.add(row)
@@ -246,9 +279,10 @@ def submit_entry(tid: str, body: EntryIn, user: dict = Depends(get_current_user)
     try:
         db.commit()
     except IntegrityError:
-        # Two retries raced: the first one's row is the entry.
+        # Two retries raced: the first one's row is the entry - when it is
+        # this person's, on this form (the same check as before the insert).
         db.rollback()
-        row = db.query(DocFormEntry).filter(DocFormEntry.entry_key == key).first()
+        row = _same_key(db, key, tpl.id, me)
         if row is None:
             raise HTTPException(409, "Could not file the entry - try again")
     db.refresh(row)
@@ -304,7 +338,11 @@ def list_entries(template: str = "", site: str = "", status: str = "", from_: st
 def get_entry(eid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     reach = form_audience.viewer_reach(db, user)
     row = _get_entry(db, eid, reach)
-    return _serialize_many(db, [row], reach)[0]
+    out = _serialize_many(db, [row], reach)[0]
+    # The labels and sections the entry was filled with (its pinned version).
+    tpl = db.query(DocTemplate).filter(DocTemplate.id == row.template_id).first()
+    out["fieldDefs"] = _entry_defs(db, tpl, row.template_version or 0) if tpl is not None else []
+    return out
 
 
 class ReviewIn(BaseModel):
@@ -377,20 +415,64 @@ class LinkIn(BaseModel):
     assetId: Optional[str] = None
 
 
+def _ticket_ok(db: Session, user: dict, scope, tid: str) -> bool:
+    """The ticket exists, sits inside the caller's company walls, and - a
+    confidential one - is theirs to read (ticket_confidential.may_read)."""
+    import ticket_confidential
+    from models import TaskTicket
+    t = (db.query(TaskTicket).execution_options(include_confidential=True)
+         .filter(TaskTicket.id == tid).first())
+    return (t is not None and auth.company_ok(t.company_id or "", scope, shared_when_blank=True)
+            and ticket_confidential.may_read(db, user, t))
+
+
+def _task_ok(db: Session, scope, tid: str) -> bool:
+    """The task exists (not trashed) inside the caller's company walls."""
+    from models import Task
+    from routers.task_util import task_company
+    t = db.query(Task).filter(Task.id == tid).first()
+    if t is None:
+        return False
+    company = task_company(t, auth.company_of_email_map(db)) if scope is not None else ""
+    return auth.company_ok(company, scope, shared_when_blank=True)
+
+
+def _asset_ok(db: Session, user: dict, aid: str) -> bool:
+    """The asset exists, is not in the Trash, and is not a private asset the
+    caller may not see (property_links.viewable). Assets carry no company."""
+    import property_links
+    from models import PropertyAsset
+    prop = db.get(PropertyAsset, aid)
+    return property_links.viewable(prop, user) and not (prop.payload or {}).get("deleted")
+
+
 @router.post("/entries/{eid}/link")
 def link_entry(eid: str, body: LinkIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Remember the ticket / task / asset made from this entry (the record
-    itself is created through the existing calls)."""
+    itself is created through the existing calls). Only someone who may
+    review the entry links it, and only to a record they may see; a blank
+    id clears the link."""
     reach = form_audience.viewer_reach(db, user)
     row = _get_entry(db, eid, reach, lock=True)
+    if not reach.can_review(row):
+        raise HTTPException(403, "Only a reviewer can link this entry")
     if body.ticketId is None and body.taskId is None and body.assetId is None:
         raise HTTPException(400, "Nothing to link")
+    ticket_id = (body.ticketId or "").strip()[:80]
+    task_id = (body.taskId or "").strip()[:80]
+    asset_id = (body.assetId or "").strip()[:80]
+    if ticket_id and not _ticket_ok(db, user, reach.scope, ticket_id):
+        raise HTTPException(404, "Ticket not found")
+    if task_id and not _task_ok(db, reach.scope, task_id):
+        raise HTTPException(404, "Task not found")
+    if asset_id and not _asset_ok(db, user, asset_id):
+        raise HTTPException(404, "Asset not found")
     if body.ticketId is not None:
-        row.linked_ticket_id = (body.ticketId or "").strip()[:80]
+        row.linked_ticket_id = ticket_id
     if body.taskId is not None:
-        row.linked_task_id = (body.taskId or "").strip()[:80]
+        row.linked_task_id = task_id
     if body.assetId is not None:
-        row.linked_asset_id = (body.assetId or "").strip()[:80]
+        row.linked_asset_id = asset_id
     db.commit(); db.refresh(row)
     return _serialize_many(db, [row], reach)[0]
 
@@ -402,7 +484,7 @@ def entry_pdf(eid: str, user: dict = Depends(get_current_user), db: Session = De
     tpl = db.query(DocTemplate).filter(DocTemplate.id == row.template_id).first()
     if tpl is None:
         raise HTTPException(404, "Form not found")
-    defs, _version = _defs(db, tpl)
+    defs = _entry_defs(db, tpl, row.template_version or 0)
     pdf = form_entry_pdf.render(db, row, tpl, defs)
     name = f"{row.title or tpl.name} {form_entry_pdf.us_date(row.submitted_at).replace('/', '-')}"
     return Response(content=pdf, media_type="application/pdf",
@@ -431,33 +513,80 @@ META_COLUMNS = ("entryId", "form", "templateVersion", "submittedBy", "submittedB
                 "reviewNote", "linkedTicketId", "linkedTaskId", "linkedAssetId")
 
 
-def _csv_rows(defs: list, entries: list, zone: str = "") -> list:
+_CSV_FORMULA_LEADS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_safe(cell):
+    """A text cell a spreadsheet would run as a formula ("=HYPERLINK(..)",
+    "+1", "@SUM") gets a leading apostrophe, so it opens as text. Numbers
+    are left as they are."""
+    if isinstance(cell, str) and cell.startswith(_CSV_FORMULA_LEADS):
+        return "'" + cell
+    return cell
+
+
+def _csv_value(d: dict, v):
+    """One answer's cell: a number stays a number (a negative one is not a
+    formula), any text goes through csv_safe."""
+    text = form_entry_pdf.value_text(d, v)
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return text
+    return csv_safe(text)
+
+
+def _csv_rows(defs: list, entries: list, defs_by_version: dict | None = None, zone: str = "") -> list:
     """Header + one row per entry: the meta columns, then one column per
     token in form order. A repeat group's token holds its rows' values
-    joined with ' | '; photo URLs are joined with spaces. Times read in
-    `zone` (the exporter's)."""
+    joined with ' | '; photo URLs are joined with spaces. Every text cell
+    goes through csv_safe. `defs_by_version` ({version: defs}) reads each
+    entry's answers with the fields of the version it was filled on. Times
+    read in `zone` (the exporter's)."""
     tokens = [d["token"] for d in defs if d.get("token")]
-    by_token = {d["token"]: d for d in defs if d.get("token")}
+    columns = {d["token"]: d for d in defs if d.get("token")}
     rows = [list(META_COLUMNS) + tokens]
     for e in entries:
         answers = e["answers"]
+        pinned = (defs_by_version or {}).get(e["templateVersion"]) or []
+        by_token = {**columns, **{d["token"]: d for d in pinned if d.get("token") in columns}}
         meta = [e["id"], e["title"], e["templateVersion"], e["submittedBy"], e["submittedByName"],
                 form_entry_pdf.us_datetime(e["submittedAt"], zone), e["workSiteId"], e["workSiteName"], e["shiftId"],
                 e["source"], form_entry_pdf.STATUS_WORDS.get(e["status"], e["status"]), e["reviewerEmail"],
                 form_entry_pdf.us_datetime(e["reviewedAt"], zone), e["reviewNote"], e["linkedTicketId"],
                 e["linkedTaskId"], e["linkedAssetId"]]
+        meta = [csv_safe(v) for v in meta]
         values = []
         for t in tokens:
             d = by_token[t]
             g = form_rules.group_of(d)
             if g:
                 group_rows = answers.get(g) if isinstance(answers.get(g), list) else []
-                values.append(" | ".join(form_entry_pdf.value_text(d, r.get(t)) for r in group_rows
-                                         if isinstance(r, dict)))
+                cells = [r.get(t) for r in group_rows if isinstance(r, dict)]
+                joined = " | ".join(form_entry_pdf.value_text(d, v) for v in cells)
+                numeric = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in cells)
+                values.append(joined if numeric else csv_safe(joined))
             else:
-                values.append(form_entry_pdf.value_text(d, answers.get(t)))
+                values.append(_csv_value(d, answers.get(t)))
         rows.append(meta + values)
     return rows
+
+
+def _may_export(db: Session, tpl: DocTemplate, user: dict, reach: form_audience.Reach) -> bool:
+    """Who may pull a form's CSV at all: someone who may fill it (their own
+    rows), someone who manages the template, or someone whose reach goes
+    beyond their own entries - an administrator, a manager with people or
+    team sites, HR for the form's company or their own. Anyone else gets the
+    same 404 as for a form that does not exist."""
+    if form_audience.may_fill(db, tpl, user["email"], level=user.get("level", 0)):
+        return True
+    try:
+        _require_template_manager(db, user, tpl.department or "")
+        return True
+    except HTTPException:
+        pass
+    if reach.admin or reach.team or reach.team_sites:
+        return True
+    companies = {form_audience.template_company(db, tpl), auth.company_of(user["email"], db)}
+    return any(reach.hr_for(c) for c in companies if c)
 
 
 @router.get("/templates/{tid}/export.csv")
@@ -466,6 +595,10 @@ def export_csv(tid: str, from_: str = Query("", alias="from"), to: str = "", sta
     """Every entry of one form the caller may see, as CSV."""
     tpl = _form_template(db, tid)
     reach = form_audience.viewer_reach(db, user)
+    if not _may_export(db, tpl, user, reach):
+        raise HTTPException(404, "Form not found")
+    if status and status not in STATUSES:
+        raise HTTPException(400, f"status must be one of {', '.join(STATUSES)}")
     defs, _version = _defs(db, tpl)
     q = db.query(DocFormEntry).filter(DocFormEntry.template_id == tpl.id, DocFormEntry.deleted_at == "")
     if status:
@@ -479,9 +612,18 @@ def export_csv(tid: str, from_: str = Query("", alias="from"), to: str = "", sta
         q = q.filter(DocFormEntry.submitted_at < hi)
     rows = [r for r in q.order_by(DocFormEntry.submitted_at.asc()).all() if reach(r)]
     entries = _serialize_many(db, rows, reach)
+    # Each entry reads with its pinned version's fields; a token only an
+    # older version had still gets its column, after the current ones.
+    by_version = {v: _entry_defs(db, tpl, v) for v in sorted({e["templateVersion"] for e in entries}, reverse=True)}
+    have = {d.get("token") for d in defs}
+    for vdefs in by_version.values():
+        for d in vdefs:
+            if d.get("token") and d["token"] not in have:
+                defs = defs + [d]
+                have.add(d["token"])
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\r\n")
-    for line in _csv_rows(defs, entries, form_entry_pdf.person_zone(db, user["email"])):
+    for line in _csv_rows(defs, entries, by_version, form_entry_pdf.person_zone(db, user["email"])):
         writer.writerow(["" if v is None else v for v in line])
     name = f"{tpl.name} entries {date.today().strftime('%m-%d-%Y')}"
     return Response(content=buf.getvalue().encode("utf-8-sig"), media_type="text/csv; charset=utf-8",

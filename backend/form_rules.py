@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import task_formula
 from task_formula import FormulaError
@@ -34,6 +34,7 @@ _NON_NUMERIC_RE = re.compile(r"[^0-9.\-]")
 _TIME_RE = re.compile(r"^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$")
 _URL_FIELDS = ("photo", "signature", "image", "file")
 MAX_TEXT = 10_000
+MAX_DATE_SHIFT_DAYS = 36_500     # a date moves at most ~100 years in a formula
 MAX_PHOTOS = 20
 DEFAULT_REPEAT_MAX = 10
 
@@ -226,6 +227,11 @@ def _coerce(d: dict, v):
                     out[k] = n
             if v.get("siteName"):
                 out["siteName"] = str(v["siteName"])[:200]
+            if v.get("siteId"):
+                out["siteId"] = str(v["siteId"])[:80]
+            at = _iso_moment(v.get("at"))
+            if at:
+                out["at"] = at
             return out
         return v
     if isinstance(v, str):
@@ -233,7 +239,32 @@ def _coerce(d: dict, v):
     return v
 
 
+def _iso_moment(v) -> str:
+    """When a location was taken, as the ISO text the browser sent, or ''
+    when it is not an ISO moment."""
+    if not isinstance(v, str) or not v.strip() or len(v) > 40:
+        return ""
+    text = v.strip()
+    try:
+        datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    return text
+
+
 # ── Validate ──────────────────────────────────────────────────────────────
+
+def _bound(v):
+    """A stored validation limit as a number, or None - a limit saved before
+    the template check (text, a list) is no limit, never a 500."""
+    if v in (None, "") or isinstance(v, bool):
+        return None
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return None
+    return n if math.isfinite(n) else None
+
 
 def _check_value(d: dict, v) -> str:
     """Why a non-blank value is wrong for its field, or ''."""
@@ -244,9 +275,10 @@ def _check_value(d: dict, v) -> str:
         n = _number(v)
         if n is None:
             return f'"{label}" needs to be a number'
-        if validation.get("min") not in (None, "") and n < float(validation["min"]):
+        lo, hi = _bound(validation.get("min")), _bound(validation.get("max"))
+        if lo is not None and n < lo:
             return f'"{label}" must be at least {validation["min"]}'
-        if validation.get("max") not in (None, "") and n > float(validation["max"]):
+        if hi is not None and n > hi:
             return f'"{label}" must be at most {validation["max"]}'
     elif ftype == "rating":
         n = _number(v)
@@ -286,9 +318,9 @@ def _check_value(d: dict, v) -> str:
     elif ftype in ("text", "multiline", "address", "person"):
         if not isinstance(v, str):
             return f'"{label}" needs text'
-        max_len = validation.get("maxLength")
-        if max_len not in (None, "") and len(v) > int(max_len):
-            return f'"{label}" must be {max_len} characters or fewer'
+        max_len = _bound(validation.get("maxLength"))
+        if max_len is not None and len(v) > int(max_len):
+            return f'"{label}" must be {validation["maxLength"]} characters or fewer'
         regex = validation.get("regex")
         if regex:
             try:
@@ -450,6 +482,14 @@ def _round(x: float, places) -> float:
     return -q if x < 0 else q
 
 
+def _shift_days(v) -> int:
+    """Days to move a date by: a number within MAX_DATE_SHIFT_DAYS."""
+    n = _to_num(v)
+    if not math.isfinite(n) or abs(n) > MAX_DATE_SHIFT_DAYS:
+        raise FormulaError("A date can move at most 36,500 days.")
+    return int(n)
+
+
 def _arith(op, a, b):
     da, db_ = isinstance(a, date), isinstance(b, date)
     if op in ("+", "-"):
@@ -461,9 +501,9 @@ def _arith(op, a, b):
                     return (a - b).days
                 raise FormulaError("Two dates cannot be added - subtract them to get days.")
             if da:
-                return a + timedelta(days=int(_to_num(b)) * (1 if op == "+" else -1))
+                return a + timedelta(days=_shift_days(b) * (1 if op == "+" else -1))
             if op == "+":
-                return b + timedelta(days=int(_to_num(a)))
+                return b + timedelta(days=_shift_days(a))
             raise FormulaError("A date cannot be subtracted from a number.")
         if is_blank(a) and is_blank(b):
             return None
@@ -511,13 +551,14 @@ def _compare(op, a, b):
 
 
 def _workdays_inclusive(a: date, b: date) -> int:
-    n = 0
-    d = a
-    while d <= b:
-        if d.weekday() < 5:
-            n += 1
-        d += timedelta(days=1)
-    return n
+    """Monday-Friday days from a to b, both counted - worked out, not walked,
+    so a range of thousands of years costs nothing."""
+    if b < a:
+        return 0
+    total = (b - a).days + 1
+    weeks, rest = divmod(total, 7)
+    start = a.weekday()
+    return weeks * 5 + sum(1 for i in range(rest) if (start + i) % 7 < 5)
 
 
 def _numbers_of(values) -> list:
@@ -613,7 +654,9 @@ def run_formula(src: str, env: _Env):
     (the browser shows the reason; the server stores a blank)."""
     try:
         v = _eval(task_formula.parse(src), env)
-    except FormulaError:
+    except (FormulaError, OverflowError, ValueError, ZeroDivisionError, RecursionError):
+        # a value no formula can hold (a date past year 9999, a huge power)
+        # is a blank answer, never a 500
         return None
     if isinstance(v, float):
         if not math.isfinite(v):
@@ -626,14 +669,20 @@ def run_formula(src: str, env: _Env):
 
 def compute(defs: list, answers: dict, *, today: date | None = None) -> dict:
     """`answers` with every formula field filled in (a copy): the form's
-    single fields, then each repeat row's."""
+    single fields, then each repeat row's. A formula field hidden by its
+    showIf (on the form, or in that row) is not worked out and holds no
+    value - the same visibility clean() applies."""
     answers = dict(answers or {})
     by_group = groups(defs)
     singles = [d for d in defs or [] if not group_of(d)]
+    shown = visible_tokens(defs, answers)
     env = _Env(defs, answers, today=today)
     for d in singles:
         if d.get("formula"):
-            answers[d["token"]] = run_formula(d["formula"], env)
+            if d["token"] in shown:
+                answers[d["token"]] = run_formula(d["formula"], env)
+            else:
+                answers.pop(d["token"], None)
     for g, members in by_group.items():
         rows = answers.get(g)
         if not isinstance(rows, list):
@@ -641,10 +690,14 @@ def compute(defs: list, answers: dict, *, today: date | None = None) -> dict:
         new_rows = []
         for row in rows:
             row = dict(row) if isinstance(row, dict) else {}
+            row_shown = visible_tokens(members, {**answers, **row})
             env = _Env(defs, answers, row=row, today=today)
             for d in members:
                 if d.get("formula"):
-                    row[d["token"]] = run_formula(d["formula"], env)
+                    if d["token"] in row_shown:
+                        row[d["token"]] = run_formula(d["formula"], env)
+                    else:
+                        row.pop(d["token"], None)
             new_rows.append(row)
         answers[g] = new_rows
     return answers

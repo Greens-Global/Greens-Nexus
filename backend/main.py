@@ -1433,6 +1433,8 @@ def _run_migrations():
             "ALTER TABLE doc_templates ADD COLUMN audience VARCHAR DEFAULT 'company'",
             "ALTER TABLE doc_templates ADD COLUMN work_site_id VARCHAR DEFAULT ''",
             "ALTER TABLE doc_templates ADD COLUMN show_on_shifts INTEGER DEFAULT 0",
+            # A published version keeps its field list (entries read against it). models.DocTemplateVersion.
+            "ALTER TABLE doc_template_versions ADD COLUMN field_defs JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3424,6 +3426,8 @@ def _run_migrations():
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS show_on_shifts INTEGER DEFAULT 0",
         "ALTER TABLE doc_form_entries ENABLE ROW LEVEL SECURITY",
+        # A published version keeps its field list (entries read against it). models.DocTemplateVersion.
+        "ALTER TABLE doc_template_versions ADD COLUMN IF NOT EXISTS field_defs JSONB",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

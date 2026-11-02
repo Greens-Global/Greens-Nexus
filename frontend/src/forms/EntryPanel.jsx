@@ -181,23 +181,27 @@ export default function EntryPanel({ entry: given, onClose, onChanged, toastOk, 
   const [viewing, setViewing] = useState(null);
   const [composer, setComposer] = useState(null);   // { kind: 'ticket' | 'task', ...seed }
   const [busy, setBusy] = useState('');
+  const [gone, setGone] = useState(false);   // the fresh read said 404: deleted, or no longer yours to see
 
   useEffect(() => {
     let live = true;
     // The row may have come with answers; the fresh read is the truth.
-    api.getFormEntry(given.id).then((e) => { if (live && e) setEntry(e); }).catch(() => {});
+    api.getFormEntry(given.id).then((e) => { if (live && e) setEntry(e); }).catch((e) => { if (live && e?.status === 404) setGone(true); });
     return () => { live = false; };
   }, [given.id]);
   useEffect(() => {
     let live = true;
+    // The fields the entry was filled with (its pinned version, from the fresh read); the template's as a fallback.
+    if (Array.isArray(entry.fieldDefs)) { setDefs(entry.fieldDefs); return undefined; }
     if (!entry.templateId) { setDefs([]); return undefined; }
     api.getDocTemplate(entry.templateId).then((t) => { if (live) setDefs(t?.fieldDefs || []); }).catch(() => { if (live) setDefs([]); });
     return () => { live = false; };
-  }, [entry.templateId]);
+  }, [entry.templateId, entry.fieldDefs]);
 
   const fieldDefs = useMemo(() => defs || [], [defs]);
   const answers = entry.answers || {};
   const state = entryState(entry.status);
+  if (gone) return <PanelShell title={entry.title || 'Form Entry'} onClose={onClose}><div className="nx-dl-muted">This entry is not available.</div></PanelShell>;
 
   const refresh = async (next) => {
     if (next) setEntry(next);
