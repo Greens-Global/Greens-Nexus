@@ -35,6 +35,7 @@ import { toText } from '../tasks/formula';
 import { NX, FONT, btn } from '../tasks/theme';
 import { groupDefs, isVisible, visibleAnswers, validateAnswers, computeFormulas, nearestSite } from './formRules';
 import { loadDraft, saveDraft, clearDraft, newEntryKey, hasContent, draftNotice } from './formDraft';
+import { useRole } from '../contexts/RoleContext';
 
 // The signature pad is Nexus Sign's (components/ESign.jsx) - loaded when a
 // signature field is tapped, so a form with none never fetches that chunk.
@@ -338,6 +339,7 @@ function RepeatGroup({ item, rows, errors, ctx, onRow, onAdd, onRemove, groupErr
 export default function FillForm({ templateId, template: given = null, preview = false, onClose, onSent, shiftId = '', workSiteId = '', signerName = '', zIndex = 4100 }) {
   const phone = useIsMobile();
   const tid = given?.id || templateId;
+  const me = useRole()?.myEmail || '';   // the draft is this person's (formDraft.js)
   const [tpl, setTpl] = useState(given);
   const [loadErr, setLoadErr] = useState('');
   const load = useCallback(() => {
@@ -355,7 +357,7 @@ export default function FillForm({ templateId, template: given = null, preview =
   const [sent, setSent] = useState(null);
   const [site, setSite] = useState(workSiteId || '');
   // The draft offered back - until Continue or Discard nothing is saved over it.
-  const [offer, setOffer] = useState(() => { if (preview) return null; const d = loadDraft(tid); return d && hasContent(d.answers) ? d : null; });
+  const [offer, setOffer] = useState(() => { if (preview) return null; const d = loadDraft(tid, me); return d && hasContent(d.answers) ? d : null; });
   const sending = useRef(false);
   const bodyRef = useRef(null);
 
@@ -368,9 +370,9 @@ export default function FillForm({ templateId, template: given = null, preview =
   // never in a preview, never after the send).
   useEffect(() => {
     if (preview || offer || sent || !hasContent(answers)) return undefined;
-    const t = setTimeout(() => saveDraft(tid, { entryKey, answers, title: tpl?.title }), 300);
+    const t = setTimeout(() => saveDraft(tid, { entryKey, answers, title: tpl?.title }, me), 300);
     return () => clearTimeout(t);
-  }, [answers, entryKey, tid, tpl?.title, preview, offer, sent]);
+  }, [answers, entryKey, tid, me, tpl?.title, preview, offer, sent]);
 
   // With the keyboard up on a phone the focused box stays in view as the
   // visual viewport shrinks (iOS slides the keyboard over the page).
@@ -403,7 +405,7 @@ export default function FillForm({ templateId, template: given = null, preview =
   };
 
   const continueDraft = () => { if (!offer) return; setAnswers((a) => ({ ...offer.answers, ...a })); setEntryKey(offer.entryKey); setOffer(null); };
-  const discardDraft = () => { clearDraft(tid); setOffer(null); };
+  const discardDraft = () => { clearDraft(tid, me); setOffer(null); };
 
   const submit = async () => {
     if (preview || sending.current || sent) return;
@@ -422,13 +424,13 @@ export default function FillForm({ templateId, template: given = null, preview =
         entryKey, answers: body, workSiteId: site || '', shiftId: shiftId || '',
         source: phone ? 'phone' : 'web', ...(stamp ? { gps: body[stamp.token] } : {}),
       });
-      clearDraft(tid);
+      clearDraft(tid, me);
       setSent(entry || { id: '' });
       onSent?.(entry);
     } catch (e) {
       // Whatever went wrong, the answers are on this device now - not in
       // 300ms - so a browser closed in frustration still has them.
-      if (hasContent(answers)) saveDraft(tid, { entryKey, answers, title: tpl?.title });
+      if (hasContent(answers)) saveDraft(tid, { entryKey, answers, title: tpl?.title }, me);
       // The server's rule check (routers/forms.py): 400 with detail
       // {message, errors: [{token, message}]} - a repeat row's token reads
       // "tires[1].psi", a whole group's failure is the group name. (A 422
