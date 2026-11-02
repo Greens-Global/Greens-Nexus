@@ -214,8 +214,11 @@ class SensitiveFieldTests(unittest.TestCase):
         self.assertEqual(ok("ssn", GOOD_SSN), "")
         self.assertEqual(ok("ssn", "123456789"), "")
         for bad in ("000-45-6789", "666-45-6789", "900-45-6789", "123-00-6789", "123-45-0000",
-                    "12-345-6789", "abc", ""):
+                    "12-345-6789", "abc"):
             self.assertTrue(ok("ssn", bad), bad)
+        # A blank is not a format problem - the engine's own required check
+        # reports it (one module with the forms package, Task 8).
+        self.assertEqual(ok("ssn", ""), "")
         self.assertEqual(ok("routing", GOOD_ROUTING), "")
         self.assertTrue(ok("routing", "021000022"))      # checksum off by one
         self.assertTrue(ok("routing", "02100002"))

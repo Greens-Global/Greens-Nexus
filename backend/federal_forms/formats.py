@@ -3,6 +3,12 @@ the value is well-formed, else one sentence for the signer. Required-ness is
 not its business: an empty value always passes (Nexus Sign's own required
 check reports blanks). Unknown formats pass too, so a field with a format the
 server does not know is never un-signable.
+
+`mask(fmt, value)` is what everyone but the sealed PDF sees of a `sensitive`
+value: the last four digits and nothing else. ONE module for both the forms
+package and the Nexus Sign engine (`esign_formats` re-exports it), so a
+Social Security number is checked and masked the same way wherever it is
+typed (Neil, 11/02/2026).
 """
 import re
 from datetime import date
@@ -42,9 +48,10 @@ def _routing(value: str) -> str:
 
 
 def _account(value: str) -> str:
-    raw = str(value).strip()
-    if not re.fullmatch(r"[\d\s-]+", raw) or not 4 <= len(digits(raw)) <= 17:
-        return "Enter the account number as 4 to 17 digits, with no letters."
+    # Digits only, like the signing screen's mask: a dash or a space in an
+    # account number is a typing habit the bank will not read back.
+    if not re.fullmatch(r"\d{4,17}", str(value).strip()):
+        return "Enter the account number as 4 to 17 digits, with no spaces or dashes."
     return ""
 
 
@@ -131,3 +138,15 @@ def check(fmt: str, value) -> str:
         return ""
     fn = _CHECKS.get(fmt or "")
     return fn(str(value)) if fn else ""
+
+
+def mask(fmt: str, value) -> str:
+    """What a sensitive value looks like to anyone but the sealed PDF: an SSN
+    as ***-**-1234, a bank number as ••••4321, anything else as itself. A
+    value with no digits (nothing typed yet) still masks to the shape, never
+    to an empty string a screen would read as "not filled"."""
+    if fmt == "ssn":
+        return f"***-**-{(digits(value)[-4:] or '****')}"
+    if fmt in ("routing", "account"):
+        return f"••••{(digits(value)[-4:] or '****')}"
+    return str(value or "")

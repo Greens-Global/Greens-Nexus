@@ -1372,7 +1372,13 @@ def _clean_fields(fields: list, allow_merge: bool = False) -> list:
             # send has nothing to print in the box.
             if not allow_merge:
                 raise HTTPException(400, "Offer fields can only be placed on a packet template's documents.")
-            if f.get("merge") not in MERGE_FIELD_KEYS:
+            # A server-built document (a federal form, Neil 11/02/2026) hands
+            # the box the very text it prints - `value` - under its own key
+            # (the form's mergeKey, e.g. "employer.ein"); a template's box
+            # names an offer field and is filled at send.
+            if isinstance(f.get("value"), str) and f.get("merge"):
+                f["value"] = f["value"][:500]
+            elif f.get("merge") not in MERGE_FIELD_KEYS:
                 raise HTTPException(400, f"Unknown offer field: {f.get('merge')!r}")
             f["role"], f["required"] = "", False
         if f.get("type") in ("dropdown", "radio"):
@@ -1405,6 +1411,14 @@ def _clean_fields(fields: list, allow_merge: bool = False) -> list:
             if f.get("sensitive") and f.get("type") != "text":
                 raise HTTPException(400, "Only a text field can be marked sensitive.")
             f["sensitive"] = bool(f.get("sensitive"))
+        # A text box may arrive prefilled (`value`: the I-9's first day of
+        # employment from the start date) - the signer may change it, and a
+        # blank submission keeps it (_with_defaults). Never on a sensitive box.
+        if f.get("type") == "text" and "value" in f:
+            if f.get("sensitive") or not isinstance(f.get("value"), str) or not f["value"].strip():
+                f.pop("value", None)
+            else:
+                f["value"] = f["value"].strip()[:500]
         # Freeze CLEAN geometry - _stamp_pdf does int(page)/float(x,y,w,h) at
         # finalize; a null/non-numeric coord there crashes sealing.
         try:
@@ -1435,8 +1449,9 @@ def _clean_documents(documents: list) -> list:
     their fields validated the way a PDF send's are and the form kind kept."""
     out = []
     for d in documents or []:
+        # Server-built: a merge box here already carries what it prints.
         entry = {"name": d["name"], "path": d["path"],
-                 "fields": _clean_fields(list(d.get("fields") or []))}
+                 "fields": _clean_fields(list(d.get("fields") or []), allow_merge=True)}
         if "formKind" in d:
             entry["formKind"] = d.get("formKind")
         out.append(_clean_form_kind(entry))
@@ -2054,7 +2069,8 @@ def envelope_from_documents(db: Session, user: dict, *, documents: list, parties
                             ip: str = "", user_agent: str = "", excluded_ack: bool = False,
                             document_class: str = "employment", link_kind: str = "",
                             link_id: str = "", sender_signs_first: bool = False,
-                            prints_pay: bool = False, saved: Optional[dict] = None) -> dict:
+                            prints_pay: bool = False, saved: Optional[dict] = None,
+                            egnyte_folder: str = "") -> dict:
     """Server-rendered documents - HR packets built from the Documents module
     (Oct 14). Each {name, path, fields} is a PDF already in _DOC_BUCKET with its
     fields placed from the template's signature blocks. The first is the
@@ -2071,7 +2087,7 @@ def envelope_from_documents(db: Session, user: dict, *, documents: list, parties
                            body_snapshot=[], pdf_storage_path=first["path"], fields=first["fields"],
                            message=message, expires_on=expires_on, parties=parties, ip=ip,
                            user_agent=user_agent, documents=rest, routing="sequential",
-                           egnyte_folder="", excluded_ack=excluded_ack, document_class=document_class,
+                           egnyte_folder=egnyte_folder or "", excluded_ack=excluded_ack, document_class=document_class,
                            link_kind=link_kind, link_id=link_id, sender_signs_first=sender_signs_first,
                            prints_pay=prints_pay, saved=saved)
 
@@ -3198,6 +3214,17 @@ def _link_hook(event: str, db: Session, req: HrSignRequest, *args) -> None:
               "completed": hle.on_completed, "expired": hle.on_expired}.get(event)
         if fn:
             hle.safe(fn, db, req, *args)
+        if event == "progress" and _form_entries(req):
+            # The person signed I-9 Section 1 inside the packet: HR hears when
+            # Section 2 is due (the completion side runs inside on_completed,
+            # after the hire exists).
+            hle.safe(hle.federal_progress, db, req)
+    elif kind == "federal_form":
+        # One federal form sent from the person record (Neil, 11/02/2026).
+        import hr_life_events as hle
+        fn = {"progress": hle.federal_progress, "completed": hle.on_federal_form_completed}.get(event)
+        if fn:
+            hle.safe(fn, db, req)
     elif kind == "meal_waiver":
         # The California meal period waiver (ca_breaks.py, Oct 17 2026).
         import ca_breaks
@@ -3313,6 +3340,57 @@ def _party_text_fields(req: HrSignRequest, party: HrSignParty) -> list:
     return out
 
 
+def _form_entries(req: HrSignRequest) -> list:
+    """[(formKind, fields)] - every federal form on the envelope (Neil,
+    11/02/2026): the packet documents that carry `formKind`, and the source
+    PDF itself when the envelope is a form sent by itself from the person
+    record (link_kind "federal_form", link_id "<employee id>:<kind>")."""
+    out = []
+    if (getattr(req, "link_kind", "") or "") == "federal_form" and ":" in (req.link_id or ""):
+        out.append((req.link_id.rsplit(":", 1)[1], req.fields or []))
+    for d in (req.documents or []):
+        if isinstance(d, dict) and d.get("formKind"):
+            out.append((d["formKind"], d.get("fields") or []))
+    return out
+
+
+def _with_defaults(req: HrSignRequest, party: HrSignParty, values: dict) -> dict:
+    """The submitted values with a prefilled text box's `value` standing in
+    wherever the signer left it blank (the I-9's first day of employment)."""
+    values = dict(values or {})
+    for f in _party_text_fields(req, party):
+        if f.get("type") == "text" and isinstance(f.get("value"), str) and f["value"]:
+            fid = str(f.get("id", ""))
+            if not str(values.get(fid) or "").strip():
+                values[fid] = f["value"]
+    return values
+
+
+def _form_role(fields: list, party: HrSignParty) -> str:
+    """Which part of a federal form this party signs: 'employee' when the
+    party owns the person-sourced boxes, 'hr' when the HR-sourced ones."""
+    for src, role in (("person", "employee"), ("hr", "hr")):
+        if any(f.get("source") == src and f.get("role") == party.role_key for f in fields if isinstance(f, dict)):
+            return role
+    return ""
+
+
+def _check_form_rules(req: HrSignRequest, party: HrSignParty, values: dict) -> None:
+    """federal_forms.rules per form document this party signs: a rule a
+    required flag cannot say (exactly one filing status, List A or List B
+    and C...) - 422 with the placed field id and the sentence."""
+    from federal_forms import rules as form_rules
+    for kind, fields in _form_entries(req):
+        role = _form_role(fields, party)
+        if not role:
+            continue
+        by_bare = {str(f.get("formField") or f.get("id", "")): str(f.get("id", "")) for f in fields
+                   if isinstance(f, dict) and f.get("role") == party.role_key}
+        bare_values = {bare: values.get(fid) for bare, fid in by_bare.items()}
+        for err in form_rules.validate(kind, role, bare_values):
+            raise HTTPException(422, {"field": by_bare.get(err["field"], err["field"]), "message": err["message"]})
+
+
 def _checked_field_values(req: HrSignRequest, party: HrSignParty, values: dict) -> dict:
     """The values as they are stored (Neil, 11/02/2026 - federal forms).
 
@@ -3339,6 +3417,7 @@ def _checked_field_values(req: HrSignRequest, party: HrSignParty, values: dict) 
             plain = str(raw).strip()
             values[fid] = "enc:" + secret_box.encrypt(plain)
             masks[fid] = esign_formats.mask(fmt, plain)
+    _check_form_rules(req, party, values)
     if masks:
         values[_MASKED_KEY] = masks
     return values
@@ -3384,11 +3463,12 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
         raise HTTPException(403, "Verify the one-time code sent to you before signing.")
     if not party.consent_at:
         raise HTTPException(403, "Accept the electronic records disclosure before signing.")
-    missing = _missing_required(req, party, body.field_values, bool(body.signature_data), db)
+    submitted = _with_defaults(req, party, body.field_values or {})
+    missing = _missing_required(req, party, submitted, bool(body.signature_data), db)
     if missing:
         shown = ", ".join(missing[:5]) + ("…" if len(missing) > 5 else "")
         raise HTTPException(400, f"These required fields are still empty: {shown}")
-    stored_values = _checked_field_values(req, party, body.field_values or {})
+    stored_values = _checked_field_values(req, party, submitted)
     now = _now_iso()
     party.signature_kind = body.signature_kind
     party.signature_data = body.signature_data
