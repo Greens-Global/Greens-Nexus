@@ -397,7 +397,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
   const exBlocking = (exceptions || []).reduce((a, r) => a + (r.blocking || 0), 0);
 
   // Manager+ files a time-off request FOR an employee (Neil, Aug 11) - the
-  // sanctioned path, so nobody needs Act As (Global Admin only) for this.
+  // sanctioned path, so nobody needs Act As (Super Administrator only) for this.
   const [obo, setObo] = useState(null);   // {email, type, start, end, note} | null
   // Admin-added time-off reasons (Sep 29), loaded when the form opens.
   const [oboReasons, setOboReasons] = useState([]);

@@ -131,7 +131,7 @@ export function ExtraTimeClaimModal({ fd, onClose, onDone, toastOk, toastErr }) 
   );
 }
 
-// HR / the HR contact / a Global Admin: approve all or fewer of the hours, or
+// HR / the HR contact / a Super Administrator: approve all or fewer of the hours, or
 // decline with a reason the contractor sees.
 export function ExtraTimeDecideModal({ fd, name, onClose, onDone, toastOk, toastErr }) {
   const c = fd.claim;

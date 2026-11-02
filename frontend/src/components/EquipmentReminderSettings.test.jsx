@@ -40,7 +40,7 @@ describe('EquipmentReminderSettings', () => {
       expect(await screen.findByText(t)).toBeInTheDocument();
     }
     expect(screen.getByText(/Goes to the person who has the item/)).toBeInTheDocument();
-    expect(screen.getAllByText(/If nobody is set, it goes to the IT Admins/).length).toBe(4);
+    expect(screen.getAllByText(/If nobody is set, it goes to the Administrators/).length).toBe(4);
     expect(screen.getByText('90 days before')).toBeInTheDocument();
     expect(screen.getByLabelText('Also remind on the due date')).toBeChecked();
     expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014)); // no em dashes in user copy

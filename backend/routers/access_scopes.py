@@ -106,7 +106,7 @@ def set_walls(body: WallsIn, user: dict = Depends(require_administrator), db: Se
     from models import NexusSetting, AuditLog
     if body.on and not auth.is_global_admin(user, db):
         raise HTTPException(400, "You would be locked out - add yourself to a "
-                                 "Global Admins group before arming the walls.")
+                                 "Super Administrators group before arming the walls.")
     now = datetime.now(timezone.utc).isoformat()
     row = db.query(NexusSetting).filter(NexusSetting.key == "company_walls").first()
     if not row:

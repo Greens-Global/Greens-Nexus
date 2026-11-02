@@ -79,7 +79,7 @@ function Editor({ draft, setDraft, canShare, topics, companies, onCancel, onSave
           </div>
         </div>
         {/* A shared reply belongs to one company's desk; with several, pick
-            which (a Global Admin with no company of their own must). */}
+            which (a Super Administrator with no company of their own must). */}
         {draft.shared && !draft.id && companies.length > 0 && (
           <div style={{ flex: '1 1 220px' }}>
             <label style={label} htmlFor="sr-company">Company</label>

@@ -106,7 +106,7 @@ describe('HrReminderSettings', () => {
   it('is read-only without edit rights', async () => {
     getHrReminderSettings.mockResolvedValue(state({ canEdit: false }));
     render(<HrReminderSettings />);
-    expect(await screen.findByText(/Only a Global Admin/)).toBeInTheDocument();
+    expect(await screen.findByText(/Only a Super Administrator/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Save Changes/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Remove /)).not.toBeInTheDocument();
     for (const sw of screen.getAllByRole('switch')) expect(sw).toBeDisabled();

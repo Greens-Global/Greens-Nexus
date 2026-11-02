@@ -415,7 +415,7 @@ class ShiftCompanyTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"{SETTINGS}?company={CO_B}").status_code, 404)
         self.assertEqual(self.client.get(SETTINGS).status_code, 200, "the tenant row still reads (it is their fallback)")
         self._as(BOSS)
-        self.assertEqual(self.client.get(f"{SETTINGS}?company={CO_B}").status_code, 200, "a Global Admin reads every company")
+        self.assertEqual(self.client.get(f"{SETTINGS}?company={CO_B}").status_code, 200, "a Super Administrator reads every company")
 
     def test_a_company_override_keeps_only_what_differs_from_the_tenant(self):
         self.client.put(SETTINGS, json={"swaps": True, "timeZone": "Asia/Kolkata"})

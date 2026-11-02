@@ -9,7 +9,7 @@
 //     In Tasks (Tasks > Manage, where the rule itself is built)
 //   - Built-In Automations: the background jobs - what each does, how often,
 //     the Settings group that controls it when one exists, and (Oct 28 2026)
-//     an off switch per job for Global Admins (POST /workflows/automations
+//     an off switch per job for Super Administrators (POST /workflows/automations
 //     /jobs/{key}/off, one org-wide list); everyone else sees an Off chip
 // Data: GET /workflows/automations plus GET /workflows for the count.
 import { useCallback, useEffect, useState } from 'react';

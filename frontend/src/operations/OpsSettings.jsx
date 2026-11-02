@@ -77,7 +77,7 @@ export default function OpsSettings({ toastOk, toastErr }) {
         )}
         {!s.canEdit && (
           <p className="ops-note" style={{ margin: '10px 0 0' }}>
-            You can see this setting. Only a Global Admin, an IT Admin or someone with Full access to Operations can change it.
+            You can see this setting. Only a Super Administrator, an Administrator or someone with Full access to Operations can change it.
           </p>
         )}
         {s.updatedAt && (

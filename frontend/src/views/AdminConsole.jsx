@@ -556,9 +556,9 @@ const GROUP_META = Object.fromEntries(GROUPS.map(g => [g.id, g]));
 // server would answer 403 to - in one place, instead of a different
 // read-only note or hidden button in every panel (those stay as the
 // backstop where a panel has one, such as Sign-In & Sessions, which opens
-// for an IT Admin but saves only for a Global Admin).
+// for an Administrator but saves only for a Super Administrator).
 //   role     the role tier that passes outright: 'manager', 'administrator'
-//            (IT Admin) or 'owner' (Global Admin)
+//            (Administrator) or 'owner' (Super Administrator)
 //   grant    [module, level], or a list of them: an Access Group grant that
 //            passes below that tier (canAccessModule)
 //   people   a People (/hr) route: the manager tier, which sees only its own

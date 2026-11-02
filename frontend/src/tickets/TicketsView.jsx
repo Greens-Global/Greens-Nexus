@@ -116,7 +116,7 @@ export default function TicketsView() {
   const [itAdmin, setItAdmin] = useState(false);
   // Bulk Delete is a supervisor's (ticket_roles.can_delete on the server).
   const { canDelete: canBulkDelete, privileged: deskPrivileged } = useTicketAccess();
-  // Manager+ or a Global Admin (server's _ticket_privileged).
+  // Manager+ or a Super Administrator (server's _ticket_privileged).
   const privileged = myLevel >= 3 || deskPrivileged;
   useEffect(() => {
     let alive = true;

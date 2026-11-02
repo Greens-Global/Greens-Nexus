@@ -23,6 +23,6 @@ export default function KbReminderSettings() {
   return (
     <ReminderSettingsPanel load={api.getKbReminderSettings} save={api.updateKbReminderSettings} rows={ROWS}
       intro="Nexus checks every morning. Each person gets at most one of each reminder a day. Training assignments and renewals keep running when these are off."
-      lockedNote="You can see these settings. Only an IT Admin, a Global Admin or someone with Full access to the Knowledge Base can change them." />
+      lockedNote="You can see these settings. Only an Administrator, a Super Administrator or someone with Full access to the Knowledge Base can change them." />
   );
 }

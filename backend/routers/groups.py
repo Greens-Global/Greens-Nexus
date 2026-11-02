@@ -290,7 +290,7 @@ def assign_group_role(group_id: str, body: GroupRoleAssignment, user: dict = Dep
     requester_level = user["level"]
     target_level = ROLE_LEVEL.get(new_role, 1)
     if requester_level < ROLE_LEVEL["administrator"]:
-        raise HTTPException(status_code=403, detail="Need IT Admin or Global Admin role to manage roles")
+        raise HTTPException(status_code=403, detail="Need Administrator or Super Administrator role to manage roles")
     if user["role"] != "owner" and target_level >= requester_level:
         raise HTTPException(status_code=403, detail="You can only grant access up to one level below your own role")
 
@@ -303,7 +303,7 @@ def assign_group_role(group_id: str, body: GroupRoleAssignment, user: dict = Dep
         if user["role"] != "owner":
             existing_role = _get_role(email, db)
             if ROLE_LEVEL.get(existing_role, 1) >= ROLE_LEVEL["administrator"]:
-                skipped.append({"email": email, "reason": "Only a Global Admin can change another admin's access"})
+                skipped.append({"email": email, "reason": "Only a Super Administrator can change another admin's access"})
                 continue
 
         row = db.query(NexusRole).filter(NexusRole.email == email).first()

@@ -18,7 +18,7 @@ function ApprovalChip({ ticket }) {
 
 // The approval panel, in two acts.
 //
-// 1. A parked request arrives with no approver: an IT Admin picks who signs it
+// 1. A parked request arrives with no approver: an Administrator picks who signs it
 //    off and sends it. Nobody else can - a requester who chooses their own
 //    approver has not been approved by anyone.
 // 2. Once routed, the named approver (or an admin) sees the decision buttons;

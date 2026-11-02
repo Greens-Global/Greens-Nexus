@@ -3,7 +3,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 
 // Render-smoke for Workflows > Templates: the gallery groups by module with
 // the trigger sentence and the blanks, Use Template asks for a name and a
-// company (Every Company for a Global Admin, Your Company - the owner's own
+// company (Every Company for a Super Administrator, Your Company - the owner's own
 // scope - for anyone else) and then opens the new draft with its blanks
 // stashed for the builder, and an empty list says so.
 
@@ -72,7 +72,7 @@ describe('Workflows Templates', () => {
     expect(name.value).toBe('Probation Ending Reminder');
     fireEvent.change(name, { target: { value: 'My Probation Reminder' } });
     const company = await screen.findByLabelText('Company');
-    // A Global Admin may pick Every Company; a company is listed by name.
+    // A Super Administrator may pick Every Company; a company is listed by name.
     expect(within(company).getByRole('option', { name: 'Every Company' })).toBeTruthy();
     fireEvent.change(company, { target: { value: 'c2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create Draft' }));
@@ -93,7 +93,7 @@ describe('Workflows Templates', () => {
     expect(window.sessionStorage.getItem('wf:blanks:w10')).toBeNull();
   });
 
-  it('starts someone who is not a Global Admin on Your Company, never the first company listed', async () => {
+  it('starts someone who is not a Super Administrator on Your Company, never the first company listed', async () => {
     roleState.myRole = 'manager';
     wfTemplates.mockResolvedValue(TEMPLATES);
     wfUseTemplate.mockResolvedValue({ id: 'w9' });

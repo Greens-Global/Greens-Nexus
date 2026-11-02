@@ -1042,7 +1042,7 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
             old = {x for x in (f.project_ids or []) if x}
             new = {x for x in (data["project_ids"] or []) if x}
             if not old or not new:
-                raise HTTPException(403, "This field is shared by every company - only a Global Admin can change that.")
+                raise HTTPException(403, "This field is shared by every company - only a Super Administrator can change that.")
             for pid in old ^ new:
                 _own(pid)
         if "required_project_ids" in data:

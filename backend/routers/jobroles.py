@@ -221,7 +221,7 @@ def _guard_can_assign_tier(user: dict, tier: str):
     """Same delegation rules as roles.PUT/{email}: need admin+, and (unless owner)
     can only grant a tier strictly below your own. Top tiers stay a deliberate act."""
     if user["level"] < ROLE_LEVEL["administrator"]:
-        raise HTTPException(status_code=403, detail="Need IT Admin or Global Admin role to assign job roles")
+        raise HTTPException(status_code=403, detail="Need Administrator or Super Administrator role to assign job roles")
     if user["role"] != "owner" and ROLE_LEVEL.get(tier, 1) >= user["level"]:
         raise HTTPException(status_code=403, detail="You can only assign roles below your own level")
 
@@ -430,12 +430,12 @@ def check_can_assign(db: Session, user: dict, jr: NexusGroup, email: str, hr_pat
     tier = _clean_tier(jr.tier or "employee")
     if hr_path and user["level"] < ROLE_LEVEL["administrator"]:
         if ROLE_LEVEL.get(tier, 1) >= ROLE_LEVEL["administrator"]:
-            raise HTTPException(status_code=403, detail="Only an IT Admin or Global Admin can move someone into an administrator role.")
+            raise HTTPException(status_code=403, detail="Only an Administrator or Super Administrator can move someone into an administrator role.")
     else:
         _guard_can_assign_tier(user, tier)
     # A non-owner cannot reassign someone who is already an admin/owner.
     if user["role"] != "owner" and ROLE_LEVEL.get(_get_role(email, db), 1) >= ROLE_LEVEL["administrator"]:
-        raise HTTPException(status_code=403, detail="Only a Global Admin can change another admin's access")
+        raise HTTPException(status_code=403, detail="Only a Super Administrator can change another admin's access")
 
     # Company roles stay inside their company. Holding one places the person in
     # that company's wall (auth.company_scope), so handing it to someone from
@@ -526,7 +526,7 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
     if cur and cur.id != jr.id and emp and (emp.identity_type or "internal") == "internal":
         import role_change as rc
         if not rc.can_change_roles(db, user):
-            raise HTTPException(status_code=403, detail="Only HR, an IT Admin or a Global Admin can change someone's role.")
+            raise HTTPException(status_code=403, detail="Only HR, an Administrator or a Super Administrator can change someone's role.")
         try:
             jr, warning = rc.change_now(db, user, emp, jr.id, body.reason)
         except rc.RoleChangeError as e:
@@ -553,7 +553,7 @@ def unassign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_cur
     email = body.email.lower().strip()
     _guard_can_assign_tier(user, _clean_tier(jr.tier or "employee"))
     if user["role"] != "owner" and ROLE_LEVEL.get(_get_role(email, db), 1) >= ROLE_LEVEL["administrator"]:
-        raise HTTPException(status_code=403, detail="Only a Global Admin can change another admin's access")
+        raise HTTPException(status_code=403, detail="Only a Super Administrator can change another admin's access")
     # Taking a role away is a role change too - same reason and log as a swap
     # (Neil, Oct 22), so the Role tab history shows it.
     reason = (body.reason or "").strip()[:1000]

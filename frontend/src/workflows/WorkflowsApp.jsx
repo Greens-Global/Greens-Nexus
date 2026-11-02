@@ -4,7 +4,7 @@
 // (lib/sub.js) picks the screen - wf:<id> is the builder (Builder.jsx, its
 // own chunk), run:<id> the Runs tab with that run open. The paused-all
 // banner from GET /workflows/overview sits above every tab: when a Global
-// Admin has stopped everything, every screen says so, and a Global Admin
+// Admin has stopped everything, every screen says so, and a Super Administrator
 // can resume from right here.
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { BookOpen, History, LayoutDashboard, LayoutTemplate, PauseCircle, Workflow as WorkflowIcon, Zap } from 'lucide-react';

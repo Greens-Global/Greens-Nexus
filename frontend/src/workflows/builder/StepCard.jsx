@@ -82,7 +82,7 @@ export function Editor({ step, onChange, ctx, depth = 0, idBase = `step-${step?.
     if (!def) return <div style={{ ...hint, color: 'var(--nx-red, #dc2626)' }}>This action ({step.action || 'none'}) is no longer available. Delete the step or skip it.</div>;
     return (
       <>
-        {def.adminOnly && <div style={hint}>Global Admins only.</div>}
+        {def.adminOnly && <div style={hint}>Super Administrators only.</div>}
         {(def.params || []).map((p) => (
           <div key={p.key}>
             <label style={fieldLabel} htmlFor={`${idBase}-${p.key}`}>{p.label}{p.required === false ? '' : ' *'}</label>

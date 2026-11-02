@@ -3,7 +3,7 @@
 // a company may override (`GET /workflows/settings?company=`), drawn with
 // the Settings rows (SettingsUI.jsx): a switch saves on click, the typed
 // fields go through one Save row that shows only once something changed.
-// Org-only rows (Pause All, Nexus run-as, webhooks) are Global Admins'.
+// Org-only rows (Pause All, Nexus run-as, webhooks) are Super Administrators'.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Trash2, Plus } from 'lucide-react';
 import { api } from '../api';
@@ -42,7 +42,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (meta && company) onOverride?.(!!meta.override); }, [meta, company, onOverride]);
 
-  // The org face belongs to Global Admins; a company's face to whoever Settings let in.
+  // The org face belongs to Super Administrators; a company's face to whoever Settings let in.
   const canEdit = orgFace ? isGA : true;
 
   const saved = useMemo(() => pick(meta), [meta]);
@@ -76,7 +76,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
   }
 
   async function pauseAll(paused) {
-    if (paused && !(await dialog.confirm('Pause every workflow in every company? Nothing starts until a Global Admin turns them back on; events keep queuing for 7 days.', { title: 'Pause All Workflows', confirmText: 'Pause All', danger: true }))) return;
+    if (paused && !(await dialog.confirm('Pause every workflow in every company? Nothing starts until a Super Administrator turns them back on; events keep queuing for 7 days.', { title: 'Pause All Workflows', confirmText: 'Pause All', danger: true }))) return;
     setBusy(true);
     try {
       await api.wfPauseAll({ paused });
@@ -92,7 +92,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
   const off = !canEdit || busy;
   const secretsSet = new Set(meta.webhookSecretsSet || []);
   const pausedLine = meta.pausedAll
-    ? `Paused by ${meta.pausedBy || 'a Global Admin'} since ${formatDateTime(meta.pausedAt, 'an unknown time')}. Events keep queuing for 7 days, so switching back on loses nothing recent.`
+    ? `Paused by ${meta.pausedBy || 'a Super Administrator'} since ${formatDateTime(meta.pausedAt, 'an unknown time')}. Events keep queuing for 7 days, so switching back on loses nothing recent.`
     : 'Stops every workflow in every company from starting a run. A run already waiting on an approval still finishes when the decision arrives.';
 
   return (
@@ -119,7 +119,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
             onChange={(v) => setVals((p) => ({ ...p, maxRecipientsCap: v === '' ? '' : Number(v) }))} />} />
         {orgFace && (
           <SwitchRow id="wf-nexus-run-as" title="Nexus Run-As"
-            desc="Lets a Global Admin set a workflow to run as Nexus for organization-wide housekeeping. Nexus can only message: notify, email, wait and stop; every module action still needs a person."
+            desc="Lets a Super Administrator set a workflow to run as Nexus for organization-wide housekeeping. Nexus can only message: notify, email, wait and stop; every module action still needs a person."
             checked={vals.nexusRunAs} disabled={!isGA || busy} onChange={(v) => save({ ...vals, nexusRunAs: v })} />
         )}
         {orgFace && (
@@ -149,7 +149,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
       </SettingCard>
       {!canEdit ? (
         <p className="nx-set-pad" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
-          The default for every company is changed by a Global Admin. Pick your company to set its own.
+          The default for every company is changed by a Super Administrator. Pick your company to set its own.
         </p>
       ) : (
         <div className="nx-set-pad" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

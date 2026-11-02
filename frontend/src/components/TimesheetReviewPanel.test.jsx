@@ -36,7 +36,7 @@ const nameFor = (e) => ({ 'mgr@x.com': 'Max', 'emp@x.com': 'Erin', 'hr@x.com': '
 const base = { id: 'r1', managerEmail: 'mgr@x.com', employeeEmail: 'emp@x.com', rounds: [], parties: [] };
 const props = { self: true, anchor: '2026-09-06', periodLabel: '09/06/2026 - 09/19/2026', nameFor, onChanged: () => {} };
 
-// HR corrects a finalized period (Neil, Oct 22 2026): HR / Global Admin only,
+// HR corrects a finalized period (Neil, Oct 22 2026): HR / Super Administrator only,
 // the employee signs the corrected card again, or HR re-locks it unchanged.
 // The words a reader sees, without the avatars' initials in between.
 const said = (el) => { const c = el.cloneNode(true); c.querySelectorAll('[data-avatar]').forEach((n) => n.remove()); return c.textContent.replace(/\s+/g, ' '); };
