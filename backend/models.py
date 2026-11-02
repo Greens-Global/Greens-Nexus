@@ -4698,6 +4698,14 @@ class ServerSession(Base):
     auth_time         = Column(Float, default=0.0)          # last interactive auth (step-up freshness)
     created_at        = Column(String, default="")
     last_seen         = Column(String, default="")
+    # Where this session signed in from (sign_in_watch.record, Neil 11/02/2026):
+    # My Profile > Security lists live sessions by device and place. The ip is
+    # client_ip.client_ip's trusted address; ua_summary is ua_summary.summarize;
+    # location is ip_location.lookup ('' when unknown - never printed as such).
+    ip                = Column(String, default="")
+    user_agent        = Column(String, default="")
+    ua_summary        = Column(String, default="")
+    location          = Column(String, default="")
 
 
 class M365SyncRun(Base):
@@ -6254,6 +6262,10 @@ class Announcement(Base):
     publish_at   = Column(String, default="")                   # ISO timestamp, '' = published at create
     notify       = Column(String, default="quiet")              # quiet | push_teams | email
     notified_at  = Column(String, default="")                   # '' = not yet published to its audience
+    # Work-site audience (Neil, 11/02/2026, Homebase lifts): audience 'site'
+    # reaches the people whose allowed work sites (work_site_ids) hold this
+    # HrWorkSite id - an empty list is NOT a member. '' for other audiences.
+    work_site_id = Column(String, default="")
 
 
 class AnnouncementRead(Base):
@@ -6330,6 +6342,9 @@ class HrPacketSetting(Base):
     # of doc_template_ids - "there's a different confidentiality agreement for
     # each team" (Neil). [{match: department | role, value, templateIds: []}]
     extra_docs       = Column(JSON, default=list)
+    # Federal onboarding forms sent with a US hiring packet (Neil, 11/02/2026):
+    # ["w4", "i9", "direct_deposit"] in registry order - federal_forms.FORMS.
+    federal_forms    = Column(JSON, default=list)
     # Where the person works, inside the country (Neil, Oct 22): "there is a
     # hiring packet that applies to California... when we open Texas we'll add
     # one for Texas". A US state code (CA, TX), '' = anywhere in the country.
@@ -9676,3 +9691,24 @@ class NexusPushOutbox(Base):
     created_at  = Column(String, default="", index=True)
     sent_at     = Column(String, default="", index=True)           # '' = waiting
     error       = Column(String, default="")
+
+
+class NexusSignIn(Base):
+    """One BFF sign-in (sign_in_watch.record, Neil 11/02/2026): who, when, from
+    which device and roughly where. `device_key` = sha256(ua_summary + the
+    address's /24 or /48); `is_new` when no sign-in of this person's in the
+    last 180 days carried the same key (never the very first sign-in);
+    `notified` once the bell and email went. Kept 180 days (sign_in_watch.sweep).
+    RLS must be enabled on dev+prod like every new table."""
+    __tablename__ = "nexus_sign_ins"
+    id          = Column(String, primary_key=True)                 # si_ + hex
+    email       = Column(String, nullable=False, index=True)
+    session_id  = Column(String, default="")                       # the server_sessions row (never sent to a browser)
+    at          = Column(String, default="", index=True)           # UTC ISO
+    ip          = Column(String, default="")
+    user_agent  = Column(String, default="")
+    ua_summary  = Column(String, default="")
+    location    = Column(String, default="")
+    device_key  = Column(String, default="", index=True)
+    is_new      = Column(Boolean, default=False)
+    notified    = Column(Boolean, default=False)

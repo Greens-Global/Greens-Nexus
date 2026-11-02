@@ -1433,6 +1433,16 @@ def _run_migrations():
             # Posts from before these columns were belled at create: stamp them
             # published, or the first publish pass would bell everyone again.
             "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
+            # Work-site audience (Neil, 11/02/2026).
+            "ALTER TABLE nexus_announcements ADD COLUMN work_site_id VARCHAR DEFAULT ''",
+            # Federal forms in hiring packets (Neil, 11/02/2026) - see the Postgres list.
+            "ALTER TABLE hr_packet_settings ADD COLUMN federal_forms JSON DEFAULT '[]'",
+            # Sign-in notices (Neil, 11/02/2026): where each session signed in
+            # from (sign_in_watch.record). models.ServerSession.
+            "ALTER TABLE server_sessions ADD COLUMN ip VARCHAR DEFAULT ''",
+            "ALTER TABLE server_sessions ADD COLUMN user_agent VARCHAR DEFAULT ''",
+            "ALTER TABLE server_sessions ADD COLUMN ua_summary VARCHAR DEFAULT ''",
+            "ALTER TABLE server_sessions ADD COLUMN location VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3426,6 +3436,20 @@ def _run_migrations():
         # Posts from before these columns were belled at create: stamp them
         # published, or the first publish pass would bell everyone again.
         "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
+        # Work-site audience (Neil, 11/02/2026).
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
+        # Federal forms in hiring packets (Neil, 11/02/2026): which of the W-4,
+        # I-9 and Direct Deposit Authorization a US hiring packet sends.
+        # models.HrPacketSetting.federal_forms. Additive.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS federal_forms JSONB DEFAULT '[]'::jsonb",
+        # Sign-in notices (Neil, 11/02/2026): where each session signed in from
+        # (sign_in_watch.record) and the new nexus_sign_ins table's RLS.
+        # models.ServerSession / NexusSignIn.
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS ip VARCHAR DEFAULT ''",
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS user_agent VARCHAR DEFAULT ''",
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS ua_summary VARCHAR DEFAULT ''",
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_sign_ins ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4059,6 +4083,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] checklist ID evidence backfill skipped: {e}")
+    # Federal forms (Neil, 11/02/2026): onboarding templates seeded earlier
+    # get the W-4 / direct deposit and I-9 signals on ON-05 / ON-18 / ON-23,
+    # once (hr_checklists.backfill_federal_forms).
+    try:
+        from database import SessionLocal
+        import hr_checklists
+        db = SessionLocal()
+        try:
+            n = hr_checklists.backfill_federal_forms(db)
+            if n:
+                print(f"[startup] federal form signals added to {n} onboarding template(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] federal form signal backfill skipped: {e}")
     # Ask HR runs through Tickets (Neil, Oct 27 2026): every OPEN old Ask HR
     # request becomes a confidential HR ticket, once (hr_tickets.migrate_open
     # - a row that has its ticket_id is never moved again; resolved rows stay
@@ -4568,6 +4607,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] notification retention sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] notification retention sweep skipped: {e}")
+        # Sign-in watch sweep (Neil, 11/02/2026): idle server sessions and
+        # sign-ins past 180 days go; the notice itself runs in the sign-in
+        # doors, not here. Deployed-worker gated like the two sweeps above.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from sign_in_watch import sign_in_watch_loop
+                _tasks.append(_a.create_task(sign_in_watch_loop()))
+            else:
+                print("[startup] sign-in watch sweep skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] sign-in watch sweep skipped: {e}")
         # "What's New" drafts itself (Sept 2026): the same generation the
         # Manage > "Generate from git" button runs, fired a few minutes after
         # each merge by the GitHub push webhook and daily as a backstop, so dev
@@ -5216,3 +5267,5 @@ from routers import kb_reminder_settings  # noqa: E402
 app.include_router(kb_reminder_settings.router)  # Training Reminders switches - Settings > Emails & Reminders (Sagar, Oct 28 2026)
 from routers import notes as notes_router  # noqa: E402 - two new tables: create_all + explicit RLS lines
 app.include_router(notes_router.router)  # Notes: the scratchpad that follows you - Dashboard > Notes, Quick Note, the Notes widget (Neil, Oct 29 2026)
+from routers import me_sessions as me_sessions_router  # noqa: E402 - nexus_sign_ins: create_all + explicit RLS line
+app.include_router(me_sessions_router.router)  # My Profile > Security: where you are signed in, sign out other devices, recent sign-ins (Neil, 11/02/2026)

@@ -28,6 +28,7 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { ShiftBlock } from './shifts/ShiftBlock';
 import { span } from './shifts/ShiftRequestDialog';
 import { timeOffLabel } from './shiftScheduleLib';
+import { RecommendationChip, recommendationReasons } from './RecommendationChip';
 import { timeOffWhen, isAllDayOff, shortTimeText, addDaysIso } from './shifts/shiftLib';
 import { notifyInboxChanged } from './shifts/useManagerInbox';
 
@@ -295,6 +296,13 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
                     </div>
                     <div style={{ fontSize: 13.5, color: 'var(--ink)', margin: '4px 0' }}>{nameOf(t.email, t.name)} · {when}{isAllDayOff(t) ? '' : `, ${timeOffWhen(t)}`}</div>
                     {!t.redacted && <div style={{ fontSize: 12, color: 'var(--muted)' }}><span style={{ fontWeight: 700 }}>Reason:</span> {t.note || 'None given'}</div>}
+                    {/* Time-off recommendation (Neil, 11/02/2026): a hint for the decider with its reasons - never a decision; Approve and Decline below are unchanged. */}
+                    {t.recommendation && t.canDecide !== false && !decided && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
+                        <RecommendationChip hint={t.recommendation} />
+                        {recommendationReasons(t.recommendation) && <span>{recommendationReasons(t.recommendation)}</span>}
+                      </div>
+                    )}
                     <RequestContext ctx={contextOf(sched, t.email, daysOf(t.startDate, t.endDate))} nameOf={(e) => nameOf(e)} />
                     {conflicts.length > 0 && (
                       <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: '2px solid hsl(var(--color-orange))' }}>

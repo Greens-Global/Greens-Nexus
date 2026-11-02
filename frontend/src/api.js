@@ -3391,3 +3391,18 @@ api.pushConfig = () => req('/push/config');
 api.pushSubscribe = (sub) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
 api.pushUnsubscribe = (endpoint) => req('/push/subscribe', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
 api.pushSubscriptions = () => req('/push/subscriptions');
+
+// Federal forms (Neil, 11/02/2026; backend federal_forms/ + routers/hr.py):
+// HR++ sends one form - w4 / i9 / direct_deposit - to one employee, and
+// Settings reads the edition watch. A hiring packet's forms travel as
+// `federal_forms` on saveDocumentsPacket's body like its other fields.
+api.sendFederalForm = (eid, kind) => req(`/hr/employees/${encodeURIComponent(eid)}/federal-forms/send`, { method: 'POST', body: JSON.stringify({ kind }) });
+api.federalFormsStatus = () => req('/hr/federal-forms/status');
+// My Profile > Security (Neil, 11/02/2026; backend routers/me_sessions.py):
+// where you are signed in (a session is named by a hash - the cookie value
+// itself never comes back), sign one or every other device out, and the last
+// 20 sign-ins with the device and the approximate place.
+api.mySessions = () => req('/me/sessions');
+api.mySignIns = () => req('/me/sign-ins');
+api.signOutSession = (id) => req(`/me/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+api.signOutOtherSessions = () => req('/me/sessions/others', { method: 'POST' });

@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, ChevronRight, ArrowUpRight, Users, Search, Inbox, Flame, Hourglass, History, ListChecks, Building2, Layers, UserRound, Keyboard, X } from 'lucide-react';
 import { PrioritySignal, StatusLabel } from '../components/StatusLabel';
+import { RecommendationChip, recommendationReasons } from '../components/RecommendationChip';
 import { useTableValue } from '../tasks/tableCols';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
@@ -566,7 +567,13 @@ function Row({ row, onAct, onReview, selectable, selected, onToggle, focused, on
         <button type="button" className="apv-title" onClick={onReview} title="Review the details">
           <span>{row.title}</span><ChevronRight size={13} />
         </button>
-        {(row.detail || row.forName) && <div className="apv-detail">{row.detail}{row.forName && <ForChip name={row.forName} />}</div>}
+        {(row.detail || row.forName || row.hint) && (
+          <div className="apv-detail">
+            {row.detail}{row.forName && <ForChip name={row.forName} />}
+            {/* Time-off recommendation (Neil, 11/02/2026): a hint with its reasons as the title; the buttons on the right are unchanged. */}
+            {row.hint && <RecommendationChip hint={row.hint} style={{ marginLeft: row.detail || row.forName ? 8 : 0, verticalAlign: 'middle' }} />}
+          </div>
+        )}
       </div>
       <div className="apv-prio">{row.priority && <PrioritySignal priority={row.priority} />}</div>
       <div className={`apv-age${days >= 7 ? ' is-late' : days >= 3 ? ' is-slow' : ''}`} title={row.createdAt ? formatDateTime(row.createdAt) : ''}>{waited(row.createdAt)}</div>
@@ -609,8 +616,10 @@ export function Detail({ row, kindLabel, onClose, onAct, inModal = false }) {
         {row.priority && <PrioritySignal priority={row.priority} />}
         {row.createdAt && <span title={formatDateTime(row.createdAt)}>Waiting {waited(row.createdAt)}{days >= 3 ? ` (${days} days)` : ''}</span>}
         {row.due && <span>Matters by {formatDate(row.due)}</span>}
+        {row.hint && <RecommendationChip hint={row.hint} size="md" />}
       </div>
       {row.detail && <p className="apv-detail-text">{row.detail}</p>}
+      {row.hint && recommendationReasons(row.hint) && <p className="apv-detail-text" style={{ fontSize: 12.5, color: 'var(--muted)' }}>{recommendationReasons(row.hint)}</p>}
       {facts.length > 0 ? (
         <div className="apv-facts nx-fill">{facts.map((f) => [<div key={`${f.label}:l`}>{f.label}</div>, <div key={`${f.label}:v`}>{f.value}</div>])}</div>
       ) : !row.detail ? <div className="apv-detail-text nx-fill" style={{ color: 'var(--muted)' }}>{mod ? `The full request is in ${mod}.` : 'The full request is in its module.'}</div> : <div className="nx-fill" />}

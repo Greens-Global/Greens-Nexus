@@ -13,6 +13,7 @@ import WeekGrid from './shifts/WeekGrid';
 import { DayStrip, PhoneRow, firstDay } from './shifts/SchedulePhone';
 import { paidMinutes, fmtHrs, todayIso, shiftShortText, teamColor, minutesText } from './shifts/shiftLib';
 import TeamPicker from './shifts/TeamPicker';
+import { StatusLabel } from './StatusLabel';
 import { formatTime, formatTimeIn } from '../lib/datetime';
 
 const MUTED = { fontSize: 11, color: 'var(--muted)' };
@@ -20,24 +21,51 @@ const LIVE_COLOR = { working: 'hsl(var(--color-green))', break: 'hsl(var(--color
 const LIVE_WORD = { working: ['Working', 'Working since'], break: ['On Break', 'On break since'], out: ['Clocked Out', 'Clocked out at'] };
 const minsSince = (iso) => Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 60000)) || 0;
 const firstName = (r) => (r.isMe ? 'you' : (r.name || '').trim().split(/\s+/)[0]);
+// The live team strip (Homebase lifts, Neil 11/02/2026): four soft chips in
+// StatusLabel tones - In green, On Break slate, Late amber, Not In muted -
+// never a solid fill. Late is the server's call (shift_expect, the one rule).
+// "Not In" rather than "Off": the group holds everyone without a punch -
+// off today, on leave, or a shift not started yet - so `help` says so.
+const STRIP = [
+  { key: 'working', word: 'In', color: 'hsl(var(--color-green))' },
+  { key: 'break', word: 'On Break', color: '#64748b' },
+  { key: 'late', word: 'Late', color: 'hsl(var(--color-orange))' },
+  { key: 'off', word: 'Not In', color: 'var(--muted)', help: 'Not clocked in - off today, on leave, or shift not started' },
+];
 
 // `live` (Miranda, Oct 21): { email: { state, label, since } } from today's
 // punches, this week only. A person in it gets a status chip under the name
 // and a dot that follows the clock; anyone else keeps the scheduled dot.
-export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam, days, rows, onNow = [], openShifts = [], onRequestOpen, busyOpenId = '', thisWeek, timeZoneLabel = '', teamZone = '', live = null }) {
+// `late`: the emails the server says are late right now (no clock-in past
+// their expected start + grace); the strip counts and filters on it.
+export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam, days, rows: allRows, onNow = [], openShifts = [], onRequestOpen, busyOpenId = '', thisWeek, timeZoneLabel = '', teamZone = '', live = null, late = [] }) {
   const phone = useIsMobile();
   const [day, setDay] = useState(() => firstDay(days.map((d) => d.date)));
   useEffect(() => { setDay((k) => (days.some((d) => d.key === k) ? k : firstDay(days.map((d) => d.date)))); }, [days]);
+  const [stripFilter, setStripFilter] = useState('');
   if (!team) return null;
+  const strip = !!(thisWeek && live);
+  // Which strip group a row is in: the clock first, then the server's Late,
+  // else Not In (clocked out, on leave, not expected, or not started yet).
+  const lateSet = new Set((Array.isArray(late) ? late : []).map((e) => String(e || '').toLowerCase()));
+  const groupOf = (r) => {
+    const s = live?.[String(r.email || '').toLowerCase()];
+    if (s && (s.state === 'working' || s.state === 'break')) return s.state;
+    return lateSet.has(String(r.email || '').toLowerCase()) ? 'late' : 'off';
+  };
+  const activeFilter = strip ? stripFilter : '';
+  const rows = activeFilter ? allRows.filter((r) => groupOf(r) === activeFilter) : allRows;
+  const stripCount = (key) => allRows.filter((r) => groupOf(r) === key).length;
   const today = todayIso();
   const dayOf = (r, d) => r.days.find((y) => y.key === d.key);
   // Hours are the shared shifts, time off or not: a partial day beside a
-  // shift keeps the shift's hours.
-  const working = (d) => rows.filter((r) => dayOf(r, d)?.shifts.length);
+  // shift keeps the shift's hours. The day's totals run over the WHOLE team
+  // like weekMin - a strip chip narrows the rows shown, never the figures.
+  const working = (d) => allRows.filter((r) => dayOf(r, d)?.shifts.length);
   const dayMin = (d) => working(d).reduce((a, r) => a + dayOf(r, d).shifts.reduce((b, s) => b + paidMinutes(s), 0), 0);
-  const dayShifts = (d) => rows.reduce((a, r) => a + (dayOf(r, d)?.shifts.length || 0), 0);
+  const dayShifts = (d) => allRows.reduce((a, r) => a + (dayOf(r, d)?.shifts.length || 0), 0);
   const rowMin = (r) => r.days.reduce((a, d) => a + d.shifts.reduce((b, s) => b + paidMinutes(s), 0), 0);
-  const weekMin = rows.reduce((a, r) => a + rowMin(r), 0);
+  const weekMin = allRows.reduce((a, r) => a + rowMin(r), 0);   // the whole team's week, whatever the strip filter
   const openOn = (key) => openShifts.filter((s) => s.date === key);
   const isOn = (r) => onNow.some((o) => o.email === r.email);
   const liveOf = (email) => {
@@ -59,10 +87,6 @@ export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam,
       </span>
     );
   };
-  const liveGroup = (state) => (live ? rows.filter((r) => liveOf(r.email)?.state === state).map(firstName) : []);
-  const onBreak = liveGroup('break');
-  const workingNow = liveGroup('working');
-
   // Phase 3b: which team the slot belongs to, and an "Other Team" chip when
   // it is one the person is not on (openShiftsAcrossTeams) - the same words
   // the request dialog uses, from the same /shift-requests/mine payload.
@@ -108,16 +132,20 @@ export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam,
       ) : (
         <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{team.name} · {team.members.length} member{team.members.length === 1 ? '' : 's'}{team.isMember === false ? ' · you manage this group' : ''}</span>
       )}
-      {thisWeek && live ? (
-        // From the clock: who is on a break first and loudest, then who is working.
-        <span data-live-summary style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--muted)' }}>
-          {onBreak.length === 0 && workingNow.length === 0 ? 'Nobody clocked in right now' : (
-            <>
-              {onBreak.length > 0 && <b style={{ color: 'hsl(var(--color-orange))' }}>On Break: {onBreak.join(', ')}</b>}
-              {onBreak.length > 0 && workingNow.length > 0 && ' · '}
-              {workingNow.length > 0 && `Working: ${workingNow.join(', ')}`}
-            </>
-          )}
+      {strip ? (
+        // From the clock: In / On Break / Late / Not In over the people in the grid.
+        // A chip filters the rows to its people; the same chip again clears.
+        <span data-live-summary role="group" aria-label="Who is on the clock" style={{ marginLeft: phone ? 0 : 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {STRIP.map((g) => {
+            const on = activeFilter === g.key;
+            return (
+              <button key={g.key} type="button" aria-pressed={on} onClick={() => setStripFilter((f) => (f === g.key ? '' : g.key))}
+                title={[g.help, on ? `Showing ${g.word} only - click to show everyone` : `Show only ${g.word}`].filter(Boolean).join('. ')}
+                style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', borderRadius: 999, outlineOffset: 2, opacity: activeFilter && !on ? 0.55 : 1, transition: 'opacity 160ms var(--ease-out)' }}>
+                <StatusLabel size="sm" label={`${g.word} ${stripCount(g.key)}`} color={g.color} style={on ? { boxShadow: 'inset 0 0 0 1px var(--c)' } : undefined} />
+              </button>
+            );
+          })}
         </span>
       ) : thisWeek && (
         <span style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--muted)' }}>

@@ -21,6 +21,13 @@
 // see "Scheduled for ..." and staff see nothing until then) and say how the
 // audience hears about it (Notify: Bell / Bell and Teams / Bell and Email - the bell
 // always rings). Administrators read who acknowledged in the meta line.
+//
+// Work site (Neil, 11/02/2026, Homebase lifts): a third audience, "Work
+// Site", picked from the work-site library (api.getWorkSites) - the post
+// reaches the people whose allowed work sites include it (the server's rule;
+// an empty list is nobody's site) and the row carries the site's name as its
+// chip. Read by opens who read / acknowledged and, for a post that requires
+// acknowledgment, "Not Yet Acknowledged" - the names still owed.
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Megaphone, Pin, Plus, ChevronDown, ChevronUp, Image, ImagePlus, Paperclip, X, CalendarClock } from 'lucide-react';
 
@@ -40,9 +47,10 @@ import { noteStyle } from '../workdayWidgets.jsx';
 const SHOW_FIRST = 7;
 const REFRESH_MS = 60000;
 const EMPTY_FORM = {
-  title: '', body: '', audience: 'company', department: '', pinned_until: '', requires_ack: false,
+  title: '', body: '', audience: 'company', department: '', work_site_id: '', pinned_until: '', requires_ack: false,
   image_url: '', file_url: '', file_name: '', publish_at: '', notify: 'quiet',
 };
+const AUDIENCES = ['company', 'department', 'site'];
 const UPLOAD_FOLDER = 'announcements';
 const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const NARROW_PX = 520;
@@ -64,8 +72,9 @@ export function unreadCount(items) {
 export function formOf(a) {
   if (!a) return { ...EMPTY_FORM };
   return {
-    title: a.title || '', body: a.body || '', audience: a.audience === 'department' ? 'department' : 'company',
-    department: a.department || '', pinned_until: a.pinned_until || '', requires_ack: !!a.requires_ack,
+    title: a.title || '', body: a.body || '', audience: AUDIENCES.includes(a.audience) ? a.audience : 'company',
+    department: a.department || '', work_site_id: a.workSiteId || a.work_site_id || '',
+    pinned_until: a.pinned_until || '', requires_ack: !!a.requires_ack,
     image_url: a.image_url || '', file_url: a.file_url || '', file_name: a.file_name || '',
     publish_at: a.publish_at || '', notify: NOTIFY_OPTIONS.some(o => o.value === a.notify) ? a.notify : 'quiet',
   };
@@ -83,6 +92,16 @@ export function ackSummary(a) {
   // with the remainder counted.
   const list = rest > 0 ? names.join(', ') : names.length === 2 ? names.join(' and ') : names.join(', ');
   return `Acknowledged by ${list}${rest > 0 ? ` and ${rest} more` : ''}`;
+}
+
+/** The reads answer -> { rows, notAcknowledged }: an object with `reads` (and,
+ *  for a post that requires acknowledgment, `notAcknowledged`), or the older
+ *  bare list. */
+export function readsOf(res) {
+  if (Array.isArray(res)) return { rows: res, notAcknowledged: null };
+  const rows = Array.isArray(res?.reads) ? res.reads : [];
+  const pending = Array.isArray(res?.notAcknowledged) ? res.notAcknowledged : null;
+  return { rows, notAcknowledged: pending };
 }
 
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -112,7 +131,7 @@ export default function Announcements({ phone }) {
   const [open, setOpen] = useState(() => new Set());
   const [showAll, setShowAll] = useState(false);
   const [composer, setComposer] = useState(null); // null | { id?, form }
-  const [readsFor, setReadsFor] = useState(null); // { id, rows: null | [] , error }
+  const [readsFor, setReadsFor] = useState(null); // { id, rows: null | [], notAcknowledged?: [], error }
   const alive = useRef(true);
 
   const load = useCallback(() => {
@@ -164,7 +183,8 @@ export default function Announcements({ phone }) {
     if (readsFor?.id === a.id) { setReadsFor(null); return; }
     setReadsFor({ id: a.id, rows: null, error: '' });
     api.getAnnouncementReads(a.id)
-      .then(rows => setReadsFor(cur => (cur?.id === a.id ? { id: a.id, rows: Array.isArray(rows) ? rows : [], error: '' } : cur)))
+      // { reads, notAcknowledged? } today; a plain list from an older API still renders.
+      .then(res => setReadsFor(cur => (cur?.id === a.id ? { id: a.id, ...readsOf(res), error: '' } : cur)))
       .catch(err => setReadsFor(cur => (cur?.id === a.id ? { id: a.id, rows: [], error: err?.message || 'Could not load the list.' } : cur)));
   };
 
@@ -254,6 +274,9 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
             {a.audience === 'department' && a.department && (
               <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 99, padding: '0 6px', flexShrink: 0 }}>{a.department}</span>
             )}
+            {a.audience === 'site' && a.workSiteName && (
+              <span data-testid="ann-site" style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 99, padding: '0 6px', flexShrink: 0 }}>{a.workSiteName}</span>
+            )}
           </span>
           <span style={expanded
             // overflowWrap: a long URL breaks inside the card instead of
@@ -302,25 +325,42 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
 }
 
 function ReadsList({ reads }) {
+  const pending = reads.notAcknowledged;
   return (
     <div style={{ margin: '0 8px 10px 26px', padding: '8px 10px', borderRadius: 8, background: 'var(--mist)', fontSize: 12 }}>
       {reads.rows === null ? (
         <LoadingState compact />
       ) : reads.error ? (
         <div style={{ color: 'var(--muted)' }}>{reads.error}</div>
-      ) : reads.rows.length === 0 ? (
-        <div style={{ color: 'var(--muted)' }}>Nobody has read this yet.</div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {reads.rows.map(r => (
-            <div key={r.email} style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-              <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{r.name || r.email}</span>
-              <span style={{ color: 'var(--muted)', textAlign: 'right' }}>
-                {r.acknowledged_at ? `Acknowledged ${formatDateTime(r.acknowledged_at)}` : `Read ${formatDateTime(r.read_at)}`}
-              </span>
+        <>
+          {reads.rows.length === 0 ? (
+            <div style={{ color: 'var(--muted)' }}>Nobody has read this yet.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {reads.rows.map(r => (
+                <div key={r.email} style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                  <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{r.name || r.email}</span>
+                  <span style={{ color: 'var(--muted)', textAlign: 'right' }}>
+                    {r.acknowledged_at ? `Acknowledged ${formatDateTime(r.acknowledged_at)}` : `Read ${formatDateTime(r.read_at)}`}
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+          {Array.isArray(pending) && (
+            // Who still owes an acknowledgment: the post's audience minus the
+            // acknowledgers (the server's one audience rule), by name.
+            <div data-testid="ann-not-acked" style={{ marginTop: reads.rows.length ? 8 : 6, paddingTop: reads.rows.length ? 8 : 0, borderTop: reads.rows.length ? '1px solid var(--line, #e5e7eb)' : 'none' }}>
+              <div style={{ fontWeight: 600, color: pending.length ? 'hsl(var(--color-orange))' : 'hsl(var(--color-green))' }}>
+                {pending.length ? `Not Yet Acknowledged (${pending.length})` : 'Everyone Has Acknowledged'}
+              </div>
+              {pending.length > 0 && (
+                <div style={{ color: 'var(--ink)', marginTop: 2, overflowWrap: 'anywhere' }}>{pending.map(p => p.name || p.email).join(', ')}</div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -336,6 +376,17 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
   const [later, setLater] = useState(() => !!initial?.publish_at && !published);
   const [when, setWhen] = useState(() => splitLocal(initial?.publish_at));
   const [upload, setUpload] = useState(null);   // null | { kind: 'image'|'file', pct }
+  // The work-site library, fetched the first time the audience is Work Site.
+  const [sites, setSites] = useState(null);     // null = not loaded yet
+  const [sitesErr, setSitesErr] = useState('');
+  useEffect(() => {
+    if (form.audience !== 'site' || sites !== null) return undefined;
+    let on = true;
+    api.getWorkSites()
+      .then(rows => { if (on) { setSites(Array.isArray(rows) ? rows : []); setSitesErr(''); } })
+      .catch(err => { if (on) { setSites([]); setSitesErr(err?.message || 'Could not load the work sites.'); } });
+    return () => { on = false; };
+  }, [form.audience, sites]);
   const imageRef = useRef(null);
   const fileRef = useRef(null);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
@@ -388,6 +439,7 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
     if (!title) { setErr('Give the announcement a title.'); return; }
     if (!body) { setErr('Write the announcement.'); return; }
     if (form.audience === 'department' && !form.department.trim()) { setErr('Name the department.'); return; }
+    if (form.audience === 'site' && !form.work_site_id) { setErr('Pick the work site.'); return; }
     if (upload) { setErr('Wait for the upload to finish.'); return; }
     let publish_at = '';
     if (later && !published) {
@@ -398,6 +450,7 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
     const payload = {
       title, body, audience: form.audience,
       department: form.audience === 'department' ? form.department.trim() : '',
+      work_site_id: form.audience === 'site' ? form.work_site_id : '',
       pinned_until: form.pinned_until || '', requires_ack: !!form.requires_ack,
       image_url: form.image_url || '', file_url: form.file_url || '', file_name: form.file_url ? (form.file_name || '') : '',
       notify: form.notify || 'quiet',
@@ -457,15 +510,28 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
       <div style={{ display: 'flex', flexDirection: stack ? 'column' : 'row', gap: 10 }}>
         <label style={{ flex: 1 }}>
           <span style={labelStyle}>Audience</span>
-          <select value={form.audience} onChange={set('audience')} style={{ ...field, ...tap }}>
+          <select value={form.audience} onChange={set('audience')} aria-label="Audience" style={{ ...field, ...tap }}>
             <option value="company">Company</option>
             <option value="department">Department</option>
+            <option value="site">Work Site</option>
           </select>
         </label>
         {form.audience === 'department' && (
           <label style={{ flex: 1 }}>
             <span style={labelStyle}>Department</span>
             <input value={form.department} onChange={set('department')} maxLength={120} placeholder="e.g. Operations" style={{ ...field, ...tap }} />
+          </label>
+        )}
+        {form.audience === 'site' && (
+          <label style={{ flex: 1 }}>
+            <span style={labelStyle}>Work Site</span>
+            <select value={form.work_site_id} onChange={set('work_site_id')} aria-label="Work Site" style={{ ...field, ...tap }}>
+              <option value="">{sites === null ? 'Loading sites...' : 'Pick a site'}</option>
+              {(sites || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <span style={{ display: 'block', fontSize: 11.5, color: sitesErr ? 'hsl(var(--color-red))' : 'var(--muted)', marginTop: 4 }}>
+              {sitesErr || 'Reaches the people whose allowed work sites include this one.'}
+            </span>
           </label>
         )}
         <label style={{ flex: 1 }}>
