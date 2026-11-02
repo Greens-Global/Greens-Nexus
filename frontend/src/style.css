@@ -8223,7 +8223,8 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    One card per request, two big decisions, the chip strip, one Filter
    sheet. Motion is transform and opacity only, on the --dur-* tokens: a
    decided card is lifted out of the flow as a ghost that flashes its action
-   color (an overlay's opacity, --dur-xs), then slides right and fades
+   color (an overlay's opacity, --dur-xs), then slides on the way it went
+   (right for a yes, left for a no, from where a swipe let go) and fades
    (--dur-sm, the exit - 70% of the --dur-md the neighbors glide in through
    useFlip); the count pill bumps on --dur-sm; the empty check pops once on
    --ease-spring. Reduced motion: the JS skips the ghost, and this block
