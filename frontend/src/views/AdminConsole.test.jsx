@@ -30,8 +30,10 @@ vi.mock('../api', () => ({
 // them; `desk` = a ticket desk supervisor (by default the manager tier and up).
 const LEVELS = { employee: 1, supervisor: 2, manager: 3, administrator: 4, owner: 5 };
 const RANKS = { viewer: 1, editor: 2, full: 3, owner: 4 };
-const ROLE_DEFAULTS = { grants: {}, hrScope: null, hrTeam: false, manageCompanies: null, manageCompanyRows: [], companyWalled: false, hrContactFor: [], desk: undefined };
-const roleState = { role: 'administrator', ...ROLE_DEFAULTS };
+const ROLE_DEFAULTS = { grants: {}, hrScope: null, hrTeam: false, manageCompanies: null, manageCompanyRows: [], companyWalled: false, isGlobalAdmin: false, hrContactFor: [], desk: undefined };
+// The default viewer is an Administrator in a group flagged is_global_admin: a
+// Super Administrator's reach, so every group opens (asRole resets it).
+const roleState = { role: 'administrator', ...ROLE_DEFAULTS, isGlobalAdmin: true };
 const asRole = (role, extra = {}) => Object.assign(roleState, { role, ...ROLE_DEFAULTS }, extra);
 vi.mock('../contexts/RoleContext', () => ({
   useRole: () => ({
@@ -40,7 +42,7 @@ vi.mock('../contexts/RoleContext', () => ({
       || (RANKS[roleState.grants[m]] ?? 0) >= (RANKS[lvl] ?? 1),
     hrScope: roleState.hrScope, hrTeam: roleState.hrTeam,
     manageCompanies: roleState.manageCompanies, manageCompanyRows: roleState.manageCompanyRows,
-    companyWalled: roleState.companyWalled, hrContactFor: roleState.hrContactFor,
+    companyWalled: roleState.companyWalled, isGlobalAdmin: roleState.isGlobalAdmin, hrContactFor: roleState.hrContactFor,
     myGrantedModules: new Map(Object.entries(roleState.grants)), actingAs: null,
     startActAs: vi.fn(), stopActAs: vi.fn(),
   }),
@@ -113,7 +115,7 @@ vi.mock('../components/EmployeeCustomFieldsSettings', () => ({ default: ({ compa
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); asRole('administrator'); dirtyState.weather = false; Object.assign(apiState, { entities: 'ok', trackingCompanies: null, added: [] }); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); asRole('administrator', { isGlobalAdmin: true }); dirtyState.weather = false; Object.assign(apiState, { entities: 'ok', trackingCompanies: null, added: [] }); });
 
 const rail = () => screen.getByRole('navigation', { name: 'Settings subjects' });
 // Lazy panels on a slow machine: give a find a little longer than the default second.
@@ -548,7 +550,7 @@ describe('AdminConsole walls', () => {
     expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();
   });
 
-  it('keeps the brand and the shared ticket rules from a walled caller', async () => {
+  it('keeps the records every company shares - brand, email look, property rules - to a Super Administrator', async () => {
     asRole('administrator', { hrScope: ['c1'], manageCompanies: ['c1'], companyWalled: true });
     render(<AdminConsole activeSub="branding" onSubChange={() => {}} />);
     expect(screen.queryByRole('region', { name: 'Brand Color' })).not.toBeInTheDocument();
@@ -558,7 +560,12 @@ describe('AdminConsole walls', () => {
     expect(await screen.findByRole('tab', { name: /Routing & Escalation/ })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Property Rules' })).not.toBeInTheDocument();
     cleanup();
+    // An Administrator with the walls nowhere near them is still refused (Neil, 11/02/2026).
     asRole('administrator');
+    render(<AdminConsole activeSub="branding" onSubChange={() => {}} />);
+    expect(screen.queryByRole('region', { name: 'Brand Color' })).not.toBeInTheDocument();
+    cleanup();
+    asRole('owner', { isGlobalAdmin: true });
     render(<AdminConsole activeSub="branding" onSubChange={() => {}} />);
     expect(screen.getByRole('region', { name: 'Brand Color' })).toBeInTheDocument();
   });
@@ -658,13 +665,14 @@ describe('AdminConsole walls, review follow-ups', () => {
     expect(onSubChange).not.toHaveBeenCalled();
   });
 
-  it('opens Property Rules for a desk supervisor below the Administrator tier', async () => {
+  it('keeps Property Rules from a desk supervisor and a Full tickets grant - Super Administrators only', async () => {
     asRole('employee', { desk: true });
     render(<AdminConsole activeSub="tickets" onSubChange={() => {}} />);
-    // The lone group of Tickets for them, so it renders bare under the subject.
-    expect(await find('Property rules panel')).toBeInTheDocument();
+    // Tickets holds nothing for them: the rules are every company's.
+    await waitFor(() => new Promise(r => setTimeout(r, 20)));   // the desk role has answered
+    expect(screen.queryByText('Property rules panel')).not.toBeInTheDocument();
     cleanup();
-    // A Full tickets grant is not what the route checks: the desk role is.
+    // Nor a Full tickets grant.
     asRole('employee', { grants: { tickets: 'full' }, desk: false });
     render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
     await waitFor(() => new Promise(r => setTimeout(r, 20)));   // the desk role has answered

@@ -99,11 +99,11 @@ def update_config(body: BrandingIn, user: dict = Depends(require_administrator),
         raise HTTPException(400, f"Opacity must be between {OPACITY_MIN}% and {OPACITY_MAX}%")
     if body.navMotion is not None and body.navMotion not in _VALID_MOTION:
         raise HTTPException(400, "Navigation motion must be off, subtle, lively or bold")
-    # The brand is every company's (11/02/2026): an Administrator walled to
-    # their companies cannot change it.
+    # The brand is every company's (Neil, 11/02/2026): a Super Administrator's
+    # alone - Administrators and every lower tier are refused.
     import scoped_settings
     import settings_walls
-    settings_walls.require_company_wide(db, user, "Changing the brand color")
+    settings_walls.require_super_admin_for_org(db, user, "Changing the brand color")
     data = body.model_dump()
 
     def build(stored: dict) -> dict:
@@ -194,8 +194,8 @@ def update_email_theme(body: EmailThemeIn, user: dict = Depends(require_administ
     import email_theme
     import scoped_settings
     import settings_walls
-    # Every company's email look (11/02/2026): company-wide access only.
-    settings_walls.require_company_wide(db, user, "Changing the email appearance")
+    # Every company's email look (Neil, 11/02/2026): Super Administrators only.
+    settings_walls.require_super_admin_for_org(db, user, "Changing the email appearance")
     theme = _clean_theme(body)
     scoped_settings.lock_row(db, email_theme.SETTINGS_KEY)
     before = email_theme.get_saved(db).as_dict()

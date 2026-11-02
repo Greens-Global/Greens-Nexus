@@ -22,6 +22,7 @@ import { Spinner, ErrorBanner } from './AsyncState';
 import { StatusLabel } from './StatusLabel';
 import { Modal } from '../tasks/components';
 import { dialog } from '../ui/dialog';
+import { useRole } from '../contexts/RoleContext';
 
 const DAY = 86400000;
 const addDays = (iso, n) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * DAY).toISOString().slice(0, 10);
@@ -310,6 +311,10 @@ function FlagRow({ f, busy, onPay, onHandled, onNote, onReopen, onAdjust }) {
 // Oct 23). `current` comes from the review when it wraps it; on its own it
 // loads the saved value.
 export function MinWageForm({ current, onSaved, toastOk, toastErr }) {
+  // One figure every company shares (Neil, 11/02/2026): a Super
+  // Administrator's to change - everyone else reads it.
+  const { isGlobalAdmin } = useRole() || {};
+  const locked = !isGlobalAdmin;
   const [v, setV] = useState(current ?? null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -331,11 +336,15 @@ export function MinWageForm({ current, onSaved, toastOk, toastErr }) {
       <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--ink)', maxWidth: 240 }}>
         Minimum Wage ($/hr)
         <input className="form-input" type="number" min={0.01} step={0.01} aria-label="Minimum Wage" value={v}
-          onChange={e => setV(e.target.value)} style={{ fontSize: 13 }} />
+          onChange={e => setV(e.target.value)} readOnly={locked} style={{ fontSize: 13 }} />
       </label>
-      <div>
-        <button type="button" className="primary-btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
-      </div>
+      {locked
+        ? <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Only a Super Administrator can change this.</p>
+        : (
+          <div>
+            <button type="button" className="primary-btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+          </div>
+        )}
     </div>
   );
 }

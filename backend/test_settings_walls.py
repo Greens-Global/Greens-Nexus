@@ -360,6 +360,72 @@ class MergeCase(_Harness):
         self.assertNotIn("letterheadId", stored or {})
 
 
+# ── Records every company shares: Super Administrators only (Neil, 11/02/2026)
+class OrgRecordCase(_Harness):
+    def _full_grant_manager(self):
+        """MGR (level 3) with Full People and Full Tickets grants, walls off."""
+        self.db.add(models.NexusGroup(id="g-walls-full", name="Walls Full", allowed_modules="hr:full,tickets:full"))
+        self.db.add(models.NexusGroupMember(group_id="g-walls-full", email=MGR))
+        self.db.commit()
+        cache.module_grants.invalidate()
+
+    def tearDown(self):
+        self.db.query(models.NexusGroupMember).filter_by(group_id="g-walls-full").delete()
+        self.db.query(models.NexusGroup).filter_by(id="g-walls-full").delete()
+        self.db.query(models.HrInterviewTemplate).delete()
+        self.db.commit()
+        cache.module_grants.invalidate()
+        super().tearDown()
+
+    def _writes(self, tid):
+        return [
+            ("put", "/branding/config", {"accent": "blue"}),
+            ("put", "/branding/email-theme", {}),
+            ("put", "/ticket-property/rules", {"requiredTopics": ["Leak"]}),
+            ("put", "/ca-review/settings", {"minWage": 17.5}),
+            ("post", "/hr/interview-templates", {"name": "Site Manager", "questions": ["Why here?"]}),
+            ("put", f"/hr/interview-templates/{tid}", {"name": "Renamed", "questions": ["Why?"]}),
+            ("delete", f"/hr/interview-templates/{tid}", None),
+            ("put", "/leave-balances/policies", {"policies": {}}),
+            ("put", "/hr/signature-sender-overrides", {"overrides": []}),
+        ]
+
+    def _call(self, method, url, body):
+        fn = getattr(self.client, method)
+        return fn(url) if body is None else fn(url, json=body)
+
+    def test_an_administrator_and_a_full_grant_holder_are_refused_every_org_record(self):
+        self._full_grant_manager()
+        self.db.add(models.HrInterviewTemplate(id="tpl-walls", name="General", questions=[], created_by=SUPER))
+        self.db.commit()
+        for who in (ADMIN, MGR):          # level 4 (walled), level 3 with Full grants (walls off)
+            self._as(who)
+            for method, url, body in self._writes("tpl-walls"):
+                r = self._call(method, url, body)
+                self.assertIn(r.status_code, (401, 403), (who, method, url, r.text))   # require_administrator answers 401
+        self.assertIsNotNone(self.db.get(models.HrInterviewTemplate, "tpl-walls"))
+        # An Administrator with no wall near them (a member of no company) is refused too.
+        self.db.query(models.NexusEmployee).filter_by(work_email=ADMIN).update({"company": ""})
+        self.db.commit()
+        self._as(ADMIN)
+        self.assertEqual(self.client.put("/branding/config", json={"accent": "blue"}).status_code, 403)
+
+    def test_a_super_administrator_changes_every_org_record(self):
+        self.db.add(models.HrInterviewTemplate(id="tpl-walls", name="General", questions=[], created_by=SUPER))
+        self.db.commit()
+        for method, url, body in self._writes("tpl-walls"):
+            r = self._call(method, url, body)
+            self.assertNotEqual(r.status_code, 403, (method, url, r.text))
+            self.assertLess(r.status_code, 500, (method, url, r.text))
+
+    def test_the_leave_start_date_stays_per_company_for_a_walled_administrator(self):
+        self._as(ADMIN)
+        r = self.client.put("/leave-balances/cutover", json={"date": "2026-01-01", "company": C1})
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self.client.put("/leave-balances/cutover", json={"date": "2026-01-01", "company": ""})
+        self.assertEqual(r.status_code, 403, r.text)
+
+
 # ── Review follow-ups ────────────────────────────────────────────────────────
 class DeskRosterCase(_Harness):
     URL = "/task-tickets/notify/settings"

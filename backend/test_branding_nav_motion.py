@@ -24,6 +24,8 @@ models.Base.metadata.create_all(bind=database.engine)
 
 ADMIN = "navmotion.admin@greensglobal.com"
 EMP = "navmotion.emp@greensglobal.com"
+ADMIN4 = "navmotion.admin4@greensglobal.com"   # an Administrator: refused
+MGR3 = "navmotion.mgr3@greensglobal.com"       # a manager: refused
 
 
 class NavMotionTests(unittest.TestCase):
@@ -35,7 +37,10 @@ class NavMotionTests(unittest.TestCase):
         self._cleanup()
         db = database.SessionLocal()
         try:
-            db.add(models.NexusRole(email=ADMIN, role="administrator"))
+            # The brand is every company's: a Super Administrator saves it (Neil, 11/02/2026).
+            db.add(models.NexusRole(email=ADMIN, role="owner"))
+            db.add(models.NexusRole(email=ADMIN4, role="administrator"))
+            db.add(models.NexusRole(email=MGR3, role="manager"))
             db.add(models.NexusRole(email=EMP, role="employee"))
             db.commit()
         finally:
@@ -62,7 +67,7 @@ class NavMotionTests(unittest.TestCase):
             db.commit()
         finally:
             db.close()
-        for e in (ADMIN, EMP):
+        for e in (ADMIN, EMP, ADMIN4, MGR3):
             auth.invalidate_role_cache(e)
         cache.settings_config.invalidate()
 
@@ -120,10 +125,12 @@ class NavMotionTests(unittest.TestCase):
         cache.settings_config.invalidate()
         self.assertEqual(self.client.get("/branding/config").json()["navMotion"], "lively")
 
-    def test_only_an_administrator_saves(self):
-        self._as(EMP)
-        r = self.client.put("/branding/config", json={"accent": "green", "navMotion": "off"})
-        self.assertIn(r.status_code, (401, 403))
+    def test_only_a_super_administrator_saves(self):
+        # Neil, 11/02/2026: an Administrator and a manager are refused too.
+        for who in (EMP, ADMIN4, MGR3):
+            self._as(who)
+            r = self.client.put("/branding/config", json={"accent": "green", "navMotion": "off"})
+            self.assertIn(r.status_code, (401, 403), who)
 
 
 if __name__ == "__main__":

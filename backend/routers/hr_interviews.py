@@ -220,9 +220,9 @@ def list_templates(user: dict = Depends(require_hr_read), db: Session = Depends(
 
 def _require_library_write(db: Session, user: dict) -> None:
     """The questionnaires are one library for every company (no company of
-    their own, 11/02/2026): changed with company-wide People access only."""
+    their own): changed by a Super Administrator only (Neil, 11/02/2026)."""
     import settings_walls
-    settings_walls.require_company_wide(db, user, "Changing the interview questionnaires", people=True)
+    settings_walls.require_super_admin_for_org(db, user, "Changing the interview questionnaires")
 
 
 @router.post("/interview-templates")

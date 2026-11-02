@@ -107,7 +107,14 @@ def admin_overview(user: dict = Depends(get_current_user), db: Session = Depends
                        "company": emp.company or "", "department": emp.department or "", **b})
     return {"cutover": lb.cutover(db), "companies": _company_cutovers(db, None if glob else companies),
             "canSetup": glob,
+            # The policies are every company's (Neil, 11/02/2026): a Super Administrator's.
+            "canEditPolicies": _super(db, user),
             "policies": list(pols.values()), "defaults": list(lb.DEFAULT_POLICIES.keys()), "people": people}
+
+
+def _super(db: Session, user: dict) -> bool:
+    import settings_walls
+    return settings_walls.is_super_admin(db, user)
 
 
 def _company_cutovers(db: Session, only=None) -> list:
@@ -157,9 +164,10 @@ class PoliciesIn(BaseModel):
 def save_policies(body: PoliciesIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = _me(user)
     _require_global(db, me)
-    # The leave policies are every company's (11/02/2026): company-wide access.
+    # The leave policies are every company's (Neil, 11/02/2026): Super
+    # Administrators only.
     import settings_walls
-    settings_walls.require_company_wide(db, user, "Changing the leave policies", people=True)
+    settings_walls.require_super_admin_for_org(db, user, "Changing the leave policies")
     try:
         pols = lb.save_policies(db, body.policies, me)
     except ValueError as e:

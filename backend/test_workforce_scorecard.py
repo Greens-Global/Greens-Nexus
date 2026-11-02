@@ -618,7 +618,7 @@ class ApiTests(_Case):
         self.app.include_router(sc_router.router)
         from auth import require_administrator
         self.app.dependency_overrides[require_administrator] = lambda: {
-            "email": "admin@greensglobal.com", "role": "administrator", "level": 4}
+            "email": "admin@greensglobal.com", "role": "owner", "level": 5}   # a Super Administrator: mode and test addresses are theirs (Neil, 11/02/2026)
         self.client = TestClient(self.app)
 
     def _as(self, email, level):
@@ -674,6 +674,20 @@ class ApiTests(_Case):
         self.assertEqual(r.json()["standards"]["US"]["hours"], 8)      # untouched rows survive
         self.assertEqual(self.client.put("/workforce-scorecard/config", json={"belowPct": 99}).status_code, 400)
         self.assertEqual(self.client.get("/workforce-scorecard/config").json()["mode"], "test")
+
+    def test_mode_test_recipients_and_test_addresses_are_a_super_administrator_s(self):
+        # Neil, 11/02/2026: an Administrator and a level 1-3 Full grant holder
+        # (walls off) are refused; an unchanged mode sent back passes.
+        from auth import require_administrator
+        for level, role in ((4, "administrator"), (3, "manager")):
+            self.app.dependency_overrides[require_administrator] = lambda lv=level, ro=role: {
+                "email": "lower@greensglobal.com", "role": ro, "level": lv}
+            self.assertEqual(self.client.put("/workforce-scorecard/config", json={"mode": "live"}).status_code, 403, role)
+            self.assertEqual(self.client.put("/workforce-scorecard/config", json={"test_recipients": ["x@greensglobal.com"]}).status_code,
+                             403, role)
+            self.assertEqual(self.client.put("/workforce-scorecard/config", json={"mode": "off", "sendDay": 2}).status_code, 200, role)
+            r = self.client.post("/workforce-scorecard/test-send", json={"manager_email": MIA, "to": ["inbox@elsewhere.com"]})
+            self.assertIn(r.status_code, (403, 404), role)   # never sent to an address they named
 
     def test_recipients_preview(self):
         r = self.client.get("/workforce-scorecard/recipients")

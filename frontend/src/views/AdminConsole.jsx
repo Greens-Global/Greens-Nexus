@@ -389,9 +389,9 @@ const GROUPS = [
     needs: { role: 'manager', desk: 'supervisor' },
     sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
     keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields help topics what do you need help with saved replies canned responses default assignee auto assign ai summary suggested help topic' },
-  // PUT /ticket-property/rules: an Administrator or a desk supervisor (ticket_roles.can_manage_desk).
+  // PUT /ticket-property/rules: a Super Administrator (every company shares the rules, Neil, 11/02/2026).
   { id: 'ticket-property-rules', subject: 'tickets', face: 'org', scope: 'org', icon: MapPinned, title: 'Property Rules',
-    needs: { role: 'administrator', orDesk: true, orgWide: true },
+    needs: { role: 'administrator', orgWide: true },
     sub: 'Which tickets must name the property they are about, by service area and by help topic.',
     keywords: 'property tickets required service area help topic facility unit link suggest' },
   // Time & Pay
@@ -621,20 +621,20 @@ const GROUP_META = Object.fromEntries(GROUPS.map(g => [g.id, g]));
 //            company's HR contact - never the manager tier (the labor budget)
 //   desk     'supervisor': a ticket desk supervisor (ticket_roles
 //            .can_manage_desk, from /task-tickets/my-access)
-//   orDesk   a desk supervisor passes too, below the role tier
-//   orgWide  one record for every company (branding, shared rules -
-//            settings_walls.require_company_wide): no company wall may
-//            confine the caller (companyWalled, from /roles/me)
+//   orgWide  a record every company shares (Brand Color, Email Appearance,
+//            Property Rules - settings_walls.require_super_admin_for_org):
+//            a Super Administrator's alone (isGlobalAdmin, /roles/me); the
+//            minimum wage, leave policies and questionnaires open read only
+//            for the others instead (their panels say so)
 // Without `needs`, administrators only. `company` is the picked company's
 // id, '' for "Every company", or undefined to ask whether it opens anywhere.
 function mayOpen(g, who, company) {
-  const { can, canAccessModule, hrScope, hrTeam, manageCompanies, companyWalled, desk } = who;
+  const { can, canAccessModule, hrScope, hrTeam, manageCompanies, isGlobalAdmin, desk } = who;
   const n = g.needs || { role: 'administrator' };
   const grants = n.grant ? (Array.isArray(n.grant[0]) ? n.grant : [n.grant]) : [];
-  if (!can(n.role) && !grants.some(([m, l]) => canAccessModule?.(m, n.role, l))
-      && !(n.orDesk && desk?.canManageDesk)) return false;
+  if (!can(n.role) && !grants.some(([m, l]) => canAccessModule?.(m, n.role, l))) return false;
   if (n.desk === 'supervisor' && !desk?.canManageDesk) return false;
-  if (n.orgWide && companyWalled) return false;
+  if (n.orgWide && !isGlobalAdmin) return false;
   if (n.teamWide && Array.isArray(manageCompanies)) return false;
   if (n.tenant && !tenantOpens(manageCompanies, company)) return false;
   if (n.hrPlus && !hrPlusFor(who, company)) return false;
@@ -1116,6 +1116,10 @@ function SignatureZoomModal({ title, html, onClose }) {
 // `company` (the scope picker, Oct 23): that company's template only; the
 // sender overrides are for every company and show at "Every company".
 function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
+  // The sender overrides are every company's (Neil, 11/02/2026): a Super
+  // Administrator's to change - shown read only to everyone else.
+  const { isGlobalAdmin } = useRole();
+  const overridesLocked = !isGlobalAdmin;
   const [entities, setEntities] = useState([]);
   const [loaded, setLoaded] = useState(false);   // entities answered (even empty)
   const [companyId, setCompanyId] = useState(company);
@@ -1137,7 +1141,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   // One Save for the group (the Settings save pattern, Oct 23): the template
   // and the overrides are a draft until it is clicked.
   const templateDirty = !!data && !!companyId && selectedTemplate !== data.template;
-  const overridesDirty = !company && JSON.stringify(overrides) !== JSON.stringify(savedOverrides);
+  const overridesDirty = !company && !overridesLocked && JSON.stringify(overrides) !== JSON.stringify(savedOverrides);
   const dirty = templateDirty || overridesDirty;
   useGroupDirty(dirty);
 
@@ -1257,11 +1261,12 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
         </label>
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>
           A custom signature for specific email addresses, such as a shared inbox or someone who needs a different layout. Overrides apply in every company, and every field is entered here rather than taken from the directory.
+          {overridesLocked && <> Only a Super Administrator can change this.</>}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
           {overrides.map((grp, idx) => (
             <div key={grp.id || idx} style={{ textAlign: 'left', padding: 10, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', position: 'relative' }}>
-              <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4, zIndex: 1 }}>
+              {!overridesLocked && <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4, zIndex: 1 }}>
                 <button type="button" title="Edit" onClick={() => setOverrideModal(idx)}
                   style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'var(--muted)' }}>
                   <Pencil size={13} />
@@ -1270,7 +1275,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
                   style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'hsl(var(--color-red))' }}>
                   <Trash2 size={13} />
                 </button>
-              </div>
+              </div>}
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', marginBottom: 4, paddingRight: 50, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {grp.label || grp.emails?.[0] || 'Untitled'}
               </div>
@@ -1282,7 +1287,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
               )}
             </div>
           ))}
-          <div role="button" tabIndex={0} onClick={() => setOverrideModal('new')}
+          {!overridesLocked && <div role="button" tabIndex={0} onClick={() => setOverrideModal('new')}
             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOverrideModal('new'); } }}
             style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
@@ -1291,7 +1296,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
             }}>
             <Plus size={18} />
             <span style={{ fontSize: 11.5, fontWeight: 600 }}>Add Override</span>
-          </div>
+          </div>}
         </div>
       </div>}
 

@@ -11,10 +11,14 @@ Three rules every Settings save route shares, so each says them in one line:
     pattern; everything else on the screen keeps its access.
   - people_scope: the work emails inside the caller's company wall, for the
     delivery logs and recipient lists (None = everyone).
-  - require_company_wide: an organization-wide record (branding, shared
-    rules, org-wide templates) needs company-wide access - a walled caller
-    changes their own company's records only (the shift and pay settings
-    keep timeclock._require_company_manage, which this matches for them).
+  - require_super_admin_for_org: a record every company shares (Brand
+    Color, Email Appearance, the ticket Property Rules, the California
+    minimum wage, the interview questionnaires, the leave policies, the
+    signature sender overrides) is changed by a Super Administrator only
+    (Neil, 11/02/2026) - an Administrator or any lower tier, walled or not,
+    whatever grants they hold, is refused and edits only their own
+    company's copy where one exists. (The shift and pay settings' tenant
+    rows keep timeclock._require_company_manage.)
 """
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -60,14 +64,19 @@ def in_scope(db: Session, user: dict, email: str) -> bool:
     return emails is None or (email or "").strip().lower() in emails
 
 
-def require_company_wide(db: Session, user: dict, what: str, people: bool = False) -> None:
-    """403 unless the caller has company-wide access: no company wall
-    confines them (auth.company_scope is None - a Super Administrator, or a
-    level 1-3 caller while the walls are off; an Administrator is always
-    walled). `people`: a People (HR) setting, where a People grant limited
-    to some companies, or to a manager's own team, confines them too."""
+def is_super_admin(db: Session, user: dict) -> bool:
+    """A Super Administrator: level 5, or a member of a group flagged
+    is_global_admin (auth.is_global_admin)."""
     import auth
-    if auth.company_scope(user, db) is not None:
-        raise HTTPException(403, f"{what} needs company-wide access")
-    if people and auth.hr_scope(user, db) is not None:
-        raise HTTPException(403, f"{what} needs company-wide access")
+    return bool(auth.is_global_admin(user, db))
+
+
+def require_super_admin_for_org(db: Session, user: dict, what: str = "") -> None:
+    """403 unless the caller is a Super Administrator - for a record every
+    company shares (see the module docstring). `what` is unused in the
+    message (kept so a caller can say what it guards)."""
+    if not is_super_admin(db, user):
+        raise HTTPException(403, ORG_RECORD_REFUSED)
+
+
+ORG_RECORD_REFUSED = "Only a Super Administrator can change this - every company shares it."

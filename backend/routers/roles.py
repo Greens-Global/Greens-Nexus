@@ -131,7 +131,7 @@ def get_my_role(
             "manage_companies": _manage_companies_out(db, user),
             # A company wall confines the caller (auth.company_scope is not
             # None): the organization-wide records (branding, shared rules)
-            # are not theirs to change - settings_walls.require_company_wide.
+            # are not theirs (Settings' orgWide reads is_global_admin, 11/02/2026).
             "company_walled": _company_walled(db, user),
             # The same companies with their names, for Settings' company list
             # when People's /hr/entities is not the caller's to read (a

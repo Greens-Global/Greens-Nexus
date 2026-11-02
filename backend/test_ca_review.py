@@ -186,12 +186,35 @@ class ReviewQueueTests(ReviewCase):
         self.assertEqual(r.status_code, 404)
 
     def test_min_wage_setting(self):
+        # One figure every company shares (Neil, 11/02/2026): a Super
+        # Administrator sets it; an Administrator and a level 1-3 Full HR
+        # grant holder (walls off) are refused.
+        import cache
+        sup, full = "ca.super@greensglobal.com", "ca.hrfull@greensglobal.com"
+        self.db.query(models.NexusRole).filter(models.NexusRole.email.in_([sup, full])).delete(synchronize_session=False)
+        self.db.query(models.NexusGroupMember).filter_by(group_id="g-ca-hrfull").delete()
+        self.db.query(models.NexusGroup).filter_by(id="g-ca-hrfull").delete()
+        self.db.add(models.NexusRole(email=sup, role="owner", assigned_by="test"))
+        self.db.add(models.NexusRole(email=full, role="manager", assigned_by="test"))
+        self.db.add(models.NexusGroup(id="g-ca-hrfull", name="CA HR Full", allowed_modules="hr:full"))
+        self.db.add(models.NexusGroupMember(group_id="g-ca-hrfull", email=full))
+        self.db.commit()
+        auth.invalidate_role_cache()
+        cache.module_grants.invalidate()
         self._rate("ca", rate=17.0)
         self.assertNotIn("min_wage", {x["rule"] for x in self._flags()})
-        self._as(HR)
+        for who in (HR, full):
+            self._as(who)
+            self.assertEqual(self.client.put("/ca-review/settings", json={"minWage": 18.0}).status_code, 403, who)
+        self._as(sup)
         r = self.client.put("/ca-review/settings", json={"minWage": 18.0})
         self.assertEqual(r.status_code, 200, r.text)
+        self._as(HR)
         self.assertIn("min_wage", {x["rule"] for x in self._flags()})
+        self.db.query(models.NexusGroupMember).filter_by(group_id="g-ca-hrfull").delete()
+        self.db.query(models.NexusGroup).filter_by(id="g-ca-hrfull").delete()
+        self.db.commit()
+        cache.module_grants.invalidate()
 
     def test_hr_only(self):
         self._rate("ca")

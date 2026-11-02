@@ -3248,8 +3248,7 @@ def get_signature_sender_overrides(user: dict = Depends(require_hr_read), db: Se
     from routers.myhr import get_sender_overrides, _render_override_signature, SIGNATURE_TEMPLATES
     # The overrides apply in every company and name addresses from any of
     # them (11/02/2026): a caller whose People reach is walled or limited
-    # to some companies sees none (Settings shows them at Every company,
-    # which needs company-wide access).
+    # to some companies sees none; only a Super Administrator changes them.
     overrides = get_sender_overrides(db) if _sender_overrides_wide(db, user) else []
     return {
         "templates": [{"id": tid, "label": label} for tid, (label, _) in SIGNATURE_TEMPLATES.items()],
@@ -3264,8 +3263,10 @@ def get_signature_sender_overrides(user: dict = Depends(require_hr_read), db: Se
 def save_signature_sender_overrides(body: SenderOverridesIn,
                                     user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     from routers.myhr import SIGNATURE_TEMPLATES, _OVERRIDE_FIELD_KEYS, SENDER_OVERRIDES_SETTING_KEY
-    if not _sender_overrides_wide(db, user):
-        raise HTTPException(403, "Sender template overrides apply in every company - they need company-wide access.")
+    # Every company shares them (Neil, 11/02/2026): a Super Administrator's
+    # to change; company-wide HR reads them (read only on the screen).
+    import settings_walls
+    settings_walls.require_super_admin_for_org(db, user, "Changing the sender template overrides")
     cleaned = []
     for grp in body.overrides:
         if not isinstance(grp, dict):
@@ -3342,6 +3343,8 @@ def upload_sender_override_logo(file: UploadFile = File(...),
     on the section's whole-list Save), so there's no row here to attach the
     URL to; the frontend puts the returned URL straight into the in-progress
     override's fields.logoUrl."""
+    import settings_walls
+    settings_walls.require_super_admin_for_org(db, user, "Uploading a sender override logo")
     ext = _IMAGE_TYPES.get(file.content_type or "")
     if not ext:
         raise HTTPException(400, "Logo must be JPEG, PNG, WebP, or GIF")
