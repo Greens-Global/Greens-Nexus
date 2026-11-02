@@ -5,7 +5,8 @@ check reports blanks). Unknown formats pass too, so a field with a format the
 server does not know is never un-signable.
 
 `mask(fmt, value)` is what everyone but the sealed PDF sees of a `sensitive`
-value: the last four digits and nothing else. ONE module for both the forms
+value: the last digits of a known number format and nothing else - never the
+value, whatever the format. ONE module for both the forms
 package and the Nexus Sign engine (`esign_formats` re-exports it), so a
 Social Security number is checked and masked the same way wherever it is
 typed (Neil, 11/02/2026).
@@ -140,13 +141,26 @@ def check(fmt: str, value) -> str:
     return fn(str(value)) if fn else ""
 
 
+# Formats whose mask may show the last two digits: a glimpse that lets a
+# co-signer tell two numbers apart without reading either.
+_TWO_DIGIT_FORMATS = ("ein", "alien_number", "i94", "zip")
+BLANK_MASK = "•••••"
+
+
 def mask(fmt: str, value) -> str:
     """What a sensitive value looks like to anyone but the sealed PDF: an SSN
-    as ***-**-1234, a bank number as ••••4321, anything else as itself. A
-    value with no digits (nothing typed yet) still masks to the shape, never
-    to an empty string a screen would read as "not filled"."""
+    as ***-**-1234, a bank number as ••••4321, an EIN / A-Number / I-94 as
+    ••12, and anything else - a passport, a format the server does not know,
+    no format at all - as •••••. The value itself is NEVER returned, whatever
+    the format (11/02/2026: a `sensitive` box with a blank or unknown format
+    used to mask to itself). A value with no digits (nothing typed yet) still
+    masks to the shape, never to an empty string a screen would read as "not
+    filled"."""
     if fmt == "ssn":
         return f"***-**-{(digits(value)[-4:] or '****')}"
     if fmt in ("routing", "account"):
         return f"••••{(digits(value)[-4:] or '****')}"
-    return str(value or "")
+    if fmt in _TWO_DIGIT_FORMATS:
+        tail = digits(value)[-2:]
+        return f"••{tail}" if tail else BLANK_MASK
+    return BLANK_MASK

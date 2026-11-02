@@ -23,7 +23,7 @@ from pypdf import PdfReader  # noqa: E402
 import federal_forms  # noqa: E402
 from federal_forms import FORMS, check_map, prepare, registry  # noqa: E402
 from federal_forms.editions import status  # noqa: E402
-from federal_forms.formats import check  # noqa: E402
+from federal_forms.formats import check, mask  # noqa: E402
 from federal_forms.rules import validate  # noqa: E402
 
 FIELD_KEYS = {"id", "role", "type", "page", "x", "y", "w", "h", "required", "label", "source"}
@@ -199,6 +199,24 @@ class FormatTests(unittest.TestCase):
         self.assertEqual(check("percent", "40"), "")
         self.assertNotEqual(check("percent", "140"), "")
         self.assertEqual(check("nothing_like_this", "whatever"), "")
+
+    def test_mask_never_returns_the_value(self):
+        # The sensitive mask: digits of a known number format, the blank
+        # shape for everything else - a passport or a box with no format
+        # included (11/02/2026).
+        self.assertEqual(mask("ssn", "123-45-6789"), "***-**-6789")
+        self.assertEqual(mask("routing", "021000021"), "••••0021")
+        self.assertEqual(mask("account", "000123456789"), "••••6789")
+        self.assertEqual(mask("ein", "12-3456789"), "••89")
+        self.assertEqual(mask("alien_number", "A123456789"), "••89")
+        self.assertEqual(mask("i94", "123456789A1"), "••91")
+        self.assertEqual(mask("passport", "X1234567 Mexico"), "•••••")
+        self.assertEqual(mask("", "a plain secret"), "•••••")
+        self.assertEqual(mask("nothing_like_this", "a plain secret"), "•••••")
+        self.assertEqual(mask("date_mmddyyyy", "01/02/1990"), "•••••")
+        for fmt in ("", "passport", "ssn", "ein", "account"):
+            self.assertTrue(mask(fmt, ""), fmt)
+            self.assertNotIn("secret", mask(fmt, "secret 42"))
 
 
 class EditionTests(unittest.TestCase):

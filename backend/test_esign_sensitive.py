@@ -73,9 +73,18 @@ SENSITIVE_FIELDS = [
     {"id": "acct", "type": "text", "page": 0, "label": "Account Number", "role": "a",
      "format": "account", "sensitive": True},
     {"id": "zip", "type": "text", "page": 0, "label": "ZIP", "role": "a", "format": "zip"},
+    # Sensitive with a format that carries no digits to show, and sensitive
+    # with no format at all: both must mask, never show themselves.
+    {"id": "passport", "type": "text", "page": 0, "label": "Foreign Passport", "role": "a",
+     "format": "passport", "sensitive": True},
+    {"id": "secret", "type": "text", "page": 0, "label": "Mother's Maiden Name", "role": "a",
+     "sensitive": True},
     {"id": "hr_sig", "type": "sign", "page": 0, "label": "HR Signature", "role": "hr"},
 ]
-GOOD_VALUES = {"ssn": GOOD_SSN, "routing": GOOD_ROUTING, "acct": GOOD_ACCOUNT, "zip": "92626"}
+GOOD_PASSPORT = "X1234567 Mexico"
+GOOD_SECRET = "Quetzalcoatl"
+GOOD_VALUES = {"ssn": GOOD_SSN, "routing": GOOD_ROUTING, "acct": GOOD_ACCOUNT, "zip": "92626",
+               "passport": GOOD_PASSPORT, "secret": GOOD_SECRET}
 
 PLAIN_FIELDS = [
     {"id": "sig", "type": "sign", "page": 0, "label": "Signature", "role": "a"},
@@ -240,8 +249,15 @@ class SensitiveFieldTests(unittest.TestCase):
         self.assertEqual(esign_formats.mask("ssn", GOOD_SSN), "***-**-6789")
         self.assertEqual(esign_formats.mask("account", GOOD_ACCOUNT), "••••6789")
         self.assertEqual(esign_formats.mask("routing", GOOD_ROUTING), "••••0021")
-        self.assertEqual(esign_formats.mask("zip", "92626"), "92626")
+        self.assertEqual(esign_formats.mask("zip", "92626"), "••26")
         self.assertEqual(esign_formats.mask("ssn", ""), "***-**-****")
+        # Never the value: a passport, an unknown format and no format at all
+        # all mask to the blank shape (11/02/2026).
+        self.assertEqual(esign_formats.mask("passport", "X1234567 Mexico"), "•••••")
+        self.assertEqual(esign_formats.mask("", "Plain Secret"), "•••••")
+        self.assertEqual(esign_formats.mask("nope", "Plain Secret"), "•••••")
+        self.assertEqual(esign_formats.mask("ein", "12-3456789"), "••89")
+        self.assertEqual(esign_formats.mask("ein", ""), "•••••")
 
     # ── placing the fields ──────────────────────────────────────────────────
 
@@ -303,7 +319,8 @@ class SensitiveFieldTests(unittest.TestCase):
         r = self._sign(parties[0][1], GOOD_VALUES)
         self.assertEqual(r.status_code, 200, r.text)
         _, party, _ = self._req(rid)
-        for fid, plain in (("ssn", GOOD_SSN), ("routing", GOOD_ROUTING), ("acct", GOOD_ACCOUNT)):
+        for fid, plain in (("ssn", GOOD_SSN), ("routing", GOOD_ROUTING), ("acct", GOOD_ACCOUNT),
+                           ("passport", GOOD_PASSPORT), ("secret", GOOD_SECRET)):
             stored = party.field_values[fid]
             self.assertTrue(stored.startswith("enc:"), stored)
             self.assertNotIn(plain, json.dumps(party.field_values))
@@ -320,14 +337,20 @@ class SensitiveFieldTests(unittest.TestCase):
         self.assertEqual(filled["routing"], "••••0021")
         self.assertEqual(filled["acct"], "••••6789")
         self.assertEqual(filled["zip"], "92626")
+        self.assertEqual(filled["passport"], "•••••")
+        self.assertEqual(filled["secret"], "•••••")
         text = json.dumps(payload)
         self.assertNotIn("enc:", text)
-        for plain in (GOOD_SSN, GOOD_ROUTING, GOOD_ACCOUNT):
+        for plain in (GOOD_SSN, GOOD_ROUTING, GOOD_ACCOUNT, GOOD_PASSPORT, GOOD_SECRET):
             self.assertNotIn(plain, text)
         # The signer's own re-open shows the mask too - a token is never sent.
         own = self.client.get(f"/esign/public/{parties[0][1]}").json()
         self.assertEqual(own["myValues"]["ssn"], "***-**-6789")
+        self.assertEqual(own["myValues"]["passport"], "•••••")
+        self.assertEqual(own["myValues"]["secret"], "•••••")
         self.assertNotIn("enc:", json.dumps(own))
+        for plain in (GOOD_PASSPORT, GOOD_SECRET):
+            self.assertNotIn(plain, json.dumps(own))
 
     def test_the_stamped_pdf_carries_the_plain_value(self):
         from pypdf import PdfReader
