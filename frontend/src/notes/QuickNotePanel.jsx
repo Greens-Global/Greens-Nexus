@@ -6,7 +6,7 @@
 // here as on the Notes page; what it made is said in the foot (Oct 31 2026).
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ArrowUpRight, Check, Loader2, CloudOff } from 'lucide-react';
+import { X, ArrowUpRight, Check, Loader2, CloudOff, PenTool } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -17,6 +17,7 @@ import NoteEditor from './NoteEditor';
 import { useNoteSync } from './useNoteSync';
 import { createTaskFrom, openTask } from './notesTasks';
 import { localDay, lastNoteId, noteTitle, writeDraft, editedLabel, quickNoteKeys } from './notesModel';
+import { createBoard } from './newBoard';
 import './notes.css';
 
 function openInNotes(id) {
@@ -99,6 +100,14 @@ export default function QuickNotePanel({ onClose }) {
   const [said, setSaid] = useState(null);    // { text, taskId } after Make a Task
   const saidTimer = useRef(null);
   const { myEmail } = useRole() || {};
+  const [startingBoard, setStartingBoard] = useState(false);
+  // New Board (Neil, 11/02/2026): a whiteboard note, opened on Notes.
+  const newBoard = async () => {
+    if (startingBoard) return;
+    setStartingBoard(true);
+    try { const n = await createBoard(); openInNotes(n.id); onClose(); }
+    catch (e) { say(e.message || 'Could not start a board'); setStartingBoard(false); }
+  };
   useEscapeLayer(onClose);
   useEffect(() => () => clearTimeout(saidTimer.current), []);
   const say = (text, taskId) => {
@@ -136,6 +145,9 @@ export default function QuickNotePanel({ onClose }) {
               {mode === 'today' || !showLast ? `Today's Scratchpad · ${formatDate(day)}` : noteTitle(shown.note)}
             </div>
           </div>
+          <button type="button" className="nt-text-btn" onClick={newBoard} disabled={startingBoard} title="A whiteboard to draw, plan and mark things up">
+            <PenTool size={14} aria-hidden="true" /> New Board
+          </button>
           <button type="button" className="nt-text-btn" onClick={() => { openInNotes(id || ''); onClose(); }}>
             Open in Notes <ArrowUpRight size={14} aria-hidden="true" />
           </button>

@@ -25,7 +25,7 @@
 // Kept off the menu on purpose (Neil, Oct 29 2026): 1:1s, Ask HR,
 // Reimbursements, Credentials, Purchase Requests, Send for Signature,
 // Workflows and Time Off - those start from their own modules.
-import { CheckSquare, NotebookPen, FilePlus2, Package, Mail, CalendarPlus } from 'lucide-react';
+import { CheckSquare, NotebookPen, PenTool, FilePlus2, Package, Mail, CalendarPlus } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { NAV, isNavItemVisible } from '../components/Sidebar';
 
@@ -37,6 +37,10 @@ export const CREATE_ITEMS = [
   { key: 'task', group: 'Work', label: 'New Task', Icon: CheckSquare, module: 'tasks', compose: 'task' },
   { key: 'note', group: 'Work', label: 'New Note', Icon: NotebookPen, module: 'dashboard',
     run: () => window.dispatchEvent(new CustomEvent('nexus:quick-note')) },
+  // New Board (Neil, 11/02/2026): a whiteboard note, made and opened on
+  // Dashboard > Notes. Loaded on click so the header stays light.
+  { key: 'board', group: 'Work', label: 'New Board', Icon: PenTool, module: 'dashboard',
+    run: () => import('../notes/newBoard').then((m) => m.newBoardFromAnywhere()) },
   { key: 'ticket', group: 'Work', label: 'New Ticket', Icon: TicketToken, module: 'support', compose: 'ticket' },
   { key: 'document', group: 'Work', label: 'New Document', Icon: FilePlus2, module: 'documents', go: ['documents', 'documents-new'] },
   { key: 'item', group: 'Requests', label: 'Request an Item', Icon: Package, module: 'inventory', go: ['inventory', 'catalog'] },
