@@ -6326,6 +6326,9 @@ class HrPacketSetting(Base):
     # of doc_template_ids - "there's a different confidentiality agreement for
     # each team" (Neil). [{match: department | role, value, templateIds: []}]
     extra_docs       = Column(JSON, default=list)
+    # Federal onboarding forms sent with a US hiring packet (Neil, 11/02/2026):
+    # ["w4", "i9", "direct_deposit"] in registry order - federal_forms.FORMS.
+    federal_forms    = Column(JSON, default=list)
     # Where the person works, inside the country (Neil, Oct 22): "there is a
     # hiring packet that applies to California... when we open Texas we'll add
     # one for Texas". A US state code (CA, TX), '' = anywhere in the country.

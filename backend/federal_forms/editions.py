@@ -75,3 +75,11 @@ def status(kind: str, today: date | None = None) -> dict:
 
 def all_status(today: date | None = None) -> dict:
     return {kind: status(kind, today) for kind in FORMS}
+
+
+def refusal(kind: str, today: date | None = None) -> str:
+    """The sentence a send is refused with when the edition has lapsed, ''
+    while it may still be sent. Every sender (the hiring packet, the person
+    record) asks this one function - never a second date rule."""
+    st = status(kind, today)
+    return st["message"] if st["state"] == "expired" else ""

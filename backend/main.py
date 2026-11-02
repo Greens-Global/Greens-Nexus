@@ -1431,6 +1431,8 @@ def _run_migrations():
             "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
             # Work-site audience (Neil, 11/02/2026).
             "ALTER TABLE nexus_announcements ADD COLUMN work_site_id VARCHAR DEFAULT ''",
+            # Federal forms in hiring packets (Neil, 11/02/2026) - see the Postgres list.
+            "ALTER TABLE hr_packet_settings ADD COLUMN federal_forms JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3418,6 +3420,10 @@ def _run_migrations():
         "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
         # Work-site audience (Neil, 11/02/2026).
         "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
+        # Federal forms in hiring packets (Neil, 11/02/2026): which of the W-4,
+        # I-9 and Direct Deposit Authorization a US hiring packet sends.
+        # models.HrPacketSetting.federal_forms. Additive.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS federal_forms JSONB DEFAULT '[]'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4051,6 +4057,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] checklist ID evidence backfill skipped: {e}")
+    # Federal forms (Neil, 11/02/2026): onboarding templates seeded earlier
+    # get the W-4 / direct deposit and I-9 signals on ON-05 / ON-18 / ON-23,
+    # once (hr_checklists.backfill_federal_forms).
+    try:
+        from database import SessionLocal
+        import hr_checklists
+        db = SessionLocal()
+        try:
+            n = hr_checklists.backfill_federal_forms(db)
+            if n:
+                print(f"[startup] federal form signals added to {n} onboarding template(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] federal form signal backfill skipped: {e}")
     # Ask HR runs through Tickets (Neil, Oct 27 2026): every OPEN old Ask HR
     # request becomes a confidential HR ticket, once (hr_tickets.migrate_open
     # - a row that has its ticket_id is never moved again; resolved rows stay
