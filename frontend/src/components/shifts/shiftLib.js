@@ -349,12 +349,49 @@ export const EXCUSE_WORDS = { time_off: 'approved time off', holiday: 'company h
 export const OVER_WORDS = { time_off: 'Scheduled over approved time off', holiday: 'Scheduled over a company holiday' };
 const excuseWord = (x) => EXCUSE_WORDS[x] || x || '';
 const ACTUAL_COLORS = { on_time: 'hsl(var(--color-green))', late: 'hsl(var(--color-orange))', left_early: 'hsl(var(--color-orange))', no_show: 'hsl(var(--color-red))', excused: 'var(--muted)', exempt: 'var(--muted)' };
-// The bar's color: green / orange / red / grey by status; a shift still in
-// progress wears the block's own color (`own`). Nothing for an upcoming one.
-export function actualColor(status, own = DEFAULT_SHIFT_COLOR) {
-  if (status === 'in_progress') return own;
+// The status color: green / orange / red / grey. A shift in progress is
+// green "On Now" - never the shift type's own color (Oct 30 2026: an amber
+// type's running shift read as Late). `own` is kept for older callers.
+export function actualColor(status, own = DEFAULT_SHIFT_COLOR) {   // eslint-disable-line no-unused-vars
+  if (status === 'in_progress') return 'hsl(var(--color-green))';
   return ACTUAL_COLORS[status] || '';
 }
+// The block's attendance, as an EXCEPTION in words only (Neil, Oct 30 2026):
+// "Late 14m", "Left Early 1h", "No-Show", "On Now". On time, excused and
+// exempt say nothing on the block (the hover title still tells it all).
+export function actualException(a) {
+  const status = a?.status;
+  if (!status) return null;
+  const late = Number(a.lateMin) || 0, early = Number(a.earlyMin) || 0;
+  if (status === 'late') return { status, word: late > 0 ? `Late ${minutesText(late)}` : 'Late', color: ACTUAL_COLORS.late };
+  if (status === 'left_early') return { status, word: early > 0 ? `Left Early ${minutesText(early)}` : 'Left Early', color: ACTUAL_COLORS.left_early };
+  if (status === 'no_show') return { status, word: 'No-Show', color: ACTUAL_COLORS.no_show };
+  if (status === 'in_progress') return { status, word: 'On Now', color: 'hsl(var(--color-green))' };
+  return null;
+}
+
+// ── Flags (Oct 30 2026): a conflict or rule sentence as one Title Case word
+// on the block, and the kind it is grouped under in "N To Review".
+export const FLAG_KINDS = { overtime: 'Overtime', timeoff: 'Time Off', availability: 'Availability', rest: 'Rest', streak: 'Days In A Row', cap: 'Hours Cap', overlap: 'Overlap', holiday: 'Holiday', other: 'Other' };
+export const FLAG_ORDER = ['overtime', 'timeoff', 'availability', 'rest', 'streak', 'cap', 'overlap', 'holiday', 'other'];
+export function flagOf(text) {
+  const t = String(text || '');
+  let m;
+  if (/scheduled this (day|week) \(over \d+h is overtime\)/.test(t)) return { kind: 'overtime', word: 'Overtime' };
+  if (/scheduled this week \((they asked for at most \d+h|\d+h is the most)\)/.test(t)) return { kind: 'cap', word: 'Over Hours Cap' };
+  if ((m = t.match(/^(\d+(?:st|nd|rd|th)) day in a row/))) return { kind: 'streak', word: `${m[1]} Day In A Row` };
+  if ((m = t.match(/^Only (.+?) rest before this shift/))) return { kind: 'rest', word: `Rest ${m[1]}` };
+  if (/^Outside availability: .+ unavailable$/.test(t)) return { kind: 'availability', word: `Unavailable ${t.replace(/^Outside availability: (.+) unavailable$/, '$1')}` };
+  if (/^Marked unavailable/.test(t)) return { kind: 'availability', word: 'Unavailable' };
+  if (/^Outside (availability|their availability)/.test(t)) return { kind: 'availability', word: 'Outside Availability' };
+  if (/^Duplicate/.test(t)) return { kind: 'overlap', word: 'Duplicate' };
+  if (/^Overlaps (requested|approved) time off/.test(t) || /time off/i.test(t) || /^On approved /.test(t)) return { kind: 'timeoff', word: /requested/i.test(t) ? 'Off Requested' : 'Time Off' };
+  if (/^Overlaps/.test(t)) return { kind: 'overlap', word: 'Overlap' };
+  if (/holiday/i.test(t)) return { kind: 'holiday', word: 'Holiday' };
+  return { kind: 'other', word: 'Check' };
+}
+// "10:00p - 6:30a +1": an end at or before the start is the next day.
+export const nextDay = (s) => !!s?.start && !!s?.end && toMin(s.end) <= toMin(s.start) && !sameTime(s.start, s.end);
 export const actualWord = (status) => ACTUAL_WORDS[status] || '';
 // A punch stamp is naive UTC ("2026-10-12T15:04:00", no Z) like every punch
 // the API sends; read as UTC, shown on the SHIFT'S clock (the cell's `tz`,

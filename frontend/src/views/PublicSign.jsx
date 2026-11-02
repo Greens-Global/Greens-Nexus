@@ -26,9 +26,15 @@ async function pfetch(path, opts = {}) {
     ...rest,
   });
   if (!res.ok) {
-    let msg = '';
-    try { msg = (await res.json()).detail; } catch { /* non-json error */ }
-    throw new Error(msg || `Error ${res.status}`);
+    let detail = '';
+    try { detail = (await res.json()).detail; } catch { /* non-json error */ }
+    // A 422 on the sign POST carries {field, message} (federal forms) - the
+    // sentence is the message and the whole object rides on err.detail.
+    const msg = typeof detail === 'string' ? detail : detail?.message || '';
+    const err = new Error(msg || `Error ${res.status}`);
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
   }
   return res.json();
 }
@@ -43,6 +49,7 @@ export default function PublicSign({ token }) {
   // standing so the person can fix what it names and try again (Sagar,
   // Sep 22 2026).
   const [actionError, setActionError] = useState('');
+  const [fieldError, setFieldError] = useState(null);   // a 422 naming one field - shown under it
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState('');       // '' | 'signed' | 'signed-final' | 'declined'
   const [code, setCode] = useState('');       // access code (kept for sign/decline/download)
@@ -141,10 +148,15 @@ export default function PublicSign({ token }) {
   async function submit(data) {
     setBusy(true);
     setActionError('');
+    setFieldError(null);
     try {
       const r = await post('/sign', data);
       setDone(r.status === 'completed' ? 'signed-final' : 'signed');
-    } catch (e) { setActionError(e.message); }
+    } catch (e) {
+      const d = e?.detail;
+      if (d && typeof d === 'object' && !Array.isArray(d) && d.field) setFieldError({ field: d.field, message: d.message || e.message });
+      else setActionError(e.message);
+    }
     setBusy(false);
   }
   // Approver / certified delivery: they do not sign, they act. Same endpoint
@@ -384,7 +396,7 @@ export default function PublicSign({ token }) {
       )}
       <SigningDoc payload={payload} busy={busy} onSubmit={submit} onAct={act} onDecline={decline}
         gateApi={gateApi} onCleared={() => load()} uploadApi={uploadApi} paperApi={paperApi}
-        historyApi={historyApi} copyApi={copyApi} />
+        historyApi={historyApi} copyApi={copyApi} fieldError={fieldError} />
     </>,
     gated ? 760 : 1140);
 }

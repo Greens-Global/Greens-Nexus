@@ -15,10 +15,13 @@ export default function CollectionsAdmin({ me }) {
   const [err, setErr] = useState('');
   const [create, setCreate] = useState(null);   // {parent_id}
   const [form, setForm] = useState({ name: '', department: '', owner_email: '', description: '', review_every_months: 12 });
+  // the departments People uses, for the dropdown; Other types one that People does not have yet
+  const [departments, setDepartments] = useState([]);
+  const [otherDept, setOtherDept] = useState(false);
   const load = () => { setErr(''); api.kbCollections().then(setRows).catch((e) => setErr(errText(e))); };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); api.kbAudienceOptions().then((o) => setDepartments(o?.departments || [])).catch(() => {}); }, []);
   const save = async () => {
-    try { await api.kbCreateCollection({ ...form, parent_id: create.parent_id || '', department: create.parent_id ? '' : (form.department || form.name) }); toast('Collection created'); setCreate(null); setForm({ name: '', department: '', owner_email: '', description: '', review_every_months: 12 }); load(); } catch (e) { toast(errText(e), 'err'); }
+    try { await api.kbCreateCollection({ ...form, parent_id: create.parent_id || '', department: create.parent_id ? '' : (form.department.trim() || form.name.trim()) }); toast('Collection created'); setCreate(null); setForm({ name: '', department: '', owner_email: '', description: '', review_every_months: 12 }); setOtherDept(false); load(); } catch (e) { toast(errText(e), 'err'); }
   };
   const setOwner = async (c, email) => { try { await api.kbUpdateCollection(c.id, { owner_email: email }); load(); } catch (e) { toast(errText(e), 'err'); } };
   const tops = (rows || []).filter((c) => !c.parent_id);
@@ -57,7 +60,18 @@ export default function CollectionsAdmin({ me }) {
         <Modal title={create.parent_id ? `New Sub-collection in ${create.parent_name}` : 'New Collection'} onClose={() => setCreate(null)} minHeight="40vh" footer={<div className="kb" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={() => setCreate(null)}>Cancel</button><button type="button" className="kb-btn pri" disabled={!form.name.trim()} onClick={save}>Create</button></div>}>
           <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="kb-field"><label>Name</label><input className="kb-input" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={create.parent_id ? 'Site Operations' : 'Operations'} /></div>
-            {!create.parent_id && <div className="kb-field"><label>People department it stands for</label><input className="kb-input" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="Same as the name, usually" /><div className="kb-help">Used for page codes (OPS-014) and the compliance filters.</div></div>}
+            {!create.parent_id && (
+              <div className="kb-field"><label>Department</label>
+                <select className="kb-select" value={otherDept ? '__other' : (departments.includes(form.department) ? form.department : '')} aria-label="Department"
+                        onChange={(e) => { const v = e.target.value; if (v === '__other') { setOtherDept(true); setForm({ ...form, department: '' }); } else { setOtherDept(false); setForm({ ...form, department: v }); } }}>
+                  <option value="">Same as the name{form.name.trim() ? ` (${form.name.trim()})` : ''}</option>
+                  {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+                  <option value="__other">Other...</option>
+                </select>
+                {otherDept && <input className="kb-input" autoFocus value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="A department People does not list yet" aria-label="Other department" />}
+                <div className="kb-help">The People department this shelf stands for. It sets the page codes (OPS-014), the department filter and Applies To. Pick from People so they match; Other is for a department People does not have yet.</div>
+              </div>
+            )}
             <div className="kb-field"><label>Owner</label><PeoplePick value={form.owner_email} onChange={(v) => setForm({ ...form, owner_email: v })} preferManagers /></div>
             <div className="kb-field"><label>Description</label><input className="kb-input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What lives here" /></div>
             <div className="kb-field"><label>Review every</label><select className="kb-select" style={{ width: 160 }} value={form.review_every_months} onChange={(e) => setForm({ ...form, review_every_months: Number(e.target.value) })}>{[3, 6, 12, 24].map((m) => <option key={m} value={m}>{m} months</option>)}</select></div>

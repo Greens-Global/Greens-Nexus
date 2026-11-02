@@ -44,7 +44,7 @@ with database.engine.connect() as _c:
         except Exception:
             pass
 
-BOSS = "rb.boss@greensglobal.com"       # administrator: company-wide
+BOSS = "rb.boss@greensglobal.com"       # Super Administrator: company-wide
 M1 = "rb.m1@greensglobal.com"           # a plain manager: A reports to them
 A = "rb.a@greensglobal.com"
 B = "rb.b@greensglobal.com"
@@ -73,7 +73,7 @@ class RebuildTests(unittest.TestCase):
                     status="inactive" if em == GONE else "active",
                     deleted_at="2026-09-01T00:00:00" if em == BIN else "",
                     manager_email=M1 if em == A else ""))
-            db.add(models.NexusRole(email=BOSS, role="administrator", assigned_by="test"))
+            db.add(models.NexusRole(email=BOSS, role="owner", assigned_by="test"))
             db.add(models.NexusRole(email=M1, role="manager", assigned_by="test"))
             db.add(models.ShiftGroup(open_shifts=1, id=GROUP, name="Rb Store", sort_order=2))
             db.add(models.ShiftGroup(open_shifts=1, id=GROUP2, name="Rb Yard", sort_order=1))

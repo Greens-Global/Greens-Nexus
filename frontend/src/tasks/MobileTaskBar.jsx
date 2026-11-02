@@ -1,10 +1,11 @@
 // Task Module - Asana-style floating bottom bar for mobile: [filter] · [view ⇅] · [+].
 // Replaces the stacked view-tabs strip + filter row on phones. Used by MyTasksView
 // and TasksWorkspace; desktop keeps its own toolbars (this renders only on mobile).
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SlidersHorizontal, Plus, ChevronsUpDown, X, Check, ChevronLeft } from 'lucide-react';
 import { NX, FONT, btn } from './theme';
+import { useEscapeLayer } from './components';
 import { useVisualViewport } from '../lib/useVisualViewport';
 import { useIsMobile } from '../lib/useIsMobile';
 import { useScrollLock } from '../lib/useScrollLock';
@@ -27,11 +28,10 @@ export function BottomSheet({ title, onClose, onBack, children }) {
   const overlayRef = useRef(null);
   const panelRef = useRef(null);
   const titleId = useId();
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') (onBack || onClose)(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, onBack]);
+  // Escape belongs to the topmost layer (components.useEscapeLayer): with a
+  // Modal open over the sheet (Add Several over the quick-add), one Escape
+  // closes the modal only - the sheet and what was typed in it stay.
+  useEscapeLayer(() => (onBack || onClose)());
   useDialogFocus(panelRef);
   // The phone's Back button does what Escape does: steps out of a drill-in
   // level when there is one, otherwise closes the sheet - asking first if
@@ -64,7 +64,9 @@ export function BottomSheet({ title, onClose, onBack, children }) {
         background: NX.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18,
         // A share of the VISIBLE height, so with the keyboard up the sheet
         // still fits above it and its body scrolls instead of hiding.
-        maxHeight: vv ? Math.round(vv.height * 0.92) : '82vh',
+        maxHeight: vv ? Math.round((vv.height - (vv.clear || 0)) * 0.92) : '82vh',
+        // Above iOS's floating keyboard strip; the backdrop still fills to the keyboard.
+        marginBottom: vv?.clear || 0,
         display: 'flex', flexDirection: 'column', boxShadow: '0 -12px 40px rgba(0,0,0,0.28)',
         // A border gives the sheet a visible edge in dark mode, where the surface
         // is close to the canvas and the drop shadow is invisible.

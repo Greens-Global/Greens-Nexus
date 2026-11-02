@@ -60,13 +60,16 @@ describe('Modal on a phone', () => {
     expect(screen.getByText('Done')).toBeInTheDocument();
   });
 
-  it('is unchanged on desktop', () => {
+  it('is a right-edge sheet on desktop, never the phone shape', () => {
     setViewport(false);
     renderModal();
 
+    // Popups are sheets from the right (Neil, 11/01/2026) - full height,
+    // rounded where they meet the page; see components.sheet.test.jsx.
     const panel = panelOf();
-    expect(panel.style.maxHeight).toBe('86vh');
-    expect(panel.style.borderRadius).toBe('16px');
+    expect(panel.style.height).toBe('100%');
+    expect(panel.style.borderRadius).toBe('16px 0 0 16px');
+    expect(panel.className).toContain('nx-sheet-right');
     expect(panel.className).not.toContain('nx-modal-sheet');
   });
 });

@@ -42,10 +42,11 @@ describe('external role label', () => {
     expect(screen.queryByText('Employee')).toBeNull();
   });
 
-  it('internal employees are unchanged', () => {
+  it('an internal employee with no job title shows nothing under the name - never "Employee" (Neil, 11/02/2026)', () => {
     roleState.isExternal = false;
     render(<MobileMenu open onClose={() => {}} onNavigate={() => {}} activeView="tasks" />);
-    expect(screen.getByText('Employee')).toBeTruthy();
+    expect(screen.queryByText('Employee')).toBeNull();
     expect(screen.queryByText('External')).toBeNull();
+    expect(document.querySelector('.mobile-menu-role')).toBeNull();
   });
 });

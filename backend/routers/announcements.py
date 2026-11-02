@@ -10,6 +10,13 @@ Who sees what
   - audience 'company'    -> everyone signed in
   - audience 'department' -> people whose nexus_employees.department matches
     (case-insensitive), plus the author, plus administrators (they manage it)
+  - audience 'site'       -> people whose allowed work sites
+    (routers.hr.allowed_site_ids: work_site_ids, the single work_site_id
+    counting as a one-site list) contain the post's `work_site_id`, plus the
+    author and administrators. An EMPTY list ("any company site") is NOT a
+    member, even inside the author's company and even when the site is their
+    company's (Neil, 11/02/2026, Homebase lifts). The site must exist and, for
+    a company-walled author, be one a company in their scope uses.
   - Company walls (auth.company_scope): an announcement has no company column,
     so its company is its AUTHOR's (auth.company_of_email_map, the same rule the
     knowledge base and documents use). Walls on -> a scoped caller sees only
@@ -21,8 +28,17 @@ Bell notifications
   audience (type 'announcement'). The bell's broadcast form (recipient='') is
   manager-only by design, so an employee would never see it - per-person rows
   are the only route to the whole company. Cost: one nexus_notifications row
-  per recipient (~180 for a company-wide post), written in the same commit.
-  No email or Teams message is sent (ANNOUNCEMENT_EMAIL_ENABLED below).
+  per recipient (~180 for a company-wide post), written in the same commit
+  when the post is due at create. Reach (Neil, 11/02/2026): a post may carry
+  a picture or a file (our private storage), be scheduled (`publish_at`; it
+  stays hidden from staff and the bells wait until it is due) and ask for a
+  notice beyond the bell (`notify`: quiet / push_teams / email). Bells for a
+  scheduled post and every push / Teams / email fan-out are the publish
+  pass's job (announcements_publish.run_due, every minute), never a
+  request's - `notified_at` is its once-only stamp. `_audience_emails` is
+  the ONE audience resolver: the bells, the publish pass and the reads
+  route's "not yet acknowledged" list (the audience of a requires_ack post
+  minus its acknowledgers, administrators only) all read it.
 
 Body text is PLAIN TEXT with line breaks; the tile renders it pre-wrapped and
 React escapes it, so no HTML is accepted or sanitized here.
@@ -31,6 +47,8 @@ import re
 import uuid
 from datetime import date, datetime, timezone
 
+import form_audience
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -38,18 +56,20 @@ from sqlalchemy.orm import Session
 import auth
 from auth import get_current_user, require_administrator
 from database import get_db
-from models import Announcement, AnnouncementRead, NexusEmployee, NexusNotification, NexusRole
+from models import (Announcement, AnnouncementRead, HrCompanyWorkSite, HrWorkSite, NexusEmployee, NexusNotification,
+                    NexusRole)
+from routers.hr import allowed_site_ids
+from routers.items import _validate_photo_url
 
 router = APIRouter(prefix="", tags=["Announcements"])
-
-# Future company setting (Admin Console > Notifications): also email / Teams
-# each new announcement to its audience. Off - the bell is the only channel.
-ANNOUNCEMENT_EMAIL_ENABLED = False
 
 TITLE_MAX = 200
 BODY_MAX = 20000
 LIST_LIMIT = 50
-AUDIENCES = ("company", "department")
+AUDIENCES = ("company", "department", "site")
+NOTIFY_MODES = ("quiet", "push_teams", "email")
+FILE_NAME_MAX = 200
+ACK_NAMES = 2        # "Acknowledged by Ana Diaz, Bob Lee and 3 more"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -75,9 +95,9 @@ def _fallback_name(email: str) -> str:
 
 
 def _people(db: Session) -> dict:
-    """{email(lower) -> {name, department, company, status, external}} for every
-    employee with a work email - one query serves names, departments, walls
-    and the notification audience."""
+    """{email(lower) -> {name, department, company, status, external, sites}}
+    for every employee with a work email - one query serves names,
+    departments, walls, work sites and the notification audience."""
     out = {}
     for e in db.query(NexusEmployee).filter(NexusEmployee.work_email != "").all():
         em = (e.work_email or "").lower()
@@ -89,6 +109,7 @@ def _people(db: Session) -> dict:
             "company": (e.company or "").strip(),
             "status": (e.status or "active"),
             "external": (e.identity_type or "") in ("guest", "external"),
+            "sites": allowed_site_ids(e),       # [] = any company site = member of no site post
         }
     return out
 
@@ -107,16 +128,63 @@ def _is_pinned(a: Announcement, today: str) -> bool:
     return bool(a.pinned_until) and a.pinned_until >= today
 
 
-def _can_see(a: Announcement, *, email: str, department: str, is_admin: bool) -> bool:
-    if (a.audience or "company") != "department":
+def _published(a: Announcement) -> bool:
+    """The publish pass stamped this post. A 'failed:<iso>' stamp (the pass
+    gave up on it) is NOT published - the administrator may move its time."""
+    stamp = (a.notified_at or "").strip()
+    return bool(stamp) and not stamp.startswith("failed:")
+
+
+def _failed(a: Announcement) -> bool:
+    return (a.notified_at or "").startswith("failed:")
+
+
+def _is_scheduled(a: Announcement, now: str) -> bool:
+    """Not yet published: a publish time still ahead and no publish stamp
+    (compared as datetimes, see announcements_publish.parse_when). A post the
+    publish pass gave up on is unpublished too - staff never see it until an
+    administrator gives it a new time and it goes out."""
+    import announcements_publish as pub
+    if _published(a):
+        return False
+    if _failed(a):
         return True
+    when = pub.parse_when(a.publish_at or "")
+    if when is None:
+        return False
+    ref = pub.parse_when(now) or datetime.now(timezone.utc)
+    return when > ref
+
+
+def _can_see(a: Announcement, *, email: str, department: str, is_admin: bool, now: str = "", sites=()) -> bool:
+    if _is_scheduled(a, now or _now()) and not is_admin:
+        return False
     if is_admin or (a.author_email or "").lower() == email:
         return True
-    return bool(department) and (a.department or "").strip().lower() == department.lower()
+    # The one audience rule, shared with Forms (form_audience.in_audience): a
+    # department matches by name, a work site by membership (an empty site
+    # list - "any company site" - is never a member). Company walls are the
+    # caller's business (list_announcements), so the company part is not asked.
+    return form_audience.in_audience({"department": department, "sites": list(sites or ())},
+                                     audience=a.audience or "company", department=a.department or "",
+                                     work_site_id=(a.work_site_id or "").strip())
 
 
-def _serialize(a: Announcement, *, people: dict, db: Session, mark=None, counts=None, today: str = "") -> dict:
+def _site_names(db: Session, rows) -> dict:
+    """{work site id -> name} for the sites the given posts name."""
+    ids = {(a.work_site_id or "").strip() for a in rows
+           if (a.audience or "") == "site" and (a.work_site_id or "").strip()}
+    if not ids:
+        return {}
+    return {s.id: s.name or "" for s in db.query(HrWorkSite).filter(HrWorkSite.id.in_(list(ids))).all()}
+
+
+def _serialize(a: Announcement, *, people: dict, db: Session, mark=None, counts=None, today: str = "",
+               ack_names=None, site_names=None) -> dict:
     today = today or _today()
+    site_id = (a.work_site_id or "").strip() if (a.audience or "") == "site" else ""
+    if site_id and site_names is None:
+        site_names = _site_names(db, [a])
     out = {
         "id": a.id,
         "title": a.title or "",
@@ -125,6 +193,8 @@ def _serialize(a: Announcement, *, people: dict, db: Session, mark=None, counts=
         "author_name": _name_of(people, db, a.author_email),
         "audience": a.audience or "company",
         "department": a.department or "",
+        "workSiteId": site_id,
+        "workSiteName": (site_names or {}).get(site_id, "") if site_id else "",
         "pinned_until": a.pinned_until or "",
         "pinned": _is_pinned(a, today),
         "requires_ack": bool(a.requires_ack),
@@ -132,9 +202,22 @@ def _serialize(a: Announcement, *, people: dict, db: Session, mark=None, counts=
         "updated_at": a.updated_at or "",
         "read_at": (mark.read_at if mark else "") or "",
         "acknowledged_at": (mark.acknowledged_at if mark else "") or "",
+        "image_url": a.image_url or "",
+        "file_url": a.file_url or "",
+        "file_name": a.file_name or "",
+        "publish_at": a.publish_at or "",
+        "notify": a.notify or "quiet",
+        "notified_at": a.notified_at or "",
+        "scheduled": _is_scheduled(a, _now()),
+        "failed": _failed(a),      # the publish pass gave up: give it a new time to retry
+        # The date the list shows and sorts by: when it was (or will be)
+        # published, else when it was written - a post scheduled a week ahead
+        # must not surface buried under the posts written after it.
+        "shown_at": a.publish_at or a.created_at or "",
     }
     if counts is not None:
         out["read_count"], out["ack_count"] = counts
+        out["ack_names"] = list(ack_names or [])
     return out
 
 
@@ -170,9 +253,27 @@ def _text(body: dict, key: str) -> str:
     return v
 
 
-def _validate(body: dict, current: Announcement | None = None) -> dict:
+def _assert_site(db: Session | None, user: dict | None, site_id: str) -> None:
+    """A site post's site must exist and, for a company-walled author, be a
+    site one of THEIR companies uses (the hr_company_work_sites links). Walls
+    off or a Global Admin: every company is theirs."""
+    if db is None:
+        return
+    if not db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first():
+        raise _bad("That work site does not exist.")
+    scope = auth.company_scope(user, db) if user is not None else None
+    if scope is None:
+        return
+    companies = {ln.company_id for ln in db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.site_id == site_id).all()}
+    if not (companies & scope):
+        raise _bad("That work site is not one of your companies' sites.")
+
+
+def _validate(body: dict, current: Announcement | None = None, *, db: Session | None = None,
+              user: dict | None = None) -> dict:
     """The writable fields, checked. On a PATCH only the keys present are
-    returned, so a partial update never blanks the rest."""
+    returned, so a partial update never blanks the rest. `db` and `user`
+    check a site post's site against the author's companies."""
     if not isinstance(body, dict):
         raise _bad("Expected a JSON object.")
     patch = current is not None
@@ -194,10 +295,10 @@ def _validate(body: dict, current: Announcement | None = None) -> dict:
             raise _bad(f"Body must be {BODY_MAX} characters or fewer.")
         out["body"] = text
 
-    if not patch or "audience" in body or "department" in body:
+    if not patch or "audience" in body or "department" in body or "work_site_id" in body:
         audience = (_text(body, "audience") or (current.audience if current else "") or "company").strip().lower()
         if audience not in AUDIENCES:
-            raise _bad("Audience must be 'company' or 'department'.")
+            raise _bad("Audience must be 'company', 'department' or 'site'.")
         if "department" in body:
             department = _text(body, "department").strip()
         else:
@@ -206,8 +307,17 @@ def _validate(body: dict, current: Announcement | None = None) -> dict:
             raise _bad("Department is required for a department announcement.")
         if len(department) > 120:
             raise _bad("Department must be 120 characters or fewer.")
+        if "work_site_id" in body:
+            site_id = _text(body, "work_site_id").strip()
+        else:
+            site_id = (current.work_site_id if current else "") or ""
+        if audience == "site":
+            if not site_id:
+                raise _bad("Work site is required for a work-site announcement.")
+            _assert_site(db, user, site_id)
         out["audience"] = audience
         out["department"] = department if audience == "department" else ""
+        out["work_site_id"] = site_id if audience == "site" else ""
 
     if "pinned_until" in body:
         pinned = _text(body, "pinned_until").strip()
@@ -236,6 +346,58 @@ def _validate(body: dict, current: Announcement | None = None) -> dict:
     elif not patch:
         out["requires_ack"] = False
 
+    # Reach (11/02/2026): a picture, a file, publish later, the notify choice.
+    for key in ("image_url", "file_url"):
+        if key in body:
+            url = _text(body, key).strip()
+            if url.startswith("data:"):
+                raise _bad("Upload the file first; an inline data URL is not accepted.")
+            _validate_photo_url(url, "Image" if key == "image_url" else "File")   # 400 outside our storage
+            out[key] = url
+        elif not patch:
+            out[key] = ""
+    if "file_name" in body:
+        name = _text(body, "file_name").strip()
+        if len(name) > FILE_NAME_MAX:
+            raise _bad(f"File name must be {FILE_NAME_MAX} characters or fewer.")
+        out["file_name"] = name
+    elif not patch:
+        out["file_name"] = ""
+    if "publish_at" in body:
+        when = _text(body, "publish_at").strip()
+        if when:
+            try:
+                dt = datetime.fromisoformat(when.replace("Z", "+00:00"))
+            except ValueError:
+                raise _bad("Publish time must be a date and time.")
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            when = dt.astimezone(timezone.utc).isoformat()
+        if patch and _published(current) and when != (current.publish_at or ""):
+            raise _bad("This announcement is already published; its publish time cannot change.")
+        if patch and when and not (current.publish_at or "").strip():
+            # An immediate post's bells went out at create (the publish pass
+            # may not have stamped it yet): it cannot be pulled back into the
+            # future, that would hide a post people were already told about.
+            import announcements_publish as pub
+            if pub.parse_when(when) > datetime.now(timezone.utc):
+                raise HTTPException(status_code=400, detail="This post is already published")
+        if patch and when != (current.publish_at or "") and (current.notified_at or "").startswith("failed:"):
+            # A failed publish, given a new time: let the pass try again.
+            import announcements_publish as pub
+            pub.reset_attempts(current.id)
+            out["notified_at"] = ""
+        out["publish_at"] = when
+    elif not patch:
+        out["publish_at"] = ""
+    if "notify" in body:
+        mode = _text(body, "notify").strip().lower() or "quiet"
+        if mode not in NOTIFY_MODES:
+            raise _bad("Notify must be 'quiet', 'push_teams' or 'email'.")
+        out["notify"] = mode
+    elif not patch:
+        out["notify"] = "quiet"
+
     return out
 
 
@@ -243,15 +405,21 @@ def _validate(body: dict, current: Announcement | None = None) -> dict:
 
 def _audience_emails(a: Announcement, people: dict, author_scope) -> list[str]:
     """Who a new announcement is for: active internal employees with a work
-    email, narrowed to the department for a department post and to the
-    author's company wall when the walls are on. The author is skipped."""
+    email, narrowed to the department for a department post, to the site's
+    people for a site post (their allowed work sites hold the site; an empty
+    list - "any company site" - is never a member, Neil 11/02/2026) and to
+    the author's company wall when the walls are on. The author is skipped.
+    THE audience resolver: the bells, the publish pass and the not-yet-
+    acknowledged list all read it."""
     author = (a.author_email or "").lower()
+    audience = a.audience or "company"
     dept = (a.department or "").strip().lower()
+    site_id = (a.work_site_id or "").strip()
     out = []
     for em, p in people.items():
-        if em == author or p["external"] or p["status"] in ("inactive", "offboarded"):
+        if em == author or not form_audience.eligible(p):
             continue
-        if (a.audience or "company") == "department" and p["department"].lower() != dept:
+        if not form_audience.in_audience(p, audience=audience, department=dept, work_site_id=site_id):
             continue
         if author_scope is not None and not auth.company_ok(p["company"], author_scope, shared_when_blank=True):
             continue
@@ -259,10 +427,13 @@ def _audience_emails(a: Announcement, people: dict, author_scope) -> list[str]:
     return out
 
 
-def _notify_audience(db: Session, a: Announcement, people: dict, author_scope, author_name: str) -> int:
+def _notify_audience(db: Session, a: Announcement, people: dict, author_scope, author_name: str,
+                     recipients: list[str] | None = None) -> int:
     """One bell notification per person in the audience (see module docstring
-    for why not a broadcast row). Returns how many were written."""
-    recipients = _audience_emails(a, people, author_scope)
+    for why not a broadcast row). Returns how many were written. The publish
+    pass passes the `recipients` still missing a bell."""
+    if recipients is None:
+        recipients = _audience_emails(a, people, author_scope)
     now = _now()
     title = f"Announcement: {a.title}"
     body = (a.body or "")[:280] + ("..." if len(a.body or "") > 280 else "")
@@ -284,8 +455,7 @@ def _notify_audience(db: Session, a: Announcement, people: dict, author_scope, a
             company=people.get(em, {}).get("company", ""),
             created_at=now,
         ))
-    # ANNOUNCEMENT_EMAIL_ENABLED: when a company setting turns it on, hand
-    # `recipients` to the mail / Teams sender here. Bell only for now.
+    # Bell only: push / Teams / email are the publish pass's (announcements_publish).
     return len(recipients)
 
 
@@ -300,29 +470,34 @@ def list_announcements(user: dict = Depends(get_current_user), db: Session = Dep
     is_admin = int(user.get("level") or 0) >= 4
     people = _people(db)
     department = people.get(email, {}).get("department", "")
+    sites = people.get(email, {}).get("sites", [])
     scope = auth.company_scope(user, db)
     today = _today()
+    now = _now()
 
     rows = (db.query(Announcement)
             .filter(Announcement.deleted_at == "")
             .order_by(Announcement.created_at.desc())
             .all())
-    rows = [a for a in rows if _can_see(a, email=email, department=department, is_admin=is_admin)]
+    rows = [a for a in rows if _can_see(a, email=email, department=department, is_admin=is_admin, now=now, sites=sites)]
     if scope is not None:
         rows = [a for a in rows
                 if auth.company_ok(_author_company(people, a.author_email), scope, shared_when_blank=True)]
-    # Stable: pinned block first, each block newest first (created_at desc).
-    rows.sort(key=lambda a: a.created_at or "", reverse=True)
+    # Stable: pinned block first, each block newest first by the date shown
+    # (publish_at when scheduled or published later, else created_at).
+    rows.sort(key=lambda a: a.publish_at or a.created_at or "", reverse=True)
     rows.sort(key=lambda a: 0 if _is_pinned(a, today) else 1)
     rows = rows[:LIST_LIMIT]
     ids = [a.id for a in rows]
     if not ids:
         return []
+    site_names = _site_names(db, rows)
 
     marks = {m.announcement_id: m for m in
              db.query(AnnouncementRead)
                .filter(AnnouncementRead.announcement_id.in_(ids), AnnouncementRead.email == email).all()}
     counts = None
+    ack_names = {}
     if is_admin:
         counts = {}
         for aid, reads, acks in (
@@ -332,21 +507,34 @@ def list_announcements(user: dict = Depends(get_current_user), db: Session = Dep
               .filter(AnnouncementRead.announcement_id.in_(ids))
               .group_by(AnnouncementRead.announcement_id).all()):
             counts[aid] = (int(reads or 0), int(acks or 0))
+        # The first acknowledgers' names, in the order they acknowledged.
+        for m in (db.query(AnnouncementRead)
+                    .filter(AnnouncementRead.announcement_id.in_(ids), AnnouncementRead.acknowledged_at != "")
+                    .order_by(AnnouncementRead.acknowledged_at.asc()).all()):
+            names = ack_names.setdefault(m.announcement_id, [])
+            if len(names) < ACK_NAMES:
+                names.append(_name_of(people, db, m.email))
     return [_serialize(a, people=people, db=db, mark=marks.get(a.id),
-                       counts=(counts.get(a.id, (0, 0)) if counts is not None else None), today=today)
+                       counts=(counts.get(a.id, (0, 0)) if counts is not None else None), today=today,
+                       ack_names=ack_names.get(a.id), site_names=site_names)
             for a in rows]
 
 
 @router.post("/announcements", status_code=201)
 def create_announcement(body: dict, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    fields = _validate(body)
+    fields = _validate(body, db=db, user=user)
     now = _now()
     a = Announcement(id=str(uuid.uuid4()), author_email=(user.get("email") or "").lower(),
                      created_at=now, updated_at=now, deleted_at="", **fields)
     db.add(a)
     people = _people(db)
     author_name = _name_of(people, db, a.author_email)
-    _notify_audience(db, a, people, auth.company_scope(user, db), author_name)
+    import announcements_publish as pub
+    if pub.is_due(a, now):
+        # Due now: the bells are instant, as before. The push / Teams / email
+        # fan-out (and the notified_at stamp) is the publish pass's, within
+        # the minute - never in a request. A scheduled post waits for the pass.
+        _notify_audience(db, a, people, auth.company_scope(user, db), author_name)
     db.commit()
     db.refresh(a)
     return _serialize(a, people=people, db=db, counts=(0, 0))
@@ -357,7 +545,7 @@ def update_announcement(announcement_id: str, body: dict, user: dict = Depends(r
     a = _live(db, announcement_id)
     people = _people(db)
     _assert_wall(a, people, user, db)
-    fields = _validate(body, current=a)
+    fields = _validate(body, current=a, db=db, user=user)
     for k, v in fields.items():
         setattr(a, k, v)
     a.updated_at = _now()
@@ -401,9 +589,16 @@ def _upsert_mark(db: Session, a: Announcement, email: str, *, ack: bool) -> Anno
     return mark
 
 
+def _assert_published(a: Announcement, user: dict) -> None:
+    """A scheduled post is nobody's to read or acknowledge but an administrator's."""
+    if _is_scheduled(a, _now()) and int(user.get("level") or 0) < 4:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+
+
 @router.post("/announcements/{announcement_id}/read")
 def mark_announcement_read(announcement_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     a = _live(db, announcement_id)
+    _assert_published(a, user)
     people = _people(db)
     _assert_wall(a, people, user, db)
     mark = _upsert_mark(db, a, (user.get("email") or "").lower(), ack=False)
@@ -415,6 +610,7 @@ def acknowledge_announcement(announcement_id: str, user: dict = Depends(get_curr
     """Acknowledge (also marks read). Allowed whether or not the announcement
     asks for it - an extra acknowledgement is harmless."""
     a = _live(db, announcement_id)
+    _assert_published(a, user)
     people = _people(db)
     _assert_wall(a, people, user, db)
     mark = _upsert_mark(db, a, (user.get("email") or "").lower(), ack=True)
@@ -423,8 +619,11 @@ def acknowledge_announcement(announcement_id: str, user: dict = Depends(get_curr
 
 @router.get("/announcements/{announcement_id}/reads")
 def announcement_reads(announcement_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    """Who has read / acknowledged one announcement (administrators only),
-    acknowledged first, then most recent read first."""
+    """Who has read / acknowledged one announcement (administrators only):
+    `reads` acknowledged first, then most recent read first; for a post that
+    requires acknowledgment also `notAcknowledged` - its audience
+    (`_audience_emails`, the author's reach) minus the acknowledgers, by name
+    (Neil, 11/02/2026)."""
     a = _live(db, announcement_id)
     people = _people(db)
     _assert_wall(a, people, user, db)
@@ -434,4 +633,13 @@ def announcement_reads(announcement_id: str, user: dict = Depends(require_admini
             "read_at": m.read_at or "", "acknowledged_at": m.acknowledged_at or ""} for m in marks]
     out.sort(key=lambda r: r["read_at"], reverse=True)
     out.sort(key=lambda r: 0 if r["acknowledged_at"] else 1)
-    return out
+    result = {"reads": out}
+    if a.requires_ack:
+        import announcements_publish as pub
+        acked = {(m.email or "").lower() for m in marks if m.acknowledged_at}
+        pending = [{"email": em, "name": _name_of(people, db, em)}
+                   for em in _audience_emails(a, people, pub._scope_for(db, a.author_email or ""))
+                   if em not in acked]
+        pending.sort(key=lambda r: (r["name"].lower(), r["email"]))
+        result["notAcknowledged"] = pending
+    return result

@@ -1042,7 +1042,7 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
             old = {x for x in (f.project_ids or []) if x}
             new = {x for x in (data["project_ids"] or []) if x}
             if not old or not new:
-                raise HTTPException(403, "This field is shared by every company - only a Global Admin can change that.")
+                raise HTTPException(403, "This field is shared by every company - only a Super Administrator can change that.")
             for pid in old ^ new:
                 _own(pid)
         if "required_project_ids" in data:
@@ -1268,13 +1268,15 @@ def notification_to_dict(n: models.TaskNotification) -> dict:
 def list_notifications(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     email = user["email"].lower()
     q = db.query(models.TaskNotification)
-    if user["level"] >= 4:  # admins also see the "admins" fan-out
+    if user["level"] >= 4:  # admins also see the "admins" fan-out - of their companies only (11/02/2026)
         q = q.filter(or_(models.TaskNotification.for_email == email,
                          models.TaskNotification.for_email == "admins"))
     else:
         q = q.filter(models.TaskNotification.for_email == email)
     rows = q.order_by(models.TaskNotification.created_at.desc()).limit(500).all()
-    return [notification_to_dict(n) for n in rows]
+    from routers.task_util import admins_row_visible
+    return [notification_to_dict(n) for n in rows
+            if (n.for_email or "") != "admins" or admins_row_visible(db, user, n)]
 
 
 @router.post("/task-notifications/{notif_id}/read")
@@ -1286,6 +1288,9 @@ def mark_notification_read(notif_id: str, user: dict = Depends(get_current_user)
     targets = [user["email"].lower()] + (["admins"] if user["level"] >= 4 else [])
     if not n or (n.for_email or "").lower() not in targets:
         raise HTTPException(404, "Notification not found")
+    from routers.task_util import admins_row_visible
+    if (n.for_email or "") == "admins" and not admins_row_visible(db, user, n):
+        raise HTTPException(404, "Notification not found")
     n.read = True
     db.commit()
     return {"ok": True}
@@ -1294,11 +1299,18 @@ def mark_notification_read(notif_id: str, user: dict = Depends(get_current_user)
 @router.post("/task-notifications/read-all")
 def mark_all_read(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     email = user["email"].lower()
-    targets = [email] + (["admins"] if user["level"] >= 4 else [])
     db.query(models.TaskNotification).filter(
-        models.TaskNotification.for_email.in_(targets),
+        models.TaskNotification.for_email == email,
         models.TaskNotification.read == False,  # noqa: E712
     ).update({models.TaskNotification.read: True}, synchronize_session=False)
+    if user["level"] >= 4:
+        # The "admins" fan-out rows of the caller's companies only.
+        from routers.task_util import admins_row_visible
+        for n in (db.query(models.TaskNotification)
+                  .filter(models.TaskNotification.for_email == "admins",
+                          models.TaskNotification.read == False).all()):  # noqa: E712
+            if admins_row_visible(db, user, n):
+                n.read = True
     db.commit()
     return {"ok": True}
 
@@ -1548,6 +1560,25 @@ def _released_updates(db: Session) -> list:
     return rows
 
 
+def _release_items(db: Session, rows: list) -> list:
+    """The updates themselves for the bar's See What's New popup (Oct 29-30
+    2026, Neil agreed: it opens a popup, it never reloads): newest first,
+    capped; the description cut to a short plain line. Both bars use it -
+    the New Version one (released-since) and the weekly news (feature-banner)."""
+    rows = rows[:RELEASED_SINCE_ITEMS]
+    ids = [r["id"] for r in rows]
+    by_id = {e.id: e for e in db.query(models.TaskChangelogEntry).filter(models.TaskChangelogEntry.id.in_(ids)).all()} if ids else {}
+    items = []
+    for r in rows:
+        e = by_id.get(r["id"])
+        p = e.payload if e is not None and isinstance(e.payload, dict) else {}
+        desc = re.sub(r"\s+", " ", re.sub(r"[#*_`>\[\]]", "", str(p.get("description") or ""))).strip()
+        items.append({"id": r["id"], "title": str(p.get("title") or "Update")[:200], "type": r["type"],
+                      "module": str(p.get("module") or "")[:60],
+                      "summary": desc[:240] + ("..." if len(desc) > 240 else "")})
+    return items
+
+
 def _category_counts(rows: list) -> dict:
     return {"counts": dict(Counter(r["type"] for r in rows)), "total": len(rows)}
 
@@ -1628,7 +1659,7 @@ def get_feature_banner(user: dict = Depends(get_current_user), db: Session = Dep
     db.commit()
     if away_this_week:
         return {"show": False}
-    return {"show": True, **counts}
+    return {"show": True, **counts, "items": _release_items(db, fresh)}
 
 
 @view_router.post("/task-changelog/feature-banner/dismiss")
@@ -1651,20 +1682,7 @@ def get_released_since(since: str = "", user: dict = Depends(get_current_user), 
     ctx = changelog_reach.viewer(db, user)
     rows = [r for r in _released_updates(db)
             if (r["merged"] or r["at"]) > since_at and changelog_reach.visible(r["p"], ctx)]
-    # The items themselves (Oct 29 2026, Neil agreed): See What's New opens
-    # them in a popup inside the bar instead of reloading the tab onto What's
-    # New. Newest first, capped; the description is cut to a short plain line.
-    ids = [r["id"] for r in rows[:RELEASED_SINCE_ITEMS]]
-    by_id = {e.id: e for e in db.query(models.TaskChangelogEntry).filter(models.TaskChangelogEntry.id.in_(ids)).all()} if ids else {}
-    items = []
-    for r in rows[:RELEASED_SINCE_ITEMS]:
-        e = by_id.get(r["id"])
-        p = e.payload if e is not None and isinstance(e.payload, dict) else {}
-        desc = re.sub(r"\s+", " ", re.sub(r"[#*_`>\[\]]", "", str(p.get("description") or ""))).strip()
-        items.append({"id": r["id"], "title": str(p.get("title") or "Update")[:200], "type": r["type"],
-                      "module": str(p.get("module") or "")[:60],
-                      "summary": desc[:240] + ("..." if len(desc) > 240 else "")})
-    return {**_category_counts(rows), "items": items}
+    return {**_category_counts(rows), "items": _release_items(db, rows)}
 
 
 @router.delete("/task-changelog/{entry_id}", status_code=204)

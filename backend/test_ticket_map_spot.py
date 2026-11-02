@@ -38,7 +38,9 @@ from routers import tickets as T                  # noqa: E402
 from routers import ticket_map_spots as R         # noqa: E402
 from routers import unit_map as UM                # noqa: E402
 
-ADMIN = {"email": "neil@greensglobal.com", "role": "administrator", "level": 4}
+# A Super Administrator (Neil, 11/02/2026: an Administrator is company-walled;
+# only a Super Administrator passes the walls).
+ADMIN = {"email": "neil@greensglobal.com", "role": "owner", "level": 5}
 PLAIN = {"email": "darshana@greensglobal.com", "role": "employee", "level": 1}
 OTHER = {"email": "someone@greensglobal.com", "role": "employee", "level": 1}
 OPS = {"email": "ops@greensglobal.com", "role": "employee", "level": 1}
@@ -69,7 +71,7 @@ class TicketMapSpotTests(unittest.TestCase):
         for u in (ADMIN, PLAIN, OTHER, OPS):
             self.db.add(models.NexusEmployee(id=gen_id(), first_name=u["email"].split("@")[0], work_email=u["email"],
                                              status="active", identity_type="internal"))
-        self.db.add(models.NexusRole(email=ADMIN["email"], role="administrator"))
+        self.db.add(models.NexusRole(email=ADMIN["email"], role="owner"))
         self.db.add(models.NexusGroup(id="g-ops", name="Ops", allowed_modules="operations:viewer"))
         self.db.add(models.NexusGroupMember(group_id="g-ops", email=OPS["email"]))
         self.db.add(models.HrDepartment(id="d-fac", company_id="c1", name="Construction"))

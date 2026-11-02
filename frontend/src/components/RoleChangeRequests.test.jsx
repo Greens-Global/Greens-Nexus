@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // Role change requests (Pranshu, Oct 13): none are made since Neil's Oct 22
 // call, but one still pending from before is approved or declined by HR, an
-// IT Admin or a Global Admin - on the Role tab or straight from the bell.
+// Administrator or a Super Administrator - on the Role tab or straight from the bell.
 
 const base = {
   id: 'rq1', employeeId: 'e1', employeeName: 'Erin Lee', fromTitle: 'Tester', toRoleName: 'Accounting Associate',
@@ -71,7 +71,7 @@ describe('RoleChangeRequestCard', () => {
     const onDecided = vi.fn();
     render(<RoleChangeRequestCard employeeId="e1" onDecided={onDecided} toastOk={() => {}} toastErr={() => {}} />);
     await waitFor(() => expect(screen.getByText('Covers month-end close')).toBeTruthy());
-    expect(screen.getByText(/HR, an IT Admin or a Global Admin approves or declines it/)).toBeTruthy();
+    expect(screen.getByText(/HR, an Administrator or a Super Administrator approves or declines it/)).toBeTruthy();
     expect(screen.queryByText('Cancel Request')).toBeNull();
     fireEvent.click(screen.getByText('Approve'));
     await waitFor(() => expect(onDecided).toHaveBeenCalled());

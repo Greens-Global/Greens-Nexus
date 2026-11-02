@@ -31,7 +31,7 @@ import models  # noqa: E402
 import hr_life_events as hle  # noqa: E402
 from routers import hr  # noqa: E402
 
-ADMIN = "admin.inv@greensglobal.com"
+ADMIN = "admin.inv@greensglobal.com"   # Super Administrator: creates a company (Neil, 11/02/2026)
 EMP = "dev.inv@greensglobal.com"
 CO = "ent-inv"
 
@@ -64,7 +64,7 @@ class ContractorInvoiceData(unittest.TestCase):
                                          company=CO, status="active"))
         self.db.add(models.NexusEmployee(id="id-inv-emp", work_email=EMP, first_name="Dev", last_name="One",
                                          company=CO, status="active", employment_type="contractor"))
-        self.db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
+        self.db.add(models.NexusRole(email=ADMIN, role="owner", assigned_by="test"))
         self.db.commit()
         os.environ["NEXUS_DEV_EMAIL"] = ADMIN
 

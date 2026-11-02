@@ -294,7 +294,7 @@ def load_snaps(db: Session, template_ids: list) -> tuple:
             problems.append("A document in this packet no longer exists in Documents - remove it from the packet.")
             continue
         if tpl.status != "active":
-            problems.append(f'"{tpl.name}" is {tpl.status} in Documents - activate it, or take it out of the packet.')
+            problems.append(f'"{tpl.name}" is {tpl.status} in Documents - publish it, or take it out of the packet.')
             continue
         try:
             content, meta, version = published_snapshot(db, tpl)
@@ -602,9 +602,15 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
             out.append(f'"{snap.name}" prints a fixed letterhead, but this packet is for every company - make a '
                        f'packet per company and pick its letterhead, or use {{{{company}}}} in the template header.')
     blocks = {k for snap in snaps for k in snap.signature_roles}
+    # The federal forms bring their own signature boxes (Neil, 11/02/2026):
+    # the person signs each one, and HR signs the I-9's Section 2 - so a
+    # step those cover is not missing a block.
+    fed = list(getattr(setting, "federal_forms", None) or [])
     if snaps:
         for step in flow:
             if step["action"] != "sign" or step["key"] in blocks:
+                continue
+            if fed and (step["role"] == SUBJECT_ROLE or (step["role"] == "hr" and "i9" in fed)):
                 continue
             if step["role"] == SUBJECT_ROLE:
                 out.append(f'No document has a signature block for The Person ("{step["key"]}") - add one in Documents.')
@@ -1254,9 +1260,40 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
         fields = [{**f, "id": f"d{i + 1}-{f['id']}", "role": remap.get(f["role"], f["role"])}
                   for f in signing_fields(anchors)]
         docs.append({"name": f"{row.title}.pdf", "path": path, "fields": fields})
+    # The federal forms after the documents (Neil, 11/02/2026): a US hiring
+    # packet for an employee sends the W-4, the I-9 and the direct deposit
+    # authorization it lists; the I-9 needs an HR signer after the person,
+    # added when the flow has none.
+    rows = [dict(x) for x in p["parties"]]
+    kinds = federal_kinds_for(db, ev, setting)
+    if kinds:
+        hr_row = None
+        if "i9" in kinds:
+            hr_row = next((x for x in rows if x["role"] == "hr" and x["action"] == "sign"), None)
+            if hr_row is None:
+                ctx = event_ctx(db, ev, setting, (user["email"] or "").lower())
+                hr_email = resolve_role(db, "hr", ctx)
+                hr_person = person(db, hr_email) if hr_email else None
+                if not hr_email or hr_person is None:
+                    raise hle.PacketError(_nobody("hr", ctx), 409)
+                if any(x["email"] == hr_email and x["role"] == SUBJECT_ROLE for x in rows):
+                    raise hle.PacketError("The person this packet is about cannot sign Form I-9 Section 2 for the "
+                                          "company - set someone else as HR.", 409)
+                key = "hr" if not any(x["key"] == "hr" for x in rows) else "hr_i9"
+                hr_row = {"key": key, "role": "hr", "action": "sign", "email": hr_email,
+                          "name": (hr_person.display_name or f"{hr_person.first_name} {hr_person.last_name}").strip(),
+                          "title": hr_person.job_title or "", "kind": "internal", "partyRole": "signer",
+                          "ordinal": max(x["ordinal"] for x in rows) + 1}
+                rows.append(hr_row)
+        try:
+            docs.extend(federal_documents(db, kinds=kinds, entity=db.query(HrEntity).filter(HrEntity.id == ev.entity_id).first(),
+                                          start_date=str((ev.inputs or {}).get("start_date") or ""),
+                                          person_key=first["key"], hr_key=hr_row["key"] if hr_row else ""))
+        except FederalFormProblem as e:
+            raise hle.PacketError(str(e), 400)
     parties = [esign.PartyIn(role_key=x["key"], name=x["name"], email=x["email"], kind=x["kind"],
                              ordinal=x["ordinal"], party_role=x["partyRole"], title=x.get("title", ""))
-               for x in p["parties"]]
+               for x in rows]
     me = (user["email"] or "").lower()
     # Signs Once: the adopted signature goes on when that step's turn comes -
     # after the person, who signs first (Neil, Oct 22 2026); never at send.
@@ -1276,7 +1313,155 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
             link_kind="life_event", link_id=ev.id, sender_signs_first=sender_first,
             prints_pay=p["printsPay"], saved=saved)
     except HTTPException as ex:
+        federal_discard(docs)
         raise hle.PacketError(str(ex.detail), ex.status_code)
+
+
+# ── the federal forms (Neil, 11/02/2026) ─────────────────────────────────────
+# A US hiring packet for an EMPLOYEE may send the Form W-4, the Form I-9 and
+# our Direct Deposit Authorization after its documents (HrPacketSetting.
+# federal_forms, in registry order). federal_forms.prepare gives each form as
+# a flat PDF plus typed boxes; here the boxes are pointed at the packet's
+# signers (the person's key, the HR step's key), their ids prefixed with the
+# form kind so the W-4's SSN and the I-9's never collide, and the
+# merge-sourced boxes (the company's legal name, address and EIN, the first
+# day of employment) are printed from the HrEntity and the hire. The same
+# function builds the one-document envelope the person record sends.
+
+FEDERAL_SUBFOLDERS = {"w4": "Tax and Payroll Forms", "direct_deposit": "Tax and Payroll Forms", "i9": "Form I-9"}
+
+
+class FederalFormProblem(ValueError):
+    """A form that cannot be sent today - the edition lapsed."""
+
+
+def clean_federal_forms(kinds) -> list:
+    """The saved list: known kinds only, de-duplicated, in registry order."""
+    from federal_forms import FORMS
+    want = {str(k).strip() for k in (kinds or []) if str(k or "").strip()}
+    bad = sorted(want - set(FORMS))
+    if bad:
+        raise PacketProblem(f"Unknown federal form: {', '.join(bad)}. Pick from W-4, I-9 and Direct Deposit.")
+    return [k for k in FORMS if k in want]
+
+
+def federal_subfolder(kind: str) -> str:
+    """Where the signed form files under the person's Egnyte folder."""
+    return FEDERAL_SUBFOLDERS.get(kind, "Tax and Payroll Forms")
+
+
+def federal_applies(country: str, worker_type: str) -> bool:
+    """US companies, employees (contractors keep the W-9 path)."""
+    return (country or "").upper() == "US" and (worker_type or "employee") == "employee"
+
+
+def federal_kinds_for(db: Session, ev, setting: HrPacketSetting) -> list:
+    """Which forms THIS hire's packet sends: the setting's list, when the
+    company is in the US and the hire is an employee."""
+    import hr_life_events as hle
+    kinds = clean_federal_forms(getattr(setting, "federal_forms", None) or [])
+    if not kinds or ev.kind != "hire":
+        return []
+    d = ev.inputs or {}
+    if not federal_applies(hle.country_of(db, ev.entity_id or ""), hle.worker_type_of(d.get("employment_type"))):
+        return []
+    return kinds
+
+
+def federal_merge(entity: Optional[HrEntity], start_date: str) -> dict:
+    """What each registry.MERGE_KEYS box prints."""
+    import hr_life_events as hle
+    legal = ((getattr(entity, "legal_name", "") or getattr(entity, "name", "")) if entity else "").strip()
+    address = ((getattr(entity, "registered_address", "") or getattr(entity, "physical_address", "")) if entity else "").strip()
+    return {"employer.legal_name": legal,
+            "employer.address": address,
+            "employer.name_address": ", ".join(x for x in (legal, address) if x),
+            "employer.ein": ((getattr(entity, "tax_id", "") if entity else "") or "").strip(),
+            "person.first_day": hle.us_date(start_date[:10]) if start_date else ""}
+
+
+def federal_fields(kind: str, fields: list, *, person_key: str, hr_key: str, merge: dict) -> list:
+    """The prepared boxes as Nexus Sign stores them: ids prefixed "<kind>-"
+    with the bare id kept as `formField`, roles pointed at the packet's
+    signer keys, merge-sourced boxes with no signer printed as merge boxes
+    carrying their text, merge-sourced boxes a signer owns (the I-9's first
+    day, the employer's name) prefilled and editable - the first day
+    required, as Section 2 demands it."""
+    out = []
+    for f in fields:
+        g = {**f, "id": f"{kind}-{f['id']}", "formField": f["id"]}
+        role = f.get("role") or ""
+        g["role"] = person_key if role == "employee" else hr_key if role == "hr" else ""
+        if f.get("source") == "merge":
+            value = str(merge.get(f.get("mergeKey", ""), "") or "")
+            if not g["role"]:
+                g = {"id": g["id"], "formField": g["formField"], "type": "merge", "merge": f.get("mergeKey", ""),
+                     "value": value, "role": "", "required": False, "label": f.get("label", ""),
+                     "page": f["page"], "x": f["x"], "y": f["y"], "w": f["w"], "h": f["h"], "source": "merge"}
+            else:
+                if value:
+                    g["value"] = value
+                if f["id"] == "first_day":
+                    g["required"] = True
+        if g["role"] == "" and g.get("type") != "merge":
+            # A signer box whose signer the packet has none of (an HR box on
+            # a form sent with no HR step) would wedge the envelope - refuse
+            # loudly rather than seal a blank.
+            raise ValueError(f"{kind}: no signer for the {role} boxes")
+        out.append(g)
+    return out
+
+
+def federal_documents(db: Session, *, kinds: list, entity: Optional[HrEntity], start_date: str,
+                      person_key: str, hr_key: str) -> list:
+    """Nexus Sign document entries for the forms, uploaded - [{name, path,
+    fields, formKind}]. Raises FederalFormProblem with the edition sentence
+    when a form's edition has lapsed, or when a form has no HR signer.
+    EVERY form is prepared and checked before ANY is stored (11/02/2026: a
+    refusal on the second form used to leave the first one's flat PDF in the
+    bucket), and a store that fails stores nothing more."""
+    import uuid
+    import federal_forms
+    from federal_forms import editions
+    from routers import esign
+    import hr_life_events as hle
+    for kind in kinds:
+        refusal = editions.refusal(kind)
+        if refusal:
+            raise FederalFormProblem(refusal)
+    merge = federal_merge(entity, start_date)
+    ready = []
+    for kind in kinds:
+        spec = federal_forms.FORMS[kind]
+        if "hr" in spec["roles"] and not hr_key:
+            raise FederalFormProblem(f"{spec['title']} needs an HR signer for the company's part.")
+        prepared = federal_forms.prepare(kind)
+        fields = federal_fields(kind, prepared["fields"], person_key=person_key, hr_key=hr_key, merge=merge)
+        ready.append((kind, spec, prepared["pdf"], fields))
+    out = []
+    for kind, spec, pdf, fields in ready:
+        path = f"esign/{uuid.uuid4()}/{kind}.pdf"
+        if not esign._storage_put(esign._DOC_BUCKET, path, pdf, "application/pdf").is_success:
+            federal_discard(out)
+            raise hle.PacketError("Could not store the forms - try again in a minute.", 502)
+        out.append({"name": f"{spec['title']} ({spec['editionLabel']}).pdf", "path": path, "formKind": kind,
+                    "fields": fields})
+    return out
+
+
+def federal_discard(documents: list) -> None:
+    """Take the federal forms' flat PDFs back out of the bucket when the
+    envelope they were made for was refused after they were stored (the
+    send's own checks: parties, documents). Only entries with a `formKind`
+    - a packet's template documents are not this module's. Best effort: a
+    delete that fails is logged, never raised over the refusal."""
+    from routers import esign
+    for d in documents or []:
+        if isinstance(d, dict) and d.get("formKind") and d.get("path"):
+            try:
+                esign._storage_remove(esign._DOC_BUCKET, d["path"])
+            except Exception as e:   # noqa: BLE001 - the refusal is the answer; this is housekeeping
+                print(f"[federal-forms] could not remove {d['path']}: {e}")
 
 
 # ── the packet's Details Form (Oct 14) ───────────────────────────────────────

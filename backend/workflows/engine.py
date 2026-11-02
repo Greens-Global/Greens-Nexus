@@ -561,7 +561,7 @@ class _Walk:
             if action.needs_person and ctx.run_as is None:
                 raise StepRefused(f"{action.label} needs a person's identity; this workflow runs as Nexus")
             if action.admin_only and int((ctx.run_as or {}).get("level", 0) or 0) < 5:
-                raise StepRefused(f"{action.label} is for Global Admins only")
+                raise StepRefused(f"{action.label} is for Super Administrators only")
             if action.allowed is not None:
                 reason = action.allowed(ctx, params) or ""
                 if reason:

@@ -6,7 +6,9 @@
 // only gains the behavior:  <PersonHover email={em}><Avatar .../></PersonHover>
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Mail, MessageSquare, User } from 'lucide-react';
+import { Mail, User } from 'lucide-react';
+import PersonActions from './PersonActions';
+import TierMark from './TierMark';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { openPersonProfile } from '../lib/personNav';
@@ -38,7 +40,7 @@ const CARD_W = 268;
 export default function PersonHover({ email, name = '', children, disabled = false }) {
   // `|| {}`: an avatar rendered outside the RoleProvider (a test, a portal
   // mounted early) just has no click-through, instead of crashing the screen.
-  const { can, myGrantedModules } = useRole() || {};
+  const { can, myGrantedModules, myEmail } = useRole() || {};
   const [card, setCard] = useState(null);
   const [pos, setPos] = useState(null);      // non-null while the card is shown
   const anchorRef = useRef(null);
@@ -157,7 +159,7 @@ export default function PersonHover({ email, name = '', children, disabled = fal
                       {(card.name || em).slice(0, 1).toUpperCase()}
                     </div>}
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.name}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.name}<TierMark tier={card.tier} /></div>
                   {card.jobTitle && <div style={{ fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.jobTitle}</div>}
                   {(card.department || card.location) && (
                     <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
@@ -170,10 +172,7 @@ export default function PersonHover({ email, name = '', children, disabled = fal
                 <a href={`mailto:${card.workEmail || em}`} style={ACTION} onClick={(e) => e.stopPropagation()}>
                   <Mail size={13} /> Email
                 </a>
-                <a href={`https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(card.workEmail || em)}`}
-                   target="_blank" rel="noreferrer" style={ACTION} onClick={(e) => e.stopPropagation()}>
-                  <MessageSquare size={13} /> Teams
-                </a>
+                <PersonActions email={card.workEmail || em} name={card.name || em} external={!!card.external} myEmail={myEmail} variant="pill" />
                 {canOpen && (
                   <button onClick={(e) => { e.stopPropagation(); go(); }} style={{ ...ACTION, border: 'none', cursor: 'pointer' }}>
                     <User size={13} /> Profile

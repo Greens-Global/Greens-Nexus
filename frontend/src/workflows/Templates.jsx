@@ -13,6 +13,7 @@ import { describeTrigger } from './lib/text';
 import { moduleLabel, sortModules, blankLabel } from './lib/modules';
 import { errorText } from './lib/errors';
 import { stashBlanks } from './lib/blanks';
+import Thumbnail from './canvas/Thumbnail';
 
 function Chip({ children, tone = 'muted' }) {
   return <span className={`status-badge pill-${tone}`} style={{ fontWeight: 600 }}>{children}</span>;
@@ -86,6 +87,13 @@ function UseTemplateModal({ template, onClose, onCreated }) {
 function TemplateCard({ t, sentence, onUse }) {
   return (
     <article style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+      {/* The template's silhouette (10/30/2026): the shape it would draw on the canvas, on a sheet of graph paper. */}
+      <div style={{
+        height: 110, borderRadius: 10, border: '1px solid var(--line)', background: 'var(--bg-secondary, #f9fafb)', display: 'grid', placeItems: 'center', overflow: 'hidden', padding: 8,
+        backgroundImage: 'linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px)', backgroundSize: '16px 16px',
+      }}>
+        <Thumbnail shape={t.shape} width="100%" height={94} title={`${t.name} shape`} />
+      </div>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
         <span className="nx-set-tile" aria-hidden="true"><LayoutTemplate size={15} /></span>
         <div style={{ flex: 1, minWidth: 0 }}>

@@ -285,10 +285,23 @@ export function TypeFieldInput({ field: f, value, onChange, people, projects, in
 
 // Inline "Required" note shown under a field after a failed submit.
 
-export function TicketTypeIcon({ type, size = 15 }) {
+// `boxed` (Neil, 11/02/2026: the bare colored glyphs on the phone list "are
+// kind of shit"): the glyph sits in a soft tinted rounded square the way the
+// Help Center tiles and the Quick Actions dock draw theirs, so every type
+// reads as the same kind of mark whatever its glyph's shape. The box is 28px
+// at the default size and scales with `size`.
+export function TicketTypeIcon({ type, size = 15, boxed = false }) {
   const m = TICKET_TYPE_META[type] || TICKET_TYPE_META.request;
   const Icon = m.icon;
-  return <Icon size={size} style={{ color: m.color, flexShrink: 0 }} title={m.label} />;
+  if (!boxed) return <Icon size={size} style={{ color: m.color, flexShrink: 0 }} title={m.label} />;
+  const box = Math.round(size * 1.85);
+  return (
+    <span title={m.label} aria-label={m.label} role="img" data-ticket-type={type}
+      style={{ width: box, height: box, borderRadius: Math.round(box * 0.3), flexShrink: 0, display: 'inline-grid', placeItems: 'center',
+        background: `color-mix(in srgb, ${m.color} 13%, transparent)`, color: m.color }}>
+      <Icon size={size} strokeWidth={2} />
+    </span>
+  );
 }
 
 

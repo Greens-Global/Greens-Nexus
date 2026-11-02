@@ -9,6 +9,7 @@ import { RoleChangeModal } from '../components/HrPersonActions';
 import { RoleChangeRequestCard, RoleHistory } from '../components/RoleChangeRequests';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
+import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import { usePeopleDirectory } from '../lib/queries';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
@@ -495,10 +496,12 @@ export default function RolesAccess({ embedded = false }) {
     try { await api.unassignJobRole(selected.id, email, reason); toastOk(`Removed ${nameOf(email)} from “${selected.name}”.`); loadRoles(); }
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
+  // Delete group is held on the card (Hold to confirm, Neil, Oct 30 2026):
+  // one group, so no dialog; a refusal rewinds the button with the reason and
+  // the list re-reads once the check has shown (onDone).
   async function onDeleteGroup(g) {
-    if (!await dialog.confirm(`Delete group "${g.name}"?${g.member_count ? ` ${g.member_count} people are in it and will lose that access.` : ''}`, { title: 'Delete group', confirmText: 'Delete', danger: true })) return;
-    try { await api.deleteGroup(g.id); toastOk(`Deleted "${g.name}".`); loadGroups(); }
-    catch (e) { toastErr(e?.message || 'Could not delete group.'); }
+    try { await api.deleteGroup(g.id); toastOk(`Deleted "${g.name}".`); }
+    catch (e) { throw new Error(e?.message || 'Could not delete group.', { cause: e }); }
   }
 
   const openDuplicate = r => setEditing({ ...r, id: undefined, member_count: 0, members: [],
@@ -732,7 +735,7 @@ export default function RolesAccess({ embedded = false }) {
       {sub === 'groups' && (
         !groups ? <ListSkeleton /> : (
           <>
-            <CompanyWallsPanel toastOk={toastOk} toastErr={toastErr} />
+            <CompanyWallsPanel toastOk={toastOk} toastErr={toastErr} roleMap={roleMap} groups={groups} />
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
               <button className="primary-btn" data-tour="new-group" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditGroup(null)}><Plus size={15} /> New group</button>
             </div>
@@ -742,13 +745,14 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                     <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>+ {g.name}</span>
                     {g.is_global_admin
-                      ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(230,50%,55%,0.14)', color: 'hsl(230,45%,50%)' }}>Global Admins</span>
+                      ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(230,50%,55%,0.14)', color: 'hsl(230,45%,50%)' }}>Super Administrators</span>
                       : g.company_id
                         ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))' }}>{companies.find(c => c.id === g.company_id)?.name || 'Company role'}</span>
                         : null}
                     <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{(g.members || []).length} {(g.members || []).length === 1 ? 'person' : 'people'}</span>
                     <button className="secondary-btn" style={{ padding: '5px 9px' }} onClick={() => setEditGroup(g)} title="Edit group"><Pencil size={13} /></button>
-                    <button className="secondary-btn" style={{ padding: '5px 9px' }} onClick={() => onDeleteGroup(g)} title="Delete group"><Trash2 size={13} /></button>
+                    <HoldButton size="sm" label="Delete" doneLabel="Deleted" ariaLabel={`Delete group ${g.name}`} onConfirm={() => onDeleteGroup(g)} onDone={() => loadGroups()}
+                      fallbackMessage={`Delete group "${g.name}"?${g.member_count ? ` ${g.member_count} people are in it and will lose that access.` : ''}`} />
                   </div>
                   <div style={{ marginTop: 7, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>{bundleSummary(g.allowed_modules)}</div>
                   {(g.members || []).filter(inFilter).length > 0 && (
@@ -873,10 +877,20 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
     try { await api.addGroupMembers(g.id, [person]); toastOk(`Added ${nameOf(person)} to “${g.name}”.`); refresh(); }
     catch (e) { toastErr(e?.message || 'Could not add to group.'); }
   }
+  // Remove from group is held on the chip (Hold to confirm, Neil, Oct 30
+  // 2026): one membership, so no dialog; Undo puts them back through the same
+  // add call; the card re-reads once the check has shown (onDone).
   async function removeFromGroup(g) {
-    if (!await dialog.confirm(`Remove ${nameOf(person)} from "${g.name}"? They lose that extra access; their job-role baseline is untouched.`, { title: 'Remove from group', confirmText: 'Remove', danger: true })) return;
-    try { await api.removeGroupMember(g.id, person); toastOk(`Removed ${nameOf(person)} from “${g.name}”.`); refresh(); }
-    catch (e) { toastErr(e?.message || 'Could not remove.'); }
+    const who = person;
+    try { await api.removeGroupMember(g.id, who); toastOk(`Removed ${nameOf(who)} from “${g.name}”.`); }
+    catch (e) { throw new Error(e?.message || 'Could not remove.', { cause: e }); }
+    return {
+      undoMessage: `Removed ${nameOf(who)} from “${g.name}”.`,
+      undo: async () => {
+        try { await api.addGroupMembers(g.id, [who]); toastOk(`Added ${nameOf(who)} to “${g.name}”.`); refresh(); }
+        catch (e) { toastErr(e?.message || 'Could not add to group.'); }
+      },
+    };
   }
   // Per-person tier OVERRIDE: sets this individual's seniority tier directly and
   // pins it, so two people in the SAME job role can hold different tiers and a
@@ -1058,10 +1072,10 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
               {(eff.extra_groups || []).map(g => (
                 <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 6px 4px 12px', borderRadius: 999, border: '1px dashed var(--line-strong,var(--line))', fontSize: 12, fontWeight: 600 }}>
                   + {g.name}
-                  <button onClick={() => removeFromGroup(g)} title={`Remove from ${g.name}`} aria-label={`Remove from ${g.name}`}
-                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 17, height: 17, borderRadius: '50%', padding: 0 }}>
-                    <X size={12} />
-                  </button>
+                  <HoldButton size="sm" label="Remove" doneLabel="Removed" icon={X} ariaLabel={`Remove from ${g.name}`}
+                    onConfirm={() => removeFromGroup(g)} onDone={() => refresh()}
+                    fallbackMessage={`Remove ${nameOf(person)} from "${g.name}"? They lose that extra access; their job-role baseline is untouched.`}
+                    style={{ height: 24, padding: '0 9px', borderRadius: 999, fontSize: 11.5 }} />
                 </span>
               ))}
               {(eff.extra_groups || []).length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>None</span>}
@@ -1246,16 +1260,23 @@ export function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastEr
     } catch (e) { toastErr(e?.message || 'Could not save the approver.'); }
     setBusy('');
   }
+  // Overwriting every member's manager is a major action: the dialog says
+  // what is overwritten and its button is a held one (Hold to confirm, Neil,
+  // Oct 30 2026) that waits for the server, staying open with the reason.
   async function applyAll() {
     if (!val) return;
-    if (!await dialog.confirm(`Set ${nameOf(val)} as manager/time sheet approver for all ${role.member_count} people in "${role.name}"? This overwrites their current manager; individual cards can be changed afterwards.`, { title: 'Set approver for whole role', confirmText: 'Set for all' })) return;
-    setBusy('apply');
-    try {
-      const r = await api.applyJobRoleManager(role.id, val);
-      toastOk(`${nameOf(val)} is now the approver for ${r.updated} ${r.updated === 1 ? 'person' : 'people'} in “${role.name}”.`);
-      onSaved();
-    } catch (e) { toastErr(e?.message || 'Could not apply to members.'); }
-    setBusy('');
+    await dialog.confirm(`Set ${nameOf(val)} as manager/time sheet approver for all ${role.member_count} people in "${role.name}"? This overwrites their current manager; individual cards can be changed afterwards.`, {
+      title: 'Set Approver For Whole Role', confirmText: 'Set For All', doneText: 'Set', hold: true, holdMs: HOLD_MAJOR_MS,
+      onConfirm: async () => {
+        setBusy('apply');
+        try {
+          const r = await api.applyJobRoleManager(role.id, val);
+          toastOk(`${nameOf(val)} is now the approver for ${r.updated} ${r.updated === 1 ? 'person' : 'people'} in “${role.name}”.`);
+          onSaved();
+        } catch (e) { throw new Error(e?.message || 'Could not apply to members.', { cause: e }); }
+        finally { setBusy(''); }
+      },
+    });
   }
 
   return (
@@ -1584,18 +1605,32 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
 
 // ── group editor (additive groups: name + module bundle, no tier) ─────────────
 // ── Company walls: the master arm switch (multi-company isolation) ────────────
-function CompanyWallsPanel({ toastOk, toastErr }) {
+// Tiers (Neil, 11/02/2026): only a Super Administrator (level 5) sets the
+// walls, so the switch shows for them alone. An Administrator is confined to
+// their companies whether the walls are on or off - the switch only changes
+// Managers and below. Super Administrators = the owner tier PLUS members of a
+// group flagged is_global_admin, counted once each.
+function superAdminCount(roleMap = {}, groups = []) {
+  const set = new Set();
+  Object.entries(roleMap || {}).forEach(([em, r]) => { if (r?.role === 'owner') set.add(em.toLowerCase()); });
+  (groups || []).filter(g => g.is_global_admin).forEach(g => (g.members || []).forEach(em => set.add(String(em).toLowerCase())));
+  return set.size;
+}
+
+function CompanyWallsPanel({ toastOk, toastErr, roleMap, groups }) {
+  const { myLevel } = useRole();
   const [state, setState] = useState(null);   // {on, globalAdminGroups, globalAdmins}
   const [busy, setBusy] = useState(false);
   const load = () => api.getCompanyWalls().then(setState).catch(() => setState(null));
   useEffect(() => { load(); }, []);
   if (state === null) return null;   // hidden for non-admins / when unavailable
-  const noGlobals = !state.globalAdmins;
+  const canSet = (myLevel || 0) >= 5;
+  const supers = superAdminCount(roleMap, groups);
   async function toggle() {
     const on = !state.on;
     const msg = on
-      ? `Turn the company walls ON? Every company becomes private - people, tasks and tickets only show within someone's own company, and only Global Admins see across.${noGlobals ? '\n\nHeads up: no Global Admins are set yet. Mark a group "Global Admins" and add yourself first, or you could lose your org-wide view.' : ''}`
-      : 'Turn the company walls OFF? Everyone goes back to seeing across all companies.';
+      ? 'Turn the company walls ON? Every company becomes private for Managers and below - people, tasks and tickets only show within their own company. Administrators are confined to their companies either way; only Super Administrators see across.'
+      : 'Turn the company walls OFF? Managers and below go back to seeing across all companies. Administrators stay confined to their own companies.';
     if (!await dialog.confirm(msg, { title: on ? 'Arm company walls' : 'Disarm company walls', confirmText: on ? 'Arm walls' : 'Disarm' })) return;
     setBusy(true);
     try { await api.setCompanyWalls(on); toastOk(on ? 'Company walls armed.' : 'Company walls disarmed.'); load(); }
@@ -1611,21 +1646,27 @@ function CompanyWallsPanel({ toastOk, toastErr }) {
             : <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>OFF</span>}
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-          {state.on ? 'Each company is private - staff only see their own company.' : 'Off - everyone sees across all companies.'}
-          {` · ${state.globalAdmins} global admin${state.globalAdmins === 1 ? '' : 's'}`}
-          {noGlobals && <span style={{ color: '#b45309', fontWeight: 600 }}> · none set yet</span>}
+          {state.on ? 'Each company is private - Managers and below only see their own company.'
+            : 'Off - Managers and below see across all companies.'}
+          {' Administrators always stay inside their own companies.'}
+          {` · ${supers} super administrator${supers === 1 ? '' : 's'}`}
+          {!canSet && ' · only a Super Administrator changes the walls'}
         </div>
       </div>
-      <button className={state.on ? 'secondary-btn' : 'primary-btn'} disabled={busy} onClick={toggle} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        {busy && <Spinner size={14} />}
-        {state.on ? 'Disarm' : 'Arm walls'}
-      </button>
+      {canSet && (
+        <button className={state.on ? 'secondary-btn' : 'primary-btn'} disabled={busy} onClick={toggle} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {busy && <Spinner size={14} />}
+          {state.on ? 'Disarm' : 'Arm walls'}
+        </button>
+      )}
     </div>
   );
 }
 
 
 function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
+  const { myLevel } = useRole();
+  const canFlag = (myLevel || 0) >= 5;   // only a Super Administrator flags a group (Tiers, Neil 11/02/2026)
   const [name, setName] = useState(group?.name || '');
   const [bundle, setBundle] = useState(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])));
   const [companyId, setCompanyId] = useState(group?.company_id || '');
@@ -1641,7 +1682,7 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
     if (!name.trim()) return onErr('Name is required.');
     setBusy(true);
     const body = { name: name.trim(), allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })),
-      company_id: globalAdmin ? '' : companyId, is_global_admin: globalAdmin };
+      company_id: globalAdmin ? '' : companyId, ...(canFlag ? { is_global_admin: globalAdmin } : {}) };
     try {
       const saved = group ? await api.updateGroup(group.id, body) : await api.createGroup(body);
       onSaved(saved);
@@ -1654,22 +1695,24 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
         <label style={fieldLabel}>Name
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Accounting - Viewer" style={input} /></label>
         {/* Multi-company walls: bind this group to a company (a per-company role) or
-            mark it the Global Admins group (members see past every company wall). */}
+            mark it the Super Administrators group (members see past every company wall). */}
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <label style={{ ...fieldLabel, flex: 1, minWidth: 220, opacity: globalAdmin ? 0.5 : 1 }}>Company (per-company role)
             <select value={companyId} onChange={e => setCompanyId(e.target.value)} disabled={globalAdmin} style={input}>
               <option value="">Org-wide (no company)</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select></label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, padding: '9px 0' }}>
-            <input type="checkbox" checked={globalAdmin} onChange={e => setGlobalAdmin(e.target.checked)} />
-            Global Admins (sees every company)
-          </label>
+          {canFlag && (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, padding: '9px 0' }}>
+              <input type="checkbox" checked={globalAdmin} onChange={e => setGlobalAdmin(e.target.checked)} />
+              Super Administrators (sees every company)
+            </label>
+          )}
         </div>
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: -6 }}>
           {globalAdmin ? 'Members are unrestricted across all companies - the only role that sees past the walls.'
             : companyId ? 'Members are confined to this company once the walls are armed.'
-            : 'Org-wide group - members are placed by their own company (or the Global Admins group).'}
+            : 'Org-wide group - members are placed by their own company (or the Super Administrators group).'}
         </div>
         <div>
           <div style={{ ...sectLabel, marginTop: 4 }}>Modules this group grants</div>
@@ -1696,7 +1739,7 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
   const [warning, setWarning] = useState('');
   const roleCompany = role.company_id || '';
   // Someone who already holds ANOTHER job role is a role change (Neil, Oct 22):
-  // HR, IT Admins and Global Admins only (the server's can_change_roles), with
+  // HR, Administrators and Super Administrators only (the server's can_change_roles), with
   // one required reason for everyone picked. People with no role go straight on.
   const canSwap = !hrTeam && typeof canAccessModule === 'function' && canAccessModule('hr', 'administrator', 'editor');
   const [heldRole, setHeldRole] = useState({});   // email -> the other role they hold now
@@ -1769,7 +1812,7 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
               <button key={p.email} {...nav.optionProps(i)} onClick={() => pick(p)} disabled={!!busy || isAdded || (held && !canSwap)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: isAdded ? 'hsla(var(--color-green),0.07)' : 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: isAdded ? 'default' : 'pointer', opacity: (busy && !isAdded && busy !== p.email) ? 0.6 : 1 }}>
                 <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.email}{roleCompany && !p.company ? ' · No company set' : ''}</div>
-                  {held && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Holds {held}{canSwap ? '' : ' - only HR, an IT Admin or a Global Admin can change their role'}</div>}</div>
+                  {held && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Holds {held}{canSwap ? '' : ' - only HR, an Administrator or a Super Administrator can change their role'}</div>}</div>
                 {busy === p.email ? <Spinner size={15} />
                   : picked ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'var(--pine)' }}><Check size={14} /> Picked</span>
                   : isAdded ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-green))' }}><Check size={14} /> Added</span>

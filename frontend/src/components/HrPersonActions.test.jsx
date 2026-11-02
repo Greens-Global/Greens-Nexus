@@ -60,7 +60,7 @@ describe('PromoteModal', () => {
   });
 });
 
-// Change Role (Neil, Oct 22): only HR, IT Admins and Global Admins see it,
+// Change Role (Neil, Oct 22): only HR, Administrators and Super Administrators see it,
 // and they change the role directly - never without a reason. In People it
 // asks first (Promotion hands over to the letter); Settings > Access passes no
 // onPromote and knows the person by work email.

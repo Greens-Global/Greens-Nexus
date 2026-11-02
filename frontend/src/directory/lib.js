@@ -6,10 +6,12 @@
 // ── Reaching someone ───────────────────────────────────────────────────────
 // Official Teams deep links: they open the desktop app when it is installed
 // and Teams on the web otherwise. `users=` takes the person's work email.
-const TEAMS = 'https://teams.microsoft.com/l';
-export const teamsChat  = (email) => `${TEAMS}/chat/0/0?users=${encodeURIComponent(email)}`;
-export const teamsCall  = (email) => `${TEAMS}/call/0/0?users=${encodeURIComponent(email)}`;
-export const teamsVideo = (email) => `${TEAMS}/call/0/0?users=${encodeURIComponent(email)}&withVideo=true`;
+// Teams links come from the one helper (lib/teamsLinks.js, 11/02/2026); these
+// names stay for the directory's callers.
+import { teamsChatUrl, teamsCallUrl, teamsVideoUrl } from '../lib/teamsLinks';
+export const teamsChat  = (email) => teamsChatUrl(email);
+export const teamsCall  = (email) => teamsCallUrl(email);
+export const teamsVideo = (email) => teamsVideoUrl(email);
 // Email opens Outlook on the web in a new tab (Neil, 10/13): a mailto: link
 // handed to a web mail handler replaced the Nexus tab itself.
 export const mailto     = (email) => `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(email)}`;

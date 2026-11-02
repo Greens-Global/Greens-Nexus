@@ -96,6 +96,12 @@ export default function CollectionView({ id, me }) {
                 {col.pages.length === 0 && <div className="kb-empty">No published pages here yet.</div>}
                 {col.pages.map((p) => <PageRow key={p.id} page={p} />)}
               </section>
+              {col.also_applies?.length > 0 && (
+                <section className="kb-card">
+                  <SectionHead title="Also Applies Here" sub={`Kept in another collection, written for ${col.department || col.name} too`} />
+                  {col.also_applies.map((p) => <PageRow key={p.id} page={p} />)}
+                </section>
+              )}
               {col.drafts.length > 0 && (
                 <section className="kb-card">
                   <SectionHead title="Drafts and Reviews" sub="Only editors see these" />

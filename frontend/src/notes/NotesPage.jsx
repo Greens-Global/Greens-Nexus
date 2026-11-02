@@ -8,12 +8,13 @@
 // first and a note opens in the Quick Note sheet over it (PhoneSheet). The
 // sub is `notes` or `notes:<id>`, so a link to one note (the share bell)
 // opens it.
-import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ChevronLeft, ChevronRight, Search, X, Plus, Upload, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
   Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, Link as LinkIcon, Palette,
-  RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote,
+  RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote, PenTool, Image as ImageIcon, FileCode2, Copy, FileJson,
+  Paperclip, ExternalLink,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -22,19 +23,33 @@ import { formatDate, formatDateTime } from '../lib/datetime';
 import { Modal, DateField, usePeople, Avatar, useEscapeLayer } from '../tasks/components';
 import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
 import { useScrollLock } from '../lib/useScrollLock';
+import { useBackToClose } from '../lib/useBackToClose';
+import { isAppPath } from '../lib/markup';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { matchPeople } from '../lib/peopleSearch';
+import HoldButton from '../ui/HoldButton';
 import NoteEditor from './NoteEditor';
 import { useNoteSync } from './useNoteSync';
 import { useNoteCollab, collabEligible } from './useNoteCollab';
+import { useBoardCollab } from './board/useBoardCollab';
 import { diffNotes } from './notesMerge';
 import { safeHtml } from './noteSafeHtml';
 import { createTaskFrom, openTask } from './notesTasks';
+import { parseScene } from './board/scene';
+import TemplatePicker from './board/TemplatePicker';
+import { templateScene } from './board/templates';
+import { exportPng, exportSvg, copyPng, downloadScene } from './board/exportBoard';
+import { storeTaskFile } from '../tasks/lib';
+import { BOARD_THUMB_FOLDER, NEW_BOARD_SUB } from './newBoard';
 import {
-  NOTE_COLORS, colorCss, localDay, monthOf, shiftMonth, monthLabel, dayHeading, groupByDay, noteTitle, htmlToText,
+  NOTE_COLORS, colorCss, localDay, monthOf, shiftMonth, monthLabel, dayHeading, groupByDay, noteTitle, isBoard, htmlToText,
   countWords, editedLabel, htmlToMarkdown, markdownToHtml, exportFileName, downloadText, printNote, rememberLastNote, quickNoteKeys,
 } from './notesModel';
 import './notes.css';
+
+// The whiteboard engine (board/Board.jsx, Neil 11/02/2026) is its own chunk,
+// fetched the first time a Board opens - a note's page never pays for it.
+const Board = lazy(() => import('./board/Board'));
 
 const VIEWS = [
   { key: 'all', label: 'All' },
@@ -46,6 +61,35 @@ const VIEWS = [
 const LIST_W_KEY = 'nx-notes-list-width';
 const readNum = (k, d) => { try { const v = Number(window.localStorage.getItem(k)); return v > 0 ? v : d; } catch { return d; } };
 const store = (k, v) => { try { window.localStorage.setItem(k, String(v)); } catch { /* storage unavailable */ } };
+
+// A short fingerprint of a picture's bytes, to tell a new thumbnail from the
+// last one: SHA-256 where WebCrypto takes the bytes, else a sampled sum, and
+// at the very least the size - never '' (an empty fingerprint uploaded every
+// picture twice on CI's Node 20, where the digest refused jsdom's buffer).
+async function blobBytes(blob) {
+  if (typeof blob.arrayBuffer === 'function') {
+    try { return new Uint8Array(await blob.arrayBuffer()); } catch { /* fall through */ }
+  }
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(new Uint8Array(r.result));
+    r.onerror = () => reject(r.error);
+    r.readAsArrayBuffer(blob);
+  });
+}
+async function blobHash(blob) {
+  let u;
+  try { u = await blobBytes(blob); } catch { return `size:${blob?.size ?? 0}`; }
+  try {
+    if (globalThis.crypto?.subtle) {
+      const d = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(u)));
+      return Array.from(d.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch { /* sampled sum below */ }
+  let h = u.length;
+  for (let i = 0; i < u.length; i += Math.max(1, Math.floor(u.length / 4096))) h = (h * 31 + u[i]) >>> 0;
+  return `${u.length}:${h}`;
+}
 
 
 function useToast() {
@@ -66,12 +110,13 @@ function useToast() {
   return [show, node];
 }
 
-function StatusLine({ status, note, merged, nameOf }) {
+function StatusLine({ status, note, merged, nameOf, problem = '' }) {
   const [, tick] = useState(0);
   useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 30000); return () => clearInterval(t); }, []);
   if (status === 'saving') return <span className="nt-status"><Loader2 size={13} className="spin" aria-hidden="true" /> Saving…</span>;
   if (status === 'dirty') return <span className="nt-status">Unsaved changes</span>;
-  if (status === 'error') return <span className="nt-status is-bad"><CloudOff size={13} aria-hidden="true" /> Not saved yet - kept on this device, retrying when you type</span>;
+  // `problem`: the server's own words for a save it refused (a 413 / 400 - too large, not a board), else the retry line.
+  if (status === 'error') return <span className="nt-status is-bad"><CloudOff size={13} aria-hidden="true" /> {problem || 'Not saved yet - kept on this device, retrying when you type'}</span>;
   if (status === 'conflict') return <span className="nt-status is-warn">Changed somewhere else</span>;
   if (merged && status === 'saved') return <span className="nt-status"><Check size={13} aria-hidden="true" /> Saved · merged with {nameOf ? nameOf(merged) : merged}'s changes</span>;
   return <span className="nt-status"><Check size={13} aria-hidden="true" /> Saved{note?.updatedAt ? ` · ${editedLabel(note.updatedAt)}` : ''}</span>;
@@ -254,6 +299,7 @@ function ShareDialog({ note, onClose, onChanged }) {
 }
 
 function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
+  const board = isBoard(note);
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
   const [pick, setPick] = useState(null);
@@ -261,7 +307,7 @@ function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
   const [show, setShow] = useState('changes');   // changes | version | now
   // A copy is the note as its author left it; its changes are against the copy before it.
   const shown = useMemo(() => {
-    if (!pick || !rows) return null;
+    if (!pick || !rows || board) return null;
     if (show === 'version') return null;
     const i = rows.findIndex((r) => r.id === pick.id);
     // The note now may be words typed live (never through the server's
@@ -269,7 +315,7 @@ function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
     if (show === 'now') return diffNotes(safeHtml(pick.body), safeHtml(note.body || ''));
     const older = rows[i + 1];
     return older ? diffNotes(older.body, pick.body) : null;
-  }, [pick, rows, show, note.body]);
+  }, [pick, rows, show, note.body, board]);
   useEffect(() => {
     let alive = true;
     api.noteVersions(note.id).then((r) => { if (alive) { setRows(r || []); setPick((r || [])[0] || null); } })
@@ -278,7 +324,16 @@ function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
   }, [note.id]);
   const restore = async () => {
     setBusy(true);
-    try { onRestored(await api.noteRestoreVersion(note.id, pick.id)); onClose(); } catch (e) { setError(e.message || 'Could not restore'); setBusy(false); }
+    try {
+      // A board's list rows carry no drawing (it can be 2 MB): the one
+      // version is read only now, and a copy that is not a board is refused
+      // here so the board keeps its last good scene.
+      if (board) {
+        const full = await api.noteVersionGet(note.id, pick.id);
+        if (full && typeof full.scene === 'string' && full.scene && !parseScene(full.scene)) throw new Error('This version could not be read as a board');
+      }
+      onRestored(await api.noteRestoreVersion(note.id, pick.id)); onClose();
+    } catch (e) { setError(e.message || 'Could not restore'); setBusy(false); }
   };
   return (
     <Modal title="Version History" onClose={onClose}
@@ -297,12 +352,21 @@ function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
                 <button key={v.id} type="button" role="option" aria-selected={pick?.id === v.id}
                   className={`nt-hist-row${pick?.id === v.id ? ' is-on' : ''}`} onClick={() => setPick(v)}>
                   {formatDateTime(v.createdAt)}
-                  <small>{nameOf ? nameOf(v.savedBy) : v.savedBy} · {v.words} words</small>
+                  <small>{nameOf ? nameOf(v.savedBy) : v.savedBy} · {board
+                    ? `${v.shapes ?? 0} ${v.shapes === 1 ? 'shape' : 'shapes'}`
+                    : `${v.words} words`}</small>
                 </button>
               ))}
             </div>
             <div className="nt-hist-view">
-              {pick && (<>
+              {pick && board && (<>
+                <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{pick.title || noteTitle(note)}</div>
+                <div className="nt-hist-who">
+                  {`Saved by ${nameOf ? nameOf(pick.savedBy) : pick.savedBy} on ${formatDateTime(pick.createdAt)} · ${pick.shapes ?? 0} ${pick.shapes === 1 ? 'shape' : 'shapes'}.`}
+                </div>
+                <div className="nt-empty" style={{ marginTop: 12 }}>A board version keeps the drawing; restore it to see it.</div>
+              </>)}
+              {pick && !board && (<>
                 <div className="nt-qn-switch" role="tablist" aria-label="What to show" style={{ padding: '0 0 0', marginBottom: 10 }}>
                   {[['changes', 'Changes'], ['version', 'This Version'], ['now', 'Compare With Now']].map(([k, label]) => (
                     <button key={k} type="button" role="tab" aria-selected={show === k} className={`nt-view${show === k ? ' is-on' : ''}`} onClick={() => setShow(k)}>{label}</button>
@@ -350,6 +414,19 @@ function PhoneSheet({ title, sub, color, actions, foot, onClose, children }) {
   useEscapeLayer(onClose);
   useDialogFocus(ref);
   useScrollLock(true);
+  // The phone's Back closes the sheet (lib/useBackToClose: the sheet's own
+  // history entry). The sheet is also the address (notes:<id>), so the close
+  // REPLACES that entry with the list's address before the sub changes -
+  // App then has nothing to push, and the next Back leaves Notes instead of
+  // landing on the note again.
+  useBackToClose(true, () => {
+    try {
+      const { pathname, search, hash } = window.location;
+      const list = pathname.replace(/\/notes:[^/]*$/, '/notes');
+      if (list !== pathname) window.history.replaceState(window.history.state, '', `${list}${search}${hash}`);
+    } catch { /* the address stays; onClose still closes */ }
+    onClose();
+  });
   return createPortal(
     <>
       <div className="nt-qn-overlay is-page" onClick={onClose} aria-hidden="true" />
@@ -361,7 +438,7 @@ function PhoneSheet({ title, sub, color, actions, foot, onClose, children }) {
             {sub && <div className="nt-qn-sub">{sub}</div>}
           </div>
           {actions}
-          <button type="button" className="nt-icon-btn" aria-label="Close Note" onClick={onClose}><X size={18} /></button>
+          <button type="button" className="nt-icon-btn" aria-label={`Close ${title}`} onClick={onClose}><X size={18} /></button>
         </div>
         <div className="nt-qn-body">{children}</div>
         {foot && <div className="nt-qn-foot" aria-live="polite">{foot}</div>}
@@ -391,18 +468,31 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     if (e && e === (myEmail || '').toLowerCase()) return 'You';
     return (people || []).find((p) => p.email === e)?.name || email || 'Someone';
   }, [people, myEmail]);
-  // A shared note's editors type together live (useNoteCollab).
-  const eligible = collabEligible(note);
+  // A shared note's editors type together live (useNoteCollab); a shared
+  // board's editors draw together the same way (useBoardCollab) - the same
+  // channel, the engine's elements instead of words.
+  const eligible = !isBoard(note) && collabEligible(note);
+  const boardEligible = isBoard(note) && collabEligible(note);
   const myName = (people || []).find((p) => p.email === (myEmail || '').toLowerCase())?.name || myEmail;
   const collab = useNoteCollab(id, { enabled: eligible, me: myEmail, name: myName });
-  useEffect(() => { collabRef.current = collab; }, [collab]);
+  const boardCollab = useBoardCollab({ note, canEdit: !!note && note.can !== 'read' && !note.trashedAt, enabled: boardEligible, me: myEmail, name: myName });
+  // useNoteSync reads the live session through this ref: whichever one the open note has.
+  useEffect(() => { collabRef.current = isBoard(note) ? boardCollab : collab; }, [collab, boardCollab, note]);
   const [menu, setMenu] = useState('');      // '' | 'color' | 'more'
   const [dialog, setDialog] = useState('');  // '' | 'share' | 'history'
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const titleRef = useRef(null);
+  // A Board: the engine's api (export menu) and the look picked on it before
+  // the scene carrying it has saved.
+  const [boardApi, setBoardApi] = useState(null);
+  const [lookPick, setLookPick] = useState(null);
+  const thumbBusy = useRef(false);
+  const lastThumb = useRef('');       // the hash of the last thumbnail PNG sent
+  const [attaching, setAttaching] = useState(false);
+  // A board's scene, parsed once per change of it (it can be 2 MB).
+  const scene = useMemo(() => (isBoard(note) ? parseScene(note?.scene) : null), [note?.scene, note?.kind]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (id) rememberLastNote(id); }, [id]);
-  useEffect(() => { setConfirmDelete(false); setMenu(''); }, [id]);
+  useEffect(() => { setMenu(''); }, [id]);
   // A brand-new note starts in its title.
   useEffect(() => {
     if (note && !note.title && !note.preview && note.mine && !note.trashedAt && note.kind !== 'daily') titleRef.current?.focus();
@@ -424,7 +514,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
         <div className="nt-empty" style={{ margin: 'auto' }}>
           <StickyNote size={28} aria-hidden="true" style={{ color: 'var(--wk-faint)', marginBottom: 8 }} />
           <strong>Pick a note or start a new one</strong>
-          Everything you write saves by itself and follows you to Quick Note in the top bar.
+          Everything you write saves by itself and follows you to Quick Note - New Note in the top bar's + menu.
         </div>
       </div>
     );
@@ -448,6 +538,9 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   const text = htmlToText(note.body);
   const words = countWords(text);
   const mine = note.mine;
+  const board = isBoard(note);
+  const look = lookPick || scene?.look || 'clean';
+  const shapes = scene ? scene.elements.filter((el) => !el.isDeleted).length : 0;
 
   const trash = async () => {
     setMenu('');
@@ -458,7 +551,9 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     try { const n = await api.noteRestore(note.id); sync.replace(n); onTrashChanged(n, 'restore'); toast('Restored'); } catch (e) { toast(e.message || 'Could not restore'); }
   };
   const deleteForever = async () => {
-    try { await api.noteDeleteForever(note.id); onTrashChanged(note, 'delete'); toast('Deleted forever'); } catch (e) { toast(e.message || 'Could not delete'); }
+    // Held on the banner (Neil, Oct 30 2026): a refusal throws so the button rewinds with the reason.
+    try { await api.noteDeleteForever(note.id); } catch (e) { throw new Error(e.message || 'Could not delete', { cause: e }); }
+    onTrashChanged(note, 'delete'); toast('Deleted forever');
   };
   const leave = async () => {
     setMenu('');
@@ -466,6 +561,72 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   };
   const exportMd = () => { setMenu(''); downloadText(exportFileName(note), htmlToMarkdown(note.body, noteTitle(note))); };
   const print = () => { setMenu(''); printNote(note, note.body); };
+  // A Board exports a picture, never Markdown (board/exportBoard.js).
+  const saveBlob = (blob, name) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const exportBoardPng = async () => {
+    setMenu('');
+    try { const blob = await exportPng(boardApi, { scale: 2, background: true }); if (blob) saveBlob(blob, exportFileName(note, 'png')); else toast('The board is still loading'); }
+    catch (e) { toast(e.message || 'Could not export the board'); }
+  };
+  const exportBoardSvg = async () => {
+    setMenu('');
+    try { const svg = await exportSvg(boardApi); if (svg) saveBlob(new Blob([svg], { type: 'image/svg+xml' }), exportFileName(note, 'svg')); else toast('The board is still loading'); }
+    catch (e) { toast(e.message || 'Could not export the board'); }
+  };
+  const copyBoard = async () => {
+    setMenu('');
+    try { await copyPng(boardApi); toast('Copied as a picture'); } catch (e) { toast(e.message || 'Could not copy the board'); }
+  };
+  const downloadBoard = () => { setMenu(''); downloadScene(note); };
+  // The list row's picture: the engine hands a PNG a few seconds after the
+  // last change; it goes to the private task-files bucket under this board
+  // and the note keeps the URL (any editor may write it).
+  // Only a picture that differs from the last one sent is uploaded (a pan,
+  // a selection or a remote echo draws the same PNG).
+  const onThumb = async (blob) => {
+    if (!blob || readOnly || thumbBusy.current) return;
+    thumbBusy.current = true;
+    try {
+      const hash = await blobHash(blob);
+      if (hash && hash === lastThumb.current) return;
+      // Claimed before the upload, so a second identical picture arriving
+      // while this one is in flight is dropped too; a failed upload gives
+      // the claim back so the next change tries again.
+      const before = lastThumb.current;
+      lastThumb.current = hash;
+      try {
+        const url = await storeTaskFile(new File([blob], 'thumb.png', { type: 'image/png' }), undefined, BOARD_THUMB_FOLDER(note.id));
+        if (url) sync.setFields({ thumbUrl: url }); else lastThumb.current = before;
+      } catch (e) { lastThumb.current = before; throw e; }
+    } catch { /* the next change makes another */ } finally { thumbBusy.current = false; }
+  };
+  // Mark Up Anything (11/02/2026): a board made from a task's or a ticket's
+  // picture goes back there as a PNG attachment (api.attachMarkup), and any
+  // source with a Nexus link opens it.
+  const source = board ? note.source : null;
+  const attachable = !trashed && ['task', 'ticket'].includes(source?.kind) && !!source?.id;
+  const openHref = source && isAppPath(source.url) ? source.url : '';
+  const attachBack = async () => {
+    if (!boardApi || attaching) { if (!boardApi) toast('The board is still loading'); return; }
+    setAttaching(true);
+    try {
+      const blob = await exportPng(boardApi, { scale: 2, background: true });
+      if (!blob) throw new Error('the board is still loading');
+      const name = exportFileName({ ...note, title: note.title || 'Mark Up' }, 'png');
+      const url = await storeTaskFile(new File([blob], name, { type: 'image/png' }), undefined, BOARD_THUMB_FOLDER(note.id));
+      if (!url) throw new Error('the picture could not be stored');
+      await api.attachMarkup(source, { url, name, size: `${Math.max(1, Math.round(blob.size / 1024))} KB` });
+      toast(`Attached to ${source.label}`);
+    } catch (e) {
+      toast(`Could not attach: ${e?.message || 'try again'}`);
+    } finally { setAttaching(false); }
+  };
   const copyLink = async () => {
     setMenu('');
     const url = `${window.location.origin}/dashboard/notes:${note.id}`;
@@ -481,6 +642,17 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
 
   const actions = (
             <div className="nt-actions">
+              {attachable && (
+                <button type="button" className="nt-text-btn is-primary nt-source-btn" onClick={attachBack} disabled={attaching}
+                  aria-label={`Attach to ${source.label}`} title={`Attach this board to ${source.label} as a picture`}>
+                  <Paperclip size={14} aria-hidden="true" /> <span className="nt-source-label">{attaching ? 'Attaching…' : `Attach to ${source.label}`}</span>
+                </button>
+              )}
+              {openHref && (
+                <a className="nt-text-btn nt-source-btn" href={openHref} aria-label={`Open ${source.label}`} title={`Open ${source.label}`}>
+                  <ExternalLink size={14} aria-hidden="true" /> <span className="nt-source-label">{`Open ${source.label}`}</span>
+                </a>
+              )}
               {mine && !trashed && (
                 <button type="button" className={`nt-icon-btn${note.pinned ? ' is-on' : ''}`} aria-pressed={note.pinned}
                   aria-label={note.pinned ? 'Unpin' : 'Pin'} title={note.pinned ? 'Unpin' : 'Pin to the top and the dashboard'}
@@ -512,8 +684,15 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                 <button type="button" className="nt-icon-btn" aria-label="More actions" title="More" aria-haspopup="menu" aria-expanded={menu === 'more'}
                   onClick={() => setMenu(menu === 'more' ? '' : 'more')}><MoreHorizontal size={18} /></button>
                 <Popover open={menu === 'more'} onClose={() => setMenu('')} label="More actions">
-                  <button type="button" role="menuitem" className="nt-pop-row" onClick={exportMd}><Download size={15} /> Export as Markdown</button>
-                  <button type="button" role="menuitem" className="nt-pop-row" onClick={print}><Printer size={15} /> Print or Save as PDF</button>
+                  {board ? (<>
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={exportBoardPng}><ImageIcon size={15} /> Export as PNG</button>
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={exportBoardSvg}><FileCode2 size={15} /> Export as SVG</button>
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={copyBoard}><Copy size={15} /> Copy as Picture</button>
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={downloadBoard}><FileJson size={15} /> Download Board File</button>
+                  </>) : (<>
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={exportMd}><Download size={15} /> Export as Markdown</button>
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={print}><Printer size={15} /> Print or Save as PDF</button>
+                  </>)}
                   <button type="button" role="menuitem" className="nt-pop-row" onClick={() => { setMenu(''); setDialog('history'); }}><History size={15} /> Version History</button>
                   <button type="button" role="menuitem" className="nt-pop-row" onClick={copyLink}><LinkIcon size={15} /> Copy Link</button>
                   {mine && !trashed && (<><div className="nt-pop-sep" /><button type="button" role="menuitem" className="nt-pop-row is-danger" onClick={trash}><Trash2 size={15} /> Move to Trash</button></>)}
@@ -524,13 +703,13 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   );
 
   const doc = (
-        <div className="nt-doc">
+        <div className={`nt-doc${board ? ' is-board' : ''}`}>
           {/* The sheet already says Daily Scratchpad - as in Quick Note, no empty title box under it. */}
           {!(isPhone && note.kind === 'daily' && !note.title) && (
             <div className="nt-head">
               <span className="nt-head-rule" style={{ background: colorCss(note.color) }} aria-hidden="true" />
               <input ref={titleRef} className="nt-title" value={note.title || ''} readOnly={readOnly} maxLength={200}
-                placeholder={note.kind === 'daily' ? 'Daily Scratchpad' : 'Untitled Note'} aria-label="Note title"
+                placeholder={note.kind === 'daily' ? 'Daily Scratchpad' : board ? 'Untitled Board' : 'Untitled Note'} aria-label={board ? 'Board title' : 'Note title'}
                 onChange={(e) => sync.edit({ title: e.target.value })} />
               {!isPhone && actions}
             </div>
@@ -541,7 +720,9 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
               <DateField value={note.day} compact title="The day this note belongs to"
                 onChange={(v) => { if (v) sync.setMeta({ day: v }); }} />
             ) : <span>{note.day ? formatDate(note.day) : ''}</span>}
-            <span>{words} {words === 1 ? 'word' : 'words'} · {text.length} characters</span>
+            {board
+              ? <span>{shapes} {shapes === 1 ? 'shape' : 'shapes'}</span>
+              : <span>{words} {words === 1 ? 'word' : 'words'} · {text.length} characters</span>}
             {!mine && <span>Shared by {note.owner}{note.can === 'read' ? ' · Can Read' : ' · Can Edit'}</span>}
             {mine && note.sharedWith?.length > 0 && (
               <button type="button" className="nt-tag" onClick={() => setDialog('share')}>
@@ -551,8 +732,8 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             {note.editedBy && note.editedBy !== (myEmail || '').toLowerCase() && note.updatedAt && (
               <span>Edited by {nameOf(note.editedBy)} {editedLabel(note.updatedAt).replace(/^edited /i, '')}</span>
             )}
-            <PresenceLine people={sync.people} peers={collab.peers} live={collab.live} nameOf={nameOf} />
-            {!readOnly && !isPhone && <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} />}
+            <PresenceLine people={sync.people} peers={board ? boardCollab.peers : collab.peers} live={board ? boardCollab.live : collab.live} nameOf={nameOf} />
+            {!readOnly && !isPhone && <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} problem={sync.problem} />}
           </div>
 
           <TagEditor tags={note.tags || []} disabled={!mine || trashed} onChange={(tags) => sync.setMeta({ tags })} />
@@ -561,13 +742,8 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             <div className="nt-banner is-bad" role="status">
               <span className="nt-banner-text">This note is in the Trash. Restore it to edit it again.</span>
               <button type="button" className="nt-text-btn" onClick={restore}><RotateCcw size={14} /> Restore</button>
-              {!confirmDelete
-                ? <button type="button" className="nt-text-btn is-danger" onClick={() => setConfirmDelete(true)}><Trash2 size={14} /> Delete Forever</button>
-                : (<>
-                  <span>Delete forever? This cannot be undone.</span>
-                  <button type="button" className="nt-text-btn is-danger" onClick={deleteForever}>Delete Forever</button>
-                  <button type="button" className="nt-text-btn" onClick={() => setConfirmDelete(false)}>Cancel</button>
-                </>)}
+              <HoldButton size="sm" label="Delete Forever" doneLabel="Deleted" onConfirm={deleteForever}
+                fallbackMessage={`Delete "${note.title || 'Untitled Note'}" forever? This cannot be undone.`} />
             </div>
           )}
           {conflict && (
@@ -578,7 +754,19 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             <div className="nt-banner is-info" role="status"><span className="nt-banner-text">Unsaved words from your last visit were put back and are being saved.</span></div>
           )}
 
-          {eligible && collab.phase !== 'ready' && collab.phase !== 'failed'
+          {board ? (
+            // The whiteboard fills the rest of the pane, edge to edge
+            // (board/Board.jsx); it saves through the same sync as a body.
+            <div className="nt-board" data-look={look}>
+              <Suspense fallback={<div style={{ flex: '1 1 auto', padding: 14 }}><SkeletonBlocks count={3} height={90} /></div>}>
+                <Board note={{ ...note, canEdit: !readOnly }} isPhone={isPhone} look={look}
+                  onLook={(l) => setLookPick(l)}
+                  onScene={readOnly ? undefined : (sceneStr) => sync.edit({ scene: sceneStr })}
+                  onThumb={readOnly ? undefined : onThumb}
+                  collab={boardCollab.enabled ? boardCollab : null} onApi={setBoardApi} />
+              </Suspense>
+            </div>
+          ) : eligible && collab.phase !== 'ready' && collab.phase !== 'failed'
             ? <div style={{ paddingTop: 14 }}><SkeletonBlocks count={3} height={56} /></div>
             : collab.phase === 'ready'
               ? (
@@ -599,9 +787,9 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
 
   if (isPhone) {
     return (
-      <PhoneSheet title={note.kind === 'daily' ? 'Daily Scratchpad' : 'Note'} onClose={onBack} actions={actions} color={note.color ? colorCss(note.color) : ''}
+      <PhoneSheet title={note.kind === 'daily' ? 'Daily Scratchpad' : board ? 'Board' : 'Note'} onClose={onBack} actions={actions} color={note.color ? colorCss(note.color) : ''}
         sub={[note.day ? formatDate(note.day) : '', !mine ? `Shared by ${note.owner}` : ''].filter(Boolean).join(' · ')}
-        foot={readOnly ? <span>{trashed ? 'In the Trash' : 'Read Only'}</span> : <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} />}>
+        foot={readOnly ? <span>{trashed ? 'In the Trash' : 'Read Only'}</span> : <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} problem={sync.problem} />}>
         {doc}
         {dialogs}
       </PhoneSheet>
@@ -636,7 +824,8 @@ export default function NotesPage({ activeSub, onSubChange }) {
   const searchRef = useRef(null);
   const fileRef = useRef(null);
 
-  const selectedId = (activeSub || '').startsWith('notes:') ? activeSub.slice(6) : '';
+  const askNewBoard = activeSub === NEW_BOARD_SUB;
+  const selectedId = (activeSub || '').startsWith('notes:') && !askNewBoard ? activeSub.slice(6) : '';
   // Opening a note is looking at it: its Updated dot goes (the server marks it seen too).
   useEffect(() => {
     if (selectedId) setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === selectedId && x.unseen ? { ...x, unseen: false } : x)) } : d));
@@ -656,7 +845,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
 
   // A save (or share / restore) updates its row in place.
   const onSaved = useCallback((n) => {
-    setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === n.id ? { ...x, ...n, preview: htmlToText(n.body).slice(0, 220) } : x)) } : d));
+    setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === n.id ? { ...x, ...n, preview: isBoard(n) ? '' : htmlToText(n.body).slice(0, 220) } : x)) } : d));
   }, []);
   const onTrashChanged = useCallback((n, what) => {
     if (what === 'delete') select('');
@@ -671,7 +860,21 @@ export default function NotesPage({ activeSub, onSubChange }) {
       await load();
       select(n.id);
       return n;
-    } catch (e) { toast(e.message || 'Could not create a note'); return null; }
+    } catch (e) { toast(e.message || (extra.kind === 'board' ? 'Could not start a board' : 'Could not create a note')); return null; }
+  };
+  // A Board (Neil, 11/02/2026): a whiteboard note. New Board asks what to
+  // start from (board/TemplatePicker.jsx); the picked template is the scene.
+  const [pickingTemplate, setPickingTemplate] = useState(false);
+  const newBoard = () => setPickingTemplate(true);
+  // New Board from anywhere else (the + menu, Quick Note, the Dashboard tile)
+  // lands here as notes:new-board, so every New Board asks the same question;
+  // closing it settles on the list, picking opens the new board.
+  const showPicker = pickingTemplate || askNewBoard;
+  const closePicker = () => { setPickingTemplate(false); if (askNewBoard) onSubChange?.('notes'); };
+  const startBoard = async (templateKey) => {
+    setPickingTemplate(false);
+    if (askNewBoard) onSubChange?.('notes');
+    await newNote({ kind: 'board', scene: templateScene(templateKey), templateKey });
   };
 
   const importFile = async (file) => {
@@ -754,6 +957,9 @@ export default function NotesPage({ activeSub, onSubChange }) {
             <button type="button" className="nt-icon-btn" aria-label="Import a Markdown or text file" title="Import (.md, .txt)" onClick={() => fileRef.current?.click()}><Upload size={17} /></button>
             <input ref={fileRef} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden
               onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ''; }} />
+            {isPhone
+              ? <button type="button" className="nt-icon-btn" aria-label="New Board" title="New Board" onClick={newBoard}><PenTool size={17} /></button>
+              : <button type="button" className="nt-text-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>}
             <button type="button" className="nt-text-btn is-primary" onClick={() => newNote()}><Plus size={15} /> New Note</button>
           </div>
         </div>
@@ -775,7 +981,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
               {data && groups.length === 0 && (
                 <div className="nt-empty">
                   <strong>{q ? 'No notes match' : view === 'trash' ? 'The Trash is empty' : view === 'shared' ? 'Nothing shared with you yet' : view === 'pinned' ? 'No pinned notes' : view === 'today' ? 'Nothing for today yet' : `No notes in ${monthLabel(month)}`}</strong>
-                  {q ? 'Try fewer words.' : view === 'all' || view === 'today' ? 'Start one with New Note, or jot something in Quick Note from the top bar.' : ''}
+                  {q ? 'Try fewer words.' : view === 'all' || view === 'today' ? 'Start one with New Note or New Board, or jot something in Quick Note from the + menu in the top bar.' : ''}
                 </div>
               )}
               {groups.map((g) => (
@@ -793,9 +999,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
                           {(n.shared || !n.mine) && <Users size={13} aria-label={n.mine ? 'Shared' : 'Shared with you'} />}
                         </span>
                       </span>
-                      {n.preview && <span className="nt-row-preview">{n.preview}</span>}
+                      {isBoard(n)
+                        ? (n.thumbUrl
+                          ? <img className="nt-row-thumb" src={n.thumbUrl} alt="" loading="lazy" />
+                          : <span className="nt-row-thumb is-empty" aria-hidden="true"><PenTool size={14} /></span>)
+                        : n.preview && <span className="nt-row-preview">{n.preview}</span>}
                       <span className="nt-row-meta">
-                        {view === 'trash' && n.trashedAt ? `Trashed ${formatDate(n.trashedAt)}` : editedLabel(n.updatedAt)}
+                        {isBoard(n) ? 'Board · ' : ''}{view === 'trash' && n.trashedAt ? `Trashed ${formatDate(n.trashedAt)}` : editedLabel(n.updatedAt)}
                         {!n.mine ? ` · from ${n.owner}` : ''}{n.tags?.length ? ` · #${n.tags.join(' #')}` : ''}
                       </span>
                     </button>
@@ -813,6 +1023,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
         )}
       </div>
       {toastNode}
+      {showPicker && <TemplatePicker onPick={startBoard} onClose={closePicker} />}
     </div>
   );
 }

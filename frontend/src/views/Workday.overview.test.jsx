@@ -97,6 +97,26 @@ describe('Workday Overview with the Time Clock', () => {
     expect(await screen.findByRole('button', { name: 'Reason: Personal' })).toBeTruthy();
   }, SLOW);
 
+  it('shows the paid-leave balance on the Time Off tile once HR has balances on (11/02)', async () => {
+    globalThis.__answers.leaveMyBalance = {
+      live: true,
+      policy: { name: 'US Hourly' },
+      vacation: { available: 51.07, method: 'per_hour' },
+      sick: { available: 2, method: 'lump' },
+    };
+    await renderWorkday('overview');
+    await screen.findByText('Amy Test');
+    expect(await screen.findByText('51.07 h vacation · 2 h sick left')).toBeTruthy();
+    expect(screen.queryByText(/Approved working days in/)).toBeNull();
+  }, SLOW);
+
+  it('keeps the plain Time Off tile line while balances are not set up', async () => {
+    await renderWorkday('overview');
+    await screen.findByText('Amy Test');
+    const yr = new Date().getFullYear();
+    expect(screen.getByText(`Approved working days in ${yr}`)).toBeTruthy();
+  }, SLOW);
+
   it("shows today's shift in the Hours tile with no greeting line, and the week Monday to Sunday", async () => {
     const d = new Date();
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

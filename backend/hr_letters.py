@@ -399,7 +399,7 @@ def template_for(db: Session, req: HrLetterRequest) -> tuple:
         return None, (f"The template for {type_label(req.letter_type)} no longer exists in Documents - pick "
                       f"another in Settings > Hiring & Onboarding > HR Letters.")
     if tpl.status != "active":
-        return None, f'"{tpl.name}" is {tpl.status} in Documents - activate it, or pick another template.'
+        return None, f'"{tpl.name}" is {tpl.status} in Documents - publish it, or pick another template.'
     try:
         content, meta, version = published_snapshot(db, tpl)
     except TemplateNotPublished as e:

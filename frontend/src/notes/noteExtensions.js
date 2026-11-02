@@ -21,6 +21,7 @@ import CodeBlock from '@tiptap/extension-code-block';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
 import { NoteAudio, NoteVideo } from './noteMedia';
+import { BoardEmbed } from './board/BoardEmbed';
 
 const ALIGN = ['left', 'center', 'right', 'justify'];
 const SafeTextAlign = TextAlign.extend({
@@ -108,6 +109,8 @@ export function buildExtensions(placeholder, collab = null, { strict = false } =
     TableRow, SafeTableHeader, SafeTableCell,
     Placeholder.configure({ placeholder }),
     NoteAudio.configure({ strictSrc }), NoteVideo.configure({ strictSrc }),
+    // A board embedded in the note (Insert Board / Mark Up, 11/02/2026).
+    BoardEmbed,
     ...(collab?.extensions || []),
   ];
 }

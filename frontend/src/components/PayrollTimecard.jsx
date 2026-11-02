@@ -54,7 +54,6 @@ function OwnCardHint() {
     </div>
   );
 }
-const LEGACY_FINALIZE = false;
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -795,27 +794,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const rateSplitText = (splits, key, fmt) => (splits || []).length > 1
     ? splits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmt(s[key])}` : `From ${formatDate(s.from)} at ${fmt(s[key])}`).join(' · ')
     : '';
-  // Approve + finalize share the SwipeClock exception gate: a period with a
-  // missing or unmatched punch is blocked (the paired total would be wrong), with
-  // an explicit "sign off anyway" override - the sign-off is on record either way.
-  async function signOff(call, verb, okMsg) {
-    setBusy(true);
-    try { await call(false); toastOk?.(okMsg); load(); }
-    catch (e) {
-      if (e?.detail?.code === 'unresolved_exceptions') {
-        setBusy(false);
-        const go = await dialog.confirm(e.detail.message,
-          { title: 'Unresolved punch exceptions', confirmText: `${verb} anyway`, danger: true });
-        if (!go) return;
-        setBusy(true);
-        try { await call(true); toastOk?.(`${okMsg} (exceptions overridden).`); load(); }
-        catch (e2) { toastErr?.(e2?.message || `Could not ${verb.toLowerCase()}.`); }
-      } else {
-        toastErr?.(e?.message || `Could not ${verb.toLowerCase()}.`);
-      }
-    }
-    setBusy(false);
-  }
 
   // Hourly nav MUST stay Sunday-anchored (SwipeClock parity). Step in whole
   // periods on the UTC series - snapPeriodUTC first, so a pStart left
@@ -885,13 +863,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
     || (em ? em.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '');
 
-  async function finalize() {
-    if (!await dialog.confirm(`Finalize ${nameFor(email)}'s time sheet for ${periodLabel}? This locks all time records for the period - edits will need an unlock.`, { title: 'Finalize Time Sheet', confirmText: 'Finalize', danger: true })) return;
-    await signOff((allow) => api.timeFinalize({ email, start: perStart, end: perEnd, allow_exceptions: allow }),
-      'Finalize', 'Time sheet finalized - the period is locked.');
-  }
   async function unfinalize() {
-    // HR / Global Admin only (Neil, Oct 22): only HR changes it until the employee signs it again.
+    // HR / Super Administrator only (Neil, Oct 22): only HR changes it until the employee signs it again.
     const reason = await dialog.prompt(`Why is ${nameFor(email)}'s time sheet for ${periodLabel} being unlocked? Only HR can change it while it is unlocked, and ${nameFor(email)} signs the corrected time sheet again. The reason is printed on it.`,
       { title: 'Unlock Time Sheet', confirmText: 'Unlock', required: true, multiline: true, minLength: 5,
         placeholder: 'e.g. Wrong lunch on 06/08' });   // the server needs 5 characters too
@@ -1494,7 +1467,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
         periodNav={employeeSidebar ? null : periodNav(false)}
-        onFinalize={finalize} onUnfinalize={unfinalize}
+        onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
         setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard}
         adv={adv} me={myEmail} />
@@ -1938,16 +1911,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 </form>
               )}
               {/* Approving is now "Agree" in the review panel below; HR's
-                  signature there finalizes. Finalize Without Signatures is
-                  hidden for launch (Neil, 10/16: review + Nexus Sign is the
-                  only sign-off) - LEGACY_FINALIZE brings it back. Unlock stays
-                  as HR's correction path for a signed period. */}
+                  signature there finalizes. Review + Nexus Sign is the only
+                  sign-off (Neil, 10/16). Unlock stays as HR's correction path
+                  for a signed period. */}
               {fin && data.review?.canUnlock && (
                 <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period to correct it - the employee signs it again"
                   style={{ fontSize: 12.5 }}>Unlock</button>)}
-              {isAdmin && !fin && !ownCard && LEGACY_FINALIZE && (
-                <button className="secondary-btn" onClick={finalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
-                  style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
             </div>
             )}
           </div>
@@ -2047,7 +2016,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, periodNav, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false, adv = null, me = '' }) {
+function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, periodNav, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false, adv = null, me = '' }) {
   const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
@@ -2066,9 +2035,8 @@ function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameF
   const gh = { fontSize: 12, fontWeight: 700, padding: '6px 8px', textAlign: 'center', border: '1px solid var(--line)', background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', whiteSpace: 'nowrap' };
   const gc = { fontSize: 12.5, padding: '3px 8px', textAlign: 'center', border: '1px solid var(--line)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', verticalAlign: 'middle' };
   const btn = { border: '1px solid var(--line-strong,var(--line))', borderRadius: 3, padding: '0 5px', background: 'var(--wk-hover)', color: 'var(--ink)', font: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', lineHeight: 1.6 };
-  // Policy as the server computed it (A4-A6, Charmi Sep 30) - shown on the strip
-  // so the formula is on screen, never a guess.
-  const bands = data.bands || { fullMin: 420, halfMin: 240 };
+  // The day bands (full / half / absent) are applied by the server and no
+  // longer printed on the strip (Oct 31 2026); the day statuses say the result.
   const fixedSplit = (data.rateSplits || []).length > 1
     ? data.rateSplits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmtM(s.monthlySalary)}/mo` : `From ${formatDate(s.from)} at ${fmtM(s.monthlySalary)}/mo`).join(' · ')
     : '';
@@ -2181,9 +2149,6 @@ function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameF
             reviewer, not the employee's own time sheet (Neil, Oct 18 2026). */}
         {!self && !icp && <span title="Weekend pay = max(minimum, 1.35 x daily x hours worked / full-day hours). Calculated, never typed per person.">
           <strong style={{ color: 'var(--ink)' }}>Weekend:</strong> {data.weekendMultiplier || 1.35} × daily, pro-rated by hours{data.weekendFloor ? `, min ${fmtM(data.weekendFloor)}` : ''}
-        </span>}
-        {!self && !icp && <span title="A weekday is a full day at this many hours worked (full-day hours minus an hour), a half day from 4 hours, absent below that">
-          <strong style={{ color: 'var(--ink)' }}>Bands:</strong> Full Day ≥ {hhmm(bands.fullMin)} · Half Day ≥ {hhmm(bands.halfMin)} · Absent below
         </span>}
         {icp && <span title="Settings > Time & Pay > India Contractor Policy. Scheduled 9 hours a day, Monday - Friday; full credit at 8 hours, half at 4; the month-end reconciliation recovers missing days from the pool.">
           <strong style={{ color: 'var(--ink)' }}>India Contractor Policy</strong>
@@ -2467,13 +2432,9 @@ function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameF
               <span>Pending edits</span><span>{T.pendingEdits}</span>
             </div>
           )}
-          {!self && ((fin && data.review?.canUnlock) || (isAdmin && LEGACY_FINALIZE)) && (
+          {!self && fin && data.review?.canUnlock && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              {fin && data.review?.canUnlock && (
-                <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>)}
-              {isAdmin && !fin && !ownCard && LEGACY_FINALIZE && (
-                <button className="secondary-btn" onClick={onFinalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
-                  style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
+              <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>
             </div>
           )}
         </div>

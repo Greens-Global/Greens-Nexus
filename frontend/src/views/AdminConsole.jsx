@@ -133,6 +133,8 @@ const EmployeeCustomFieldsSettings = lazy(() => import('../components/EmployeeCu
 const ProbationSettings = lazy(() => import('../components/HrProbation').then(m => ({ default: m.ProbationSettings })));
 // Headcount Requests: off per company until turned on (Neil, Oct 30 2026).
 const HeadcountSwitch = lazy(() => import('../components/hiring/HeadcountSwitch'));
+// Federal Forms (Neil, 11/02/2026): the edition of each form built into Nexus, read-only.
+const FederalFormsStatus = lazy(() => import('../components/settings/FederalFormsStatus'));
 const WorkSiteLibrary = fromHR('WorkSiteLibrary');
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
@@ -178,6 +180,8 @@ const AppRatingsPanel = fromPanels('AppRatingsPanel');
 const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSettings'));
 // Operations (Oct 21 2026): the Push to Cubby switch, OFF by default.
 const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
+// Cubby tasks in Nexus Tasks (Neil, Oct 30 2026): the switches and the facility -> project map.
+const CubbyTasksSettingsPanel = lazy(() => import('../operations/CubbyTasksSettings'));
 // Performance (Oct 27 2026): the goal and 1:1 reminders, layered per company.
 const PerformanceReminderSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceReminderSettings })));
 const ScorecardSettings = lazy(() => import('../performance/Scorecards'));
@@ -333,7 +337,7 @@ const GROUPS = [
   { id: 'brand-color', subject: 'branding', face: 'org', scope: 'org', icon: Palette, title: 'Brand Color',
     needs: { role: 'administrator' },
     sub: 'The accent color used across Nexus and on the sign-in screen.',
-    keywords: 'accent theme green blue login color' },
+    keywords: 'accent theme green blue login color navigation motion sidebar lively' },
   { id: 'email-appearance', subject: 'branding', face: 'org', scope: 'org', icon: Mail, title: 'Email Appearance',
     needs: { role: 'administrator' },
     sub: 'One logo, accent color and footer for every email Nexus sends: tasks, tickets, Nexus Sign, invitations and welcome emails.',
@@ -475,6 +479,11 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Shared shifts on people\'s Outlook calendars, and asking people to confirm a shared schedule.',
     keywords: 'sharing outlook calendar free busy confirm schedule share' },
+  // Weekly labor budget (Neil, 11/02/2026): HR++ only - the Full People grant, never the manager tier.
+  { id: 'shift-labor-budget', subject: 'shifts', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Labor Budget', part: 'labor', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
+    sub: 'The scheduled hours and labor cost a week should stay within, shown on the shift planner to HR and administrators only.',
+    keywords: 'labor budget weekly hours amount cost planner scheduled hr' },
   { id: 'shift-types', subject: 'shifts', face: 'both', scope: 'layered', icon: Clock, title: 'Shift Types',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The reusable shifts managers place with one click - name, code, color, times, time zone and days. A person\'s usual hours are one of these.',
@@ -522,6 +531,13 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The letters employees request from My HR - employment verification, salary certificate, experience letter, address proof, visa NOC: which ones a company offers, the Documents template each prints from, and the letterhead.',
     keywords: 'hr letters employment verification salary certificate experience letter address proof visa noc no objection certificate request my hr template letterhead signatory' },
+  // Federal Forms (Neil, 11/02/2026): read-only - which edition of the W-4,
+  // the I-9 and the Direct Deposit Authorization Nexus holds and when it
+  // lapses. What GET /hr/federal-forms/status demands: HR++.
+  { id: 'federal-forms', subject: 'hiring', face: 'org', scope: 'org', icon: FileText, title: 'Federal Forms', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
+    sub: 'The Form W-4, Form I-9 and Direct Deposit Authorization that hiring packets and a person\'s Documents tab send through Nexus Sign: the edition built into Nexus, when it lapses, and where it came from. An expired edition is never sent.',
+    keywords: 'federal forms w-4 w4 i-9 i9 direct deposit authorization edition expires irs uscis onboarding tax withholding employment eligibility' },
   // Items & Equipment
   { id: 'item-types', subject: 'items', face: 'org', scope: 'org', icon: Tag, title: 'Item Types & Custom Fields',
     needs: { role: 'manager', grant: ['inventory', 'editor'] },
@@ -532,6 +548,10 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['operations', 'full'] },
     sub: 'Off by default: Nexus only reads from Cubby and staff mark changes Entered in Cubby. On: approved rate and rent changes can be pushed to Cubby from Nexus.',
     keywords: 'cubby push sync write rates rent ecri rate management revenue management storage facilities operations locked switch' },
+  { id: 'ops-cubby-tasks', subject: 'operations', face: 'org', scope: 'org', icon: Warehouse, title: 'Cubby Tasks',
+    needs: { role: 'administrator', grant: ['operations', 'full'] },
+    sub: 'Cubby\'s tasks come into Nexus Tasks after each Cubby sync - each facility\'s into the project you pick here, tasks assigned to people to those people. Completing one in Nexus can complete it in Cubby, behind its own switch.',
+    keywords: 'cubby tasks sync facility project map assignee operations to-do workload close complete switch' },
   { id: 'ops-unit-rules', subject: 'operations', face: 'org', scope: 'org', icon: Warehouse, title: 'Unit Rules',
     needs: { role: 'manager', grant: ['operations', 'editor'] },
     sub: 'Which Cubby unit types are mailboxes, and which records are not units at all, by the words in the unit type name.',
@@ -562,9 +582,9 @@ const GROUP_META = Object.fromEntries(GROUPS.map(g => [g.id, g]));
 // server would answer 403 to - in one place, instead of a different
 // read-only note or hidden button in every panel (those stay as the
 // backstop where a panel has one, such as Sign-In & Sessions, which opens
-// for an IT Admin but saves only for a Global Admin).
+// for an Administrator but saves only for a Super Administrator).
 //   role     the role tier that passes outright: 'manager', 'administrator'
-//            (IT Admin) or 'owner' (Global Admin)
+//            (Administrator) or 'owner' (Super Administrator)
 //   grant    [module, level], or a list of them: an Access Group grant that
 //            passes below that tier (canAccessModule)
 //   people   a People (/hr) route: the manager tier, which sees only its own
@@ -1730,6 +1750,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ops-cubby-push':       return <LazyPanelSection key={key} id={id} Panel={OpsSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'ops-cubby-tasks':      return <LazyPanelSection key={key} id={id} Panel={CubbyTasksSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       // Phase 3: the strays, each the component its module owns.
       case 'payroll-readiness':    return <LazyPanelSection key={key} id={id} Panel={ReadinessThresholds} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ca-min-wage':          return <LazyPanelSection key={key} id={id} Panel={MinWageForm} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
@@ -1741,6 +1762,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'letterheads':          return <LazyPanelSection key={key} id={id} Panel={LetterheadsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'headcount-requests':   return <LazyPanelSection key={key} id={id} Panel={HeadcountSwitch} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'hr-letters':           return <LazyPanelSection key={key} id={id} Panel={HrLettersSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'federal-forms':        return <LazyPanelSection key={key} id={id} Panel={FederalFormsStatus} chrome={chrome} />;
       case 'ticket-property-rules': return <LazyPanelSection key={key} id={id} Panel={TicketPropertyRulesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ops-unit-rules':       return <LazyPanelSection key={key} id={id} Panel={UnitRulesPanel} chrome={chrome} />;
       case 'app-ratings':          return <LazyPanelSection key={key} id={id} Panel={AppRatingsPanel} chrome={chrome} />;

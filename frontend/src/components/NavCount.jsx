@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { countText } from '../lib/useActionCounts';
 
 // What is waiting on me, on a module in the sidebar and the phone menu (Neil,
@@ -9,11 +10,26 @@ import { countText } from '../lib/useActionCounts';
 // says how many). Red is the bell's alone. The row's accessible name carries
 // the count, so this is hidden from screen readers; `detail` (where the
 // count comes from) is the number's tooltip.
-export default function NavCount({ n, corner = false, detail = '' }) {
+//
+// `order` is the row's place in the sidebar's cascade (--i, see Sidebar.jsx).
+// A count that changes while the rail is on screen bumps once (`is-bump`,
+// style.css "Rail motion") - still the same quiet gray number.
+export default function NavCount({ n, corner = false, detail = '', order }) {
+  // "Information from previous renders": the previous count decides whether
+  // this render is a change worth a bump. Cleared on a timer.
+  const [prevN, setPrevN] = useState(n);
+  const [bump, setBump] = useState(false);
+  if (prevN !== n) { setPrevN(n); setBump(!!n && !!prevN); }
+  useEffect(() => {
+    if (!bump) return undefined;
+    const t = setTimeout(() => setBump(false), 340);
+    return () => clearTimeout(t);
+  }, [bump]);
   if (!n) return null;
   if (corner) return <span className="nav-count is-corner" aria-hidden="true" />;
   return (
-    <span className="nav-count" title={detail || undefined} aria-hidden="true">
+    <span className={`nav-count${bump ? ' is-bump' : ''}`} title={detail || undefined} aria-hidden="true"
+      style={order != null ? { '--i': order } : undefined}>
       {countText(n)}
     </span>
   );

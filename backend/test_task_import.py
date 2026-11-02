@@ -19,6 +19,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 
 from fastapi import BackgroundTasks, HTTPException
 from sqlalchemy import event
+from sqlalchemy.exc import IntegrityError
 
 import cache
 import database
@@ -389,6 +390,157 @@ class NotifyTests(Base):
         rows = self.db.query(models.TaskEmailQueue).all()
         self.assertEqual({r.recipient for r in rows}, {ANA})
         self.assertEqual(len(rows), 3)   # flush_batches sends them as ONE email
+
+
+class PersonalTests(Base):
+    """No project (Oct 31 2026): a list pasted into Home's add row."""
+
+    def run_personal(self, rows, user=EDITOR, **kw):
+        kw.setdefault("dry_run", False)
+        kw.setdefault("source", "paste")
+        body = T.TaskImportBody(project_id="", rows=rows, **kw)
+        return T.import_tasks(body, kw.pop("bg", None) or BackgroundTasks(), user=user, db=self.db)
+
+    def test_rows_with_no_project_become_personal_tasks_with_codes(self):
+        r = self.run_personal([{"row": 1, "title": "Call the bank", "assignees": EDITOR["email"]},
+                               {"row": 2, "title": "Ask for the statement", "parent": "1",
+                                "assignees": EDITOR["email"]},
+                               {"row": 3, "title": "File the receipts", "assignees": EDITOR["email"]}])
+        self.assertEqual(r["created"], 3)
+        self.assertEqual(r["projectId"], "")
+        by = self.by_title()
+        self.assertEqual({t.project_id or "" for t in by.values()}, {""})
+        self.assertEqual({t.access_level for t in by.values()}, {"org"})
+        self.assertEqual(by["Ask for the statement"].parent_task_id, by["Call the bank"].id)
+        self.assertEqual(by["Call the bank"].subtask_ids, [by["Ask for the statement"].id])
+        self.assertTrue(all(t.code for t in by.values()))
+        self.assertEqual(len({t.code for t in by.values()}), 3)
+        self.assertTrue(all(EDITOR["email"] in (t.assignee_emails or []) for t in by.values()))
+        # No project, so no project activity row - each task's own "created" row only.
+        kinds = [a.entity_kind for a in self.db.query(models.TaskActivity).all()]
+        self.assertNotIn("project", kinds)
+        self.assertEqual(kinds.count("task"), 3)
+
+    def detail(self, call):
+        with self.assertRaises(HTTPException) as e:
+            call()
+        self.db.rollback()
+        return e.exception.status_code, e.exception.detail
+
+    def test_a_section_with_no_project_is_refused_and_a_named_one_is_ignored(self):
+        code, detail = self.detail(lambda: self.run_personal([{"title": "A"}], section_id="sec-1"))
+        self.assertEqual(code, 422)
+        self.assertTrue(detail.startswith("A section needs a project"), detail)
+        r = self.run_personal([{"title": "A", "section": "Phase 1"}], dry_run=True)
+        self.assertEqual(r["valid"], 1)
+        self.assertTrue(any("ignored" in w for w in r["rows"][0]["warnings"]))
+
+    def test_required_fields_do_not_bind_personal_tasks(self):
+        self.db.add(models.TaskCustomField(id="f-req", name="Property", type="text", required=True,
+                                           applies_to="task"))
+        self.db.commit()
+        r = self.run_personal([{"title": "A"}])
+        self.assertEqual(r["created"], 1)
+
+    def test_notify_is_one_bell_per_person_with_no_project_wording(self):
+        bg = BackgroundTasks()
+        self.run_personal([{"title": f"T{i}", "assignees": ANA} for i in range(3)], bg=bg, notify_assignees=True)
+        bells = self.db.query(models.TaskNotification).all()
+        self.assertEqual([b.for_email for b in bells], [ANA])
+        self.assertEqual(bells[0].title, "You Were Assigned 3 Tasks")
+        self.assertFalse(bells[0].body.startswith("In ") or bells[0].body.startswith("From the import"))
+        self.assertEqual(len(bg.tasks), 1)
+
+    def test_a_pasted_list_into_a_project_reads_added_not_imported(self):
+        self.run_import([{"title": "A"}, {"title": "B"}], source="paste", import_id="paste-1")
+        row = next(a for a in self.db.query(models.TaskActivity).all() if a.entity_kind == "project")
+        self.assertEqual(row.detail, "added 2 tasks")
+        # The repeat guard still holds inside a project.
+        self.assertEqual(self.code(lambda: self.run_import([{"title": "A"}], source="paste",
+                                                           import_id="paste-1")), 409)
+
+    def test_anyone_may_make_personal_tasks_but_a_viewer_is_still_refused_on_a_project(self):
+        # Anyone may create a task with no project (create_task's bar): the
+        # outsider, the project's viewer, an external with a tasks grant -
+        # the same people POST /tasks lets through. A project they only view
+        # stays refused.
+        ext = {"email": "guest@gmail.com", "level": 1, "external": True}
+        for who in (OUTSIDER, VIEWER, ext):
+            r = self.run_personal([{"title": f"Mine {who['email']}"}], user=who)
+            self.assertEqual(r["created"], 1)
+        self.assertEqual(len(self.tasks()), 3)
+        self.assertEqual(self.code(lambda: self.run_import([{"title": "A"}], user=VIEWER)), 403)
+
+    def test_notify_off_tells_nobody_for_a_personal_list(self):
+        bg = BackgroundTasks()
+        with mock.patch("task_notify.notify_task_event") as per_task:
+            self.run_personal([{"title": f"T{i}", "assignees": ANA} for i in range(3)], bg=bg)
+        per_task.assert_not_called()
+        self.assertEqual(bg.tasks, [])
+        self.assertEqual(self.db.query(models.TaskNotification).count(), 0)
+        self.assertEqual(self.db.query(models.NexusNotification).count(), 0)
+
+    def test_the_same_list_twice_is_refused_for_personal_tasks_too(self):
+        # A POST that timed out after the server committed, then clicked
+        # again with the same import id: 409, three tasks, never six.
+        rows = [{"title": "A"}, {"title": "B"}, {"title": "C"}]
+        self.run_personal(rows, import_id="batch-1")
+        code, detail = self.detail(lambda: self.run_personal(rows, import_id="batch-1"))
+        self.assertEqual(code, 409)
+        self.assertEqual(detail, "This list was already added. Check your tasks before adding it again.")
+        self.assertEqual(len(self.tasks()), 3)
+        # The actor's own keyed row carries the guard; it hangs off nothing.
+        mine = [a for a in self.db.query(models.TaskActivity).all() if a.entity_kind == "person"]
+        self.assertEqual([(a.entity_id, a.detail) for a in mine], [(EDITOR["email"], "added 3 tasks")])
+        # Another person's list with the same id is their own.
+        self.assertEqual(self.run_personal(rows, user=OUTSIDER, import_id="batch-1")["created"], 3)
+
+    def test_a_race_on_the_same_personal_list_is_409_not_500(self):
+        rows = [{"title": "A"}]
+        key = task_import._import_key(f"personal:{EDITOR['email']}", "race-1")
+
+        def commits_first(ctx, body, good, used_sections, used_options, import_key=""):
+            # The other request lands the keyed row, then ours hits the key.
+            other = database.SessionLocal()
+            other.add(models.TaskActivity(id=key, entity_kind="person", entity_id=EDITOR["email"],
+                                          entity_title=EDITOR["email"], type="imported",
+                                          actor_email=EDITOR["email"], at=now_iso(), detail="added 1 task"))
+            other.commit()
+            other.close()
+            raise IntegrityError("insert", {}, Exception("duplicate key"))
+
+        with mock.patch.object(task_import, "_create", side_effect=commits_first):
+            code, detail = self.detail(lambda: self.run_personal(rows, import_id="race-1"))
+        self.assertEqual(code, 409)
+        self.assertIn("already added", detail)
+
+    def test_a_pasted_lists_messages_speak_of_a_list_not_a_file(self):
+        code, detail = self.detail(lambda: self.run_personal([]))
+        self.assertEqual((code, detail), (422, "The list has no rows to add."))
+        r = self.run_personal([{"title": "A", "status": "Nope", "custom": {"ghost": "1"}}], dry_run=True)
+        self.assertIn('Status "Nope" is not a status - set to Not Started.', r["rows"][0]["warnings"])
+        self.assertIn("A column was mapped to a field that does not apply - ignored.", r["rows"][0]["warnings"])
+        # A file import keeps its wording, byte for byte.
+        r = self.run_import([{"title": "A", "status": "Nope"}], dry=True)
+        self.assertIn('Status "Nope" is not a status in this project - set to Not Started.', r["rows"][0]["warnings"])
+        self.assertEqual(self.code(lambda: self.run_import([])), 422)
+
+    def test_source_must_be_file_paste_or_typed(self):
+        code, detail = self.detail(lambda: self.run_personal([{"title": "A"}], source="pasted"))
+        self.assertEqual(code, 422)
+        self.assertIn("source must be one of", detail)
+
+    def test_a_pasted_parent_is_a_row_number_even_when_a_title_is_a_bare_number(self):
+        # The browser always sends parent "<row>"; a line titled "1" must not
+        # become everyone's parent. A file still tries the title first.
+        rows = [{"row": 1, "title": "1"}, {"row": 2, "title": "Phase two"},
+                {"row": 3, "title": "Under phase two", "parent": "2"}]
+        self.run_personal(rows)
+        by = self.by_title()
+        self.assertEqual(by["Under phase two"].parent_task_id, by["Phase two"].id)
+        self.assertEqual(by["1"].subtask_ids or [], [])
+        r = self.run_personal([{"row": 1, "title": "A"}, {"row": 2, "title": "B", "parent": "9"}], dry_run=True)
+        self.assertIn('Parent "9" is not a row in this list.', r["rows"][1]["errors"])
 
 
 class ValueTests(Base):

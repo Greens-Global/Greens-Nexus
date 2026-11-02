@@ -106,7 +106,7 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   return (
     <div className={`scroll-tabs module-tabs-inline${inline ? ' module-tabs-inline--always' : ''}`}>
       <TabInk key={signature} active={active} variant="line" />
-      {tabs.map(({ key, label, Icon, badge, items, landing }) => (items ? (
+      {tabs.map(({ key, label, Icon, badge, items, landing, tone }) => (items ? (
         <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={active} onSelect={(k) => onChange?.(k)} className="module-tab-inline-btn" iconSize={16} compact={compactGroups} />
       ) : (
         <button
@@ -115,7 +115,9 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
           onClick={() => onChange?.(key)}
         >
           {Icon && <Icon size={16} />} {label}
-          {badge > 0 && <span className="hdr-tab-badge">{badge}</span>}
+          {/* tone: 'alarm' (Tickets, 10/31/2026) - a count that is a call to
+              act (tickets nobody owns) in amber; every other count stays quiet. */}
+          {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}</span>}
         </button>
       )))}
     </div>

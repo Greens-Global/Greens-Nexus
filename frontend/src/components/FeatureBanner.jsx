@@ -49,9 +49,16 @@ import { prefersReducedMotion } from '../lib/reducedMotion';
 // Transform/opacity plus that one height change, nothing loops, and reduced
 // motion turns all of it off.
 const RECHECK_MS = 30 * 60 * 1000;
+// Updates publish automatically after their merge (changelog_auto.py: 5
+// minutes after it, up to 30 when merges come in a burst, and the 15-minute
+// sweep when GitHub's push notice is missed), so the first ~20 minutes are
+// asked every 2 minutes and after that every 10 for as long as the tab stays
+// stale - the bar always comes to list what the version brings instead of
+// giving up on the plain line (Neil, Oct 30 2026). Only while the tab is
+// visible.
 const RELEASE_POLL_MS = 2 * 60 * 1000;
-// Updates publish within minutes of the merge; ~20 minutes of asking covers it.
-const RELEASE_MAX_CHECKS = 10;
+const RELEASE_FAST_CHECKS = 10;
+const RELEASE_SLOW_POLL_MS = 10 * 60 * 1000;
 // Removal follows the fold's own animationend; this only catches a browser
 // that never sends one (an animation turned off another way).
 const CLOSE_FALLBACK_MS = 1000;
@@ -67,7 +74,9 @@ const RELOAD_RECOVER_MS = 4000;
 // nothing but what the bar already has. Grouped by category in reading order.
 const TYPE_ORDER = ['New Feature', 'Improvement', 'Performance', 'Security Update', 'Bug Fix', 'Hotfix', 'Maintenance'];
 
-function ReleasePopup({ items, total, onClose, onReload, reloading }) {
+// `weekly`: the weekly news (this version's own updates) - worded for it, with a
+// way on to the full What's New page; a new version cannot open that page.
+function ReleasePopup({ items, total, onClose, onReload, reloading, weekly = false, onSeeAll }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -92,8 +101,8 @@ function ReleasePopup({ items, total, onClose, onReload, reloading }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px', borderBottom: '1px solid var(--nx-border, #e5e7eb)' }}>
           <Sparkles size={18} style={{ color: '#1f7a40' }} aria-hidden="true" />
           <div style={{ flex: 1 }}>
-            <div id="nx-release-title" style={{ fontSize: 17, fontWeight: 700 }}>What&apos;s New in This Version</div>
-            <div style={{ fontSize: 13, color: 'var(--nx-dim, #64748b)' }}>Reload when you are ready to start using these. Nothing changes until you do.</div>
+            <div id="nx-release-title" style={{ fontSize: 17, fontWeight: 700 }}>{weekly ? <>What&apos;s New This Week</> : <>What&apos;s New in This Version</>}</div>
+            <div style={{ fontSize: 13, color: 'var(--nx-dim, #64748b)' }}>{weekly ? 'The updates released to Nexus this week.' : 'Reload when you are ready to start using these. Nothing changes until you do.'}</div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ border: 0, background: 'transparent', cursor: 'pointer', padding: 6, color: 'inherit' }}><X size={18} /></button>
         </div>
@@ -115,10 +124,11 @@ function ReleasePopup({ items, total, onClose, onReload, reloading }) {
               ))}
             </section>
           ))}
-          {more > 0 && <div style={{ marginTop: 14, fontSize: 13, color: 'var(--nx-dim, #64748b)' }}>And {more} more - see them all on What&apos;s New after you reload.</div>}
+          {more > 0 && <div style={{ marginTop: 14, fontSize: 13, color: 'var(--nx-dim, #64748b)' }}>And {more} more - see them all on What&apos;s New{weekly ? '' : ' after you reload'}.</div>}
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 20px', borderTop: '1px solid var(--nx-border, #e5e7eb)' }}>
-          <button type="button" onClick={onClose} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--nx-border, #d1d5db)', background: 'transparent', color: 'inherit', fontWeight: 600, cursor: 'pointer' }}>Later</button>
+          <button type="button" onClick={onClose} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--nx-border, #d1d5db)', background: 'transparent', color: 'inherit', fontWeight: 600, cursor: 'pointer' }}>{weekly ? 'Close' : 'Later'}</button>
+          {weekly && onSeeAll && <button type="button" onClick={onSeeAll} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--nx-border, #d1d5db)', background: 'transparent', color: 'inherit', fontWeight: 600, cursor: 'pointer' }}>See All on What&apos;s New</button>}
           <button type="button" onClick={onReload} disabled={reloading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: 0, background: '#1f7a40', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
             <RefreshCw size={14} aria-hidden="true" />{reloading ? 'Reloading…' : 'Reload Now'}
           </button>
@@ -167,23 +177,27 @@ export default function FeatureBanner({ activeView, onNavigate }) {
   }, [onWhatsNew, banner]);
 
   // What does the version waiting for this tab bring? Asked once the build is
-  // stale, and again for a while, because an update is published a few
-  // minutes after its merge lands.
+  // stale and again until the tab reloads - an update is published minutes
+  // after its merge lands, and a later merge adds to the list.
   const stale = useBuildVersion();
   useEffect(() => {
     if (!stale) return undefined;
     let live = true;
     let checks = 0;
+    let stopSlow = null;
     const check = () => {
       checks += 1;
-      if (checks >= RELEASE_MAX_CHECKS) clearInterval(timer);
+      if (checks === RELEASE_FAST_CHECKS) {
+        clearInterval(timer);
+        stopSlow = pollWhileVisible(check, RELEASE_SLOW_POLL_MS);
+      }
       return api.getReleasedSince(RUNNING_SINCE)
         .then((r) => { if (live && r) setRelease(r.total > 0 ? { counts: r.counts || {}, total: r.total, items: r.items || [] } : null); })
         .catch(() => {});
     };
-    const timer = setInterval(check, RELEASE_POLL_MS);
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') check(); }, RELEASE_POLL_MS);
     check();
-    return () => { live = false; clearInterval(timer); };
+    return () => { live = false; clearInterval(timer); stopSlow?.(); };
   }, [stale]);
 
   // A new version outranks the weekly news: reloading brings the news with
@@ -240,23 +254,31 @@ export default function FeatureBanner({ activeView, onNavigate }) {
     navigate();
   };
   const update = mode === 'update';
-  // A new version: the popup of what it brings, no reload (Oct 29 2026, Neil
-  // agreed) - Reload stays its own button. The weekly news is the running
-  // version's own What's New, so it navigates in the app as before.
-  const seeWhatsNew = update
-    ? () => setPopupOpen(true)
-    : () => onNavigate?.('whats-new');
+  // See What's New opens the popup in both modes and never reloads (Oct 29-30
+  // 2026, Neil agreed); Reload is its own button on both. Opening the weekly
+  // news counts as seeing it for the week, as reaching What's New does.
+  const seeWhatsNew = () => {
+    if (!update && !dismissed.current) {
+      dismissed.current = true;
+      api.dismissFeatureBanner().catch(() => {});
+    }
+    setPopupOpen(true);
+  };
+  // Closing the weekly popup folds the bar away - it has been seen.
+  const closePopup = () => { setPopupOpen(false); if (!update) close(); };
   const reload = () => go(() => window.location.reload());
 
   const counts = update ? release?.counts : banner.counts;
   const parts = counts ? categoryParts(counts) : [];
-  // The new version knows what it brings only once the server answers; until
-  // then the bar offers Reload alone.
+  // The new version knows what it brings only once its updates are published
+  // (see RELEASE_POLL_MS); until then, or for a version with nothing a person
+  // would notice (CI, docs, tests), the bar offers Reload alone - one plain
+  // line, never "whenever it suits you" (Neil, Oct 30 2026).
   const hasNews = parts.length > 0;
   // The label already says "New Version", so the desktop line leads with
   // what to do about it.
   const lead = update
-    ? (hasNews ? 'Reload to get the latest version of Nexus, including ' : 'Reload to get the latest version of Nexus whenever it suits you.')
+    ? (hasNews ? 'Reload to get the latest version of Nexus, including ' : 'Reload to get the latest version of Nexus.')
     : 'Updates this week, including ';
   const leadShort = update ? (hasNews ? 'New Version: ' : 'A New Version is ready.') : 'Including ';
   const message = `${lead}${parts.map((p, i) => `${p.count} ${p.label}${partJoiner(i, parts.length)}`).join('')}`;
@@ -297,8 +319,9 @@ export default function FeatureBanner({ activeView, onNavigate }) {
               <ArrowRight size={15} className="feature-banner-cta-arrow" aria-hidden="true" />
             </button>
           )}
-          {update && (
-            <button type="button" className="feature-banner-cta feature-banner-reload" onClick={reload} disabled={reloading}>
+          {/* Reload on both bars (Oct 30 2026): anyone can reload by hand. */}
+          {(update || hasNews) && (
+            <button type="button" className={`feature-banner-cta feature-banner-reload${update ? '' : ' is-quiet'}`} onClick={reload} disabled={reloading}>
               <RefreshCw size={14} className={reloading ? 'feature-banner-spin' : undefined} aria-hidden="true" />
               {reloading ? 'Reloading…' : 'Reload'}
             </button>
@@ -310,9 +333,11 @@ export default function FeatureBanner({ activeView, onNavigate }) {
           </button>
         </div>
       </div>
-      {update && popupOpen && (
-        <ReleasePopup items={release?.items} total={release?.total} reloading={reloading}
-          onClose={() => setPopupOpen(false)} onReload={reload} />
+      {popupOpen && (
+        <ReleasePopup weekly={!update} items={update ? release?.items : banner?.items}
+          total={update ? release?.total : banner?.total} reloading={reloading}
+          onClose={closePopup} onReload={reload}
+          onSeeAll={() => { setPopupOpen(false); onNavigate?.('whats-new'); }} />
       )}
     </div>
   );

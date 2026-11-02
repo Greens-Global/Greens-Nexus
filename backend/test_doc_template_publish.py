@@ -56,7 +56,7 @@ class PublishTests(unittest.TestCase):
         for m in (models.DocTemplate, models.DocTemplateVersion, models.Document, models.DocumentVersion,
                   models.DocLetterhead, models.NexusRole):
             db.query(m).delete()
-        db.add(models.NexusRole(email=ADMIN, role="administrator"))
+        db.add(models.NexusRole(email=ADMIN, role="owner"))   # Super Administrator (Neil, 11/02/2026)
         db.commit()
         db.close()
         cache.module_grants.invalidate()
@@ -116,14 +116,14 @@ class PublishTests(unittest.TestCase):
         self.client.patch(f"/documents/templates/{t['id']}", json={"fieldDefs": []})
         self.assertTrue(self.client.get(f"/documents/templates/{t['id']}").json()["hasUnpublishedChanges"])
 
-    def test_a_draft_is_not_published_until_it_is_activated(self):
+    def test_a_draft_is_not_released_until_it_is_published(self):
+        # One step (Neil, 10/31/2026): Publish is what makes a draft usable.
         t = self._create(status="draft")
         self.assertEqual(t["publishedVersion"], 0)
-        self.assertEqual(self.client.post(f"/documents/templates/{t['id']}/publish", json={}).status_code, 409)
         with self.assertRaises(documents.TemplateNotPublished):
             self._snapshot(t["id"])
-        t = self.client.patch(f"/documents/templates/{t['id']}", json={"status": "active"}).json()
-        self.assertEqual(t["publishedVersion"], 1)
+        t = self.client.post(f"/documents/templates/{t['id']}/publish", json={}).json()
+        self.assertEqual((t["status"], t["publishedVersion"]), ("active", 1))
 
     def test_publish_adds_a_signer_for_every_signature_block(self):
         t = self._create(content=_content("Agreed.", {"type": "signatureBlock", "attrs": {"role": "employee"}}))

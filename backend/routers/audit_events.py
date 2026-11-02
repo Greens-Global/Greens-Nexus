@@ -331,13 +331,27 @@ class Filters:
     include_system: bool = False
     pfs_ok: bool = False
     hidden: frozenset = frozenset()   # hidden_ticket_records
+    actors: Optional[frozenset] = None  # walled caller: only these actors' events (None = everyone's)
 
     def only_module_and_dates(self) -> bool:
         return not (self.actor or self.acting_as or self.record_table or self.record_id or self.kind or self.q)
 
 
+def walled_actors(db: Session, user: dict) -> Optional[frozenset]:
+    """The company wall on the audit feed (Neil, 11/02/2026). A walled caller
+    - an Administrator, always - sees only what people of their own
+    companies did (by the real actor's People record); no background-job
+    rows and no one outside. None = no wall (a Super Administrator)."""
+    import auth
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return None
+    return frozenset((e.work_email or "").lower() for e in db.query(models.NexusEmployee.work_email)
+                     .filter(models.NexusEmployee.company.in_(scope)).all() if e.work_email)
+
+
 def _filters(module, actor, acting_as, record_type, record_id, action, q, from_, to, include_system,
-             pfs_ok, hidden: frozenset = frozenset()) -> Filters:
+             pfs_ok, hidden: frozenset = frozenset(), actors: Optional[frozenset] = None) -> Filters:
     module = (module or "").strip().lower()
     if module and module not in MODULE_LABELS:
         raise HTTPException(400, f"Unknown module '{module}'")
@@ -351,7 +365,8 @@ def _filters(module, actor, acting_as, record_type, record_id, action, q, from_,
                    record_table=record_table(record_type) if record_type else "", record_id=(record_id or "").strip(),
                    kind=kind, q=(q or "").strip(), start=d0.isoformat() if d0 else "",
                    end=(d1 + timedelta(days=1)).isoformat() if d1 else "",
-                   include_system=bool(include_system), pfs_ok=pfs_ok, hidden=frozenset(hidden or ()))
+                   include_system=bool(include_system), pfs_ok=pfs_ok, hidden=frozenset(hidden or ()),
+                   actors=actors)
 
 
 # Distinct resource_type spellings in audit_logs -> module (cached; there are
@@ -442,6 +457,8 @@ class RequestSource:
                 select(AC.request_id).where(AC.record_id.in_(hid), func.coalesce(AC.request_id, "") != ""))))
         if not f.include_system:
             q = q.filter(_not_noise_pred())
+        if f.actors is not None:
+            q = q.filter(func.lower(func.coalesce(AL.user_email, "")).in_(sorted(f.actors) or ["\x00"]))
         if f.actor:
             q = q.filter(func.lower(AL.user_email).like(f"%{f.actor}%"))
         if f.acting_as:
@@ -488,6 +505,8 @@ class SystemSource:
     def query(self, db: Session, f: Filters, pos, limit: int):
         if not f.include_system or f.acting_as or f.kind in ("comment", "login", "denied", "view"):
             return []
+        if f.actors is not None:
+            return []      # background jobs belong to no company: not for a walled caller
         if f.actor and f.actor not in "system":
             return []
         q = db.query(AC).filter(AC.actor == "system")
@@ -641,6 +660,8 @@ class HistorySource:
             q = q.filter(getattr(m, s.record_col) == f.record_id)
         at_col = getattr(m, s.at)
         actor_col = getattr(m, s.actor)
+        if f.actors is not None:
+            q = q.filter(func.lower(func.coalesce(actor_col, "")).in_(sorted(f.actors) or ["\x00"]))
         if f.actor:
             q = q.filter(func.lower(actor_col).like(f"%{f.actor}%"))
         if f.start:
@@ -1098,7 +1119,8 @@ def _common(module: Optional[str] = None, actor: Optional[str] = None, acting_as
 def list_events(params: dict = Depends(_common), cursor: Optional[str] = None,
                 limit: int = Query(50, ge=1, le=MAX_LIMIT),
                 user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    f = _filters(pfs_ok=_can_see_pfs(user, db), hidden=hidden_ticket_records(db, user), **params)
+    f = _filters(pfs_ok=_can_see_pfs(user, db), hidden=hidden_ticket_records(db, user),
+                 actors=walled_actors(db, user), **params)
     events, nxt = _page(db, f, _dec_cursor(cursor), limit)
     out = {"events": events, "nextCursor": nxt}
     # total only when it is free: the facets cache already counted this
@@ -1115,9 +1137,12 @@ def list_events(params: dict = Depends(_common), cursor: Optional[str] = None,
 def _find_event(db: Session, event_id: str, user: dict):
     pfs_ok = _can_see_pfs(user, db)
     hidden = hidden_ticket_records(db, user)
+    actors = walled_actors(db, user)
     if event_id.startswith("r") and event_id[1:].isdigit():
         r = db.get(AL, int(event_id[1:]))
         if r is None or (r.resource_id or "") in hidden or _request_touches(db, r.request_id or "", hidden):
+            raise HTTPException(404, "Event not found")
+        if actors is not None and (r.user_email or "").lower() not in actors:
             raise HTTPException(404, "Event not found")
         names = _names(db, _emails_of("r", [r]))
         ev = _request_events(db, [r], names, full=True)[0]
@@ -1126,7 +1151,7 @@ def _find_event(db: Session, event_id: str, user: dict):
         return ev, r.request_id or "", "r", r
     if event_id.startswith("c") and event_id[1:].isdigit():
         c = db.get(AC, int(event_id[1:]))
-        if c is None or (c.module == "pfs" and not pfs_ok) or (c.record_id or "") in hidden:
+        if c is None or (c.module == "pfs" and not pfs_ok) or (c.record_id or "") in hidden or actors is not None:
             raise HTTPException(404, "Event not found")
         names = _names(db, [])
         ev = _system_events(db, [c], names)[0]
@@ -1147,6 +1172,8 @@ def _find_event(db: Session, event_id: str, user: dict):
             is_int = False
         row = db.get(m, int(rid) if is_int and rid.isdigit() else rid)
         if row is None or (getattr(row, src.spec.record_col, "") or "") in hidden:
+            raise HTTPException(404, "Event not found")
+        if actors is not None and (getattr(row, src.spec.actor, "") or "").lower() not in actors:
             raise HTTPException(404, "Event not found")
         names = _names(db, _emails_of(src.key, [row]))
         ev = _history_event(src.spec, row, names)
@@ -1222,8 +1249,12 @@ def record_history(record_type: str, record_id: str, limit: int = Query(500, ge=
     hidden = hidden_ticket_records(db, user)
     if record_id in hidden:
         raise HTTPException(404, "Record not found")
+    actors = walled_actors(db, user)
     own = (db.query(AC).filter(AC.table_name == table, AC.record_id == record_id)
            .order_by(AC.at, AC.id).limit(limit).all())
+    if actors is not None:
+        # A walled caller reads only the changes their companies' people made.
+        own = [c for c in own if (c.actor or "").lower() in actors]
     req_ids = list({c.request_id for c in own if c.request_id})
     req_rows = {}
     for i in range(0, len(req_ids), 400):
@@ -1241,6 +1272,8 @@ def record_history(record_type: str, record_id: str, limit: int = Query(500, ge=
     cutoff = _capture_cutoff(db)
     legacy_q = db.query(AL).filter(AL.resource_id == record_id, func.coalesce(AL.request_id, "") == "")
     legacy = legacy_q.order_by(AL.timestamp).limit(limit).all()
+    if actors is not None:
+        legacy = [r for r in legacy if (r.user_email or "").lower() in actors]
     hist = []
     for s in _history_sources():
         if s.spec.record_table != table or (s.spec.module == "pfs" and not pfs_ok):
@@ -1248,7 +1281,8 @@ def record_history(record_type: str, record_id: str, limit: int = Query(500, ge=
         q = db.query(s.spec.model).filter(getattr(s.spec.model, s.spec.record_col) == record_id)
         if cutoff:
             q = q.filter(getattr(s.spec.model, s.spec.at) < cutoff)
-        hist.extend((s, r) for r in q.limit(limit).all())
+        hist.extend((s, r) for r in q.limit(limit).all()
+                    if actors is None or (getattr(r, s.spec.actor, "") or "").lower() in actors)
     for s, r in hist:
         emails |= _emails_of(s.key, [r])
     for r in legacy:
@@ -1292,7 +1326,7 @@ _FACETS: dict[tuple, tuple[float, dict]] = {}
 
 
 def _facet_key(f: Filters) -> tuple:
-    return (f.start, f.end, f.include_system, f.pfs_ok)
+    return (f.start, f.end, f.include_system, f.pfs_ok, None if f.actors is None else hash(f.actors))
 
 
 @router.get("/facets")
@@ -1306,8 +1340,10 @@ def facets(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] =
     if not from_ and not to:
         today = datetime.now(timezone.utc).date()
         from_, to = (today - timedelta(days=29)).isoformat(), today.isoformat()
-    f = _filters(None, None, None, None, None, None, None, from_, to, include_system, pfs_ok)
+    f = _filters(None, None, None, None, None, None, None, from_, to, include_system, pfs_ok,
+                 actors=walled_actors(db, user))
     key = _facet_key(f)
+    walled = (sorted(f.actors) or ["\x00"]) if f.actors is not None else None
     hit = _FACETS.get(key)
     if hit and time.time() - hit[0] < FACETS_TTL:
         return hit[1]
@@ -1325,6 +1361,8 @@ def facets(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] =
         q = q.filter(AL.timestamp < f.end)
     if not f.include_system:
         q = q.filter(_not_noise_pred())
+    if walled is not None:
+        q = q.filter(func.lower(func.coalesce(AL.user_email, "")).in_(walled))
     for mod, rtype, kind, action, day, n in q.group_by(func.coalesce(AL.module, ""), AL.resource_type,
                                                        func.coalesce(AL.kind, ""), AL.action, day_expr).all():
         m = mod or module_for_resource(rtype or "", action or "")
@@ -1343,10 +1381,12 @@ def facets(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] =
         aq = aq.filter(_not_noise_pred())
     if not pfs_ok:
         aq = aq.filter(not_(_module_pred(db, "pfs")))
+    if walled is not None:
+        aq = aq.filter(func.lower(func.coalesce(AL.user_email, "")).in_(walled))
     for em, n in aq.group_by(AL.user_email).order_by(func.count(AL.id).desc()).limit(25).all():
         actors[(em or "").lower()] = actors.get((em or "").lower(), 0) + n
-    # background-job changes
-    if f.include_system:
+    # background-job changes (never for a walled caller)
+    if f.include_system and walled is None:
         sq = db.query(AC.module, func.substr(AC.at, 1, 10), func.count(AC.id)).filter(AC.actor == "system")
         if f.start:
             sq = sq.filter(AC.at >= f.start)
@@ -1372,6 +1412,8 @@ def facets(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] =
             hq = hq.filter(at_col < f.end)
         if cutoff:
             hq = hq.filter(at_col < cutoff)
+        if walled is not None:
+            hq = hq.filter(func.lower(func.coalesce(getattr(sp.model, sp.actor), "")).in_(walled))
         try:
             for day, n in hq.group_by(func.substr(at_col, 1, 10)).all():
                 mods[sp.module] = mods.get(sp.module, 0) + n
@@ -1409,7 +1451,8 @@ def facets(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] =
 @router.get("/export.csv")
 def export_csv(params: dict = Depends(_common), max_rows: int = Query(EXPORT_CAP, ge=1, le=EXPORT_CAP),
                user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    f = _filters(pfs_ok=_can_see_pfs(user, db), hidden=hidden_ticket_records(db, user), **params)
+    f = _filters(pfs_ok=_can_see_pfs(user, db), hidden=hidden_ticket_records(db, user),
+                 actors=walled_actors(db, user), **params)
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["Date (UTC)", "Time (UTC)", "Module", "Action", "Title", "Summary", "Actor", "Actor Email",

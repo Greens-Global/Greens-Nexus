@@ -5,6 +5,7 @@
 // phone the same content slides in as a full-screen sheet (CredentialSheet).
 // The screen owns the data and the gated calls; this file only lays them out.
 import { useEffect, useRef, useState } from "react";
+import { teamsChatUrl } from '../lib/teamsLinks';
 import {
   X, Copy, Check, Eye, EyeOff, ExternalLink, Pencil, Trash2, RefreshCw, Share2, KeyRound, Star,
   ShieldAlert, Clock, UserMinus, Lock, Send, ShieldCheck,
@@ -15,6 +16,7 @@ import { formatDate, formatDateTime } from "../lib/datetime";
 import { TeamsIcon, agoLabel, actionStyle, Pager } from "./vaultShared";
 import { ACCESS_LABEL, ACCESS_TONE, healthFlags, rotationDaysLeft, rotationDueDate, timeLeft } from "./vaultModel";
 import { Monogram } from "./vaultCards";
+import HoldButton from "../ui/HoldButton";
 
 function CopyButton({ text, onCopied, title = "Copy", disabled = false }) {
   const [done, setDone] = useState(false);
@@ -74,10 +76,16 @@ export function CredentialDetail({
   }, [cred.id, cred.canEdit, cred.sharedWith]);
 
 
+  // End access is held on the row (Neil, Oct 30 2026 - hold to confirm). A
+  // refusal rewinds the button and says why; the row leaves once the check
+  // has shown. No undo: giving it back is a new Share, with its own code
+  // and a fresh notice to the person.
   async function revoke(g) {
-    try { await api.cvRevokeGrant(g.id); setAccess((a) => a && { ...a, grants: a.grants.filter((x) => x.id !== g.id) }); onChanged?.(); }
-    catch { /* the screen's toast handles API errors elsewhere; keep the row */ }
+    try { await api.cvRevokeGrant(g.id); }
+    catch (e) { throw new Error(e?.message || "Could not end this access.", { cause: e }); }
+    onChanged?.();
   }
+  const dropGrant = (g) => setAccess((a) => a && { ...a, grants: a.grants.filter((x) => x.id !== g.id) });
 
   const left = rotationDaysLeft(cred);
   // History, 10 a page (Pranshu, Oct 29 2026).
@@ -179,7 +187,7 @@ export function CredentialDetail({
             </div>
             <div className="cv-person">
               <span>{nameOf(cred.owner)} <span className="cv-muted">· Owner</span></span>
-              {cred.owner && cred.owner !== myEmail && <a href={`https://teams.microsoft.com/l/chat/0/0?users=${cred.owner}`} target="_blank" rel="noopener noreferrer" title={`Chat with ${nameOf(cred.owner)} on Teams`} style={{ display: "flex" }}><TeamsIcon size={18} /></a>}
+              {cred.owner && cred.owner !== myEmail && <a href={teamsChatUrl(cred.owner)} target="_blank" rel="noopener noreferrer" title={`Chat with ${nameOf(cred.owner)} on Teams`} style={{ display: "flex" }}><TeamsIcon size={18} /></a>}
             </div>
             {cred.backupOwner && <div className="cv-person"><span>{nameOf(cred.backupOwner)} <span className="cv-muted">· Backup Owner</span></span></div>}
             {access?.heads?.filter((h) => h !== cred.owner && h !== cred.backupOwner).map((h) => (
@@ -196,7 +204,8 @@ export function CredentialDetail({
             {access?.grants?.map((g) => (
               <div className="cv-person" key={g.id}>
                 <span>{g.name} <span className="cv-muted">· <Clock size={11} style={{ verticalAlign: -1 }} /> {timeLeft(g.expiresAt - now)} left</span></span>
-                <button type="button" className="cv-iconbtn is-danger" title="End this access now" aria-label={`End access for ${g.name}`} onClick={() => revoke(g)}><UserMinus size={14} /></button>
+                <HoldButton size="sm" label="End Access" doneLabel="Ended" icon={UserMinus} ariaLabel={`End access for ${g.name}`}
+                  fallbackMessage={`End ${g.name}'s access to ${cred.name} now?`} onConfirm={() => revoke(g)} onDone={() => dropGrant(g)} />
               </div>
             ))}
             {access?.pending?.map((p) => (
@@ -239,7 +248,8 @@ export function CredentialDetail({
             {inTrash ? (<>
               <button type="button" className="cv-btn" onClick={onRestore}><RefreshCw size={14} /> Recover</button>
               <span className="cv-spacer" />
-              <button type="button" className="cv-btn cv-btn-danger" onClick={onPurge}><Trash2 size={14} /> Delete Permanently</button>
+              <HoldButton size="sm" label="Delete Permanently" doneLabel="Deleted" onConfirm={onPurge}
+                fallbackMessage={`Delete ${cred.name} permanently? This cannot be undone.`} />
             </>) : (<>
               <button type="button" className="cv-btn" onClick={onEdit}><Pencil size={14} /> Edit</button>
               <span className="cv-spacer" />

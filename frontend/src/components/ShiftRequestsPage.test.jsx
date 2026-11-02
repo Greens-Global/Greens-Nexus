@@ -10,7 +10,8 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 const shiftRequestDecide = vi.fn();
 const timeOffDecide = vi.fn();
 const confirmAsk = vi.fn();
-vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmAsk(...a) } }));
+const promptAsk = vi.fn();
+vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmAsk(...a), prompt: (...a) => promptAsk(...a) } }));
 vi.mock('../api', () => ({
   api: {
     shiftRequestDecide: (...a) => shiftRequestDecide(...a),
@@ -47,6 +48,7 @@ beforeEach(() => {
   shiftRequestDecide.mockReset().mockResolvedValue({});
   timeOffDecide.mockReset().mockResolvedValue({ conflicts: [] });
   confirmAsk.mockReset().mockResolvedValue(true);
+  promptAsk.mockReset().mockResolvedValue('Feel better');
   toastOk.mockReset(); toastErr.mockReset(); onChanged.mockReset();
 });
 
@@ -70,10 +72,11 @@ describe('Shifts > Requests (manager inbox)', () => {
     await waitFor(() => expect(timeOffDecide).toHaveBeenCalledWith('t1', { status: 'approved', note: '', remove_shifts: true }));
     expect(toastOk).toHaveBeenCalledWith(expect.stringMatching(/approved and the shifts inside it marked for removal/));
     expect(onChanged).toHaveBeenCalled();
-    // Bob's has no conflict: one Approve, with a note; Decline sends "rejected".
+    // Bob's has no conflict: one Approve; Decline asks for the note (required) and sends "rejected".
     const bobCard = screen.getByText('Bob Brown · 10/07/2026, 2:00 PM - 4:00 PM').closest('div').parentElement;
-    fireEvent.change(within(bobCard).getByLabelText('Note to the employee'), { target: { value: 'Feel better' } });
+    expect(within(bobCard).queryByLabelText('Note to the employee')).toBeNull();
     fireEvent.click(within(bobCard).getByText('Decline'));
+    await waitFor(() => expect(promptAsk).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ title: 'Decline Time Off', required: true })));
     await waitFor(() => expect(timeOffDecide).toHaveBeenLastCalledWith('t2', { status: 'rejected', note: 'Feel better' }));
     expect(toastOk).toHaveBeenCalledWith('Time off declined. They were told.');
   });
@@ -101,6 +104,7 @@ describe('Shifts > Requests (manager inbox)', () => {
     expect(screen.getAllByText('Waiting On Teammate').length).toBe(2);   // the section and its chip
     expect(screen.getByText(/has not answered yet\. It reaches you once they accept/).textContent).toMatch(/Amy Adams has not answered yet/);
     expect(screen.queryByText(/offered/)).toBeNull();   // offers are on their own tab
+    fireEvent.click(screen.getByRole('button', { name: 'Add Note' }));
     fireEvent.change(screen.getByLabelText('Note to the team'), { target: { value: 'OK this once' } });
     fireEvent.click(screen.getByText('Approve'));
     await waitFor(() => expect(shiftRequestDecide).toHaveBeenCalledWith('r1', { approve: true, note: 'OK this once' }));

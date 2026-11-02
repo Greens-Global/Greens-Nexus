@@ -361,8 +361,10 @@ class AccountingAccessTests(unittest.TestCase):
 
     def test_administrators_and_owners_are_listed(self):
         """Neil, 10/14: "we are missing a bunch of users ... because we are
-        'Administrators', but we should still show up" - listed as every
-        entity, and their limit cannot be set."""
+        'Administrators', but we should still show up". Tiers (Neil,
+        11/02/2026): a Super Administrator is listed as every entity and
+        cannot be limited; an Administrator is walled - listed as a Full
+        holder whose entities are set here, and reads nothing until they are."""
         admin, owner = "admin.acct.test@greensglobal.com", "owner.acct.test@greensglobal.com"
         db = database.SessionLocal()
         try:
@@ -375,10 +377,26 @@ class AccountingAccessTests(unittest.TestCase):
         try:
             _as(MANAGER)
             people = {p["email"]: p for p in self.client.get("/accounting/access").json()["people"]}
-            self.assertEqual((people[admin]["level"], people[admin]["admin"], people[admin]["entities"], people[admin]["hasGrant"]), ("administrator", "administrator", [], True))
+            self.assertEqual((people[admin]["level"], people[admin]["admin"], people[admin]["entities"], people[admin]["hasGrant"]), ("full", "", [], True))
             self.assertEqual((people[owner]["level"], people[owner]["admin"]), ("owner", "owner"))
             self.assertEqual(people[OPEN]["admin"], "")
-            self.assertEqual(self.client.put(f"/accounting/access/{admin}", json={"entities": ["15000"]}).status_code, 400)
+            self.assertEqual(self.client.put(f"/accounting/access/{owner}", json={"entities": ["15000"]}).status_code, 400)
+            # The Administrator reads nothing until entities are set, then those only.
+            from routers import accounting as acct
+            db = database.SessionLocal()
+            try:
+                self.assertEqual(acct.allowed_entities({"email": admin, "level": 4}, db), set())
+                self.assertIsNone(acct.allowed_entities({"email": owner, "level": 5}, db))
+            finally:
+                db.close()
+            self.assertEqual(self.client.put(f"/accounting/access/{admin}", json={"entities": ["15000"]}).status_code, 200)
+            db = database.SessionLocal()
+            try:
+                self.assertEqual(acct.allowed_entities({"email": admin, "level": 4}, db), {"15000"})
+                db.query(models.NexusAccessScope).filter(models.NexusAccessScope.email == admin).delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
         finally:
             db = database.SessionLocal()
             try:

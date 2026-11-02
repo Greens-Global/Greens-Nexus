@@ -3,7 +3,7 @@
 // for a person's shift, an open shift and time off, with a Shift | Time Off
 // switch at the top. Save with Ctrl+Enter.
 import { useEffect, useRef, useState } from 'react';
-import { X, Plus, Trash2, Copy, CalendarRange, RotateCcw, AlertTriangle, Lock, Check } from 'lucide-react';
+import { X, Plus, Trash2, Copy, CalendarRange, RotateCcw, AlertTriangle, Lock, Check, MapPin } from 'lucide-react';
 import { api } from '../../api';
 import { zoneOptionLabel } from '../../lib/worldClockZones';
 import { formatDate, formatWeekday, formatHHMM, formatDateTime } from '../../lib/datetime';
@@ -11,6 +11,7 @@ import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../UnsavedChangesPrompt';
 import { TIMEOFF_LABELS, timeOffLabel } from '../shiftScheduleLib';
 import { Spinner } from '../AsyncState';
+import WorkSiteLinkPanel from '../WorkSiteLinkPanel';
 import { SHIFT_COLORS, DEFAULT_SHIFT_COLOR, alpha, durMin, sameTime, fmtHrs, minutesText, shiftTimeText } from './shiftLib';
 
 const SAME_TIME_MSG = "Start and end can't be the same time.";
@@ -20,7 +21,7 @@ const LINK_BTN = { background: 'none', border: 'none', cursor: 'pointer', fontSi
 const CHECK = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' };
 
 export default function ShiftPanel({ cell, initialMode = 'shift', presets = [], quickPicks = [], groups = [], people = [], nameOf, teamZone = '', busy = false,
-  canTimeOff = true, onSave, onAssign, onDelete, onDiscard, onCopy, onToOpen, onSaveTimeOff, onClose }) {
+  canTimeOff = true, jobsites = [], onSave, onAssign, onDelete, onDiscard, onCopy, onToOpen, onSaveTimeOff, onClose }) {
   const ex = cell.existing || null;
   const isOpen = !cell.email;
   const [mode, setMode] = useState(initialMode === 'timeoff' && !isOpen ? 'timeoff' : 'shift');
@@ -56,7 +57,7 @@ export default function ShiftPanel({ cell, initialMode = 'shift', presets = [], 
         <TimeOffForm email={cell.email} name={who} date={cell.date} busy={busy} onSave={onSaveTimeOff} onClose={onClose} />
       ) : (
         <ShiftForm cell={cell} ex={ex} isOpen={isOpen} presets={presets} quickPicks={quickPicks} groups={groups} people={people} nameOf={nameOf} teamZone={teamZone} busy={busy}
-          onSave={onSave} onAssign={onAssign} onDelete={onDelete} onDiscard={onDiscard} onCopy={onCopy} onToOpen={onToOpen} onClose={onClose}
+          jobsites={jobsites} onSave={onSave} onAssign={onAssign} onDelete={onDelete} onDiscard={onDiscard} onCopy={onCopy} onToOpen={onToOpen} onClose={onClose}
           onTimeOff={cell.email && canTimeOff ? () => setMode('timeoff') : undefined} />
       )}
     </aside>
@@ -103,7 +104,72 @@ function ColorPick({ value, presetColor, onChange }) {
   );
 }
 
-function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people, nameOf, teamZone, busy, onSave, onAssign, onDelete, onDiscard, onCopy, onToOpen, onClose, onTimeOff }) {
+// Where the shift is worked (the weather follows the jobsite - Neil,
+// 10/30/2026; Pranshu, 11/02/2026): the team's own site, an active
+// Construction project or a company site. "+ New Jobsite" makes a project
+// from a name and an address without leaving the schedule. A jobsite with
+// no address on file uses the team site's weather, and says so.
+const NEW_JOBSITE = '__new';
+function JobsitePick({ value, onChange, sites, onAdded }) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  const [point, setPoint] = useState(null);   // from the pasted Google Maps link
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const picked = sites.find((o) => o.id === value);
+  const projects = sites.filter((o) => o.kind === 'project'), places = sites.filter((o) => o.kind !== 'project');
+  const label = (o) => `${o.name}${o.located ? '' : ' (no address yet)'}`;
+  async function add() {
+    if (!name.trim() || (!point && !address.trim())) { setErr("Give the jobsite a name and paste its Google Maps link."); return; }
+    setSaving(true); setErr('');
+    try {
+      const row = await api.createJobsite({ name: name.trim(), address: address.trim(), ...(point ? { latitude: point.lat, longitude: point.lng } : {}) });
+      onAdded(row); onChange(row.id); setAdding(false); setName(''); setAddress(''); setPoint(null);
+    } catch (e) { setErr(e?.message || 'Could not add the jobsite.'); }
+    setSaving(false);
+  }
+  return (
+    <div>
+      <label><div style={LBL}>Jobsite (optional)</div>
+        <select className="form-input" aria-label="Jobsite" value={adding ? NEW_JOBSITE : value}
+          onChange={(e) => { if (e.target.value === NEW_JOBSITE) setAdding(true); else { setAdding(false); onChange(e.target.value); } }} style={INPUT}>
+          <option value="">None</option>
+          {projects.length > 0 && <optgroup label="Construction Projects">{projects.map((o) => <option key={o.id} value={o.id}>{label(o)}</option>)}</optgroup>}
+          {places.length > 0 && <optgroup label="Company Locations">{places.map((o) => <option key={o.id} value={o.id}>{label(o)}</option>)}</optgroup>}
+          <option value={NEW_JOBSITE}>+ New Jobsite</option>
+        </select>
+      </label>
+      {!adding && picked && !picked.located && (
+        <div data-jobsite-hint="" style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+          {picked.name} has no address on file yet, so this shift uses the team site's weather. Add the address on the project in Construction.
+        </div>
+      )}
+      {!adding && picked && picked.located && picked.where && (
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} /> {picked.where}</div>
+      )}
+      {adding && (
+        <div role="group" aria-label="New Jobsite" style={{ marginTop: 8, padding: 10, border: '1px solid var(--line)', borderRadius: 10, display: 'grid', gap: 8 }}>
+          <input className="form-input" aria-label="Jobsite name" placeholder="Name, e.g. Fresno Warehouse" maxLength={120} value={name} onChange={(e) => setName(e.target.value)} style={INPUT} />
+          <WorkSiteLinkPanel point={point} resolve={api.resolveJobsiteLink} what="jobsite"
+            onResolved={({ point: pt }) => { setPoint(pt); if (pt.address) setAddress(pt.address); if (!name.trim() && pt.placeName) setName(pt.placeName); setErr(''); }} />
+          <input className="form-input" aria-label="Jobsite address" placeholder="Filled in from the Google Maps link, or type it" maxLength={300} value={address} onChange={(e) => setAddress(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} style={INPUT} />
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>It becomes a Construction project, and its Google Maps point gives the shift its own weather.</div>
+          {err && <div role="alert" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>{err}</div>}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button type="button" className="secondary-btn" onClick={() => { setAdding(false); setErr(''); }} disabled={saving} style={{ fontSize: 12 }}>Cancel</button>
+            <button type="button" className="primary-btn" onClick={add} disabled={saving} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              {saving ? <Spinner size={12} /> : <Plus size={12} />} Add Jobsite
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people, nameOf, teamZone, busy, jobsites = [], onSave, onAssign, onDelete, onDiscard, onCopy, onToOpen, onClose, onTimeOff }) {
   const firstGroupOf = (email) => groups.find((g) => (g.members || []).includes(email))?.id || '';
   const [shiftId, setShiftId] = useState(ex ? (ex.shiftId || '') : (presets[0]?.id || ''));
   const [start, setStart] = useState(ex?.start || '');
@@ -116,6 +182,8 @@ function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people,
   const [brk, setBrk] = useState(ex ? String(ex.breakMin ?? 0) : '');   // '' = the shift type's
   const [acts, setActs] = useState(() => (ex?.activities || []).map((a) => ({ ...a, paid: a.paid !== false })));
   const [assignee, setAssignee] = useState('');
+  const [jobsite, setJobsite] = useState(ex?.jobsite || '');
+  const [sites, setSites] = useState(jobsites);
   const [warnings, setWarnings] = useState(ex?.conflicts || []);
   const preset = presets.find((p) => p.id === shiftId);
   const effStart = start || preset?.start || '';
@@ -157,7 +225,7 @@ function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people,
 
   const payload = () => ({
     id: ex?.id, employee_email: cell.email || '', work_date: cell.date, shift_id: shiftId,
-    start_hhmm: effStart, end_hhmm: effEnd, label, note, break_min: effBreak, color, group_id: groupId,
+    start_hhmm: effStart, end_hhmm: effEnd, label, note, break_min: effBreak, color, group_id: groupId, jobsite,
     activities: acts.filter((a) => a.start && a.end).map((a) => ({ start: a.start, end: a.end, label: (a.label || '').trim(), paid: a.paid !== false })),
     ...(isOpen ? { open_slots: Math.max(1, Number(slots) || 1) } : {}),
   });
@@ -167,7 +235,7 @@ function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people,
     onSave(payload());
   }
   // The first render's values ARE the baseline (a fresh panel mounts per cell).
-  const current = JSON.stringify({ shiftId, start, end, groupId, label, note, color, slots: String(slots), brk, acts });
+  const current = JSON.stringify({ shiftId, start, end, groupId, jobsite, label, note, color, slots: String(slots), brk, acts });
   const [baseline] = useState(current);
   const dirty = current !== baseline;
   const guard = useUnsavedGuard(dirty, onClose, submit);
@@ -199,6 +267,8 @@ function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people,
             </select>
           </label>
         )}
+        <JobsitePick value={jobsite} onChange={setJobsite} sites={sites} onAdded={(row) => setSites((xs) => [...xs.filter((x) => x.id !== row.id), row])}
+          teamSite={groups.find((g) => g.id === groupId)?.workSiteName || ''} />
         <ColorPick value={color} presetColor={preset?.color} onChange={setColor} />
         <label><div style={LBL}>Label</div><input className="form-input" aria-label="Label" placeholder="e.g. Front Desk" value={label} onChange={(e) => setLabel(e.target.value)} style={INPUT} /></label>
         {!isOpen && <label><div style={LBL}>Note</div><input className="form-input" aria-label="Note" placeholder="Anything they should know" value={note} onChange={(e) => setNote(e.target.value)} style={INPUT} /></label>}

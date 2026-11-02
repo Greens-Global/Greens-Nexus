@@ -27,7 +27,34 @@ export const FIELD_TYPES = [
   { value: 'file', label: 'File Attachment' },
 ];
 
-export const FIELD_TYPE_LABEL = Object.fromEntries(FIELD_TYPES.map((t) => [t.value, t.label]));
+// Forms (Neil, 11/02/2026): a form is a template with docType 'form'. These
+// types exist only on a form - the server's _FIELD_TYPES refuses them on a
+// document template - and they carry a value shape of their own (see the plan
+// docs/superpowers/plans/2026-11-02-forms-checklists.md, Task 1 Interfaces):
+// photo = [url], gps = {lat, lng, accuracyM, siteName}, scan = str,
+// rating = 1..5, yesno = true | false; signature on a form is a drawn PNG url.
+export const FORM_FIELD_TYPES = [
+  { value: 'photo', label: 'Photo' },
+  { value: 'gps', label: 'Location Stamp' },
+  { value: 'scan', label: 'QR Scan' },
+  { value: 'rating', label: 'Rating' },
+  { value: 'yesno', label: 'Yes / No' },
+];
+export const FORM_ONLY_TYPES = FORM_FIELD_TYPES.map((t) => t.value);
+// The types a form's field editor offers: the shared list without the
+// document-only placements (initials, image, file), plus the form types.
+export const FORM_TYPE_OPTIONS = [
+  ...FIELD_TYPES.filter((t) => !['initials', 'image', 'file'].includes(t.value)),
+  ...FORM_FIELD_TYPES,
+];
+// The form-only keys _clean_field_defs keeps only on a form: the heading a
+// field sits under, when it shows, a read-only formula, a repeating group.
+export const FORM_FIELD_KEYS = ['section', 'showIf', 'formula', 'repeat'];
+export const SHOW_IF_OPS = [
+  ['eq', 'Is'], ['ne', 'Is Not'], ['any', 'Is Any Of'], ['empty', 'Is Empty'], ['notEmpty', 'Has An Answer'],
+];
+
+export const FIELD_TYPE_LABEL = Object.fromEntries([...FIELD_TYPES, ...FORM_FIELD_TYPES].map((t) => [t.value, t.label]));
 
 // Reserved: never gets a value from the Generate-Document fill form.
 // Signature/Initials are placed later by the existing, separate E-Sign
@@ -72,6 +99,7 @@ export const VALIDATION_KEYS = {
   person: ['maxLength'],
   dropdown: [], radio: [], checkbox: [],
   signature: [], initials: [], image: [], file: [],
+  photo: [], gps: [], scan: [], rating: [], yesno: [],
 };
 
 // A variable name: lowercase, dotted groups, underscores inside a segment -
@@ -122,6 +150,11 @@ const EMAIL_RE = /^[^@\s]+@[^@\s.]+\.[^@\s]+$/;
 
 export function isEmptyValue(type, value) {
   if (type === 'checkbox') return value !== true && value !== 'true' && value !== 'Yes';
+  // Form types (11/02/2026): a photo list with nothing in it, a stamp with no
+  // position, and an unanswered Yes / No are empty; `false` is an answer.
+  if (type === 'photo') return !Array.isArray(value) || value.length === 0;
+  if (type === 'gps') return !value || typeof value !== 'object' || value.lat === undefined || value.lat === null || value.lat === '';
+  if (type === 'yesno') return value !== true && value !== false && value !== 'true' && value !== 'false';
   return value === undefined || value === null || String(value).trim() === '';
 }
 

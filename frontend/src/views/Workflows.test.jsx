@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Render-smoke for Workflows (/workflows): every tab paints something in
 // every state (loading, empty, rows, a failing load), the paused-all banner
-// sits above every tab with Resume for a Global Admin, the Automations
+// sits above every tab with Resume for a Super Administrator, the Automations
 // switch calls the Tasks-rule proxy and comes back when it refuses, and the
 // Runs tab opens the run drawer from run:<id>. Then the review fixes (Oct 28
 // 2026): a company's workflow switch is shown on the row, the Actions view
@@ -67,7 +67,13 @@ const RUN = { ...RUNS.items[0], steps: [
   { id: 's2', stepId: 'b', kind: 'action', action: 'tasks.create', label: 'Create Task', status: 'failed', startedAt: T, finishedAt: T, input: {}, output: {}, detail: 'Mail server refused', attempt: 2 },
 ], event: { key: 'hr.employee.started', at: T, payload: { id: 'e1' } } };
 
+// The clock is pinned to October 2026, the month the fixtures live in: the
+// To-date test picks "15" on the calendar's current month and expects the
+// 10/28 row to fall OUTSIDE the range - once the real month rolled to
+// November the row was inside it and the "look further back" line vanished.
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-20T12:00:00Z'));
   Object.values(api).forEach((f) => f.mockReset());
   role.can.mockReturnValue(true);
   role.canAccessModule.mockReturnValue(true);
@@ -124,7 +130,7 @@ describe('Workflows', () => {
     expect(await screen.findByText(/couldn't be loaded right now/)).toBeTruthy();
   });
 
-  it('shows the paused-all banner on every tab and lets a Global Admin resume', async () => {
+  it('shows the paused-all banner on every tab and lets a Super Administrator resume', async () => {
     api.wfOverview.mockResolvedValue({ ...EMPTY_OVERVIEW, pausedAll: { paused: true, by: 'Neil Kadakia', at: T } });
     api.wfPauseAll.mockResolvedValue({ ok: true });
     const { rerender } = render(<Workflows activeSub="overview" onSubChange={vi.fn()} />);
@@ -136,7 +142,7 @@ describe('Workflows', () => {
     await waitFor(() => expect(api.wfOverview).toHaveBeenCalledTimes(2));
   });
 
-  it('hides Resume from everyone but a Global Admin', async () => {
+  it('hides Resume from everyone but a Super Administrator', async () => {
     role.can.mockReturnValue(false);
     api.wfOverview.mockResolvedValue({ ...EMPTY_OVERVIEW, pausedAll: { paused: true, by: 'Neil Kadakia', at: T } });
     render(<Workflows activeSub="overview" onSubChange={vi.fn()} />);
@@ -205,9 +211,9 @@ describe('Workflows', () => {
     window.removeEventListener('nexus:navigate', nav);
   });
 
-  // The built-in off switch (Oct 28 2026): a Global Admin flips a job through
+  // The built-in off switch (Oct 28 2026): a Super Administrator flips a job through
   // POST /workflows/automations/jobs/{key}/off, optimistic, back on a refusal.
-  it('lets a Global Admin switch a built-in automation off and reverts a refusal', async () => {
+  it('lets a Super Administrator switch a built-in automation off and reverts a refusal', async () => {
     api.wfOverview.mockResolvedValue(EMPTY_OVERVIEW);
     render(<Workflows activeSub="automations" onSubChange={vi.fn()} />);
     expect(await screen.findByText('Task Reminders')).toBeTruthy();
@@ -220,12 +226,12 @@ describe('Workflows', () => {
     fireEvent.click(sw);
     expect(sw.checked).toBe(false);
     await waitFor(() => expect(api.wfJobOff).toHaveBeenCalledWith('reminders', true));
-    api.wfJobOff.mockRejectedValue(Object.assign(new Error('Only a Global Admin may switch an automation'), { status: 403, detail: 'Only a Global Admin may switch an automation' }));
+    api.wfJobOff.mockRejectedValue(Object.assign(new Error('Only a Super Administrator may switch an automation'), { status: 403, detail: 'Only a Super Administrator may switch an automation' }));
     fireEvent.click(sw);
     expect(sw.checked).toBe(true);
     await waitFor(() => expect(sw.checked).toBe(false));
     expect(api.wfJobOff).toHaveBeenLastCalledWith('reminders', false);
-    expect(screen.getByRole('alert').textContent).toContain('Only a Global Admin may switch an automation');
+    expect(screen.getByRole('alert').textContent).toContain('Only a Super Administrator may switch an automation');
   });
 
   it('shows everyone else an Off chip instead of the built-in switch', async () => {
@@ -397,3 +403,5 @@ describe('Workflows', () => {
     await waitFor(() => expect(document.body.textContent).toMatch(/builder|Builder|Loading|Opening|Workflow/));
   });
 });
+
+afterEach(() => { vi.useRealTimers(); });

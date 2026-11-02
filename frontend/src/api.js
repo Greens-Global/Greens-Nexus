@@ -1,7 +1,7 @@
 import { msalInstance, msalReady } from './msalInstance';
 import { apiTokenRequest, loginRequest } from './authConfig';
 import { BFF_MODE, csrfToken, bffLogin } from './bffAuth';
-import { rewriteResponseText, restoreRequestBody } from './lib/storageView';
+import { rewriteResponseText, restoreRequestBody, fromViewUrl } from './lib/storageView';
 
 // Recover a dead session app-wide. When even a FORCE-refreshed token still 401s,
 // MSAL's silent hidden-iframe renewal is failing - modern browsers block the
@@ -483,8 +483,6 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
 const yearQs = (year) => (year ? `?year=${encodeURIComponent(year)}` : '');
 
 export const api = {
-  // Dashboard
-  getDashboardSummary: () => req("/dashboard/summary"),
 
   // Tasks - core (bodies are snake_case; the TasksContext maps to/from camelCase)
   getTasks: () => req("/tasks"),
@@ -514,7 +512,6 @@ export const api = {
   // scope="mine" is the Recycle Bin OUTSIDE Manage - what you deleted plus what
   // you were assigned. Omitted = the Manage view, the whole workspace, which
   // the server refuses to anyone below manager.
-  getDeletedTasks: (scope) => req(`/tasks/deleted${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`),
   // The Recycle Bin proper - tasks AND the containers (projects, portfolios,
   // teams) in one list. Same two scopes: "mine" outside Manage, unscoped
   // (manager-only, whole workspace) inside it.
@@ -527,7 +524,6 @@ export const api = {
   restoreRecycleItem: (kind, id) => req(`/task-recycle/${kind}/${id}/restore`, { method: "POST" }),
   purgeRecycleItem: (kind, id) => req(`/task-recycle/${kind}/${id}`, { method: "DELETE" }),
   restoreTask: (id) => req(`/tasks/${id}/restore`, { method: "POST" }),
-  purgeTaskNow: (id) => req(`/tasks/${id}/permanent`, { method: "DELETE" }),
   // Tasks as .xlsx. reqBlob, not a plain link: the endpoint is bearer-
   // authenticated. Blank filter values are dropped so the server sees "no
   // constraint" rather than an empty-string match.
@@ -680,10 +676,6 @@ export const api = {
   // (Settings > Company Settings) with the Tickets module's own settings -
   // on/off for intake, escalation head, order (Oct 1, 2026). Add / rename /
   // delete answer 410 now: the list itself is only edited globally.
-  addTicketDepartment: (companyId, name) => req("/ticket-departments", { method: "POST", body: JSON.stringify({ company_id: companyId, name }) }),
-  renameTicketDepartment: (deptId, name) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ name }) }),
-  deleteTicketDepartment: (deptId) => req(`/ticket-departments/${deptId}`, { method: "DELETE" }),
-  setTicketDepartmentHead: (deptId, leadEmail) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ lead_email: leadEmail }) }),
   // The whole order at once, as dragged in Settings.
   reorderTicketDepartments: (companyId, ids) => req("/ticket-departments/order", { method: "PUT", body: JSON.stringify({ company_id: companyId, ids }) }),
   // Only the departments of the caller's own company - what ticket intake
@@ -743,7 +735,6 @@ export const api = {
   updateTaskTicket: (id, data) => req(`/task-tickets/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskTicket: (id) => req(`/task-tickets/${id}`, { method: "DELETE" }),
   getTicketComments: (id) => req(`/task-tickets/${id}/comments`),
-  addTicketComment: (id, data) => req(`/task-tickets/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
   // The requester opened their ticket - clears its unread dot on Support.
   markTicketSeen: (id) => req(`/task-tickets/${id}/seen`, { method: "POST" }),
   deleteTicketComment: (cid) => req(`/task-tickets/comments/${cid}`, { method: "DELETE" }),
@@ -898,109 +889,18 @@ export const api = {
 
   // Purchase Requests
   getPurchaseRequests: () => req("/purchase-requests"),
-  createPurchaseRequest: (data) => req("/purchase-requests", { method: "POST", body: JSON.stringify(data) }),
-  updatePurchaseStatus: (id, status) => req(`/purchase-requests/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
-
-  // Reviews
-  getReviews: () => req("/reviews"),
-  replyToReview: (id, reply_text) => req(`/reviews/${id}/reply`, { method: "PATCH", body: JSON.stringify({ reply_text }) }),
-
-  // Marketing
-  getCampaigns: () => req("/marketing-campaigns"),
 
   // SOP
-
-  // Knowledge Base - DB-backed SOP / Manual / Guide library
-  getKbDocs:     ()         => req("/knowledge-base/documents"),
-  getKbDoc:      (id)       => req(`/knowledge-base/documents/${id}`),
-  createKbDoc:   (data)     => req("/knowledge-base/documents", { method: "POST", body: JSON.stringify(data) }),
-  updateKbDoc:   (id, data) => req(`/knowledge-base/documents/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  submitKbDoc:   (id)       => req(`/knowledge-base/documents/${id}/submit`, { method: "POST" }),
-  reviewKbDoc:   (id, data) => req(`/knowledge-base/documents/${id}/review`, { method: "POST", body: JSON.stringify(data) }),
-  archiveKbDoc:  (id)       => req(`/knowledge-base/documents/${id}/archive`, { method: "POST" }),
-  unarchiveKbDoc:(id)       => req(`/knowledge-base/documents/${id}/unarchive`, { method: "POST" }),
-  aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
-  askKb:         (data)     => req("/knowledge-base/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
-  getKbAcks:        (id)        => req(`/knowledge-base/documents/${id}/acknowledgements`),
-  acknowledgeKbDoc: (id)        => req(`/knowledge-base/documents/${id}/acknowledge`, { method: "POST" }),
-  setKbAckRequired: (id, value) => req(`/knowledge-base/documents/${id}/ack-required`, { method: "POST", body: JSON.stringify({ value }) }),
-  getKbSignoffs:    ()          => req("/knowledge-base/signoffs"),
-  getKbComments:    (id)        => req(`/knowledge-base/documents/${id}/comments`),
-  addKbComment:     (id, text)  => req(`/knowledge-base/documents/${id}/comments`, { method: "POST", body: JSON.stringify({ text }) }),
-  getKbSnapshots:   (id)        => req(`/knowledge-base/documents/${id}/snapshots`),
-  verifyKbDoc:      (id)            => req(`/knowledge-base/documents/${id}/verify`, { method: "POST" }),
-  setKbDepartments: (id, departments) => req(`/knowledge-base/documents/${id}/departments`, { method: "POST", body: JSON.stringify({ departments }) }),
-  getKbInsights:    ()          => req("/knowledge-base/insights"),
-  getKbActivity:    (limit = 80) => req(`/knowledge-base/activity?limit=${limit}`),
-  getKbReviewers:   ()          => req("/knowledge-base/reviewers"),
-  aiReviseKbDoc:    (data)      => req("/knowledge-base/ai-revise", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
-  getKbPins:        ()          => req("/knowledge-base/pins"),
-  toggleKbPin:      (id)        => req(`/knowledge-base/documents/${id}/pin`, { method: "POST" }),
-  getKbFeedback:    (id)        => req(`/knowledge-base/documents/${id}/feedback`),
-  submitKbFeedback: (id, helpful) => req(`/knowledge-base/documents/${id}/feedback`, { method: "POST", body: JSON.stringify({ helpful }) }),
-  getKbRelated:     (id)        => req(`/knowledge-base/documents/${id}/related`),
-  setKbContentText: (id, text)  => req(`/knowledge-base/documents/${id}/content-text`, { method: "PATCH", body: JSON.stringify({ text }) }),
-  translateKbDoc:   (id, lang)  => req(`/knowledge-base/documents/${id}/translate`, { method: "POST", body: JSON.stringify({ lang }), timeoutMs: AI_TIMEOUT_MS }),
-  uploadKbMedia:    (data)      => req('/knowledge-base/media/upload', { method: 'POST', body: JSON.stringify({ data }), timeoutMs: 60_000 }),
-  signKbMedia:      (paths)     => req('/knowledge-base/media/sign', { method: 'POST', body: JSON.stringify({ paths }) }),
-  // Learn (LMS)
-  aiCourse:        (data)      => req("/knowledge-base/ai-course", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
-  getKbCourses:    ()          => req("/knowledge-base/courses"),
-  getKbCourse:     (id)        => req(`/knowledge-base/courses/${id}`),
-  createKbCourse:  (data)      => req("/knowledge-base/courses", { method: "POST", body: JSON.stringify(data) }),
-  updateKbCourse:  (id, data)  => req(`/knowledge-base/courses/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  kbLessonDone:    (id, lesson_id) => req(`/knowledge-base/courses/${id}/lesson-done`, { method: "POST", body: JSON.stringify({ lesson_id }) }),
-  kbSubmitQuiz:    (id, answers)   => req(`/knowledge-base/courses/${id}/submit-quiz`, { method: "POST", body: JSON.stringify({ answers }) }),
-  getKbCourseAttempts: (id)        => req(`/knowledge-base/courses/${id}/attempts`),
-  assignKbCourse:   (id, emails, due_date) => req(`/knowledge-base/courses/${id}/assign`, { method: "POST", body: JSON.stringify({ emails, due_date }) }),
-  getKbCourseAssignments: (id)     => req(`/knowledge-base/courses/${id}/assignments`),
-  removeKbAssignment: (aid)        => req(`/knowledge-base/assignments/${aid}`, { method: "DELETE" }),
-  getMyKbAssignments: ()           => req("/knowledge-base/my-assignments"),
-  startKbRun:       (docId)        => req(`/knowledge-base/documents/${docId}/runs`, { method: "POST" }),
-  updateKbRun:      (runId, data)  => req(`/knowledge-base/runs/${runId}`, { method: "PATCH", body: JSON.stringify(data) }),
-  getMyKbRuns:      ()             => req("/knowledge-base/my-runs"),
-  getKbRuns:        (limit = 60)   => req(`/knowledge-base/runs?limit=${limit}`),
-  getKbOriginal:    (id)           => req(`/knowledge-base/documents/${id}/original`),
-  cleanupKbTitles:  (dryRun = true) => req(`/knowledge-base/documents/cleanup-titles?dry_run=${dryRun}`, { method: "POST" }),
-  aiSuggestKbMeta:  (data)         => req("/knowledge-base/ai-suggest-metadata", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
-  // Services (Department -> Service tier)
-  getKbServices:    (department = '') => req(`/knowledge-base/services${department ? `?department=${encodeURIComponent(department)}` : ''}`),
-  createKbService:  (data)         => req("/knowledge-base/services", { method: "POST", body: JSON.stringify(data) }),
-  updateKbService:  (id, data)     => req(`/knowledge-base/services/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  deleteKbService:  (id)           => req(`/knowledge-base/services/${id}`, { method: "DELETE" }),
-  // Tags (managed vocabulary)
-  getKbTags:        ()             => req("/knowledge-base/tags"),
-  createKbTag:      (data)         => req("/knowledge-base/tags", { method: "POST", body: JSON.stringify(data) }),
-  updateKbTag:      (id, data)     => req(`/knowledge-base/tags/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  deleteKbTag:      (id)           => req(`/knowledge-base/tags/${id}`, { method: "DELETE" }),
-
-  // Assets
-  getAssets: () => req("/assets"),
-  createAsset: (data) => req("/assets", { method: "POST", body: JSON.stringify(data) }),
 
   // Asset Management (property portfolio) - whole-workspace load/save.
   getPropertyWorkspace:  ()   => req("/property-assets/workspace"),
   // Tiny {_ts} freshness marker so the background poll skips the full-blob pull
   // when nothing changed (big egress saver).
   getPropertyWorkspaceTs: ()  => req("/property-assets/workspace/ts"),
-  savePropertyWorkspace: (ws) => req("/property-assets/workspace", { method: "PUT", body: JSON.stringify(ws), timeoutMs: 60_000 }),
-  scanPropertyReminders: ()   => req("/property-assets/reminders/scan", { method: "POST" }),
   // Row saves (Oct 21 2026): { properties: {upsert, delete}, <collection>: {...}, logs: {append} } -> { _ts, conflicts }.
   saveAssetChanges:      (ops) => req("/property-assets/changes", { method: "POST", body: JSON.stringify(ops), timeoutMs: 60_000 }),
   // Per-asset tile numbers: { id: { occupancy, units, percentComplete } } for the assets the caller may see.
   getAssetMetrics:       ()    => req("/property-assets/metrics"),
-
-  // Users
-  getUsers: () => req("/users"),
-  createUser: (data) => req("/users", { method: "POST", body: JSON.stringify(data) }),
-
-  // Websites
-  getWebsites: () => req("/websites"),
-  createWebsite: (data) => req("/websites", { method: "POST", body: JSON.stringify(data) }),
-
-  // Support > System & Design
-  getSupportSystemInfo: () => req("/support/system-info"),
-  getSupportDataDictionary: () => req("/support/data-dictionary"),
 
   // External Links
   getExternalLinks: () => req("/external-links"),
@@ -1026,7 +926,6 @@ export const api = {
   updatePersonalLink: (id, data) => req(`/personal-links/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deletePersonalLink: (id) => req(`/personal-links/${id}`, { method: "DELETE" }),
   clickPersonalLink: (id) => req(`/personal-links/${id}/click`, { method: "PATCH" }),
-  reorderPersonalLinks: (entries) => req("/personal-links/reorder", { method: "PATCH", body: JSON.stringify(entries) }),
 
   // Link Layout - per-user Links Module personalization (ordering, folders,
   // favorites), backend-persisted so it follows the account across devices
@@ -1036,13 +935,6 @@ export const api = {
   // flow does this while a named view other than the default is active.
   getLinkLayout: (viewId) => req(`/link-layout${viewId ? `?view=${viewId}` : ''}`),
   saveLinkLayout: (body, viewId) => req(`/link-layout${viewId ? `?view=${viewId}` : ''}`, { method: "PUT", body: JSON.stringify(body) }),
-  resetLinkLayout: (scope, viewId) => {
-    const params = new URLSearchParams();
-    if (scope) params.set('scope', scope);
-    if (viewId) params.set('view', viewId);
-    const qs = params.toString();
-    return req(`/link-layout${qs ? `?${qs}` : ''}`, { method: "DELETE" });
-  },
 
   // Link Views - named, saveable External Links arrangements (Aug 14),
   // mirrors the Dashboard's own view CRUD (dashViews/dashCreateView/etc)
@@ -1313,7 +1205,6 @@ export const api = {
   getPfsProfile: (id) => req(`/pfs/profiles/${encodeURIComponent(id)}`),
   createPfsProfile: (body) => req("/pfs/profiles", { method: "POST", body: JSON.stringify(body) }),
   updatePfsProfile: (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
-  deletePfsProfile: (id) => req(`/pfs/profiles/${encodeURIComponent(id)}`, { method: "DELETE" }),
   addPfsLine: (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/lines`, { method: "POST", body: JSON.stringify(body) }),
   updatePfsLine: (id, lineId, body) =>
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "PUT", body: JSON.stringify(body) }),
@@ -1338,7 +1229,6 @@ export const api = {
   // Leasing: tenants, the rent as it changes, and each month's expected
   // against what the ledger received.
   getLeasingRentRoll: (year) => req(`/leasing/rent-roll?year=${year}`),
-  getLeasingLeases: () => req("/leasing/leases"),
   getLeasingCustomers: () => req("/leasing/customers"),
   createLeasingLease: (body) => req("/leasing/leases", { method: "POST", body: JSON.stringify(body) }),
   updateLeasingLease: (id, body) => req(`/leasing/leases/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
@@ -1374,8 +1264,6 @@ export const api = {
     req(`/accounting/liability-recons/${encodeURIComponent(loanId)}/${encodeURIComponent(period)}/reopen`, { method: "POST", body: JSON.stringify({ reason }) }),
 
   // Ops
-  getOpsProjects: () => req("/ops-projects"),
-  createOpsProject: (data) => req("/ops-projects", { method: "POST", body: JSON.stringify(data) }),
   // Operations (storage facilities): every figure on the screen, read from Cubby
   getFacilityOps: (fresh) => req(`/facility-ops/summary${fresh ? "?fresh=1" : ""}`),
   facilityOpsLookup: (q) => req(`/facility-ops/lookup?q=${encodeURIComponent(q)}`),
@@ -1396,11 +1284,7 @@ export const api = {
   // Rate Management (Oct 20 2026): the CMA table, proposed-rate drafts, Mark Entered in Cubby, rate history. Nexus never writes to Cubby.
   getOpsRates: (facilityId) => req(`/facility-ops/rates?facility_id=${encodeURIComponent(facilityId)}`),
   saveOpsRateDraft: (data) => req("/facility-ops/rates/draft", { method: "PUT", body: JSON.stringify(data) }),
-  markOpsRatesEntered: (facilityId, unitTypes, seen = {}) => req("/facility-ops/rates/entered", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, seen }) }),
-  getOpsRateHistory: (facilityId, unitType) => req(`/facility-ops/rates/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
-  getOpsRateComps: (facilityId, unitType) => req(`/facility-ops/rates/comps?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
   // Push to Cubby (Oct 21 2026): only when Settings > Global Settings > Operations > Push to Cubby is on; the server refuses otherwise.
-  pushOpsRates: (facilityId, unitTypes) => req("/facility-ops/rates/push", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, confirm: true }), timeoutMs: 180_000 }),
   // Rate Management as a CMA (Miranda, Oct 21 2026): comp set, surveys, overrides, import, history, review & push.
   getOpsCmaCompset: (facilityId) => req(`/facility-ops/cma/compset?facility_id=${encodeURIComponent(facilityId)}`),
   addOpsCmaCompetitor: (data) => req("/facility-ops/cma/competitors", { method: "POST", body: JSON.stringify(data) }),
@@ -1420,16 +1304,15 @@ export const api = {
   revertOpsCmaChange: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/revert`, { method: "POST", timeoutMs: 120_000 }),
   getOpsSettings: () => req("/facility-ops/settings"),
   saveOpsSettings: (data) => req("/facility-ops/settings", { method: "PUT", body: JSON.stringify(data) }),
+  // Cubby tasks <-> Nexus Tasks (Neil, Oct 30 2026): Settings > Operations > Cubby Tasks, and the drawer's From Cubby row.
+  getCubbyTaskSettings: () => req("/cubby-tasks/settings"),
+  saveCubbyTaskSettings: (data) => req("/cubby-tasks/settings", { method: "PUT", body: JSON.stringify(data) }),
+  runCubbyTaskSync: () => req("/cubby-tasks/sync-now", { method: "POST" }),
+  getCubbyTaskLink: (taskId) => req(`/cubby-tasks/link/${encodeURIComponent(taskId)}`),
   // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
   getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
   // Operations > Pricing Insights (Oct 20): ranked insights + sections from Cubby's pricing and the market. '' = every facility.
   getOpsInsights: (facilityId) => req(`/facility-ops/insights?facility_id=${encodeURIComponent(facilityId || "")}`),
-
-  // Dev
-  getDevProjects: () => req("/dev-projects"),
-
-  // LMS
-  getLmsCourses: () => req("/lms-courses"),
 
   // HR - employee master records
   getEmployees:   ()         => req('/hr/employees'),
@@ -1479,7 +1362,6 @@ export const api = {
   // { type?, date?, name? } - on a policy holiday this changes it for this company only.
   // Answers the row with `calendar` (the company's calendar for `year`) beside it.
   updateCompanyHoliday:  (entityId, id, data, year) => req(`/hr/entities/${entityId}/holidays/${id}${yearQs(year)}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  updateCompanyHolidayType: (entityId, id, type) => api.updateCompanyHoliday(entityId, id, { type }),
   // A policy holiday this company changed, back to the policy's date and type.
   resetCompanyHoliday:   (entityId, id, year) => req(`/hr/entities/${entityId}/holidays/${id}/reset${yearQs(year)}`, { method: 'POST' }),
   // { country, year, source, partial, note, holidays: [{ date (the REAL date), weekday, name, scope,
@@ -1555,7 +1437,6 @@ export const api = {
   getPackets:          ()         => req('/hr/packets'),
   getPacketCoverage:   ()         => req('/hr/packets/coverage'),
   setPacketHired:      (entityId, workerType, hired) => req('/hr/packets/coverage/hired', { method: 'PUT', body: JSON.stringify({ entity_id: entityId, worker_type: workerType, hired }) }),
-  savePacket:          (data)     => req('/hr/packets', { method: 'PUT', body: JSON.stringify(data) }),
   savePacketWhole:     (data)     => req('/hr/packets/whole', { method: 'PUT', body: JSON.stringify(data) }),
   deletePacket:        (id)       => req(`/hr/packets/${id}`, { method: 'DELETE' }),
   hiringPacketOptions: (cid, params = {}) => req(`/hr/candidates/${cid}/hiring-packet/options?${new URLSearchParams(params)}`),
@@ -1629,10 +1510,7 @@ export const api = {
 
   // HR - leave tracker
   getLeave:         ()          => req('/hr/leave'),
-  getLeaveBalances: (empId, yr) => req(`/hr/leave/balances/${empId}?year=${yr}`),
-  setLeaveBalance:  (data)      => req('/hr/leave/balances', { method: 'PUT', body: JSON.stringify(data) }),
   createLeave:      (data)      => req('/hr/leave', { method: 'POST', body: JSON.stringify(data) }),
-  decideLeave:      (id, data)  => req(`/hr/leave/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // HR - e-sign (templates, envelopes, my-signatures inbox)
   getSignTemplates:   ()          => req('/esign/templates'),
@@ -1661,6 +1539,7 @@ export const api = {
   getSignRequest:     (id)        => req(`/esign/requests/${id}`),
   remindSign:         (id)        => req(`/esign/requests/${id}/remind`, { method: 'POST' }),
   voidSign:           (id)        => req(`/esign/requests/${id}/void`, { method: 'POST' }),
+  fileSignToEgnyte:   (id, folder) => req(`/esign/requests/${id}/file-egnyte`, { method: 'POST', body: JSON.stringify({ folder }) }),
   downloadSign:       (id)        => req(`/esign/requests/${id}/download`),
   verifySign:         (id)        => req(`/esign/requests/${id}/verify`),
   mySignatures:       ()          => req('/esign/mine'),
@@ -1720,7 +1599,6 @@ export const api = {
   timeExportCsv:     (start, end, mode) => reqBlob(`/timeclock/export.csv?start=${start || ''}&end=${end || ''}&mode=${mode || 'summary'}`),
   // QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi imports this
   // instead of keying hours per employee by hand (Aug 21).
-  timeExportIif:     (start, end) => reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}`),
   timeShotUpload:    (form)      => req('/timeclock/screenshot', { method: 'POST', body: form }),
   timeShots:         (date, email) => req(`/timeclock/screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
   // Disclosed monitoring: per-shift consent, admin policy, manager-scoped gallery
@@ -1729,7 +1607,6 @@ export const api = {
   // Settings -> Company Setup -> that company's Workforce Analytics Policy tab.
   timeCompanyMonitoringPolicy:    (companyId)       => req(`/timeclock/monitoring/policy/${companyId}`),
   timeSetCompanyMonitoringPolicy: (companyId, data) => req(`/timeclock/monitoring/policy/${companyId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  timeTeamShots:     (date, email) => req(`/timeclock/team-screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
   timeBodDay:        (email, date) => req(`/timeclock/bod/day?email=${encodeURIComponent(email || '')}&date=${date || ''}`),
   timeMonitoringAlerts: () => req('/timeclock/monitoring/alerts'),
   // Punch-fix requests: employee asks, approver (HR/manager) approves/rejects
@@ -1745,7 +1622,6 @@ export const api = {
   timesheetReviewSubmit:   (start, note = '') => req('/timesheet-review/submit', { method: 'POST', body: JSON.stringify({ start: start || '', note }) }),
   timesheetReviewWaiting:  ()                 => req('/timesheet-review/waiting'),   // submitted to me, not decided yet (Sep 29)
   timesheetReviewSendBack: (id, note)         => req(`/timesheet-review/${id}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
-  timesheetReviewAgree:    (id, note = '')    => req(`/timesheet-review/${id}/agree`, { method: 'POST', body: JSON.stringify({ note }) }),
   timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeCancelPunchRequest:  (id) => req(`/timeclock/punch-requests/${id}/cancel`, { method: 'POST' }),
   timeDismissPunchRequest: (id) => req(`/timeclock/punch-requests/${id}/dismiss`, { method: 'POST' }),
@@ -1765,8 +1641,6 @@ export const api = {
   timeOffApprovalSet: (body, company = '') => req(`/timeclock/timeoff/approval-settings${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(body) }),
   // Team Leave Calendar (Oct 27 2026): one month, scoped by the server.
   timeOffCalendar:   (month, company = '') => req(`/timeclock/timeoff/calendar?month=${month}${company ? `&company=${encodeURIComponent(company)}` : ''}`),
-  timeApprove:       (data)      => req('/timeclock/approvals', { method: 'POST', body: JSON.stringify(data) }),
-  timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   // BOD/EOD location tag (Remote / site / Off-Site Punch) for a position.
   timeWhere:         (pos, off)  => req(`/timeclock/where?lat=${encodeURIComponent(pos?.lat || '')}&lng=${encodeURIComponent(pos?.lng || '')}&accuracy_m=${pos?.accuracy_m || 0}${off ? '&location_off=true' : ''}`),
@@ -1811,16 +1685,13 @@ export const api = {
   myAssets:        ()      => req('/myhr/assets'),
   myHrRequests:    ()      => req('/myhr/requests'),
   myHrRequestCreate: (body) => req('/myhr/requests', { method: 'POST', body: JSON.stringify(body) }),
-  myHrRequestAttach: (form) => req('/myhr/requests/attachment', { method: 'POST', body: form }),
   hrSelfRequests:  (status) => req(`/hr/requests?status=${status || ''}`),
   hrSelfRequestResolve: (rid, body) => req(`/hr/requests/${rid}`, { method: 'PATCH', body: JSON.stringify(body) }),
   hrSelfRequestAttachmentUrl: (rid) => req(`/hr/requests/${rid}/attachment-url`),
   hrSelfRequestAttachToEmployee: (rid, kind) => req(`/hr/requests/${rid}/attach-to-employee`, { method: 'POST', body: JSON.stringify({ kind }) }),
   // Ask HR runs through Tickets (Oct 27 2026, backend/routers/ask_hr.py): the
   // confidential HR desk the caller works as HR, and the old requests.
-  askHrAccess:     () => req('/ask-hr/access'),
   askHrDesk:       (openOnly) => req(`/ask-hr/desk${openOnly ? '?open_only=true' : ''}`),
-  askHrEarlier:    () => req('/ask-hr/earlier'),
   hrPaystubs:      (eid)   => req(`/hr/employees/${eid}/paystubs`),
   hrPaystubUpload: (eid, form) => req(`/hr/employees/${eid}/paystubs`, { method: 'POST', body: form }),
   // Device enrollment - shared by field-phone tracking (EnrolPhone). Desktop
@@ -1854,10 +1725,7 @@ export const api = {
   // Who is watching / giving remote support on each screen right now (presence badges).
   timeLivePresence:  () => req('/timeclock/live-presence'),
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
-  trackLive:         ()            => req('/timeclock/track/live'),
-  trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),
   timeLocations:     ()            => req('/timeclock/locations'),
-  timeShifts:        ()          => req('/timeclock/shifts'),
   timeShiftCreate:   (data)      => req('/timeclock/shifts', { method: 'POST', body: JSON.stringify(data) }),
   timeShiftUpdate:   (id, data)  => req(`/timeclock/shifts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeShiftDelete:   (id)        => req(`/timeclock/shifts/${id}`, { method: 'DELETE' }),
@@ -1866,7 +1734,6 @@ export const api = {
   timeShiftGroupSet: (id, data)  => req(`/timeclock/shift-groups/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeShiftGroupDelete: (id)     => req(`/timeclock/shift-groups/${id}`, { method: 'DELETE' }),
   timeShiftAssign:   (data)      => req('/timeclock/shift-assign', { method: 'POST', body: JSON.stringify(data) }),
-  timeShiftAssignments: ()       => req('/timeclock/shift-assignments'),
   timeMyChat:        ()          => req('/timeclock/my-chat'),
   timeSchedule:      (start, end) => req(`/timeclock/schedule?start=${start}&end=${end}`),
   timeMySchedule:    (start, end) => req(`/timeclock/my-schedule?start=${start}&end=${end}`),
@@ -1878,7 +1745,6 @@ export const api = {
   shiftRequestRespond:     (id, data)  => req(`/timeclock/shift-requests/${id}/respond`, { method: 'POST', body: JSON.stringify(data) }),
   shiftRequestsInbox:      ()          => req('/timeclock/shift-requests'),
   shiftRequestDecide:      (id, data)  => req(`/timeclock/shift-requests/${id}/decide`, { method: 'POST', body: JSON.stringify(data) }),
-  shiftRequestSettingsSave: (data)     => req('/timeclock/shift-requests/settings', { method: 'PUT', body: JSON.stringify(data) }),
   timeSchedCreate:   (data)      => req('/timeclock/schedule', { method: 'POST', body: JSON.stringify(data) }),
   timeSchedBulk:     (data)      => req('/timeclock/schedule/bulk', { method: 'POST', body: JSON.stringify(data) }),
   timeSchedAssign:   (id, email) => req(`/timeclock/schedule/${id}/assign`, { method: 'POST', body: JSON.stringify({ employee_email: email }) }),
@@ -1908,16 +1774,12 @@ export const api = {
   timeShiftGroupMeta: (id, data)  => req(`/timeclock/shift-groups/${id}/meta`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeShiftGroupReorder: (ids)    => req('/timeclock/shift-groups/reorder', { method: 'POST', body: JSON.stringify({ ids }) }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
-  timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
-  timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),
   timeAutoLunchSet:  (data, company = '') => req(`/timeclock/payroll/autolunch${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
   timeRoundingSet:   (data, company = '') => req(`/timeclock/payroll/rounding${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
   // Break policy: CA paid rest breaks + long/unended-break flags (Charmi, Aug 21)
   timeBreakPolicySet: (data, company = '') => req(`/timeclock/payroll/breakpolicy${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
-  timeFinalize:      (data)      => req('/timeclock/finalize', { method: 'POST', body: JSON.stringify(data) }),
   timeUnfinalize:    (data)      => req('/timeclock/unfinalize', { method: 'POST', body: JSON.stringify(data) }),
   timeTeamExceptions:(start, end) => req(`/timeclock/team-exceptions?start=${start || ''}&end=${end || ''}`),
-  timeBillableByLocation:(start, end) => req(`/timeclock/billable-by-location?start=${start || ''}&end=${end || ''}`),
   // Insights dashboard (Top Apps / Top Websites / activity), from the desktop agent
   timeInsights:      (email, start, end) => req(`/timeclock/insights?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}&tz=${new Date().getTimezoneOffset()}`),
   timeRatings:       ()          => req('/timeclock/ratings'),
@@ -1938,8 +1800,6 @@ export const api = {
   cvRequests:       ()           => req('/credvault/requests'),
   cvApproveRequest: (id)         => req(`/credvault/requests/${id}/approve`, { method: 'POST' }),
   cvDenyRequest:    (id)         => req(`/credvault/requests/${id}/deny`, { method: 'POST' }),
-  cvGrants:         ()           => req('/credvault/grants'),
-  cvGrantReveal:    (id)         => req(`/credvault/grants/${id}/reveal`, { method: 'POST' }),
   cvLogs:           ()           => req('/credvault/logs'),
   cvPersonal:       ()           => req('/credvault/personal'),
   cvPersonalCreate: (body)       => req('/credvault/personal', { method: 'POST', body: JSON.stringify(body) }),
@@ -2056,11 +1916,9 @@ export const api = {
   egnyteFolderGroupSync:   (id)     => req(`/egnyte/folder-groups/${encodeURIComponent(id)}/sync`, { method: 'POST', timeoutMs: 120000 }),
   // Per-user Egnyte connection - browse with YOUR OWN Egnyte permissions.
   egnyteOauthStart:      () => req('/egnyte-oauth/start', { method: 'POST' }),
-  egnyteOauthStatus:     () => req('/egnyte-oauth/status'),
   egnyteOauthDisconnect: () => req('/egnyte-oauth/me', { method: 'DELETE' }),
   egnytePersonProvision: (email)              => req(`/egnyte/person/${encodeURIComponent(email)}/provision`, { method: 'POST' }),
   myhrEgnyteDocs:    ()                       => req('/myhr/egnyte-documents'),
-  myhrEgnyteNewFolder: (name)                 => req('/myhr/egnyte-documents/folder', { method: 'POST', body: JSON.stringify({ name }) }),
   myhrEgnyteFile:    (path)                   => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}`),
   myhrEgnyteFilePreview: (path)               => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}&inline=true`),
   // ── Step-up MFA (fresh verification before sensitive data) ──
@@ -2133,7 +1991,8 @@ export const api = {
   getConstructionOverview: () => req("/construction/overview"),
   getConstructionProjects: () => req("/construction/projects"),
   createConstructionProject: (data) => req("/construction/projects", { method: "POST", body: JSON.stringify(data) }),
-  updateConstructionProject: (id, data) => req(`/construction/projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // Project-based weather (Neil, 10/30/2026): every active jobsite's sky, see construction_weather.py
+  getConstructionWeather: (units = "imperial") => req(`/construction/weather?units=${units}`),
   getConstructionReviewQueue: () => req("/construction/review-queue"),
   getConstructionReports: (projectId) => req(`/construction/projects/${projectId}/reports`),
   generateConstructionReport: (projectId, data) => req(`/construction/projects/${projectId}/reports/generate`, { method: "POST", body: JSON.stringify(data) }),
@@ -2247,11 +2106,8 @@ export const api = {
   // ── Shifts rebuild (Oct 2026, CONTRACT.md): the unshared-change count across
   //    the whole schedule, the saved group order, the request settings on
   //    their own, and the manager's time-off list over a date range ──
-  timeSchedUnshared:   (start = '', end = '') => req(`/timeclock/schedule/unshared?start=${start}&end=${end}`),
+  timeSchedUnshared:   (start = '', end = '', groupId = '') => req(`/timeclock/schedule/unshared?start=${start}&end=${end}${groupId ? `&group_id=${encodeURIComponent(groupId)}` : ''}`),
   timeShiftGroupOrder: (ids)       => req('/timeclock/shift-groups/order', { method: 'PUT', body: JSON.stringify({ ids }) }),
-  shiftRequestSettingsGet: ()      => req('/timeclock/shift-requests/settings'),
-  timeOffListRange:    (status = '', from = '', to = '', limit = 2000) =>
-    req(`/timeclock/timeoff?status=${encodeURIComponent(status)}&from=${from}&to=${to}&limit=${limit}`),
   // ── Accounting > Reports, batch of 10/02 (Charmi, Neil): the journal list
   //    for the Journals filter ({available, journals}; available false = the
   //    accounting app has no list yet), and the Flux Analysis explanation
@@ -2317,9 +2173,7 @@ export const api = {
   // liability accounts, the ledger-driven review (balances, principal and
   // interest paid, NOI, DSCR) for a month, and the typed fields (rate,
   // maturity, covenant) saved to the same fin_loans row Data > Loans edits.
-  getLoanProposals:      (month) => req(`/accounting/loans/proposals?month=${encodeURIComponent(month)}`),
   createLoansFromLedger: (body) => req('/accounting/loans/create', { method: 'POST', body: JSON.stringify(body) }),
-  getLoanReview:         (month) => req(`/accounting/loans/review?month=${encodeURIComponent(month)}`),
   updateLoan:            (id, month, body) => req(`/accounting/loans/${encodeURIComponent(id)}?month=${encodeURIComponent(month)}`, { method: 'PUT', body: JSON.stringify(body) }),
   // Oct 6 (Charmi and Neil, 10/03-10/04): the review for a window (from / to,
   // as of today by default) and the entities picked; the scan of the active
@@ -2333,7 +2187,6 @@ export const api = {
   // MRI > Leasing > Set Up From the Ledger: one lease per (entity, customer)
   // with rent postings in the last twelve months, created through the same
   // path as New Lease.
-  getLeaseProposals:      () => req('/accounting/leasing/from-ledger/proposals'),
   createLeasesFromLedger: (body) => req('/accounting/leasing/from-ledger/create', { method: 'POST', body: JSON.stringify(body) }),
   // People > onboarding / offboarding / leave checklists (hr_checklists.py).
   // The owner of a step (manager, IT, the new hire) ticks it from My HR via
@@ -2353,7 +2206,6 @@ export const api = {
   saveChecklistTemplate:  (kind, entityId, d) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify(d) }),
   resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
   getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
-  saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
   // Copy steps between companies, and a job role's own steps (Neil, Oct 19).
   copyChecklistTemplates: (d)         => req('/hr/checklists/templates/copy', { method: 'POST', body: JSON.stringify(d) }),
   getRoleChecklistRoles:  ()          => req('/hr/checklists/role-templates'),
@@ -2374,7 +2226,6 @@ export const api = {
   getLoanSchedule:         (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/schedule`),
   saveLoanSchedule:        (loanId, body) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/schedule`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteLoanSchedule:      (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/schedule`, { method: 'DELETE' }),
-  getLoanScheduleExpected: (month)        => req(`/accounting/loan-plans/expected?month=${encodeURIComponent(month)}`),
   getLoanStressScenarios:  (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios`),
   saveLoanStressScenario:  (loanId, body) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios`, { method: 'POST', body: JSON.stringify(body) }),
   deleteLoanStressScenario: (loanId, id)  => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -2567,7 +2418,6 @@ export const api = {
   replyAskThread:      (id, text) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/messages`, { method: 'POST', body: JSON.stringify({ body: text }) }),
   resolveAskThread:    (id, body = {}) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: JSON.stringify(body) }),
   reopenAskThread:     (id)       => req(`/accounting/ask/threads/${encodeURIComponent(id)}/reopen`, { method: 'POST', body: '{}' }),
-  assignAskThread:     (id, accountant) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/accountant`, { method: 'PUT', body: JSON.stringify({ accountant }) }),
   // Chat triage 10/27, item 06: move a question on a batch summary line to its card charge.
   relinkAskThread:     (id, charge) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/relink`, { method: 'POST', body: JSON.stringify(charge) }),
   getAskSettings:      ()         => req('/accounting/ask/settings'),
@@ -2619,10 +2469,9 @@ export const api = {
   weatherWatchSettings:     ()     => req('/weather-watch/settings'),
   weatherWatchSettingsSave: (data) => req('/weather-watch/settings', { method: 'PUT', body: JSON.stringify(data) }),
   weatherWatchScan:         ()     => req('/weather-watch/scan', { method: 'POST' }),
-  weatherWatchAdvisories:   (groupId = '') => req(`/weather-watch/advisories${groupId ? `?group_id=${encodeURIComponent(groupId)}` : ''}`),
   // The weather call itself: the screen, the decision, follow-up, acknowledging, a person's texts switch.
-  weatherCallScreen:    (groupId, date)       => req(`/weather-call/${encodeURIComponent(groupId)}/${date}`),
-  weatherCallDecide:    (groupId, date, data) => req(`/weather-call/${encodeURIComponent(groupId)}/${date}`, { method: 'POST', body: JSON.stringify(data) }),
+  weatherCallScreen:    (groupId, date, place = '')       => req(`/weather-call/${encodeURIComponent(groupId)}/${date}${place ? `?place=${encodeURIComponent(place)}` : ''}`),
+  weatherCallDecide:    (groupId, date, data, place = '') => req(`/weather-call/${encodeURIComponent(groupId)}/${date}${place ? `?place=${encodeURIComponent(place)}` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
   weatherCallReinstate: (id)                  => req(`/weather-call/${encodeURIComponent(id)}/reinstate`, { method: 'POST' }),
   weatherCallRemind:    (id)                  => req(`/weather-call/${encodeURIComponent(id)}/remind`, { method: 'POST' }),
   weatherCallAck:       (id)                  => req(`/weather-call/${encodeURIComponent(id)}/ack`, { method: 'POST' }),
@@ -2652,8 +2501,11 @@ export const api = {
   reopenPacketIntake:  (eid) => req(`/hr/life-events/${eid}/reopen-intake`, { method: 'POST' }),
   // A promotion letter built from Documents: generated, then verified and sent.
   startPromotion:      (eid, data) => req(`/hr/employees/${eid}/promotion/start`, { method: 'POST', body: JSON.stringify(data) }),
-  // Documents > HR Records: every document HR packets generated (HR only).
+  // Documents > HR Records view: every document HR packets generated (HR only).
   listPacketDocuments: ({ q = '', status = '' } = {}) => req(`/hr/packet-documents?${new URLSearchParams({ q, status })}`),
+  // Documents > Documents (Neil, 10/31/2026): the one list, and a template's page.
+  getDocumentLibrary: () => req('/documents/library'),
+  docTemplatePreviewPdf: (id) => reqBlob(`/documents/templates/${id}/preview`),
   // Signs Once (Oct 14): the company signs a packet once - a one-time code,
   // then the signature goes on every packet until someone else holds the role.
   // Ready To Send (Oct 14): the packet's checklist, read again after a fix.
@@ -2733,6 +2585,8 @@ export const api = {
   timeMyConfirmations:        () => req('/timeclock/my-schedule/confirmations'),
   timeSchedConfirm:           (publishId) => req(`/timeclock/schedule/confirm/${encodeURIComponent(publishId)}`, { method: 'POST' }),
   timeSchedConfirmations:     (start, end) => req(`/timeclock/schedule/confirmations?start=${start}&end=${end}`),
+  // Scheduled hours and labor cost for the planner header (Frontline Reach, 11/02/2026); pay hidden for the manager tier.
+  timeScheduleLabor:          (start, end) => req(`/timeclock/schedule/labor?start=${start}&end=${end}`),
   timeSchedNudge:             (data) => req('/timeclock/schedule/nudge', { method: 'POST', body: JSON.stringify(data) }),
   // The offer letter first, then the hiring packet (Neil, Oct 14). Options: which
   // letter this kind of hire gets and what it asks of HR; start: generated and
@@ -2840,7 +2694,6 @@ export const api = {
   // Operations: stores another operator runs (CubeSmart, Oct 20 2026). Upload
   // with commit=false is a validation preview; commit=true saves (upsert).
   getThirdPartyFacilities: () => req('/third-party/ops-facilities'),
-  getThirdPartyProperties: () => req('/third-party/properties'),
   uploadThirdPartyReport: (file, { kind = 'auto', propertyId = '', asOf = '', commit = false } = {}) => {
     const fd = new FormData();
     fd.append('file', file); fd.append('kind', kind); fd.append('property_id', propertyId);
@@ -2901,7 +2754,6 @@ export const api = {
   getTicketItems: (id) => req(`/task-tickets/${id}/items`),
   linkTicketItems: (id, itemIds) => req(`/task-tickets/${id}/items`, { method: "POST", body: JSON.stringify({ item_ids: itemIds }) }),
   unlinkTicketItem: (id, itemId) => req(`/task-tickets/${id}/items/${encodeURIComponent(itemId)}`, { method: "DELETE" }),
-  getTicketsForItem: (itemId) => req(`/task-tickets/by-item/${encodeURIComponent(itemId)}`),
   // Ticket AI (Oct 2026, backend/routers/ticket_ai.py): what may show, the
   // desk's switch, Suggested Help Topic and the drawer's AI Summary.
   getTicketAiStatus: () => cachedGet("/ticket-ai/status", 60_000),
@@ -2952,7 +2804,6 @@ export const api = {
   },
   getOpsBudgetLoads: (facility = '') => req(`/ops-budget/loads?${new URLSearchParams({ facility })}`),
   getOpsBudgetLoadFile: (id) => reqBlob(`/ops-budget/loads/${encodeURIComponent(id)}/file`),
-  runOpsBudgetSnapshot: () => req('/ops-budget/snapshot', { method: 'POST', timeoutMs: 120_000 }),
   // Operations > Customer Map (Oct 21 2026, routers/ops_customer_map.py): rounded points, counts only.
   getOpsCustomerMap: ({ facility = 'all', state = '', kind = 'all', since = 'all', band = 'all' } = {}) => req(`/facility-ops/customer-map?${new URLSearchParams({ facility, state, kind, since, band })}`),
   // Ops Budget > Hummingbird History (Oct 21 2026): what the last HB export load holds, per site (admins only).
@@ -2960,7 +2811,6 @@ export const api = {
   // Contractor invoices (Oct 21): drafted when a contractor's Time Sheet is
   // finalized, approved and emailed by HR from People > Time > Invoices.
   contractorInvoices:     (status = 'draft') => req(`/contractor-invoices?status=${encodeURIComponent(status)}`),
-  contractorInvoicesMine: ()   => req('/contractor-invoices/mine'),
   contractorInvoicePdf:   (id) => reqBlob(`/contractor-invoices/${encodeURIComponent(id)}/pdf`),   // bearer-authenticated, so a blob, never a bare link
   contractorInvoiceSend:  (id) => req(`/contractor-invoices/${encodeURIComponent(id)}/send`, { method: 'POST' }),
   // ── Knowledge Base rebuild (Oct 2026) - everything under /kb. The old
@@ -2968,15 +2818,14 @@ export const api = {
   kbMe: () => req("/kb/me"),
   kbHome: () => req("/kb/home"),
   // log: false = do not record a missed search (the header bar's type-ahead).
-  kbSearch: (q, { type = "", collection = "", limit = 30, log = true } = {}) =>
-    req(`/kb/search?q=${encodeURIComponent(q || "")}&type=${encodeURIComponent(type)}&collection=${encodeURIComponent(collection)}&limit=${limit}${log ? "" : "&log=false"}`),
+  kbSearch: (q, { type = "", collection = "", department = "", limit = 30, log = true } = {}) =>
+    req(`/kb/search?q=${encodeURIComponent(q || "")}&type=${encodeURIComponent(type)}&collection=${encodeURIComponent(collection)}&department=${encodeURIComponent(department)}&limit=${limit}${log ? "" : "&log=false"}`),
   kbAsk: (question) => req("/kb/ask", { method: "POST", body: JSON.stringify({ question }), timeoutMs: AI_TIMEOUT_MS }),
   kbCollections: () => req("/kb/collections"),
   kbCollection: (id) => req(`/kb/collections/${id}`),
   kbCreateCollection: (data) => req("/kb/collections", { method: "POST", body: JSON.stringify(data) }),
   kbUpdateCollection: (id, data) => req(`/kb/collections/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   kbTags: () => req("/kb/tags"),
-  kbCreateTag: (name) => req("/kb/tags", { method: "POST", body: JSON.stringify({ name }) }),
   kbPages: (params = {}) => req(`/kb/pages?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
   kbPage: (id) => req(`/kb/pages/${id}`),
   kbPageVersion: (id, vid) => req(`/kb/pages/${id}/versions/${vid}`),
@@ -2993,7 +2842,6 @@ export const api = {
   kbPinPage: (id) => req(`/kb/pages/${id}/pin`, { method: "POST" }),
   kbFeedback: (id, helpful) => req(`/kb/pages/${id}/feedback`, { method: "POST", body: JSON.stringify({ helpful }) }),
   kbFlagPage: (id, text) => req(`/kb/pages/${id}/flag`, { method: "POST", body: JSON.stringify({ text }) }),
-  kbComments: (id) => req(`/kb/pages/${id}/comments`),
   kbAddComment: (id, text, mentions = []) => req(`/kb/pages/${id}/comments`, { method: "POST", body: JSON.stringify({ text, mentions }) }),
   kbOpenRevision: (id) => req(`/kb/pages/${id}/revisions`, { method: "POST" }),
   kbRevision: (rid) => req(`/kb/revisions/${rid}`),
@@ -3015,7 +2863,6 @@ export const api = {
   kbTranslation: (id, lang) => req(`/kb/pages/${id}/translations/${lang}`),
   kbRequestPage: (data) => req("/kb/requests", { method: "POST", body: JSON.stringify(data) }),
   kbHealth: () => req("/kb/health"),
-  kbActivity: (limit = 60, docId = "") => req(`/kb/activity?limit=${limit}&doc_id=${encodeURIComponent(docId)}`),
   kbResolveFlag: (id, resolution = "") => req(`/kb/flags/${id}/resolve`, { method: "POST", body: JSON.stringify({ resolution }) }),
   kbCloseRequest: (id, resolution = "") => req(`/kb/requests/${id}/close`, { method: "POST", body: JSON.stringify({ resolution }) }),
   kbAssignRequest: (id, email) => req(`/kb/requests/${id}/assign`, { method: "POST", body: JSON.stringify({ email }) }),
@@ -3034,9 +2881,7 @@ export const api = {
   kbCourseBuilder: (id) => req(`/kb/courses/${id}/builder`),
   kbUpdateCourse: (id, data) => req(`/kb/courses/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   kbPublishCourse: (id, data = {}) => req(`/kb/courses/${id}/publish`, { method: "POST", body: JSON.stringify(data) }),
-  kbArchiveCourse: (id) => req(`/kb/courses/${id}/archive`, { method: "POST" }),
   kbDiscardCourseDraft: (id) => req(`/kb/courses/${id}/discard-draft`, { method: "POST" }),
-  kbCourseVersions: (id) => req(`/kb/courses/${id}/versions`),
   kbMarkLessonDone: (cid, lid) => req(`/kb/courses/${cid}/lessons/${lid}/done`, { method: "POST" }),
   kbQuizStart: (cid) => req(`/kb/courses/${cid}/quiz/start`, { method: "POST" }),
   kbQuizSubmit: (aid, answers) => req(`/kb/quiz/${aid}/submit`, { method: "POST", body: JSON.stringify({ answers }) }),
@@ -3062,7 +2907,6 @@ export const api = {
   kbRemoveAssignment: (aid) => req(`/kb/assignments/${aid}`, { method: "DELETE" }),
   kbRules: () => req("/kb/rules"),
   kbCreateRule: (data) => req("/kb/rules", { method: "POST", body: JSON.stringify(data) }),
-  kbUpdateRule: (id, data) => req(`/kb/rules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   kbDeleteRule: (id) => req(`/kb/rules/${id}`, { method: "DELETE" }),
   kbPlans: () => req("/kb/plans"),
   kbCreatePlan: (data) => req("/kb/plans", { method: "POST", body: JSON.stringify(data) }),
@@ -3070,7 +2914,6 @@ export const api = {
   kbAssignPlan: (id, emails) => req(`/kb/plans/${id}/assign`, { method: "POST", body: JSON.stringify({ emails }) }),
   kbGenerateCourse: (cid, data) => req(`/kb/courses/${cid}/generate`, { method: "POST", body: JSON.stringify(data) }),
   kbCertificateLookup: (serial) => req(`/kb/certificates/lookup?serial=${encodeURIComponent(serial)}`),
-  kbCertificate: (id) => req(`/kb/certificates/${id}`),
   kbCertificatePdf: (id) => reqBlob(`/kb/certificates/${id}/pdf`),
   kbCompliance: (params = {}) => req(`/kb/compliance?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
   kbComplianceNudge: (emails) => req("/kb/compliance/nudge", { method: "POST", body: JSON.stringify({ emails }) }),
@@ -3102,7 +2945,6 @@ export const api = {
   // pins on the live app that Claude Code picks up from a terminal. /enabled
   // answers { enabled: false } for anyone without the grant - never a 403.
   devNotesEnabled: () => req("/dev-notes/enabled"),
-  devNotesSettings: () => req("/dev-notes/settings"),
   devNotesSaveSettings: (data) => req("/dev-notes/settings", { method: "PUT", body: JSON.stringify(data) }),
   devNotesCreate: (data) => req("/dev-notes", { method: "POST", body: JSON.stringify(data) }),
   devNotesList: (params = {}) => req(`/dev-notes?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null && v !== false))).toString()}`),
@@ -3151,6 +2993,8 @@ export const api = {
   // modules - {rows, counts, groups, groupLabels, errors, total}. The
   // decisions go to each module's own endpoint (lib/approvalActions.js).
   approvalsInbox: () => req("/approvals/inbox"),
+  approvalsHistory: (days = 30) => req(`/approvals/history?days=${encodeURIComponent(days)}`),
+  approvalsDecided: (data) => req("/approvals/decided", { method: "POST", body: JSON.stringify(data) }),
   // HR letters (Neil, Oct 27 2026, routers/hr_letters.py): employees request
   // them from My HR, HR for their company issues them through Nexus Sign.
   hrLetterTypes: () => req('/letter-requests/types'),
@@ -3201,7 +3045,6 @@ export const api = {
   probationDecline: (eid, note) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/decline`, { method: 'POST', body: JSON.stringify({ note }) }),
   probationStart: (eid, data = {}) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/start`, { method: 'POST', body: JSON.stringify(data) }),
   probationEdit: (eid, data) => req(`/hr/employees/${encodeURIComponent(eid)}/probation`, { method: 'PATCH', body: JSON.stringify(data) }),
-  probationStop: (eid, reason) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/stop`, { method: 'POST', body: JSON.stringify({ reason }) }),
   probationSendLetter: (eid) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/send-letter`, { method: 'POST' }),
   probationLetterPreview: (eid, data) => reqBlob(`/hr/employees/${encodeURIComponent(eid)}/probation/letter-preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), timeoutMs: 60000 }),
   probationSettings: (company = '') => req(`/hr/probation/settings?company=${encodeURIComponent(company || '')}`),
@@ -3262,8 +3105,6 @@ export const api = {
   perfCycles: (company = "") => req(`/performance/cycles?company=${encodeURIComponent(company || "")}`),
   perfCycle: (id) => req(`/performance/cycles/${encodeURIComponent(id)}`),
   perfCycleCreate: (data) => req("/performance/cycles", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
-  perfCycleUpdate: (id, data) => req(`/performance/cycles/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
-  perfCycleLaunch: (id) => req(`/performance/cycles/${encodeURIComponent(id)}/launch`, { method: "POST", timeoutMs: 60000 }),
   perfCycleClose: (id, force = false) => req(`/performance/cycles/${encodeURIComponent(id)}/close`, { method: "POST", body: JSON.stringify({ force }) }),
   perfReviews: (person = "") => req(`/performance/reviews${person ? `?person=${encodeURIComponent(person)}` : ""}`),
   perfReview: (id) => req(`/performance/reviews/${encodeURIComponent(id)}`),
@@ -3375,6 +3216,10 @@ export const api = {
   // brings the server copy back in err.detail.note.
   notesList: (params = {}) => req(`/notes?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")).toString()}`),
   noteGet: (id) => req(`/notes/${encodeURIComponent(id)}`),
+  // Boards (Neil, 11/02/2026): a whiteboard is a note of kind 'board'. noteCreate
+  // takes { kind: 'board', title, scene, source, templateKey }; noteUpdate takes
+  // { rev, scene, thumbUrl, source } beside the note fields (scene is the
+  // board JSON string, 2 MB at most; thumbUrl our storage; source {} clears).
   noteCreate: (data) => req("/notes", { method: "POST", body: JSON.stringify(data) }),
   noteUpdate: (id, data) => req(`/notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
   noteDaily: (day) => req(`/notes/daily?day=${encodeURIComponent(day)}`),
@@ -3393,6 +3238,28 @@ export const api = {
   noteCollab: (id) => req(`/notes/${encodeURIComponent(id)}/collab`),
   noteCollabSeed: (id, data) => req(`/notes/${encodeURIComponent(id)}/collab/seed`, { method: "POST", body: JSON.stringify(data) }),
   noteCollabReset: (id) => req(`/notes/${encodeURIComponent(id)}/collab/reset`, { method: "POST" }),
+  // Notes boards (11/02/2026): a protected file (an image on a board) as a
+  // Blob through the signed-in viewer, whatever form of its URL the scene
+  // kept - canonical or the viewer's. The engine wants a data URL in memory;
+  // the scene never stores one.
+  viewerBlob: (u) => reqBlob(`/files/view?u=${encodeURIComponent(fromViewUrl(u))}`),
+  // Mark Up (11/02/2026): a finished board goes back to the task or ticket it
+  // was made from as an ordinary image attachment - the EXISTING attachment
+  // endpoints, no new path. `source` is the board's { kind, id }; anything
+  // but a task or a ticket is refused here so a caller can hide the action.
+  attachMarkup: (source, { url, name, size = "" }) => {
+    const data = { name, size, kind: "image", url };
+    if (source?.kind === "task") return api.addTaskAttachment(source.id, data);
+    if (source?.kind === "ticket") return api.addTicketAttachment(source.id, data);
+    return Promise.reject(new Error("Only a task or a ticket can take a markup back."));
+  },
+  // One kept copy of a note in full (11/02/2026): noteVersions' rows are
+  // light (a board's carry shapes / words, never its scene); this one
+  // carries the board's scene for a preview or a restore.
+  noteVersionGet: (noteId, versionId) => req(`/notes/${encodeURIComponent(noteId)}/versions/${encodeURIComponent(versionId)}`),
+  // The weather follows the jobsite (10/30/2026): "+ New Jobsite" in the
+  // shift popup - a name and an address make a Construction project.
+  createJobsite: (data) => req("/timeclock/jobsites", { method: "POST", body: JSON.stringify(data) }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with
@@ -3531,3 +3398,63 @@ export const fetchCareersOpening = (slug, id) => _publicCareers(`public/${encode
 // `form` is a FormData: first_name, last_name, email, phone, location,
 // linkedin_url, consent, nx_f2 (the honeypot - always empty) and resume.
 export const submitCareersApplication = (openingId, form) => _publicCareers(`apply/${encodeURIComponent(openingId)}`, { method: 'POST', body: form });
+
+// Web Push devices (Frontline Reach, Neil 11/02/2026; backend routers/push.py).
+// `pushConfig` says whether the server has keys and which public key the
+// browser subscribes with; the rest register and remove THIS device.
+api.pushConfig = () => req('/push/config');
+api.pushSubscribe = (sub) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
+api.pushUnsubscribe = (endpoint) => req('/push/subscribe', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
+api.pushSubscriptions = () => req('/push/subscriptions');
+
+// Forms (Neil, 11/02/2026; backend routers/forms.py). A form is a template with
+// docType 'form' - its build, publish, duplicate and archive are the template
+// calls above. These are the entries: what this person may fill, the fill
+// payload, a submission (idempotent on entryKey), the viewer's list, review,
+// links to a ticket / task / asset, the PDF, and one CSV per form.
+api.getFormsMine = () => req('/forms/mine');
+api.getFormFill = (tid) => req(`/forms/${encodeURIComponent(tid)}`);
+api.submitFormEntry = (tid, data) => req(`/forms/${encodeURIComponent(tid)}/entries`, { method: 'POST', body: JSON.stringify(data) });
+// params: template, site, status, from, to, person, page - empty ones left out.
+// Answers {items: [entry], total, page, pageSize}.
+api.getFormEntries = (params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null));
+  return req(`/forms/entries${q.toString() ? `?${q}` : ''}`);
+};
+api.getFormEntry = (id) => req(`/forms/entries/${encodeURIComponent(id)}`);
+api.reviewFormEntry = (id, data) => req(`/forms/entries/${encodeURIComponent(id)}/review`, { method: 'POST', body: JSON.stringify(data) });
+api.linkFormEntry = (id, data) => req(`/forms/entries/${encodeURIComponent(id)}/link`, { method: 'POST', body: JSON.stringify(data) });
+api.formEntryPdf = (id) => reqBlob(`/forms/entries/${encodeURIComponent(id)}/pdf`);
+// params: from, to, status, site - the list's filters, empty ones left out.
+api.formTemplateCsv = (tid, params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null));
+  return reqBlob(`/forms/templates/${encodeURIComponent(tid)}/export.csv${q.toString() ? `?${q}` : ''}`);
+};
+// Forms & Checklists (Neil, 11/02/2026; backend routers/forms.py). The forms
+// this person may fill (the server's audience rule), one form's released
+// fields for the fill screen, and the send - idempotent on `entryKey`, so a
+// retry files the same entry once. Photos and signatures go to task-files
+// under forms/<entryKey>/ first (tasks/lib storeTaskFile); the body carries
+// their URLs. body: {entryKey, answers, workSiteId?, shiftId?, source, gps?}.
+// The same three calls under the names the fill screen uses (one definition above).
+api.formsMine = (...a) => api.getFormsMine(...a);
+api.formGet = (...a) => api.getFormFill(...a);
+api.formSubmit = (...a) => api.submitFormEntry(...a);
+// Federal forms (Neil, 11/02/2026; backend federal_forms/ + routers/hr.py):
+// HR++ sends one form - w4 / i9 / direct_deposit - to one employee, and
+// Settings reads the edition watch. A hiring packet's forms travel as
+// `federal_forms` on saveDocumentsPacket's body like its other fields.
+api.sendFederalForm = (eid, kind) => req(`/hr/employees/${encodeURIComponent(eid)}/federal-forms/send`, { method: 'POST', body: JSON.stringify({ kind }) });
+api.federalFormsStatus = () => req('/hr/federal-forms/status');
+// My Profile > Security (Neil, 11/02/2026; backend routers/me_sessions.py):
+// where you are signed in (a session is named by a hash - the cookie value
+// itself never comes back), sign one or every other device out, and the last
+// 20 sign-ins with the device and the approximate place.
+api.mySessions = () => req('/me/sessions');
+api.mySignIns = () => req('/me/sign-ins');
+api.signOutSession = (id) => req(`/me/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+api.signOutOtherSessions = () => req('/me/sessions/others', { method: 'POST' });
+// A jobsite placed from its Google Maps link (11/02/2026), like a work site:
+// the exact point its weather is read at, and the address the link names.
+api.resolveProjectLink = (link) => req('/construction/resolve-link', { method: 'POST', body: JSON.stringify({ link }) });
+api.resolveJobsiteLink = (link) => req('/timeclock/jobsites/resolve-link', { method: 'POST', body: JSON.stringify({ link }) });

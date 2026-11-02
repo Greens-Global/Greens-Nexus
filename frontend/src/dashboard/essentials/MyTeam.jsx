@@ -42,10 +42,9 @@ export const TILES = [
 
 const EMPTY_TODAY = { in: [], out: [], onLeave: [], late: [], counts: { in: 0, out: 0, onLeave: 0, late: 0 }, scheduleAvailable: false };
 
-// Teams 1:1 chat deep link - the same URL PersonHoverCard's "Message" uses.
-export function teamsChatUrl(email) {
-  return `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent((email || '').trim())}`;
-}
+// Teams 1:1 chat deep link - the one helper every person surface uses.
+import { teamsChatUrl } from '../../lib/teamsLinks';
+export { teamsChatUrl };
 
 // One line under a name in a bucket list.
 export function bucketMeta(kind, p) {

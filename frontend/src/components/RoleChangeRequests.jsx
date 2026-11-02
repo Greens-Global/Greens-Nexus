@@ -1,5 +1,5 @@
 // Role change requests (Pranshu, Oct 13). Since Neil's Oct 22 call nobody asks
-// any more - HR, IT Admins and Global Admins change a role directly, with a
+// any more - HR, Administrators and Super Administrators change a role directly, with a
 // reason. Requests still pending from before stay decidable here: those same
 // people approve (the role changes then), decline or cancel. Shown two ways:
 //
@@ -38,7 +38,7 @@ function Details({ r }) {
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10, lineHeight: 1.5 }}>
         Asked by {person(r.requestedBy, r.requestedByName)} on {formatDateTime(r.createdAt)}.{' '}
         {r.status === 'pending'
-          ? <>Asked before role changes stopped needing approval - HR, an IT Admin or a Global Admin approves or declines it.</>
+          ? <>Asked before role changes stopped needing approval - HR, an Administrator or a Super Administrator approves or declines it.</>
           : <>{r.statusLabel}{r.decidedByName ? <> by {person(r.decidedBy, r.decidedByName)}</> : ''}{r.decidedAt ? ` on ${formatDateTime(r.decidedAt)}` : ''}.{r.decisionNote ? ` Note: ${r.decisionNote}` : ''}</>}
       </div>
     </>
@@ -172,7 +172,7 @@ export function RoleChangeDecisionModal({ requestId, onClose, onDecided, toastOk
                 <>
                   <Details r={r} />
                   {r.status === 'pending' && !r.canDecide && !r.canCancel && (
-                    <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 12 }}>Only HR, an IT Admin or a Global Admin can approve this.</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 12 }}>Only HR, an Administrator or a Super Administrator can approve this.</div>
                   )}
                   <Actions r={r} toastErr={toastErr} onDone={(out, kind) => { toastOk?.(DONE_TEXT[kind]); onDecided?.(out, kind); }} />
                 </>

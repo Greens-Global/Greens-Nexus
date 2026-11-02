@@ -56,9 +56,29 @@ async function extractPdf(file) {
   return { text, images: {}, warnings: text.length < 50 * doc.numPages ? ['This PDF has little selectable text. If it is a scan, import it as screenshots instead.'] : [] };
 }
 
+// How the import was filed and why (kb_filer, by rules; or Nexus when AI is
+// on). Every pick can be changed in the editor's Settings rail.
+function FiledAs({ s, collections }) {
+  const col = (collections || []).find((c) => c.id === s.collection_id);
+  const parent = col?.parent_id ? (collections || []).find((p) => p.id === col.parent_id) : null;
+  const colName = col ? (parent ? `${parent.name} / ${col.name}` : col.name) : '';
+  const r = s.reasons || {};
+  return (
+    <div className="kb-card soft" style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div className="kb-title" style={{ fontSize: 13.5 }}>Filed {s.by === 'nexus' ? 'by Nexus' : 'by its contents'} - change any of it in the editor</div>
+      <div className="kb-meta"><b>{PAGE_TYPES[s.page_type]?.label || 'How-To'}</b>{r.page_type ? ` · ${r.page_type}` : ''}</div>
+      <div className="kb-meta"><b>{s.departments?.length ? s.departments.join(', ') : 'No department yet'}</b>{r.departments ? ` · ${r.departments}` : ''}</div>
+      <div className="kb-meta"><b>{colName || 'No collection yet'}</b>{r.collection ? ` · ${r.collection}` : ''}</div>
+      {s.tags?.length > 0 && <div className="kb-meta">Tags: {s.tags.join(', ')}</div>}
+    </div>
+  );
+}
+
 export default function ImportModal({ onClose, onOpenInEditor, defaultCollection = '', ai = false }) {
+  const [collections, setCollections] = useState([]);
+  useEffect(() => { api.kbCollections().then(setCollections).catch(() => {}); }, []);
   const toast = useToast();
-  const [mode, setMode] = useState('');          // file | paste | shots
+  const [mode, setMode] = useState('file');      // file | paste | shots - the sheet opens on the file drop, never empty
   const [title, setTitle] = useState('');
   const [pageType, setPageType] = useState(ai ? '' : 'how_to');
   const [fileObj, setFileObj] = useState(null);
@@ -139,8 +159,11 @@ export default function ImportModal({ onClose, onOpenInEditor, defaultCollection
       <span className="kb-meta kb-grow">{(asIs.words || 0).toLocaleString()} words{asIs.tables ? `, ${asIs.tables} table${asIs.tables === 1 ? '' : 's'}` : ''}{asIs.images ? `, ${asIs.images} picture${asIs.images === 1 ? '' : 's'}` : ''}. Nothing is published until you say so.</span>
       <button type="button" className="kb-btn" onClick={() => setAsIs(null)}>Back</button>
       <button type="button" className="kb-btn pri" onClick={() => onOpenInEditor({
-        title: title.trim() || asIs.title || baseTitle(fileName) || 'Imported Page', summary: '',
-        page_type: pageType || 'how_to', collection_id: defaultCollection, tags: [], blocks: asIs.blocks,
+        title: title.trim() || asIs.title || baseTitle(fileName) || 'Imported Page', summary: asIs.suggested?.summary || '',
+        // filed by rules (kb_filer): the server's picks unless the author chose a type or opened the import from a collection
+        page_type: (pageType && pageType !== 'how_to' ? pageType : '') || asIs.suggested?.page_type || pageType || 'how_to',
+        collection_id: defaultCollection || asIs.suggested?.collection_id || '', departments: asIs.suggested?.departments || [],
+        tags: asIs.suggested?.tags || [], blocks: asIs.blocks,
         original_content: '', original_title: fileName,
       })}>Open in Editor</button>
     </div>
@@ -151,6 +174,7 @@ export default function ImportModal({ onClose, onOpenInEditor, defaultCollection
       <button type="button" className="kb-btn pri" onClick={() => onOpenInEditor({
         title: result.suggested?.title || title || fileName || 'Imported Page', summary: result.suggested?.summary || '',
         page_type: result.suggested?.page_type || pageType || 'how_to', collection_id: result.suggested?.collection_id || defaultCollection,
+        departments: result.suggested?.departments || [],
         tags: result.suggested?.tags || [], blocks: result.blocks, original_content: text, original_title: fileName || title, possible_match: result.possible_match,
       })}>Open in Editor</button>
     </div>
@@ -167,29 +191,36 @@ export default function ImportModal({ onClose, onOpenInEditor, defaultCollection
       <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }} onPaste={onPaste}>
         {!job && !asIs && (
           <>
-            <div className="kb-grid3">
-              {[
-                ['file', FileText, 'Word or PDF', 'A .docx or .pdf up to 15 MB. Headings, lists, tables and pictures come along.'],
-                ['paste', ClipboardPaste, 'Paste Text', 'From an email, a chat, a Google Doc.'],
-                ...(ai ? [['shots', ImageIcon, 'Screenshots', 'Photos of a printed SOP or a whiteboard. Nexus reads them.']] : []),
-              ].map(([k, Icon, h, d]) => (
-                <button key={k} type="button" className="kb-coll" style={mode === k ? { borderColor: 'var(--kb-green)', background: 'var(--kb-green-soft)' } : {}}
-                        onClick={() => { setMode(k); if (k === 'file') fileRef.current?.click(); if (k === 'shots') shotRef.current?.click(); }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon size={18} style={{ color: 'var(--kb-green)' }} /><span className="kb-title">{h}</span></div>
-                  <div className="kb-meta">{d}</div>
-                </button>
-              ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div className="kb-seg" role="tablist" aria-label="Import from">
+                {[
+                  ['file', FileText, 'Word or PDF'],
+                  ['paste', ClipboardPaste, 'Paste Text'],
+                  ...(ai ? [['shots', ImageIcon, 'Screenshots']] : []),
+                ].map(([k, Icon, h]) => (
+                  <button key={k} type="button" role="tab" aria-selected={mode === k} className={mode === k ? 'on' : ''} onClick={() => { setMode(k); if (k === 'shots') shotRef.current?.click(); }}>
+                    <Icon size={14} style={{ marginRight: 6, verticalAlign: '-2px' }} />{h}
+                  </button>
+                ))}
+              </div>
+              <span className="kb-meta">{mode === 'file' ? 'A .docx or .pdf up to 15 MB. Headings, lists, tables and pictures come along; the page is filed by what it says.' : mode === 'paste' ? 'From an email, a chat, a Google Doc. Headings, numbered steps and bullets are kept.' : 'Photos of a printed SOP or a whiteboard. Nexus reads them in order.'}</span>
             </div>
             <input ref={fileRef} type="file" accept=".docx,.pdf,.txt,.md" hidden onChange={(e) => { takeFile(e.target.files?.[0]); e.target.value = ''; }} />
             <input ref={shotRef} type="file" accept="image/*" multiple hidden onChange={(e) => { takeShots(e.target.files); e.target.value = ''; }} />
             {mode === 'file' && (
-              <div className={`kb-dropzone${drag ? ' on' : ''}`} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); takeFile(e.dataTransfer.files?.[0]); }} onClick={() => fileRef.current?.click()}>
-                {extracting ? <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><Loader2 size={16} className="kb-spin" />{step || 'Reading'}: {fileName}...</span>
-                  : fileName ? <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', color: 'var(--kb-ink)' }}><CheckCircle2 size={16} style={{ color: 'var(--kb-green)' }} />{fileName}{ai ? ` · ${text.length.toLocaleString()} characters${Object.keys(images).length ? `, ${Object.keys(images).length} images` : ''}` : fileObj ? ` · ${fileSize(fileObj.size)}` : ''}</span>
-                  : <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><Upload size={16} />Drop a file here or click to choose</span>}
+              <div className={`kb-dropzone nx-fill${drag ? ' on' : ''}${fileName ? ' has-file' : ''}`} role="button" tabIndex={0} aria-label="Choose a Word or PDF file"
+                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileRef.current?.click(); } }}
+                   onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); takeFile(e.dataTransfer.files?.[0]); }} onClick={() => fileRef.current?.click()}>
+                {extracting ? (
+                  <><Loader2 size={28} className="kb-spin" style={{ color: 'var(--kb-green)' }} /><div className="kb-title">{step || 'Reading'} {fileName}...</div></>
+                ) : fileName ? (
+                  <><CheckCircle2 size={28} style={{ color: 'var(--kb-green)' }} /><div className="kb-title" style={{ color: 'var(--kb-ink)' }}>{fileName}</div><div className="kb-meta">{ai ? `${text.length.toLocaleString()} characters${Object.keys(images).length ? `, ${Object.keys(images).length} images` : ''}` : fileObj ? fileSize(fileObj.size) : ''} · click to choose a different file</div></>
+                ) : (
+                  <><span className="kb-ico" style={{ background: 'var(--kb-green-soft)', color: 'var(--kb-green)', width: 48, height: 48 }} aria-hidden="true"><Upload size={22} /></span><div className="kb-title" style={{ color: 'var(--kb-ink)', fontSize: 15 }}>Drop a Word or PDF file here</div><div className="kb-meta">or click to choose one from your computer</div></>
+                )}
               </div>
             )}
-            {mode === 'paste' && <textarea className="kb-textarea" style={{ minHeight: 220, fontSize: 14 }} value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste the text here. Headings, numbered steps and bullet points are kept." autoFocus />}
+            {mode === 'paste' && <div className="nx-fill" style={{ display: 'flex', minHeight: 220 }}><textarea className="kb-textarea" style={{ flex: 1, minHeight: 220, fontSize: 14, resize: 'none' }} value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste the text here. Headings, numbered steps and bullet points are kept." autoFocus /></div>}
             {mode === 'shots' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div className="kb-dropzone" onClick={() => shotRef.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); takeShots(e.dataTransfer.files); }}>
@@ -219,6 +250,7 @@ export default function ImportModal({ onClose, onOpenInEditor, defaultCollection
         {asIs && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
             {asIs.warnings?.length > 0 && <div className="kb-banner amber"><AlertTriangle /><div><b>Check these.</b> {asIs.warnings.map((w, i) => <div key={i}>{w}</div>)}</div></div>}
+            {asIs.suggested && <FiledAs s={asIs.suggested} collections={collections} />}
             <div className="kb-meta">Fonts, colors and page layout are not copied; the page takes the Knowledge Base style. Check the preview, then tidy it up in the editor (for example turn a numbered list into Steps).</div>
             <div className="kb-card soft nx-fill" style={{ overflow: 'auto', padding: 18 }}><Blocks doc={asIs.blocks} /></div>
           </div>
@@ -243,6 +275,7 @@ export default function ImportModal({ onClose, onOpenInEditor, defaultCollection
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }} className="kb-meta">
               Suggested: <b>{result.suggested?.title || title}</b>{result.suggested?.page_type && <span className="kb-tag">{PAGE_TYPES[result.suggested.page_type]?.label}</span>}{(result.suggested?.tags || []).map((t) => <span key={t} className="kb-tag">{t}</span>)}
             </div>
+            {result.suggested && <FiledAs s={result.suggested} collections={collections} />}
             <div className="kb-card soft" style={{ maxHeight: '46vh', overflow: 'auto', padding: 18 }}><Blocks doc={result.blocks} /></div>
           </div>
         )}

@@ -1,0 +1,269 @@
+{
+  "@employer_name": {
+    "id": "employer_name",
+    "page": 0,
+    "rect": [
+      0.0882,
+      0.1357,
+      0.8235,
+      0.0303
+    ],
+    "label": "Employer",
+    "role": "",
+    "type": "text",
+    "required": false,
+    "source": "merge",
+    "mergeKey": "employer.legal_name"
+  },
+  "@employee_name": {
+    "id": "employee_name",
+    "page": 0,
+    "rect": [
+      0.0882,
+      0.2296,
+      0.8235,
+      0.0303
+    ],
+    "label": "Employee Name (as it appears on your bank account)",
+    "role": "employee",
+    "type": "text",
+    "required": true,
+    "source": "person"
+  },
+  "@dd1_bank": {
+    "id": "dd1_bank",
+    "page": 0,
+    "rect": [
+      0.0882,
+      0.3235,
+      0.3007,
+      0.0303
+    ],
+    "label": "Bank or Credit Union Name",
+    "role": "employee",
+    "type": "text",
+    "required": true,
+    "source": "person"
+  },
+  "@dd1_routing": {
+    "id": "dd1_routing",
+    "page": 0,
+    "rect": [
+      0.4052,
+      0.3235,
+      0.2451,
+      0.0303
+    ],
+    "label": "Routing Number (9 Digits)",
+    "role": "employee",
+    "type": "text",
+    "required": true,
+    "source": "person",
+    "format": "routing",
+    "sensitive": true
+  },
+  "@dd1_account": {
+    "id": "dd1_account",
+    "page": 0,
+    "rect": [
+      0.6667,
+      0.3235,
+      0.2451,
+      0.0303
+    ],
+    "label": "Account Number",
+    "role": "employee",
+    "type": "text",
+    "required": true,
+    "source": "person",
+    "format": "account",
+    "sensitive": true
+  },
+  "@dd1_type_checking": {
+    "id": "dd1_type_checking",
+    "page": 0,
+    "rect": [
+      0.2019,
+      0.367,
+      0.0163,
+      0.0126
+    ],
+    "label": "Checking",
+    "role": "employee",
+    "type": "check",
+    "required": false,
+    "source": "person"
+  },
+  "@dd1_type_savings": {
+    "id": "dd1_type_savings",
+    "page": 0,
+    "rect": [
+      0.3271,
+      0.367,
+      0.0163,
+      0.0126
+    ],
+    "label": "Savings",
+    "role": "employee",
+    "type": "check",
+    "required": false,
+    "source": "person"
+  },
+  "@dd1_percent": {
+    "id": "dd1_percent",
+    "page": 0,
+    "rect": [
+      0.0882,
+      0.4047,
+      0.2778,
+      0.0303
+    ],
+    "label": "Percent of Net Pay (%) - leave blank for all of it",
+    "role": "employee",
+    "type": "text",
+    "required": false,
+    "source": "person",
+    "format": "percent"
+  },
+  "@dd2_bank": {
+    "id": "dd2_bank",
+    "page": 0,
+    "rect": [
+      0.0882,
+      0.4986,
+      0.3007,
+      0.0303
+    ],
+    "label": "Bank or Credit Union Name",
+    "role": "employee",
+    "type": "text",
+    "required": false,
+    "source": "person"
+  },
+  "@dd2_routing": {
+    "id": "dd2_routing",
+    "page": 0,
+    "rect": [
+      0.4052,
+      0.4986,
+      0.2451,
+      0.0303
+    ],
+    "label": "Routing Number (9 Digits)",
+    "role": "employee",
+    "type": "text",
+    "required": false,
+    "source": "person",
+    "format": "routing",
+    "sensitive": true
+  },
+  "@dd2_account": {
+    "id": "dd2_account",
+    "page": 0,
+    "rect": [
+      0.6667,
+      0.4986,
+      0.2451,
+      0.0303
+    ],
+    "label": "Account Number",
+    "role": "employee",
+    "type": "text",
+    "required": false,
+    "source": "person",
+    "format": "account",
+    "sensitive": true
+  },
+  "@dd2_type_checking": {
+    "id": "dd2_type_checking",
+    "page": 0,
+    "rect": [
+      0.2019,
+      0.5421,
+      0.0163,
+      0.0126
+    ],
+    "label": "Checking",
+    "role": "employee",
+    "type": "check",
+    "required": false,
+    "source": "person"
+  },
+  "@dd2_type_savings": {
+    "id": "dd2_type_savings",
+    "page": 0,
+    "rect": [
+      0.3271,
+      0.5421,
+      0.0163,
+      0.0126
+    ],
+    "label": "Savings",
+    "role": "employee",
+    "type": "check",
+    "required": false,
+    "source": "person"
+  },
+  "@dd2_amount": {
+    "id": "dd2_amount",
+    "page": 0,
+    "rect": [
+      0.0882,
+      0.5798,
+      0.2778,
+      0.0303
+    ],
+    "label": "Fixed Amount per Pay Period ($)",
+    "role": "employee",
+    "type": "text",
+    "required": false,
+    "source": "person",
+    "format": "money"
+  },
+  "@dd2_percent": {
+    "id": "dd2_percent",
+    "page": 0,
+    "rect": [
+      0.3824,
+      0.5798,
+      0.2778,
+      0.0303
+    ],
+    "label": "Or Percent of Net Pay (%)",
+    "role": "employee",
+    "type": "text",
+    "required": false,
+    "source": "person",
+    "format": "percent"
+  },
+  "@signature": {
+    "id": "signature",
+    "page": 0,
+    "rect": [
+      0.0882,
+      0.7828,
+      0.5621,
+      0.0429
+    ],
+    "label": "Employee Signature",
+    "role": "employee",
+    "type": "sign",
+    "required": true,
+    "source": "person"
+  },
+  "@date": {
+    "id": "date",
+    "page": 0,
+    "rect": [
+      0.6667,
+      0.7828,
+      0.2451,
+      0.0429
+    ],
+    "label": "Date",
+    "role": "employee",
+    "type": "date",
+    "required": true,
+    "source": "person"
+  }
+}

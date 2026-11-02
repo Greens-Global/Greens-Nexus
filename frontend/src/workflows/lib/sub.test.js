@@ -14,6 +14,16 @@ describe('workflows sub', () => {
     expect(parseSub('run:r9')).toEqual({ screen: 'run', id: 'r9' });
   });
 
+  it('carries a run to replay on the builder canvas', () => {
+    expect(parseSub('wf:abc:run:r9')).toEqual({ screen: 'builder', id: 'abc', runId: 'r9' });
+    expect(parseSub('wf:abc:run:')).toEqual({ screen: 'builder', id: 'abc' });
+    expect(parseSub('wf::run:r9')).toEqual({ screen: 'overview' });
+    expect(buildSub('builder', 'abc', 'r9')).toBe('wf:abc:run:r9');
+    expect(buildSub('builder', 'abc', '')).toBe('wf:abc');
+    expect(parseSub(buildSub('builder', 'x', 'y'))).toEqual({ screen: 'builder', id: 'x', runId: 'y' });
+    expect(tabFor('wf:abc:run:r9')).toBe('list');
+  });
+
   it('lands unknown, empty and bare prefixes on Overview', () => {
     expect(parseSub(null)).toEqual({ screen: 'overview' });
     expect(parseSub('')).toEqual({ screen: 'overview' });

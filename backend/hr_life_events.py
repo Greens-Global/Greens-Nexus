@@ -39,7 +39,7 @@ import hr_checklist_seed
 import workflows
 from currency import is_currency, money_prefix
 from models import (HrCandidate, HrEntity, HrLifeEvent, HrPacketSetting, HrSignParty,
-                    HrSignRequest, HrSignTemplate, HrStageEvent, NexusEmployee)
+                    HrSignRequest, HrSignTemplate, HrStageEvent, NexusEmployee, NexusNotification)
 import job_switch
 
 # The offer comes first (Neil, Oct 14): "there is a document to sign, but it's
@@ -438,6 +438,8 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
                 # The Details Form and, for a company's packet, who signs once
                 # and whether they have (Oct 14).
                 "detailsForm": list(s.details_form or []),
+                # The federal forms sent after the documents (Neil, 11/02/2026).
+                "federalForms": list(getattr(s, "federal_forms", None) or []),
                 # What the documents themselves ask (Oct 14): the person's
                 # questions go on their form by themselves; HR's are asked
                 # when the offer is made or the packet starts.
@@ -2074,6 +2076,12 @@ def on_completed(db: Session, req: HrSignRequest) -> None:
     if not eid and ev.candidate_id:
         cand = db.query(HrCandidate).filter(HrCandidate.id == ev.candidate_id).first()
         eid = cand.employee_id if cand else ""
+    # The federal forms the packet carried (Neil, 11/02/2026): the direct
+    # deposit onto Pay & Benefits, the payroll bells - after the hire exists.
+    if eid and _form_entries(req):
+        emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+        if emp is not None:
+            federal_completed(db, req, emp)
     import hr_checklists
     hr_checklists.refresh_person(db, eid)
     workflows.emit(db, "life_event.completed", subject=ev, actor=ev.created_by or "",
@@ -3002,3 +3010,199 @@ async def life_events_loop():
         except Exception as e:
             print(f"[life-events] leave year end failed: {e}")
         await asyncio.sleep(LOOP_EVERY_SEC)
+
+
+# ── Federal forms in Nexus Sign (Neil, 11/02/2026) ───────────────────────────
+# The W-4, the I-9 and the Direct Deposit Authorization ride a hiring packet
+# (link_kind 'life_event', documents carrying `formKind`) or go out by
+# themselves from the person record (link_kind 'federal_form', link_id
+# "<employee id>:<kind>", the form as the source PDF). What happens when they
+# are signed lives here, once, for both doors: the HR contact hears when I-9
+# Section 2 is due the moment the person signs Section 1; a signed direct
+# deposit lands on Pay & Benefits (emp.bank, the hr_comp-gated column, the way
+# _apply_hire_details writes it) from the decrypted values; the Accounting
+# owner gets one bell per signed payroll form pointing at the person's
+# Documents tab. The SSN is never read, decrypted or copied anywhere - the
+# sealed PDF is its only home.
+
+FEDERAL_LINK_KIND = "federal_form"
+_S2_REF = "fedform-s2:"          # one Section 2 bell per envelope
+_SIGNED_REF = "fedform-signed:"  # one payroll bell per envelope and form
+
+
+def _form_entries(req: HrSignRequest) -> list:
+    from routers.esign import _form_entries as entries
+    return entries(req)
+
+
+def _form_party(db: Session, req: HrSignRequest, fields: list, source: str):
+    """The party who owns a form's `source` boxes ("person" / "hr")."""
+    roles = {f.get("role") for f in fields if isinstance(f, dict) and f.get("source") == source}
+    if not roles:
+        return None
+    return (db.query(HrSignParty).filter(HrSignParty.request_id == req.id, HrSignParty.role_key.in_(roles))
+            .order_by(HrSignParty.ordinal).first())
+
+
+def _form_subject(db: Session, req: HrSignRequest) -> tuple:
+    """(employee or None, display name, start date ISO) for a form envelope."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == req.employee_id).first() if req.employee_id else None
+    ev = _for(db, req) if (req.link_kind or "") == "life_event" else None
+    name = ""
+    start = ""
+    if emp is not None:
+        name = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
+        start = (emp.start_date or "")[:10]
+    if ev is not None:
+        name = name or ev.subject_name or ""
+        start = start or str((ev.inputs or {}).get("start_date") or "")[:10]
+    if not name and req.candidate_id:
+        cand = db.query(HrCandidate).filter(HrCandidate.id == req.candidate_id).first()
+        if cand:
+            name = f"{cand.first_name} {cand.last_name or ''}".strip()
+    return emp, name, start
+
+
+def _hr_contact_for(db: Session, entity_id: str) -> list:
+    ent = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None
+    out = [e.strip().lower() for e in ((ent.hr_contact_email if ent else "") or "").split(",") if e.strip()]
+    if out:
+        return out
+    import hr_checklists
+    return list(hr_checklists.global_admins(db))
+
+
+def _fed_bell(db: Session, to: str, ref: str, title: str, body: str, action: dict, priority: int = 0) -> bool:
+    """One bell per ref and recipient, written once (never a duplicate from a
+    re-run hook); True when written."""
+    from routers.hr import _hr_notify
+    to = (to or "").strip().lower()
+    if not to:
+        return False
+    if (db.query(NexusNotification.id).filter(NexusNotification.ref_id == ref, NexusNotification.recipient == to)
+            .first()) is not None:
+        return False
+    _hr_notify(db, to, title, body, ref_id=ref, requested_by="nexus-sign", action=action, priority=priority)
+    return True
+
+
+def _documents_action(emp: Optional[NexusEmployee]) -> dict:
+    """The bell lands on the person's Documents tab (hr-documents-<id>, the
+    hr-probation-<id> pattern HR.jsx already reads)."""
+    if emp is None:
+        return {"view": "hr", "sub": "hr-people"}
+    return {"view": "hr", "sub": f"hr-documents-{emp.id}", "label": "Open Documents"}
+
+
+def federal_progress(db: Session, req: HrSignRequest) -> None:
+    """A party signed. The person signing I-9 Section 1 starts HR's clock:
+    Section 2 is due 3 business days from the first day of employment (the
+    checklist's ON-23 rule), and the person's ON-18 ticks now."""
+    import hr_checklists as hc
+    emp, name, start = _form_subject(db, req)
+    for kind, fields in _form_entries(req):
+        if kind != "i9":
+            continue
+        person = _form_party(db, req, fields, "person")
+        if person is None or person.status != "signed":
+            continue
+        hr_party = _form_party(db, req, fields, "hr")
+        if hr_party is not None and hr_party.status == "signed":
+            continue
+        day = start or _today()
+        holidays = hc._holidays(db, req.entity_id or (emp.company if emp else "") or "")
+        due = hc.due_for(day, day, "S", 3, True, holidays) or day
+        for to in _hr_contact_for(db, req.entity_id or (emp.company if emp else "")):
+            _fed_bell(db, to, f"{_S2_REF}{req.id}", f"I-9 Section 2 Due {us_date(due)} - {name or 'New Hire'}",
+                      f"{name or 'The new hire'} signed Form I-9 Section 1. Examine their original documents and "
+                      f"sign Section 2 in Nexus Sign by {us_date(due)} - within 3 business days of their first day.",
+                      {"view": "hr", "sub": "hr-esign", "label": "Open Nexus Sign"}, priority=1)
+    if emp is not None:
+        import hr_checklists
+        hr_checklists.refresh_person(db, emp.id)
+
+
+def _decrypted(values: dict, key: str) -> str:
+    """One stored value in the clear - a sensitive one through secret_box.
+    Only ever called for the bank boxes; the SSN boxes are never read."""
+    import secret_box
+    raw = str((values or {}).get(key) or "")
+    if raw.startswith("enc:"):
+        try:
+            return secret_box.decrypt(raw[4:]).strip()
+        except (ValueError, RuntimeError):
+            return ""
+    return raw.strip()
+
+
+def _bank_from_direct_deposit(db: Session, req: HrSignRequest, fields: list, emp: NexusEmployee) -> bool:
+    """The signed Direct Deposit Authorization onto Pay & Benefits > Bank
+    Accounts, the same shape _profile_from_answers writes. Returns whether
+    anything new was added."""
+    person = _form_party(db, req, fields, "person")
+    if person is None:
+        return False
+    ids = {str(f.get("formField") or f.get("id", "")): str(f.get("id", "")) for f in fields if isinstance(f, dict)}
+    values = person.field_values or {}
+    holder = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
+    bank = [dict(b) for b in (emp.bank or []) if isinstance(b, dict)]
+    added = False
+    for prefix in ("dd1", "dd2"):
+        number = _decrypted(values, ids.get(f"{prefix}_account", ""))
+        routing = _decrypted(values, ids.get(f"{prefix}_routing", ""))
+        if not number:
+            continue
+        acc_type = "savings" if _decrypted(values, ids.get(f"{prefix}_type_savings", "")).lower() in (
+            "1", "true", "on", "yes", "x", "checked") else "checking"
+        acc = {"holder": holder, "bankName": _decrypted(values, ids.get(f"{prefix}_bank", ""))[:120],
+               "routingOrIfsc": routing, "number": number, "type": acc_type, "source": "direct_deposit"}
+        if prefix == "dd2":
+            amount = _decrypted(values, ids.get("dd2_amount", ""))
+            percent = _decrypted(values, ids.get("dd2_percent", ""))
+            if amount:
+                acc["amountPerPay"] = amount
+            elif percent:
+                acc["percent"] = percent
+        if not any(str(b.get("number") or "") == number for b in bank):
+            bank.append(acc)
+            added = True
+    if added:
+        emp.bank = bank
+    return added
+
+
+def federal_completed(db: Session, req: HrSignRequest, emp: NexusEmployee) -> None:
+    """Everyone signed: the direct deposit onto Pay & Benefits, the payroll
+    bells to the Accounting owner (else the HR contact), the Section 2 bell
+    settled. Nothing here reads an SSN."""
+    import hr_checklists as hc
+    name = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
+    ent = db.query(HrEntity).filter(HrEntity.id == (emp.company or "")).first() if emp.company else None
+    owner = (hc.resolve_owner(db, "accounting", emp, hc.role_owners(db, emp.company or ""), ent) or "").lower()
+    recipients = [owner] if owner else _hr_contact_for(db, emp.company or "")
+    titles = {"w4": "W-4 Signed", "direct_deposit": "Direct Deposit Signed"}
+    for kind, fields in _form_entries(req):
+        if kind == "direct_deposit":
+            _bank_from_direct_deposit(db, req, fields, emp)
+        if kind == "i9":
+            (db.query(NexusNotification)
+             .filter(NexusNotification.ref_id == f"{_S2_REF}{req.id}", NexusNotification.actioned == False)  # noqa: E712
+             .update({"actioned": True}, synchronize_session=False))
+            continue
+        label = {"w4": "Form W-4", "direct_deposit": "Direct Deposit Authorization"}.get(kind, kind)
+        for to in recipients:
+            _fed_bell(db, to, f"{_SIGNED_REF}{req.id}:{kind}", f"{titles.get(kind, label + ' Signed')} - {name}",
+                      f"{name} signed their {label}. The sealed form is on their Documents tab and files to their "
+                      f"folder; enter it in the payroll provider." + (" The bank account is on Pay & Benefits."
+                                                                      if kind == "direct_deposit" else ""),
+                      _documents_action(emp))
+
+
+def on_federal_form_completed(db: Session, req: HrSignRequest) -> None:
+    """A form sent by itself from the person record is fully signed."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == req.employee_id).first() if req.employee_id else None
+    if emp is None:
+        return
+    federal_completed(db, req, emp)
+    import hr_checklists
+    hr_checklists.refresh_person(db, emp.id)

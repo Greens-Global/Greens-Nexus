@@ -11,16 +11,23 @@
 //
 // Options (all optional): { title, confirmText, cancelText, danger, placeholder,
 // defaultValue, required, multiline }. `danger:true` styles the confirm button as
-// destructive. `required:true` (prompt) disables OK until non-empty;
+// destructive. `hold:true` (confirm) makes it a press-and-hold button instead
+// (ui/HoldButton.jsx, Neil, Oct 30 2026) for an action that cannot be taken
+// back: `holdMs` (default HOLD_MAJOR_MS), `doneText` ("Deleted"), and
+// `onConfirm` - an async action the dialog waits for, staying open with the
+// reason when it throws, so the button finishes only when the server did.
+// `dialog.undo(message, onUndo)` shows a short Undo toast. `required:true` (prompt) disables OK until non-empty;
 // `minLength:n` keeps it disabled until n characters, with a hint saying so.
 //
 // One <DialogHost/> is mounted at the app root (main.jsx). Calls made before it
 // mounts are queued and shown once it does.
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { MOTION, motionWait } from '../lib/motion';
+import HoldButton, { HOLD_MAJOR_MS } from './HoldButton';
 
 let _present = null;          // set by the mounted DialogHost
 const _queue = [];            // calls made before the host mounted
+let _presentUndo = null;      // the Undo toast, same host
 
 function _show(opts) {
   return new Promise((resolve) => {
@@ -40,9 +47,40 @@ export const dialog = {
   alert:   (message, opts) => _show({ kind: 'alert',   ..._norm(message, opts) }),
   confirm: (message, opts) => _show({ kind: 'confirm', ..._norm(message, opts) }),
   prompt:  (message, opts) => _show({ kind: 'prompt',  ..._norm(message, opts) }),
+  // A short Undo after a hold-confirmed action the server can still put back.
+  undo:    (message, onUndo, ms = 6000) => { _presentUndo?.({ message, onUndo, ms, at: Date.now() }); },
 };
 
+function UndoToast() {
+  const [u, setU] = useState(null);
+  useEffect(() => {
+    _presentUndo = setU;
+    return () => { _presentUndo = null; };
+  }, []);
+  useEffect(() => {
+    if (!u) return undefined;
+    const t = setTimeout(() => setU(null), u.ms);
+    return () => clearTimeout(t);
+  }, [u]);
+  if (!u) return null;
+  return (
+    <div className="nx-undo" role="status">
+      <span>{u.message}</span>
+      <button type="button" onClick={() => { setU(null); u.onUndo?.(); }}>Undo</button>
+    </div>
+  );
+}
+
 export function DialogHost() {
+  return (
+    <>
+      <DialogCard />
+      <UndoToast />
+    </>
+  );
+}
+
+function DialogCard() {
   const [item, setItem] = useState(null);
   const [value, setValue] = useState('');
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
@@ -111,7 +149,9 @@ export function DialogHost() {
 
   const onKeyDown = (e) => {
     if (e.key === 'Escape') { e.preventDefault(); requestCancel(); }
-    else if (e.key === 'Enter' && !(isPrompt && item.multiline)) {
+    // A hold-to-confirm dialog is never confirmed by Enter alone (the hold
+    // button takes its own Enter / Space hold).
+    else if (e.key === 'Enter' && !(isPrompt && item.multiline) && !item.hold) {
       e.preventDefault();
       if (!okDisabled) confirmResult();
     }
@@ -243,6 +283,7 @@ export function DialogHost() {
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 9, marginTop: 'auto', paddingTop: 20 }}>
           {!isAlert && (
             <button
+              ref={item.hold ? okRef : undefined}
               type="button"
               onClick={cancelResult}
               style={{ ...btnBase, background: 'transparent', color: 'var(--ink, #17211c)', borderColor: 'var(--line, #e6e8e2)' }}
@@ -250,6 +291,10 @@ export function DialogHost() {
               {item.cancelText || 'Cancel'}
             </button>
           )}
+          {item.hold ? (
+            <HoldButton label={item.confirmText || 'Delete'} doneLabel={item.doneText || 'Done'} holdMs={item.holdMs || HOLD_MAJOR_MS}
+              clickRuns onConfirm={item.onConfirm} onDone={() => close(true)} />
+          ) : (
           <button
             ref={okRef}
             type="button"
@@ -265,6 +310,7 @@ export function DialogHost() {
           >
             {item.confirmText || (isAlert ? 'OK' : isPrompt ? 'Submit' : 'Confirm')}
           </button>
+          )}
         </div>
       </div>
     </div>
