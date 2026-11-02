@@ -1572,7 +1572,9 @@ test.describe('10. compare', () => {
     await compareWith(page, await simplePdf(['OTHER']));
     const { buf } = await download(page, () => page.locator('#compareResult .wp-download').click(), { confirm: false });
     assertNoSecrets(buf, 'comparison');
-    expect(await fillOf(v, buf, 1, BLACK, [0.09, 0.09, 0.61, 0.13])).toBeGreaterThan(0.5);
+    // The box differs from the other file, so it paints as a solid red block: no
+    // silhouette of the text under it, in the one picture that holds this page.
+    expect(await fillOf(v, buf, 1, near('#e61e1e'), [0.09, 0.09, 0.61, 0.13])).toBeGreaterThan(0.8);
   });
 });
 
