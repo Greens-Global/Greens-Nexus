@@ -35,7 +35,8 @@ const card = async (name) => within((await screen.findByText(name, { selector: '
 beforeEach(() => {
   Object.values(calls).forEach((f) => f.mockReset());
   calls.perfScorecards.mockResolvedValue(DATA);
-  calls.perfScorecardSave.mockResolvedValue({ version: 2, effectiveFrom: '2026-11-01' });
+  // A start date always ahead of the real clock, so "applies from" never ages out.
+  calls.perfScorecardSave.mockResolvedValue({ version: 2, effectiveFrom: '2099-12-01' });
   calls.perfScorecardCopySource.mockResolvedValue({ items: ROWS, copiedFrom: 'Shared set: Office Staff' });
   calls.perfSharedScorecardSave.mockResolvedValue({ id: 's2' });
 });
@@ -66,7 +67,7 @@ describe('KPI Scorecards per role', () => {
     expect(body.roleId).toBe('r1');
     expect(body.items.map((r) => [r.kpi, r.weight])).toEqual([['tasks_on_time', 50], ['training', 20], ['manual:judgment', 30]]);
     expect(typeof body.items[0].target).toBe('number');
-    await waitFor(() => expect(toastOk).toHaveBeenCalledWith(expect.stringMatching(/Analyst: version 2 applies from 11\/01\/2026/)));
+    await waitFor(() => expect(toastOk).toHaveBeenCalledWith(expect.stringMatching(/Analyst: version 2 applies from 12\/01\/2099/)));
   });
 
   it('an empty role copies from a shared set, or starts from the suggestion', async () => {

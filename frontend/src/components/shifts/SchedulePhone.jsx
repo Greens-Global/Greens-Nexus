@@ -71,7 +71,7 @@ export function firstDay(days) {
   return days.map(isoDate).find((ds) => ds === today) || (days[0] ? isoDate(days[0]) : '');
 }
 
-export default function SchedulePhone({ days, sections, byCell, openCells, offOn, holOn, usualOf = () => null, notes, weather = {}, holidayDates, me, prefs, teamZone, canManage,
+export default function SchedulePhone({ days, sections, byCell, openCells, offOn, holOn, usualOf = () => null, notes, weather = {}, holidayDates, holidayNames = {}, me, prefs, teamZone, canManage,
   rowEditable, empWeekMin, dayStats, dragId, collapsed, copied, on, single = false, emptyNote = null, actualOf = null, adherence = null }) {
   const [day, setDay] = useState(() => firstDay(days));
   // A new range (next week) lands on today or its first day.
@@ -121,7 +121,7 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
         <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)', background: 'var(--bg)', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <span style={{ fontSize: 13, fontWeight: 800 }}>{d ? dayShort(d) : ''}</span>
           <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{stats.shifts}{canManage ? ` · ${fmtHrs(stats.min)}` : ''}</span>
-          {hol && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))' }}>Holiday</span>}
+          {hol && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{holidayNames[ds] || 'Holiday'}</span>}
           <WeatherChip w={weather[ds]} size={12} onClick={on?.weather && weather[ds] ? () => on.weather(ds) : null} />
           <span style={{ flex: 1 }} />
           {(notes[ds] || canManage) && (

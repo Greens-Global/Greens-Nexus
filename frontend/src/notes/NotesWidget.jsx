@@ -7,11 +7,12 @@
 // shows on a view its owner can save; on a shared view (someone else's
 // published layout) it stays on the tile, read-only, as before.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StickyNote, ArrowRight, CornerDownLeft, Pin } from 'lucide-react';
+import { StickyNote, ArrowRight, CornerDownLeft, Pin, PenTool } from 'lucide-react';
 import { api } from '../api';
 import { DashCard } from '../dashboard/widgets.jsx';
 import { LoadingState } from '../components/AsyncState';
-import { colorCss, localDay, noteTitle, editedLabel } from './notesModel';
+import { colorCss, localDay, noteTitle, editedLabel, isBoard } from './notesModel';
+import { newBoardFromAnywhere } from './newBoard';
 import './notes.css';
 
 const openNotes = (id) => window.dispatchEvent(new CustomEvent('nexus:navigate', {
@@ -66,12 +67,20 @@ export default function NotesWidget({ config, saveConfig, canSaveConfig, phone }
     } catch (err) { setNotice(err.message || 'Could not add it'); } finally { setBusy(false); }
   };
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(''), 3500); return () => clearTimeout(t); }, [notice]);
+  // New Board (Neil, 11/02/2026): Notes opens with the template question,
+  // the same one its own New Board asks.
+  const newBoard = () => newBoardFromAnywhere();
 
   return (
     <DashCard title="Notes" sub={notice || undefined}
-      action={<button type="button" className="nt-tag" onClick={() => openNotes('')} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--wk-green)', fontWeight: 600 }}>
-        Open Notes <ArrowRight size={12} aria-hidden="true" />
-      </button>}>
+      action={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+        <button type="button" className="nt-tag" onClick={newBoard} title="A whiteboard to draw, plan and mark things up" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
+          <PenTool size={12} aria-hidden="true" /> New Board
+        </button>
+        <button type="button" className="nt-tag" onClick={() => openNotes('')} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--wk-green)', fontWeight: 600 }}>
+          Open Notes <ArrowRight size={12} aria-hidden="true" />
+        </button>
+      </span>}>
       <div className="nt-w">
         <form className="nt-w-capture" onSubmit={capture}>
           <StickyNote size={15} aria-hidden="true" style={{ color: 'var(--wk-orange)', flexShrink: 0 }} />
@@ -94,8 +103,12 @@ export default function NotesWidget({ config, saveConfig, canSaveConfig, phone }
                 <span className="nt-row-title">{noteTitle(n)}</span>
                 {n.pinned && <Pin size={12} aria-hidden="true" style={{ color: 'var(--wk-faint)' }} />}
               </span>
-              {n.preview ? <span className="nt-row-preview" style={{ WebkitLineClamp: 1 }}>{n.preview}</span>
-                : <span className="nt-row-meta">{editedLabel(n.updatedAt)}</span>}
+              {isBoard(n)
+                ? (n.thumbUrl
+                  ? <img className="nt-row-thumb" src={n.thumbUrl} alt="" loading="lazy" style={{ width: 48, height: 30 }} />
+                  : <span className="nt-row-meta">Board · {editedLabel(n.updatedAt)}</span>)
+                : n.preview ? <span className="nt-row-preview" style={{ WebkitLineClamp: 1 }}>{n.preview}</span>
+                  : <span className="nt-row-meta">{editedLabel(n.updatedAt)}</span>}
             </button>
           ))}
         </div>

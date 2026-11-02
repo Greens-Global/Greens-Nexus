@@ -22,6 +22,7 @@ export default function PageRow({ page, snippet, showStatus = false, right, comp
             {showStatus && <StatusChip status={page.status} />}
             <VerifiedChip page={page} />
             {(page.collection || []).length > 0 && <span>{page.collection.map((c) => c.name).join(' / ')}</span>}
+            {(page.departments || []).length > 1 && <span title={page.departments.join(', ')}>· applies to {page.departments.length} departments</span>}
             {page.owner_name && <span>· {page.owner_name}</span>}
             {page.updated_at && <span>· {fmtDate(page.updated_at)}</span>}
           </div>

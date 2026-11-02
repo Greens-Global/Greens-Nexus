@@ -3,7 +3,7 @@
 // Due date, Estimated hours, Recurrence, Labels, Subtasks, Attachments - wired
 // to the TasksContext (subtasks + attachments created after the parent).
 import { useMemo, useRef, useState } from 'react';
-import { Plus, X, Paperclip, ListChecks, CircleCheck, Save, Image as ImageIcon, ScanText, Camera, ImagePlus } from 'lucide-react';
+import { Plus, X, Paperclip, ListChecks, CircleCheck, Save, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, AudioLines } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, PersonMultiSelect, usePeople, DateField, useIsMobile, localTodayISO } from './components';
@@ -13,12 +13,18 @@ import { fmtDate, isFieldRequiredIn, isBlankValue, fieldsForTask, requiredByProj
 import { ProjectCreateModal } from './ProjectsView';
 import { useFrequentCollaborators } from './frequentPeople';
 import { CustomFieldInput } from './TaskDetailDrawer';
-import { filesFromPaste, teamInProject, uploadTaskAttachment, taskAssignees, externalizeInlineImages, uploadFilesToTask, notAttachedText } from './lib';
+import { filesFromPaste, teamInProject, uploadTaskAttachment, taskAssignees, externalizeInlineImages, uploadFilesToTask, notAttachedText, screenTaskFiles } from './lib';
 import { dialog } from '../ui/dialog';
 import ProjectPicker from './ProjectPicker';
 import RichDescription from './RichDescription';
 import AnchoredMenu from '../components/AnchoredMenu';
+import DictateButton from '../components/DictateButton';
+import VoiceNoteButton from '../components/VoiceNoteButton';
+import { STOP_VOICE_FIRST } from '../lib/voice';
+import SayIt from './SayIt';
 import LabelsEditor from './LabelsEditor';
+import AddSeveralModal from './AddSeveralModal';
+import { pastedTaskList } from './batchPaste';
 import { labelsInUse } from './labels';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
@@ -78,7 +84,9 @@ function buildRecurrence(form) {
   return r;
 }
 
-export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '' }) {
+// `onCreated(task)` runs after a successful create (Forms' Make a Task, 11/02/2026);
+// `defaults.description` seeds the description (HTML, one <p> per line).
+export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '', onCreated = null }) {
   const store = useTasks();
   const { createTask, updateTask, deleteTask, tasks, projects, teams, myEmail, customFields = [] } = store;
   const people = usePeople(true);   // assignee/collaborators - see TaskDetailDrawer
@@ -88,7 +96,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const isEdit = !!editing;
 
   const [form, setForm] = useState(() => ({
-    title: editing?.title ?? defaults.title ?? '', description: editing?.description ?? '',
+    title: editing?.title ?? defaults.title ?? '', description: editing?.description ?? defaults.description ?? '',
     // New tasks default assignee AND owner to the creator; editing keeps whatever
     // the task has (an unassigned / unowned task must stay that way).
     // A task can be assigned to several people; whoever finishes it finishes
@@ -135,9 +143,13 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const knownLabels = useMemo(() => labelsInUse(tasks), [tasks]);
   const [subtaskInput, setSubtaskInput] = useState('');
   const [subtasks, setSubtasks] = useState(() => editing ? tasks.filter((t) => t.parentTaskId === editing.id).map((t) => ({ id: t.id, title: t.title })) : []);
-  const [attachments, setAttachments] = useState([]);   // new files only (File objects)
+  // New files only (File objects); quick create's Full Details hands its picks over.
+  const [attachments, setAttachments] = useState(() => (editing ? [] : defaults.files || []));
   const [busy, setBusy] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
+  // Add Several (Oct 31 2026): a pasted list in the Title, or the button
+  // beside it, hands the form's shared fields and the lines to AddSeveralModal.
+  const [several, setSeveral] = useState(null);   // { text, source }
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   // Frozen on first render (not re-derived from `editing`/`defaults`, which can
   // change identity across re-renders) so later edits always compare against
@@ -154,7 +166,9 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   // input's FileList is live - by the time React ran a lazy updater the list
   // was already empty, so "Attach file" picked files and then attached nothing.
   const onFiles = (list) => {
-    const picked = Array.from(list || []);
+    // A voice note or video gets its real type and its size checked (Oct 30 2026).
+    const { files: picked, refused } = screenTaskFiles(list);
+    if (refused.length) dialog.alert(refused.join('\n'), { title: 'Not Added' });
     if (picked.length) setAttachments((prev) => [...prev, ...picked]);
   };
   const onPasteFiles = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); onFiles(files); } };
@@ -166,6 +180,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const camRef = useRef(null);
   const libRef = useRef(null);
   const scanRef = useRef(null);
+  const videoRef = useRef(null);
+  const titleRef = useRef(null);
   const [photoMenu, setPhotoMenu] = useState(false);
   const photoBtnRef = useRef(null);
   const [ocrBusy, setOcrBusy] = useState(false);
@@ -237,7 +253,9 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const fieldRequired = (f) => (isEdit ? requiredByProjectsOf(f, fieldTask).length > 0 : isFieldRequiredIn(f, reqProject));
   const missingFields = isEdit ? [] : activeFields.filter(
     (f) => fieldRequired(f) && isBlankValue(form.customFieldValues[f.id]));
-  const canSubmit = missing.length === 0 && missingFields.length === 0 && !busy;
+  // A voice note still recording: Create waits for Stop, or the clip is lost.
+  const [voiceRec, setVoiceRec] = useState(false);
+  const canSubmit = missing.length === 0 && missingFields.length === 0 && !busy && !voiceRec;
   const showEstimate = taskTracksTime(
     { ...(editing || {}), projectId: lockedProjectId || form.projectId, projectIds: editing?.projectIds || [] },
     projects, tasks,
@@ -257,13 +275,14 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     };
     try {
       let parentId = taskId;
+      let created = null;
       if (isEdit) {
         await updateTask(taskId, core);
         const kept = subtasks.filter((s) => s.id).map((s) => s.id);
         for (const t of tasks.filter((t) => t.parentTaskId === taskId)) if (!kept.includes(t.id)) await deleteTask(t.id).catch(() => {});
         for (const s of subtasks) if (s.id) { if (store.taskById[s.id]?.title !== s.title) await updateTask(s.id, { title: s.title }).catch(() => {}); }
       } else {
-        const created = await createTask(core);
+        created = await createTask(core);
         parentId = created.id;
       }
       for (const s of subtasks.filter((s) => !s.id)) await createTask({ title: s.title, parentTaskId: parentId, projectId: form.projectId || '', teamId: form.teamId || '', followerIds: form.followerIds, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
@@ -277,6 +296,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
       // The task itself saved, so the form closes either way - but a file
       // that did not attach is named, never dropped without a word.
       if (notAttached.length) dialog.alert(notAttachedText(notAttached, isEdit ? 'saved' : 'created'), { title: 'Some Files Did Not Attach' });
+      if (created) onCreated?.(created);
       onClose(true);
     } catch (e) { alert(`Could not save task: ${e.message || e}`); setBusy(false); }
   };
@@ -292,10 +312,13 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto' }}>
             <button ref={photoBtnRef} type="button" title="Add Photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
               style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><ImageIcon size={20} /></button>
+            <button type="button" title="Add a Video" aria-label="Add a Video" onClick={() => videoRef.current?.click()}
+              style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Video size={20} /></button>
             <button type="button" title="Attach File" aria-label="Attach File" onClick={() => fileRef.current?.click()}
               style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Paperclip size={20} /></button>
             <button type="button" title="Scan Text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()}
               style={{ ...btn('ghost'), padding: 7, color: NX.dim, opacity: ocrBusy ? 0.5 : 1 }}><ScanText size={20} /></button>
+            <VoiceNoteButton compact onFile={(f) => onFiles([f])} onRecordingChange={setVoiceRec} />
             {ocrBusy && <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>}
             {attachments.length > 0 && (
               <span style={{ fontSize: 12, color: NX.faint, marginLeft: 2 }}>{attachments.length}</span>
@@ -311,10 +334,12 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
             <input ref={libRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
             <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onScan} />
+            <input ref={videoRef} type="file" accept="video/*" style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
           </div>
         )}
         <button style={btn('ghost')} onClick={() => onClose(false)}>Cancel</button>
-        <button title={missing.length || missingFields.length ? `Fill in the required fields (marked *)${missingFields.length ? ` - ${missingFields.map((f) => f.name).join(', ')}` : ''}` : undefined}
+        {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red }}>{STOP_VOICE_FIRST}</span>}
+        <button title={voiceRec ? STOP_VOICE_FIRST : missing.length || missingFields.length ? `Fill in the required fields (marked *)${missingFields.length ? ` - ${missingFields.map((f) => f.name).join(', ')}` : ''}` : undefined}
           style={{ ...btn('primary'), opacity: !canSubmit ? 0.6 : 1 }} onClick={submit} disabled={!canSubmit}>
           {isEdit ? <><Save size={15} /> Save Changes</> : <><Plus size={15} /> Create Task</>}
         </button>
@@ -322,9 +347,34 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     }>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={field}>
-          <label style={label}>Title <span style={{ color: NX.red }}>*</span></label>
-          <input autoFocus value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="What needs to be done?" style={input}
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} />
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+            <label style={label}>Title <span style={{ color: NX.red }}>*</span></label>
+            {!isEdit && (
+              <button type="button" onClick={() => setSeveral({ text: form.title, source: 'typed' })} title="Add several tasks at once, one per line"
+                style={{ ...btn('ghost'), padding: '0 2px', fontSize: 12, fontWeight: 600, color: NX.blue, marginBottom: 5 }}><ListChecks size={13} /> Add Several</button>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <input ref={titleRef} autoFocus value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="What needs to be done?"
+              aria-label="Title" style={{ ...input, flex: 1, minWidth: 0 }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
+              // A list on the clipboard (two or more lines) is many tasks: Add Several takes it.
+              onPaste={(e) => {
+                if (isEdit) return;
+                const list = pastedTaskList(e);
+                // Text already typed in the box stays, as the first line.
+                if (list) { e.preventDefault(); setSeveral({ text: form.title.trim() ? `${form.title.trim()}\n${list}` : list, source: 'paste' }); }
+              }} />
+            <DictateButton target={titleRef} title="Dictate the Title" />
+          </div>
+          {/* Say It fills a NEW task from one sentence; an edit keeps its fields. */}
+          {!isEdit && (
+            <div style={{ marginTop: 8 }}>
+              <SayIt people={people} myEmail={myEmail}
+                snapshot={() => ({ title: form.title, dueOn: form.dueOn, priority: form.priority, assigneeIds: form.assigneeIds })}
+                onFill={(v) => setForm((f) => ({ ...f, title: v.title, dueOn: v.dueOn, priority: v.priority, assigneeIds: v.assigneeIds }))} />
+            </div>
+          )}
         </div>
         <div style={field}>
           <label style={label}>Description</label>
@@ -600,11 +650,14 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
             {attachments.map((f, i) => (
               <span key={`${f.name}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '3px 8px', fontSize: 12 }}>
-                <Paperclip size={12} /> {f.name}
+                {f.type?.startsWith('audio/') ? <AudioLines size={12} /> : f.type?.startsWith('video/') ? <Video size={12} /> : <Paperclip size={12} />}
+                {f.type?.startsWith('audio/') ? 'Voice Note' : f.name}
                 <button onClick={() => setAttachments((arr) => arr.filter((_, x) => x !== i))} aria-label={`Remove ${f.name}`} title="Remove File" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={12} /></button>
               </span>
             ))}
             <button type="button" onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), fontSize: 12, padding: '6px 10px' }}><Paperclip size={13} /> Attach File</button>
+            {/* A phone has it in the footer. */}
+            {!isMobile && <VoiceNoteButton onFile={(f) => onFiles([f])} onRecordingChange={setVoiceRec} />}
             <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
           </div>
         </div>
@@ -612,6 +665,16 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
 
       {/* Inline "create a project" - the new project is auto-selected for this task. */}
       {creatingProject && <ProjectCreateModal onClose={() => setCreatingProject(false)} onCreated={(p) => set('projectId', p.id)} />}
+      {/* Add Several: the form's shared fields travel with the lines; when the
+          list is added this form closes too - the tasks are made. */}
+      {several && (
+        <AddSeveralModal
+          defaults={{ text: several.text, source: several.source, fromForm: true,
+            projectId: lockedProjectId || form.projectId || '', lockedProjectId, assigneeIds: form.assigneeIds,
+            dueOn: form.dueOn || '', startOn: form.startOn || '', priority: form.priority, status: form.recurFreq !== 'none' ? '' : form.status,
+            tags: form.labels, teamId: form.teamId || '', customFieldValues: form.customFieldValues }}
+          onClose={(added) => { setSeveral(null); if (added) onClose(true); }} />
+      )}
     </Modal>
   );
 }

@@ -63,7 +63,8 @@ afterEach(cleanup);
 describe('Knowledge Base module', () => {
   it('shows the Library home with the search box, what waits on you and the collections', async () => {
     render(<KnowledgeBase activeSub="index" onSubChange={() => {}} />);
-    expect(await screen.findByText('What do you need to know?')).toBeTruthy();
+    expect(await screen.findByText('Departments')).toBeTruthy();   // departments lead the home (Neil, 11/02/2026)
+    expect(screen.getByLabelText('Search the Knowledge Base')).toBeTruthy();
     expect(await screen.findByText('Waiting on You')).toBeTruthy();
     expect(await screen.findByText('Safety and Conduct Policy', { exact: false })).toBeTruthy();
     expect((await screen.findAllByText('Operations')).length).toBeGreaterThan(0);
@@ -87,7 +88,7 @@ describe('Knowledge Base module', () => {
 
   it('shows My Training with the assigned course', async () => {
     render(<KnowledgeBase activeSub="training" onSubChange={() => {}} />);
-    expect(await screen.findByText('Assigned to You')).toBeTruthy();
+    expect(await screen.findByText('To Do')).toBeTruthy();
     expect(await screen.findByText('Site Safety Basics', { exact: false })).toBeTruthy();
   });
 
@@ -100,6 +101,6 @@ describe('Knowledge Base module', () => {
 
   it('old sub keys still land somewhere sensible', async () => {
     render(<KnowledgeBase activeSub="lms" onSubChange={() => {}} />);
-    expect(await screen.findByText('Assigned to You')).toBeTruthy();
+    expect(await screen.findByText('To Do')).toBeTruthy();
   });
 });

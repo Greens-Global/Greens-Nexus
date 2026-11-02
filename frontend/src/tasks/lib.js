@@ -6,6 +6,7 @@ import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
 import { toViewUrl, isOwnImageUrl } from '../lib/storageView';
 import { dialog } from '../ui/dialog';
+import { MEDIA_MAX, mediaKind, checkMedia, withType } from '../lib/voice';
 import { labelKey, labelName, labelTone, labelsInUse } from './labels';
 
 export const EMPTY_FILTER = {
@@ -1061,8 +1062,34 @@ const ATTACHMENT_MAX_INLINE = 2 * 1024 * 1024;   // local-dev fallback only
 const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
 export function attachmentKindOf(file) {
   if (file.type.startsWith('image/')) return 'image';
-  if (file.type.startsWith('video/')) return 'video';
+  const media = mediaKind(file);   // a voice note or a video (lib/voice.js), .mov with no type included
+  if (media) return media;
   return 'doc';
+}
+
+/** A stored attachment row that is a voice note: kind 'audio', or an older
+ *  row whose name or URL says so. Plays in place instead of downloading. */
+export function isAudioAttachment(a) {
+  if (!a) return false;
+  if (a.kind === 'audio') return true;
+  if (a.kind && a.kind !== 'doc') return false;
+  return /\.(m4a|mp3|aac|ogg|oga|wav|weba|opus)($|\?)/i.test(`${a.name || ''} ${a.url || ''}`) || /^voice-note-\d+\./i.test(a.name || '');
+}
+
+/** Voice notes and videos picked for a task (Neil, Oct 30 2026): each gets
+ *  its real content type (an iPhone .mov can come with none), and one over
+ *  its limit (lib/voice.js MEDIA_MAX) is refused with the reason. Any other
+ *  file passes as it is. -> { files, refused: [message] } */
+export function screenTaskFiles(list) {
+  const files = [];
+  const refused = [];
+  for (const f of Array.from(list || [])) {
+    if (!mediaKind(f)) { files.push(f); continue; }
+    const bad = checkMedia(f);
+    if (bad) refused.push(`${f.name}: ${bad}`);
+    else files.push(withType(f));
+  }
+  return { files, refused };
 }
 // `folder` keeps other modules' files apart in the bucket (What's New
 // screenshots and attachments use 'whats-new', Notes' voice notes and videos
@@ -1152,7 +1179,8 @@ export async function uploadTaskAttachment(taskId, file, extra = {}, onProgress)
   const kind = attachmentKindOf(file);
   let url = '';
   try {
-    url = await storeTaskFile(file, onProgress);
+    // A video may be up to 50 MB (lib/voice.js MEDIA_MAX), like one in a note.
+    url = await storeTaskFile(file, onProgress, 'tasks', kind === 'video' ? MEDIA_MAX.video : undefined);
   } catch (e) {
     alert(`"${file.name}" couldn't be stored: ${e?.message || 'upload failed'}. Remove the attachment and try again.`);
   }

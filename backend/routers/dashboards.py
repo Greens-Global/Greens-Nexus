@@ -525,10 +525,36 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
             }
         _safe_insight(modules, "documents", "Documents", "documents", documents_block)
 
+        def forms_block():
+            # Forms & Checklists (Neil, 11/02/2026): how many entries came in
+            # this week and how many a reviewer marked Needs Follow-Up and
+            # nobody has closed - counts and form titles only, never an
+            # answer value (an entry's answers are the reviewer's business).
+            # The company wall applies as the Tickets block applies it.
+            q = db.query(M.DocFormEntry).filter(M.DocFormEntry.deleted_at == "")
+            if _cscope is not None:
+                q = q.filter(M.DocFormEntry.company.in_(_cscope))
+            week = q.filter(M.DocFormEntry.submitted_at >= week_ago)
+            entries_7d = week.count()
+            follow_up_open = q.filter(M.DocFormEntry.status == "follow_up").count()
+            by_template: dict[str, int] = {}
+            for title, in week.with_entities(M.DocFormEntry.title).all():
+                key = title or "Untitled Form"
+                by_template[key] = by_template.get(key, 0) + 1
+            top = sorted(by_template.items(), key=lambda kv: (-kv[1], kv[0]))[:6]
+            return {
+                "stats": [
+                    {"key": "entries_7d", "label": "Entries (7d)", "value": entries_7d, "tone": "neutral"},
+                    # warning only while there is something to follow up, so a
+                    # quiet week never lights Needs Attention
+                    {"key": "follow_up_open", "label": "Needs Follow-Up", "value": follow_up_open,
+                     "tone": "warning" if follow_up_open > 0 else "neutral"},
+                ],
+                "breakdown": [{"label": title, "value": n, "tone": "neutral"} for title, n in top],
+            }
+        _safe_insight(modules, "forms", "Forms", "documents", forms_block)
+
         def it_block():
-            sites = db.query(M.Website)
-            sites_down = sites.filter(M.Website.status != "Online").count()
-            ssl_expiring = sites.filter(M.Website.ssl_days <= 30).count()
             hw = db.query(M.HardwareAsset)
             hw_unassigned = hw.filter(M.HardwareAsset.assigned_to == "Unassigned").count()
             warranties_expiring = hw.filter(
@@ -536,8 +562,6 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
                 M.HardwareAsset.warranty_end <= month_ahead).count()
             return {
                 "stats": [
-                    {"key": "sites_down", "label": "Sites Down / Degraded", "value": sites_down, "tone": "critical"},
-                    {"key": "ssl_expiring", "label": "SSL Expiring (30d)", "value": ssl_expiring, "tone": "warning"},
                     {"key": "warranties_expiring", "label": "Warranties Expiring (30d)", "value": warranties_expiring, "tone": "warning"},
                     {"key": "hw_unassigned", "label": "Unassigned Hardware", "value": hw_unassigned, "tone": "neutral"},
                 ],
@@ -728,7 +752,8 @@ DRILLABLE = {
     "knowledge_base": {"pending_review", "changes_requested", "draft"},
     "operations": {"pending_requisitions", "open_purchases", "pending_inventory"},
     "documents": {"pending_signatures", "needs_attention", "signed_7d"},
-    "it": {"sites_down", "ssl_expiring", "warranties_expiring", "hw_unassigned"},
+    "forms": {"entries_7d", "follow_up_open"},
+    "it": {"warranties_expiring", "hw_unassigned"},
     "construction": {"logs_pending", "overdue_rfis", "pending_submittals", "at_risk_milestones"},
     "asset_management": {"warranties_expiring", "inspections_due"},
     "people": {"open_candidates", "interviews_7d", "leave_pending", "docs_expiring"},
@@ -866,15 +891,34 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
             return _by_person(db, [r.created_by for r in rows], doc_titles[metric])
         raise HTTPException(404, "No breakdown for this metric")
 
+    if module == "forms":
+        # Forms & Checklists (Neil, 11/02/2026) - the same predicates as
+        # forms_block above; titles, people, sites and dates, never answers.
+        q = db.query(M.DocFormEntry).filter(M.DocFormEntry.deleted_at == "")
+        if _cscope is not None:
+            q = q.filter(M.DocFormEntry.company.in_(_cscope))
+        if metric == "follow_up_open":
+            rows = q.filter(M.DocFormEntry.status == "follow_up").order_by(M.DocFormEntry.submitted_at.asc()).all()
+            names = {(e.work_email or "").lower(): (e.display_name or f"{e.first_name or ''} {e.last_name or ''}".strip() or e.work_email)
+                     for e in db.query(M.NexusEmployee).filter(
+                         func.lower(M.NexusEmployee.work_email).in_({(r.submitted_by or "").lower() for r in rows} or {""})).all()}
+            sites = {s.id: s.name for s in db.query(M.HrWorkSite).filter(
+                M.HrWorkSite.id.in_({r.work_site_id for r in rows if r.work_site_id} or {""})).all()}
+            items = [(r.title or "Untitled Form",
+                      " · ".join(p for p in (names.get((r.submitted_by or "").lower(), r.submitted_by or ""),
+                                             sites.get(r.work_site_id or "", ""), _us((r.submitted_at or "")[:10])) if p))
+                     for r in rows]
+            return _list(items, "Needs Follow-Up")
+        if metric == "entries_7d":
+            counts: dict[str, int] = {}
+            for title, in q.filter(M.DocFormEntry.submitted_at >= week_ago).with_entities(M.DocFormEntry.title).all():
+                key = title or "Untitled Form"
+                counts[key] = counts.get(key, 0) + 1
+            rows = [{"label": t, "value": n} for t, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+            return {"kind": "by_person", "title": "Entries (7d) by Form", "rows": rows[:25], "total": sum(counts.values())}
+        raise HTTPException(404, "No breakdown for this metric")
+
     if module == "it":
-        if metric == "sites_down":
-            rows = db.query(M.Website).filter(M.Website.status != "Online").all()
-            items = sorted(((r.name or r.domain, r.status) for r in rows), key=lambda r: r[0])
-            return _list(items, "Sites Down / Degraded")
-        if metric == "ssl_expiring":
-            rows = db.query(M.Website).filter(M.Website.ssl_days <= 30).order_by(M.Website.ssl_days).all()
-            items = [(r.name or r.domain, f"{r.ssl_days}d left") for r in rows]
-            return _list(items, "SSL Expiring Soon")
         if metric == "warranties_expiring":
             rows = db.query(M.HardwareAsset).filter(
                 M.HardwareAsset.warranty_end != "", M.HardwareAsset.warranty_end >= today,
@@ -1168,6 +1212,8 @@ def company_holidays(user: dict = Depends(get_current_user), db: Session = Depen
     # (Diwali etc.) on their calendar before this. A manual, no-country
     # holiday still applies company-wide. `type` (Sep 22, Pranshu: "in bracket
     # either its mandatory or optional") lets the widget label each one.
-    country = (emp.country or "") if emp else ""
+    # No country on the person = their company's (holiday_policies.person_country).
+    import holiday_policies
+    country = holiday_policies.person_country(emp, holiday_policies.company_countries(db, [company_id]).get(company_id, ""))
     return {"holidays": [{"date": h.date, "name": h.name, "type": h.type or "mandatory"} for h in rows
-                         if not h.country_code or country in h.country_code.split(",")]}
+                         if holiday_policies.applies_to(h, country)]}

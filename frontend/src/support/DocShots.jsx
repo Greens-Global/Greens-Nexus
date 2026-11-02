@@ -264,7 +264,7 @@ const SHOTS = {
   sign: {
     legend: ['Nexus Sign tab', 'Drop in the PDF or Word file (or start from a template)', 'Add each signer\'s name and email', 'Drag fields like Signature onto the page', 'Send - signers get an email link'],
     render: () => (
-      <Frame title="Documents" tabs={['Dashboard', 'My Documents', 'Templates', 'Nexus Sign']} active="Nexus Sign" activeRail={-1} tabMark={1}>
+      <Frame title="Documents" tabs={['Documents', 'Templates', 'Nexus Sign', 'PDF Tools']} active="Nexus Sign" activeRail={-1} tabMark={1}>
         <Row style={{ alignItems: 'stretch' }} gap={14}>
           <Col style={{ flex: 1, minWidth: 0 }} gap={12}>
             <Mark n={2} block>

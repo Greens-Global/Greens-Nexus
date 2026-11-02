@@ -14,6 +14,7 @@ import {
   Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown, ChevronRight, Search, Sigma, MoreHorizontal, MoveRight, Maximize2,
 } from 'lucide-react';
 import AnchoredMenu from '../../components/AnchoredMenu';
+import DictateButton from '../../components/DictateButton';
 import MoveTaskModal from '../MoveTaskModal';
 import { MyDayMenuItem } from '../MyDayToggle';
 import { useCanEditTask } from '../canEditTask';
@@ -1081,6 +1082,7 @@ const soleTeamId = (store, projectId) => {
 
 function AddTaskInline({ store, defaults, lockedProjectId, onFullCreate }) {
   const [title, setTitle] = useState('');
+  const addRef = useRef(null);
   const add = () => {
     const t = title.trim(); if (!t) return;
     const projectId = defaults.projectId || lockedProjectId || '';
@@ -1105,8 +1107,9 @@ function AddTaskInline({ store, defaults, lockedProjectId, onFullCreate }) {
        the divider that would otherwise cut straight across them. */
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px 6px 40px', color: NX.faint, borderBottomLeftRadius: 12, borderBottomRightRadius: 12 }}>
       <Plus size={13} style={{ flexShrink: 0 }} />
-      <input className="nx-inline-edit" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); if (e.key === 'Escape') setTitle(''); }}
-        placeholder="Add task…" style={{ border: 'none', fontSize: 13, fontFamily: FONT, color: NX.ink, width: '100%' }} />
+      <input ref={addRef} className="nx-inline-edit" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); if (e.key === 'Escape') setTitle(''); }}
+        placeholder="Add task…" aria-label="Add task" style={{ border: 'none', fontSize: 13, fontFamily: FONT, color: NX.ink, width: '100%' }} />
+      <DictateButton target={addRef} title="Dictate a Task Name" style={{ width: 28, height: 28 }} size={14} />
     </div>
   );
 }

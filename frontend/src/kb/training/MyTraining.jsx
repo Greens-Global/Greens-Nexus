@@ -1,5 +1,8 @@
-// My Training: assigned, plans, policies to sign, completed with
-// certificates, a certificate check. Editors also see the course list.
+// My Training: ONE to-do list first (Neil, 11/02/2026: "training is a mess") -
+// overdue, then due soonest, then policies to sign, then not started - with a
+// single progress strip, the way the leading training tools open; plans as
+// bundles, completed work with certificates, and a certificate check below.
+// Editors also see the course list.
 import { useEffect, useState } from 'react';
 import { Award, Download, Search, Plus, GraduationCap, PenLine } from 'lucide-react';
 import { api, saveBlob } from '../../api';
@@ -28,6 +31,23 @@ export function CourseRow({ c, onOpen }) {
       <button type="button" className={`kb-btn sm${c.days_overdue ? ' pri' : ''}`} onClick={(e) => { e.stopPropagation(); open(); }}>{c.my_status === 'Not Started' ? 'Start' : c.my_status === 'Completed' ? 'Open' : 'Continue'}</button>
     </div>
   );
+}
+
+// Everything a person still owes, as one list: courses assigned to them
+// (plan courses included), and policies to sign. Overdue first (most overdue
+// on top), then the soonest due date, then anything with no date; a course
+// already started sits above one not started at the same due date.
+export function todoList(data) {
+  const rows = [];
+  for (const c of data.due || []) {
+    if (c.my_status === 'Completed') continue;
+    rows.push({ kind: 'course', id: c.id, title: c.title, item: c, overdue: c.days_overdue || 0, due: c.due_date || '', started: c.my_status === 'In Progress' });
+  }
+  for (const p of data.policies || []) {
+    if (p.signed) continue;
+    rows.push({ kind: 'policy', id: p.id, title: p.title, item: p, overdue: p.overdue_days || 0, due: p.due || '', started: false });
+  }
+  return rows.sort((a, b) => (b.overdue - a.overdue) || ((a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0) || (b.started - a.started) || a.title.localeCompare(b.title));
 }
 
 export default function MyTraining({ me, seg: initialSeg = 'me' }) {
@@ -65,7 +85,11 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
       {seg === 'compliance' && <MyCompliance me={me} />}
       {seg === 'me' && (
         <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
-          {data && (
+          {data && (() => {
+            const todo = todoList(data);
+            const total = todo.length + (data.stats?.completed || 0) + (data.policies || []).filter((p) => p.signed).length;
+            const pct = total ? Math.round(100 * (total - todo.length) / total) : 100;
+            return (
             <>
               <div className="kb-stats">
                 <Stat value={data.stats.due} label="assigned, not done" />
@@ -77,9 +101,19 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
               <div className="kb-cols">
                 <div className="kb-main">
                   <section className="kb-card">
-                    <SectionHead title="Assigned to You" />
-                    {data.due.length === 0 && <div className="kb-empty">Nothing assigned right now. Courses you are given show up here with their due dates.</div>}
-                    {data.due.map((c) => <CourseRow key={c.id} c={c} />)}
+                    <SectionHead title="To Do" count={todo.filter((t) => t.overdue).length} sub={todo.length ? `${todo.length} to go` : ''} right={<span className="kb-meta">{pct}% done</span>} />
+                    <div className="kb-progress" style={{ marginBottom: 10 }}><i style={{ width: `${pct}%` }} /></div>
+                    {todo.length === 0 && <div className="kb-empty">You are all caught up. Courses, plans and policies you are given show up here, overdue first.</div>}
+                    {todo.map((t) => (t.kind === 'course'
+                      ? <CourseRow key={`c:${t.id}`} c={t.item} />
+                      : (
+                        <div key={`p:${t.id}`} className="kb-row link" onClick={() => goKb('page', t.id)} role="link" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') goKb('page', t.id); }}>
+                          <Chip color="#7c3aed">Policy</Chip>
+                          <div className="kb-grow"><div className="kb-title">{t.title} <span className="kb-meta" style={{ fontWeight: 400 }}>v{t.item.version}</span></div><div className="kb-meta">{t.overdue ? `${t.overdue} days overdue` : t.due ? `Sign by ${fmtDate(t.due)}` : 'Read and sign'}{t.item.version_signed ? ` · you signed v${t.item.version_signed}` : ''}</div></div>
+                          <TrainingChip status={t.overdue ? 'Overdue' : 'Not Started'} />
+                          <button type="button" className={`kb-btn sm${t.overdue ? ' pri' : ''}`}><PenLine />Read and Sign</button>
+                        </div>
+                      )))}
                   </section>
                   {data.plans.map((p) => (
                     <section key={p.id} className="kb-card">
@@ -94,18 +128,6 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
                       ))}
                     </section>
                   ))}
-                  {data.policies.filter((p) => !p.signed).length > 0 && (
-                    <section className="kb-card">
-                      <SectionHead title="Policies to Sign" count={data.policies.filter((p) => !p.signed).length} />
-                      {data.policies.filter((p) => !p.signed).map((p) => (
-                        <div key={p.id} className="kb-row link" onClick={() => goKb('page', p.id)}>
-                          <Chip color="#7c3aed">Policy</Chip>
-                          <div className="kb-grow"><div className="kb-title">{p.title} <span className="kb-meta" style={{ fontWeight: 400 }}>v{p.version}</span></div><div className="kb-meta">{p.overdue_days ? `${p.overdue_days} days overdue` : p.due ? `Sign by ${fmtDate(p.due)}` : ''}{p.version_signed ? ` · you signed v${p.version_signed}` : ''}</div></div>
-                          <button type="button" className={`kb-btn sm${p.overdue_days ? ' pri' : ''}`}><PenLine />Read and Sign</button>
-                        </div>
-                      ))}
-                    </section>
-                  )}
                   <section className="kb-card">
                     <SectionHead title="Completed" />
                     {data.completed.length === 0 && <div className="kb-empty">Completed courses and their certificates live here.</div>}
@@ -147,7 +169,8 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
                 </aside>
               </div>
             </>
-          )}
+            );
+          })()}
         </AsyncSection>
       )}
 

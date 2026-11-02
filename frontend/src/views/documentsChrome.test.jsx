@@ -13,7 +13,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('../api', () => ({
   api: {
-    getDocuments: () => Promise.resolve([]),
+    getDocumentLibrary: () => Promise.resolve([]),
     mySignatures: () => Promise.resolve([]),
     getDocFolders: () => Promise.resolve([]),
     getDocTemplates: () => Promise.resolve([]),
@@ -30,7 +30,6 @@ vi.mock('../lib/queries', () => ({ useEntities: () => ({ data: [] }) }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true }) }));
 vi.mock('./PdfEditorModule', () => ({ default: () => <div>pdf tools tab</div> }));
 vi.mock('../components/ESign', () => ({ default: () => <div>esign tab</div> }));
-vi.mock('../components/DocumentsDashboard', () => ({ default: () => <div>dashboard tab</div> }));
 vi.mock('../components/DocumentsBrowser', () => ({ default: () => <div>my documents tab</div> }));
 vi.mock('../components/DocumentTemplates', () => ({ default: () => <div>templates tab</div> }));
 
@@ -53,7 +52,6 @@ const renderDocs = (activeSub) => render(
 const publishedTabs = () => screen.getByTestId('published-tabs').textContent;
 
 const TABS = [
-  ['documents-dashboard', 'dashboard tab'],
   ['documents-browse', 'my documents tab'],
   ['documents-templates', 'templates tab'],
   ['documents-esign', 'esign tab'],
@@ -86,7 +84,7 @@ describe('what stays', () => {
   it('PDF Tools still drops the tab strip for its full-bleed workspace', async () => {
     renderDocs('documents-pdf');
     await waitFor(() => expect(screen.getByText('pdf tools tab')).toBeTruthy());
-    expect(screen.queryByText('My Documents')).toBeNull();
+    expect(screen.queryByText('Documents')).toBeNull();
     expect(publishedTabs()).toBe('');
   });
 });

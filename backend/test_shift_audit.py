@@ -51,7 +51,7 @@ with database.engine.connect() as _c:
         except Exception:
             pass
 
-BOSS = "saud.boss@greensglobal.com"     # administrator: company-wide
+BOSS = "saud.boss@greensglobal.com"     # Super Administrator: company-wide
 M1 = "saud.m1@greensglobal.com"         # manager of A only
 A = "saud.a@greensglobal.com"
 B = "saud.b@greensglobal.com"
@@ -80,7 +80,7 @@ class ShiftAuditTests(unittest.TestCase):
                                             manager_email=M1 if em == A else "",
                                             company=COMPANY if em in (A, B) else "",
                                             country="US" if em == A else "IN" if em == B else ""))
-            db.add(models.NexusRole(email=BOSS, role="administrator", assigned_by="test"))
+            db.add(models.NexusRole(email=BOSS, role="owner", assigned_by="test"))
             db.add(models.NexusRole(email=M1, role="manager", assigned_by="test"))
             db.add(models.ShiftGroup(open_shifts=1, id=GROUP, name="Saud Store"))
             for i, em in enumerate((A, B)):

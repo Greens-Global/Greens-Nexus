@@ -48,7 +48,7 @@ function approverNames(list, card = true) {
 
 function stepText(r, card = true) {
   if (r.status === 'awaiting_approval') {
-    if (r.step === 'department') return r.deptApprovers.length ? <>Waiting on the department ({approverNames(r.deptApprovers, card)})</> : 'Waiting on the department (Global Admins)';
+    if (r.step === 'department') return r.deptApprovers.length ? <>Waiting on the department ({approverNames(r.deptApprovers, card)})</> : 'Waiting on the department (Super Administrators)';
     return 'Waiting on HR';
   }
   if (r.status === 'approved') return r.openingId ? 'Approved - the job opening is with HR' : 'Approved';

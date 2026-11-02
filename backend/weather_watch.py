@@ -392,8 +392,27 @@ def summary_line(o: dict) -> str:
     return f"{what}: {o['chance']}% chance, {o['inches']:.2f} in expected during {window}."
 
 
-def _link(day: str, group_id: str) -> str:
-    return f"{app_url()}/shifts/schedule:{day}:{group_id}"
+def _place_part(place: str) -> str:
+    """The place's part of a key or link: '' for the team's site, so every
+    key made before the weather followed the jobsite still matches."""
+    return f":{place}" if place else ""
+
+
+def outlook_id(group_id: str, day: str, place: str = "") -> str:
+    return f"{group_id}:{day}{_place_part(place)}"
+
+
+def _sub(day: str, group_id: str, place: str = "") -> str:
+    return f"schedule:{day}:{group_id}{_place_part(place)}"
+
+
+def _link(day: str, group_id: str, place: str = "") -> str:
+    return f"{app_url()}/shifts/{_sub(day, group_id, place)}"
+
+
+def _team_label(g, pt, place: str) -> str:
+    """'Yard Crew', or 'Yard Crew at Redding Solar Farm' for a jobsite."""
+    return f"{g.name} at {pt.name}" if place and pt is not None and getattr(pt, "name", "") else g.name
 
 
 # ── Delivery (each one a module function so a test can stand it in) ───────
@@ -536,17 +555,18 @@ def _age_minutes(row, now_utc: datetime) -> float:
         return 10 ** 6
 
 
-def _last_advisory(db: Session, group_id: str, day: str):
+def _last_advisory(db: Session, group_id: str, day: str, place: str = ""):
     return (db.query(models.WeatherAdvisory)
-            .filter(models.WeatherAdvisory.group_id == group_id, models.WeatherAdvisory.work_date == day)
+            .filter(models.WeatherAdvisory.group_id == group_id, models.WeatherAdvisory.work_date == day,
+                    models.WeatherAdvisory.place == (place or ""))
             .order_by(models.WeatherAdvisory.created_at.desc()).first())
 
 
-def _upsert_outlook(db: Session, g, day: str, o: dict, hours: list, tz: str) -> None:
-    oid = f"{g.id}:{day}"
+def _upsert_outlook(db: Session, g, day: str, o: dict, hours: list, tz: str, place: str = "") -> None:
+    oid = outlook_id(g.id, day, place)
     row = db.query(models.WeatherOutlook).filter(models.WeatherOutlook.id == oid).first()
     if not row:
-        row = models.WeatherOutlook(id=oid, group_id=g.id, work_date=day)
+        row = models.WeatherOutlook(id=oid, group_id=g.id, work_date=day, place=place or "")
         db.add(row)
     row.band, row.chance, row.inches, row.storm = o["band"], int(o["chance"]), float(o["inches"]), 1 if o["storm"] else 0
     row.alerts_json = json.dumps(o["alerts"])
@@ -557,12 +577,12 @@ def _upsert_outlook(db: Session, g, day: str, o: dict, hours: list, tz: str) -> 
 
 
 def _record(db: Session, g, day: str, o: dict, hours: list, recipients: list, channels: dict, band: str = "",
-            now_utc: datetime = None):
+            now_utc: datetime = None, place: str = ""):
     """created_at is the scan's clock, which the hysteresis measures against.
     Returns the row: the senders write it FIRST (the claim) and fill in
     channels_json once the notices have gone."""
     row = models.WeatherAdvisory(
-        id=str(uuid.uuid4()), group_id=g.id, work_date=day, band=band or o["band"], chance=int(o["chance"]),
+        id=str(uuid.uuid4()), group_id=g.id, work_date=day, place=place or "", band=band or o["band"], chance=int(o["chance"]),
         inches=float(o["inches"]), storm=1 if o.get("storm") else 0, alerts_json=json.dumps(o.get("alerts") or []),
         window_start=_t12(o["windowStart"]), window_end=_t12(o["windowEnd"]), recipients_json=json.dumps(recipients),
         channels_json=json.dumps(channels), snapshot_json=json.dumps(hours),
@@ -576,25 +596,28 @@ def _finish(db: Session, row, channels: dict) -> None:
     db.commit()
 
 
-def _advise(db: Session, g, site, company_id: str, day: str, o: dict, hours: list, now_utc: datetime = None) -> dict:
-    """Send the Major / Warning advisory for one group-day. Returns what went where."""
+def _advise(db: Session, g, site, company_id: str, day: str, o: dict, hours: list, now_utc: datetime = None,
+            place: str = "") -> dict:
+    """Send the Major / Warning advisory for one group-day at one place
+    (`site` is where: the team's site, or the jobsite). Returns what went where."""
     deciders, told = deciders_for(db, g, company_id)
-    link_sub = f"schedule:{day}:{g.id}"
-    action = {"view": "shifts", "sub": link_sub}
-    headline = f"{'Weather Warning' if o['band'] == 'warning' else 'Rain Expected'} for {g.name} on {_day_label(day)}"
+    action = {"view": "shifts", "sub": _sub(day, g.id, place)}
+    team = _team_label(g, site, place)
+    headline = f"{'Weather Warning' if o['band'] == 'warning' else 'Rain Expected'} for {team} on {_day_label(day)}"
     body = f"{summary_line(o)} {o['shifts']} shift{'' if o['shifts'] == 1 else 's'} scheduled. Make the weather call."
     # The record row goes in WITH the bells, before anything leaves Nexus:
     # it is the claim a concurrent scan (Check Now beside the loop) sees
     # under the group-day lock, so the email and Teams post go once.
-    rec = _record(db, g, day, o, hours, told, {}, now_utc=now_utc)
+    rec = _record(db, g, day, o, hours, told, {}, now_utc=now_utc, place=place)
     for em in told:
-        _bell(db, em, f"weather:{g.id}:{day}", headline, body, action=action, company=company_id, priority=1)
+        _bell(db, em, f"weather:{g.id}:{day}{_place_part(place)}", headline, body, action=action, company=company_id, priority=1)
     channels = {"bell": len(told)}
-    note = f"Weather: {summary_line(o)} Weather call pending."
+    where = f"{site.name}: " if place and site is not None and site.name else ""
+    note = f"Weather: {where}{summary_line(o)} Weather call pending."
     channels["dayNote"] = _set_day_note(db, g.id, day, note)
     db.commit()
-    link = _link(day, g.id)
-    html = (f"<p><b>{'⚠️ Weather warning' if o['band'] == 'warning' else '🌧️ Weather advisory'} for {escape(g.name)} - "
+    link = _link(day, g.id, place)
+    html = (f"<p><b>{'⚠️ Weather warning' if o['band'] == 'warning' else '🌧️ Weather advisory'} for {escape(team)} - "
             f"{escape(_day_label(day))}</b><br>{escape(summary_line(o))} {o['shifts']} shift{'' if o['shifts'] == 1 else 's'} scheduled"
             f"{' at ' + escape(site.name) if site is not None and site.name else ''}. "
             f"The weather call is pending: <a href=\"{escape(link)}\">open the schedule</a>.</p>")
@@ -603,7 +626,7 @@ def _advise(db: Session, g, site, company_id: str, day: str, o: dict, hours: lis
     except Exception as e:   # noqa: BLE001
         channels["teams"] = f"failed: {str(e)[:160]}"
     try:
-        subject, mail_html = _email_html(g.name, site.name if site is not None else "", day, o, hours, link)
+        subject, mail_html = _email_html(team, site.name if site is not None else "", day, o, hours, link)
         channels["email"] = _send_email(deciders, subject, mail_html)
     except Exception as e:   # noqa: BLE001
         channels["email"] = f"failed: {str(e)[:160]}"
@@ -611,12 +634,13 @@ def _advise(db: Session, g, site, company_id: str, day: str, o: dict, hours: lis
     return channels
 
 
-def _heads_up(db: Session, g, company_id: str, day: str, o: dict, hours: list, now_utc: datetime = None) -> dict:
+def _heads_up(db: Session, g, company_id: str, day: str, o: dict, hours: list, now_utc: datetime = None,
+              place: str = "", site=None) -> dict:
     """The quiet Teams line for a heads-up day (Neil: no bell)."""
     deciders, told = deciders_for(db, g, company_id)
-    rec = _record(db, g, day, o, hours, [], {}, now_utc=now_utc)   # the claim, before the post
+    rec = _record(db, g, day, o, hours, [], {}, now_utc=now_utc, place=place)   # the claim, before the post
     db.commit()
-    html = (f"<p>🌦️ Heads-up for {escape(g.name)} - {escape(_day_label(day))}: {escape(summary_line(o))} "
+    html = (f"<p>🌦️ Heads-up for {escape(_team_label(g, site, place))} - {escape(_day_label(day))}: {escape(summary_line(o))} "
             f"No action needed yet; Nexus will advise if it turns major.</p>")
     try:
         result = _post_teams(db, g, html, told)
@@ -627,17 +651,20 @@ def _heads_up(db: Session, g, company_id: str, day: str, o: dict, hours: list, n
     return channels
 
 
-def _eased(db: Session, g, company_id: str, day: str, o: dict, hours: list, now_utc: datetime = None) -> dict:
+def _eased(db: Session, g, company_id: str, day: str, o: dict, hours: list, now_utc: datetime = None,
+           place: str = "", site=None) -> dict:
     """A day that was advised has eased below Major: one quiet bell, and the
     weather day note says so."""
     deciders, told = deciders_for(db, g, company_id)
-    action = {"view": "shifts", "sub": f"schedule:{day}:{g.id}"}
+    action = {"view": "shifts", "sub": _sub(day, g.id, place)}
     for em in told:
-        _bell(db, em, f"weather-eased:{g.id}:{day}", f"Weather Eased for {g.name} on {_day_label(day)}",
+        _bell(db, em, f"weather-eased:{g.id}:{day}{_place_part(place)}",
+              f"Weather Eased for {_team_label(g, site, place)} on {_day_label(day)}",
               f"The forecast no longer reaches the major band. {summary_line(o)}", action=action, company=company_id, priority=0)
-    _set_day_note(db, g.id, day, f"Weather: forecast eased. {summary_line(o)}")
+    where = f"{site.name}: " if place and site is not None and site.name else ""
+    _set_day_note(db, g.id, day, f"Weather: {where}forecast eased. {summary_line(o)}")
     channels = {"bell": len(told)}
-    _record(db, g, day, o, hours, told, channels, band="eased", now_utc=now_utc)
+    _record(db, g, day, o, hours, told, channels, band="eased", now_utc=now_utc, place=place)
     db.commit()
     return channels
 
@@ -651,11 +678,11 @@ def watched_groups(db: Session, cfg: dict, sc=None) -> list:
     return [(g, sc.site(g), sc.company_of(g), sc.members(g.id)) for g in sc.groups if sc.watched(g)]
 
 
-def _lock_group_day(db: Session, group_id: str, day: str) -> None:
+def _lock_group_day(db: Session, group_id: str, day: str, place: str = "") -> None:
     """Row lock on the group-day's weather_outlook row (just upserted), held
     until the caller commits. A no-op lock on SQLite, which runs one writer
     at a time anyway."""
-    (db.query(models.WeatherOutlook).filter(models.WeatherOutlook.id == f"{group_id}:{day}")
+    (db.query(models.WeatherOutlook).filter(models.WeatherOutlook.id == outlook_id(group_id, day, place))
      .populate_existing().with_for_update().first())
 
 
@@ -706,74 +733,98 @@ def scan_once(db: Session, now_utc: datetime = None) -> dict:
     db.commit()
     if not groups:
         return summary
+    import jobsites
+    cat = jobsites.Catalog(db)
+    # Every calendar day any site's own clock can be on for the lookahead.
+    span = [(now_utc.date() + timedelta(days=i)).isoformat() for i in range(-1, LOOKAHEAD_DAYS + 2)]
     for g, site, cid, member_emails in groups:
-        try:
-            forecast = fetch_forecast(site.latitude, site.longitude)
-        except Exception:   # noqa: BLE001
-            forecast = None
-        if not forecast:
-            summary["providerDown"] += 1
-            continue
-        tz = forecast.get("timezone") or _DEFAULT_TZ
-        local = _local_now(tz, now_utc)
-        days = [(local.date() + timedelta(days=i)).isoformat() for i in range(LOOKAHEAD_DAYS + 1)]
         q = (db.query(models.ScheduledShift)
              .filter(models.ScheduledShift.published == 1, models.ScheduledShift.pending_delete == 0,
-                     models.ScheduledShift.work_date.in_(days)))
+                     models.ScheduledShift.work_date.in_(span)))
         # Only the shifts of people in a weather department (and open slots)
         # set the window and the counts: an office member's 9-to-5 on a mixed
         # team is not what the crew's forecast is about (10/29/2026).
         rows = [r for r in q.all()
                 if ((r.group_id or "") == g.id or (not (r.group_id or "") and (r.employee_email or "").lower() in member_emails))
                 and (not r.employee_email or sc.person_on(r.employee_email))]
-        by_day: dict = {}
+        # The weather follows the jobsite (10/30/2026): each place the team
+        # works that day is its own band, notice and call - the team's site
+        # ('') for shifts with no jobsite, or one with no map point yet.
+        by_place: dict = {"": []}
         for r in rows:
-            by_day.setdefault(r.work_date, []).append(r)
-        alerts = fetch_alerts(site.latitude, site.longitude) if by_day else []
-        for day, shifts in sorted(by_day.items()):
-            summary["days"] += 1
-            start_min, end_min = scheduled_window(shifts)
-            hours = hours_in_window(forecast, day, start_min, end_min)
-            o = band_for(hours, cfg, alerts, day)
-            o.update({"windowStart": start_min, "windowEnd": end_min, "shifts": len(shifts),
-                      "people": len({(s.employee_email or "").lower() for s in shifts if s.employee_email})})
-            summary["bands"][o["band"]] = summary["bands"].get(o["band"], 0) + 1
-            _upsert_outlook(db, g, day, o, hours, tz)
-            db.commit()
-            # The dedupe is atomic (Oct 12): lock this group-day's outlook
-            # row, THEN read the record. A second scan running beside this
-            # one (Check Now on another worker, or beside the loop) waits
-            # here, and once the lock is free it reads the record row the
-            # sender wrote first (_advise / _heads_up / _eased) and skips.
-            # Every path below commits or rolls back, which frees the lock.
-            _lock_group_day(db, g.id, day)
-            last = _last_advisory(db, g.id, day)
-            last_band = last.band if last else ""
-            age_min = _age_minutes(last, now_utc) if last else None
-            act = _next_notice(cfg, o["band"], last_band, age_min, local)
-            if act == "held":
-                summary["held"] += 1
-            if act not in ("advise", "eased", "heads_up"):
-                db.commit()   # nothing to send: free the lock
-                continue
+            by_place.setdefault(cat.place_of(getattr(r, "jobsite", ""), g.work_site_id), []).append(r)
+        kept, window = set(), set()   # (day, place) bands this pass wrote or could not refresh; the days it looked at
+        for place, prows in sorted(by_place.items()):
+            pt = site if not place else cat.get(place)
             try:
-                if act == "advise":
-                    _advise(db, g, site, cid, day, o, hours, now_utc=now_utc)
-                    summary["advisories"] += 1
-                elif act == "eased":
-                    _eased(db, g, cid, day, o, hours, now_utc=now_utc)
-                    summary["eased"] += 1
-                else:
-                    _heads_up(db, g, cid, day, o, hours, now_utc=now_utc)
-                    summary["headsUp"] += 1
-            except Exception:
-                db.rollback()   # never leave the group-day locked
-                raise
+                forecast = fetch_forecast(pt.latitude, pt.longitude)
+            except Exception:   # noqa: BLE001
+                forecast = None
+            if not forecast:
+                summary["providerDown"] += 1
+                kept.update((d, place) for d in span)   # an outage keeps the last band
+                continue
+            tz = forecast.get("timezone") or _DEFAULT_TZ
+            local = _local_now(tz, now_utc)
+            days = [(local.date() + timedelta(days=i)).isoformat() for i in range(LOOKAHEAD_DAYS + 1)]
+            window.update(days)
+            by_day: dict = {}
+            for r in prows:
+                if r.work_date in days:
+                    by_day.setdefault(r.work_date, []).append(r)
+            alerts = fetch_alerts(pt.latitude, pt.longitude) if by_day else []
+            for day, shifts in sorted(by_day.items()):
+                summary["days"] += 1
+                kept.add((day, place))
+                start_min, end_min = scheduled_window(shifts)
+                hours = hours_in_window(forecast, day, start_min, end_min)
+                o = band_for(hours, cfg, alerts, day)
+                o.update({"windowStart": start_min, "windowEnd": end_min, "shifts": len(shifts),
+                          "people": len({(s.employee_email or "").lower() for s in shifts if s.employee_email})})
+                summary["bands"][o["band"]] = summary["bands"].get(o["band"], 0) + 1
+                _upsert_outlook(db, g, day, o, hours, tz, place)
+                db.commit()
+                # The dedupe is atomic (Oct 12): lock this group-day's outlook
+                # row, THEN read the record. A second scan running beside this
+                # one (Check Now on another worker, or beside the loop) waits
+                # here, and once the lock is free it reads the record row the
+                # sender wrote first (_advise / _heads_up / _eased) and skips.
+                # Every path below commits or rolls back, which frees the lock.
+                _lock_group_day(db, g.id, day, place)
+                last = _last_advisory(db, g.id, day, place)
+                last_band = last.band if last else ""
+                age_min = _age_minutes(last, now_utc) if last else None
+                act = _next_notice(cfg, o["band"], last_band, age_min, local)
+                if act == "held":
+                    summary["held"] += 1
+                if act not in ("advise", "eased", "heads_up"):
+                    db.commit()   # nothing to send: free the lock
+                    continue
+                try:
+                    if act == "advise":
+                        _advise(db, g, pt, cid, day, o, hours, now_utc=now_utc, place=place)
+                        summary["advisories"] += 1
+                    elif act == "eased":
+                        _eased(db, g, cid, day, o, hours, now_utc=now_utc, place=place, site=pt)
+                        summary["eased"] += 1
+                    else:
+                        _heads_up(db, g, cid, day, o, hours, now_utc=now_utc, place=place, site=pt)
+                        summary["headsUp"] += 1
+                except Exception:
+                    db.rollback()   # never leave the group-day locked
+                    raise
+        # A place nobody works at any more that day (the shift moved back to
+        # the yard) loses its band, so the grid shows no stale chip for it.
+        for r in (db.query(models.WeatherOutlook)
+                  .filter(models.WeatherOutlook.group_id == g.id, models.WeatherOutlook.work_date.in_(list(window))).all()):
+            if (r.work_date, r.place or "") not in kept:
+                db.delete(r)
+        db.commit()
     return summary
 
 
 def outlook_rows(db: Session, start: str, end: str, group_ids: list = None) -> list:
-    """What the schedule grid shows: the band per group and day in a range
+    """What the schedule grid shows: the band per group, day and place in a range
     (no hourly detail here) - for watched groups only (weather_scope), so a
     department switched off loses its chips at once, not at the next scan."""
     import weather_scope
@@ -785,14 +836,20 @@ def outlook_rows(db: Session, start: str, end: str, group_ids: list = None) -> l
             return []
         q = q.filter(models.WeatherOutlook.group_id.in_(list(group_ids)))
     out = []
+    cat = None
     for r in q.all():
         if r.band == "quiet" or r.group_id not in watched:
             continue
+        if (r.place or "") and cat is None:
+            import jobsites
+            cat = jobsites.Catalog(db)
         try:
             alerts = json.loads(r.alerts_json or "[]")
         except (TypeError, ValueError):
             alerts = []
-        out.append({"groupId": r.group_id, "date": r.work_date, "band": r.band, "chance": int(r.chance or 0),
+        out.append({"groupId": r.group_id, "date": r.work_date, "place": r.place or "",
+                    "placeName": cat.name(r.place) if r.place and cat is not None else "",
+                    "band": r.band, "chance": int(r.chance or 0),
                     "inches": float(r.inches or 0), "storm": bool(r.storm), "alerts": alerts,
                     "windowStart": r.window_start or "", "windowEnd": r.window_end or "",
                     "shifts": int(r.shifts or 0), "people": int(r.people or 0), "updatedAt": r.updated_at or ""})

@@ -25,7 +25,9 @@ function stepLine(s) {
   return detail || s.label || s.action || s.kind;
 }
 
-export default function RailTest({ workflow, definition, dirty, onBeforeTest, onTested }) {
+// `onReplay(result)` (10/30/2026) is given by the canvas builder: after a
+// test, Show On Canvas walks the planned steps on the sheet.
+export default function RailTest({ workflow, definition, dirty, onBeforeTest, onTested, onReplay }) {
   const id = workflow?.id;
   const kind = definition?.trigger?.kind || 'event';
   // The recent events are keyed by the workflow they were loaded for, so a
@@ -165,7 +167,12 @@ export default function RailTest({ workflow, definition, dirty, onBeforeTest, on
               );
             })}
           </div>
-          <span style={{ ...chip, alignSelf: 'flex-start', fontSize: 11.5 }}>Nothing was sent. This was a dry run.</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ ...chip, fontSize: 11.5 }}>Nothing was sent. This was a dry run.</span>
+            {typeof onReplay === 'function' && steps.length > 0 && (
+              <button type="button" onClick={() => onReplay(result)} style={btn('outline')}><Play size={13} /> Show On Canvas</button>
+            )}
+          </div>
         </div>
       )}
     </div>

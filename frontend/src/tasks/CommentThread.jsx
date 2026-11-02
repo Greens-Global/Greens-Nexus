@@ -7,7 +7,7 @@ import { useRef, useState } from 'react';
 import { Check, CheckCircle2, CornerDownRight, Download, Paperclip, Pencil, Pin, RotateCcw, SmilePlus, Trash2 } from 'lucide-react';
 import { NX, FONT, btn } from './theme';
 import { Avatar, AttachmentViewer, PersonDot, useImageZoom } from './components';
-import { fmtDateTime, parseImportedAuthor, richBodyHtml, COMMENT_REACTIONS } from './lib';
+import { fmtDateTime, parseImportedAuthor, richBodyHtml, COMMENT_REACTIONS, isAudioAttachment } from './lib';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { draftKey, getDraft, hasWords, useTaskDraft } from './taskDrafts';
@@ -81,6 +81,13 @@ export function CommentAttachments({ items }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
       {items.map((a) => {
         const href = a.dataUrl || a.url;
+        // A voice note plays right in the comment (Oct 30 2026).
+        if (href && isAudioAttachment(a)) {
+          return (
+            <audio key={a.id} src={href} controls preload="metadata" aria-label={a.name}
+              style={{ display: 'block', width: 'min(320px, 100%)', height: 40 }} />
+          );
+        }
         if (a.kind === 'image' && href) {
           return (
             <button key={a.id} type="button" onClick={() => setView({ ...a, url: href })} title={`View ${a.name}`}

@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // Settings > Security > Sign-In & Sessions: renders the two remaining groups
 // (Sessions, Guest Sign-In), shows where each value comes from, Save only
-// when dirty, and read-only for anyone who is not a Global Admin.
+// when dirty, and read-only for anyone who is not a Super Administrator.
 //
 // The "Re-Authentication for Sensitive Actions" group (step-up sign-in, MFA,
 // unlock duration, sign-in freshness) was removed from this page (Pranshu,
@@ -108,7 +108,7 @@ describe('SecuritySettings', () => {
   it('is read-only with a note for non-owners', async () => {
     getSecuritySettings.mockResolvedValue(payload(false));
     render(<SecuritySettings />);
-    await screen.findByText('You can view these settings. Only a Global Admin can change them.');
+    await screen.findByText('You can view these settings. Only a Super Administrator can change them.');
     expect(screen.getByLabelText('Act As Session Length').disabled).toBe(true);
     expect(screen.queryByText('Save Changes')).toBeNull();
   });

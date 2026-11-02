@@ -1,45 +1,50 @@
-import { useState, useEffect, useRef } from 'react';
-import { FileSignature, LayoutDashboard, Folder, LayoutTemplate, FileText, Users } from 'lucide-react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { FileSignature, Folder, LayoutTemplate, FileText, ClipboardList } from 'lucide-react';
 import { api } from '../api';
 import { useEntities } from '../lib/queries';
 import ESign from '../components/ESign';
 import PdfEditorModule from './PdfEditorModule';
-import DocumentsDashboard from '../components/DocumentsDashboard';
 import DocumentsBrowser from '../components/DocumentsBrowser';
 import DocumentTemplates from '../components/DocumentTemplates';
-import HrRecords from '../components/HrRecords';
 import ModuleTabs from '../components/ModuleTabs';
 import GuidedTour from '../components/GuidedTour';
 import { useIsMobile } from '../lib/useIsMobile';
 import { buildDocumentsTourSteps } from './documentsTourSteps';
 import { registerTour } from '../lib/tours';
+import { SkeletonBlocks } from '../components/AsyncState';
+
+// Forms (Neil, 11/02/2026): the builder, the entries table and the entry
+// panel, loaded when the tab is opened.
+const FormsTab = lazy(() => import('../forms/FormsTab'));
 
 // ── Documents module ─────────────────────────────────────────────────────────
 // E-Sign was carved out of HR into its own top-level module (Jul 2026), then
-// grown into a full DMS: Dashboard + My Documents + Templates sit alongside
-// the untouched E-Sign tab (whose own separate "Templates" sub-tab is for
-// e-sign envelope templates - unrelated, unchanged). Backend /esign/* routes
-// are unchanged; the DMS half talks to the new /documents/* router.
+// grown into a full DMS. Four tabs (Neil, 10/31/2026): Documents is one library
+// that took in the old Dashboard, My Documents and HR Records tabs; Templates;
+// Nexus Sign stays its own tab, unchanged; PDF Tools. Forms (Neil, 11/02/2026)
+// is the fifth: field forms built as templates, their entries, review.
+// Backend /esign/* routes are unchanged; the DMS half talks to the /documents/*
+// router, Forms to /forms/*.
 //
 // Cross-module handoff: HR → Hiring "Send for signature" stashes an offer on
 // window.__esignPrefill then fires nexus:navigate here. We read it on mount
 // (fresh navigation) AND on a repeat nexus:navigate (already mounted), so the
 // send wizard opens pre-filled either way.
 const TABS = [
-  { key: 'documents-dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-  { key: 'documents-browse', label: 'My Documents', Icon: Folder },
+  { key: 'documents-browse', label: 'Documents', Icon: Folder },
   { key: 'documents-templates', label: 'Templates', Icon: LayoutTemplate },
+  { key: 'documents-forms', label: 'Forms', Icon: ClipboardList },
   { key: 'documents-esign', label: 'Nexus Sign', Icon: FileSignature },
   { key: 'documents-pdf', label: 'PDF Tools', Icon: FileText },
 ];
-// HR packet documents (Oct 14) - a tab only HR sees (the server is the gate).
-const HR_TAB = { key: 'documents-hr-records', label: 'HR Records', Icon: Users };
+// Old links, bells and emails keep landing: these tabs live in the library now.
+const OLD_SUBS = { 'documents-dashboard': 'documents-browse', 'documents-hr-records': 'documents-browse' };
 
 // Tour id this module reports to the server (routers/user_tours.py) - same
 // pattern as the Task, Ticket and Support tours' own ids.
 const DOCUMENTS_TOUR_ID = 'documents';
 
-// The header's Create menu (Oct 29 2026): "documents-new" is My Documents with
+// The header's Create menu (Oct 29 2026): "documents-new" is the library with
 // its New Document dialog open, "documents-esign-send" is Nexus Sign with the
 // Send for Signature wizard open; the address then goes back to the tab.
 const CREATE_SUBS = { 'documents-new': 'documents-browse', 'documents-esign-send': 'documents-esign' };
@@ -47,21 +52,14 @@ const CREATE_SUBS = { 'documents-new': 'documents-browse', 'documents-esign-send
 export default function Documents({ activeSub, onSubChange }) {
   // Deep-links: 'documents-esign' / 'documents-esign-requests' both live on the
   // E-Sign tab - ESign reads the raw activeSub to pick its own sub-tab.
-  const navSub = CREATE_SUBS[activeSub] || (String(activeSub || '').startsWith('documents-esign') ? 'documents-esign' : activeSub);
-  // HR Records shows only when the caller may read People (the probe 200s).
-  const [hrAccess, setHrAccess] = useState(false);
-  useEffect(() => {
-    let live = true;
-    api.listPacketDocuments({ q: '__probe__' }).then(() => { if (live) setHrAccess(true); }).catch(() => {});
-    return () => { live = false; };
-  }, []);
-  const tabs = hrAccess ? [...TABS.slice(0, 3), HR_TAB, ...TABS.slice(3)] : TABS;
-  const sub = tabs.some(t => t.key === navSub) ? navSub : 'documents-dashboard';
-  // "New Document"/"New Template" from the Dashboard hand off to the relevant
-  // tab and ask it to pop its create dialog open - a bumped counter (not a
-  // bool) so a second click while already on that tab still re-triggers it.
+  const navSub = OLD_SUBS[activeSub] || CREATE_SUBS[activeSub] || (String(activeSub || '').startsWith('documents-esign') ? 'documents-esign'
+    // Forms (11/02/2026): 'documents-forms:entry:<id>' is the Forms tab with that entry open.
+    : String(activeSub || '').startsWith('documents-forms') ? 'documents-forms' : activeSub);
+  const tabs = TABS;
+  const sub = tabs.some(t => t.key === navSub) ? navSub : 'documents-browse';
+  // The + menu's New Document asks the library to pop its create dialog open - a
+  // bumped counter (not a bool) so a second click while already there re-triggers it.
   const [browseCreateSignal, setBrowseCreateSignal] = useState(0);
-  const [templateCreateSignal, setTemplateCreateSignal] = useState(0);
   const [createSeenSub, setCreateSeenSub] = useState(null);
   if (activeSub !== createSeenSub) {
     setCreateSeenSub(activeSub);
@@ -155,7 +153,7 @@ export default function Documents({ activeSub, onSubChange }) {
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {/* No module header. Sagar, Sep 17: "we don't need this on any page,
           anyway we're having a search bar in all pages already - why keep
-          multiple". My Documents, Templates and Nexus Sign each carry their
+          multiple". Documents, Templates and Nexus Sign each carry their
           own search over their own list, so a fourth box that searched across
           all three was a second way to do the same thing, sitting on a band of
           chrome that pushed every screen down by ~90px. The tab strip below is
@@ -167,24 +165,22 @@ export default function Documents({ activeSub, onSubChange }) {
           icon-over-label treatment the Task and Item modules use), so the
           in-page strip is suppressed there - two strips would be the same
           navigation twice. */}
-      {!pdfFullBleed && <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} mobileInline={false} />}
+      {!pdfFullBleed && <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} mobileInline={false} overflow />}
 
       <div data-tour={`documents-screen-${sub}`}>
-      {sub === 'documents-dashboard' && (
-        <DocumentsDashboard
-          onGoToBrowse={(openCreate) => { onSubChange?.('documents-browse'); if (openCreate) setBrowseCreateSignal(n => n + 1); }}
-          onGoToTemplates={(openCreate) => { onSubChange?.('documents-templates'); if (openCreate) setTemplateCreateSignal(n => n + 1); }}
-          onGoToEsign={() => onSubChange?.('documents-esign')} />
-      )}
-
       {sub === 'documents-browse' && (
-        <DocumentsBrowser openCreateSignal={browseCreateSignal}
+        <DocumentsBrowser openCreateSignal={browseCreateSignal} initialView={activeSub === 'documents-hr-records' ? 'hr' : ''}
           employees={employees} entities={entities} toastOk={toastOk} toastErr={toastErr} />
       )}
 
       {sub === 'documents-templates' && (
-        <DocumentTemplates openCreateSignal={templateCreateSignal}
-          toastOk={toastOk} toastErr={toastErr} />
+        <DocumentTemplates employees={employees} entities={entities} toastOk={toastOk} toastErr={toastErr} />
+      )}
+
+      {sub === 'documents-forms' && (
+        <Suspense fallback={<SkeletonBlocks count={6} height={44} />}>
+          <FormsTab toastOk={toastOk} toastErr={toastErr} activeSub={activeSub} />
+        </Suspense>
       )}
 
       {sub === 'documents-esign' && (
@@ -198,8 +194,6 @@ export default function Documents({ activeSub, onSubChange }) {
             if (docId) api.updateDocument(docId, { signRequestId: sent.id, status: 'final' }).catch(toastErr);
           }} />
       )}
-
-      {sub === 'documents-hr-records' && <HrRecords toastErr={toastErr} />}
 
       {sub === 'documents-pdf' && <PdfEditorModule />}
       </div>

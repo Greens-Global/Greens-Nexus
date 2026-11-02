@@ -383,7 +383,7 @@ export default function CompanyHolidayCalendar({ entity, toastOk, toastErr }) {
         </>
       )}
       {clash && (
-        <Modal title={`Assign ${clash.policy?.name || 'Policy'}`} onClose={() => setClash(null)}
+        <Modal title={`Assign ${clash.policy?.name || 'Policy'}`} placement="center" onClose={() => setClash(null)}
           footer={(
             <>
               <button className="secondary-btn" onClick={() => setClash(null)} disabled={!!busy}>Cancel</button>

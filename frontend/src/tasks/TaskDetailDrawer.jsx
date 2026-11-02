@@ -10,7 +10,7 @@ import {
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma, MoveRight,
-  History, Upload, HardDrive, Image as ImageIcon,
+  History, Upload, HardDrive, Image as ImageIcon, AudioLines, Warehouse,
 } from 'lucide-react';
 import MoveTaskModal from './MoveTaskModal';
 import MyDayToggle from './MyDayToggle';
@@ -18,12 +18,14 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { formulaEngineFor } from './formula';
 import { FormulaValue } from './FormulaColumn';
+import { isAudioAttachment } from './lib';
 import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, uploadTaskAttachmentVersion, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
 import { Avatar, Modal, PersonMultiSelect, ChipMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, MenuCaption, PersonDot, useEscapeLayer } from './components';
+import PersonActions from '../components/PersonActions';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
 import { useFrequentCollaborators, frequentRows } from './frequentPeople';
@@ -38,6 +40,8 @@ import { IMAGE_MODE, isCoverCandidate } from './boardLayout';
 import CommentThread from './CommentThread';
 import { draftKey, getDraft, hasWords, useTaskDraft, useTaskDrafts, clearDraftsFor, clearDraft } from './taskDrafts';
 import { isBypassing } from '../lib/dialogGuard';
+import { useExit, MOTION } from '../lib/motion';
+import { useSheetStack } from '../lib/sheetStack';
 import TimeTracking from './TimeTracking';
 import { toDownloadUrl } from '../lib/storageView';
 import { openNotificationTarget } from '../lib/openTarget';
@@ -62,6 +66,7 @@ import LabelsEditor from './LabelsEditor';
 import { labelsInUse } from './labels';
 import { FieldHistoryContext, useHistoryCtx } from './fieldHistoryContext';
 import { groupFieldChanges, historyFieldName } from './fieldHistory';
+import { STOP_VOICE_FIRST } from '../lib/voice';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const VIEW_ONLY_TITLE = 'You can view this task but not change it';
@@ -275,13 +280,21 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const visitedIds = [...new Set([taskId, ...trail, activeId])];
   const unsent = useTaskDrafts(visitedIds);
   const [asking, setAsking] = useState(false);
+  // The drawer is a sheet from the right (Neil, 11/01/2026): it slides out
+  // through the shared exit (lib/motion.js) before the parent unmounts it:
+  // the slide-out is --dur-md (220ms) on a desktop, the phone's sheet 150.
+  // On a phone the drawer is always full-bleed: there's no room for a 60%
+  // drawer, so the expand/collapse toggle and the drag-to-resize handle are
+  // both dropped and the saved width is ignored.
+  const isMobile = useIsMobile();
+  const [closing, exitNow] = useExit(onClose, isMobile ? MOTION.exit : MOTION.md);
   const requestClose = () => {
     const el = document.activeElement;
     if (el && asideRef.current?.contains(el) && typeof el.blur === 'function') el.blur();
     // A Discard the app-wide guard already confirmed (lib/dialogGuard.js).
-    if (isBypassing()) { clearDraftsFor(visitedIds); onClose(); return; }
+    if (isBypassing()) { clearDraftsFor(visitedIds); exitNow(); return; }
     if (unsent.length) { setAsking(true); return; }
-    onClose();
+    exitNow();
   };
   // Keep Editing lands on the tab that holds the first unsent box.
   const keepEditing = () => {
@@ -339,10 +352,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const expanded = width >= maxW - 2;
   const toggleExpand = () => setWidth(expanded ? Math.round(maxW * 0.6) : maxW);
 
-  // On a phone the drawer is always full-bleed: there's no room for a 60%
-  // drawer, so the expand/collapse toggle and the drag-to-resize handle are
-  // both dropped and the saved width is ignored.
-  const isMobile = useIsMobile();
+  // A sheet over this one (Create Ticket, a picker) recedes it a little.
+  // Only the real drawer joins: the loading placeholder below is no sheet,
+  // and `zIndex` places it among the others (3500 sits under a Modal).
+  useSheetStack(asideRef, !isMobile && !!task, closing, zIndex);
 
   // Derive relations from the live task list (robust against optimistic updates).
   // In display order: due date then priority, or the order they were dragged
@@ -363,10 +376,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     // missing task still renders nothing, exactly as before.
     if (!store.loading) return null;
     return createPortal(
-      <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
+      <div className={`nx-tasks-portal${closing ? ' is-closing' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) exitNow(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
         <aside role="status" aria-live="polite" aria-busy="true" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 14px', borderBottom: `1px solid ${NX.border}` }}>
-            <button onClick={onClose} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><X size={16} /></button>
+            <button onClick={exitNow} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><X size={16} /></button>
           </div>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
             <Spinner size="section" />
@@ -487,8 +500,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const draftTabs = new Set(unsent.filter((d) => d.taskId === activeId).map((d) => (DRAFT_TAB[d.kind] === 'checklist' ? 'overview' : DRAFT_TAB[d.kind])));
 
   return createPortal(
-    <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
-      <aside ref={asideRef} style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
+    <div className={`nx-tasks-portal${closing ? ' is-closing' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
+      <aside ref={asideRef} className="nx-sheet-right" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
         {/* drag handle */}
         {!isMobile && (
           <div onMouseDown={() => { dragging.current = true; document.body.style.userSelect = 'none'; }} title="Drag to resize" style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: 6, cursor: 'ew-resize', zIndex: 5 }} />
@@ -645,8 +658,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
         </FieldHistoryContext.Provider>
         {asking && unsent.length > 0 && (
           <UnsentPrompt drafts={unsent} taskById={taskById} activeId={activeId}
-            onKeep={keepEditing} onDiscard={() => { clearDraftsFor(visitedIds); setAsking(false); onClose(); }}
-            onSent={() => { setAsking(false); onClose(); }} />
+            onKeep={keepEditing} onDiscard={() => { clearDraftsFor(visitedIds); setAsking(false); exitNow(); }}
+            onSent={() => { setAsking(false); exitNow(); }} />
         )}
         {moving && <MoveTaskModal taskId={moving} onClose={() => setMoving(null)} />}
         {savingTemplate && <SaveTemplateModal task={task} subtasks={subtasks} onClose={() => setSavingTemplate(false)} />}
@@ -1163,6 +1176,43 @@ function SourceTicketLink({ ticketId, onOpen }) {
   );
 }
 
+/** The From Cubby row: the facility and unit, who Cubby has it assigned to,
+ *  whether a Cubby automation raised it, and where Cubby stands with it.
+ *  Fetched when the drawer opens - the task carries only the Cubby id. */
+function CubbyLink({ taskId }) {
+  const [info, setInfo] = useState(null);   // the link | 'denied'
+  useEffect(() => {
+    let alive = true;
+    setInfo(null);
+    api.getCubbyTaskLink(taskId).then((r) => { if (alive) setInfo(r); }).catch(() => { if (alive) setInfo('denied'); });
+    return () => { alive = false; };
+  }, [taskId]);
+  if (info === 'denied') return <span style={{ fontSize: 13, color: NX.faint, paddingTop: 5 }}>Cubby&apos;s copy could not be read</span>;
+  if (!info) return <span className="skel" style={{ display: 'block', width: 180, height: 14, marginTop: 8 }} />;
+  const where = [info.facilityName, info.unitName ? `unit ${info.unitName}` : ''].filter(Boolean).join(' · ');
+  const people = (info.assignedNames || []).length ? `Assigned in Cubby to ${info.assignedNames.join(', ')}`
+    : (info.groupNames || []).length ? `Assigned in Cubby to the ${info.groupNames.join(', ')} group` : '';
+  const cubbyState = info.pushStatus ? `Waiting to be ${info.pushStatus === 'COMPLETED' ? 'completed' : 'reopened'} in Cubby`
+    : info.status === 'COMPLETED' ? 'Completed in Cubby' : info.status === 'ARCHIVED' ? 'Archived in Cubby' : 'Open in Cubby';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 5, fontSize: 13, minWidth: 0 }} data-testid="task-cubby-link">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <Warehouse size={14} style={{ flexShrink: 0, color: NX.faint }} />
+        <span style={{ fontWeight: 600 }}>{where || 'Cubby'}</span>
+        {info.automated && <Chip color={NX.teal} tint="rgba(13,148,136,0.15)">Automated</Chip>}
+        <Chip color={info.status === 'OPEN' && !info.pushStatus ? NX.dim : NX.amber}
+          tint={info.status === 'OPEN' && !info.pushStatus ? 'rgba(128,128,128,0.14)' : 'rgba(217,119,6,0.14)'}>{cubbyState}</Chip>
+      </div>
+      {(people || info.createdBy) && (
+        <span style={{ color: NX.faint }}>
+          {people}{people && info.createdBy ? ' · ' : ''}{info.createdBy ? `Created in Cubby by ${info.createdBy}` : ''}
+        </span>
+      )}
+      {info.pushError && <span style={{ color: NX.red }}>Cubby refused the last try: {info.pushError}</span>}
+    </div>
+  );
+}
+
 // ── Recurrence ──────────────────────────────────────────────────────────────
 /** The Recurrence row: the Repeat menu (RecurrenceMenu.jsx) under a button
  *  naming the rule, with Ends beside it once the task has a schedule of its
@@ -1335,6 +1385,10 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {task.sourceTicketId && (
         <Row label="From Ticket"><SourceTicketLink ticketId={task.sourceTicketId} onOpen={onOpenTicket} /></Row>
       )}
+      {/* The Cubby task it mirrors (Neil, Oct 30 2026, backend/cubby_tasks.py). */}
+      {task.cubbyTaskId && (
+        <Row label="From Cubby"><CubbyLink taskId={task.id} /></Row>
+      )}
       {/* Same column and gap as the tab body, so locking moves nothing. */}
       <FieldsLock readOnly={readOnly} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <Row label="Assignee" history="assigneeIds" historyLabel="Assignees">
@@ -1343,6 +1397,26 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
               completes it for all (one row, one flag). */}
           <PersonMultiSelect value={taskAssignees(task)} people={people} addTitle="Add assignee"
             onChange={(list) => patch({ assigneeIds: list })} placeholder="Unassigned" />
+          {/* Message / Call each assignee on Teams (Frontline Reach, 11/02/2026):
+              the first name before each pair, so three assignees are not six
+              identical icons; only people in Nexus People, never yourself. */}
+          {(() => {
+            const rows = taskAssignees(task).map((e) => {
+              const p = people?.find((x) => (x.email || '').toLowerCase() === (e || '').toLowerCase());
+              return { e, p, show: !!p && !p.external && !!e && e.toLowerCase() !== (myEmail || '').toLowerCase() };
+            }).filter((r) => r.show);
+            if (!rows.length) return null;
+            return (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 6 }}>
+                {rows.map(({ e }) => (
+                  <span key={e} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--muted)' }}>
+                    <span>{(nameOf(e) || e).split(' ')[0]}</span>
+                    <PersonActions email={e} name={nameOf(e)} myEmail={myEmail} size="sm" />
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </Row>
 
@@ -1609,7 +1683,7 @@ function PendingAttachments({ files, setFiles }) {
         <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 8px 2px 2px', fontSize: 11.5, color: NX.dim }}>
           {f.type.startsWith('image/')
             ? <img src={URL.createObjectURL(f)} alt="" style={{ width: 18, height: 18, borderRadius: 4, objectFit: 'cover' }} />
-            : <Paperclip size={11} />}
+            : f.type.startsWith('audio/') ? <AudioLines size={11} aria-label="Voice Note" /> : <Paperclip size={11} />}
           <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
           <button type="button" onClick={() => remove(i)} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={11} /></button>
         </span>
@@ -1806,6 +1880,8 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
   const { body, setBody, pending, setPending, assignTo, setAssignTo, clear: clearComment } = useCommentDraft(task.id);
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
+  // A voice note still recording in the box: Comment waits for Stop.
+  const [voiceRec, setVoiceRec] = useState(false);
   const people = usePeople();
   const [attachments, reloadAttachments] = useCommentAttachments(task.id);
   const uploads = useCommentUploads(task.id, reloadAttachments);
@@ -1875,6 +1951,7 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
           mentionPeople={people}
           minHeight={64}
           onStageFiles={(fs) => setPending((p) => [...p, ...fs])}
+          onRecordingChange={setVoiceRec}
         />
       </div>}
       <PendingAttachments files={pending} setFiles={setPending} />
@@ -1885,8 +1962,8 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
             Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
           </span>
           <AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} />
-          <button onClick={submit} disabled={isEmptyDoc(body) || busy}
-            style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1, flexShrink: 0 }}>
+          <button onClick={submit} disabled={isEmptyDoc(body) || busy || voiceRec} title={voiceRec ? STOP_VOICE_FIRST : undefined}
+            style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy || voiceRec) ? 0.5 : 1, flexShrink: 0 }}>
             {busy ? 'Posting…' : assignTo ? 'Assign Comment' : 'Comment'}
           </button>
         </div>
@@ -1973,6 +2050,8 @@ function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment
 // ── Comments ────────────────────────────────────────────────────────────────
 function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComment = null, canComment = true, canPin = true }) {
   const [comments, setComments] = useState(null);
+  // A voice note still recording in the box: Send waits for Stop.
+  const [voiceRec, setVoiceRec] = useState(false);
   const listRef = useRef(null);
   const focused = useRef(null);
   // Land on the comment the drawer was opened for, once its list is in: the
@@ -2018,7 +2097,7 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
       {canComment && <div data-nx-noguard onPaste={(e) => onPasteStage(e, setPending)}>
         <RichDescription value={body} onChange={setBody} onSubmit={submit}
           mentionPeople={people} minHeight={64}
-          onStageFiles={(fs) => setPending((p) => [...p, ...fs])} />
+          onStageFiles={(fs) => setPending((p) => [...p, ...fs])} onRecordingChange={setVoiceRec} />
         <PendingAttachments files={pending} setFiles={setPending} />
         <FailedUploads failed={uploads.failed} onRetry={uploads.retry} onDismiss={uploads.dismiss} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
@@ -2026,8 +2105,8 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
             Type <b>@</b> to mention someone - they'll get an email.
           </span>
           <span style={{ marginLeft: 'auto' }}><AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} /></span>
-          <button onClick={submit} disabled={isEmptyDoc(body)}
-            style={{ ...btn('primary'), opacity: isEmptyDoc(body) ? 0.5 : 1 }}>{assignTo ? 'Assign Comment' : 'Send'}</button>
+          <button onClick={submit} disabled={isEmptyDoc(body) || voiceRec} title={voiceRec ? STOP_VOICE_FIRST : undefined}
+            style={{ ...btn('primary'), opacity: isEmptyDoc(body) || voiceRec ? 0.5 : 1 }}>{assignTo ? 'Assign Comment' : 'Send'}</button>
         </div>
       </div>}
       {comments === null ? <LoadingState />
@@ -2310,7 +2389,9 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
                 const href = a.dataUrl || a.url;
                 const thumb = a.kind === 'image' && href
                   ? <img src={href} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
-                  : <Paperclip size={13} style={{ color: NX.dim }} />;
+                  : isAudioAttachment(a)
+                    ? <AudioLines size={14} style={{ color: NX.primary }} aria-label="Voice Note" />
+                    : <Paperclip size={13} style={{ color: NX.dim }} />;
                 const nVersions = a.versionCount || 1;
                 const up = verUploads[a.id];
                 return (
@@ -2371,7 +2452,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
               })}
             </div>
           )}
-      {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
+      {view && <AttachmentViewer att={view} onClose={() => setView(null)} markupSource={{ kind: 'task', id: task.id, label: task.title || 'Task', url: `/tasks?task=${encodeURIComponent(task.id)}` }} />}
     </div>
     {/* Outside the panel: its paste / drop handlers must not see the dialogs' events. */}
       {versionsOf && (

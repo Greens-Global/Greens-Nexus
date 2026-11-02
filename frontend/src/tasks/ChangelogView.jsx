@@ -2243,7 +2243,7 @@ function SlideOver({ entry, nameOf, myEmail, isAdmin, onClose, onSetStatus, onEd
           const t = e.changedTouches[0];
           if (s0 && t && t.clientX - s0.x > 80 && Math.abs(t.clientY - s0.y) < 60) onClose();
         }}
-        style={{ position: 'fixed', left: 0, right: 0, zIndex: 3200, background: NX.surface, ...(vv ? { top: vv.top, height: vv.height } : { top: 0, bottom: 0 }) }}>
+        style={{ position: 'fixed', left: 0, right: 0, zIndex: 3200, background: NX.surface, ...(vv ? { top: vv.top, height: vv.height, paddingBottom: vv.clear || 0, boxSizing: 'border-box' } : { top: 0, bottom: 0 }) }}>
         <DetailCard entry={entry} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin}
           onClose={onClose} expanded onSetStatus={onSetStatus} onEdit={onEdit} />
       </div>

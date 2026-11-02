@@ -2,18 +2,27 @@
 // lightweight name-first bottom sheet (not the dense full form). Name / Due date /
 // Assignee plus a Photo · Attachment · Scan-text toolbar; "Full details" hands off
 // to CreateTaskModal. Inherits the screen's context via `defaults`. Mobile only.
+// Voice (Neil, Oct 30 2026): Say It fills the whole task from one spoken
+// sentence (SayIt.jsx), the mic types the name, and a voice note or a video
+// rides along with the photos and files.
 import { useRef, useState } from 'react';
-import { CalendarDays, User, X, Image as ImageIcon, Paperclip, ScanText, Camera, ImagePlus, FolderKanban } from 'lucide-react';
+import { CalendarDays, User, X, Image as ImageIcon, Paperclip, ScanText, Camera, ImagePlus, FolderKanban, Video, AudioLines } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { usePeople, PersonMultiSelect, DateField } from './components';
 import { SearchSelect } from './components';
 import { BottomSheet } from './MobileTaskBar';
-import { filesFromPaste, requiredFieldsFor, isBlankValue, uploadFilesToTask, notAttachedText } from './lib';
+import { filesFromPaste, requiredFieldsFor, isBlankValue, uploadFilesToTask, notAttachedText, screenTaskFiles } from './lib';
 import { dialog } from '../ui/dialog';
 import { CustomFieldInput } from './TaskDetailDrawer';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import AnchoredMenu from '../components/AnchoredMenu';
+import DictateButton from '../components/DictateButton';
+import VoiceNoteButton from '../components/VoiceNoteButton';
+import { STOP_VOICE_FIRST } from '../lib/voice';
+import SayIt from './SayIt';
+import AddSeveralModal from './AddSeveralModal';
+import { pastedTaskList } from './batchPaste';
 
 const fieldLabel = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 };
 
@@ -25,9 +34,13 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   const [dueOn, setDueOn] = useState(defaults.dueOn || '');
   const [assigneeIds, setAssigneeIds] = useState(
     defaults.assigneeIds || (defaults.assigneeId ? [defaults.assigneeId] : (myEmail ? [myEmail] : [])));
+  const [priority, setPriority] = useState(defaults.priority || 'medium');
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState([]); // { file, url, image }
+  const titleRef = useRef(null);
+  const videoRef = useRef(null);
   const [ocrBusy, setOcrBusy] = useState(false);
+  const [several, setSeveral] = useState('');   // a pasted list (Oct 31 2026) - Add Several over the sheet
   const [photoMenu, setPhotoMenu] = useState(false);
   const photoBtnRef = useRef(null);
 
@@ -36,7 +49,10 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   const attachRef = useRef(null);
   const scanRef = useRef(null);
 
-  const pushFiles = (list) => {
+  const pushFiles = (picked) => {
+    // A voice note or video gets its real type and its size checked here.
+    const { files: list, refused } = screenTaskFiles(picked);
+    if (refused.length) dialog.alert(refused.join('\n'), { title: 'Not Added' });
     if (!list.length) return;
     setFiles((prev) => [...prev, ...list.map((f) => ({ file: f, image: f.type.startsWith('image/'), url: f.type.startsWith('image/') ? URL.createObjectURL(f) : null }))]);
   };
@@ -70,8 +86,12 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   const [cfValues, setCfValues] = useState(defaults.customFieldValues || {});
   const reqFields = requiredFieldsFor(store.customFields, projectId);
   const reqMissing = reqFields.filter((f) => isBlankValue(cfValues[f.id]));
-  const draft = () => ({ title: title.trim(), dueOn, assigneeIds, customFieldValues: cfValues });
-  const canCreate = !!(title.trim() && assigneeIds.length && dueOn) && reqMissing.length === 0 && !busy;
+  // Full Details carries the picked files too - a voice note must not vanish.
+  const draft = () => ({ title: title.trim(), dueOn, assigneeIds, priority, customFieldValues: cfValues, files: files.map((it) => it.file) });
+  // A voice note still recording: Create and Full Details wait for Stop, or
+  // the clip is lost.
+  const [voiceRec, setVoiceRec] = useState(false);
+  const canCreate = !!(title.trim() && assigneeIds.length && dueOn) && reqMissing.length === 0 && !busy && !voiceRec;
 
   const submit = async () => {
     if (!canCreate) return;
@@ -79,7 +99,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
     try {
       const t = await createTask({
         title: title.trim(), type: 'task', status: defaults.status || 'not_started',
-        priority: defaults.priority || 'medium', assigneeIds, ownerId: defaults.ownerId ?? myEmail ?? '', projectId, teamId: defaults.teamId || '', dueOn: dueOn || '',
+        priority, assigneeIds, ownerId: defaults.ownerId ?? myEmail ?? '', projectId, teamId: defaults.teamId || '', dueOn: dueOn || '',
         customFieldValues: cfValues,
       });
       const notAttached = await uploadFilesToTask(t.id, files.map((it) => it.file));
@@ -93,10 +113,24 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
 
   return (
     <BottomSheet title="New Task" onClose={onClose}>
+      {several && (
+        <AddSeveralModal defaults={{ text: title.trim() ? `${title.trim()}\n${several}` : several, dueOn, assigneeIds, priority, customFieldValues: cfValues, source: 'paste',
+          projectId, lockedProjectId: lockedProject ? projectId : '', status: defaults.status || '', teamId: defaults.teamId || '' }}
+          onClose={(added) => { setSeveral(''); if (added) onClose(); }} />
+      )}
       <div onPaste={onPaste} tabIndex={0} style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: FONT }}>
-        <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
-          placeholder="Task name *" style={{ ...inputStyle, fontSize: 17, fontWeight: 600, padding: '10px 12px' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <input ref={titleRef} autoFocus value={title} onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} aria-label="Task name"
+            // Two or more lines pasted into the name are a list: Add Several takes them, one task per line.
+            onPaste={(e) => { const list = pastedTaskList(e); if (list) { e.preventDefault(); e.stopPropagation(); setSeveral(list); } }}
+            placeholder="Task name *" style={{ ...inputStyle, flex: 1, minWidth: 0, fontSize: 17, fontWeight: 600, padding: '10px 12px' }} />
+          <DictateButton target={titleRef} title="Dictate the Task Name" />
+        </div>
+
+        <SayIt people={people} myEmail={myEmail}
+          snapshot={() => ({ title, dueOn, priority, assigneeIds })}
+          onFill={(v) => { setTitle(v.title); setDueOn(v.dueOn); setPriority(v.priority); setAssigneeIds(v.assigneeIds); }} />
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
@@ -136,18 +170,27 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
               <div key={i} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 8, padding: it.image ? 0 : '6px 8px', overflow: 'hidden', height: it.image ? 56 : 'auto', width: it.image ? 56 : 'auto', maxWidth: 160 }}>
                 {it.image
                   ? <img src={it.url} alt={it.file.name} style={{ width: 56, height: 56, objectFit: 'cover' }} />
-                  : <><Paperclip size={13} style={{ color: NX.dim, flexShrink: 0 }} /><span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.file.name}</span></>}
+                  : <>
+                    {it.file.type.startsWith('audio/') ? <AudioLines size={13} style={{ color: NX.primary, flexShrink: 0 }} />
+                      : it.file.type.startsWith('video/') ? <Video size={13} style={{ color: NX.dim, flexShrink: 0 }} />
+                        : <Paperclip size={13} style={{ color: NX.dim, flexShrink: 0 }} />}
+                    <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 16 }}>
+                      {it.file.type.startsWith('audio/') ? 'Voice Note' : it.file.name}
+                    </span>
+                  </>}
                 <button onClick={() => removeFile(i)} aria-label="Remove" style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, borderRadius: '50%', border: 'none', background: 'rgba(17,24,39,0.72)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}><X size={11} /></button>
               </div>
             ))}
           </div>
         )}
 
-        {/* Toolbar: Photo · Attachment · Scan text */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        {/* Toolbar: Photo · Video · Attachment · Scan text · Voice Note */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           <button ref={photoBtnRef} title="Add Photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)} style={iconBtn()}><ImageIcon size={20} /></button>
+          <button title="Add a Video" aria-label="Add a Video" onClick={() => videoRef.current?.click()} style={iconBtn()}><Video size={20} /></button>
           <button title="Attach File" aria-label="Attach File" onClick={() => attachRef.current?.click()} style={iconBtn()}><Paperclip size={20} /></button>
           <button title="Scan Text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()} style={iconBtn({ opacity: ocrBusy ? 0.5 : 1 })}><ScanText size={20} /></button>
+          <VoiceNoteButton compact onFile={(f) => pushFiles([f])} onRecordingChange={setVoiceRec} />
           {ocrBusy
             ? <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>
             : <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>}
@@ -160,12 +203,15 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
           <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={addFiles} />
           <input ref={libRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={addFiles} />
           <input ref={attachRef} type="file" multiple style={{ display: 'none' }} onChange={addFiles} />
+          {/* The phone offers Take Video or the library. */}
+          <input ref={videoRef} type="file" accept="video/*" style={{ display: 'none' }} onChange={addFiles} />
           <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onScan} />
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 2 }}>
-          <button onClick={() => onFullDetails(draft())} style={{ ...btn('ghost'), color: NX.blue, fontWeight: 600 }}>Full Details</button>
-          <button onClick={submit} disabled={!canCreate} style={{ ...btn('primary'), opacity: canCreate ? 1 : 0.55 }}>{busy ? 'Creating…' : 'Create Task'}</button>
+          <button onClick={() => onFullDetails(draft())} disabled={voiceRec} style={{ ...btn('ghost'), color: NX.blue, fontWeight: 600, opacity: voiceRec ? 0.55 : 1 }}>Full Details</button>
+          {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red, flex: 1, textAlign: 'center' }}>{STOP_VOICE_FIRST}</span>}
+          <button onClick={submit} disabled={!canCreate} title={voiceRec ? STOP_VOICE_FIRST : undefined} style={{ ...btn('primary'), opacity: canCreate ? 1 : 0.55 }}>{busy ? 'Creating…' : 'Create Task'}</button>
         </div>
       </div>
     </BottomSheet>

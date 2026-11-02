@@ -38,6 +38,7 @@ import PacketReadiness from './PacketReadiness';
 import PacketIntakePanel from './PacketIntakePanel';
 import { formatDate } from '../lib/datetime';
 import { US_STATE_NAMES, placeName } from '../lib/usStates';
+import { FEDERAL_FORMS, federalFormLabel, orderFederalForms } from '../lib/federalForms';
 
 // Roomy, plain: normal-case labels, one short hint only where it helps.
 const lbl = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '18px 0 6px' };
@@ -130,6 +131,9 @@ const fromPacket = (packet, event = '', eventLabel = '') => ({
   payMode: packet?.payMode || '',
   emailMessage: packet?.emailMessage || '',
   egnyteSubfolder: packet?.egnyteSubfolder || '',
+  // Federal forms (Neil, 11/02/2026): w4 / i9 / direct_deposit, sent with the
+  // packet for a US employee - one edition of each built into Nexus.
+  federalForms: orderFederalForms(packet?.federalForms),
 });
 
 /** A new packet that starts as a copy of `src` (Copy From / Duplicate, Neil
@@ -280,6 +284,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
         extra_docs: p.extraDocs.filter(r => r.value || r.templateIds.length),
         doc_template_ids: p.docIds, flow: p.flow, verify_role: p.verifyRole, letterhead_id: p.letterheadId,
         pay_mode: p.payMode, email_message: p.emailMessage, egnyte_subfolder: p.egnyteSubfolder,
+        federal_forms: federalOk ? p.federalForms : [],
         details_form: event === 'hire' ? p.detailsForm.map(({ key, label, type, required, sensitive, last4, options, help }) => ({
           key: key || '', label, type, required: !!required, sensitive: !!sensitive, last4: !!last4, options: options || [], help: help || '',
         })) : [],
@@ -294,6 +299,10 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
     }
     setBusy(false);
   }
+  // The federal forms apply to a US employee's paperwork, never an offer (one
+  // document, candidate only) and never a contractor (the W-9 is their path).
+  const federalOk = p.country === 'US' && p.workerType === 'employee' && event !== 'offer';
+  const setFederal = (kind, on) => set('federalForms', orderFederalForms(on ? [...p.federalForms, kind] : p.federalForms.filter(k => k !== kind)));
   const openTemplate = (id) => {
     setPendingOpen('doc-template', id);
     window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-templates' } }));
@@ -489,6 +498,22 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
         <button type="button" onClick={() => window.open('/documents/documents-templates', '_blank', 'noopener')} style={linkBtn}>New Template (Opens In A New Tab)</button>
         {onRefreshCatalog && <button type="button" onClick={onRefreshCatalog} style={linkBtn}>Refresh The List</button>}
       </div>
+
+      {federalOk && (
+        <div style={{ marginTop: 18 }}>
+          <div style={lbl}>Federal Forms</div>
+          <div style={{ ...hint, marginTop: 0, marginBottom: 6 }}>Sent with the packet in Nexus Sign - the person signs first; HR completes the Form I-9's Section 2 after them. Nothing to make in Templates: one edition of each form is built into Nexus (Settings &gt; Hiring &amp; Onboarding &gt; Federal Forms says which).</div>
+          {FEDERAL_FORMS.map(f => (
+            <label key={f.kind} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '7px 0', cursor: 'pointer' }}>
+              <input type="checkbox" checked={p.federalForms.includes(f.kind)} onChange={e => setFederal(f.kind, e.target.checked)} style={{ accentColor: 'var(--pine)', marginTop: 3 }} />
+              <span>
+                <span style={{ fontSize: 13.5, fontWeight: 700 }}>{federalFormLabel(f)}</span>
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{f.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
 
       {event !== 'hire' && (asked.person.length > 0 || asked.hr.length > 0) && (
         <div style={{ ...card, marginTop: 18, background: 'var(--mist)', fontSize: 13, lineHeight: 1.6 }}>

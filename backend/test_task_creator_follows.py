@@ -40,14 +40,15 @@ def _seed():
     """Tables + a role for the caller, against whichever engine is live.
 
     The Task module is grant-gated (auth.require_any_module_grant);
-    administrator bypasses the grant, which is the cheapest way in for a test
-    about task rows.
+    a Super Administrator bypasses the grant, which is the cheapest way in for a
+    test about task rows (Neil, 11/02/2026: an Administrator is company-walled;
+    only a Super Administrator passes the walls).
     """
     models.Base.metadata.create_all(bind=database.engine)
     db = database.SessionLocal()
     try:
         if not db.query(models.NexusRole).filter(models.NexusRole.email == ME).first():
-            db.add(models.NexusRole(email=ME, role="administrator", assigned_by="test"))
+            db.add(models.NexusRole(email=ME, role="owner", assigned_by="test"))
             db.commit()
         # The people these tasks are given to are in the Nexus directory - an
         # assignee or collaborator must be a current person (Oct 21 2026).

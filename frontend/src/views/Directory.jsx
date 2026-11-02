@@ -26,6 +26,7 @@ import { NX, FONT } from '../tasks/theme';
 import { useRole } from '../contexts/RoleContext';
 import { useIsMobile } from '../lib/useIsMobile';
 import { LoadingState, ErrorBanner } from '../components/AsyncState';
+import TierMark from '../components/TierMark';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { CONTACT_OPEN_KIND, CONTACT_EVENT } from '../lib/contactNav';
 import { openPersonProfile } from '../lib/personNav';
@@ -324,7 +325,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
               </button>
             )}
             {canExportCsv && data && filtered.length > 0 && (
-              <button type="button" onClick={() => downloadText(`contact-directory-${new Date().toISOString().slice(0, 10)}.csv`, csvOf(filtered), 'text/csv')} className="dir-tool" style={{
+              <button type="button" onClick={() => downloadText(`directory-${new Date().toISOString().slice(0, 10)}.csv`, csvOf(filtered), 'text/csv')} className="dir-tool" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
                 border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 12.5, fontWeight: 600,
               }} title={`Export the ${filtered.length} people shown as CSV`}>
@@ -335,7 +336,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
       , toolsTarget) : null) : (
       <div className="view-header" style={{ flexWrap: 'wrap', gap: 10 }}>
         <div className="view-title-group">
-          <h2>Contact Directory</h2>
+          <h2>Directory</h2>
           <p>{data ? `${people.length} ${people.length === 1 ? 'person' : 'people'}` : 'Find and reach anyone in the company'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -365,7 +366,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
             </button>
           )}
           {canExportCsv && data && filtered.length > 0 && (
-            <button type="button" onClick={() => downloadText(`contact-directory-${new Date().toISOString().slice(0, 10)}.csv`, csvOf(filtered), 'text/csv')} className="dir-tool" style={{
+            <button type="button" onClick={() => downloadText(`directory-${new Date().toISOString().slice(0, 10)}.csv`, csvOf(filtered), 'text/csv')} className="dir-tool" style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
               border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 12.5, fontWeight: 600,
             }} title={`Export the ${filtered.length} people shown as CSV`}>
@@ -486,7 +487,7 @@ function PersonRow({ p, me, active, focused, onSelect, depth = 0, mobile = false
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <span style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-            {p.name}{p.email === (me || '').toLowerCase() && <span style={{ color: NX.faint, fontWeight: 500 }}> (you)</span>}<RoleBadge role={p.departmentRole} />
+            {p.name}{p.email === (me || '').toLowerCase() && <span style={{ color: NX.faint, fontWeight: 500 }}> (you)</span>}<TierMark tier={p.tier} size={13} /><RoleBadge role={p.departmentRole} />
           </span>
           {!mobile && pills}
         </div>

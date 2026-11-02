@@ -448,9 +448,9 @@ class FormulaWallTests(RouteBase):
         self.assertEqual(self.row(out["id"]).company_id, COA)
 
     def test_a_shared_formula_names_only_shared_fields(self):
-        # A Global Admin's formula with no project is shared by every company,
+        # A Super Administrator's formula with no project is shared by every company,
         # so it cannot lean on one company's field - even one they can see.
-        ga = {"email": "ga@greensglobal.com", "level": 4}
+        ga = {"email": "ga@greensglobal.com", "level": 5}
         code, msg = self.refused(self.create, ga, name="Shared", type="formula", formula="{Margin} * 2")
         self.assertEqual(code, 422)
         self.assertIn("Unknown field {Margin}", msg)
@@ -459,7 +459,7 @@ class FormulaWallTests(RouteBase):
 
     def test_the_delete_question_counts_only_formulas_behind_the_callers_wall(self):
         # A shared field used by a shared formula and by company B's formula:
-        # a Global Admin is told about both; company B's count never reaches A.
+        # a Super Administrator is told about both; company B's count never reaches A.
         self.db.add(models.TaskCustomField(id="f-shared-num", name="Rate", type="number", company_id="",
                                            applies_to='["task"]'))
         self.db.add(models.TaskCustomField(id="f-s-use", name="Shared Use", type="formula", company_id="",
@@ -467,7 +467,7 @@ class FormulaWallTests(RouteBase):
         self.db.add(models.TaskCustomField(id="f-b-use", name="B Use", type="formula", company_id=COB,
                                            formula="{Rate} + 1", applies_to='["task"]'))
         self.db.commit()
-        ga = {"email": "ga@greensglobal.com", "level": 4}
+        ga = {"email": "ga@greensglobal.com", "level": 5}
         with self.assertRaises(HTTPException) as e:
             C.delete_custom_field("f-shared-num", user=ga, db=self.db)
         self.db.rollback()

@@ -81,7 +81,7 @@ def _company_for_new(db, user: dict, company_id: Optional[str]) -> str:
             return ""
         cid = auth.company_of(user, db)
         if not cid:
-            raise HTTPException(403, "Your account is not placed in a company, so a Global Admin must create this")
+            raise HTTPException(403, "Your account is not placed in a company, so a Super Administrator must create this")
         return cid
     scope = _companies_of(db, user)
     if scope is not None and cid not in scope:
@@ -97,7 +97,7 @@ def _run_as_for(db, user: dict, run_as: Optional[str], current: str = "owner") -
         raise HTTPException(422, "runAs is owner or nexus")
     if ra == "nexus":
         if not _is_ga(user):
-            raise HTTPException(403, "Only a Global Admin may run a workflow as Nexus")
+            raise HTTPException(403, "Only a Super Administrator may run a workflow as Nexus")
         if not wf_settings.get(db).get("nexusRunAs"):
             raise HTTPException(403, "Running as Nexus is switched off in Settings > Workflows")
     return ra
@@ -519,7 +519,7 @@ def get_settings(company: str = "", user: dict = Depends(F), db: Session = Depen
 def put_settings(body: dict, company: str = "", user: dict = Depends(F), db: Session = Depends(get_db)):
     cid = _settings_company(db, user, company)
     if not cid and not _is_ga(user):
-        raise HTTPException(403, "Only a Global Admin changes the organization's Workflows settings")
+        raise HTTPException(403, "Only a Super Administrator changes the organization's Workflows settings")
     body = body if isinstance(body, dict) else {}
     if cid and body.get("override") is False:
         wf_settings.reset(db, cid)
@@ -641,7 +641,7 @@ def save_draft(wid: str, body: DraftBody, user: dict = Depends(E), db: Session =
         wf.description = body.description.strip()[:1000]
     if body.companyId is not None and (body.companyId or "") != (wf.company_id or ""):
         if body.companyId == "" and not _is_ga(user):
-            raise HTTPException(403, "Only a Global Admin may run a workflow for every company")
+            raise HTTPException(403, "Only a Super Administrator may run a workflow for every company")
         wf.company_id = _company_for_new(db, user, body.companyId) if body.companyId else ""
     if body.runAs is not None:
         wf.run_as = _run_as_for(db, user, body.runAs, wf.run_as or "owner")
@@ -710,9 +710,9 @@ def reown_workflow(wid: str, body: OwnerBody, user: dict = Depends(F), db: Sessi
         import auth
         if int(target.get("level", 0) or 0) > int(user.get("level", 0) or 0):
             raise HTTPException(403, "The new owner holds a higher role than you, so the workflow would run with "
-                                     "more access than yours - ask a Global Admin to re-own it")
+                                     "more access than yours - ask a Super Administrator to re-own it")
         if store.grant_rank(db, target) > store.grant_rank(db, user):
-            raise HTTPException(403, "The new owner holds a higher Workflows grant than you - ask a Global Admin "
+            raise HTTPException(403, "The new owner holds a higher Workflows grant than you - ask a Super Administrator "
                                      "to re-own it")
         scope = _companies_of(db, user)
         if scope is not None and auth.company_of(target, db) not in scope:
@@ -822,8 +822,12 @@ def _test_out(db, run: models.WorkflowRun, wf: models.Workflow, user: Optional[d
     out = store.serialize_run(db, run, steps=True, viewer=user)
     return {"runId": run.id, "status": run.status, "summary": run.summary or "", "subjectLabel": run.subject_label or "",
             "trace": out.get("trace", []), "conditionsPassed": out.get("conditionsPassed", True),
+            # `output` carries only the lane a branch took (an If's `branch`, an
+            # approval's `outcome`): the canvas replays the planned path with it
             "steps": [{"stepId": s["stepId"], "kind": s["kind"], "action": s["action"], "label": s["label"],
-                       "status": s["status"], "detail": s["detail"]} for s in out.get("steps", [])],
+                       "status": s["status"], "detail": s["detail"],
+                       "output": {k: v for k, v in (s.get("output") or {}).items() if k in ("branch", "outcome")}}
+                      for s in out.get("steps", [])],
             "testedAt": wf.last_tested_at or "", "testedCurrent": store.tested_current(wf)}
 
 
@@ -932,7 +936,7 @@ def save_as_template(wid: str, body: Optional[SaveTemplateBody] = None, user: di
                      db: Session = Depends(get_db)):
     wf = _wf_or_404(db, user, wid)
     if not wf.company_id and not _is_ga(user):
-        raise HTTPException(403, "Only a Global Admin saves a template for every company")
+        raise HTTPException(403, "Only a Super Administrator saves a template for every company")
     body = body or SaveTemplateBody()
     entry = templates.save_as_template(db, wf, user, name=body.name or "", description=body.description or "")
     db.commit()

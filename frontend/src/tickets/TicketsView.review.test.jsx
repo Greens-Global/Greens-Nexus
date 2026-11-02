@@ -61,11 +61,15 @@ describe('Ticket list - select all', () => {
     expect(deleteTicket.mock.calls.map((c) => c[0]).sort()).toEqual(['t1', 't2']);
   });
 
-  it('includes Completed once that section is open', async () => {
+  it('under Done takes the finished tickets, nothing else', async () => {
+    // Finished tickets live in the Done queue (10/31/2026) - they are never
+    // in a bulk selection made from another queue.
     render(<TicketsView />);
-    fireEvent.click(await screen.findByRole('button', { name: /Completed/ }));
+    await screen.findByText('Printer jam');
+    fireEvent.click(screen.getByRole('button', { name: /^Done/ }));
+    expect(screen.queryByText('Printer jam')).toBeNull();
     fireEvent.click(screen.getByTitle('Select all'));
-    expect(screen.getByText('3 selected')).toBeTruthy();
+    expect(screen.getByText('1 selected')).toBeTruthy();
   });
 });
 
@@ -119,14 +123,17 @@ describe('Ticket list - saved views', () => {
     const saved = createTicketView.mock.calls[0][0];
     expect(saved.name).toBe('IT queue');
     expect(saved.filters.hrDeptFilter).toBe('d1');
-    expect(saved.filters.sort).toEqual({ key: 'created', dir: 'desc' });
+    // Needs Reply, the queue the desk opens on, sorts by its clock.
+    expect(saved.filters.queue).toBe('needs_reply');
+    expect(saved.filters.sort).toEqual({ key: 'clock', dir: 'asc' });
   });
 
   it('applies the Department filter a view was saved with', async () => {
+    // A saved view is a tab in the bar (10/31/2026); this one predates the
+    // queues (no `queue`), so it lands on All Open.
     VIEWS = [{ id: 'v1', name: 'Facilities only', view: 'list', group: 'none', filters: { hrDeptFilter: 'd2' } }];
     render(<TicketsView />);
     await screen.findByText('Printer jam');
-    fireEvent.click(screen.getByRole('button', { name: /More/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Facilities only' }));
     await waitFor(() => expect(screen.queryByText('Printer jam')).toBeNull());
     expect(screen.getByText('Leaking sink')).toBeTruthy();

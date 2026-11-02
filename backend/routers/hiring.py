@@ -26,6 +26,17 @@ Pay & Benefits too.
 Every bell is server-side, one per person per request, rewritten in place
 (hiring_openings.notify_once), and opens Team > Headcount.
 
+OFF BY DEFAULT, PER COMPANY (Neil, Oct 30 2026: "not needed for most small
+and midsize companies"): Settings > Hiring & Onboarding > Headcount Requests
+turns them on for one company (nexus_settings `hiring_headcount:<company>`,
+{"on": true}; there is no organization-wide default - each company opts in).
+While a company is off its requests are not raised, listed, counted or
+decided anywhere (Team tab, People > Hiring, the approvals inbox, Workflows)
+- including one already waiting on someone, since the company turned the
+feature off - and nothing is deleted: turning it back on brings every one
+back as it was. A company that is off opens its job openings directly
+(POST /hiring/openings, HR editors) instead of from an approved request.
+
 OPENINGS are HR's: People readers see them, People editors change them. Pay
 on an opening is shown to hr_comp holders, or to everyone once the public
 pay toggle (off by default) is on - and only hr_comp holders turn it on.
@@ -41,6 +52,7 @@ from sqlalchemy.orm import Session
 
 import hiring_openings as ho
 import models
+import scoped_settings
 import workflows
 from auth import (_module_level, company_of, company_ok, company_scope, get_current_user, hr_scope,
                   hr_team_limited, is_team_scope)
@@ -54,6 +66,16 @@ _FULL = 3                 # auth.MODULE_LEVELS rank of "full"
 _EDITOR = 2
 MAX_OPENINGS = 100
 _ACTION = {"view": "shifts", "sub": "headcount"}
+SWITCH_KEY = "hiring_headcount"     # Settings > Hiring & Onboarding > Headcount Requests
+OFF_MESSAGE = ("Headcount Requests are turned off for this company. An administrator or HR can turn them on in "
+               "Settings > Hiring & Onboarding > Headcount Requests.")
+
+
+def headcount_on(db: Session, company: str) -> bool:
+    """Off for every company until that company turns it on (Neil, Oct 30 2026)."""
+    if not company:
+        return False
+    return bool(scoped_settings.saved(db, SWITCH_KEY, company, {"on": False}).get("on"))
 
 
 def _now() -> str:
@@ -189,7 +211,9 @@ class DecideIn(BaseModel):
     note:     Optional[str] = ""
 
 
-def _visible(db: Session, user: dict, row: models.HrHeadcountRequest, cache: dict) -> bool:
+def _visible(db: Session, user: dict, row: models.HrHeadcountRequest, cache: dict, switch: bool = True) -> bool:
+    if switch and not headcount_on(db, row.company or ""):
+        return False
     me = user["email"].lower()
     if (row.requested_by or "").lower() == me or me in [e.lower() for e in (row.dept_approvers or [])]:
         return True
@@ -202,6 +226,8 @@ def _visible(db: Session, user: dict, row: models.HrHeadcountRequest, cache: dic
 def _can_decide(db: Session, user: dict, row: models.HrHeadcountRequest) -> bool:
     me = user["email"].lower()
     if row.status != "awaiting_approval":
+        return False
+    if not headcount_on(db, row.company or ""):
         return False
     if row.step == "department":
         return (me != (row.requested_by or "").lower()
@@ -265,8 +291,10 @@ def _out(db: Session, user: dict, rows: list) -> list:
 def _get_request(db: Session, user: dict, rid: str, lock: bool = False) -> models.HrHeadcountRequest:
     q = db.query(models.HrHeadcountRequest).filter(models.HrHeadcountRequest.id == rid)
     row = q.with_for_update().first() if lock else q.first()
-    if row is None or not _visible(db, user, row, {}):
+    if row is None or not _visible(db, user, row, {}, switch=False):
         raise HTTPException(404, "Headcount request not found")
+    if not headcount_on(db, row.company or ""):
+        raise HTTPException(409, OFF_MESSAGE)
     return row
 
 
@@ -281,6 +309,18 @@ def _company_choices(db: Session, user: dict) -> list:
     return rows
 
 
+def _raise_choices(db: Session, user: dict) -> list:
+    """The companies the caller may raise a request for: HR its HR scope, a
+    manager their OWN company only - and only where Headcount Requests are
+    turned on. A manager at a company that has them off never raises one
+    for another company (review, 10/30)."""
+    choices = _company_choices(db, user)
+    if not _hr_reader(db, user):
+        own = company_of(user, db)
+        choices = [e for e in choices if e.id == own]
+    return [e for e in choices if headcount_on(db, e.id)]
+
+
 def _next_code(db: Session) -> str:
     n = db.query(models.HrHeadcountRequest).count() + 1
     while db.query(models.HrHeadcountRequest.id).filter(models.HrHeadcountRequest.code == f"HC-{n:04d}").first():
@@ -293,8 +333,12 @@ def _apply(db: Session, user: dict, row: models.HrHeadcountRequest, body: Headco
     fields = body.model_dump(exclude_unset=True)
     if "company" in fields:
         cid = _clean(body.company, 64)
-        if cid not in {e.id for e in _company_choices(db, user)}:
-            raise HTTPException(400, "Pick one of your companies.")
+        if cid != (row.company or "") and cid not in {e.id for e in _raise_choices(db, user)}:
+            if cid in {e.id for e in _company_choices(db, user)} and not headcount_on(db, cid):
+                raise HTTPException(409, OFF_MESSAGE)
+            raise HTTPException(400, "Pick one of your companies that has Headcount Requests turned on.")
+        if not headcount_on(db, cid):
+            raise HTTPException(409, OFF_MESSAGE)
         row.company = cid
     if "company" in fields and "role_id" not in fields and row.role_id:
         fields["role_id"], body.role_id = row.role_id, row.role_id     # the role must belong to the new company
@@ -442,12 +486,46 @@ def _submit(db: Session, user: dict, row: models.HrHeadcountRequest) -> None:
                    changes={"status": (prev_status, "awaiting_approval")}, extra={"step": row.step})
 
 
+# ── the per-company switch (Settings > Hiring & Onboarding) ─────────────────
+
+class SwitchIn(BaseModel):
+    company: str
+    on: bool
+
+
+def _switch_company(db: Session, user: dict, company: str) -> str:
+    cid = _clean(company, 64)
+    if not cid or db.query(models.HrEntity.id).filter(models.HrEntity.id == cid).first() is None:
+        raise HTTPException(404, "Company not found")
+    if not _hr_reader(db, user, cid):
+        raise HTTPException(403, "Headcount Requests are set by administrators and HR.")
+    return cid
+
+
+@router.get("/headcount/settings")
+def headcount_settings(company: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    cid = _switch_company(db, user, company)
+    return {"company": cid, "on": headcount_on(db, cid), "canEdit": is_hr_approver(db, user, cid)}
+
+
+@router.put("/headcount/settings")
+def save_headcount_settings(body: SwitchIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    cid = _switch_company(db, user, body.company)
+    # Switching it off takes waiting requests away from their approvers, so it
+    # is for those who could approve them: HR++ (review, 10/30).
+    if not is_hr_approver(db, user, cid):
+        raise HTTPException(403, "Only an administrator, the company's HR contact or HR with Full access can change this.")
+    scoped_settings.save(db, SWITCH_KEY, cid, {"on": bool(body.on)}, user["email"].lower())
+    db.commit()
+    return {"company": cid, "on": bool(body.on), "canEdit": True}
+
+
 @router.get("/headcount/meta")
 def headcount_meta(company_id: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """What the Headcount tab needs: may this person raise one, see pay, and
     the form's lists for a company (its departments, roles and work sites)."""
-    raise_ok = can_raise(db, user)
-    companies = _company_choices(db, user) if raise_ok else []
+    companies = _raise_choices(db, user) if can_raise(db, user) else []
+    raise_ok = bool(companies)
     cid = (company_id or "").strip() or (company_of(user, db) if raise_ok else "")
     if cid and cid not in {e.id for e in companies}:
         cid = ""
@@ -466,13 +544,18 @@ def headcount_meta(company_id: str = "", user: dict = Depends(get_current_user),
     me = user["email"].lower()
     rows = [r for r in db.query(models.HrHeadcountRequest).filter(models.HrHeadcountRequest.status != "draft").all()
             if _visible(db, user, r, cache)]
-    mine = db.query(models.HrHeadcountRequest.id).filter(models.HrHeadcountRequest.requested_by == me).first()
-    return {"canRaise": raise_ok, "canSeePay": _comp(db, user), "isHr": _hr_reader(db, user),
+    mine = any(headcount_on(db, r.company or "") for r in db.query(models.HrHeadcountRequest.company)
+               .filter(models.HrHeadcountRequest.requested_by == me).distinct().all())
+    # People > Hiring > Openings: the companies whose openings HR starts by
+    # hand because Headcount Requests are off there.
+    direct = [{"id": e.id, "name": e.name} for e in _company_choices(db, user)
+              if _hr_editor(db, user, e.id) and not headcount_on(db, e.id)] if _hr_editor(db, user) else []
+    return {"directOpeningCompanies": direct, "canRaise": raise_ok, "canSeePay": _comp(db, user), "isHr": _hr_reader(db, user),
             "companyId": cid, "companies": [{"id": e.id, "name": e.name} for e in companies],
             "departments": depts, "roles": roles, "workSites": sites,
             "employmentTypes": [{"value": k, "label": ho.EMPLOYMENT_LABELS[k]} for k in ho.EMPLOYMENT_TYPES],
             "waiting": sum(1 for r in rows if _can_decide(db, user, r)),
-            "showTab": raise_ok or bool(rows) or mine is not None}
+            "showTab": raise_ok or bool(rows) or mine}
 
 
 @router.get("/headcount")
@@ -489,13 +572,19 @@ def list_headcount(user: dict = Depends(get_current_user), db: Session = Depends
 def create_headcount(body: HeadcountIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if not can_raise(db, user):
         raise HTTPException(403, "Headcount requests are raised by managers and HR.")
+    if not _raise_choices(db, user):
+        raise HTTPException(409, OFF_MESSAGE)
     now = _now()
     row = models.HrHeadcountRequest(id=str(uuid.uuid4()), code=_next_code(db), status="draft", step="",
                                     requested_by=user["email"].lower(), employment_type="full_time", openings=1,
                                     salary_currency="USD", salary_period="year", dept_approvers=[], history=[],
                                     created_at=now, updated_at=now)
     if body.company is None:
-        body.company = company_of(user, db)
+        # No silent pick of some other company: the caller's own, or say so.
+        own = company_of(user, db)
+        if own not in {e.id for e in _raise_choices(db, user)}:
+            raise HTTPException(409, "Headcount Requests are off for your company - pick a company that has them turned on.")
+        body.company = own
     _apply(db, user, row, body, creating=True)
     ho.history_add(row, user["email"], "created")
     db.add(row)
@@ -674,6 +763,43 @@ def _opening_in_scope(db: Session, user: dict, oid: str, lock: bool = False) -> 
     if op is None or not _hr_reader(db, user, op.company):
         raise HTTPException(404, "Opening not found")
     return op
+
+
+class NewOpeningIn(BaseModel):
+    company:         str
+    title:           str
+    department:      Optional[str] = ""
+    employment_type: Optional[str] = "full_time"
+    seats:           Optional[int] = 1
+
+
+@router.post("/openings", status_code=201)
+def create_opening(body: NewOpeningIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A Draft opening HR starts by hand - only for a company with Headcount
+    Requests off; where they are on, an opening comes from an approved request
+    so the approval chain is never skipped."""
+    cid = _clean(body.company, 64)
+    if cid not in {e.id for e in _company_choices(db, user)} or not _hr_editor(db, user, cid):
+        raise HTTPException(403, "Starting an opening takes People edit access for that company.")
+    if headcount_on(db, cid):
+        raise HTTPException(409, "This company uses Headcount Requests - an opening comes from an approved request.")
+    title = _clean(body.title, 200)
+    if not title:
+        raise HTTPException(400, "Give the opening a job title.")
+    etype = body.employment_type if body.employment_type in ho.EMPLOYMENT_TYPES else "full_time"
+    ent = db.query(models.HrEntity).filter(models.HrEntity.id == cid).first()
+    me, now = user["email"].lower(), _now()
+    op = models.HrJobOpening(
+        id=str(uuid.uuid4()), headcount_id="", company=cid, department=_clean(body.department, 120), role_id="",
+        title=title, description="", employment_type=etype, seats=max(1, min(int(body.seats or 1), MAX_OPENINGS)),
+        work_site_id="", location="", street="", country=(ent.country if ent else "") or "", status="draft",
+        show_pay=False, pay_currency="USD", pay_period="year", hiring_owner_email=me, created_by=me,
+        created_at=now, updated_at=now, history=[])
+    ho.history_add(op, me, "created", "Started by hand (Headcount Requests are off for this company)")
+    db.add(op)
+    db.commit()
+    db.refresh(op)
+    return _openings_out(db, user, [op])[0]
 
 
 @router.get("/openings")

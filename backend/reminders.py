@@ -690,6 +690,13 @@ async def reminders_loop():
             await asyncio.to_thread(hr_probation.run_daily)
         except Exception as e:
             print(f"[reminders] probation loop error: {e}")
+        # Federal forms edition watch (Neil, 11/02/2026): one bell per form
+        # and state to HR contacts and administrators (federal_forms/watch.py).
+        try:
+            from federal_forms import watch as federal_watch
+            await asyncio.to_thread(federal_watch.run_daily)
+        except Exception as e:
+            print(f"[reminders] federal forms watch error: {e}")
         # Records Audit: missing details / expired documents, one bell per company.
         try:
             import hr_record_audit
@@ -710,6 +717,8 @@ async def reminders_loop():
         try:
             from routers import credvault
             await asyncio.to_thread(credvault.run_daily_rotation_reminders)
+            # ...and the daily Have I Been Pwned pass (vault_breach.py).
+            await asyncio.to_thread(credvault.run_daily_breach_scan)
         except Exception as e:
             print(f"[reminders] credential vault loop error: {e}")
         # Knowledge Base (Oct 2026): assignment rules, renewals, training and

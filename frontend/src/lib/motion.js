@@ -239,3 +239,9 @@ export function useChangeFlash(value, ms = 900, isFresh = null) {
   }, [value, ms]);
   return tick;
 }
+
+// The two curves every surface moves on, for Web Animations API callers
+// (CSS reads the same values as --ease-out and the Blueprint canvas spring):
+// one place, so a copy cannot drift (Oct 30 2026).
+export const EASE_OUT = 'cubic-bezier(.16,1,.3,1)';
+export const SPRING = 'cubic-bezier(.34,1.4,.64,1)';

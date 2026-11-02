@@ -21,6 +21,7 @@ import { formatDateLong, formatDateTime } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { Spinner } from './AsyncState';
 import { usePopupNudge } from '../lib/usePopupNudge';
+import { SHEET_SHADOW, SHEET_EDGE } from '../lib/sheetStack';
 import PurchaseRequestForm from './PurchaseRequestForm';
 import { AvatarName } from '../tasks/components';
 
@@ -98,12 +99,12 @@ function ModalShell({ title, sub, onClose, children }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding: phone ? 0 : 16 }}
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:2000, display:'flex', alignItems: phone ? 'center' : 'stretch', justifyContent: phone ? 'center' : 'flex-end', padding: 0 }}
       onClick={nudge}>
-      <div role="dialog" aria-modal="true" aria-label={title} className={`${popupClass}${phone ? ' nx-sheet' : ''}`} onClick={(e) => e.stopPropagation()}
+      <div role="dialog" aria-modal="true" aria-label={title} className={`${popupClass}${phone ? ' nx-sheet' : ' nx-sheet-right'}`} onClick={(e) => e.stopPropagation()}
         style={phone
           ? { background:'var(--card)', width:'100%', height:'100%', display:'flex', flexDirection:'column' }
-          : { background:'var(--card)', borderRadius:14, width:'60vw', minWidth:'min(420px, 100%)', maxWidth:'100%', minHeight:'60vh', maxHeight:'85vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+          : { background:'var(--card)', borderRadius:'16px 0 0 16px', width:'60vw', minWidth:'min(420px, 100%)', maxWidth:'100%', height:'100%', maxHeight:'100%', display:'flex', flexDirection:'column', boxShadow:SHEET_SHADOW, borderLeft:SHEET_EDGE }}>
         <div style={{ padding:'16px 18px 12px', display:'flex', alignItems:'center', gap:10, borderBottom:'1px solid var(--line)' }}>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontWeight:700, fontSize:15, color:'var(--ink)' }}>{title}</div>
@@ -507,12 +508,12 @@ export function PurchaseRequestsPanel({ onClose, toast, openNewKey = 0 }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding: phone ? 0 : 16 }}
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:2000, display:'flex', alignItems: phone ? 'center' : 'stretch', justifyContent: phone ? 'center' : 'flex-end', padding: 0 }}
       onClick={nudge}>
-      <div role="dialog" aria-modal="true" aria-label="Purchase Requests" className={`${popupClass}${phone ? ' nx-sheet' : ''}`} onClick={(e) => e.stopPropagation()}
+      <div role="dialog" aria-modal="true" aria-label="Purchase Requests" className={`${popupClass}${phone ? ' nx-sheet' : ' nx-sheet-right'}`} onClick={(e) => e.stopPropagation()}
         style={phone
           ? { background:'var(--card)', width:'100%', height:'100%', display:'flex', flexDirection:'column' }
-          : { background:'var(--card)', borderRadius:14, width:'85vw', minWidth:'min(420px, 100%)', maxWidth:'100%', height:'85vh', maxHeight:'100%', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+          : { background:'var(--card)', borderRadius:'16px 0 0 16px', width:'85vw', minWidth:'min(420px, 100%)', maxWidth:'100%', height:'100%', maxHeight:'100%', display:'flex', flexDirection:'column', boxShadow:SHEET_SHADOW, borderLeft:SHEET_EDGE }}>
         <div style={{ padding:'16px 18px 12px', display:'flex', alignItems:'center', gap:10, borderBottom:'1px solid var(--line)' }}>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontWeight:700, fontSize:15, color:'var(--ink)' }}>Purchase Requests</div>

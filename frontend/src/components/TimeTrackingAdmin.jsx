@@ -120,7 +120,7 @@ export function AgentInstall() {
   }, []);
   useEffect(() => {
     // A view-only Employee Tracking grant can watch/see computers but not install
-    // or manage them (that needs a full grant / IT Admin) - the endpoint 403s.
+    // or manage them (that needs a full grant / Administrator) - the endpoint 403s.
     api.timeAgentInstallCommand().then(setInfo).catch(e => setInfo(e && e.status === 403 ? 'forbidden' : false));
     loadDevices();
     // Refresh the roster so the status dots track live (heartbeat is every 60s).
@@ -161,7 +161,7 @@ export function AgentInstall() {
 
   const card = { border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)', marginTop: 16 };
   // View-only Employee Tracking grant: can see the enrolled list, but not install
-  // or manage computers (those endpoints require a full grant / IT Admin).
+  // or manage computers (those endpoints require a full grant / Administrator).
   const viewOnly = info === 'forbidden';
 
   return (
@@ -179,7 +179,7 @@ export function AgentInstall() {
       {viewOnly ? (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
           <ShieldCheck size={14} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0, marginTop: 1 }} />
-          <span>You have <b>view-only</b> access to Employee Tracking. Installing, assigning, and removing computers needs a full grant (or IT Admin). You can still watch screens and view the enrolled list below.</span>
+          <span>You have <b>view-only</b> access to Employee Tracking. Installing, assigning, and removing computers needs a full grant (or Administrator). You can still watch screens and view the enrolled list below.</span>
         </div>
       ) : (<>
       {/* Install/uninstall commands live under a toggle - the day-to-day need is

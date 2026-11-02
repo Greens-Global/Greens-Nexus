@@ -98,7 +98,7 @@ const askLetterOf = (sub) => (String(sub || '').match(/^ask-hr:letter:(.+)$/) ||
 // "salary-advances" (a salary advance bell or inbox row stored before Oct 29
 // 2026, when the Workday card went) is the Time Sheet, where advances live
 // now - HR with advances waiting goes on to the Approvals inbox.
-const tabFor = (sub) => (sub === 'clock' || isReimbSub(sub) || isPurchaseSub(sub) || isAskSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
+const tabFor = (sub) => (sub === 'clock' || isReimbSub(sub) || isPurchaseSub(sub) || isAskSub(sub) || /^(shifts|sign|form)(:|$)/.test(sub || '') ? 'overview'
   : sub === 'timecard' || sub === 'salary-advances' ? 'timesheet' : /^performance(:|$)/.test(sub || '') ? 'performance' : sub);
 // "performance:goal:<id>" / "performance:1on1:<id>" / "performance:team" (bells,
 // Oct 27 2026): the Performance tab with that goal, 1:1 or view open.
@@ -107,6 +107,10 @@ const perfFocusOf = (sub) => (/^performance:/.test(sub || '') ? { sub } : null);
 const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
 // "sign:<party id>" (Oct 18): a Nexus Sign document to sign - Documents to Sign opens it.
 const signOf = (sub) => (String(sub || '').match(/^sign:(.+)$/) || [])[1] || '';
+// "form:<templateId>" / "form:pick" (Forms & Checklists, Neil 11/02/2026 -
+// the + menu, the Quick Actions dock, a bell): the Overview's Fill a Form
+// tile opens that form, or its picker.
+const formOf = (sub) => (String(sub || '').match(/^form:(.+)$/) || [])[1] || '';
 // Work OS card-header title (sentence case, no uppercase tracking).
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
@@ -193,7 +197,7 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
        compact rows sharing the last cell, so none squeezes the row to
        "Document..." - the same tile look, a smaller badge, no pill. Three
        rows run a touch tighter than two did. */
-    .wd-actions { display: grid; grid-template-rows: repeat(3, 1fr); gap: 6px; min-width: 0; }
+    .wd-actions { display: grid; grid-auto-rows: 1fr; gap: 6px; min-width: 0; } /* three rows, four with Fill a Form */
     .wd-actions > .dk-stat.wd-stat.wd-askhr { padding: 6px 12px; gap: 10px; min-height: 0; box-shadow: 0 3px 10px rgba(43, 69, 225, .08); }
     .wd-actions > .dk-stat.wd-stat.wd-askhr::after { width: 64px; height: 64px; right: -22px; top: -22px; }
     .wd-actions .wd-askhr-badge { width: 28px; height: 28px; border-radius: 9px; box-shadow: 0 3px 8px rgba(43, 69, 225, .25); }
@@ -563,6 +567,14 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     setPurchaseSeenSub(activeSub);
     if (activeSub === 'purchase:new') setPurchaseNewKey((k) => k + 1);
     if (isPurchaseSub(activeSub)) setPurchaseOpen({ newForm: activeSub === 'purchase:new' });
+  }
+  // Each "form:<id>" / "form:pick" arrival opens the Fill a Form tile again ({ id, n }).
+  const [formSeenSub, setFormSeenSub] = useState(null);
+  const [formOpen, setFormOpen] = useState(() => (formOf(activeSub) ? { id: formOf(activeSub), n: 1 } : null));
+  if (activeSub !== formSeenSub) {
+    setFormSeenSub(activeSub);
+    const id = formOf(activeSub);
+    if (id) setFormOpen((f) => ({ id, n: (f?.n || 0) + 1 }));
   }
   // Each Ask HR arrival opens the panel again ({ n, letter }).
   const [askSeenSub, setAskSeenSub] = useState(null);
@@ -1430,7 +1442,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Nexus Sign documents waiting on me, signed here (Oct 18) - Documents needs a grant. */}
       {tab === 'overview' && <DocumentsToSign focusParty={signOf(activeSub)} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
       {tab === 'overview' && (
-        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} askFocus={askFocus} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
+        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} askFocus={askFocus} openForm={formOpen} clock={clockWidget} leaveBalance={leaveBal} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
 
       {/* Time sheets waiting on my signature - above my own timesheet. Renders

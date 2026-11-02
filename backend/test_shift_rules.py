@@ -70,6 +70,18 @@ class EvaluateTests(unittest.TestCase):
         out = shift_rules.evaluate([_s("a", MON, "09:00", "13:00"), _s("b", MON, "12:00", "16:00")], CFG)
         self.assertEqual(out, {})
 
+    def test_a_split_shift_is_one_workday_not_a_rest_break(self):
+        # 7-11a and 4-8p the same day: the 5 hours between are not "rest".
+        out = shift_rules.evaluate([_s("a", MON, "07:00", "11:00"), _s("b", MON, "16:00", "20:00")], CFG)
+        self.assertEqual(out, {})
+        # Rest is measured from the day's LAST part to the next workday.
+        out = shift_rules.evaluate([_s("a", MON, "07:00", "11:00"), _s("b", MON, "16:00", "20:00"),
+                                    _s("c", TUE, "05:00", "09:00")], CFG)
+        self.assertEqual(out, {"c": ["Only 9h 00m rest before this shift (10h minimum)."]})
+        out = shift_rules.evaluate([_s("a", MON, "07:00", "11:00"), _s("b", MON, "16:00", "20:00"),
+                                    _s("c", TUE, "07:00", "11:00")], CFG)
+        self.assertEqual(out, {})
+
     def test_a_shift_crossing_midnight(self):
         out = shift_rules.evaluate([_s("n", MON, "22:00", "06:00"), _s("d", TUE, "08:00", "16:00")], CFG)
         self.assertEqual(out, {"d": ["Only 2h 00m rest before this shift (10h minimum)."]})
@@ -91,11 +103,11 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(shift_rules.evaluate(shifts, CFG, "ca"), {"a": ["10h 00m scheduled this day (over 8h is overtime)."]})
         self.assertEqual(shift_rules.evaluate(shifts, CFG, "federal"), {})
         self.assertEqual(shift_rules.evaluate(shifts, CFG, "none"), {})
-        # Two shifts on one day add up; both carry the warning.
+        # Two shifts on one day add up; both carry the warning (and a same-day
+        # split is one workday, so no rest warning between its parts).
         out = shift_rules.evaluate([_s("a", MON, "06:00", "11:00", 300), _s("b", MON, "14:00", "18:30", 270)], CFG)
         self.assertEqual(out, {"a": ["9h 30m scheduled this day (over 8h is overtime)."],
-                               "b": ["Only 3h 00m rest before this shift (10h minimum).",
-                                     "9h 30m scheduled this day (over 8h is overtime)."]})
+                               "b": ["9h 30m scheduled this day (over 8h is overtime)."]})
 
     def test_weekly_overtime_lands_on_the_shifts_past_the_line(self):
         shifts = [_s(d, d, "08:00", "17:00", 540) for d in (MON, TUE, WED, THU, FRI)]   # 45h
@@ -388,6 +400,30 @@ class PublishReviewTests(_Case):
         self._shift(AMY, FRI, "09:00", "13:00", published=0)
         body = self.client.get("/timeclock/schedule/publish/review", params={"start": MON, "end": FRI}).json()
         self.assertEqual((len(body["changes"]), body["warnings"], body["reasonRequired"]), (1, [], False))
+
+    def test_review_leaves_out_warnings_on_unshared_shifts_outside_the_dates(self):
+        # Neil, Oct 30 2026: sharing Thursday listed a warning on a draft the
+        # next week. Mon-Wed are shared; the Thursday draft is shared now; a
+        # Fri-Sun run of DRAFTS makes Sunday the 7th day in a row - but those
+        # drafts are not in this share, so their warning waits for theirs.
+        for d in (MON, TUE, WED):
+            self._shift(AMY, d, "09:00", "13:00")
+        thu = self._shift(AMY, THU, "09:00", "13:00", published=0)
+        for d in (FRI, SAT, SUN):
+            self._shift(AMY, d, "09:00", "13:00", published=0)
+        body = self.client.get("/timeclock/schedule/publish/review", params={"start": THU, "end": THU}).json()
+        self.assertEqual([c["shiftId"] for c in body["changes"]], [thu])
+        self.assertEqual((body["warnings"], body["reasonRequired"]), ([], False))
+        # Sharing the whole week brings the warning back, on Sunday's draft.
+        body = self.client.get("/timeclock/schedule/publish/review", params={"start": MON, "end": SUN}).json()
+        self.assertEqual([(w["date"], w["text"]) for w in body["warnings"]], [(SUN, "7th day in a row (6 is the most).")])
+        # A published Sunday with an edit waiting is not "as the team sees it" either.
+        self.db.query(models.ScheduledShift).filter(models.ScheduledShift.work_date.in_([FRI, SAT, SUN])).update({"published": 1})
+        self.db.query(models.ScheduledShift).filter(models.ScheduledShift.work_date == SUN).update(
+            {"pending_json": json.dumps({"shiftId": "", "start": "09:00", "end": "14:00", "label": "", "note": "", "openSlots": 0, "breakMin": 0})})
+        self.db.commit()
+        body = self.client.get("/timeclock/schedule/publish/review", params={"start": THU, "end": THU}).json()
+        self.assertEqual(body["warnings"], [])
 
     def test_the_reason_follows_the_warned_persons_company_not_the_publishers(self):
         # Bob's company does not ask for a reason; the manager's (Amy's) does.

@@ -145,7 +145,19 @@ class HrOverrideTests(Oct16Case):
         self.assertFalse(tsr.is_hr(self.db, HR, HR))        # never on their own card
         self.db.add(models.NexusRole(email=TOP, role="administrator", assigned_by="test"))
         self.db.commit()
+        # Tiers (Neil, 11/02/2026): an Administrator is HR only inside their
+        # companies - with no People record (no company) they are HR for nobody.
+        self.assertFalse(tsr.is_hr(self.db, TOP, EMP))
+        self.db.add(models.NexusEmployee(id="id-top", work_email=TOP, first_name="Top", last_name="Test",
+                                         company=ENTITY, status="active"))
+        self.db.commit()
         self.assertTrue(tsr.is_hr(self.db, TOP, EMP))
+        self.db.query(models.NexusRole).filter(models.NexusRole.email == TOP).update({"role": "owner"})
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.id == "id-top").update({"company": "elsewhere"})
+        self.db.commit()
+        import auth
+        auth.invalidate_role_cache()
+        self.assertTrue(tsr.is_hr(self.db, TOP, EMP))        # a Super Administrator, anyone's
 
     def test_hr_editing_while_out_for_signature_asks_the_employee_to_sign_again(self):
         rid = self._agreed().sign_request_id

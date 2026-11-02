@@ -35,6 +35,7 @@ export function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onC
   const [includeNotes, setIncludeNotes] = useState(true);
   const [includeActs, setIncludeActs] = useState(true);
   const [skipOff, setSkipOff] = useState(true);
+  const [skipHol, setSkipHol] = useState(true);
   const [overwrite, setOverwrite] = useState(false);
   const [copyOff, setCopyOff] = useState(false);
   const span = from && to ? Math.round((new Date(to) - new Date(from)) / 86400000) + 1 : 0;
@@ -45,7 +46,7 @@ export function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onC
   function submit() {
     const payload = { source_start: from, source_end: to, target_start: target, weeks: Number(copies),
       include_open: includeOpen && !groupId, include_notes: includeNotes, include_activities: includeActs,
-      skip_timeoff: skipOff, overwrite, include_timeoff: copyOff };
+      skip_timeoff: skipOff, skip_holidays: skipHol, overwrite, include_timeoff: copyOff };
     if (groupId) payload.group_id = groupId;
     onApply(payload);
   }
@@ -75,6 +76,7 @@ export function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onC
           <label style={CHECK}><input type="checkbox" checked={includeNotes} onChange={(e) => setIncludeNotes(e.target.checked)} /> Include shift notes</label>
           <label style={CHECK}><input type="checkbox" checked={includeActs} onChange={(e) => setIncludeActs(e.target.checked)} /> Include shift activities</label>
           <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={(e) => setSkipOff(e.target.checked)} /> Skip days a person has approved time off</label>
+          <label style={CHECK}><input type="checkbox" checked={skipHol} onChange={(e) => setSkipHol(e.target.checked)} /> Skip each person&apos;s company holidays</label>
           <label style={CHECK}><input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)</label>
           <label style={CHECK}><input type="checkbox" checked={copyOff} onChange={(e) => setCopyOff(e.target.checked)} /> Copy approved time off too (as requests to approve)</label>
           <div style={{ fontSize: 11.5, color: overlaps || span > 31 ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
@@ -137,7 +139,9 @@ export function ClearModal({ groups, defaultStart, defaultEnd, busy, onApply, on
 // usual hours (their shift type, on its days) - Urmi her early shift, Vinod
 // his day shift - across the dates in view (the whole month in Month view).
 // Picking one shift type instead puts that one on everyone it applies to.
-// Skips time off and (unless Replace) days that already have a shift.
+// Skips time off, each person's company holidays (their company's calendar,
+// optional holidays excepted - Neil, Oct 30 2026) and (unless Replace) days
+// that already have a shift.
 export const USUAL = '__usual';
 export function BulkModal({ groups, shifts, allEmails, defaultGroupId = '', usualOf = () => null, nameOf = (e) => e, defaultStart, defaultEnd, busy, onApply, onClose }) {
   const startGroup = groups.some((g) => g.id === defaultGroupId) ? defaultGroupId : '';
@@ -147,6 +151,7 @@ export function BulkModal({ groups, shifts, allEmails, defaultGroupId = '', usua
   const [to, setTo] = useState(defaultEnd);
   const [dows, setDows] = useState([0, 1, 2, 3, 4]);
   const [skipOff, setSkipOff] = useState(true);
+  const [skipHol, setSkipHol] = useState(true);
   const [overwrite, setOverwrite] = useState(false);
   const usual = shiftId === USUAL;
   const preset = shifts.find((s) => s.id === shiftId);
@@ -166,14 +171,14 @@ export function BulkModal({ groups, shifts, allEmails, defaultGroupId = '', usua
     && (usual ? withUsual.length > 0 : shifts.length > 0 && dows.length > 0);
 
   function submit() {
-    const common = { start_date: from, end_date: to, skip_timeoff: skipOff, overwrite };
+    const common = { start_date: from, end_date: to, skip_timeoff: skipOff, skip_holidays: skipHol, overwrite };
     if (usual) { onApply({ usual: true, emails: withUsual, ...common }); return; }
     const payload = { shift_id: shiftId, weekdays: dows, ...common };
     if (groupId) payload.group_id = groupId; else payload.emails = allEmails;
     onApply(payload);
   }
   const dirty = groupId !== startGroup || shiftId !== USUAL || from !== defaultStart
-    || to !== defaultEnd || JSON.stringify(dows) !== JSON.stringify([0, 1, 2, 3, 4]) || skipOff !== true || overwrite !== false;
+    || to !== defaultEnd || JSON.stringify(dows) !== JSON.stringify([0, 1, 2, 3, 4]) || skipOff !== true || skipHol !== true || overwrite !== false;
   const guard = useUnsavedGuard(dirty, onClose, canApply ? submit : undefined);
   const names = (list) => list.map(nameOf).join(', ');
 
@@ -219,6 +224,7 @@ export function BulkModal({ groups, shifts, allEmails, defaultGroupId = '', usua
             </div>
           )}
           <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={(e) => setSkipOff(e.target.checked)} /> Skip days a person has approved time off</label>
+          <label style={CHECK}><input type="checkbox" checked={skipHol} onChange={(e) => setSkipHol(e.target.checked)} /> Skip each person&apos;s company holidays</label>
           <label style={CHECK}><input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)</label>
           <div data-fill-summary="" style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
             {usual ? (

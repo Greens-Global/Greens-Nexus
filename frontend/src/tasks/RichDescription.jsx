@@ -2,7 +2,13 @@
 // toolbar, shared by the Create-a-Task modal and the task detail drawer.
 //
 // The value is HTML. Old plain-text descriptions still render (TipTap wraps
-// them in a paragraph), so no migration. Outbound sync sends this HTML to
+// them in a paragraph), so no migration.
+//
+// Voice (Neil, Oct 30 2026): a Dictate mic in the toolbar types what is said
+// at the cursor (lib/voice.js - the browser's own speech service, no AI), and
+// a composer that stages files (onStageFiles: task comments) also records a
+// voice note, staged with its other files. Nothing audio goes INTO the HTML -
+// a voice note is an attachment. Outbound sync sends this HTML to
 // Asana's html_notes - see backend/asana_sync.py.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -10,10 +16,11 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import { Mark, mergeAttributes } from '@tiptap/core';
+import { Selection } from '@tiptap/pm/state';
 import {
   Plus, Undo2, Redo2, Bold, Italic, Underline as UnderlineIcon, Highlighter,
   Strikethrough, List, ListOrdered, IndentIncrease, Link2, Code, SquareCode,
-  Sparkles, Check, X, Loader2, Paperclip, ImagePlus,
+  Sparkles, Check, X, Loader2, Paperclip, ImagePlus, Mic, AudioLines, Square,
 } from 'lucide-react';
 import { NX, FONT } from './theme';
 import { Avatar } from './components';
@@ -21,6 +28,7 @@ import { useImageZoom } from './components';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { api } from '../api';
 import { matchPeople } from '../lib/peopleSearch';
+import { canDictate, useDictation, canRecord, useVoiceRecorder, clock, spokenAfter, useReportRecording, STOP_VOICE_FIRST } from '../lib/voice';
 
 // Highlight, as a local mark. @tiptap/extension-highlight would be a new
 // dependency for one mark; StarterKit already ships everything else the toolbar
@@ -54,7 +62,7 @@ const buildExtensions = (placeholder) => [
   Placeholder.configure({ placeholder }),
 ];
 
-function Btn({ icon: Icon, label, active, disabled, onClick }) {
+function Btn({ icon: Icon, label, active, disabled, onClick, danger }) {
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled}
       // Out of the Tab order: the toolbar's ~16 buttons were each a Tab stop,
@@ -69,8 +77,8 @@ function Btn({ icon: Icon, label, active, disabled, onClick }) {
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         width: 28, height: 28, borderRadius: 6, border: 'none', flexShrink: 0,
-        background: active ? NX.border2 : 'transparent',
-        color: disabled ? NX.faint : (active ? NX.ink : NX.dim),
+        background: active ? (danger ? NX.red : NX.border2) : 'transparent',
+        color: disabled ? NX.faint : (active ? (danger ? '#fff' : NX.ink) : NX.dim),
         cursor: disabled ? 'default' : 'pointer',
       }}>
       <Icon size={15} />
@@ -92,6 +100,9 @@ export default function RichDescription({
   mentionPeople,
   // Ctrl/Cmd+Enter submit (comment composer).
   onSubmit,
+  // (recording) - a voice note is recording here; the composer's Post /
+  // Save waits for Stop (VoiceNoteButton's STOP_VOICE_FIRST).
+  onRecordingChange,
   placeholder = 'Add more detail…',
   toolbar = true,
 }) {
@@ -113,6 +124,24 @@ export default function RichDescription({
   const mentionScanRef = useRef(() => {});
   const mentionKeyRef = useRef(() => false);
   const submitRef = useRef(null);
+  // Dictation types into the editor; a voice note is staged like a picked file.
+  const editorRef = useRef(null);
+  const dictation = useDictation((said) => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed) return;
+    const at = ed.state.selection.to;
+    const $at = ed.state.doc.resolve(at);
+    const text = spokenAfter($at.parent.textBetween(0, $at.parentOffset, '\n', '\ufffc'), said);
+    // No focus(): on a phone that would pop the keyboard up over the words.
+    if (text) ed.chain().insertContentAt(at, text).run();
+  });
+  const voice = useVoiceRecorder((file) => onStageFiles?.([file]));
+  useReportRecording(voice.recording, onRecordingChange);
+  const recordingRef = useRef(false);
+  const [waitForStop, setWaitForStop] = useState(false);
+  useEffect(() => { recordingRef.current = voice.recording; }, [voice.recording]);
+  const dictateOk = canDictate();
+  const voiceOk = !!onStageFiles && canRecord();
 
   const editor = useEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -124,7 +153,10 @@ export default function RichDescription({
     editorProps: {
       handleKeyDown: (_view, event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && submitRef.current) {
-          event.preventDefault(); submitRef.current(); return true;
+          event.preventDefault();
+          // Posting now would leave the voice note behind.
+          if (recordingRef.current) { setWaitForStop(true); return true; }
+          submitRef.current(); return true;
         }
         return mentionKeyRef.current(event);
       },
@@ -280,6 +312,9 @@ export default function RichDescription({
     setAi(null);
   }, [ai, editor, onChange, onCommit]);
 
+  // (useDictation aborts by itself when the editor unmounts.)
+  useEffect(() => { editorRef.current = editor; }, [editor]);
+
   const can = useMemo(() => editor?.can().chain().focus(), [editor]);
   if (!editor) return null;
 
@@ -331,8 +366,53 @@ export default function RichDescription({
         <div style={{ borderTop: `1px solid ${NX.border2}`, padding: '7px 12px', fontSize: 12, color: NX.red }}>{ai.error}</div>
       )}
 
+      {(dictation.listening || dictation.error) && (
+        <div role={dictation.error ? 'alert' : 'status'} style={{ borderTop: `1px solid ${NX.border2}`, padding: '6px 12px', fontSize: 12.5,
+          color: dictation.error ? NX.red : NX.dim, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          {!dictation.error && <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: NX.red, flexShrink: 0 }} />}
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {dictation.error || (dictation.interim ? `"${dictation.interim}"` : 'Listening… talk and the words are typed where the cursor is.')}
+          </span>
+        </div>
+      )}
+      {(voice.recording || voice.error) && (
+        <div role={voice.error ? 'alert' : 'status'} style={{ borderTop: `1px solid ${NX.border2}`, padding: '5px 8px 5px 12px', fontSize: 12.5,
+          color: voice.error ? NX.red : NX.ink, display: 'flex', alignItems: 'center', gap: 8 }}>
+          {voice.error || (<>
+            <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: NX.red, flexShrink: 0 }} />
+            <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>Recording a Voice Note {clock(voice.seconds)}</span>
+            {waitForStop && voice.recording && <span style={{ color: NX.red, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{STOP_VOICE_FIRST}</span>}
+            <span style={{ flex: 1 }} />
+            <button type="button" onClick={voice.stop}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 7, border: 'none', background: NX.red, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: FONT }}>
+              <Square size={11} aria-hidden="true" /> Stop
+            </button>
+            <button type="button" onClick={voice.cancel} aria-label="Cancel the Voice Note" title="Cancel"
+              style={{ display: 'inline-flex', alignItems: 'center', padding: 4, border: 'none', background: 'transparent', color: NX.faint, cursor: 'pointer' }}>
+              <X size={14} aria-hidden="true" />
+            </button>
+          </>)}
+        </div>
+      )}
+
       {toolbar && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', padding: '5px 8px', borderTop: `1px solid ${NX.border2}` }}>
+        {/* First in the row, so on a phone (where the row wraps) the mic is
+            the first thing under the thumb. */}
+        {dictateOk && (
+          <Btn icon={Mic} label={dictation.listening ? 'Stop Dictating' : 'Dictate - type what you say'} active={dictation.listening} danger
+            onClick={() => {
+              if (dictation.listening) { dictation.stop(); return; }
+              // Not in the box yet: the words go after what is already there.
+              if (!editor.isFocused) editor.view.dispatch(editor.state.tr.setSelection(Selection.atEnd(editor.state.doc)));
+              dictation.start();
+            }} />
+        )}
+        {voiceOk && (
+          <Btn icon={AudioLines} label={voice.recording ? 'Stop and Add the Voice Note' : 'Record a Voice Note'} active={voice.recording} danger
+            onClick={() => { setWaitForStop(false); if (voice.recording) voice.stop(); else voice.start(); }} />
+        )}
+        {(dictateOk || voiceOk) && <Divider />}
         <span ref={addRef} style={{ display: 'inline-flex' }}>
           <Btn icon={Plus} label="Attach" active={addOpen} onClick={() => setAddOpen((o) => !o)} />
           {/* Portaled: the editor frame and the modal/drawer body around it

@@ -58,7 +58,9 @@ class _ScopeHarness(unittest.TestCase):
         for em, first, co in ((ADMIN, "Ada", US), (US_EMP, "Uma", US), (IN_EMP, "Indira", IN), (LOOSE, "Lou", "")):
             self.db.add(models.NexusEmployee(id=f"id-{first}", work_email=em, first_name=first, last_name="Test",
                                              company=co, status="active"))
-        self.db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
+        # Ada sets the tenant-wide rules and every company's override: a Super
+        # Administrator (an Administrator is company-walled, 11/02/2026).
+        self.db.add(models.NexusRole(email=ADMIN, role="owner", assigned_by="test"))
         self.db.commit()
         auth._role_cache.clear()
         os.environ["NEXUS_DEV_EMAIL"] = ADMIN

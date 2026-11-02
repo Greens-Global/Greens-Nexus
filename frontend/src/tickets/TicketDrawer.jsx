@@ -1,7 +1,7 @@
 // TicketDrawer - split out of TicketsView.jsx (Oct 2026); the code below
 // moved verbatim, see TicketsView.jsx for the module overview.
-import { useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, CheckCircle2, ClipboardList, Paperclip, MessageSquare, History, ArrowUp, MousePointer2, Lock } from 'lucide-react';
+import { useMemo, useEffect, useRef, useState } from 'react';
+import { Plus, Pencil, Trash2, CheckCircle2, ClipboardList, Paperclip, MessageSquare, History, ArrowUp, MousePointer2, Lock, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
 import { useRole } from '../contexts/RoleContext';
@@ -9,9 +9,10 @@ import LiveView from '../components/LiveView';
 import { richBodyHtml, externalizeInlineImages } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { setOpenTicketId, clearOpenTicketId } from './recordingDraft';
-import { NX, chip, btn, input as inputStyle } from '../tasks/theme';
+import { NX, FONT, chip, btn, input as inputStyle } from '../tasks/theme';
 import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
 import { Avatar, PriorityChip, Modal, PersonSelect, usePeople, useIsMobile } from '../tasks/components';
+import PersonActions from '../components/PersonActions';
 import { dialog as appDialog } from '../ui/dialog';
 import {
   fmtDate, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS,
@@ -51,6 +52,7 @@ import { ApprovalChip, ApprovalPanel } from './TicketApproval';
 import { TicketActionDialog } from './TicketActionDialog';
 import { TicketTasks, TicketLinks, SatisfactionCard, CsatWidget } from './TicketDrawerCards';
 import { TicketConversation } from './TicketConversation';
+import { STOP_VOICE_FIRST } from '../lib/voice';
 import { TicketAttachments } from './TicketAttachments';
 import { TicketActivity } from './TicketActivity';
 
@@ -77,6 +79,38 @@ function DrawerHelpTopic({ value, deptName, onCommit, subValue = '', onCommitSub
   );
 }
 
+// The drawer's frame (Oct 31 2026). As a popup it is the shared Modal; as a
+// pane (`inline`, the desk's side pane) it is the same header / scrolling
+// body / footer as a plain column that fills whatever the caller gives it -
+// no overlay, no Escape layer of its own (the desk owns Escape there), no
+// dialog role. `nav` is the Previous / Next pair: in the pane it sits in the
+// header beside Close; in the popup, whose header is the Modal's, it leads
+// the body so it is in the same corner of the eye.
+function DrawerShell({ inline, title, nav, onClose, footer, children }) {
+  if (!inline) {
+    return (
+      <Modal title={title} onClose={onClose} footer={footer}>
+        {nav && <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>{nav}</div>}
+        {children}
+      </Modal>
+    );
+  }
+  return (
+    <div data-testid="ticket-drawer" style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: 0, background: NX.surface, fontFamily: FONT, color: NX.ink }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: `1px solid ${NX.border2}`, flexShrink: 0 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+        {nav}
+        <button type="button" onClick={onClose} style={{ ...btn('ghost'), padding: 6, borderRadius: 8 }} aria-label="Close"><X size={18} /></button>
+      </div>
+      <div className="nx-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{children}</div>
+      {footer && (
+        <div style={{ padding: '12px 20px', borderTop: `1px solid ${NX.border2}`, background: NX.surface2, flexShrink: 0,
+          display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{footer}</div>
+      )}
+    </div>
+  );
+}
+
 // Exported so the Support page (requester-facing, no module grant needed -
 // see views/Support.jsx) can mount this exact drawer directly, the same way
 // it already mounts CreateTicketModal for "Submit a Ticket" - rather than
@@ -87,7 +121,12 @@ function DrawerHelpTopic({ value, deptName, onCommit, subValue = '', onCommitSub
 // module for someone without the desk grant.
 // `startEditing` opens straight into the title/description editor - the
 // Support list's pencil (Neil, Sep 30) lands here.
-export function TicketDrawer({ ticketId, onClose, startEditing = false, initialTab = null, dirtyRef = null }) {
+// `inline` (Oct 31 2026): the desk's side pane - see DrawerShell. `onPrev` /
+// `onNext`: when either is given (null = nothing to step to) the header shows
+// Previous / Next, and the [ and ] keys step while nobody is typing; the
+// caller decides the order (the list's) and asks about unsaved edits first.
+export function TicketDrawer({ ticketId, onClose, startEditing = false, initialTab = null, dirtyRef = null,
+  inline = false, onPrev = undefined, onNext = undefined }) {
   const { tickets, ticketsLoaded, tasks, projects = [], loading: tasksLoading,
     addTicketLink, removeTicketLink, escalateTicket, createTaskFromTicket, myEmail, nameOf, updateTicket, deleteTicket,
     reloadTickets } = useTasks();
@@ -96,6 +135,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // not the whole task workspace.
   const onDecided = () => reloadTickets?.();
   const people = usePeople();
+  const personById = useMemo(() => new Map((people || []).map((p) => [(p.email || '').toLowerCase(), p])), [people]);
   const collabExtras = useCollaboratorExtras();
   const sites = useTicketSites();
   const isMobile = useIsMobile();
@@ -105,6 +145,16 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const deskAccess = useTicketAccess();
   // initialTab: the list's Latest Comment cell lands on the Conversation.
   const [tab, setTab] = useState(initialTab || 'overview');
+  // In the side pane the drawer stays mounted while the SAME ticket's Latest
+  // Comment cell is clicked again: the caller changes initialTab, and that
+  // must still land on the Conversation (Neil, Oct 1) without a remount that
+  // would throw held edits away. Adjusted during render (React's "storing
+  // information from previous renders" pattern), not in an effect.
+  const [seenInitialTab, setSeenInitialTab] = useState(initialTab);
+  if (initialTab !== seenInitialTab) {
+    setSeenInitialTab(initialTab);
+    if (initialTab) setTab(initialTab);
+  }
   // Up here with the other hooks, and NOT next to canRequestControl where it is
   // used, because `if (!t) return null` sits between the two: a hook after that
   // return runs on some renders and not others, which is the one thing React
@@ -131,6 +181,28 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // then get the dot on the Conversation tab and a "New" tag in the thread
   // (Neil, Sep 30: "there's a comment I've added on conversation, but I'm
   // not able to see that there's a new item").
+  // Previous / Next by keyboard: [ and ] while no field has the keys and no
+  // overlay (a linked task, the Resolve dialog, LiveView) is open on top.
+  // Read through a ref so the one listener never goes stale.
+  const hasNav = onPrev !== undefined || onNext !== undefined;
+  const navRef = useRef({ onPrev, onNext });
+  useEffect(() => { navRef.current = { onPrev, onNext }; });
+  const navBlocked = !!openTaskId || !!dialog || requestingControl;
+  useEffect(() => {
+    if (!hasNav || navBlocked) return undefined;
+    const onKey = (e) => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+      // A desk modal over the pane (Create, Save View, bulk Resolve) keeps
+      // its keys: in the pane this drawer is not a dialog, so any dialog the
+      // key came from is one on top of it.
+      if (inline && e.target?.closest?.('[role="dialog"]')) return;
+      if (e.key === ']' && navRef.current.onNext) { e.preventDefault(); navRef.current.onNext(); }
+      else if (e.key === '[' && navRef.current.onPrev) { e.preventDefault(); navRef.current.onPrev(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [hasNav, navBlocked, inline]);
   const [seenBefore, setSeenBefore] = useState(undefined);
   const [newReplies, setNewReplies] = useState(0);
   const [companies, setCompanies] = useState([]);
@@ -143,6 +215,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const [pending, setPending] = useState({});
   const [reply, setReply] = useState({ body: '', internal: false });
   const [saving, setSaving] = useState(false);
+  // A voice note recording under the reply: Done waits for Stop (the clip
+  // would be lost with the drawer).
+  const [voiceRec, setVoiceRec] = useState(false);
   useEffect(() => {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
     // Every company's departments, not just the viewer's own: a ticket is
@@ -238,8 +313,17 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // nothing at all, which read as a dead click (Oct 2026 review: a ticket
   // raised on someone's behalf, opened from Support).
   if (!t) {
-    return ticketsLoaded && (refetch === 'done' || !reloadTickets)
-      ? <TicketNotFound onClose={onClose} /> : <TicketOpening onClose={onClose} />;
+    const gone = ticketsLoaded && (refetch === 'done' || !reloadTickets);
+    if (inline) {
+      // The pane has no room for a popup: the same two messages, in place.
+      return (
+        <div data-testid="ticket-drawer" role={gone ? 'alert' : 'status'} aria-busy={gone ? undefined : 'true'}
+          style={{ padding: 24, fontSize: 13.5, color: NX.dim, fontFamily: FONT }}>
+          {gone ? 'This ticket is not in your list any more - it may have been deleted, or you may no longer have access to it.' : 'Opening your ticket…'}
+        </div>
+      );
+    }
+    return gone ? <TicketNotFound onClose={onClose} /> : <TicketOpening onClose={onClose} />;
   }
 
   // Before a ticket is "in_progress" (with an assignee), the requester has
@@ -256,7 +340,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // HR's to work: the server says per ticket whether this viewer is HR for it
   // or its assignee (hrCanWork) - a manager or a desk role is not.
   const confidential = !!t.confidentialDesk;
-  const privileged = confidential ? !!t.hrCanWork : (myLevel >= 3 || deskAccess.privileged);   // + Global Admins (server's _ticket_privileged)
+  const privileged = confidential ? !!t.hrCanWork : (myLevel >= 3 || deskAccess.privileged);   // + Super Administrators (server's _ticket_privileged)
   // Request Control: LiveView's `assist` mode (components/LiveView.jsx) -
   // consent-first, NOT the Workforce Analytics roster's disclosed-monitoring
   // model. Nothing is visible until the requester accepts a control prompt
@@ -437,7 +521,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // rating with everything else and closes the ticket.
   const confirmingClose = ownRequester && t.status === 'resolved' && pending.status === 'closed';
   const done = async () => {
-    if (saving) return;
+    if (saving || voiceRec) return;
     if (confirmingClose) { setDialog({ mode: 'confirm', viaDone: true }); return; }
     if (!dirty) { onClose(); return; }
     setSaving(true);
@@ -504,6 +588,15 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   };
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
+  const navButton = { ...btn('outline'), padding: '5px 10px', fontSize: 12.5, gap: 4 };
+  const nav = hasNav ? (
+    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+      <button type="button" style={{ ...navButton, opacity: onPrev ? 1 : 0.5 }} disabled={!onPrev} onClick={() => onPrev?.()}
+        title="Previous ticket - press ["><ChevronLeft size={14} /> Previous</button>
+      <button type="button" style={{ ...navButton, opacity: onNext ? 1 : 0.5 }} disabled={!onNext} onClick={() => onNext?.()}
+        title="Next ticket - press ]">Next <ChevronRight size={14} /></button>
+    </div>
+  ) : null;
   return (
     <>
     {/* No width override - the Modal default (clamp(520px, 60vw, 980px)) is
@@ -511,7 +604,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         used to pass read as a cramped tab next to that (Pranshu, Sept 8 2026). */}
     {/* While a linked task is open on top, Escape (which Modal also listens
         for) closes the task first rather than the ticket underneath it. */}
-    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? closeTask() : closeDrawer())} footer={
+    <DrawerShell inline={inline} nav={nav} title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? closeTask() : closeDrawer())} footer={
       <>
         {canDelete && (
           <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
@@ -560,8 +653,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             Unsaved Changes
           </span>
         )}
-        <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1 }} onClick={done} disabled={saving}
-          title={dirty ? 'Save every change and send one update to the requester' : undefined}>
+        {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red }}>{STOP_VOICE_FIRST}</span>}
+        <button style={{ ...btn('primary'), opacity: saving || voiceRec ? 0.6 : 1 }} onClick={done} disabled={saving || voiceRec}
+          title={voiceRec ? STOP_VOICE_FIRST : dirty ? 'Save every change and send one update to the requester' : undefined}>
           {saving ? 'Saving…' : 'Done'}
         </button>
       </>
@@ -699,14 +793,23 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         <div style={field}>
           <label style={label}>Requester</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}>
-            {t.requesterId ? <><Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /><span style={{ fontSize: 13, color: NX.ink }}>{nameOf(t.requesterId)}</span></> : <span style={{ fontSize: 13, color: NX.faint }}>-</span>}
-            {canRequestControl && (
-              <button type="button" onClick={() => setRequestingControl(true)}
-                title={`Ask ${nameOf(t.requesterId) || 'them'} for permission to view and control their screen - nothing is visible until they accept`}
-                style={{ ...btn('outline'), marginLeft: 'auto', padding: '4px 9px', fontSize: 12, gap: 5 }}>
-                <MousePointer2 size={13} /> Request Control
-              </button>
-            )}
+            {t.requesterId ? <><Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /><span style={{ fontSize: 13, color: NX.ink, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(t.requesterId)}</span></> : <span style={{ fontSize: 13, color: NX.faint }}>-</span>}
+            {/* Message / Call on Teams (11/02/2026) sit with Request Control at the
+                right - only for a requester who is in Nexus People (a ticket
+                mailed in from outside has no one to reach on Teams). */}
+            <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              {t.requesterId && (
+                <PersonActions email={t.requesterId} name={nameOf(t.requesterId)} known={personById.has((t.requesterId || '').toLowerCase())}
+                  external={!!personById.get((t.requesterId || '').toLowerCase())?.external} myEmail={myEmail} size="sm" />
+              )}
+              {canRequestControl && (
+                <button type="button" onClick={() => setRequestingControl(true)}
+                  title={`Ask ${nameOf(t.requesterId) || 'them'} for permission to view and control their screen - nothing is visible until they accept`}
+                  style={{ ...btn('outline'), padding: '4px 9px', fontSize: 12, gap: 5 }}>
+                  <MousePointer2 size={13} /> Request Control
+                </button>
+              )}
+            </span>
           </div>
         </div>
         {canSeeAssignSla && (
@@ -716,15 +819,26 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
                 so showing an open picker would only produce a 409 the user can't act on. */}
             {/* Phones get a bottom sheet (TicketAssignSheet) - the anchored
                 dropdown and its auto-focused search fought the keyboard. */}
-            {isMobile ? (
-              <MobileAssignField value={v.assigneeId || ''} people={people} nameOf={nameOf} onChange={(val) => stage({ assigneeId: val || '' })}
-                disabled={!canWorking || t.approvalStatus === 'pending'}
-                placeholder={t.approvalStatus === 'pending' ? 'Awaiting Approval' : 'Unassigned'} />
-            ) : (
-              <PersonSelect value={v.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
-                disabled={!canWorking || t.approvalStatus === 'pending'}
-                placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
-            )}
+            {/* Message / Call the person working it - Teams, not a second inbox
+                (11/02/2026): the two icons sit right of the picker, which
+                already shows the name. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {isMobile ? (
+                  <MobileAssignField value={v.assigneeId || ''} people={people} nameOf={nameOf} onChange={(val) => stage({ assigneeId: val || '' })}
+                    disabled={!canWorking || t.approvalStatus === 'pending'}
+                    placeholder={t.approvalStatus === 'pending' ? 'Awaiting Approval' : 'Unassigned'} />
+                ) : (
+                  <PersonSelect value={v.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
+                    disabled={!canWorking || t.approvalStatus === 'pending'}
+                    placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
+                )}
+              </div>
+              {v.assigneeId && (
+                <PersonActions email={v.assigneeId} name={nameOf(v.assigneeId)} known={personById.has((v.assigneeId || '').toLowerCase())}
+                  external={!!personById.get((v.assigneeId || '').toLowerCase())?.external} myEmail={myEmail} size="sm" />
+              )}
+            </div>
           </div>
         )}
         {t.assignedById && (
@@ -953,7 +1067,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         </>)}
         {tab === 'conversation' && (
           <TicketConversation ticketId={t.id} ticketType={t.type} nameOf={nameOf} newSince={meIsRequester ? seenBefore : undefined}
-            reply={reply} onReplyChange={setReply} onDone={done}
+            reply={reply} onReplyChange={setReply} onDone={done} onVoiceRecordingChange={setVoiceRec}
             // The public-reply / internal-note switch is the desk's. The person
             // who raised the ticket just replies (Neil, Sep 30: "they should
             // not see public reply versus an internal note").
@@ -963,10 +1077,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             savedReplies={deskAccess.canWorkQueue && (privileged || isAssignee || !isRequester)}
             ticket={t} myEmail={myEmail} />
         )}
-        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete && !confidential} />}
+        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete && !confidential}
+          markupSource={{ kind: 'ticket', id: t.id, label: [ticketNo(t.code), t.subject].filter(Boolean).join(' ').slice(0, 200) || 'Ticket', url: `/tickets?ticket=${encodeURIComponent(t.id)}` }} />}
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
       </div>
-    </Modal>
+    </DrawerShell>
     {openTaskId && <TaskDetailDrawer taskId={openTaskId} onClose={closeTask} onBackToTicket={closeTask} zIndex={4100} />}
     {dialog && (
       <TicketActionDialog mode={dialog.mode} targetStatus={dialog.targetStatus} ticket={v}

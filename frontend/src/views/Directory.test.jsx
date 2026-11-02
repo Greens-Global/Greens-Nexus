@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { teamsChatUrl, teamsCallUrl } from '../lib/teamsLinks';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
 // Contact Directory (Oct 2026) render smoke: the list groups by department
@@ -9,7 +10,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
 const PEOPLE = [
   { email: 'bo@x.com', name: 'Bo Boss', firstName: 'Bo', lastName: 'Boss', jobTitle: 'Controller', department: 'Accounting',
-    departmentRole: 'lead', company: 'co1', companyName: 'Greens Co', managerEmail: '', managerName: '', mobile: '(760) 555-0101',
+    departmentRole: 'lead', company: 'co1', companyName: 'Greens Co', managerEmail: '', managerName: '', mobile: '(760) 555-0101', tier: 'manager',
     officePhone: '(760) 555-0100', photoUrl: '', status: 'active', timeZone: 'America/Los_Angeles', availability: null, location: 'Escondido Office' },
   { email: 'sam@x.com', name: 'Sam Staff', firstName: 'Sam', lastName: 'Staff', jobTitle: 'Analyst', department: 'Accounting',
     departmentRole: '', company: 'co1', companyName: 'Greens Co', managerEmail: 'bo@x.com', managerName: 'Bo Boss', mobile: '', officePhone: '',
@@ -36,6 +37,19 @@ const { default: Directory } = await import('./Directory');
 afterEach(() => { cleanup(); payload = { ...payload, gaps: undefined }; localStorage.removeItem('nexus-directory-lens'); });
 
 describe('Contact Directory', () => {
+  it('a row carries the tier mark after the name, before Lead, and never the tier word (Neil, 11/02/2026)', async () => {
+    render(<Directory />);
+    await screen.findByText('Accounting');
+    const rows = document.querySelectorAll('.dir-row');
+    const mark = rows[0].querySelector('[aria-label="Manager"]');
+    expect(mark).toBeTruthy();
+    expect(rows[0].textContent).not.toContain('Manager');
+    // Order on the name line: name, mark, then the Lead badge.
+    const lead = [...rows[0].querySelectorAll('span')].find((s) => s.textContent === 'Lead');
+    expect(mark.compareDocumentPosition(lead) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(rows[1].querySelector('[data-tier]')).toBeNull();         // Sam, no tier
+  });
+
   it('groups by department A-Z, shows shift and Teams status, and opens a card with Teams actions', async () => {
     render(<Directory />);
     expect(await screen.findByText('Accounting')).toBeTruthy();
@@ -49,6 +63,9 @@ describe('Contact Directory', () => {
     fireEvent.click(rows[1]);                                     // Sam
     expect(screen.getAllByText('Sam Staff').length).toBeGreaterThan(1);
     expect(screen.getByText('Chat').closest('a').getAttribute('href')).toContain('teams.microsoft.com/l/chat/0/0?users=sam%40x.com');
+    // The card's Chat and Call come from the one Teams helper (lib/teamsLinks.js, 11/02/2026).
+    expect(screen.getByText('Chat').closest('a').getAttribute('href')).toBe(teamsChatUrl('sam@x.com'));
+    expect(screen.getByText('Call').closest('a').getAttribute('href')).toBe(teamsCallUrl('sam@x.com'));
     expect(screen.getByText('Video').closest('a').getAttribute('href')).toContain('withVideo=true');
     expect(screen.getAllByText('On Shift').length).toBe(2);       // row pill + card chip
     // Email opens Outlook on the web in a new tab, never in place of Nexus.

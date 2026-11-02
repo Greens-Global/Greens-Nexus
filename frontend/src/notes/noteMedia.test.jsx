@@ -100,6 +100,22 @@ describe('NoteEditor media', () => {
   });
 });
 
+describe('the web toolbar (Neil, Oct 31 2026)', () => {
+  it('keeps Dictate, Voice Note and Video named and outside the formatting that wraps', () => {
+    window.webkitSpeechRecognition = function SR() {};
+    const { container } = render(<NoteEditor value="<p>x</p>" onChange={() => {}} onMakeTask={() => {}} />);
+    const capture = container.querySelector('.nt-tb-capture');
+    expect(capture).toBeTruthy();
+    expect(container.querySelector('.nt-tb-fmt').contains(screen.getByRole('button', { name: 'Bold (Ctrl+B)' }))).toBe(true);
+    const named = [...capture.querySelectorAll('button')].map((b) => b.textContent);
+    expect(named).toContain('Dictate');
+    expect(named).toContain('Video');
+    expect(named).toContain('Make a Task');
+    expect(capture.contains(screen.getByRole('button', { name: 'Dictate - type what you say' }))).toBe(true);
+    expect(screen.getByRole('button', { name: 'Divider' })).toBeTruthy();
+  });
+});
+
 describe('review fixes', () => {
   it('an iPhone .mov with no type uploads as a video', () => {
     expect(withType(file('IMG_1.MOV', '', 10)).type).toBe('video/quicktime');

@@ -403,7 +403,7 @@ class VaultHardeningTests(unittest.TestCase):
         r = self._as(OWNER).post("/credvault/import", json={"rows": [
             {"name": "Jira", "department": "IT", "type": "Password", "username": "u", "secret": "s3cret-Long-1!", "tier": "High",
              "url": "https://jira.example.com", "note": "Shared team login"}]})
-        self.assertEqual(r.json(), {"imported": 1})
+        self.assertEqual(r.json()["imported"], 1)         # Oct 29 2026: the import also reports what it skipped
         row = [c for c in self._as(OWNER).get("/credvault/credentials").json() if c["name"] == "Jira"][0]
         self.assertEqual((row["url"], row["note"], row["tier"]), ("https://jira.example.com", "Shared team login", "High"))
 
@@ -489,7 +489,10 @@ class VaultHardeningTests(unittest.TestCase):
 
     def test_a_department_named_personal_is_not_mistaken_for_the_personal_vault(self):
         self._create(name="Shared Thing", dept="Personal")
-        self.assertIn("Shared Thing", [e["cred"] for e in self._logs(PEER)])
+        # Oct 29 2026: the log is scoped (own actions + what you manage), so an
+        # admin is the seat that sees every company row - the point here is only
+        # that a department called Personal is not treated as the Personal Vault.
+        self.assertIn("Shared Thing", [e["cred"] for e in self._logs(ADMIN)])
 
     def test_an_admin_behind_a_company_wall_cannot_decide_another_companys_request(self):
         far = self._create(name="Far", who=FAR, backupOwner="", tier="Critical")
@@ -518,14 +521,15 @@ class VaultHardeningTests(unittest.TestCase):
         self._arm_walls()
         self.assertEqual([c["name"] for c in self._as(OWNER).get("/credvault/credentials").json()], ["Near"])
         self.assertEqual([c["name"] for c in self._as(FAR).get("/credvault/credentials").json()], ["Far"])
-        self.assertEqual({c["name"] for c in self._as(ADMIN).get("/credvault/credentials").json()}, {"Near", "Far"})
+        # Neil, 11/02/2026: an Administrator is company-walled; only a Super Administrator passes the walls.
+        self.assertEqual({c["name"] for c in self._as(ADMIN).get("/credvault/credentials").json()}, {"Near"})
         self._otp(OWNER)
         self.assertEqual(self._as(OWNER).post(f"/credvault/credentials/{far}/reveal").status_code, 404)
         self.assertEqual(self._as(OWNER).post(f"/credvault/credentials/{near}/reveal").status_code, 200)
         # The log follows the credential: Fay's "Created" row is not Olive's to see.
         self.assertNotIn("Far", [e["cred"] for e in self._logs(OWNER)])
         self.assertIn("Far", [e["cred"] for e in self._logs(FAR)])
-        self.assertIn("Far", [e["cred"] for e in self._logs(ADMIN)])
+        self.assertNotIn("Far", [e["cred"] for e in self._logs(ADMIN)])   # Company A's Administrator
 
     def test_no_grant_no_vault(self):
         self.assertEqual(self._as(NOGRANT).get("/credvault/credentials").status_code, 403)

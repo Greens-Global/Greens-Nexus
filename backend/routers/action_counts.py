@@ -206,12 +206,16 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
         },
         "dashboard": {
             "announcements": s(lambda: _announcements(db, user)),
+            # Dashboard > Approvals (Oct 30 2026): the inbox total on the tab -
+            # what the caller decides plus their own to-dos.
+            "approvals": int(inbox.get("total") or 0),
         },
         # The Approvals screen (Oct 27 2026): every decision above, plus
         # reimbursements, purchase requests and hiring votes.
         "approvals": {
             "inbox": int(inbox.get("total") or 0),
         },
+
         # Workflows (Oct 28 2026): workflows the system paused (needs
         # attention) in the caller's scope, plus workflow approvals waiting
         # on them (the `workflow` source above).

@@ -2,8 +2,8 @@
 // the dashboard tile, Quick Note) plus the pieces that must not regress: the
 // autosave carries the rev and a 409 shows Keep Mine / Use Theirs, the old
 // tile text moves into a note, the shortcut, and the Markdown round trip.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
 const TODAY = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
 
@@ -28,6 +28,7 @@ vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => 
 import NotesPage from './NotesPage';
 import NotesWidget from './NotesWidget';
 import QuickNotePanel from './QuickNotePanel';
+import { HOLD_RECORD_MS } from '../ui/HoldButton';
 import { isQuickNoteKey, htmlToMarkdown, markdownToHtml, groupByDay, dayHeading, addDays } from './notesModel';
 
 beforeEach(() => {
@@ -67,7 +68,7 @@ describe('Notes page', () => {
       await act(async () => { vi.advanceTimersByTime(900); });
       await waitFor(() => expect(apiMock.noteUpdate).toHaveBeenCalledWith('note_1', expect.objectContaining({ rev: 3, title: 'Budget Review Q4' })));
       expect(await screen.findByRole('button', { name: 'Keep Mine' })).toBeTruthy();
-      expect(screen.getByText(/by bob@greensglobal.com/)).toBeTruthy();
+      expect(screen.getByText(/Bob Brown changed the same part while you were writing/)).toBeTruthy();
       apiMock.noteUpdate.mockResolvedValueOnce(note({ rev: 5, title: 'Budget Review Q4' }));
       fireEvent.click(screen.getByRole('button', { name: 'Keep Mine' }));
       await waitFor(() => expect(apiMock.noteUpdate).toHaveBeenLastCalledWith('note_1', expect.objectContaining({ rev: 4, title: 'Budget Review Q4' })));
@@ -87,8 +88,24 @@ describe('Notes page', () => {
     render(<NotesPage activeSub="notes:note_1" onSubChange={vi.fn()} />);
     expect(await screen.findByText(/This note is in the Trash/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Restore/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Delete Forever/ }));
-    expect(screen.getByText(/This cannot be undone/)).toBeTruthy();
+    // Delete Forever is a hold right on the banner (Neil, Oct 30 2026): no second step.
+    expect(screen.getByRole('button', { name: 'Delete Forever, press and hold' })).toBeTruthy();
+  });
+
+  it('Delete Forever deletes the trashed note once the hold completes', async () => {
+    apiMock.noteGet.mockResolvedValue(note({ trashedAt: new Date().toISOString(), pinned: false }));
+    apiMock.noteDeleteForever.mockResolvedValue({ ok: true });
+    render(<NotesPage activeSub="notes:note_1" onSubChange={vi.fn()} />);
+    const btn = await screen.findByRole('button', { name: 'Delete Forever, press and hold' });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(btn, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(HOLD_RECORD_MS - 200); });
+      expect(apiMock.noteDeleteForever).not.toHaveBeenCalled();
+      await act(async () => { vi.advanceTimersByTime(200); });
+      expect(apiMock.noteDeleteForever).toHaveBeenCalledTimes(1);
+      expect(apiMock.noteDeleteForever).toHaveBeenCalledWith('note_1');
+    } finally { vi.useRealTimers(); }
   });
 
   it('a note shared to read shows who shared it and no editing controls', async () => {
@@ -97,6 +114,28 @@ describe('Notes page', () => {
     expect(await screen.findByText(/Shared by bob@greensglobal.com · Can Read/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
     expect(screen.queryByRole('toolbar', { name: 'Formatting' })).toBeNull();
+  });
+});
+
+describe('Notes page on a phone', () => {
+  const realMatch = window.matchMedia;
+  afterEach(() => { window.matchMedia = realMatch; });
+
+  it('opens a note in the Quick Note sheet over the list, and Close goes back to it', async () => {
+    window.matchMedia = (q) => ({ matches: q === '(max-width: 768px)', media: q, addEventListener() {}, removeEventListener() {} });
+    const onSubChange = vi.fn();
+    render(<NotesPage activeSub="notes:note_1" onSubChange={onSubChange} />);
+    const sheet = await screen.findByRole('dialog', { name: 'Note' });
+    expect(sheet.classList.contains('nt-qn')).toBe(true);
+    // The sheet is up while the note loads; wait for the note itself.
+    expect(await within(sheet).findByDisplayValue('Budget Review')).toBeTruthy();
+    expect(within(sheet).getByRole('button', { name: 'Share' })).toBeTruthy();
+    expect(within(sheet).getByText(/Saved/)).toBeTruthy();
+    // The list is still there under it.
+    expect(screen.getByRole('button', { name: /Budget Review/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /New Note/ })).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Close Note' }));
+    expect(onSubChange).toHaveBeenLastCalledWith('notes');
   });
 });
 

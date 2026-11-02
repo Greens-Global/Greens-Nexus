@@ -13,7 +13,7 @@ vi.mock('../api', () => ({
 }));
 
 import { api } from '../api';
-import { nextSort, applyOrder, useTableColumns, TableHead, useTableSetting, useTableValue, useHasTablePrefs, resetAllTablePrefs, ResetColumnsButton, __setTablePrefsCache } from './tableCols';
+import { nextSort, applyOrder, useTableColumns, TableHead, useTableSetting, useTableValue, useHasTablePrefs, resetAllTablePrefs, ResetColumnsButton, __setTablePrefsCache, whenTablePrefsLoaded } from './tableCols';
 
 describe('nextSort', () => {
   it('cycles unsorted -> asc -> desc -> reset', () => {
@@ -370,5 +370,27 @@ describe('useTableValue', () => {
     render(<ValueHarness />);
     fireEvent.click(screen.getByText('flip'));
     expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('t', { sort: { key: 'dueOn', dir: 'desc' } });
+  });
+});
+
+describe('loading the prefs', () => {
+  // A client that throws before it returns a promise (a bad header, a
+  // missing token) must not break the first load: it falls back like any
+  // failed request, to this browser's cached copy, else empty prefs.
+  it('a synchronous throw from the API falls back to the cached prefs', async () => {
+    localStorage.setItem('nexus.taskTablePrefs', JSON.stringify({ nav: { motion: 'subtle' } }));
+    __setTablePrefsCache(null);
+    api.getTaskTablePrefs.mockImplementationOnce(() => { throw new Error('no token'); });
+    const r = await whenTablePrefsLoaded();
+    expect(r).toEqual({ prefs: { nav: { motion: 'subtle' } }, fromServer: false });
+    localStorage.removeItem('nexus.taskTablePrefs');
+  });
+
+  it('with nothing cached it resolves to empty prefs', async () => {
+    localStorage.removeItem('nexus.taskTablePrefs');
+    __setTablePrefsCache(null);
+    api.getTaskTablePrefs.mockImplementationOnce(() => { throw new Error('no token'); });
+    const r = await whenTablePrefsLoaded();
+    expect(r).toEqual({ prefs: {}, fromServer: false });
   });
 });

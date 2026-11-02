@@ -1,6 +1,6 @@
 // TicketActionDialog - split out of TicketsView.jsx (Oct 2026); the code below
 // moved verbatim, see TicketsView.jsx for the module overview.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Star } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle } from '../tasks/theme';
 import { Modal } from '../tasks/components';
@@ -8,6 +8,18 @@ import { dialog as appDialog } from '../ui/dialog';
 import { requiredHint, TICKET_RESOLUTION, label, field, ticketNoShort } from './ticketMeta';
 import { TicketSelect } from './TicketAtoms';
 import { textToHtml, CSAT_LABELS } from './ticketViewShared';
+import DictateButton from '../components/DictateButton';
+
+// A field label with the mic on its right (Neil, Oct 30 2026): the
+// resolution is required on every resolve and often written in the field.
+function MicLabel({ target, children }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 3 }}>
+      <label style={{ ...label, marginBottom: 0 }}>{children}</label>
+      <DictateButton target={target} />
+    </div>
+  );
+}
 
 // ── Resolve / Confirm / Reopen (Neil, Sep 30) ────────────────────────────────
 // The three moves that close the loop on a ticket, each asking for the one
@@ -27,6 +39,9 @@ import { textToHtml, CSAT_LABELS } from './ticketViewShared';
 // promise; the caller decides how (the TasksContext store, or Support's api).
 export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', onSubmit, onClose }) {
   const [note, setNote] = useState(ticket?.resolutionNote || '');
+  const noteRef = useRef(null);
+  const commentRef = useRef(null);
+  const reasonRef = useRef(null);
   const [resolution, setResolution] = useState(ticket?.resolution || 'fixed');
   // The maintenance record's vendor and cost (Property Tickets) - only for a
   // ticket linked to a property; kept from a previous resolve after a reopen.
@@ -86,8 +101,8 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       )}
       {mode === 'resolve' && (<>
         <div className="nx-fill" style={field}>
-          <label style={label}>Resolution <span style={{ color: NX.red }}>*</span></label>
-          <textarea autoFocus value={note} onChange={(e) => setNote(e.target.value)} rows={4} maxLength={2000}
+          <MicLabel target={noteRef}>Resolution <span style={{ color: NX.red }}>*</span></MicLabel>
+          <textarea ref={noteRef} autoFocus value={note} onChange={(e) => setNote(e.target.value)} rows={4} maxLength={2000}
             placeholder="What was done to fix it? e.g. Replaced the ballast in the front office light."
             style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && noteBad ? { borderColor: NX.red } : null) }} />
           {showErr && noteBad && <div style={requiredHint}>Required - the requester sees this, and it is the record for next time.</div>}
@@ -118,8 +133,8 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       </>)}
       {mode === 'self_resolve' && (
         <div className="nx-fill" style={field}>
-          <label style={label}>What fixed it? (optional)</label>
-          <textarea autoFocus value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
+          <MicLabel target={commentRef}>What fixed it? (optional)</MicLabel>
+          <textarea ref={commentRef} autoFocus value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
             placeholder="e.g. A colleague showed me how to reconnect the printer."
             style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
           <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
@@ -147,15 +162,15 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
           </div>
         )}
         <div className="nx-fill" style={field}>
-          <label style={label}>Anything you would like to tell the team? (optional)</label>
-          <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
+          <MicLabel target={commentRef}>Anything you would like to tell the team? (optional)</MicLabel>
+          <textarea ref={commentRef} value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
             placeholder="Anything the team should know?" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
         </div>
       </>)}
       {mode === 'reopen' && (
         <div className="nx-fill" style={field}>
-          <label style={label}>Why are you reopening it? <span style={{ color: NX.red }}>*</span></label>
-          <textarea autoFocus value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={1000}
+          <MicLabel target={reasonRef}>Why are you reopening it? <span style={{ color: NX.red }}>*</span></MicLabel>
+          <textarea ref={reasonRef} autoFocus value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={1000}
             placeholder="e.g. The light went out again this morning."
             style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && invalid ? { borderColor: NX.red } : null) }} />
           {showErr && invalid && <div style={requiredHint}>Required</div>}

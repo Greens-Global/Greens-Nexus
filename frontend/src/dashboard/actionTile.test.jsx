@@ -200,3 +200,13 @@ describe('phone stack pairing and duplicates', () => {
     expect(spot.y).toBeGreaterThanOrEqual(6);
   });
 });
+
+describe('Fill a Form quick action', () => {
+  it('lands where the + menu item does - Workday\'s form picker', async () => {
+    const { CREATE_ITEMS } = await import('../lib/quickCreate');
+    const qa = QUICK_ACTIONS.find((a) => a.key === 'fill-form');
+    const plus = CREATE_ITEMS.find((i) => i.key === 'form');
+    expect([qa.view, qa.sub]).toEqual(['timeclock', 'form:pick']);
+    expect([qa.view, qa.sub]).toEqual(plus.go);
+  });
+});

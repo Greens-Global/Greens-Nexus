@@ -172,6 +172,12 @@ class ShiftPublishTests(unittest.TestCase):
         # The scheduler sees the change, marked as not yet shared.
         got = self._mine(ADMIN)
         self.assertEqual([(x["start"], x["label"], x["hasChanges"]) for x in got], [("10:00", "Front desk", True)])
+        # ...with what the team sees now, for the block's "was 9:00a - 5:00p"
+        # (Oct 30 2026), and where the unshared changes sit, per day.
+        self.assertEqual(got[0]["was"], {"start": "09:00", "end": "17:00", "label": ""})
+        self._as(ADMIN)
+        sched = self._sched()
+        self.assertEqual((sched["unsharedCount"], sched["unsharedByDate"]), (1, {DATE: 1}))
 
         # Publishing applies it.
         self._as(ADMIN)

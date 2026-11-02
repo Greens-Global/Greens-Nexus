@@ -1,63 +1,70 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
+import { render, screen, cleanup } from '@testing-library/react';
 
-// Teams in a ticket's Collaborators (Neil, Oct 14 2026: "use the same
-// functionality that is in the task module"): a team adds its whole roster
-// in one click, and two or more picked people can be saved as a team.
-
+// Message and Call on Teams beside the requester and the assignee (Frontline
+// Reach, 11/02/2026): the desk reaches the person without leaving the ticket,
+// never for yourself, never for an external.
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ instance: {}, accounts: [] }) }));
 vi.mock('../contexts/RoleContext', async (importOriginal) => ({
   ...(await importOriginal()),
   useRole: () => ({ isExternal: false, can: () => true, myLevel: 3, canAccessModule: () => true,
-    myGrantedModules: new Set(), myEmail: 'agent@example.com' }),
+    myGrantedModules: new Set(), myEmail: 'desk@greensglobal.com' }),
 }));
-const PEOPLE = [
-  { email: 'sagar@example.com', name: 'Sagar Shoundik' },
-  { email: 'pranshu@example.com', name: 'Pranshu Rao' },
-  { email: 'vl@example.com', name: 'VL Kumar' },
-];
 vi.mock('../api', () => {
   const empty = () => Promise.resolve([]);
-  return { api: new Proxy({}, { get: (_, k) => (k === 'getPeopleDirectory' ? () => Promise.resolve(PEOPLE) : empty) }) };
+  return { api: new Proxy({}, { get: () => empty }) };
 });
+vi.mock('../tasks/components', async (importOriginal) => ({
+  ...(await importOriginal()),
+  usePeople: () => [
+    { email: 'req@greensglobal.com', name: 'Rita Req' },
+    { email: 'desk@greensglobal.com', name: 'Dan Desk' },
+    { email: 'guest@partner.com', name: 'Gus Guest', external: true },
+  ],
+}));
 const TICKET = {
-  id: 't1', code: '000001', subject: 'Printer jam', status: 'open', priority: 'medium', type: 'incident',
-  requesterId: 'req@example.com', assigneeId: '', approvalStatus: 'none', typeFields: {}, watcherIds: [],
+  id: 't27', code: '000027', subject: 'Printer jam', status: 'in_progress', priority: 'medium', type: 'incident',
+  requesterId: 'req@greensglobal.com', assigneeId: 'desk@greensglobal.com', approvalStatus: 'none', typeFields: {},
 };
-const updateTicket = vi.fn(() => Promise.resolve(TICKET));
-const createTeam = vi.fn(() => Promise.resolve({ id: 'tm2' }));
+const store = { tickets: [TICKET], ticketsLoaded: true };
+const NAMES = { 'req@greensglobal.com': 'Rita Req', 'desk@greensglobal.com': 'Dan Desk', 'guest@partner.com': 'Gus Guest' };
 vi.mock('../tasks/TasksContext', () => ({
-  useTasks: () => ({ tickets: [TICKET], tasks: [], projects: [], myEmail: 'agent@example.com',
-    teams: [{ id: 'tm1', name: 'IT Dev', memberIds: ['sagar@example.com', 'pranshu@example.com'] }], createTeam,
-    nameOf: (e) => PEOPLE.find((p) => p.email === e)?.name || e, updateTicket, refresh: vi.fn() }),
+  useTasks: () => ({ ...store, tasks: [], projects: [], myEmail: 'desk@greensglobal.com',
+    nameOf: (e) => NAMES[e] || e, updateTicket: vi.fn(), refresh: vi.fn() }),
 }));
 
 const { TicketDrawer } = await import('./TicketsView');
+afterEach(() => cleanup());
 
-afterEach(() => { cleanup(); updateTicket.mockClear(); createTeam.mockClear(); });
-
-const openPicker = async () => {
-  render(<TicketDrawer ticketId="t1" onClose={() => {}} />);
-  await screen.findAllByText(/Collaborators/);
-  fireEvent.click(screen.getByRole('button', { name: 'Collaborators' }));
-};
-
-describe('ticket collaborators: teams, as in the task module', () => {
-  it('a team adds its whole roster in one click', async () => {
-    await openPicker();
-    fireEvent.click(await screen.findByTitle('Add IT Dev (2)'));
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Done' })); });
-    expect(updateTicket).toHaveBeenCalledWith('t1', { watcherIds: ['sagar@example.com', 'pranshu@example.com'] });
+describe('Teams actions on a ticket', () => {
+  it('offers Message and Call for the requester, and nothing for the viewer who is the assignee', async () => {
+    render(<TicketDrawer ticketId="t27" onClose={() => {}} />);
+    const msg = await screen.findByRole('link', { name: 'Message Rita Req on Teams' });
+    expect(msg.getAttribute('href')).toBe('https://teams.microsoft.com/l/chat/0/0?users=req%40greensglobal.com');
+    expect(screen.getByRole('link', { name: 'Call Rita Req on Teams' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: /Dan Desk on Teams/ })).toBeNull();
   });
-
-  it('three people picked can be saved as a personal team', async () => {
-    await openPicker();
-    for (const n of ['Sagar Shoundik', 'Pranshu Rao', 'VL Kumar']) fireEvent.click(await screen.findByText(n));
-    fireEvent.click(screen.getByText(/Save These 3 People as a Team/));
-    fireEvent.change(screen.getByLabelText('Team name'), { target: { value: 'Ticket Crew' } });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save Team' })); });
-    expect(createTeam).toHaveBeenCalledWith({
-      name: 'Ticket Crew', memberIds: ['sagar@example.com', 'pranshu@example.com', 'vl@example.com'], personal: true,
-    });
+  it('shows nothing for a requester who is not in Nexus People (a ticket mailed in from outside)', async () => {
+    store.tickets = [{ ...TICKET, requesterId: 'vendor@outside.com' }];
+    render(<TicketDrawer ticketId="t27" onClose={() => {}} />);
+    await screen.findByText('vendor@outside.com');
+    expect(screen.queryByRole('link', { name: /on Teams/ })).toBeNull();
+    store.tickets = [TICKET];
+  });
+  it('the assignee\'s icons sit beside the picker, with no second copy of the name', async () => {
+    store.tickets = [{ ...TICKET, assigneeId: 'req@greensglobal.com', requesterId: 'desk@greensglobal.com' }];
+    render(<TicketDrawer ticketId="t27" onClose={() => {}} />);
+    const msg = await screen.findByRole('link', { name: 'Message Rita Req on Teams' });
+    // One "Rita Req" on the drawer's Assign To picker; the actions row adds none.
+    expect(screen.getAllByText('Rita Req').length).toBe(1);
+    expect(msg.closest('.nx-person-actions').parentElement.querySelector('button, input, [role="combobox"]')).toBeTruthy();
+    store.tickets = [TICKET];
+  });
+  it('shows nothing for an external assignee', async () => {
+    store.tickets = [{ ...TICKET, assigneeId: 'guest@partner.com' }];
+    render(<TicketDrawer ticketId="t27" onClose={() => {}} />);
+    await screen.findByRole('link', { name: 'Message Rita Req on Teams' });
+    expect(screen.queryByRole('link', { name: /Gus Guest on Teams/ })).toBeNull();
+    store.tickets = [TICKET];
   });
 });

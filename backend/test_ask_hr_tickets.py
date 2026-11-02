@@ -41,7 +41,8 @@ EMP = {"email": "emp@greensglobal.com", "level": 1}            # asks HR
 HR = {"email": "hr@greensglobal.com", "level": 1}              # the company's HR contact, no grants at all
 AGENT = {"email": "agent@greensglobal.com", "level": 1}        # service desk agent (tickets grant)
 MANAGER = {"email": "manager@greensglobal.com", "level": 3}    # a manager - not HR
-ADMIN = {"email": "admin@greensglobal.com", "level": 4}        # administrator
+ADMIN = {"email": "admin@greensglobal.com", "level": 4}        # administrator (company-walled to CO)
+SUPER = {"email": "super@greensglobal.com", "level": 5}        # Super Administrator: every company
 HRFULL = {"email": "hrfull@greensglobal.com", "level": 1}      # Full HR grant
 HRSCOPED = {"email": "hrscoped@greensglobal.com", "level": 1}  # Full HR grant, scoped to the other company
 COLLEAGUE = {"email": "colleague@greensglobal.com", "level": 1}
@@ -360,7 +361,10 @@ class AskHrTicketTests(unittest.TestCase):
     def test_is_hr_for_rules(self):
         self.assertTrue(TC.is_hr_for(self.db, dict(HR), CO))
         self.assertFalse(TC.is_hr_for(self.db, dict(HR), OTHER_CO))
-        self.assertTrue(TC.is_hr_for(self.db, dict(ADMIN), OTHER_CO))
+        # Neil, 11/02/2026: an Administrator is company-walled; only a Super Administrator passes the walls.
+        self.assertTrue(TC.is_hr_for(self.db, dict(ADMIN), CO))
+        self.assertFalse(TC.is_hr_for(self.db, dict(ADMIN), OTHER_CO))
+        self.assertTrue(TC.is_hr_for(self.db, dict(SUPER), OTHER_CO))
         self.assertTrue(TC.is_hr_for(self.db, dict(HRFULL), CO))
         self.assertFalse(TC.is_hr_for(self.db, dict(HRSCOPED), CO))
         self.assertTrue(TC.is_hr_for(self.db, dict(HRSCOPED), OTHER_CO))

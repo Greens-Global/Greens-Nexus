@@ -74,7 +74,8 @@ class InboxCase(unittest.TestCase):
                   models.TaskMemberRequest, models.HrRoleChangeRequest, models.AccountingPartnerChange,
                   models.NexusAccessScope, models.VaultShareRequest, models.VaultCredential, models.KbDocument,
                   models.KbRevision, models.KbCollection, models.ConstructionProject, models.ConstructionDailyLog,
-                  models.HrLifeEvent, models.HrPacketSetting, models.NexusGroupMember, models.NexusGroup):
+                  models.HrLifeEvent, models.HrPacketSetting, models.NexusGroupMember, models.NexusGroup,
+                  models.ApprovalDecision):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=ENTITY, name="Greens Test", hr_contact_email=HRC))
         for em, first, mgr in ((EMP, "Erin", MGR), (MGR, "Max", ""), (MATE, "Mia", MGR),
@@ -125,6 +126,58 @@ class InboxCase(unittest.TestCase):
             history=[{"at": created, "by": who, "action": "submitted", "note": ""}], created_at=created,
             approved_by=approver if status == "approver_approved" else "",
             approved_at="2026-10-13T08:00:00+00:00" if status == "approver_approved" else ""))
+
+    # ── Scopes, departments, who, aging, history (Dashboard > Approvals, Oct 30 2026) ──
+
+    def test_rows_carry_scope_department_and_company(self):
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == EMP).update({"department": "Accounting"})
+        self._time_off("to-1", EMP)
+        self.db.add(models.ItemAssignment(id="asg-1", item_id="it-1", item_name="Laptop", assignee_email=MGR, assigned_by_email=EMP,
+                                          status="pending_acceptance", created_at="2026-10-11T08:00:00+00:00"))
+        self.db.commit()
+        box = self._inbox(MGR)
+        by = {r["kind"]: r for r in box["rows"]}
+        self.assertEqual((by["time_off"]["scope"], by["time_off"]["department"], by["time_off"]["company"], by["time_off"]["companyName"]),
+                         ("decide", "Accounting", ENTITY, "Greens Test"))
+        self.assertEqual(by["assignment_accept"]["scope"], "act")                       # the manager's own to-do
+        self.assertEqual(box["scopes"], {"decide": 1, "act": 1})
+        self.assertEqual(box["departments"], {"Accounting": 1})                        # only what they decide
+        self.assertEqual(box["companies"], {ENTITY: 1})
+        self.assertEqual(box["companyNames"][ENTITY], "Greens Test")
+
+    def test_who_says_what_kind_of_approver_the_caller_is(self):
+        self.assertEqual((self._inbox(MGR)["who"]["isManager"], self._inbox(MGR)["who"]["canApprove"]), (True, True))
+        w = self._inbox(EMP)["who"]
+        self.assertEqual((w["isManager"], w["isHr"], w["isAdmin"], w["isNamedApprover"], w["canApprove"]), (False, False, False, False, False))
+        self.assertEqual((self._inbox(HRC)["who"]["isHr"], self._inbox(HRC)["who"]["canApprove"]), (True, True))
+        # A row with nobody's department still groups under the caller's own.
+        self._time_off("to-2", MATE)
+        self.db.commit()
+        self.assertEqual(self._inbox(MGR)["departments"], {"No Department": 1})
+
+    def test_aging_counts_only_what_the_caller_decides(self):
+        self._time_off("to-3", EMP, created=(date.today() - timedelta(days=9)).isoformat() + "T08:00:00+00:00")
+        self._time_off("to-4", MATE, created=(date.today() - timedelta(days=1)).isoformat() + "T08:00:00+00:00")
+        self.db.add(models.ItemAssignment(id="asg-2", item_id="it-2", item_name="Phone", assignee_email=MGR, assigned_by_email=EMP,
+                                          status="pending_acceptance", created_at=(date.today() - timedelta(days=30)).isoformat() + "T08:00:00+00:00"))
+        self.db.commit()
+        ag = self._inbox(MGR)["aging"]
+        self.assertEqual((ag["counted"], ag["oldestDays"], ag["over3"], ag["over7"], ag["avgDays"]), (2, 9, 1, 1, 5.0))
+
+    def test_history_is_the_deciders_own(self):
+        self._as(MGR)
+        res = self.client.post("/approvals/decided", json={"kind": "time_off", "id": "to-9", "group": "timeoff", "action": "approve",
+                                                           "title": "Vacation - 3 days", "personEmail": EMP, "personName": "Erin Test",
+                                                           "department": "Accounting", "company": ENTITY,
+                                                           "createdAt": (date.today() - timedelta(days=4)).isoformat() + "T08:00:00+00:00"})
+        self.assertEqual(res.status_code, 201, res.text)
+        self.assertEqual(self.client.post("/approvals/decided", json={"kind": "time_off", "id": "", "action": "approve"}).status_code, 400)
+        h = self.client.get("/approvals/history").json()
+        self.assertEqual((h["decidedToday"], h["decidedWeek"], h["avgWaitDays"], len(h["rows"])), (1, 1, 4.0, 1))
+        self.assertEqual((h["rows"][0]["action"], h["rows"][0]["groupLabel"], h["rows"][0]["person"]["name"]), ("approve", "Time Off", "Erin Test"))
+        self._as(EMP)
+        self.assertEqual(self.client.get("/approvals/history").json()["rows"], [])    # never someone else's
+        self.assertIn("approvals", self._counts(MGR)["dashboard"] if "dashboard" in self._counts(MGR) else {"approvals": 0})
 
     # ── The registry ────────────────────────────────────────────────────────
 
@@ -444,6 +497,9 @@ class InboxCase(unittest.TestCase):
                                               step="department", dept_approvers=[MGR], requested_by=MATE,
                                               submitted_at="2026-10-23T08:00:00+00:00",
                                               created_at="2026-10-23T08:00:00+00:00"))
+        self.db.commit()
+        self.assertEqual(self._inbox(MGR)["rows"], [])   # off for the company until turned on (Oct 30 2026)
+        self.db.merge(models.NexusSetting(key=f"hiring_headcount:{ENTITY}", value='{"on": true}'))
         self.db.commit()
         rows = self._inbox(MGR)["rows"]
         self.assertEqual([r["key"] for r in rows], ["headcount:h1"])

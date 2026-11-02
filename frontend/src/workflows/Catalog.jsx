@@ -161,7 +161,7 @@ export default function Catalog() {
           <Section Icon={Play} title="Actions" count={actions.length}>
             {actions.map((a) => (
               <Row key={a.key} title={a.label} chips={<>
-                {a.adminOnly && <Chip tone="warn">Global Admin Only</Chip>}
+                {a.adminOnly && <Chip tone="warn">Super Administrator Only</Chip>}
                 {a.needsPerson && <Chip title="Runs as a directory person, never as Nexus">Needs A Person</Chip>}
                 {isNew(a.key) && <NewChip />}
               </>}>

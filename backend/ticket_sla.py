@@ -262,7 +262,7 @@ def note_comment(db: Session, t, user: dict, internal: bool, at: str) -> bool:
     # An Ask HR ticket is answered by HR (its assignee or HR for its company),
     # who need not be on the service desk at all.
     worker = (ticket_confidential.may_work(db, user, t) if ticket_confidential.is_confidential(t)
-              else ticket_roles.can_work_queue(user, db))
+              else ticket_roles.can_work_queue(user, db, company=getattr(t, "company_id", "") or ""))
     if not counts_as_response(t, user.get("email"), internal, worker):
         return False
     t.first_response_at = iso(parse(at) or utcnow())

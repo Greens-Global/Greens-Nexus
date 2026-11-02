@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } fro
 import { InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import { SendHiringPacketModal, PacketSigner, PersonLifeEvents, PaperworkStatus, usDay } from '../components/HiringPacket';
 import PacketReview from '../components/PacketReview';
+import SendFederalFormMenu from '../components/SendFederalFormMenu';
 import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import { ProbationBadge, ProbationCard } from '../components/HrProbation';
@@ -28,6 +29,7 @@ import { formatDistance, metersToFeet, feetToMeters } from '../lib/distance';
 import { timeTrackingText } from '../lib/timeTracking';
 import { useNameResolver } from '../lib/useNameResolver';
 import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
@@ -45,6 +47,7 @@ import { LevelPill, ModuleLevelPill, TierBadge, RoleOptions, rolesForCompany } f
 // External tab folded into People (Neil, Aug 24: one master list) - only the
 // shared pieces remain in use: badge, invite modal, lifecycle section.
 import { ExternalBadge, InviteExternalModal, inviteOutcomeToast, ExternalPersonSection } from './ExternalUsersPanel';
+import TierMark from '../components/TierMark';
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
@@ -890,7 +893,7 @@ export function WorkLogsSection({ employee }) {
   );
 }
 
-function DocumentsSection({ employeeId, toastOk, toastErr }) {
+function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
   const [docs, setDocs] = useState(null);
   const [kind, setKind] = useState('other');
   const [uploading, setUploading] = useState(false);
@@ -925,6 +928,8 @@ function DocumentsSection({ employeeId, toastOk, toastErr }) {
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
           <FileText size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Documents
         </span>
+        {/* Federal forms (Neil, 11/02/2026): HR++ sends a W-4, I-9 or direct deposit form to this person. */}
+        {employee && <SendFederalFormMenu employee={employee} toastOk={toastOk} toastErr={toastErr} onSent={onSent} />}
         <select className="form-input" value={kind} onChange={e => setKind(e.target.value)} style={{ padding: '3px 8px', fontSize: 11.5, height: 28 }}>
           {DOC_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
@@ -1794,8 +1799,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const { canAccessModule: canAccessHr, myEmail: viewerEmail } = useRole();
   const canEditChecklist = canAccessHr('hr', 'administrator', 'editor');
   const canEditProfile = canAccessHr('hr', 'manager', 'editor');
-  // Promote / Change Role: HR editors outside a team view, IT Admins and
-  // Global Admins only (Neil, Oct 22 - "Manager calls HR"); the server's
+  // Promote / Change Role: HR editors outside a team view, Administrators and
+  // Super Administrators only (Neil, Oct 22 - "Manager calls HR"); the server's
   // role_change.can_change_roles is the same rule.
   const canChangeRole = !teamView && canAccessHr('hr', 'administrator', 'editor');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
@@ -1889,7 +1894,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             the name into a one-word column. */}
         <div style={{ flex: 1, minWidth: 'min(100%, 220px)' }}>
           <div style={{ fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {fullName(e)}
+            {fullName(e)}<TierMark tier={e.tier} size={16} />
             {e.identityType && e.identityType !== 'internal' && (
               <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-orange),0.14)', color: 'hsl(var(--color-orange))' }}>
                 {e.identityType === 'guest' ? 'Guest' : 'External'}
@@ -2208,7 +2213,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           <>
             {/* Signed offer / packet / letters, one line each with their filing (off the header - Neil, Oct 22). */}
             {!teamView && <PersonLifeEvents signed employeeId={e.id} workEmail={e.workEmail} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
-            <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
+            <DocumentsSection employeeId={e.id} employee={teamView ? null : e} onSent={onReload} toastOk={toastOk} toastErr={toastErr} />
             {/* The person's wired Egnyte folder (Neil, Aug 6): hiring package,
                 invoices, payment proofs live in Egnyte, not as Nexus uploads.
                 Resolution + re-pointing happen in Egnyte - Wiring. */}
@@ -2277,6 +2282,14 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [openingFilter, setOpeningFilter] = useState('');   // '' = every candidate
   const loadOpenings = useCallback(() => { api.listOpenings().then(setOpenings).catch(() => {}); }, []);
   useEffect(() => { loadOpenings(); }, [loadOpenings]);
+  // Headcount Requests are off per company until Settings turns them on (Neil,
+  // Oct 30 2026): no Headcount tab without any, and where they are off HR
+  // starts openings by hand (directOpeningCompanies).
+  const [hcMeta, setHcMeta] = useState({ showTab: false, directOpeningCompanies: [] });
+  useEffect(() => {
+    Promise.resolve().then(() => api.headcountMeta())
+      .then(m => setHcMeta({ showTab: !!m?.showTab, directOpeningCompanies: m?.directOpeningCompanies || [] })).catch(() => {});
+  }, []);
   // Roles typed in as Other on Add Candidate that have no hiring packet yet
   // (Neil, Oct 12) - the Packets button carries the count until each has one.
   const [needPackets, setNeedPackets] = useState([]);
@@ -2325,7 +2338,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const activeOpenings = openings.filter(o => ['draft', 'open', 'paused'].includes(o.status) || o.id === openingFilter);
   const viewTabs = (
     <div className="scroll-tabs" role="tablist" aria-label="Hiring" style={{ display: 'flex', gap: 4 }}>
-      {[['pipeline', 'Pipeline'], ['openings', `Openings${activeOpenings.length ? ` (${activeOpenings.length})` : ''}`], ['headcount', 'Headcount']].map(([k, label]) => (
+      {[['pipeline', 'Pipeline'], ['openings', `Openings${activeOpenings.length ? ` (${activeOpenings.length})` : ''}`], ...(hcMeta.showTab ? [['headcount', 'Headcount']] : [])].map(([k, label]) => (
         <button key={k} type="button" role="tab" aria-selected={hView === k} onClick={() => { setHView(k); if (k === 'pipeline') { refreshBoard(); loadOpenings(); } }}
           className={hView === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 12.5, padding: '5px 12px' }}>{label}</button>
       ))}
@@ -2337,8 +2350,8 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>{viewTabs}</div>
         <Suspense fallback={<SkeletonBlocks count={3} height={64} />}>
           {hView === 'openings'
-            ? <JobOpenings toastOk={toastOk} toastErr={toastErr} canSeePay={canSeePay}
-              onFilterPipeline={id => { setOpeningFilter(id); setHView('pipeline'); refreshBoard(); loadOpenings(); }} />
+            ? <JobOpenings toastOk={toastOk} toastErr={toastErr} canSeePay={canSeePay} directCompanies={hcMeta.directOpeningCompanies}
+              onCreated={loadOpenings} onFilterPipeline={id => { setOpeningFilter(id); setHView('pipeline'); refreshBoard(); loadOpenings(); }} />
             : <HeadcountRequests toastOk={toastOk} toastErr={toastErr} />}
         </Suspense>
       </div>
@@ -2700,6 +2713,7 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
               their own company on the company line. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
             <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{fullName(e)}</span>
+            <TierMark tier={e.tier} size={12} />
             {ext && (
               <span title={e.identityType === 'guest' ? 'Guest account (Microsoft 365 guest)' : 'External user (no Microsoft 365 login)'}
                 style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', padding: '1px 6px', borderRadius: 5,
@@ -3381,7 +3395,7 @@ export function CompanyDepartments({ entity, toastOk, toastErr }) {
     <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
       <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
         Departments for <strong>{entity.name}</strong>. These are the only choices when picking a department for someone in this company.
-        The department head is the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Contact Directory.
+        The department head is the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Directory.
         The head and the backup both get the HR, IT and Accounting steps of every checklist, so set a backup for anyone who can be out.
         Weather Calls: rain advisories and weather calls apply only to the people of departments with it on - on for Construction by default.
       </p>
@@ -3573,10 +3587,18 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
     } catch (e) { toastErr(e?.message || 'Could not save company.'); }
     setBusy(false);
   }
+  // A company reaches every worker linked to it, so its Delete is a held
+  // dialog (Hold to confirm, Neil, Oct 30 2026): the dialog waits for the
+  // call and stays open with the reason when it is refused.
   async function remove(en) {
-    if (!await dialog.confirm(`Delete "${en.name}"? Workers keep their record but lose this company link.`, { title: 'Delete company', confirmText: 'Delete', danger: true })) return;
-    try { await api.deleteEntity(en.id); await onChangedEntities(); toastOk('Company deleted.'); }
-    catch (e) { toastErr(e?.message || 'Could not delete company.'); }
+    await dialog.confirm(`Delete "${en.name}"? Workers keep their record but lose this company link.`, {
+      title: 'Delete Company', confirmText: 'Delete Company', doneText: 'Deleted', hold: true, holdMs: HOLD_MAJOR_MS,
+      onConfirm: async () => {
+        try { await api.deleteEntity(en.id); }
+        catch (e) { throw new Error(e?.message || 'Could not delete company.', { cause: e }); }
+        await onChangedEntities(); toastOk('Company deleted.');
+      },
+    });
   }
   async function seedDefaults() {
     setBusy(true);
@@ -5453,6 +5475,12 @@ export default function HR({ activeSub, onSubChange }) {
     const m = String(activeSub || '').match(/^hr-probation-(.+)$/);
     if (m) { setProbationFocus(m[1]); setOpenTab('overview'); setSelectedId(m[1]); onSubChange?.('hr-people'); }
   }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The federal-form bells ("W-4 Signed - <name>", 11/02/2026) land on
+  // hr-documents-<employee id>: the person's Documents tab.
+  useEffect(() => {
+    const m = String(activeSub || '').match(/^hr-documents-(.+)$/);
+    if (m) { setOpenTab('documents'); setSelectedId(m[1]); onSubChange?.('hr-people'); }
+  }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = !hrTeam && canAccessModule('hr_comp', 'owner', 'viewer');   // a team view never shows pay
   const isAdmin = can('administrator');   // Roles & Access tab is admin-only
@@ -5986,7 +6014,7 @@ export default function HR({ activeSub, onSubChange }) {
                             <Avatar e={e} card={false} />
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                {fullName(e)}{isExtRow(e) && <ExternalBadge />}
+                                {fullName(e)}{isExtRow(e) && <ExternalBadge />}<TierMark tier={e.tier} />
                                 <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                               </div>
                               <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -6035,7 +6063,7 @@ export default function HR({ activeSub, onSubChange }) {
                           <Avatar e={e} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {fullName(e)}{isExtRow(e) && <ExternalBadge />}
+                              {fullName(e)}{isExtRow(e) && <ExternalBadge />}<TierMark tier={e.tier} />
                                 <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                             </div>
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>

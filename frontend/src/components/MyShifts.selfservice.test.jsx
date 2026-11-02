@@ -155,11 +155,12 @@ describe('MyShifts week and group grid', () => {
     expect(me.textContent).not.toMatch(/Hrs/);
     expect(bob.textContent).not.toMatch(/Hrs/);
     const block = me.querySelector('[data-shift="mine1"]');
-    expect(block.textContent).toBe('9:00a - 5:00pFront Desk');       // the time, the label under it - no code (Oct 28 2026)
+    expect(block.textContent).toBe('9:00a - 5:00pFront Desk');    // the time, the label under it - no type code (Neil, Oct 30 2026)
     expect(block.getAttribute('title')).toContain('Lunch 30m');          // the lunch is the hover title
     expect(block.textContent).not.toMatch(/PDT|PST/);                    // same zone as the team: no chip
-    expect(block.getAttribute('style')).not.toMatch(/border-left|inset/);          // no colored edge stripe (Neil, Oct 14): the tint carries the color
-    expect(block.style.background).toMatch(/rgba|color-mix|#/);
+    expect(block.getAttribute('style')).not.toMatch(/border-left|inset/);          // no colored edge stripe (Neil, Oct 14)
+    expect(block.style.background).toBe('var(--card)');                 // no tint: a dot carries the color (Oct 30 2026)
+    expect(block.querySelector('[data-type-dot]').style.background).toBe('rgb(37, 99, 235)');
     const grid = screen.getByRole('table', { name: 'Store schedule' });
     expect(grid.textContent).not.toContain('Hrs');
     expect(grid.textContent).not.toContain('Times in');
@@ -327,7 +328,7 @@ describe('MyShifts requests', () => {
     const block = await waitFor(() => { const el = document.querySelector('[data-shift="open1"]'); expect(el).toBeTruthy(); return el; });
     expect(block.closest('[data-member]').getAttribute('data-member')).toBe('open');
     expect(block.textContent).toContain('Early');
-    expect(block.textContent).toContain('×2');
+    expect(block.textContent).toContain('2 open');
     expect(screen.getAllByRole('button', { name: /Request the open shift/ })).toHaveLength(1);   // none on the past day
     fireEvent.click(screen.getByRole('button', { name: `Request the open shift on ${DAY}` }));
     await waitFor(() => expect(shiftRequestCreate).toHaveBeenCalledWith({ kind: 'open', shift_id: 'open1' }));
@@ -577,16 +578,30 @@ describe('MyShifts live status (Miranda, Oct 21 2026)', () => {
     const cara = screen.getByText('Clocked Out').closest('[data-member]');
     expect(cara.getAttribute('data-member')).toBe('cara@x.com');
     expect(cara.querySelector('[data-on-dot]')).toBeNull();
+    // The live strip (Neil, 11/02/2026): four soft chips counted over the
+    // rows - me working, Bob on a break, Cara clocked out is Off.
     const head = document.querySelector('[data-live-summary]');
-    expect(head.textContent).toBe('On Break: Bob · Working: you');
-    expect(head.querySelector('b').textContent).toBe('On Break: Bob');
+    expect(Array.from(head.querySelectorAll('.nx-label')).map((l) => l.textContent)).toEqual(['In 1', 'On Break 1', 'Late 0', 'Not In 1']);
     expect(screen.queryByText(/^On shift now/)).toBeNull();
   });
 
-  it('says nobody is clocked in when the live map has no one working', async () => {
+  it('counts everyone Off when the live map has no one working', async () => {
     timeMyScheduleLive.mockResolvedValue(liveMap({}));
     render(<MyShifts part="team" />);
-    expect(await screen.findByText('Nobody clocked in right now')).toBeTruthy();
+    expect(await screen.findByText('Not In 2')).toBeTruthy();
+    expect(screen.getByText('In 0')).toBeTruthy();
+    expect(screen.getByText('Late 0')).toBeTruthy();
+  });
+
+  it('counts the server\'s late people and a Late chip filters the grid to them', async () => {
+    timeMyScheduleLive.mockResolvedValue({ ...liveMap({ 'me@x.com': { state: 'working', label: 'Working', since: ago(30) } }), late: ['bob@x.com'] });
+    render(<MyShifts part="team" />);
+    expect(await screen.findByText('Late 1')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Late 1' }));
+    const shown = Array.from(document.querySelectorAll('[role="row"][data-member]')).map((r) => r.getAttribute('data-member')).filter((m) => m !== 'open');
+    expect(shown).toEqual(['bob@x.com']);
+    fireEvent.click(screen.getByRole('button', { name: 'Late 1' }));
+    expect(document.querySelectorAll('[role="row"][data-member="me@x.com"]').length).toBe(1);
   });
 
   it('keeps the schedule and the On shift now line when the live call fails', async () => {

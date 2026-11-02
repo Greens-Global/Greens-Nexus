@@ -66,9 +66,12 @@ class PropertyTicketTests(unittest.TestCase):
             # include_deleted: soft-deleted tickets (#439) still hold their codes,
             # and the never-repeating counter (#437) restarts only once both go.
             self.db.query(m).execution_options(include_deleted=True).delete()
+        # Everyone is in company c1 (the departments' company), so the tickets
+        # they file land there and the Administrator - company-walled since
+        # 11/02/2026 (Neil) - reaches them.
         for email in (ADMIN["email"], PLAIN["email"], MANAGER, WALKER["email"], DESK2, EDITOR["email"]):
             self.db.add(models.NexusEmployee(id=gen_id(), first_name=email.split("@")[0], work_email=email,
-                                             status="active", identity_type="internal"))
+                                             status="active", identity_type="internal", company="c1"))
         for email in (ADMIN["email"], DESK2):   # no desk roster configured -> administrators
             self.db.add(models.NexusRole(email=email, role="administrator"))
         self.db.add(models.NexusGroup(id="g-asset", name="Asset Team", allowed_modules="property-asset:viewer"))
@@ -243,6 +246,21 @@ class PropertyTicketTests(unittest.TestCase):
         self.assertEqual(self.db.get(models.TicketBatch, out["batchId"]).ticket_count, 3)
         self.assertFalse(out["replayed"])
         self.assertNotIn(MANAGER, out["tickets"][0]["watcherIds"])
+
+    def test_a_lines_voice_notes_and_videos_become_attachments(self):
+        base = W._EVIDENCE_PREFIX or "https://store.example/ticket-evidence/"
+        out, _ = self._walk([self._line("Leak by the boiler", images=[base + "image-1.jpg"],
+                                        clips=[base + "audio-1.m4a", base + "video-1.mov", base + "audio-2.webm"])])
+        rows = (self.db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == out["tickets"][0]["id"])
+                .order_by(models.TaskAttachment.name).all())
+        self.assertEqual([(r.name, r.kind) for r in rows],
+                         [("Photo 1", "image"), ("Video 1.mov", "video"), ("Voice Note 1.m4a", "audio"), ("Voice Note 2.webm", "audio")])
+        with self.assertRaises(HTTPException) as cm:            # a clip must be in the evidence bucket
+            self._walk([self._line("x", clips=["data:audio/mp4;base64,AAAA"])])
+        self.assertEqual(cm.exception.detail["lines"][0]["field"], "clips")
+        with self.assertRaises(HTTPException) as cm:
+            self._walk([self._line("x", clips=[base + f"audio-{i}.m4a" for i in range(W.MAX_CLIPS_PER_LINE + 1)])])
+        self.assertEqual(cm.exception.detail["lines"][0]["field"], "clips")
 
     def test_one_bad_line_files_nothing_and_names_the_line(self):
         with self.assertRaises(HTTPException) as cm:

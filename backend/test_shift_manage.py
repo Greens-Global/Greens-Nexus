@@ -40,7 +40,7 @@ with database.engine.connect() as _c:
         except Exception:
             pass
 
-BOSS = "smgr.boss@greensglobal.com"     # administrator: company-wide
+BOSS = "smgr.boss@greensglobal.com"     # Super Administrator: company-wide
 M1 = "smgr.m1@greensglobal.com"         # manager of A, member of the Store group
 M2 = "smgr.m2@greensglobal.com"         # manager of B, NOT in the group
 A = "smgr.a@greensglobal.com"
@@ -63,7 +63,7 @@ class ShiftManageTests(unittest.TestCase):
             for em in (BOSS, M1, M2, A, B, HR):
                 db.add(models.NexusEmployee(id=f"emp-{em}", first_name=em.split(".")[1].upper(), last_name="X",
                                             work_email=em, status="active", deleted_at="", manager_email=mgr.get(em, "")))
-            db.add(models.NexusRole(email=BOSS, role="administrator", assigned_by="test"))
+            db.add(models.NexusRole(email=BOSS, role="owner", assigned_by="test"))
             db.add(models.NexusRole(email=M1, role="manager", assigned_by="test"))
             db.add(models.NexusRole(email=M2, role="manager", assigned_by="test"))
             db.add(models.NexusGroup(id=GRANT, name="ed", allowed_modules="hr:editor"))
@@ -198,7 +198,7 @@ class ShiftManageTests(unittest.TestCase):
             self.assertEqual(db.query(models.ScheduledShift).filter(models.ScheduledShift.id == boss_open).first().published, 0)
         finally:
             db.close()
-        # An unscoped administrator may change anyone's open shift.
+        # A Super Administrator may change anyone's open shift.
         self._as(BOSS)
         self.assertEqual(self.client.patch(f"/timeclock/schedule/{boss_open}", json=body).status_code, 200)
 

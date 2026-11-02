@@ -417,7 +417,7 @@ function IntacctImport({ names, onClose, onApplied }) {
   };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Entity access from Intacct" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'max(60vw, min(1100px, 96vw))', maxHeight: '92vh' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Entity access from Intacct" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'max(60vw, min(1100px, 96vw))' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>Entity Access From Intacct</h3>

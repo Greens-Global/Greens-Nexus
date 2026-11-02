@@ -210,6 +210,7 @@ class RequestRateLimit(BaseHTTPMiddleware):
                           "/timeclock/agent/self-enroll", "/timeclock/agent/release",
                           "/hr/intake/public/",
                           "/timeclock/ical/",   # the calendar subscribe feed: a signed link, no login (Shifts Phase 3a)
+                          "/credvault/personal/lock/",   # the Personal Vault password: guessed online (Oct 29 2026)
                           "/task-changelog-feed/",   # What's New RSS: a signed link, no login (Oct 16 2026)
                           "/unit-map/",   # customer unit map: a signed link, no login (Oct 20 2026)
                           "/dev-notes/tokens",   # Build Mode: mints Build Tokens (credential-minting, Oct 24 2026)

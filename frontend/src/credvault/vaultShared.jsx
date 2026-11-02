@@ -88,7 +88,10 @@ export function agoLabel(ts) {
 }
 
 // away, since that's a deliberate choice.
-export function Modal({ children, onClose, isDirty = false, onSave }) {
+// `center` (Neil, 11/01/2026): a desktop popup is a sheet from the right
+// (style.css "Sheets"); a question - the OTP prompt, the Personal Vault
+// password - passes `center` and keeps the centered card (.nx-center).
+export function Modal({ children, onClose, isDirty = false, onSave, center = false }) {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const requestClose = () => { if (isDirty) setConfirming(true); else onClose(); };
@@ -107,7 +110,7 @@ export function Modal({ children, onClose, isDirty = false, onSave }) {
       <div className="cv-modal-backdrop" onClick={requestClose} />
       {/* 60% of the screen (CLAUDE.md popup rule) via .nx-popup; a caller's `wide` no
           longer adds .cv-modal-wide (its later, equally specific rule would cap it). */}
-      <div className="cv-modal cv-root nx-popup">
+      <div className={`cv-modal cv-root nx-popup${center ? " nx-center" : ""}`}>
         <button onClick={requestClose} className="cv-modal-close"><X size={19} /></button>
         {children}
       </div>
@@ -224,7 +227,7 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify Your Identi
   }
 
   if (loadErr) return (
-    <Modal onClose={onClose}>
+    <Modal center onClose={onClose}>
       <ModalHeader icon={<ShieldCheck size={19} />} tint="sky" title={title} subtitle={subtitle} />
       <div style={{ fontSize: 13, color: "var(--cv-rose)" }}>{loadErr}</div>
       <div style={rowBetween}><button onClick={onClose} className="cv-btn">Close</button></div>
@@ -232,7 +235,7 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify Your Identi
   );
 
   if (!channel) return (
-    <Modal onClose={onClose}>
+    <Modal center onClose={onClose}>
       <ModalHeader icon={<ShieldCheck size={19} />} tint="sky" title={title} subtitle={subtitle} />
       {!targets ? <LoadingState compact /> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -260,7 +263,7 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify Your Identi
   );
 
   return (
-    <Modal onClose={onClose}>
+    <Modal center onClose={onClose}>
       <ModalHeader icon={channel === "sms" ? <MessageCircle size={19} /> : <Mail size={19} />} tint={channel === "sms" ? "emerald" : "sky"}
         title={channel === "sms" ? "SMS Authentication" : "Email Authentication"} subtitle={title} />
       <div style={{ borderRadius: 12, background: channel === "sms" ? "var(--cv-emerald-bg)" : "var(--cv-sky-bg)", border: `1px solid ${channel === "sms" ? "var(--cv-emerald-line)" : "var(--cv-sky-line)"}`, padding: "8px 14px", marginBottom: 14, fontSize: 12, color: channel === "sms" ? "var(--cv-emerald)" : "var(--cv-sky)", display: "flex", alignItems: "center", gap: 8 }}>
@@ -375,17 +378,17 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
   }
 
   if (step === "loading") return (
-    <Modal onClose={onClose}>
+    <Modal center onClose={onClose}>
       <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Personal Vault" subtitle="Loading…" />
     </Modal>
   );
 
   if (step === "setup") return (
-    <Modal onClose={onClose}>
+    <Modal center onClose={onClose}>
       <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Set Up Your Personal Vault Password" subtitle="Choose a password to protect your Personal Vault." />
       {msaTag}
       <div style={{ borderRadius: 12, background: "var(--cv-amber-bg)", border: "1px solid var(--cv-amber-line)", padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "var(--cv-amber)" }}>
-        Your Personal Vault will be bound to <strong>{userEmail}</strong>. No one else - including Global Admin - can access it. Don't forget this password: you'll need SMS or Email to reset it.
+        Your Personal Vault will be bound to <strong>{userEmail}</strong>. No one else - including a Super Administrator - can access it. Don't forget this password: you'll need SMS or Email to reset it.
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <Field label="New password" required>
@@ -405,7 +408,7 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
   );
 
   if (step === "enter") return (
-    <Modal onClose={onClose}>
+    <Modal center onClose={onClose}>
       <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Unlock Personal Vault" subtitle="Enter your Personal Vault password." />
       {msaTag}
       <Field label="Password" required>
@@ -426,7 +429,7 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
   );
 
   if (step === "forgot-choose") return (
-    <Modal onClose={onClose}>
+    <Modal center onClose={onClose}>
       <ModalHeader icon={<KeyRound size={19} />} tint="indigo" title="Reset Personal Vault Password" subtitle="Verify it's you via SMS or Email, then choose a new password." />
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <button onClick={() => sendForgotCode("email")} disabled={busy} className="cv-btn" style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12 }}>
@@ -455,7 +458,7 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
   );
 
   if (step === "forgot-verify") return (
-    <Modal onClose={onClose}>
+    <Modal center onClose={onClose}>
       <ModalHeader icon={channel === "sms" ? <MessageCircle size={19} /> : <Mail size={19} />} tint={channel === "sms" ? "emerald" : "sky"}
         title={channel === "sms" ? "SMS Authentication" : "Email Authentication"} subtitle="Reset Personal Vault password" />
       <div style={{ borderRadius: 12, background: channel === "sms" ? "var(--cv-emerald-bg)" : "var(--cv-sky-bg)", border: `1px solid ${channel === "sms" ? "var(--cv-emerald-line)" : "var(--cv-sky-line)"}`, padding: "8px 14px", marginBottom: 14, fontSize: 12, color: channel === "sms" ? "var(--cv-emerald)" : "var(--cv-sky)", display: "flex", alignItems: "center", gap: 8 }}>
@@ -482,7 +485,7 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
 
   // step === "new-password"
   return (
-    <Modal onClose={onClose}>
+    <Modal center onClose={onClose}>
       <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Choose a New Password" subtitle="Verified - set a new Personal Vault password." />
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <Field label="New password" required>
@@ -499,5 +502,21 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
         <button onClick={submitReset} disabled={busy} className="cv-btn-dark cv-btn-indigo">{busy ? "Saving…" : "Reset Password & Unlock"}</button>
       </div>
     </Modal>
+  );
+}
+
+// Previous / Next over a list (Oct 29 2026): Activity shows 20 a page, a
+// credential's History 10. Says where you are; hidden when one page is enough.
+export function Pager({ page, pages, total, size, onPage, compact = false }) {
+  if (pages <= 1) return null;
+  const from = (page - 1) * size + 1, to = Math.min(total, page * size);
+  return (
+    <div className="cv-pager" data-pager="">
+      <span className="cv-hint">{from}-{to} of {total}</span>
+      <span style={{ flex: 1 }} />
+      <button type="button" className="cv-btn" style={compact ? { padding: "3px 9px", fontSize: 12 } : undefined} onClick={() => onPage(page - 1)} disabled={page <= 1}>Previous</button>
+      <span className="cv-hint" style={{ padding: "0 6px" }}>{page} / {pages}</span>
+      <button type="button" className="cv-btn" style={compact ? { padding: "3px 9px", fontSize: 12 } : undefined} onClick={() => onPage(page + 1)} disabled={page >= pages}>Next</button>
+    </div>
   );
 }

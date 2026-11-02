@@ -354,6 +354,9 @@ class HrPackCase(unittest.TestCase):
         self.assertEqual(dec.actor, GA)
 
     def test_headcount_submit_and_decision_each_emit_once(self):
+        # Headcount Requests are off per company until turned on (Oct 30 2026).
+        self.db.merge(models.NexusSetting(key=f"hiring_headcount:{ENTITY}", value='{"on": true}'))
+        self.db.commit()
         self._as(GA)
         res = self.client.post("/hiring/headcount", json={
             "company": ENTITY, "department": "Operations", "role_title": "Site Supervisor",

@@ -21,7 +21,7 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
+from routers import tasks, purchases, reviews, marketing, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
@@ -1035,6 +1035,8 @@ def _run_migrations():
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
             # Pay-printing envelopes need Pay & Benefits to download (Oct 14). models.HrSignRequest.prints_pay.
             "ALTER TABLE hr_sign_requests ADD COLUMN prints_pay INTEGER DEFAULT 0",
+            # Where the sealed copy was filed in Egnyte (Oct 31 2026). models.HrSignRequest.egnyte_filed_path.
+            "ALTER TABLE hr_sign_requests ADD COLUMN egnyte_filed_path VARCHAR DEFAULT ''",
             # Template Publish (Oct 14). models.DocTemplate.published_*.
             "ALTER TABLE doc_templates ADD COLUMN published_version INTEGER DEFAULT 0",
             "ALTER TABLE doc_templates ADD COLUMN published_meta JSON DEFAULT '{}'",
@@ -1371,6 +1373,13 @@ def _run_migrations():
             "ALTER TABLE shift_groups ADD COLUMN open_shifts INTEGER DEFAULT 0",
             "ALTER TABLE shift_groups ADD COLUMN department VARCHAR DEFAULT ''",
             "ALTER TABLE shift_group_members ADD COLUMN source VARCHAR DEFAULT ''",
+            # Credentials (Oct 29 2026): a link on a Personal Vault row. models.VaultPersonalCredential.
+            "ALTER TABLE vault_personal_credentials ADD COLUMN url VARCHAR DEFAULT ''",
+            # Credentials security pass (Oct 29 2026): authenticator key, where a reveal came from.
+            "ALTER TABLE vault_credentials ADD COLUMN totp_enc VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_access_logs ADD COLUMN ip VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_access_logs ADD COLUMN user_agent VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_credentials ADD COLUMN company_id VARCHAR DEFAULT ''",
             # Performance, made simple (Oct 29) - see the Postgres list. models.PerfGoal / PerfReview.
             "ALTER TABLE hr_perf_goals ADD COLUMN metric_key VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_goals ADD COLUMN period_start VARCHAR DEFAULT ''",
@@ -1402,6 +1411,49 @@ def _run_migrations():
             "ALTER TABLE hr_perf_reviews ADD COLUMN calibrated_from VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_reviews ADD COLUMN calibrated_by VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_reviews ADD COLUMN calibrated_at VARCHAR DEFAULT ''",
+            # Notes working together (Oct 30) - see the Postgres list. models.NexusNote.
+            "ALTER TABLE nexus_notes ADD COLUMN seen TEXT DEFAULT '{}'",
+            "ALTER TABLE nexus_notes ADD COLUMN ydoc TEXT DEFAULT ''",
+            "ALTER TABLE nexus_notes ADD COLUMN yepoch VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_notes ADD COLUMN collab_key VARCHAR DEFAULT ''",
+            # Cubby tasks in Nexus Tasks (Oct 31 2026) - see the Postgres list. models.Task.
+            "ALTER TABLE tasks ADD COLUMN cubby_task_id VARCHAR DEFAULT ''",
+            # Boards (Neil 11/02/2026) - see the Postgres list. models.NexusNote / NexusNoteVersion.
+            "ALTER TABLE nexus_notes ADD COLUMN scene TEXT DEFAULT ''",
+            "ALTER TABLE nexus_notes ADD COLUMN thumb_url VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_notes ADD COLUMN source TEXT DEFAULT ''",
+            "ALTER TABLE nexus_note_versions ADD COLUMN scene TEXT DEFAULT ''",
+            # Announcements reach (Neil 11/02/2026) - see the Postgres list. models.Announcement.
+            "ALTER TABLE nexus_announcements ADD COLUMN image_url VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_announcements ADD COLUMN file_url VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_announcements ADD COLUMN file_name VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_announcements ADD COLUMN publish_at VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_announcements ADD COLUMN notify VARCHAR DEFAULT 'quiet'",
+            "ALTER TABLE nexus_announcements ADD COLUMN notified_at VARCHAR DEFAULT ''",
+            # Posts from before these columns were belled at create: stamp them
+            # published, or the first publish pass would bell everyone again.
+            "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
+            # Forms (Neil 11/02/2026): a form is a DocTemplate with its audience. models.DocTemplate.
+            "ALTER TABLE doc_templates ADD COLUMN audience VARCHAR DEFAULT 'company'",
+            "ALTER TABLE doc_templates ADD COLUMN work_site_id VARCHAR DEFAULT ''",
+            "ALTER TABLE doc_templates ADD COLUMN show_on_shifts INTEGER DEFAULT 0",
+            # A published version keeps its field list (entries read against it). models.DocTemplateVersion.
+            "ALTER TABLE doc_template_versions ADD COLUMN field_defs JSON",
+            # Work-site audience (Neil, 11/02/2026).
+            "ALTER TABLE nexus_announcements ADD COLUMN work_site_id VARCHAR DEFAULT ''",
+            # Federal forms in hiring packets (Neil, 11/02/2026) - see the Postgres list.
+            "ALTER TABLE hr_packet_settings ADD COLUMN federal_forms JSON DEFAULT '[]'",
+            # Sign-in notices (Neil, 11/02/2026): where each session signed in
+            # from (sign_in_watch.record). models.ServerSession.
+            "ALTER TABLE server_sessions ADD COLUMN ip VARCHAR DEFAULT ''",
+            "ALTER TABLE server_sessions ADD COLUMN user_agent VARCHAR DEFAULT ''",
+            "ALTER TABLE server_sessions ADD COLUMN ua_summary VARCHAR DEFAULT ''",
+            "ALTER TABLE server_sessions ADD COLUMN location VARCHAR DEFAULT ''",
+            # The weather follows the jobsite (Neil, 10/30/2026) - see the Postgres list.
+            "ALTER TABLE scheduled_shifts ADD COLUMN jobsite VARCHAR DEFAULT ''",
+            "ALTER TABLE weather_outlook ADD COLUMN place VARCHAR DEFAULT ''",
+            "ALTER TABLE weather_advisories ADD COLUMN place VARCHAR DEFAULT ''",
+            "ALTER TABLE weather_decisions ADD COLUMN place VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2584,6 +2636,11 @@ def _run_migrations():
         # routers/announcements.py.
         "ALTER TABLE nexus_announcements ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE nexus_announcement_reads ENABLE ROW LEVEL SECURITY",
+        # Web Push (Frontline Reach, Neil 11/02/2026): a device's push subscription
+        # and the outbox the bell feeds. New tables - RLS per CLAUDE.md.
+        # models.NexusPushSubscription / NexusPushOutbox, push.py.
+        "ALTER TABLE nexus_push_subscriptions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE nexus_push_outbox ENABLE ROW LEVEL SECURITY",
         # HR life events (Neil, Oct 8): hiring packet / promotion / separation
         # through Nexus Sign, filed to the person's Egnyte folder. New tables -
         # RLS per CLAUDE.md. models.HrPacketSetting, models.HrLifeEvent.
@@ -2687,6 +2744,8 @@ def _run_migrations():
         "ALTER TABLE hr_role_change_requests ENABLE ROW LEVEL SECURITY",
         # Pay-printing envelopes need Pay & Benefits to download (Oct 14). models.HrSignRequest.prints_pay.
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS prints_pay INTEGER DEFAULT 0",
+        # Where the sealed copy was filed in Egnyte (Oct 31 2026). models.HrSignRequest.egnyte_filed_path.
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS egnyte_filed_path VARCHAR DEFAULT ''",
         # Template Publish (Oct 14). models.DocTemplate.published_*.
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_version INTEGER DEFAULT 0",
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_meta JSONB DEFAULT '{}'::jsonb",
@@ -3283,6 +3342,16 @@ def _run_migrations():
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS open_shifts INTEGER DEFAULT 0",
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
         "ALTER TABLE shift_group_members ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT ''",
+        # Credentials (Oct 29 2026): the sign-in link on a Personal Vault row, so
+        # My Logins can open it. models.VaultPersonalCredential.
+        "ALTER TABLE vault_personal_credentials ADD COLUMN IF NOT EXISTS url VARCHAR DEFAULT ''",
+        # Credentials security pass (Oct 29 2026): the authenticator key a shared
+        # login carries (vault_totp.py) and where a reveal came from.
+        # models.VaultCredential / VaultAccessLog.
+        "ALTER TABLE vault_credentials ADD COLUMN IF NOT EXISTS totp_enc VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_access_logs ADD COLUMN IF NOT EXISTS ip VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_access_logs ADD COLUMN IF NOT EXISTS user_agent VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_credentials ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         # Performance, made simple (Neil, Oct 29 2026): a goal measured by a
         # Nexus number over its own period, Proposed until approved; a review's
         # 4-word rating, goal scores, Ready for Promotion, the employee's
@@ -3345,6 +3414,70 @@ def _run_migrations():
         # RLS. models.NexusNote / NexusNoteVersion.
         "ALTER TABLE nexus_notes ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE nexus_note_versions ENABLE ROW LEVEL SECURITY",
+        # Notes working together (Neil 10/30/2026): seen revs, the live
+        # co-typing state and key, and who has a note open - one new table,
+        # explicit RLS. models.NexusNote / NexusNotePresence.
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS seen TEXT DEFAULT '{}'",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS ydoc TEXT DEFAULT ''",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS yepoch VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS collab_key VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_note_presence ENABLE ROW LEVEL SECURITY",
+        # Cubby tasks in Nexus Tasks (Neil, Oct 30 2026, cubby_tasks.py): the
+        # pointer on the task and the link table, a new table with explicit
+        # RLS. models.Task.cubby_task_id, models.CubbyTaskLink.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS cubby_task_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_tasks_cubby_task_id ON tasks (cubby_task_id)",
+        "ALTER TABLE cubby_task_links ENABLE ROW LEVEL SECURITY",
+        # Boards (Neil 11/02/2026): a whiteboard is a note - its drawing, a
+        # thumbnail and where a Mark Up came from; versions keep the drawing.
+        # Existing tables, no new RLS. models.NexusNote / NexusNoteVersion.
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS scene TEXT DEFAULT ''",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS thumb_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS source TEXT DEFAULT ''",
+        "ALTER TABLE nexus_note_versions ADD COLUMN IF NOT EXISTS scene TEXT DEFAULT ''",
+        # Announcements reach (Neil 11/02/2026): a picture or file on a post,
+        # publish later, a notify choice, and the publish stamp. Existing
+        # table, no new RLS. models.Announcement.
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS image_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS file_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS file_name VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS publish_at VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS notify VARCHAR DEFAULT 'quiet'",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS notified_at VARCHAR DEFAULT ''",
+        # Posts from before these columns were belled at create: stamp them
+        # published, or the first publish pass would bell everyone again.
+        "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
+        # Forms (Neil 11/02/2026): a form is a DocTemplate with an audience;
+        # its entries are a new table - RLS per CLAUDE.md. models.DocTemplate / DocFormEntry.
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS audience VARCHAR DEFAULT 'company'",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS show_on_shifts INTEGER DEFAULT 0",
+        "ALTER TABLE doc_form_entries ENABLE ROW LEVEL SECURITY",
+        # A published version keeps its field list (entries read against it). models.DocTemplateVersion.
+        "ALTER TABLE doc_template_versions ADD COLUMN IF NOT EXISTS field_defs JSONB",
+        # Work-site audience (Neil, 11/02/2026).
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
+        # Federal forms in hiring packets (Neil, 11/02/2026): which of the W-4,
+        # I-9 and Direct Deposit Authorization a US hiring packet sends.
+        # models.HrPacketSetting.federal_forms. Additive.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS federal_forms JSONB DEFAULT '[]'::jsonb",
+        # Sign-in notices (Neil, 11/02/2026): where each session signed in from
+        # (sign_in_watch.record) and the new nexus_sign_ins table's RLS.
+        # models.ServerSession / NexusSignIn.
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS ip VARCHAR DEFAULT ''",
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS user_agent VARCHAR DEFAULT ''",
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS ua_summary VARCHAR DEFAULT ''",
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_sign_ins ENABLE ROW LEVEL SECURITY",
+        # The weather follows the jobsite (Neil, call of 10/30/2026): a shift
+        # names where it is worked ('' = the team's site, 'project-<id>' a
+        # construction project, 'site-<id>' a company site - jobsites.py), and
+        # Weather Watch / Weather Call key each band, notice and call on the
+        # team, the day AND that place ('' = the team's site, as before).
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS jobsite VARCHAR DEFAULT ''",
+        "ALTER TABLE weather_outlook ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
+        "ALTER TABLE weather_advisories ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
+        "ALTER TABLE weather_decisions ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3710,8 +3843,76 @@ def _ensure_schema() -> str:
     return outcome
 
 
+_TIER_SEED_LOCK_KEY = 794221   # stable advisory-lock id (schema_guard holds 794220)
+
+
+def _tier_seeds():
+    """Tiers (Neil, 11/02/2026): the five Super Administrators set once and
+    the old tier words cleared from job roles / job titles once
+    (super_admins_seed). Run on EVERY boot, outside the once-per-deploy
+    schema gate: a deploy whose fingerprint was already stored would
+    otherwise never run a pass added after it. Each pass is guarded by its
+    nexus_settings mark (one primary-key read once done). On Postgres one
+    worker at a time - pg_try_advisory_lock on a connection of its own; a
+    worker that finds it held skips, the holder does the work. Prints only
+    the emails that changed."""
+    try:
+        import super_admins_seed
+        from database import SessionLocal
+    except Exception as e:
+        print(f"[startup] tier seeds skipped: {e}")
+        return
+    lock = None
+    try:
+        if not DATABASE_URL.startswith("sqlite"):
+            # Detached from the pool: an advisory lock belongs to the session,
+            # so close() must really end it (same reasoning as schema_guard).
+            lock = engine.connect()
+            lock.detach()
+            if not lock.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": _TIER_SEED_LOCK_KEY}).scalar():
+                lock.close()
+                lock = None
+                print("[startup] tier seeds: another worker is running them, skipped")
+                return
+        db = SessionLocal()
+        try:
+            res = super_admins_seed.apply_once(db)
+            if res:
+                print(f"[startup] super administrators set - promoted: {', '.join(res['super_admins']) or 'none'}; "
+                      f"demoted to administrator: {', '.join(res['demoted']) or 'none'}")
+                if res["skipped"]:
+                    print(f"[startup] super administrators: no People record, no owner row made for "
+                          f"{', '.join(res['skipped'])}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] super administrator set skipped: {e}")
+        try:
+            res = super_admins_seed.clear_tier_words_once(db)
+            if res:
+                print(f"[startup] tier words cleared - job roles renamed: {', '.join(res['renamed']) or 'none'}; "
+                      f"job titles cleared: {', '.join(res['cleared']) or 'none'}; "
+                      f"job title set: {', '.join(res['titled']) or 'none'}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] tier words pass skipped: {e}")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] tier seeds skipped: {e}")
+    finally:
+        if lock is not None:
+            try:
+                lock.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _TIER_SEED_LOCK_KEY})
+                lock.commit()
+            except Exception as e:  # noqa: BLE001 - close() below ends the session and the lock
+                print(f"[startup] tier seeds: unlock failed, closing instead: {e}")
+            finally:
+                lock.close()
+
+
 def _startup_prepare():
     _ensure_schema()
+    _tier_seeds()
     try:
         from auth import _fetch_jwks, SKIP_AUTH
         if not SKIP_AUTH:
@@ -3939,6 +4140,12 @@ def _startup_seeds():
             n = rehash_secret_hashes(db)
             if n:
                 print(f"[startup] credential vault: rehashed {n} reuse hash(es) with the keyed scheme")
+            # Key rotation (Oct 29 2026): rows written under an older key in
+            # NEXUS_VAULT_KEYS are rewritten under the newest one.
+            from routers.credvault import rotate_vault_keys
+            n = rotate_vault_keys(db)
+            if n:
+                print(f"[startup] credential vault: re-encrypted {n} secret(s) under the current key")
         finally:
             db.close()
     except Exception as e:
@@ -3972,6 +4179,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] checklist ID evidence backfill skipped: {e}")
+    # Federal forms (Neil, 11/02/2026): onboarding templates seeded earlier
+    # get the W-4 / direct deposit and I-9 signals on ON-05 / ON-18 / ON-23,
+    # once (hr_checklists.backfill_federal_forms).
+    try:
+        from database import SessionLocal
+        import hr_checklists
+        db = SessionLocal()
+        try:
+            n = hr_checklists.backfill_federal_forms(db)
+            if n:
+                print(f"[startup] federal form signals added to {n} onboarding template(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] federal form signal backfill skipped: {e}")
     # Ask HR runs through Tickets (Neil, Oct 27 2026): every OPEN old Ask HR
     # request becomes a confidential HR ticket, once (hr_tickets.migrate_open
     # - a row that has its ticket_id is never moved again; resolved rows stay
@@ -4011,6 +4233,8 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] probation seeds skipped: {e}")
+    # Tiers (Neil, 11/02/2026): the Super Administrators set and the tier
+    # words cleared run from _tier_seeds on EVERY boot, not here.
     # Presidents' Day (Neil, Oct 29 2026: "it's not showing Presidents' Day").
     # Calendars filled from the old Nager list say "Washington's Birthday" -
     # in hr_company_holidays.name and inside hr_holiday_policies.holidays.
@@ -4083,6 +4307,18 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(ticket_notify_loop()))
         except Exception as e:
             print(f"[startup] ticket notification loop skipped: {e}")
+        # Web Push (Frontline Reach, Neil 11/02/2026): drains the outbox the
+        # bell feeds. Started only when the three VAPID settings exist, so a
+        # server without keys spends nothing and says so once.
+        try:
+            import push as _push_mod
+            if _push_mod.configured():
+                _tasks.append(_a.create_task(_push_mod.push_loop()))
+                print("[startup] web push on")
+            else:
+                print("[startup] web push off (NEXUS_VAPID_* not set)")
+        except Exception as e:
+            print(f"[startup] web push loop skipped: {e}")
         try:
             from task_notify import task_notify_loop
             _tasks.append(_a.create_task(task_notify_loop()))
@@ -4114,6 +4350,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] weekly digest loop skipped: {e}")
         try:
+            # Announcements published later (Neil, 11/02/2026): every minute, due
+            # posts get their bells and their push / Teams / email fan-out once.
+            from announcements_publish import announcements_loop
+            _tasks.append(_a.create_task(announcements_loop()))
+        except Exception as e:
+            print(f"[startup] announcements publish skipped: {e}")
+        try:
             from workforce_scorecard import scorecard_loop
             _tasks.append(_a.create_task(scorecard_loop()))
         except Exception as e:
@@ -4125,6 +4368,14 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(weather_watch_loop()))
         except Exception as e:
             print(f"[startup] weather watch loop skipped: {e}")
+        try:
+            # Project-based weather (Neil, 10/30/2026): each jobsite's people
+            # hear tomorrow's weather there the evening before, and a change
+            # in the morning. See construction_weather.daily_loop.
+            from construction_weather import daily_loop as construction_weather_loop
+            _tasks.append(_a.create_task(construction_weather_loop()))
+        except Exception as e:
+            print(f"[startup] construction weather loop skipped: {e}")
         try:
             # Shifts Phase 1 (Oct 2026): the no-show scan - every minute, one
             # bell per manager / scheduler per team-day for anyone not clocked
@@ -4370,6 +4621,11 @@ async def lifespan(app: FastAPI):
             if is_deployed_worker():
                 from cubby import cubby_snapshot_loop
                 _tasks.append(_a.create_task(cubby_snapshot_loop()))
+                # Completions and reopenings of Cubby-linked tasks back to
+                # Cubby, every minute, behind the Close Tasks in Cubby switch
+                # (Neil, Oct 30 2026, cubby_tasks.py).
+                from cubby_tasks import cubby_task_push_loop
+                _tasks.append(_a.create_task(cubby_task_push_loop()))
             else:
                 print("[startup] Cubby snapshot loop skipped (not the deployed worker)")
         except Exception as e:
@@ -4428,6 +4684,11 @@ async def lifespan(app: FastAPI):
                 # up once, server-side, paced; the browser no longer calls Nominatim.
                 from asset_geocode import geocode_loop
                 _tasks.append(_a.create_task(geocode_loop()))
+                # Construction jobsites' weather points (Neil, 10/30/2026): the
+                # projects that predate project-based weather get their address
+                # placed once, through the same one-a-second pacer.
+                from construction_weather import backfill_loop
+                _tasks.append(_a.create_task(backfill_loop()))
             else:
                 print("[startup] asset-files migration and geocode loops skipped (not the deployed worker)")
         except Exception as e:
@@ -4457,6 +4718,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] notification retention sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] notification retention sweep skipped: {e}")
+        # Sign-in watch sweep (Neil, 11/02/2026): idle server sessions and
+        # sign-ins past 180 days go; the notice itself runs in the sign-in
+        # doors, not here. Deployed-worker gated like the two sweeps above.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from sign_in_watch import sign_in_watch_loop
+                _tasks.append(_a.create_task(sign_in_watch_loop()))
+            else:
+                print("[startup] sign-in watch sweep skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] sign-in watch sweep skipped: {e}")
         # "What's New" drafts itself (Sept 2026): the same generation the
         # Manage > "Generate from git" button runs, fired a few minutes after
         # each merge by the GitHub push webhook and daily as a backstop, so dev
@@ -4725,6 +4998,13 @@ def health():
     could tell. No values are exposed, only whether each is configured."""
     import intacct_client
     import secret_box
+
+    def _push_health() -> bool:
+        try:
+            import push as _p
+            return _p.configured()
+        except Exception:
+            return False
     return {"status": "ok",
             "secrets": {"vault_key": secret_box.KEY_CONFIGURED,
                         "app_url_explicit": bool(os.getenv("NEXUS_APP_URL", "").strip()),
@@ -4738,7 +5018,10 @@ def health():
                         "cubby_api_key": bool(os.getenv("CUBBY_API_KEY", "").strip()),
                         # People > Sync Employee Codes reads Intacct directly
                         # (intacct_client.py, the five INTACCT_* settings).
-                        "intacct_direct": intacct_client.configured()}}
+                        "intacct_direct": intacct_client.configured(),
+                        # Web Push to installed phones (push.py): the three
+                        # NEXUS_VAPID_* settings. Off = the bell only.
+                        "push": _push_health()}}
 
 
 @app.get("/health/ready")
@@ -4828,14 +5111,9 @@ app.include_router(tasks.router)
 app.include_router(purchases.router)
 app.include_router(reviews.router)
 app.include_router(marketing.router)
-app.include_router(external_links.router) # External Links: registered BEFORE assets.router so its real
-                                           # GET/POST/click routes win the match over assets.py's leftover
-                                           # /external-links stub (Starlette matches in registration order,
-                                           # first route added wins on a path collision) - see
-                                           # routers/external_links.py's module docstring.
+app.include_router(external_links.router) # External Links
 app.include_router(external_links.personal_router) # Personal Links: private, owner-scoped shortcuts (Aug 12)
 app.include_router(link_layouts.router) # Per-user Links Module layout (folders/ordering/favorites) (Aug 13)
-app.include_router(assets.router)
 app.include_router(property_assets.router)
 app.include_router(accounting.router)
 app.include_router(accounting_dashboard.router)
@@ -4969,7 +5247,10 @@ app.include_router(acct_scan.router)               # Accounting: amount by entit
 from routers import accounting_ama  # noqa: E402
 app.include_router(accounting_ama.router)          # Accounting > AMA: asset management agreements, billed read from the ledger (Priyanka, Oct 7)
 from routers import announcements, my_work, my_team  # noqa: E402
+from routers import push as push_router  # noqa: E402  - Web Push devices (Frontline Reach, Neil 11/02/2026)
+import push as _push  # noqa: E402,F401  - registers the after_insert hook that queues a push for every named bell notice
 app.include_router(announcements.router)           # Dashboard > Announcements tile: company / department notices, read + acknowledge marks (Oct 7)
+app.include_router(push_router.router)                   # Web Push devices: config / subscribe / unsubscribe (Frontline Reach, Neil 11/02/2026)
 app.include_router(my_work.router)                 # Dashboard > My Work tile: the caller's open work by due bucket (Oct 7)
 app.include_router(my_team.router)                 # Dashboard > My Team tile: direct reports today + their overdue work, supervisor+ (Oct 7)
 from routers import implementation  # noqa: E402
@@ -5038,6 +5319,8 @@ from routers import ops_budget as ops_budget_router  # noqa: E402 - also registe
 app.include_router(ops_budget_router.router)       # Operations > Ops Budget: results vs budget and last year, per site (Oct 21 2026)
 from routers import ops_settings as ops_settings_router  # noqa: E402
 app.include_router(ops_settings_router.router)     # Operations settings: the Push to Cubby switch, OFF by default (Visesh, Oct 21 2026)
+from routers import cubby_tasks as cubby_tasks_router  # noqa: E402
+app.include_router(cubby_tasks_router.router)      # Cubby tasks <-> Nexus Tasks: switches, facility -> project map (Neil, Oct 30 2026)
 from routers import ops_cma as ops_cma_router  # noqa: E402
 app.include_router(ops_cma_router.router)          # Operations > Rate Management CMA: comp set, surveys, history, review & push (Miranda, Oct 21 2026)
 from routers import ops_customer_map as ops_customer_map_router  # noqa: E402
@@ -5099,3 +5382,7 @@ from routers import kb_reminder_settings  # noqa: E402
 app.include_router(kb_reminder_settings.router)  # Training Reminders switches - Settings > Emails & Reminders (Sagar, Oct 28 2026)
 from routers import notes as notes_router  # noqa: E402 - two new tables: create_all + explicit RLS lines
 app.include_router(notes_router.router)  # Notes: the scratchpad that follows you - Dashboard > Notes, Quick Note, the Notes widget (Neil, Oct 29 2026)
+from routers import forms as forms_router  # noqa: E402 - doc_form_entries: create_all + the explicit RLS line above
+app.include_router(forms_router.router)  # Forms & Checklists: fill a form on the phone, entries, review, PDF, CSV (Neil, 11/02/2026)
+from routers import me_sessions as me_sessions_router  # noqa: E402 - nexus_sign_ins: create_all + explicit RLS line
+app.include_router(me_sessions_router.router)  # My Profile > Security: where you are signed in, sign out other devices, recent sign-ins (Neil, 11/02/2026)

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 // userEvent, not fireEvent, for the file input: FileList is read-only, so a
 // plain change event cannot attach one.
 import userEvent from '@testing-library/user-event';
@@ -29,6 +29,9 @@ vi.mock('../api', () => ({ api: {
   getConstructionMedia: vi.fn(),
   startConstructionLog: vi.fn(),
   createConstructionProject: vi.fn(),
+  resolveProjectLink: vi.fn(),
+  getConstructionWeather: vi.fn(),
+  weather: vi.fn(),
   reviewConstructionLog: vi.fn(),
   updateConstructionLog: vi.fn(),
   submitConstructionLog: vi.fn(),
@@ -53,6 +56,9 @@ vi.mock('./lib/upload', () => ({
   ALLOWED_MIME: { photo: [], video: [], audio: [] },
 }));
 
+// Leaflet needs a real layout; the New Project map is covered in WorkSiteAddressMap.test.jsx.
+vi.mock('../components/WorkSiteAddressMap', () => ({ default: () => null }));
+
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true }) }));
 
 import { api } from '../api';
@@ -68,6 +74,7 @@ const project = {
   phase: 'Foundation', percentComplete: 42, status: 'active',
   workerEmails: ['w@greensglobal.com'], managerEmails: ['m@greensglobal.com'],
   executiveEmails: [], targetFinishOn: '2026-12-01', archived: false,
+  latitude: 33.49, longitude: -117.15,
 };
 
 // Shaped from routers/construction.py log_to_dict - every field it returns,
@@ -93,6 +100,19 @@ beforeEach(() => {
     logsThisWeek: 3, projects: [project],
   });
   api.getConstructionLogs.mockResolvedValue([log]);
+  api.getConstructionWeather.mockResolvedValue({ units: 'imperial', sites: [
+    { projectId: 'p1', name: project.name, address: project.address, latitude: 33.49, longitude: -117.15,
+      weather: { units: { temp: '°F', wind: 'mph', precip: 'in' }, current: { time: '2026-10-31T06:00', temp: 52, code: 3, isDay: true, wind: 4 },
+        today: { high: 66, low: 50, precipChance: 80 }, daily: [], rainFrom: '2026-10-31T07:00', rainChance: 75, flag: 'rain', flagDetail: '75% chance of rain' } },
+    { projectId: 'p2', name: 'Fairfield', address: '', latitude: 0, longitude: 0, weather: null, reason: 'No map point yet - add the jobsite address.' },
+  ] });
+  api.weather.mockResolvedValue({ units: { temp: '°F', wind: 'mph', precip: 'in' },
+    current: { time: '2026-10-31T06:00', temp: 52, feelsLike: 50, humidity: 80, isDay: true, code: 61, wind: 4, windDir: 180 },
+    today: { high: 66, low: 50, precipChance: 80, sunrise: '2026-10-31T07:10', sunset: '2026-10-31T18:00' },
+    hourly: [{ time: '2026-10-31T06:00', temp: 52, code: 61, isDay: true, precipChance: 75, precip: 0.2 }],
+    daily: [{ date: '2026-10-31', high: 66, low: 50, code: 61, precipChance: 80, precipSum: 0.6, windMax: 9 },
+            { date: '2026-11-01', high: 70, low: 51, code: 2, precipChance: 5, precipSum: 0, windMax: 12 }],
+    fetchedAt: '2026-10-31T13:00:00Z' });
   api.getConstructionReviewQueue.mockResolvedValue([
     { ...log, projectName: project.name, mediaCount: 4, awaitingAi: false },
   ]);
@@ -106,6 +126,37 @@ beforeEach(() => {
 });
 
 describe('ConstructionDashboard', () => {
+  it('shows the weather at each site, the first wet hour and a flag; a tile opens its project (Neil, 10/30/2026)', async () => {
+    render(<ConstructionDashboard />);
+    const strip = await screen.findByLabelText('Weather at each site');
+    await waitFor(() => expect(strip.textContent).toContain('Rain from 7 AM · 75%'));
+    expect(strip.textContent).toContain('52°');
+    expect(strip.textContent).toContain('Rain');                                    // the red flag
+    expect(strip.textContent).toContain('No map point yet - add the jobsite address.');
+    fireEvent.click(screen.getByTitle(`Open ${project.name}`));
+    // The project's own card: its sky, its week, the full forecast a click away.
+    expect(await screen.findByLabelText('Site weather')).toBeTruthy();
+    await waitFor(() => expect(api.weather).toHaveBeenCalledWith(33.49, -117.15, 'imperial'));
+  });
+
+  it('places a new project from its Google Maps link, so its weather is read at that exact point (Pranshu, 11/02/2026)', async () => {
+    api.getConstructionOverview.mockResolvedValue({ totals: {}, projects: [] });
+    api.getConstructionWeather.mockResolvedValue({ sites: [] });
+    api.resolveProjectLink.mockResolvedValue({ lat: 33.517652, lng: -117.155831, precision: 'place', address: '41715 Enterprise Cir N, Temecula, CA 92590', placeName: 'GS Temecula' });
+    api.createConstructionProject.mockResolvedValue({ id: 'p9', name: 'GS Temecula' });
+    render(<ConstructionDashboard />);
+    fireEvent.click((await screen.findAllByRole('button', { name: /New Project/ }))[0]);
+    fireEvent.change(screen.getByLabelText('Google Maps link or coordinates'), { target: { value: 'https://maps.app.goo.gl/abc' } });
+    fireEvent.click(screen.getByRole('button', { name: /Use Link/ }));
+    await waitFor(() => expect(screen.getByLabelText('Address').value).toBe('41715 Enterprise Cir N, Temecula, CA 92590'));
+    expect(screen.getByLabelText('Address').readOnly).toBe(true);
+    expect(document.querySelector('[data-project-place]').textContent).toContain('The weather is read at this exact point.');
+    fireEvent.click(screen.getByRole('button', { name: 'Create Project' }));
+    await waitFor(() => expect(api.createConstructionProject).toHaveBeenCalled());
+    expect(api.createConstructionProject).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'GS Temecula', address: '41715 Enterprise Cir N, Temecula, CA 92590', latitude: 33.517652, longitude: -117.155831 }));
+  });
+
   it('renders the overview once loaded', async () => {
     render(<ConstructionDashboard />);
     expect(screen.getByText('Construction Overview')).toBeInTheDocument();
@@ -307,5 +358,25 @@ describe('DailyLogCapture', () => {
 
     await waitFor(() => expect(screen.getByText(/1 file did not attach/i)).toBeInTheDocument());
     expect(screen.getByText(/uploads are unavailable right now/i)).toBeInTheDocument();
+  });
+
+  // Voice (Oct 30 2026): a voice note is never transcribed (AI is off), so
+  // the mic types the crew's words into the notes, which save as notes_raw.
+  it('takes dictated notes and saves them', async () => {
+    let rec;
+    window.webkitSpeechRecognition = function SR() { rec = this; this.start = vi.fn(); this.stop = vi.fn(() => this.onend?.()); this.abort = vi.fn(); };
+    try {
+      const onClose = vi.fn();
+      render(<DailyLogCapture log={{ ...log, status: 'draft' }} project={project}
+        onClose={onClose} onSubmitted={() => {}} />);
+      fireEvent.click(screen.getByRole('button', { name: /Say the Notes/ }));
+      expect(rec.start).toHaveBeenCalled();
+      await act(async () => { rec.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'footings poured on the north wall' } }] }); });
+      expect(screen.getByDisplayValue(`${log.notes} Footings poured on the north wall`)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Save & Close/i }));
+      await waitFor(() => expect(api.updateConstructionLog).toHaveBeenCalledWith(
+        log.id, expect.objectContaining({ notes_raw: `${log.notes} Footings poured on the north wall` }),
+      ));
+    } finally { delete window.webkitSpeechRecognition; }
   });
 });

@@ -93,6 +93,66 @@ def level_for(email: str, db: Session) -> int:
     return _role_for((email or "").lower(), db)[1]
 
 
+def tier_of(level) -> str:
+    """The MARK a person carries beside their name (Neil, 11/02/2026):
+    'super' for a Super Administrator (level 5), 'admin' for an Administrator
+    (level 4), 'manager' for a Manager (level 3), '' for everyone else. One
+    rule for every people payload (/myhr/directory, /myhr/person, the Contact
+    Directory roster, hr._serialize, the Act As targets); the frontend draws
+    it with components/TierMark.jsx and never as text."""
+    try:
+        level = int(level or 0)
+    except (TypeError, ValueError):
+        return ""
+    if level >= 5:
+        return "super"
+    if level == 4:
+        return "admin"
+    if level == 3:
+        return "manager"
+    return ""
+
+
+def _outside_emails(db: Session) -> set:
+    """Guests and externals: never a tier mark, whatever a nexus_roles row
+    says (they are hard-capped at employee level by apply_external_policy)."""
+    from models import NexusEmployee
+    return {(e.work_email or "").lower() for e in db.query(NexusEmployee.work_email)
+            .filter(NexusEmployee.identity_type.in_(("guest", "external"))).all() if e.work_email}
+
+
+def tier_for(email: str, db: Session) -> str:
+    """One person's tier, through the role cache. '' for a guest / external."""
+    email = (email or "").lower()
+    tier = tier_of(_role_for(email, db)[1])
+    if tier:
+        from sqlalchemy import func
+        from models import NexusEmployee
+        row = (db.query(NexusEmployee.identity_type)
+               .filter(func.lower(NexusEmployee.work_email) == email).first())
+        if row is not None and (row.identity_type or "") in ("guest", "external"):
+            return ""
+    return tier
+
+
+def tiers_by_email(db: Session) -> dict[str, str]:
+    """Every role row's tier at once - for a list payload (one query, not one
+    per row). Only people with a mark are in the map; `.get(email, "")`.
+    Guests and externals never carry one."""
+    from models import NexusRole
+    out = {}
+    outside = None
+    for row in db.query(NexusRole.email, NexusRole.role).all():
+        tier = tier_of(_LEVELS.get(row.role, 1))
+        if tier:
+            if outside is None:
+                outside = _outside_emails(db)
+            em = (row.email or "").lower()
+            if em not in outside:
+                out[em] = tier
+    return out
+
+
 def invalidate_role_cache(email: str | None = None) -> None:
     """Call after assigning/changing a role so the new value takes effect immediately."""
     if email:
@@ -585,6 +645,40 @@ def require_level_or_modules(min_level: int, module_grants):
     return _check
 
 
+# Grants an Administrator may never hand out (Neil, 11/02/2026): a module
+# whose gate admits only a Super Administrator without a grant
+# (bypass_level="owner" - Personal Financial Statements, compensation,
+# deleting people, Workflows' organization face) would otherwise open to an
+# Administrator through a group they put themself or anyone else in.
+# {module_id: the lowest grant level that is Super-only}. Filled by
+# require_module_grant / require_any_module_grant as the routers import,
+# so a new owner-bypass gate joins the list by itself; PFS is listed from
+# the start (it never opens for an Administrator's role, whatever imported).
+OWNER_ONLY_GRANTS: dict[str, int] = {"pfs": 1}
+
+
+def _note_owner_only(module_ids, min_module_level: str, bypass_level: str) -> None:
+    if bypass_level != "owner":
+        return
+    rank = _MODULE_LEVEL_RANK[min_module_level]
+    for mid in module_ids:
+        cur = OWNER_ONLY_GRANTS.get(mid)
+        OWNER_ONLY_GRANTS[mid] = rank if cur is None else min(cur, rank)
+
+
+def owner_only_grants_in(modules) -> list:
+    """The module ids in `modules` ([{"id", "level"}] or ModuleGrant-like
+    objects) granted at a level only a Super Administrator may hand out."""
+    out = []
+    for m in modules or []:
+        mid = ((m.get("id") if isinstance(m, dict) else getattr(m, "id", "")) or "").strip().lower()
+        lvl = ((m.get("level") if isinstance(m, dict) else getattr(m, "level", "")) or "viewer").strip().lower()
+        floor = OWNER_ONLY_GRANTS.get(mid)
+        if floor is not None and _MODULE_LEVEL_RANK.get(lvl, 1) >= floor:
+            out.append(mid)
+    return out
+
+
 def require_module_grant(module_id: str, min_module_level: str = "viewer", bypass_level: str = "administrator"):
     """Grant-driven access (Jun 17): admits admins at/above `bypass_level`
     (administrator by default - they manage every screen), OR anyone whose Access
@@ -596,6 +690,7 @@ def require_module_grant(module_id: str, min_module_level: str = "viewer", bypas
     is also blocked at the API (UI hiding alone is not a security boundary)."""
     threshold = _MODULE_LEVEL_RANK[min_module_level]
     blevel = _LEVELS[bypass_level]
+    _note_owner_only((module_id,), min_module_level, bypass_level)
 
     def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
         if user["level"] >= blevel or _module_level(user["email"], module_id, db) >= threshold:
@@ -615,6 +710,7 @@ def require_any_module_grant(*module_ids: str, min_module_level: str = "viewer",
     here too, so UI hiding is still not the only boundary."""
     threshold = _MODULE_LEVEL_RANK[min_module_level]
     blevel = _LEVELS[bypass_level]
+    _note_owner_only(module_ids, min_module_level, bypass_level)
 
     def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
         if user["level"] >= blevel:
@@ -659,30 +755,29 @@ def scoped_ids(email: str, module_id: str, db: Session):
 def hr_scope(user: dict, db: Session):
     """Company scope for People-ADMIN surfaces (Neil, Aug 25: a Sacred Natural
     admin must not see or touch SC Medi Center people). Returns:
-      - None   → unrestricted (no 'hr' scope rows, or IT Admin+)
+      - None   → unrestricted (no 'hr' scope rows, or a Super Administrator)
       - {ids}  → the HrEntity ids this admin's HR grant is limited to
 
     This NARROWS an existing hr/hr_comp grant; it never grants anything. Rows
     live in nexus_access_scopes with module_id='hr' (assigned per person on
-    their Access tab). Level >= 4 is always unrestricted - the whole-company
-    bypass those roles already have would make a scope row misleading.
+    their Access tab).
     Deliberately NOT applied to the general directory / people pickers / task
     assignment - the family office collaborates across companies daily; scope
     covers the HR-admin surfaces (People, Time, Leave, payroll, monitoring).
     Callers hide company=='' (untagged) people from scoped admins and answer
     404 (not 403) for out-of-scope ids so existence doesn't leak.
 
-    When the multi-company walls are ARMED, this defers to company_scope() so
-    People obeys the same tenant boundary as every other module - a level-4
-    *company* admin is then confined to their companies, and only a Global Admin
-    is unrestricted (the pre-walls level>=4 bypass held only for the old
-    single-org world)."""
+    Tiers (Neil, 11/02/2026): level 4 (Administrator) and level 5 (Super
+    Administrator) ALWAYS defer to company_scope() - an Administrator's
+    People reach is their own company whether or not the walls are armed,
+    and only a Super Administrator is unrestricted (the old level>=4 bypass
+    held only for the single-org world). When the walls are ARMED the lower
+    tiers defer to company_scope() too, so People obeys the same tenant
+    boundary as every other module."""
     if hr_team_limited(user):
         return TeamScope(team_emails(db, user["email"]))
-    if _company_walls_on(db):
+    if user.get("level", 0) >= _LEVELS["administrator"] or _company_walls_on(db) or acting_capped(user, db):
         return company_scope(user, db)
-    if user.get("level", 0) >= 4:
-        return None
     from models import NexusAccessScope
     rows = (db.query(NexusAccessScope.scope_id)
             .filter(NexusAccessScope.email == user["email"].lower(),
@@ -693,8 +788,9 @@ def hr_scope(user: dict, db: Session):
 # ── Managers see their own team in People (Pranshu, 10/06) ───────────────────
 # The MANAGER tier holding the People grant sees only the people below them in
 # the reporting line (Reports To, followed all the way down) - no setting to
-# switch on, the tier is the rule. HR works company-wide as Global Admin
-# (administrator and up), which is never limited.
+# switch on, the tier is the rule. An Administrator (level 4) works their
+# own company (company_scope, 11/02/2026); only a Super Administrator (level
+# 5) is never limited.
 #
 # hr_scope() then returns a TeamScope: a company set that is always EMPTY, so
 # every company-shaped check in the People code ("company in scope",
@@ -829,43 +925,106 @@ def _company_walls_on(db: Session) -> bool:
     return hit in ("on", "1", "true", "yes")
 
 
-def is_global_admin(user: dict, db: Session) -> bool:
-    """True for the small set of people who see across every company. A Global
-    Admin is a member of any Access Group flagged is_global_admin=1.
+class AdminScope(set):
+    """company_scope() for an Administrator: their companies, marked so the
+    PEOPLE reads (People, the directories, the org chart, the assignee
+    pickers) also admit the people with no company - the guests / externals
+    they manage and untagged People rows are shared (Neil, 11/02/2026).
+    Everything else reads it as the plain company set it is."""
 
-    BOOTSTRAP SAFETY: until such a group actually has members, top-level roles
-    (level >= 4) stand in as global - so setting the walls up can never lock the
-    first admin out of their own org. Once the Global Admins group is populated,
-    ONLY its members are unrestricted (per the rule: seniority alone never grants
-    cross-company reach)."""
+
+def admits_blank(scope) -> bool:
+    """Does this company scope admit people whose record has no company?"""
+    return isinstance(scope, AdminScope)
+
+
+def scope_key(scope) -> str:
+    """A cache key for a company scope (per-wall people caches)."""
+    if scope is None:
+        return "all"
+    key = "co:" + ",".join(sorted(scope)) if scope else "co:none"
+    return key + ("+blank" if admits_blank(scope) else "")
+
+
+def is_global_admin(user: dict, db: Session) -> bool:
+    """True for the small set of people who see across every company: a Super
+    Administrator (the `owner` tier, level 5), or a member of any Access Group
+    flagged is_global_admin=1.
+
+    Tiers (Neil, 11/02/2026): an Administrator (level 4) is company-walled,
+    so the old bootstrap fallback (level >= 4 stands in as global until a
+    flagged group has members) is GONE - seniority below level 5 never grants
+    cross-company reach. The five Super Administrators are set once at
+    startup (super_admins_seed), so the walls can never lock everyone out."""
+    if int(user.get("level", 0) or 0) >= _LEVELS["owner"]:
+        return True
     from models import NexusGroup, NexusGroupMember
     ga_ids = [g.id for g in db.query(NexusGroup.id).filter(NexusGroup.is_global_admin == 1).all()]
-    if ga_ids:
-        mine = (db.query(NexusGroupMember.group_id)
-                .filter(NexusGroupMember.email == user["email"].lower(),
-                        NexusGroupMember.group_id.in_(ga_ids)).first())
-        if mine:
-            return True
-        populated = (db.query(NexusGroupMember.group_id)
-                     .filter(NexusGroupMember.group_id.in_(ga_ids)).first())
-        if populated:
-            return False   # group is live → level no longer implies global
-    return int(user.get("level", 0)) >= 4   # not configured yet → safe bootstrap
+    if not ga_ids:
+        return False
+    mine = (db.query(NexusGroupMember.group_id)
+            .filter(NexusGroupMember.email == user["email"].lower(),
+                    NexusGroupMember.group_id.in_(ga_ids)).first())
+    return mine is not None
 
 
 def company_scope(user: dict, db: Session):
+    """THE tenant boundary - see _own_company_scope for the rule by tier.
+
+    Act As (Neil, 11/02/2026): while someone acts as another person the
+    acting identity is the target's, but its reach is CAPPED at the real
+    actor's - an Administrator of company A acting as a level 1-3 person
+    with the walls off would otherwise become unrestricted. The cap is the
+    real actor's own scope (resolve_target carries `real_email` and
+    `real_level`); None (a Super Administrator acting) caps nothing."""
+    own = _own_company_scope(user, db)
+    if user.get("acting_as") and user.get("real_email"):
+        cap = _own_company_scope({"email": user["real_email"], "level": int(user.get("real_level", 0) or 0)}, db)
+        if cap is not None:
+            own = set(cap) if own is None else (set(own) & set(cap))
+    return own
+
+
+def acting_capped(user: dict, db: Session) -> bool:
+    """True while `user` is an Act As identity whose real actor is walled."""
+    if not (user.get("acting_as") and user.get("real_email")):
+        return False
+    return _own_company_scope({"email": user["real_email"], "level": int(user.get("real_level", 0) or 0)}, db) is not None
+
+
+def _own_company_scope(user: dict, db: Session):
     """THE tenant boundary. Which HrEntity companies may this caller see and act
     within? Returns:
-      - None   → unrestricted (walls off, or the caller is a Global Admin)
-      - set()  → nothing (walls on, not a global admin, no company) - fail closed
+      - None   → unrestricted (the caller is a Super Administrator / Global
+                 Admin, or the walls are off and the caller is level 1-3)
+      - set()  → nothing (walled, no company anywhere) - fail closed
       - {ids}  → confined to exactly these companies
+
+    The rule by tier (Neil, 11/02/2026):
+      - Level 5 (Super Administrator) and a member of a group flagged
+        is_global_admin are NEVER walled - `is_global_admin`.
+      - Level 4 (Administrator) is ALWAYS walled to their companies, whether
+        or not the `company_walls` switch is on - an Administrator runs
+        their company, never the organization.
+      - Levels 1-3 keep the switch's meaning exactly as before: unrestricted
+        while the walls are off, confined to their companies once armed.
+
+    An Administrator whose own People record has no company (and who holds
+    no entity scope or company group) gets an EMPTY AdminScope: they see no
+    company's records - only the shared rows (people with no company, shared
+    groups and roles they may hand out) - until they are placed in one.
 
     A person's companies = their home company (nexus_employees.company) ∪ any
     entity access-scopes they hold ∪ the companies of the company-scoped role
     groups they belong to. Every module intersects this set; a set() result means
     the caller is walled off from everything (the compliance-correct default for a
-    person who has been armed but not placed in a company)."""
-    if not _company_walls_on(db):
+    walled person who has not been placed in a company)."""
+    level = int(user.get("level", 0) or 0)
+    if level >= _LEVELS["owner"]:
+        return None
+    # Levels 1-3 with the walls off: unrestricted before any query (the
+    # settings flag is cached), as it always was.
+    if level < _LEVELS["administrator"] and not _company_walls_on(db):
         return None
     if is_global_admin(user, db):
         return None
@@ -890,6 +1049,8 @@ def company_scope(user: dict, db: Session):
                           NexusGroup.company_id != "").all()):
             if (g.company_id or "").strip():
                 companies.add(g.company_id.strip())
+    if level >= _LEVELS["administrator"]:
+        return AdminScope(companies)
     return companies
 
 
@@ -933,7 +1094,8 @@ def assert_company(record_company: str, user: dict, db: Session, shared_when_bla
         if not row: raise HTTPException(404, ...)
         assert_company(row.company_id, user, db)   # 404 if out of company
 
-    No-op when the walls are off or the caller is a Global Admin."""
+    No-op when company_scope() is unrestricted (a Super Administrator, or
+    the walls off for a level 1-3 caller)."""
     from fastapi import HTTPException
     if not company_ok(record_company, company_scope(user, db), shared_when_blank):
         raise HTTPException(status_code=404, detail="Not found")
@@ -948,3 +1110,24 @@ def company_of_email_map(db: Session) -> dict:
     return {(e.work_email or "").lower(): (e.company or "")
             for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all()
             if e.work_email}
+
+
+def person_in_scope(email: str, scope, db: Session) -> bool:
+    """Does `scope` (a company_scope() result) admit the PERSON behind
+    `email`? None admits everyone. Otherwise their People record's company
+    must be in the set - except, for an Administrator (AdminScope), a person
+    whose record carries no company (a guest / external, or an untagged
+    People row) or who has no record at all: they are SHARED people (Neil,
+    11/02/2026 - an Administrator manages the externals of their company,
+    and those rows carry no company). The person-shaped twin of company_ok
+    for the Roles & Access writes (scopes, group members, Act As, tiers)."""
+    if scope is None:
+        return True
+    return company_ok(company_of(email, db), scope, shared_when_blank=admits_blank(scope))
+
+
+def assert_person_in_scope(email: str, user: dict, db: Session) -> None:
+    """404 (never 403 - existence must not leak across the wall) when the
+    caller's company scope does not admit the person behind `email`."""
+    if not person_in_scope(email, company_scope(user, db), db):
+        raise HTTPException(status_code=404, detail="Not found")

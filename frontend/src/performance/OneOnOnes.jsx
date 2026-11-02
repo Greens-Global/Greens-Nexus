@@ -2,7 +2,7 @@
 // recurring, with a Teams meeting, a shared agenda either side adds to,
 // shared notes, the manager's private notes (the server never sends them to
 // the report) and action items that become Tasks.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Video, Plus, Check, Trash2, CalendarClock, Lock, AlertTriangle } from 'lucide-react';
 import { api } from '../api';
 import { Modal, DateField, TimeField, PersonSelect } from '../tasks/components';
@@ -11,6 +11,7 @@ import { LoadingState, ErrorBanner } from '../components/AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { NX } from '../tasks/theme';
 import { CADENCES, localTimeZone, LBL, muted } from './lib';
+import DictateButton from '../components/DictateButton';
 
 const MEETING_STATUS = {
   scheduled: { label: 'Scheduled', color: NX.blue },
@@ -119,6 +120,7 @@ export function NewOneOnOneModal({ ctx, reportEmail = '', onClose, onCreated, to
 
 function Agenda({ meeting, series, onChange, toastErr }) {
   const [text, setText] = useState('');
+  const pointRef = useRef(null);
   const open = meeting.status !== 'canceled';
   const run = (p) => p.then(onChange).catch(e => toastErr?.(e?.message || 'Could not save that.'));
   return (
@@ -142,7 +144,8 @@ function Agenda({ meeting, series, onChange, toastErr }) {
       {open && series.current && (
         <form onSubmit={e => { e.preventDefault(); if (!text.trim()) return; run(api.perfAgendaAdd(meeting.id, text.trim())); setText(''); }}
           style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <input className="form-input" value={text} onChange={e => setText(e.target.value)} placeholder="Add a talking point" style={{ flex: 1 }} />
+          <input ref={pointRef} className="form-input" value={text} onChange={e => setText(e.target.value)} placeholder="Add a talking point" aria-label="Add a talking point" style={{ flex: 1 }} />
+          <DictateButton target={pointRef} title="Say the Talking Point" />
           <button type="submit" className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add</button>
         </form>
       )}
@@ -154,6 +157,7 @@ function Actions({ meeting, series, onChange, toastErr }) {
   const me = series.side === 'manager' ? series.managerEmail : series.reportEmail;
   const pair = [{ email: series.managerEmail, name: series.managerName }, { email: series.reportEmail, name: series.reportName }];
   const [text, setText] = useState('');
+  const itemRef = useRef(null);
   const [owner, setOwner] = useState(series.reportEmail);
   const [due, setDue] = useState('');
   const [makeTask, setMakeTask] = useState(true);
@@ -184,7 +188,10 @@ function Actions({ meeting, series, onChange, toastErr }) {
       </div>
       {series.current && meeting.status !== 'canceled' && (
         <form onSubmit={add} style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-          <input className="form-input" value={text} onChange={e => setText(e.target.value)} placeholder="Add an action item" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <input ref={itemRef} className="form-input" value={text} onChange={e => setText(e.target.value)} placeholder="Add an action item" aria-label="Add an action item" style={{ flex: 1, minWidth: 0 }} />
+            <DictateButton target={itemRef} title="Say the Action Item" />
+          </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ minWidth: 170 }}><PersonSelect value={owner} onChange={setOwner} people={pair} allowNone={false} ariaLabel="Owner" /></span>
             <span className="form-input" style={{ display: 'inline-flex', alignItems: 'center', width: 160 }}>
@@ -203,6 +210,8 @@ function Actions({ meeting, series, onChange, toastErr }) {
 
 function MeetingPane({ meeting, series, onChange, toastOk, toastErr }) {
   const [shared, setShared] = useState(meeting.sharedNotes);
+  const sharedRef = useRef(null);
+  const privRef = useRef(null);
   const [priv, setPriv] = useState(meeting.privateNotes || '');
   const [busy, setBusy] = useState(false);
   const isManager = series.side === 'manager';
@@ -226,15 +235,22 @@ function MeetingPane({ meeting, series, onChange, toastOk, toastErr }) {
         )}
       </div>
       <Agenda meeting={meeting} series={series} onChange={onChange} toastErr={toastErr} />
-      <label className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
-        <span style={LBL}>Shared Notes</span>
-        <textarea className="form-input" value={shared} readOnly={!live} onChange={e => setShared(e.target.value)} placeholder="Notes you both see" style={{ fontFamily: 'inherit' }} />
-      </label>
+      {/* A mic on each (Oct 30 2026): say the notes during or right after the 1:1. */}
+      <div className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
+        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span style={LBL}>Shared Notes</span>
+          {live && <DictateButton target={sharedRef} title="Say the Shared Notes" />}
+        </span>
+        <textarea ref={sharedRef} aria-label="Shared Notes" className="form-input" value={shared} readOnly={!live} onChange={e => setShared(e.target.value)} placeholder="Notes you both see" style={{ fontFamily: 'inherit' }} />
+      </div>
       {isManager && (
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ ...LBL, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Private Notes - Only You See These</span>
-          <textarea className="form-input" rows={4} value={priv} readOnly={!live} onChange={e => setPriv(e.target.value)} placeholder="Never shown to them" style={{ fontFamily: 'inherit', resize: 'vertical' }} />
-        </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <span style={{ ...LBL, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Private Notes - Only You See These</span>
+            {live && <DictateButton target={privRef} title="Say the Private Notes" />}
+          </span>
+          <textarea ref={privRef} aria-label="Private Notes" className="form-input" rows={4} value={priv} readOnly={!live} onChange={e => setPriv(e.target.value)} placeholder="Never shown to them" style={{ fontFamily: 'inherit', resize: 'vertical' }} />
+        </div>
       )}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {live && dirty && <button type="button" className="primary-btn" disabled={busy}

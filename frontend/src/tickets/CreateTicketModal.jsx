@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Paperclip, Image as ImageIcon, ScanText, Camera, ImagePlus, Check, Copy, Send, CircleCheck, Circle,
-  Monitor, Building2, Warehouse, ShieldCheck, Receipt, Users, HardHat, LifeBuoy, Briefcase,
+  Monitor, Building2, Warehouse, ShieldCheck, Receipt, Users, HardHat, LifeBuoy, Briefcase, Video,
 } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
@@ -45,6 +45,7 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import { TicketPropertyIntake } from './TicketPropertyFields';
 import { useTicketPropertyRules, propertyRequiredFor, usePropertyUnits } from './ticketPropertyLink';
 import { uploadTicketEvidence } from './evidenceUpload';
+import { checkMedia, mediaKind, withType } from '../lib/voice';
 import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import CreateModeTabs from './CreateModeTabs';
 import { TicketEquipmentIntake } from './TicketEquipment';
@@ -57,6 +58,7 @@ import {
 } from './ticketViewShared';
 import { HelpTopicField } from './HelpTopicField';
 import { RecordUploadButtons, PendingFileChip } from './TicketEvidence';
+import { STOP_VOICE_FIRST } from '../lib/voice';
 import { MapSpotIntake, dataUrlToFile } from './TicketMapSpot';
 
 // ── Create ───────────────────────────────────────────────────────────────────
@@ -76,7 +78,7 @@ import { MapSpotIntake, dataUrlToFile } from './TicketMapSpot';
 // from the site map - the spot goes with the ticket as map_spot, the map's
 // picture is attached once the ticket exists, and a photo is asked for.
 // `initial` (Help Center, Oct 2026): { subject, description, type } handed
-// over from help - Ask Nexus's File a Ticket, "I Need To..." - plain text.
+// over from help - Ask Nexus's File a Ticket, "How Do I..." - plain text.
 export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, forProperty = null, onBatch = null, mapSpot = null, initial = null }) {
   // Reachable standalone from Support.jsx without TicketsView ever mounting
   // (its own ticket composer) - needs its own call so intake-field/SLA
@@ -288,6 +290,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // API is keyed by ticket id, so there is nothing to attach to until then.
   const camRef = useRef(null);
   const libRef = useRef(null);
+  const vidRef = useRef(null);
   const attachRef = useRef(null);
   const scanRef = useRef(null);
   const [attachments, setAttachments] = useState(seed?.attachments || []);
@@ -299,6 +302,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // Stop pill and closed-and-discarded the form on any outside click. Hiding
   // the RENDER while this component stays mounted keeps every field intact.
   const [recActive, setRecActive] = useState(false);
+  // A voice note still recording: Create waits for Stop, or the clip is lost.
+  const [voiceRec, setVoiceRec] = useState(false);
   // Tell the draft stash whether this form is alive: on Stop it either lets
   // the mounted form reappear, or (form unmounted - the user navigated away
   // to reproduce the issue) routes the app back here to resume from the stash.
@@ -309,7 +314,12 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     else finishRecording();
   };
   const onFiles = (e) => {
-    const list = Array.from(e.target.files || []); e.target.value = '';
+    // A video from the camera or the library keeps the video limit and a
+    // real type (an iPhone .mov can come with none) - Neil, Oct 30 2026.
+    const picked = Array.from(e.target.files || []).map(withType); e.target.value = '';
+    const tooBig = picked.map((f) => (mediaKind(f) ? checkMedia(f) : '')).filter(Boolean);
+    const list = picked.filter((f) => !mediaKind(f) || !checkMedia(f));
+    if (tooBig.length) appDialog.alert(tooBig[0], { title: 'Not Added' });
     if (list.length) setAttachments((prev) => [...prev, ...list]);
   };
   const addFile = (f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); };
@@ -338,7 +348,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
 
   const hasPhoto = attachments.some((f) => (f.type || '').startsWith('image/'));
   const submit = async () => {
-    if (busy) return;
+    if (busy || voiceRec) return;
     if (missing.size) { setShowErrors(true); return; }
     // A marked spot asks for a photo - strongly, never a wall.
     if (mapSpot && !hasPhoto && !(await appDialog.confirm('A photo of the spot shows the maintenance team exactly what to fix. Create the ticket without one?',
@@ -658,24 +668,24 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           <label style={label} id="ct-team">Which Team Can Help? {req}</label>
           {deptOptions.length <= 8 ? (
             <div role="radiogroup" aria-labelledby="ct-team"
-              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
+              // min(100%, 168px): "Human Resources" fits on one line at 375px, and a
+              // narrower box than the name is never asked for.
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 168px), 1fr))', gap: 8 }}>
               {deptOptions.map((d) => {
                 const on = form.hrDepartmentId === d.id;
                 const Icon = deptIcon(d.name);
-                const taste = (helpGroupFor(d.name)?.topics || []).slice(0, 3).map((tp) => tp.name.replace(/\s*\(.*\)$/, '')).join(', ');
+                // The name alone (Neil, 11/02/2026): the "taste of what it
+                // handles" line under each name read as clutter and told
+                // nobody anything the name did not. "HR" is spelled out.
                 return (
                   <button key={d.id} type="button" role="radio" aria-checked={on} onClick={() => { if (!on) pickDept(d.id); }}
                     className="nx-ct-tile"
-                    style={{ display: 'flex', alignItems: 'flex-start', gap: 9, textAlign: 'left', cursor: 'pointer', fontFamily: FONT,
-                      padding: '9px 11px', borderRadius: 10, background: NX.surface,
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', cursor: 'pointer', fontFamily: FONT,
+                      padding: '11px 12px', minHeight: 44, borderRadius: 10, background: NX.surface,
                       border: `1px solid ${on ? brand : err('hrDepartmentId') ? NX.red : NX.border}`,
                       boxShadow: on ? `inset 0 0 0 1px ${brand}` : 'none' }}>
-                    <Icon size={17} strokeWidth={1.9} style={{ color: on ? brand : NX.dim, flex: 'none', marginTop: 1 }} aria-hidden="true" />
-                    <span style={{ minWidth: 0, flex: 1 }}>
-                      <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: NX.ink, lineHeight: 1.3 }}>{d.name}</span>
-                      {taste && <span title={taste} style={{ display: 'block', fontSize: 11.5, color: NX.faint, lineHeight: 1.35, marginTop: 2,
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{taste}</span>}
-                    </span>
+                    <Icon size={17} strokeWidth={1.9} style={{ color: on ? brand : NX.dim, flex: 'none' }} aria-hidden="true" />
+                    <span style={{ minWidth: 0, flex: 1, fontSize: 13.5, fontWeight: 600, color: NX.ink, lineHeight: 1.3 }}>{deptDisplayName(d.name)}</span>
                   </button>
                 );
               })}
@@ -684,7 +694,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
             <TicketSelect value={form.hrDepartmentId} onChange={pickDept}
               placeholder="Select department" searchPlaceholder="Search departments…" emptyText="No departments to choose from."
               invalid={err('hrDepartmentId')} style={sel}
-              options={[['', 'Select department'], ...deptOptions.map((d) => [d.id, d.name])]} />
+              options={[['', 'Select department'], ...deptOptions.map((d) => [d.id, deptDisplayName(d.name)])]} />
           )}
           {err('hrDepartmentId') && <div style={requiredHint}>Pick the team that should handle it</div>}
         </div>
@@ -734,7 +744,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           placeholder="What is happening? What were you doing, and what did you expect?" />
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 10px', marginTop: 6 }}>
           <RecordUploadButtons quiet showRecord={!NO_RECORDING_TYPES.includes(form.type)}
-            onFile={addFile} onRecordingChange={onRecChange} />
+            onFile={addFile} onRecordingChange={onRecChange} onVoiceRecordingChange={setVoiceRec} />
           {!isMobile && <span style={{ fontSize: 12, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>}
         </div>
         {attachments.length > 0 && (
@@ -891,7 +901,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     extras: (<>
       {isMobile && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto', position: 'relative' }}>
-          <button ref={photoBtnRef} type="button" title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
+          <button ref={photoBtnRef} type="button" title="Add Photo or Video" aria-label="Add Photo or Video" onClick={() => setPhotoMenu((v) => !v)}
             style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><ImageIcon size={20} /></button>
           <button type="button" title="Attach file" aria-label="Attach file" onClick={() => attachRef.current?.click()}
             style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Paperclip size={20} /></button>
@@ -903,11 +913,13 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           <AnchoredMenu anchorRef={photoBtnRef} open={photoMenu} onClose={() => setPhotoMenu(false)} minWidth={180}
             style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', padding: 4 }}>
             <button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take Photo</button>
+            <button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); vidRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Video size={16} /> Record Video</button>
             <button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose From Device</button>
           </AnchoredMenu>
           {/* capture="environment" opens the rear camera on a phone. */}
           <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFiles} />
-          <input ref={libRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={onFiles} />
+          <input ref={libRef} type="file" accept="image/*,video/*" multiple style={{ display: 'none' }} onChange={onFiles} />
+          <input ref={vidRef} type="file" accept="video/*" capture="environment" style={{ display: 'none' }} onChange={onFiles} />
           <input ref={attachRef} type="file" multiple style={{ display: 'none' }} onChange={onFiles} />
           <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onScan} />
         </div>
@@ -927,7 +939,9 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           </label>
         )}
         <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
-        <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={submit} disabled={busy}>
+        {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red }}>{STOP_VOICE_FIRST}</span>}
+        <button style={{ ...btn('primary'), opacity: busy || voiceRec ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={submit} disabled={busy || voiceRec}
+          title={voiceRec ? STOP_VOICE_FIRST : undefined}>
           {!busy && <Send size={14} aria-hidden="true" />}
           {busy ? (fromTask ? 'Converting…' : 'Creating…') : (fromTask ? 'Convert to Ticket' : 'Create Ticket')}
         </button>
@@ -958,6 +972,12 @@ const AREA_ICON = {
   facilities: Building2, storageops: Warehouse, security: ShieldCheck, finance: Receipt, hr: Users, field: HardHat,
   hardware: Monitor, email: Monitor, files: Monitor, network: Monitor, collab: Monitor, tasks: Monitor,
 };
+// Display names for the team tiles. The department row stays what Settings >
+// Companies > Departments calls it; only the abbreviation is spelled out on
+// this picker (Neil, 11/02/2026: "Rename HR to Human Resources here").
+const DEPT_DISPLAY = { hr: 'Human Resources', 'hr & payroll': 'Human Resources' };
+export const deptDisplayName = (name) => DEPT_DISPLAY[String(name || '').trim().toLowerCase()] || name;
+
 function deptIcon(name) {
   const votes = new Map();
   for (const tp of helpGroupFor(name)?.topics || []) {

@@ -61,6 +61,9 @@ SETTINGS: dict[str, dict] = {
                            "env": "NEXUS_VAULT_OTP_TTL_SEC"},
     "vaultPersonalUnlockSec": {"type": "int", "default": 600, "min": 60, "max": 1800, "unit": "seconds",
                                "env": "NEXUS_VAULT_PERSONAL_TTL_SEC"},
+    # Critical credentials ask for a fresh Microsoft sign-in (routers/stepup.py)
+    # on top of the text/email code (Oct 29 2026). Off until a company wants it.
+    "vaultCriticalStepUp": {"type": "bool", "default": False, "env": "NEXUS_VAULT_CRITICAL_STEPUP"},
     # Guest sign-in (routers/external_auth.py)
     "guestCodeTtlMin":      {"type": "int", "default": 10, "min": 5, "max": 30, "unit": "minutes", "env": None},
     "guestMaxAttempts":     {"type": "int", "default": 5, "min": 3, "max": 10, "unit": "attempts", "env": None},

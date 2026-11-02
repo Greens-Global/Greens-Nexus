@@ -55,6 +55,9 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
   const [rows, setRows] = useState([]);
   const [toSign, setToSign] = useState([]);
   const [busyId, setBusyId] = useState('');
+  // Compact rows (11/02/2026): the note and the fix-first text share one
+  // truncated line; clicking it opens the full text. Which row is open:
+  const [openKey, setOpenKey] = useState('');
   const [backFor, setBackFor] = useState('');   // review id whose Send Back note is open
   const [note, setNote] = useState('');
   const [signing, setSigning] = useState(null);  // party id being signed in place
@@ -133,7 +136,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
     setBusyId('');
   }
 
-  const card = { marginBottom: 16, border: '1px solid var(--wk-line2)', background: 'var(--card)', borderRadius: 12, padding: '12px 16px', boxShadow: 'var(--wk-shadow)' };
+  const card = { marginBottom: 16, border: '1px solid var(--wk-line2)', background: 'var(--card)', borderRadius: 12, padding: '10px 16px', boxShadow: 'var(--wk-shadow)' };
   const signPortal = signing && createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'var(--bg, #f4f5f7)', display: 'flex', flexDirection: 'column' }}>
       <SignModal partyId={signing} onClose={() => setSigning(null)}
@@ -163,26 +166,46 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
               Nothing to review in one pass - every time sheet here needs a closer look first.
             </div>
           )}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {rows.map(r => (
-              <div key={rowKey(r)} data-review={r.employeeEmail} className={r.id ? 'nx-needs-you' : undefined} style={{ borderTop: '1px solid var(--line)', padding: '10px 0' }}>
+          {/* Compact (11/02/2026): one line per person - photo, name, period ·
+              hours · status - with the note / fix-first text as one truncated
+              line underneath that opens on click. The list keeps its height
+              whatever the team size: past ~6 rows it scrolls inside the card,
+              so the tabs below stay in reach. */}
+          <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 330, overflowY: 'auto', overscrollBehavior: 'contain' }}>
+            {rows.map(r => {
+              const k = rowKey(r);
+              const warn = r.agreeBlocker || r.reviewFlag;
+              const open = openKey === k;
+              return (
+              <div key={k} data-review={r.employeeEmail} className={r.id ? 'nx-needs-you' : undefined} style={{ borderTop: '1px solid var(--line)', padding: '7px 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   {/* Whose time sheet, at a glance: their photo (initials when
                       there is none) in front of the name (Neil, Oct 19 2026). */}
-                  <div style={{ flex: 1, minWidth: 220, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                    <Avatar email={r.employeeEmail} name={r.name} size={32} />
+                  <div style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Avatar email={r.employeeEmail} name={r.name} size={26} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>
-                      {r.name}{r.resubmitted && <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', marginLeft: 6 }}>Resubmitted</span>}
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                      <span style={{ fontSize: 13, fontWeight: 700 }}>{r.name}</span>
+                      {r.resubmitted && <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309' }}>Resubmitted</span>}
                       {r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}
+                      <span style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {formatDate(r.periodStart)} - {formatDate(r.periodEnd)} · {hm(r.workedMin)} · {r.notSubmitted ? 'not submitted - period closed' : `submitted ${formatDate(r.submittedAt)}`}
+                      </span>
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                      {formatDate(r.periodStart)} - {formatDate(r.periodEnd)} · {hm(r.workedMin)} · {r.notSubmitted ? 'not submitted - period closed' : `submitted ${formatDate(r.submittedAt)}`}
-                    </div>
-                    {r.note && <div style={{ fontSize: 12, marginTop: 2 }}>"{r.note}"</div>}
-                    {r.agreeBlocker && <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 2 }}>{r.agreeBlocker}</div>}
-                    {/* Approve works, but Review All Clean leaves it: an exception to look at. */}
-                    {!r.agreeBlocker && r.reviewFlag && <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 2 }}>{r.reviewFlag}</div>}
+                    {(warn || r.note) && (
+                      <button type="button" onClick={() => setOpenKey(open ? '' : k)} aria-expanded={open}
+                        title={open ? 'Show less' : (warn || `"${r.note}"`)}
+                        style={{ display: 'flex', alignItems: 'flex-start', gap: 5, width: '100%', background: 'none', border: 'none', padding: 0, marginTop: 1, cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+                        <ChevronRight size={11} style={{ flex: 'none', marginTop: 3, color: warn ? '#b45309' : 'var(--muted)', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 140ms ease-out' }} />
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, lineHeight: 1.45, ...(open ? {} : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }) }}>
+                          {r.note && <span>"{r.note}"</span>}
+                          {r.note && warn ? ' · ' : ''}
+                          {r.agreeBlocker && <span style={{ color: '#b45309' }}>{r.agreeBlocker}</span>}
+                          {/* Approve works, but Review All Clean leaves it: an exception to look at. */}
+                          {!r.agreeBlocker && r.reviewFlag && <span style={{ color: '#b45309' }}>{r.reviewFlag}</span>}
+                        </span>
+                      </button>
+                    )}
                     </div>
                   </div>
                   {/* Review opens the full timecard in People > Time - offered only
@@ -215,7 +238,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
                   </div>
                 )}
               </div>
-            ))}
+            );})}
           </div>
         </div>
       )}
@@ -228,18 +251,17 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {toSign.map(s => (
-              <div key={s.partyId || `resign-${s.id}`} data-sign={s.employeeEmail} className="nx-needs-you" style={{ borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: 220, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <Avatar email={s.employeeEmail} name={s.name} size={32} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{s.role === 'employee' ? 'Your Time Sheet' : s.name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              <div key={s.partyId || `resign-${s.id}`} data-sign={s.employeeEmail} className="nx-needs-you" style={{ borderTop: '1px solid var(--line)', padding: '7px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'center', gap: 10, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  <Avatar email={s.employeeEmail} name={s.name} size={26} />
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>{s.role === 'employee' ? 'Your Time Sheet' : s.name}</span>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    title={s.needsResign ? 'HR changed your time sheet - sign the updated one' : undefined}>
                     {formatDate(s.periodStart)} - {formatDate(s.periodEnd)}
                     {s.agreedBy ? ` · agreed by ${s.agreedBy}${s.agreedAt ? ` on ${formatDate(s.agreedAt)}` : ''}` : ''}
                     {` · you sign ${ROLE_WORD[s.role] || ''}`.replace(/ $/, '')}
                     {s.needsResign ? ' · HR changed your time sheet - sign the updated one' : ''}
-                  </div>
-                  </div>
+                  </span>
                 </div>
                 {/* needsResign (Oct 17): HR changed it while it was out for signature -
                     the click sends the fresh envelope, then opens it. */}

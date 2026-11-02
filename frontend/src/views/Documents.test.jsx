@@ -7,23 +7,27 @@ import { render, screen, waitFor } from '@testing-library/react';
 // crash-on-render (the white-screen class of bug ViewErrorBoundary exists to
 // contain) could only be found by opening it. Every tab is mounted here.
 
-const getDocuments = vi.fn(() => Promise.resolve([]));
-const mySignatures = vi.fn(() => Promise.resolve([]));
+const getDocumentLibrary = vi.fn(() => Promise.resolve([]));
 const getDocFolders = vi.fn(() => Promise.resolve([]));
 const getDocTemplates = vi.fn(() => Promise.resolve([]));
 const getDocLetterheads = vi.fn(() => Promise.resolve([]));
 const getEmployees = vi.fn(() => Promise.resolve([]));
 // The HR Records probe (Oct 14): 403 for anyone who is not HR.
 const listPacketDocuments = vi.fn(() => Promise.reject(new Error('403')));
+const getFormEntries = vi.fn(() => Promise.resolve({ items: [], total: 0, page: 1, pageSize: 50 }));
 vi.mock('../api', () => ({
   api: {
-    getDocuments: (...a) => getDocuments(...a),
-    mySignatures: (...a) => mySignatures(...a),
+    getDocumentLibrary: (...a) => getDocumentLibrary(...a),
     getDocFolders: (...a) => getDocFolders(...a),
     getDocTemplates: (...a) => getDocTemplates(...a),
     getDocLetterheads: (...a) => getDocLetterheads(...a),
     getEmployees: (...a) => getEmployees(...a),
     listPacketDocuments: (...a) => listPacketDocuments(...a),
+    // Form entries (Neil, 11/02/2026): the library's Form Entries view and the Forms tab.
+    getFormEntries: (...a) => getFormEntries(...a),
+    getFormEntry: (id) => Promise.resolve({ id, title: 'Vehicle Check', status: 'submitted', templateId: '', answers: {} }),
+    getWorkSites: () => Promise.reject(new Error('403')),
+    getPeopleDirectory: () => Promise.resolve([]),
     searchDocuments: () => Promise.resolve([]),
     // The Documents tour (Oct 1) as already seen, so these tests see the module itself.
     getToursSeen: () => Promise.resolve({ seen: { documents: '2026-10-01' } }),
@@ -42,6 +46,7 @@ vi.mock('../components/ESign', () => ({ default: () => <div>esign tab</div> }));
 vi.mock('./PdfEditorModule', () => ({ default: () => <div>pdf tools tab</div> }));
 vi.mock('../components/DocumentBuilder', () => ({ default: () => <div>document builder</div> }));
 vi.mock('../components/EgnyteBrowser', () => ({ default: () => <div>egnyte</div> }));
+vi.mock('../components/accounting/prefs', () => ({ useAccountingPrefs: () => [{}, () => {}] }));
 
 const Documents = (await import('./Documents')).default;
 const { HeaderTabsProvider, useHeaderTabs } = await import('../components/ModuleTabs');
@@ -62,34 +67,61 @@ const renderDocs = (activeSub, onSubChange = () => {}) => render(
 const publishedTabs = () => screen.getByTestId('published-tabs').textContent;
 
 beforeEach(() => {
-  getDocuments.mockClear();
-  mySignatures.mockClear();
+  getDocumentLibrary.mockClear();
 });
 
 describe('Documents module', () => {
-  it('renders the dashboard tab by default, with the full tab strip', async () => {
+  it('opens on the library, with the five tabs (Neil, 10/31/2026; Forms 11/02/2026)', async () => {
     renderDocs('');
     // The module title band was removed (Sep 17) - the tab strip is the proof
     // that the shell rendered.
-    for (const label of ['Dashboard', 'My Documents', 'Templates', 'Nexus Sign', 'PDF Tools']) {
-      expect(publishedTabs()).toContain(label);
-    }
-    await waitFor(() => expect(mySignatures).toHaveBeenCalled());
+    expect(publishedTabs()).toBe('Documents|Templates|Forms|Nexus Sign|PDF Tools');
+    await waitFor(() => expect(getDocumentLibrary).toHaveBeenCalled());
   });
 
-  it('falls back to the dashboard for an unknown sub-tab', () => {
-    render(<Documents activeSub="documents-not-a-real-tab" onSubChange={() => {}} />);
-    expect(screen.getByText('New Document')).toBeTruthy();   // dashboard quick action
+  it.each(['documents-not-a-real-tab', 'documents-dashboard', 'documents-hr-records'])('%s lands on the library', async (sub) => {
+    render(<Documents activeSub={sub} onSubChange={() => {}} />);
+    expect(await screen.findByText('New Document')).toBeTruthy();
+    await waitFor(() => expect(getDocumentLibrary).toHaveBeenCalled());
   });
 
-  it('renders My Documents', async () => {
+  it('renders the library', async () => {
     render(<Documents activeSub="documents-browse" onSubChange={() => {}} />);
-    expect(await screen.findByText('No documents match here yet.')).toBeTruthy();
+    expect(await screen.findByText('No documents yet.')).toBeTruthy();
   });
 
   it('renders Templates', async () => {
     render(<Documents activeSub="documents-templates" onSubChange={() => {}} />);
     await waitFor(() => expect(getDocTemplates).toHaveBeenCalled());
+  });
+
+  it('renders Forms - templates first, entries a segment away (Neil, 11/02/2026)', async () => {
+    render(<Documents activeSub="documents-forms" onSubChange={() => {}} />);
+    expect(await screen.findByRole('button', { name: 'New Form' })).toBeTruthy();
+    await waitFor(() => expect(getDocTemplates).toHaveBeenCalled());
+    screen.getAllByRole('button', { name: 'New Form' })[0].click();
+    expect(await screen.findByRole('button', { name: 'Create and Build' })).toBeTruthy();
+    screen.getByRole('button', { name: 'Cancel' }).click();
+    screen.getByRole('tab', { name: 'Entries' }).click();
+    await waitFor(() => expect(getFormEntries).toHaveBeenCalled());
+  });
+
+  it('the Forms templates table resizes every column, like every list', async () => {
+    getDocTemplates.mockResolvedValueOnce([{ id: 'f1', name: 'Vehicle Check', docType: 'form', state: 'published', status: 'active',
+      category: 'vehicle', audience: 'company', fieldDefs: [], updatedAt: '2026-11-02T10:00:00Z' }]);
+    render(<Documents activeSub="documents-forms" onSubChange={() => {}} />);
+    expect(await screen.findByText('Vehicle Check')).toBeTruthy();
+    for (const name of ['Form', 'Category', 'Status', 'Who Fills It', 'Updated']) {
+      expect(screen.getByRole('columnheader', { name: new RegExp(`^${name}`) })).toBeTruthy();
+    }
+    expect(screen.getAllByRole('separator').length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('a bell or workflow link (documents-forms:entry:<id>) opens that entry beside the Entries list', async () => {
+    render(<Documents activeSub="documents-forms:entry:e9" onSubChange={() => {}} />);
+    expect(await screen.findByRole('tab', { name: 'Entries', selected: true })).toBeTruthy();
+    await waitFor(() => expect(getFormEntries).toHaveBeenCalled());
+    expect(await screen.findByText('Vehicle Check')).toBeTruthy();
   });
 
   it('renders Nexus Sign, including its deep-linked requests sub-tab', () => {
@@ -104,25 +136,27 @@ describe('Documents module', () => {
     renderDocs('documents-pdf');
     expect(screen.getByText('pdf tools tab')).toBeTruthy();
     expect(screen.queryByText('Documents')).toBeNull();
-    expect(screen.queryByText('My Documents')).toBeNull();
+    expect(screen.queryByText('New Document')).toBeNull();
     expect(publishedTabs()).toBe('');   // nothing published either
   });
 
   it('still renders when every API call fails (403 for a documents-only grant)', async () => {
     getEmployees.mockRejectedValueOnce(new Error('403'));
-    getDocuments.mockRejectedValueOnce(new Error('500'));
-    mySignatures.mockRejectedValueOnce(new Error('403'));
-    renderDocs('documents-dashboard');
-    expect(publishedTabs()).toContain('Dashboard');
-    await waitFor(() => expect(mySignatures).toHaveBeenCalled());
+    getDocumentLibrary.mockRejectedValueOnce(new Error('500'));
+    renderDocs('documents-browse');
+    expect(publishedTabs()).toContain('Documents');
+    await waitFor(() => expect(getDocumentLibrary).toHaveBeenCalled());
   });
 
-  it('shows the HR Records tab only when the HR probe answers', async () => {
-    renderDocs('documents-dashboard');
+  it('HR Records is a view in the library, only when the server answers, never a tab', async () => {
+    const first = renderDocs('documents-browse');
     await waitFor(() => expect(listPacketDocuments).toHaveBeenCalled());
-    expect(publishedTabs()).not.toContain('HR Records');
+    await screen.findByText('No documents yet.');
+    expect(screen.queryByRole('button', { name: /^HR Records/ })).toBeNull();
+    first.unmount();
     listPacketDocuments.mockResolvedValueOnce([]);
-    renderDocs('documents-dashboard');
-    await waitFor(() => expect(screen.getAllByTestId('published-tabs').some(n => n.textContent.includes('HR Records'))).toBe(true));
+    renderDocs('documents-hr-records');
+    expect(await screen.findByRole('button', { name: /^HR Records/ })).toBeTruthy();
+    expect(publishedTabs()).not.toContain('HR Records');
   });
 });

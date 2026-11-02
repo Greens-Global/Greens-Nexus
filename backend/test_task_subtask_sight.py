@@ -419,13 +419,15 @@ class SightTests(Base):
         many = [t for t in self.db.query(models.Task).all() if t.title.startswith("G")]
         q_many, v_many = selects(many)
         self.assertEqual((v_few, v_many), (3, 33))
-        # One batch per level of the chain, plus the viewer's company scope once.
-        # (the settings read behind the scope may be cached by then - never more).
-        self.assertLessEqual(q_few, 3)
+        # One batch per level of the chain, plus the viewer's company scope once:
+        # two reads since 11/02/2026 (Neil) - the Global Admin group flag
+        # (auth.is_global_admin) and the walls setting, which is cached after
+        # the first call - never more, and never per row.
+        self.assertLessEqual(q_few, 4)
         self.assertLessEqual(q_many, q_few)
         self.db.expire_all()
         everything = self.db.query(models.Task).all()
-        self.assertLessEqual(selects(everything)[0], 1)   # parents all in hand: the scope read only
+        self.assertLessEqual(selects(everything)[0], 2)   # parents all in hand: the scope reads only
 
 
 class CascadeTests(Base):

@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 
+// A computer: the browser can record a screen (Record Screen hides where it cannot - a phone, Oct 30 2026).
+if (!navigator.mediaDevices) Object.defineProperty(navigator, 'mediaDevices', { value: { getDisplayMedia: () => {} }, configurable: true });
+
 // Create a Ticket intake, Neil's Oct 1 2026 review:
 //   - the type opens on Incident ("nine times out of ten it is simply an incident");
 //   - a Requester field under the title, defaulting to me (who it is FOR);

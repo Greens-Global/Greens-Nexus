@@ -100,6 +100,7 @@
   --ease-out: cubic-bezier(.16,1,.3,1);
   --ease-in: cubic-bezier(.55,0,.85,.36);
   --ease-standard: cubic-bezier(.2,.8,.2,1);
+  --ease-spring: cubic-bezier(.34,1.56,.64,1);   /* one overshoot, for a lift or a pop only (rail motion, 11/01/2026) */
 
   /* color tokens for status badges only */
   --color-blue:   215,75%,45%;
@@ -508,26 +509,27 @@ h1,h2,h3,h4,h5,h6,
 .sbfx--out .sbfx-star { fill: #eab308; }
 .sbfx--out .sbfx-star:nth-of-type(even) { fill: #f59e0b; }
 /* The sidebar's tooltips (components/NavTip.jsx, Neil Oct 14 2026: "large
-   and obvious"). A dark panel in a layer on the page, placed and flipped by
-   the component, so the folded rail cannot clip it. The control's name is
-   the big line (15px, semibold); a quieter second line only says why a
-   button cannot be pressed, or gives the clock's numbers. `data-tone` draws a
-   thin colored rule down its left edge - green Punch In, amber Break, red
-   Punch Out - color as a rule, never a chip. The arrow points at the control
-   wherever the clamp to the window moved the panel (--navtip-arrow). */
+   and obvious"; the flyout look since 11/01/2026). A light card in a layer
+   on the page, placed and flipped by the component, so the folded rail
+   cannot clip it. The control's name is the big line (15px, semibold); a
+   quieter second line only says why a button cannot be pressed, or gives
+   the clock's numbers. `data-tone` draws a thin colored rule down its left
+   edge - green Punch In, amber Break, red Punch Out - color as a rule,
+   never a chip. With rail motion on it slides out from the control (180ms,
+   ease-out); off, it fades in as before. No fill mode: there is no delay. */
 .navtip {
-  --navtip-bg: #111827; --navtip-fg: #fff; --navtip-dim: rgba(255, 255, 255, .74);
+  --navtip-bg: var(--card, #fff); --navtip-fg: var(--ink, #111827); --navtip-dim: var(--muted, #6b7280);
   position: fixed; left: 0; top: 0; z-index: 10050; pointer-events: none;
   display: flex; flex-direction: column; gap: 3px;
   width: max-content; max-width: 300px; padding: 9px 14px;
   border-radius: 8px; background: var(--navtip-bg); color: var(--navtip-fg);
+  border: 1px solid var(--line);
   font-family: var(--wk-font, 'Inter', system-ui, sans-serif); text-align: left;
-  box-shadow: 0 12px 32px rgba(17, 24, 39, .28), 0 2px 6px rgba(17, 24, 39, .18);
-  animation: navtip-in .16s cubic-bezier(.16, 1, .3, 1) both;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .10), 0 1px 2px rgba(0, 0, 0, .06);
+  animation: navtip-in var(--dur-sm, 150ms) var(--ease-out);
 }
 [data-theme="dark"] .navtip {
-  --navtip-bg: #f9fafb; --navtip-fg: #111827; --navtip-dim: rgba(17, 24, 39, .68);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .08);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .06);
 }
 .navtip-label { font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -.005em; white-space: nowrap; }
 .navtip-detail { font-size: 12.5px; font-weight: 500; line-height: 1.4; color: var(--navtip-dim); }
@@ -539,11 +541,15 @@ h1,h2,h3,h4,h5,h6,
 .navtip[data-tone="in"] { --navtip-tone: hsl(var(--color-green)); }
 .navtip[data-tone="break"] { --navtip-tone: #f59e0b; }
 .navtip[data-tone="out"] { --navtip-tone: #ef4444; }
-.navtip::after { content: ''; position: absolute; border: 6px solid transparent; }
-.navtip[data-side="right"]::after { right: 100%; top: var(--navtip-arrow, 50%); margin-top: -6px; border-right-color: var(--navtip-bg); }
-.navtip[data-side="left"]::after { left: 100%; top: var(--navtip-arrow, 50%); margin-top: -6px; border-left-color: var(--navtip-bg); }
-.navtip[data-side="top"]::after { top: 100%; left: var(--navtip-arrow, 50%); margin-left: -6px; border-top-color: var(--navtip-bg); }
-.navtip[data-side="bottom"]::after { bottom: 100%; left: var(--navtip-arrow, 50%); margin-left: -6px; border-bottom-color: var(--navtip-bg); }
+/* The flyout (rail motion on): the card slides out from the control's edge
+   and settles - the same `navtip-in` keyframes, a starting transform per side
+   and the ease-out curve (the spring is the icon's alone). Off, the plain
+   fade. */
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip { animation: navtip-in 180ms var(--ease-out); }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="right"] { --navtip-from: translateX(-6px) scale(.98); transform-origin: left center; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="left"] { --navtip-from: translateX(6px) scale(.98); transform-origin: right center; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="top"] { --navtip-from: translateY(6px) scale(.98); transform-origin: center bottom; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="bottom"] { --navtip-from: translateY(-6px) scale(.98); transform-origin: center top; }
 /* It slides the last few pixels out from the control it names. */
 .navtip[data-side="right"] { --navtip-from: translateX(-6px); }
 .navtip[data-side="left"] { --navtip-from: translateX(6px); }
@@ -1244,6 +1250,82 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .nx-overlay.is-closing > .nx-panel { animation: nx-pop-out var(--dur-sm) var(--ease-in) forwards; }
 .nx-overlay.is-closing > .nx-modal-sheet { animation: nx-sheet-down var(--dur-sm) var(--ease-in) forwards; }
 
+/* ── Sheets (Neil, 11/01/2026) ─────────────────────────────────────────────
+   A desktop popup that is a record, a form or a workspace is a SHEET: docked
+   to the right edge, full height, the width it already had (the 60% rule's
+   max(60vw, width), the Workday panels' 85vw), corners rounded on the left.
+   It slides in from off screen (320ms, ease-out) while the scrim fades, its
+   body's first rows cascade in a beat behind the frame, and it slides out
+   (220ms, ease-in) while the scrim fades out over the same 220ms - the JS
+   exit (useExit(onClose, MOTION.md)) waits exactly that long. Every sheet
+   casts its shadow to the left and has a hairline left edge
+   (lib/sheetStack.js SHEET_SHADOW / SHEET_EDGE for inline-styled ones).
+   Questions - DialogHost's confirm / alert / prompt, "Save
+   your changes?", any box tagged .nx-center - keep the centered pop above.
+   Phones keep their bottom sheet: everything here is desktop only.
+   Who draws the class: tasks/components.jsx Modal and marketing/shared/Modal
+   (placement="sheet", the default), the Workday panels, the task drawer;
+   the class-styled shells (.modal-overlay > .modal-content.nx-popup, the
+   credvault .cv-modal.nx-popup) get the same geometry from the rules below
+   without touching their markup. Transform and opacity only. */
+@keyframes nx-slide-in    { from { transform: translateX(100%); } }
+@keyframes nx-slide-out   { to   { transform: translateX(100%); } }
+@keyframes nx-cascade-in  { from { opacity: 0; transform: translateX(10px); } }
+.nx-sheet-right { animation: nx-slide-in var(--dur-lg) var(--ease-out); box-shadow: -8px 0 40px rgba(0,0,0,.18); border-left: 1px solid var(--line); }
+.is-closing > .nx-sheet-right { animation: nx-slide-out var(--dur-md) var(--ease-in) forwards; }
+/* The scrim leaves with the sheet, not 70ms ahead of it. */
+.nx-overlay.is-closing:has(> .nx-sheet-right) { animation-duration: var(--dur-md); }
+/* The body's first eight children arrive 18ms apart, 40ms after the frame
+   starts moving - only while the sheet is arriving: the shell carries
+   `is-entering` for 500ms after it opens (lib/sheetStack.js
+   useSheetEntering), so a row that mounts later (data landing, a tab
+   switch) does not slide in on its own. `backwards` only holds the start
+   state through the delay; once an item has landed the animation is over,
+   so no containing block. */
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(-n+8) { animation: nx-cascade-in var(--dur-md) var(--ease-out); animation-fill-mode: backwards; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(1) { animation-delay: 40ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(2) { animation-delay: 58ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(3) { animation-delay: 76ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(4) { animation-delay: 94ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(5) { animation-delay: 112ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(6) { animation-delay: 130ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(7) { animation-delay: 148ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(8) { animation-delay: 166ms; }
+/* A sheet under a newer sheet recedes (lib/sheetStack.js sets the attribute,
+   and `inert` with it) and comes back when the top one starts to leave. */
+.nx-sheet-right { transition: transform var(--dur-md) var(--ease-out), opacity var(--dur-md) var(--ease-out); }
+.nx-sheet-right[data-nx-under] { transform: translateX(-24px) scale(.985); opacity: .86; pointer-events: none; }
+/* The class-styled shells. `.nx-popup.nx-popup` (0,2,0) sets the 60vw card;
+   these (0,4,0) win on a desktop. A folder panel keeps its own motion. */
+@supports selector(:has(a)) {
+  @media (min-width: 641px) {
+    .modal-overlay:has(> .modal-content.nx-popup:not(.nx-center):not(.folder-panel)) { justify-content: flex-end; align-items: stretch; padding: 0; }
+    .modal-overlay > .modal-content.nx-popup:not(.nx-center):not(.folder-panel) {
+      height: 100%; max-height: 100%; min-height: 0;
+      border-radius: 16px 0 0 16px;
+      box-shadow: -8px 0 40px rgba(0,0,0,.18); border-left: 1px solid var(--line);
+      animation: nx-slide-in var(--dur-lg) var(--ease-out);
+    }
+    .modal-overlay.is-closing > .modal-content.nx-popup:not(.nx-center):not(.folder-panel) { animation: nx-slide-out var(--dur-md) var(--ease-in) forwards; }
+    .modal-overlay.is-closing:has(> .modal-content.nx-popup:not(.nx-center):not(.folder-panel)) { animation-duration: var(--dur-md); }
+    /* A credvault question (the OTP prompt, the personal vault password)
+       passes `center` and keeps the centered card. */
+    .cv-modal-overlay:has(> .cv-modal.nx-popup:not(.nx-center)) { justify-content: flex-end; align-items: stretch; padding: 0; }
+    .cv-modal-overlay > .cv-modal.nx-popup:not(.nx-center) {
+      height: 100%; max-height: 100%; min-height: 0;
+      border-radius: 16px 0 0 16px;
+      box-shadow: -8px 0 40px rgba(0,0,0,.18); border-left: 1px solid var(--line);
+      animation: nx-slide-in var(--dur-lg) var(--ease-out);
+    }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nx-sheet-right, .is-closing > .nx-sheet-right, .nx-sheet-right .nx-cascade > *,
+  .modal-overlay > .modal-content.nx-popup, .cv-modal-overlay > .cv-modal.nx-popup,
+  .nx-overlay.is-closing:has(> .nx-sheet-right) { animation: none !important; transition: none !important; }
+  .nx-sheet-right[data-nx-under] { transform: none; opacity: 1; }
+}
+
 /* Popups cover 60% of the screen (Pranshu, Oct 15 2026): put .nx-popup on any
    centered modal / dialog panel. Comes after .modal-content so it wins over
    that class's max-width; an inline width/maxWidth/minHeight/maxHeight on the
@@ -1675,6 +1757,49 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 }
 .support-card-title { font-weight: 700; font-size: 14px; color: var(--ink); margin-bottom: 5px; }
 .support-card-desc { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+/* "How Do I..." (support/HowDoI.jsx, Neil, 11/02/2026): ONE full-width tile in
+   the Help Center grid, a question per row, the answer dropping down with the
+   one button that does it. A <section>, not a button, so the tile's own hover
+   lift and arrow do not apply; the rows carry the hover tint instead. */
+.how-do-i { grid-column: 1 / -1; position: relative; cursor: default; }
+.how-do-i:hover { background: var(--card); outline: none; transform: none; box-shadow: var(--shadow-md); }
+.how-do-i:hover .support-icon { background: var(--mist); color: var(--fern); }
+.how-do-i-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
+.how-do-i-head .support-icon { margin-bottom: 0; flex-shrink: 0; }
+.how-do-i-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 0 24px; }
+.how-do-i-row { border-top: 1px solid var(--line); min-width: 0; }
+.how-do-i-q {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 4px;
+  background: none; border: none; cursor: pointer; text-align: left; font-family: inherit; color: var(--ink);
+  font-size: 13.5px; font-weight: 600; border-radius: 8px;
+  transition: background var(--dur-sm) var(--ease-out), color var(--dur-sm) var(--ease-out);
+}
+.how-do-i-q:hover { background: color-mix(in srgb, var(--wk-brand) 8%, transparent); }
+.how-do-i-q:focus-visible { outline: 2px solid var(--fern); outline-offset: -2px; }
+.how-do-i-ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; background: var(--mist); color: var(--fern); }
+.how-do-i-row.is-open .how-do-i-ico, .how-do-i-q:hover .how-do-i-ico { background: color-mix(in srgb, var(--wk-brand) 16%, var(--card)); color: var(--wk-brand); }
+.how-do-i-label { flex: 1; min-width: 0; }
+.how-do-i-chev { color: var(--muted); flex-shrink: 0; transition: transform var(--dur-md) var(--ease-out); }
+.how-do-i-row.is-open .how-do-i-chev { transform: rotate(180deg); color: var(--wk-brand); }
+/* The answer slides down: grid-rows 0fr -> 1fr is the one height animation
+   that costs no layout thrash and needs no measured height. */
+.how-do-i-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-md) var(--ease-out); }
+.how-do-i-row.is-open .how-do-i-panel { grid-template-rows: 1fr; }
+.how-do-i-panel-in { overflow: hidden; min-height: 0; padding: 0 4px 0 44px; }
+.how-do-i-row.is-open .how-do-i-panel-in { padding-bottom: 14px; }
+.how-do-i-answer { margin: 2px 0 10px; font-size: 13px; line-height: 1.55; color: var(--muted); max-width: 68ch; }
+.how-do-i-act {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--wk-brand) 40%, transparent); background: color-mix(in srgb, var(--wk-brand) 10%, var(--card));
+  color: var(--wk-brand); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background var(--dur-sm) var(--ease-out), transform var(--dur-xs) var(--ease-out);
+}
+.how-do-i-act:hover { background: color-mix(in srgb, var(--wk-brand) 18%, var(--card)); }
+.how-do-i-act:active { transform: translateY(1px); }
+.how-do-i-act:focus-visible { outline: 2px solid var(--fern); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .how-do-i-panel, .how-do-i-chev, .how-do-i-q, .how-do-i-act { transition: none; }
+}
 .link-btn { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-weight: 600; font-size: 12.5px; background: none; border: none; cursor: pointer; font-family: inherit; margin-top: 10px; transition: color var(--transition-fast); }
 .link-btn:hover { color: var(--ink); }
 
@@ -2438,6 +2563,10 @@ html { overflow-x: hidden; }
   input[type="search"], input[type="email"], input[type="tel"], input[type="url"], input[type="password"], textarea, select {
     font-size: 16px !important;
   }
+  /* ...and a rich-text editor zooms the same way: Quick Note's 14.5px
+     editor zoomed the page in on an iPhone, cutting the text off at the
+     right and throwing the keyboard bar off (Neil, Oct 30 2026). */
+  .ProseMirror[contenteditable="true"] { font-size: 16px; }
 
   /* ...but the OPEN list inherits that 16px, so a dropdown read a size larger
      than everything around it (Sagar, Sept 1 2026). The options carry the
@@ -3078,6 +3207,11 @@ button, [role="button"], select { touch-action: manipulation; }
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 input:focus-visible, textarea:focus-visible, select:focus-visible, [contenteditable]:focus-visible { outline-offset: 0; }
 [style*="outline: none"]:focus-visible, [style*="outline:none"]:focus-visible { outline: 2px solid var(--focus-ring) !important; outline-offset: 1px; }
+/* A paste target (Forms' photo field, Neil 11/02/2026): focusable so Ctrl+V
+   works without clicking a button first, and ringed whenever it holds focus -
+   a click included - so the person sees where the paste will land. */
+.nx-paste-zone { border-radius: 10px; }
+.nx-paste-zone:focus { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
 /* Borderless inline-edit fields (Oct 12) - every input that is a bare line
    of text with no box of its own: the task title, hours/minutes cells, the
    search pills and menu search rows, add-subtask / add-label / add-task
@@ -4254,6 +4388,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .hdr-tab.active .hdr-tab-badge, .module-tab-inline-btn.active .hdr-tab-badge { background: var(--wk-brand-tint); border-color: transparent; color: var(--wk-brand); }
 [data-theme="dark"] .hdr-tab-badge { background: rgba(255,255,255,.06); color: var(--ink); }
 [data-theme="dark"] .hdr-tab.active .hdr-tab-badge { background: rgba(185,187,255,.16); color: #b9bbff; }
+/* A count that is a call to act (Tickets' Unassigned queue, 10/31/2026):
+   amber, the same word the Unassigned cell uses - never red (the bell's). */
+.hdr-tab-badge--alarm, .module-tab-inline-btn.active .hdr-tab-badge--alarm { background: rgba(217,119,6,.14); border-color: transparent; color: #b45309; }
+[data-theme="dark"] .hdr-tab-badge--alarm, [data-theme="dark"] .module-tab-inline-btn.active .hdr-tab-badge--alarm { background: rgba(245,158,11,.18); color: #fbbf24; }
 [data-theme="dark"] .hdr-tab { color: var(--muted); }
 [data-theme="dark"] .hdr-tab:hover { background: var(--mist); color: var(--ink); }
 [data-theme="dark"] .hdr-tab.active {
@@ -4473,14 +4611,16 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   font-family: var(--wk-font);
   font-size: clamp(22px, 2.4vw, 28px); font-weight: 800;
   letter-spacing: -.015em; line-height: 1.15;
-  margin: 0 0 4px; color: inherit;
+  margin: 0 0 10px; color: inherit;
 }
-.dk-head-sub { font-size: 13.5px; color: var(--wk-dim); line-height: 1.5; }
+.dk-head-sub { font-size: 15px; color: var(--wk-dim); line-height: 1.5; }   /* a touch larger, level with the controls across from it (Neil, Oct 30 2026) */
 .dk-head-sub b { color: var(--wk-brand); font-weight: 700; }
 [data-theme="dark"] .dk-head-sub { color: var(--muted); }
 [data-theme="dark"] .dk-head-sub b { color: #b9bbff; }
 
-.dk-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.dk-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+/* The h1's 10px and this 4px put the date line's middle level with the
+   controls across from it (Neil, Oct 30 2026). */
 /* The viewer's own time at the greeting's own size (same clamp, weight and
    tracking as .dk-head h1, Neil, Oct 7), with the other zones small on its
    baseline. Tabular digits so the row doesn't jiggle as the seconds tick. */
@@ -4828,7 +4968,7 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .dk-head h1 { font-size: 24px; grid-column: 1; grid-row: 1; }
   .dk-clock-row { grid-column: 2; grid-row: 1; }
   .dk-clock { font-size: 24px; }
-  .dk-head-sub { grid-column: 1 / -1; grid-row: 2; }
+  .dk-head-sub { grid-column: 1 / -1; grid-row: 2; font-size: 14.5px; }
   .dk-toolbar { grid-column: 1 / -1; grid-row: 3; }
   .dk-toolbar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 4px 0 6px; }
   .dk-toolbar::-webkit-scrollbar { display: none; }
@@ -6276,6 +6416,9 @@ body:has(.docs-root) { overflow-x: clip; }
 }
 @media (max-width: 900px) {
   .help-menu-btn { display: none; }
+  /* No button here on a phone, and the widget is full-screen: the empty
+     wrapper must not take a gap in the header row beside NEXUS. */
+  .help-menu-wrap { display: contents; }
   .help-widget {
     inset: 0; width: 100%; height: 100%; height: 100dvh;
     border-radius: 0; border: none; z-index: 1000;
@@ -6309,6 +6452,8 @@ body:has(.docs-root) { overflow-x: clip; }
   [data-theme="dark"] .nx-row-hover[data-selected="true"]:hover { background: rgba(96, 140, 255, 0.26) !important; }
 }
 .nx-row-hover:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
+/* The desk's keyboard highlight (↑ ↓, Oct 31 2026): a brand ring inside the row, over the zebra and the selection tint. */
+.nx-row-hover[data-focused="true"] { box-shadow: inset 0 0 0 2px var(--wk-brand, #15803d); }
 
 /* Latest Comment cell - a button inside a clickable row: its own hover so it
    reads as "opens the conversation", not just "opens the ticket". */
@@ -6593,6 +6738,16 @@ body:has(.docs-root) { overflow-x: clip; }
 /* Its own animation, not a transition: the opening one holds 1fr, and a held
    animation value outranks any class change. */
 .feature-banner.is-closing { animation: fb-close .3s cubic-bezier(.4, 0, .2, 1) both; }
+/* A header over the whole app (Neil, Oct 30 2026): the bar runs the full
+   width of the window, across the left menu, instead of over the page alone.
+   It is fixed at the very top; the left menu, the page and its sticky header
+   start under it by its measured height (--nx-announce-h, set by
+   FeatureBanner on its row), and the full-height views already subtract the
+   same height. Above the menu, under every popup. */
+.feature-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 150; }
+.main-content { padding-top: var(--nx-announce-h, 0px); }
+.top-header { top: var(--nx-announce-h, 0px); }
+.sidebar { top: var(--nx-announce-h, 0px); height: calc(100vh - var(--nx-announce-h, 0px)); }
 @keyframes fb-open { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
 @keyframes fb-close { from { grid-template-rows: 1fr; opacity: 1; } to { grid-template-rows: 0fr; opacity: 0; } }
 /* One flash of light across the bar once it has settled - not a loop
@@ -6631,6 +6786,45 @@ body:has(.docs-root) { overflow-x: clip; }
   animation: fb-spark .7s .25s cubic-bezier(.34, 1.56, .64, 1) both, fb-turn 1.1s .65s cubic-bezier(.65, 0, .35, 1) both;
 }
 @keyframes fb-turn { from { rotate: 0deg; } to { rotate: 360deg; } }
+/* Depth and light (Neil, Oct 30 2026: "a shadow effect below it ... make it
+   look amazing"). Now that the bar is the app's top edge it floats over
+   everything:
+   - a layered shadow, tinted with the bar's own green so it reads as the bar
+     casting light-blocked color, not grey smudge: a tight contact line, a
+     soft mid shadow and a long faint falloff;
+   - a lit bottom edge: a 1px mint line, brightest in the middle and fading
+     out at both ends, as if light catches the bar's lower lip;
+   - an aurora: one wide, faint pool of mint light drifting slowly back and
+     forth behind the content (transform only - the compositor moves it, no
+     repaint). Slow enough to read as the surface breathing, not as motion. */
+.feature-banner {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .10), inset 0 -1px 0 rgba(0, 0, 0, .14),
+    0 1px 1px rgba(3, 38, 20, .16),
+    0 4px 10px -2px rgba(4, 52, 28, .22),
+    0 14px 30px -10px rgba(4, 64, 34, .34);
+}
+[data-theme="dark"] .feature-banner {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .10), inset 0 -1px 0 rgba(0, 0, 0, .14),
+    0 1px 1px rgba(0, 0, 0, .40),
+    0 6px 14px -2px rgba(0, 0, 0, .45),
+    0 18px 36px -10px rgba(0, 40, 20, .55);
+}
+.feature-banner::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, transparent 0%, rgba(134, 239, 172, .35) 18%, rgba(187, 247, 208, .75) 50%, rgba(153, 246, 228, .4) 82%, transparent 100%);
+}
+.feature-banner::before {
+  content: ''; position: absolute; top: -60%; bottom: -60%; left: 0; width: 55%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(167, 243, 208, .16), rgba(167, 243, 208, .05) 55%, transparent);
+  transform: translateX(-20%);
+  animation: fb-aurora 18s 1.8s ease-in-out infinite alternate both;
+}
+@keyframes fb-aurora { from { transform: translateX(-20%); } to { transform: translateX(150%); } }
+@media (prefers-reduced-motion: reduce) {
+  .feature-banner::before { animation: none; }
+}
 .feature-banner-label {
   flex-shrink: 0; font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
   color: rgba(255, 255, 255, .9);
@@ -7770,6 +7964,13 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .hc-page--phone .support-card-title { font-size: 13.5px; line-height: 1.3; margin-bottom: 0; }
   .hc-page--phone .support-card-desc,
   .hc-page--phone .support-card-arrow { display: none; }
+  .hc-page--phone .how-do-i { grid-column: 1 / -1; min-height: 0; padding: 14px; display: block; }
+  .hc-page--phone .how-do-i .support-card-desc { display: block; }
+  .hc-page--phone .how-do-i-head { margin-bottom: 8px; }
+  .hc-page--phone .how-do-i-list { grid-template-columns: 1fr; }
+  .hc-page--phone .how-do-i-q { padding: 13px 2px; min-height: 48px; font-size: 15px; }
+  .hc-page--phone .how-do-i-panel-in { padding-left: 42px; }
+  .hc-page--phone .how-do-i-act { min-height: 40px; }
   .hc-page--phone .hc-tickets-phone { padding: 14px; }
   .hc-page--phone .view-header { margin-bottom: 0; }
 }
@@ -7885,7 +8086,12 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    scrolls when the screen is short. On a phone it is a full-width sheet
    under the header with 44px rows. */
 .qc-wrap { position: relative; }
-.qc-btn[aria-expanded="true"] { background: var(--mist); }
+/* An action button, not another grey icon (Neil, Oct 30 2026): Nexus green
+   with a white "+", the same green as Notes' New Note, in both themes. */
+.icon-btn.qc-btn { background: #00a25b; color: #fff; }
+.icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] { background: #008a4c; }
+.icon-btn.qc-btn:active { background: #007a43; }
+.icon-btn.qc-btn:focus-visible { outline-offset: 2px; }
 .qc-btn:focus-visible, .qc-item:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
 .qc-item:focus { background: var(--sidebar-hover-bg); }
 .header-user-dropdown.qc-menu { width: 248px; max-height: calc(100dvh - 88px); overflow-y: auto; overscroll-behavior: contain; }
@@ -7899,17 +8105,535 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   }
   .qc-menu .qc-item { min-height: 44px; font-size: 14px; }
 }
+/* The bell matches the header's other buttons (Neil, 10/29/2026: it read
+   smaller than the "+" and the photo beside it). Its size is inline in
+   components/NotificationBell.jsx (Visesh's file), hence !important here:
+   40px like .icon-btn on a computer, 44px like the "+" on a phone, where
+   the photo button grows to 44 too. */
+.header-right button[aria-label="Notifications"] { width: 40px !important; height: 40px !important; }
+.header-right button[aria-label="Notifications"] > svg { width: 18px !important; height: 18px !important; }
+@media (max-width: 900px) {
+  .header-right button[aria-label="Notifications"] { width: 44px !important; height: 44px !important; }
+}
+/* Three 44px buttons beside the centered NEXUS wordmark on a small phone. */
+@media (max-width: 640px) { .header-right { gap: 6px; } }
+/* Under 380px (360px Androids, zoomed iPhones) all three drop to 40px
+   together - still equal, and clear of the wordmark. */
+@media (max-width: 380px) {
+  .qc-btn { width: 40px; height: 40px; margin: 0; }
+  .header-right button[aria-label="Notifications"] { width: 40px !important; height: 40px !important; }
+  .header-right .header-user-pill { padding: 4px; }
+}
+/* 320px (a zoomed iPhone): a tighter wordmark and gap keep NEXUS off the "+". */
+@media (max-width: 340px) {
+  .header-right { gap: 4px; }
+  .header-brand { letter-spacing: 0.08em; font-size: 12px; padding: 8px 2px; transform: translateX(calc(-50% - 8px)); }
+  /* With a Back arrow the left side is full too: stay centered. */
+  .top-header:has(.header-back-mobile) .header-brand { transform: translateX(-50%); }
+}
 /* On a phone the Quick Note button leaves the top bar - the "+" offers New
    Note under New Task (lib/quickCreate.js). Here, not in notes/notes.css:
    that file loads only once Notes has opened. The button stays mounted, so
    the shortcut and the nexus:quick-note event still open the panel. */
-@media (max-width: 900px) { .nt-header-btn { display: none; } }
 /* Room beside the centered NEXUS wordmark on a phone: the "+" takes a 40px
    slot with a 44px hit area, and the profile pill is the avatar alone. */
 @media (max-width: 640px) {
   .qc-btn { margin: 0 -2px; }
-  .header-user-pill { padding: 5px; }
+  .header-user-pill { padding: 6px; }   /* 32px photo + 12 = 44, the "+" and the bell's size */
   .header-user-pill > svg:last-child { display: none; }
+}
+
+/* ── Dashboard > Approvals (approvals/ApprovalsCenter.jsx, Oct 30 2026) ─────── */
+.apv-center { font-family: Inter, sans-serif; color: var(--ink); padding: 2px 0 48px; }
+.apv-head { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }
+.apv-tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--mist, var(--surface-2, #f1f3f8)); align-self: flex-start; }
+.apv-tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 14px; min-height: 34px; border: none; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.apv-tabs button.is-on { background: var(--card); color: var(--ink); box-shadow: var(--wk-shadow, 0 1px 2px rgba(16,24,40,.08)); }
+.apv-tabs button b { font-size: 12px; padding: 1px 7px; border-radius: 999px; background: var(--wk-brand-tint); color: var(--wk-brand); }
+.apv-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.apv-tile { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "ic n" "ic l"; column-gap: 12px; align-items: center; text-align: left; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); cursor: pointer; font: inherit; color: var(--ink); transition: border-color .15s, box-shadow .15s; }
+.apv-tile:hover { border-color: color-mix(in srgb, var(--c, var(--wk-brand)) 40%, var(--line)); }
+.apv-tile.is-on { border-color: var(--c, var(--wk-brand)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c, var(--wk-brand)) 14%, transparent); }
+.apv-tile[data-tone="brand"] { --c: var(--wk-brand); } .apv-tile[data-tone="red"] { --c: #dc2626; } .apv-tile[data-tone="amber"] { --c: #d97706; } .apv-tile[data-tone="green"] { --c: #16a34a; }
+.apv-tile-ic { grid-area: ic; width: 36px; height: 36px; border-radius: 10px; display: inline-grid; place-items: center; background: color-mix(in srgb, var(--c) 12%, transparent); color: var(--c); }
+.apv-tile-n { grid-area: n; font-size: 22px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.apv-tile-l { grid-area: l; font-size: 12px; font-weight: 600; color: var(--muted); }
+.apv-body { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
+.apv-body.is-wide { grid-template-columns: 220px minmax(0, 1fr) 360px; }
+.apv-rail { position: sticky; top: 72px; display: grid; gap: 14px; }
+.apv-rail-g { display: grid; gap: 2px; }
+.apv-rail-t { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 0 10px 6px; }
+.apv-rail-i { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 7px 10px; border: none; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; text-align: left; }
+.apv-rail-i span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-rail-i b { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.apv-rail-i:hover { background: var(--mist, var(--surface-2)); }
+.apv-rail-i.is-on { background: var(--wk-brand-tint); color: var(--wk-brand); font-weight: 700; }
+.apv-rail-i.is-on b { color: var(--wk-brand); }
+.apv-main { min-width: 0; display: grid; gap: 12px; }
+.apv-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.apv-search { position: relative; flex: 1 1 240px; min-width: 200px; }
+.apv-search input { width: 100%; padding-left: 32px; }
+.apv-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.apv-tools label { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.apv-tools select { width: auto; min-width: 130px; }
+.apv-keys-btn { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--muted); display: inline-grid; place-items: center; cursor: pointer; }
+.apv-keys-btn:hover { color: var(--ink); }
+.apv-active-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.apv-link { background: none; border: none; padding: 0; color: var(--wk-brand); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.apv-errors { font-size: 12.5px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.apv-card { border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+.apv-card + .apv-card { margin-top: 14px; }
+.apv-bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--surface-2, var(--card)); font-size: 13px; color: var(--muted); }
+.apv-bar span { flex: 1; min-width: 0; }
+.apv-bar input, .apv-pick input { width: 16px; height: 16px; margin: 0; accent-color: var(--wk-brand); cursor: pointer; }
+.apv-bar .primary-btn { font-size: 12.5px; padding: 6px 14px; white-space: nowrap; }
+.apv-section-h { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 16px; border: none; border-top: 1px solid var(--line); background: var(--surface-2, var(--card)); color: var(--ink); font: inherit; font-size: 12.5px; font-weight: 700; text-align: left; cursor: pointer; }
+.apv-section:first-child > .apv-section-h, .apv-card > .apv-section-h:first-child { border-top: none; }
+.apv-section-h.is-static { cursor: default; }
+.apv-section-h b { font-size: 12px; padding: 1px 7px; border-radius: 999px; background: var(--wk-brand-tint); color: var(--wk-brand); }
+.apv-section-h em { font-style: normal; font-weight: 500; color: var(--muted); margin-left: 4px; }
+.apv-section-h .apv-link { margin-left: auto; }
+.apv-chev { color: var(--muted); transition: transform .15s; }
+.apv-chev.is-open { transform: rotate(90deg); }
+.apv-own .apv-section-h { background: color-mix(in srgb, #7c3aed 6%, var(--card)); }
+.apv-row { display: grid; grid-template-columns: 20px minmax(150px, 210px) minmax(0, 1fr) 88px 70px auto; grid-template-areas: "pick who what prio age act"; gap: 6px 12px; align-items: center; padding: 11px 16px; border-top: 1px solid var(--line); background: var(--card); position: relative; }
+.apv-row.is-focused { background: var(--wk-brand-tint); box-shadow: inset 3px 0 0 var(--wk-brand); }
+.apv-row[data-priority="urgent"]:not(.is-focused) { box-shadow: inset 3px 0 0 #dc2626; }
+.apv-pick { grid-area: pick; display: flex; align-items: center; }
+.apv-who { grid-area: who; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.apv-who-t { min-width: 0; display: grid; }
+.apv-name { font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-sub { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-what { grid-area: what; min-width: 0; }
+.apv-title { background: none; border: none; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; font-size: 13.5px; font-weight: 600; line-height: 1.35; display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
+.apv-title span { overflow-wrap: anywhere; }
+.apv-title svg { color: var(--muted); flex-shrink: 0; }
+.apv-title:hover { text-decoration: underline; }
+.apv-detail { font-size: 12.5px; color: var(--muted); margin-top: 2px; line-height: 1.4; overflow-wrap: anywhere; }
+.apv-prio { grid-area: prio; font-size: 12.5px; }
+.apv-age { grid-area: age; text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.apv-age.is-slow { color: #d97706; font-weight: 600; }
+.apv-age.is-late { color: #dc2626; font-weight: 700; }
+.apv-act { grid-area: act; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.apv-act button { font-size: 12.5px; padding: 6px 12px; white-space: nowrap; }
+.apv-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 8px; }
+.apv-no, .apv-review { padding: 7px 14px; font-size: 13px; line-height: 1.3; white-space: nowrap; font-family: inherit; font-weight: 600; cursor: pointer; }
+.apv-no { background: var(--apv-red, #dc2626); color: #fff; border: 1px solid var(--apv-red, #dc2626); }
+.apv-no:hover:not(:disabled) { filter: brightness(.92); }
+.apv-review { background: color-mix(in srgb, var(--ink) 9%, var(--card)); color: var(--ink); border: 1px solid transparent; }
+.apv-review:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 14%, var(--card)); }
+.apv-no:focus-visible, .apv-review:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: 2px; }
+.apv-mark { border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--line); color: var(--muted); }
+.apv-empty { padding: 48px 20px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; background: var(--card); }
+.apv-empty-t { font-size: 16px; font-weight: 700; margin-top: 10px; }
+.apv-empty-d { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+.apv-detail-col { position: sticky; top: 72px; min-width: 0; }
+.apv-detail-card { display: flex; flex-direction: column; gap: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 16px; max-height: calc(100vh - 100px); overflow: auto; }
+.apv-detail-card.in-modal { border: none; padding: 0; max-height: none; flex: 1; min-height: 0; }
+.apv-detail-top { display: flex; align-items: center; justify-content: space-between; }
+.apv-detail-kind { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.apv-x { width: 28px; height: 28px; border-radius: 8px; border: none; background: transparent; color: var(--muted); display: inline-grid; place-items: center; cursor: pointer; }
+.apv-x:hover { background: var(--mist, var(--surface-2)); color: var(--ink); }
+.apv-detail-who { display: flex; align-items: center; gap: 12px; }
+.apv-detail-name { font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+.apv-detail-meta { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.apv-detail-title { margin: 0; font-size: 16px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.apv-detail-wait { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.apv-detail-text { margin: 0; font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.apv-facts { display: grid; grid-template-columns: minmax(110px, 150px) minmax(0, 1fr); border-top: 1px solid var(--line); align-content: start; }
+.apv-facts > div { padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; line-height: 1.5; }
+.apv-facts > div:nth-child(odd) { color: var(--muted); padding-right: 12px; }
+.apv-facts > div:nth-child(even) { color: var(--ink); font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere; }
+.apv-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; padding-top: 4px; }
+.apv-detail-empty { border: 1px dashed var(--line); border-radius: 12px; padding: 40px 20px; text-align: center; color: var(--muted); display: grid; gap: 8px; justify-items: center; font-size: 13.5px; }
+.apv-detail-empty small { font-size: 12px; line-height: 1.5; }
+.apv-keys { display: grid; gap: 8px; font-size: 13.5px; }
+.apv-keys > div { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 12px; }
+.apv-keys kbd { display: inline-block; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-2, var(--card)); font-family: ui-monospace, monospace; font-size: 12px; text-align: center; }
+.apv-keys p { margin: 8px 0 0; color: var(--muted); font-size: 12.5px; }
+.apv-hrow { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); }
+.apv-hwhat { min-width: 0; }
+.apv-htitle { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
+.apv-hwhen { font-size: 12px; color: var(--muted); white-space: nowrap; text-align: right; }
+.apv-hwhen span { display: block; }
+.apv-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1300; max-width: min(640px, calc(100vw - 32px)); display: flex; align-items: center; gap: 14px; padding: 10px 14px 10px 18px; border-radius: 10px; box-shadow: var(--shadow-lg); background: var(--ink); color: var(--paper); font-size: 13px; font-weight: 600; }
+.apv-toast.is-error { background: hsl(var(--color-red)); color: #fff; }
+.apv-toast > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.apv-toast-undo { background: none; border: none; color: hsl(var(--color-green)); font-weight: 800; font-size: 13px; cursor: pointer; padding: 2px 4px; font-family: inherit; }
+.apv-toast-open { background: none; border: none; color: inherit; text-decoration: underline; font-weight: 700; font-size: 13px; cursor: pointer; padding: 2px 4px; font-family: inherit; white-space: nowrap; }
+@media (max-width: 1180px) { .apv-body { grid-template-columns: 200px minmax(0, 1fr); } }
+/* Under 760px the list above is replaced by the phone surface (next block);
+   only the Review sheet's facts and foot are still drawn from here. */
+@media (max-width: 760px) {
+  .apv-facts { grid-template-columns: minmax(0, 1fr); }
+  .apv-facts > div:nth-child(odd) { border-bottom: none; padding-bottom: 0; }
+  .apv-foot button { flex: 1 1 92px; min-width: 0; min-height: 48px; justify-content: center; font-size: 15px; border-radius: 10px; }
+  .apv-foot .apv-open { flex-basis: 100%; }
+  .apv-foot > span { display: none; }
+  .apv-toast { bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .apv-toast-undo { min-height: 44px; padding: 0 12px; }
+}
+
+/* ── Approvals on the phone (approvals/ApprovalsPhone.jsx, Neil, 11/02/2026) ──
+   One card per request, two big decisions, the chip strip, one Filter
+   sheet. Motion is transform and opacity only, on the --dur-* tokens: a
+   decided card is lifted out of the flow as a ghost that flashes its action
+   color (an overlay's opacity, --dur-xs), then slides on the way it went
+   (right for a yes, left for a no, from where a swipe let go) and fades
+   (--dur-sm, the exit - 70% of the --dur-md the neighbors glide in through
+   useFlip); the count pill bumps on --dur-sm; the empty check pops once on
+   --ease-spring. Reduced motion: the JS skips the ghost, and this block
+   stills the rest. */
+.apv-phone { font-family: Inter, sans-serif; color: var(--ink); }
+/* Sticky section labels: .viewport is overflow-y: auto but never scrolls
+   itself (the page does), and body's overflow-x: hidden makes it a
+   non-scrolling scroll container - either stops position: sticky. Same fix
+   as Documentation and Settings, and only while Approvals shows on a phone. */
+.viewport:has(.apv-phone) { overflow: visible; }
+body:has(.apv-phone) { overflow-x: clip; }
+.apv-ph-head { display: grid; gap: 12px; margin-bottom: 12px; }
+.apv-ph-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.apv-ph-title h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.01em; line-height: 1.2; }
+.apv-ph-pill { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 999px; background: var(--wk-brand-tint); color: var(--wk-brand); font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.apv-ph-pill.is-bump { animation: apv-ph-bump var(--dur-sm) var(--ease-out); }
+@keyframes apv-ph-bump { 50% { transform: scale(1.08); } }
+.apv-phone .apv-tabs { display: flex; align-self: stretch; }
+.apv-phone .apv-tabs button { flex: 1 1 0; justify-content: center; min-height: 44px; font-size: 14px; }
+.apv-ph-chips { display: flex; align-items: center; gap: 8px; padding: 2px 0 12px; }
+.apv-ph-chip { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 13.5px; font-weight: 600; white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform var(--dur-xs) var(--ease-standard); }
+.apv-ph-chip:active { transform: scale(.97); }
+.apv-ph-chip b { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.apv-ph-chip.is-on { background: var(--wk-brand-tint); border-color: color-mix(in srgb, var(--wk-brand) 35%, var(--line)); color: var(--wk-brand); }
+.apv-ph-chip.is-on b { color: var(--wk-brand); }
+.apv-ph-filter { position: sticky; right: 0; margin-left: auto; box-shadow: -12px 0 10px -8px var(--paper), 0 0 0 6px var(--paper); }
+.apv-ph-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--wk-brand); }
+.apv-ph-list { position: relative; display: grid; gap: 10px; }
+.apv-ph-sec { display: grid; gap: 10px; }
+.apv-ph-sec-h { z-index: 2; display: flex; align-items: center; gap: 6px; padding: 8px 2px 6px; background: var(--paper); font-size: 12.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.apv-ph-sec-l { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-ph-sec-n { font-weight: 600; white-space: pre; }
+.apv-ph-sec-old { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.apv-ph-own .apv-ph-sec-h { color: #7c3aed; } .apv-ph-own .apv-ph-sec-l { color: #6d28d9; }
+.apv-ph-wrap { position: relative; }
+.apv-ph-swipe { position: absolute; inset: 0; border-radius: 12px; display: flex; align-items: center; padding: 0 22px; color: #fff; }
+.apv-ph-swipe.is-yes { background: #16a34a; justify-content: flex-start; }
+.apv-ph-swipe.is-no { background: #dc2626; justify-content: flex-end; }
+.apv-ph-swipe-ic { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,.22); }
+.apv-ph-card { position: relative; display: grid; gap: 10px; padding: 14px 14px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+/* Only a card that swipes keeps the horizontal drag for itself; scrolling
+   and pinch zoom stay the browser's. Every other card is left alone. */
+.apv-ph-card[data-swipe] { touch-action: pan-y pinch-zoom; }
+.apv-ph-card[data-priority="urgent"] { box-shadow: inset 4px 0 0 #dc2626; }
+.apv-ph-card[data-priority="high"] { box-shadow: inset 4px 0 0 #d97706; }
+.apv-ph-top { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+.apv-ph-who { min-width: 0; }
+.apv-ph-name { font-size: 15px; font-weight: 700; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A 44px tall hit area from padding (13px over and under an ~18px line),
+   pulled back by the same negative margin so the card's layout is as it was. */
+.apv-ph-ttl { display: block; width: 100%; background: none; border: none; padding: 13px 0; margin: -11px 0 -13px; font: inherit; font-size: 13.5px; line-height: 1.35; color: var(--ink); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.apv-ph-side { display: grid; justify-items: end; gap: 4px; }
+.apv-ph-age { font-size: 12.5px; font-weight: 600; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.apv-ph-age.is-slow { color: #d97706; }
+.apv-ph-age.is-late { color: #dc2626; font-weight: 700; }
+.apv-ph-detail { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; color: var(--muted); line-height: 1.4; }
+.apv-ph-detail > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-ph-acts { display: flex; gap: 8px; align-items: stretch; }
+.apv-ph-btn { flex: 1 1 0; min-width: 0; min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border-radius: 10px; border: 1px solid transparent; font: inherit; font-size: 15px; font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform var(--dur-xs) var(--ease-standard); }
+.apv-ph-btn:active { transform: scale(.97); }
+.apv-ph-btn svg { flex-shrink: 0; }
+.apv-ph-yes { background: color-mix(in srgb, #16a34a 14%, var(--card)); color: #166534; }
+.apv-ph-no { background: color-mix(in srgb, #dc2626 12%, var(--card)); color: #b91c1c; }
+/* On the dark card the tints go dark too: light text keeps the words legible. */
+[data-theme="dark"] .apv-ph-yes { color: #4ade80; }
+[data-theme="dark"] .apv-ph-no { color: #f87171; }
+.apv-ph-review { background: color-mix(in srgb, var(--ink) 9%, var(--card)); color: var(--ink); }
+.apv-ph-open { flex: 0 1 auto; padding: 0 16px; background: var(--card); border-color: var(--line); color: var(--ink); }
+.apv-ph-more { flex: 0 0 44px; width: 44px; min-height: 48px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--muted); display: inline-grid; place-items: center; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.apv-ph-btn:focus-visible, .apv-ph-more:focus-visible, .apv-ph-chip:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: 2px; }
+.apv-ph-ghost { position: absolute; left: 0; right: 0; z-index: 1; pointer-events: none; transform: translateX(var(--from-x, 0px)); animation: apv-ph-leave var(--dur-sm) var(--ease-in) var(--dur-xs) forwards; }
+.apv-ph-ghost::after { content: ''; position: absolute; inset: 0; border-radius: 12px; background: var(--tone, #16a34a); opacity: 0; animation: apv-ph-flash var(--dur-xs) var(--ease-out) forwards; }
+.apv-ph-ghost.is-yes { --tone: #16a34a; }
+.apv-ph-ghost.is-no { --tone: #dc2626; }
+/* From where the swipe let go (--from-x, 0 for a tap), on 24px the way it was going (--dir: 1 right, -1 left). */
+@keyframes apv-ph-leave { from { transform: translateX(var(--from-x, 0px)); } to { transform: translateX(calc(var(--from-x, 0px) + var(--dir, 1) * 24px)); opacity: 0; } }
+@keyframes apv-ph-flash { to { opacity: .12; } }
+.apv-ph-empty { padding: 44px 20px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; background: var(--card); }
+.apv-ph-empty-ic { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: color-mix(in srgb, #16a34a 12%, var(--card)); color: #16a34a; animation: apv-ph-pop var(--dur-md) var(--ease-spring) both; }
+@keyframes apv-ph-pop { from { transform: scale(.6); opacity: 0; } }
+/* Nothing matches the filters: a neutral mark, no pop - nothing was cleared. */
+.apv-ph-empty-ic.is-filtered { background: color-mix(in srgb, var(--ink) 7%, var(--card)); color: var(--muted); animation: none; }
+.apv-ph-clear { margin-top: 14px; min-height: 44px; }
+.apv-ph-fbtn { flex: 1 1 0; min-height: 48px; justify-content: center; font-size: 15px; border-radius: 10px; }
+.apv-ph-note-wrap { display: flex; flex-direction: column; gap: 6px; }
+.apv-ph-note-why { font-size: 15px; font-weight: 700; }
+.apv-ph-note-hint { margin: 0 0 6px; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.apv-ph-note { flex: 1; width: 100%; min-height: 140px; resize: none; font-size: 16px; line-height: 1.5; }
+.apv-ph-note-req { font-size: 12px; color: var(--muted); }
+.apv-ph-fs { display: grid; gap: 20px; }
+.apv-ph-fs-g { display: grid; gap: 8px; }
+.apv-ph-fs-t { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.apv-ph-seg { display: flex; flex-wrap: wrap; gap: 8px; }
+.apv-ph-seg button { min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.apv-ph-seg button b { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.apv-ph-seg button.is-on { background: var(--wk-brand-tint); border-color: color-mix(in srgb, var(--wk-brand) 35%, var(--line)); color: var(--wk-brand); }
+.apv-ph-seg button.is-on b { color: var(--wk-brand); }
+@media (prefers-reduced-motion: reduce) {
+  .apv-ph-ghost, .apv-ph-ghost::after, .apv-ph-empty-ic, .apv-ph-pill.is-bump { animation: none; }
+  .apv-ph-ghost { opacity: 0; }
+  /* The press is a color change only. */
+  .apv-ph-chip, .apv-ph-btn { transition: none; }
+  .apv-ph-chip:active, .apv-ph-btn:active { transform: none; }
+}
+/* Voice anywhere (components/DictateButton.jsx, VoiceNoteButton.jsx; Neil,
+   Oct 30 2026). The mic sits beside or inside a text box; a voice note
+   shows a red dot and its clock while it records. */
+.nx-dictate { position: relative; display: inline-flex; flex-shrink: 0; }
+.nx-mic {
+  width: 32px; height: 32px; display: inline-grid; place-items: center; border: none; border-radius: 8px;
+  background: transparent; color: var(--muted, #676879); cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.nx-mic:hover { background: var(--wk-hover, rgba(0,0,0,.05)); color: var(--ink, #323338); }
+.nx-mic.is-on { background: var(--wk-red, #e2445c); color: #fff; animation: nx-mic-pulse 1.4s ease-in-out infinite; }
+@keyframes nx-mic-pulse { 50% { box-shadow: 0 0 0 5px rgba(226, 68, 92, .18); } }
+@media (prefers-reduced-motion: reduce) { .nx-mic.is-on { animation: none; } }
+.nx-dictate-live {
+  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 30; max-width: min(320px, 80vw); width: max-content;
+  padding: 6px 10px; border-radius: 8px; background: #111827; color: #fff; font: 500 12.5px/1.35 'Inter', system-ui, sans-serif;
+  box-shadow: 0 8px 24px rgba(0,0,0,.2); pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nx-dictate-live.is-bad { background: var(--wk-red, #e2445c); white-space: normal; }
+.nx-voice {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; flex-shrink: 0; cursor: pointer;
+  border: 1px solid var(--wk-line2, #e6e9ef); border-radius: 8px; background: var(--card, #fff); color: var(--ink, #323338);
+  font: 600 13px 'Inter', system-ui, sans-serif;
+}
+.nx-voice.is-compact { width: 34px; padding: 0; justify-content: center; }
+.nx-voice:disabled { opacity: .5; cursor: default; }
+.nx-rec {
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 10px; border-radius: 8px;
+  background: rgba(226, 68, 92, .08); color: var(--ink, #323338); font: 600 13px 'Inter', system-ui, sans-serif;
+}
+.nx-rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--wk-red, #e2445c); animation: nx-rec-pulse 1.2s ease-in-out infinite; }
+@keyframes nx-rec-pulse { 50% { opacity: .35; transform: scale(.8); } }
+@media (prefers-reduced-motion: reduce) { .nx-rec-dot { animation: none; } }
+.nx-rec-time { font-variant-numeric: tabular-nums; }
+.nx-rec-stop {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: none; border-radius: 6px;
+  background: var(--wk-red, #e2445c); color: #fff; font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.nx-rec-x { width: 26px; height: 26px; display: grid; place-items: center; border: none; border-radius: 6px; background: transparent; color: var(--muted, #676879); cursor: pointer; }
+.nx-rec-error { display: block; margin-top: 4px; font-size: 12px; color: var(--wk-red, #e2445c); }
+@media (max-width: 768px) { .nx-mic { width: 40px; height: 40px; } .nx-voice, .nx-rec { height: 40px; } }
+
+/* ── Hold to confirm (ui/HoldButton.jsx, Neil, Oct 30 2026) ──
+   A red layer, a clipped copy of the label, wipes left to right at an even
+   pace while held (--nx-hold-ms) and rewinds in 180 ms with a strong ease-out
+   when let go. Done = solid red with a check. Reduced motion: four steps. */
+.nx-hold-wrap { position: relative; display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; vertical-align: middle; }
+.nx-hold {
+  position: relative; isolation: isolate; overflow: hidden; display: inline-flex; align-items: center;
+  height: 36px; min-width: 40px; padding: 0 16px; border-radius: 9px;
+  border: 1px solid hsl(var(--color-red)); background: hsla(var(--color-red), 0.08); color: hsl(var(--color-red));
+  font: 600 13.5px Inter, sans-serif; cursor: pointer; white-space: nowrap;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  transition: transform 160ms cubic-bezier(.23, 1, .32, 1), background-color 120ms ease-out;
+}
+.nx-hold-sm { height: 30px; padding: 0 11px; border-radius: 8px; font-size: 12.5px; }
+.nx-hold:hover:not(:disabled) { background: hsla(var(--color-red), 0.13); }
+.nx-hold:focus-visible { outline: 2px solid hsl(var(--color-red)); outline-offset: 2px; }
+.nx-hold:disabled { opacity: .5; cursor: not-allowed; }
+.nx-hold[data-holding] { transform: scale(.98); }
+.nx-hold-face, .nx-hold-fill { display: inline-flex; align-items: center; gap: 7px; }
+.nx-hold-sm .nx-hold-face, .nx-hold-sm .nx-hold-fill { gap: 6px; }
+.nx-hold-fill {
+  position: absolute; inset: 0; padding: inherit; justify-content: inherit;
+  background: hsl(var(--color-red)); color: #fff;
+  clip-path: inset(0 100% 0 0); transition: clip-path 180ms cubic-bezier(.23, 1, .32, 1);
+}
+.nx-hold[data-holding] .nx-hold-fill { clip-path: inset(0 0 0 0); transition: clip-path var(--nx-hold-ms, 1200ms) linear; }
+.nx-hold[data-nudge] .nx-hold-fill { clip-path: inset(0 88% 0 0); transition: clip-path 140ms ease-out; }
+.nx-hold[data-working] .nx-hold-fill, .nx-hold[data-done] .nx-hold-fill { clip-path: inset(0 0 0 0); transition: none; }
+.nx-hold[data-done] { background: hsl(var(--color-red)); color: #fff; }
+.nx-hold[data-working] { cursor: progress; }
+.nx-hold[data-working] .nx-hold-fill { animation: nx-hold-wait 900ms ease-in-out infinite alternate; }
+@keyframes nx-hold-wait { from { opacity: 1; } to { opacity: .78; } }
+.nx-hold-hint {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 2; pointer-events: none; white-space: nowrap;
+  font-size: 11.5px; font-weight: 600; color: var(--muted, #5b675f);
+}
+.nx-hold-error { font-size: 12px; color: hsl(var(--color-red)); text-align: right; }
+.nx-hold-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .nx-hold, .nx-hold-fill, .nx-hold[data-holding] .nx-hold-fill, .nx-hold[data-nudge] .nx-hold-fill { transition: none; }
+  .nx-hold[data-holding] { transform: none; }
+  .nx-hold[data-holding] .nx-hold-fill { clip-path: inset(0 var(--nx-hold-left, 100%) 0 0); }
+  .nx-hold[data-working] .nx-hold-fill { animation: none; }
+}
+/* The Documents library and Templates list (Neil, 10/31/2026): a left list of
+   views, a flat table, a panel beside it. Status is a dot and a word. */
+.nx-dl { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 20px; align-items: start; margin-top: 4px; }
+.nx-dl.nx-dl-open { grid-template-columns: 196px minmax(0, 1fr) minmax(360px, 34%); }
+.nx-dl.nx-dl-norail { grid-template-columns: minmax(0, 1fr); }
+.nx-dl.nx-dl-norail.nx-dl-open { grid-template-columns: minmax(0, 1fr) minmax(360px, 34%); }
+.nx-dl-rail { display: flex; flex-direction: column; gap: 1px; position: sticky; top: 12px; }
+.nx-dl-rail button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 7px 10px; background: none; border: none; border-left: 2px solid transparent; font: 500 13px Inter, sans-serif; color: var(--muted); text-align: left; cursor: pointer; }
+.nx-dl-rail button:hover { color: var(--ink); background: var(--mist); }
+.nx-dl-rail button.on { color: var(--ink); font-weight: 650; border-left-color: var(--pine); background: var(--mist); }
+.nx-dl-rail button > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-dl-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.nx-dl-rail-head { margin: 14px 0 4px; padding: 0 12px; font: 650 11px Inter, sans-serif; color: var(--muted); }
+.nx-dl-rail .nx-dl-rail-add { justify-content: flex-start; color: var(--muted); }
+.nx-dl-main { min-width: 0; }
+.nx-dl-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.nx-dl-search { position: relative; flex: 1 1 240px; min-width: 200px; }
+.nx-dl-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.nx-dl-search input { width: 100%; padding-left: 30px; font-size: 13px; }
+.nx-dl-table { border-top: 1px solid var(--line); overflow-x: auto; }
+.nx-dl-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.nx-dl-table th { text-align: left; padding: 8px 10px; font: 650 11.5px Inter, sans-serif; color: var(--muted); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.nx-dl-table th button { display: inline-flex; align-items: center; gap: 3px; background: none; border: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.nx-dl-table th button:hover { color: var(--ink); }
+.nx-dl-table td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.nx-dl-table tbody tr { cursor: pointer; }
+.nx-dl-table tbody tr:hover { background: var(--mist); }
+.nx-dl-table tbody tr.sel { background: var(--mist); box-shadow: inset 2px 0 0 var(--pine); }
+.nx-dl-table tbody tr:focus-visible { outline: 2px solid var(--pine); outline-offset: -2px; }
+.nx-dl-name { font-weight: 600; color: var(--ink); }
+.nx-dl-for { white-space: nowrap; }
+.nx-dl-open .nx-dl-co { display: none; }
+.nx-dl-date { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.nx-dl-rowact { text-align: right; white-space: nowrap; }
+.nx-dl-rowact .secondary-btn { font-size: 12px; padding: 4px 10px; }
+.nx-dl-status { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.nx-dl-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.nx-dl-green { background: hsl(var(--color-green)); }
+.nx-dl-blue { background: hsl(var(--color-blue)); }
+.nx-dl-amber { background: hsl(var(--color-orange)); }
+.nx-dl-red { background: hsl(var(--color-red)); }
+.nx-dl-ink { background: var(--ink); }
+.nx-dl-muted { font-size: 12px; color: var(--muted); }
+.nx-dl-empty { padding: 56px 20px; text-align: center; color: var(--muted); }
+.nx-dl-empty svg { opacity: .35; margin-bottom: 10px; }
+.nx-dl-empty p { font-size: 13.5px; margin: 0 0 14px; }
+.nx-dl-panel { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 14px; max-height: calc(100vh - 92px - var(--nx-announce-h, 0px)); overflow-y: auto; padding: 0 0 16px 18px; border-left: 1px solid var(--line); min-width: 0; }
+.nx-dl-panel-head { display: flex; align-items: flex-start; gap: 10px; }
+.nx-dl-panel-title { font-size: 15px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; margin-bottom: 4px; }
+.nx-dl-icon { flex: none; display: flex; padding: 6px; background: none; border: none; color: var(--muted); cursor: pointer; }
+.nx-dl-icon:hover { color: var(--ink); }
+.nx-dl-page { flex: none; width: 100%; height: 420px; border: 1px solid var(--line); background: var(--card); }
+.nx-dl-page-note { display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; font-size: 12.5px; color: var(--muted); }
+.nx-dl-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.nx-dl-actions button { font-size: 12.5px; }
+.nx-dl-section { display: flex; flex-direction: column; gap: 8px; }
+.nx-dl-section h4 { margin: 0; font-size: 12.5px; font-weight: 650; color: var(--ink); }
+.nx-dl-step { display: flex; gap: 9px; font-size: 13px; color: var(--ink); }
+.nx-dl-step .nx-dl-dot { margin-top: 6px; }
+.nx-dl-step small { display: block; font-size: 11.5px; color: var(--muted); }
+.nx-dl-version { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; }
+.nx-dl-facts { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.nx-dl-facts > div { display: flex; gap: 12px; font-size: 13px; }
+.nx-dl-facts dt { flex: 0 0 96px; color: var(--muted); }
+.nx-dl-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
+.nx-dl-lock { display: flex; align-items: center; gap: 6px; }
+.nx-dl-cards { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.nx-dl-card { display: flex; flex-direction: column; gap: 4px; padding: 12px 2px; background: none; border: none; border-bottom: 1px solid var(--line); text-align: left; font: 13px Inter, sans-serif; color: var(--ink); cursor: pointer; min-height: 44px; }
+.nx-dl-card-foot { display: flex; justify-content: space-between; gap: 10px; }
+@media (max-width: 1180px) {
+  .nx-dl, .nx-dl.nx-dl-open, .nx-dl.nx-dl-norail, .nx-dl.nx-dl-norail.nx-dl-open { grid-template-columns: minmax(0, 1fr); }
+  .nx-dl-rail { position: static; flex-direction: row; overflow-x: auto; scrollbar-width: none; gap: 2px; border-bottom: 1px solid var(--line); }
+  .nx-dl-rail::-webkit-scrollbar { display: none; }
+  .nx-dl-rail button { width: auto; flex: none; border-left: none; border-bottom: 2px solid transparent; }
+  .nx-dl-rail button.on { border-left: none; border-bottom-color: var(--pine); background: none; }
+  .nx-dl-rail-head { display: none; }
+  .nx-dl-panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 100vw); max-height: none; z-index: 1100; padding: 16px; background: var(--card); box-shadow: var(--shadow-lg); border-left: 1px solid var(--line); }
+}
+@media (max-width: 900px) {
+  .nx-dl-tools .primary-btn, .nx-dl-tools .secondary-btn { flex: 1 1 auto; justify-content: center; text-align: center; }
+}
+@media (max-width: 640px) {
+  .nx-dl-panel { width: 100vw; border-left: none; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+}
+/* the Undo toast after a hold (ui/dialog.jsx dialog.undo) */
+.nx-undo {
+  position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 100001;
+  display: flex; align-items: center; gap: 16px; padding: 10px 14px 10px 16px; border-radius: 10px;
+  background: var(--ink, #17211c); color: var(--paper, #fff); font: 500 13.5px Inter, sans-serif;
+  box-shadow: 0 8px 28px rgba(0,0,0,.24); animation: nx-fade-in var(--dur-sm, 160ms) ease-out;
+}
+.nx-undo button { background: none; border: none; padding: 0; color: inherit; font: 700 13.5px Inter, sans-serif; text-decoration: underline; cursor: pointer; }
+
+/* Full Screen (Neil, 10/31/2026; components/FullScreenButton.jsx): the
+   workflow builder and Operations fold the left navigation away and trim the
+   page margins. Computers only - phones are full width already. The header
+   stays: it carries the module's tabs. */
+@media (min-width: 901px) {
+  html.nx-fullscreen .sidebar { display: none; }
+  html.nx-fullscreen .main-content, html.nx-fullscreen .main-content.main-collapsed { margin-left: 0; }
+  html.nx-fullscreen .viewport:not(.viewport-flush) { padding: 14px 18px; }
+  html.nx-fullscreen .wfc { height: calc(100vh - 180px - var(--nx-announce-h, 0px)); }
+}
+
+/* ── Rail motion (Neil, 11/01/2026) ───────────────────────────────────────────
+   The left navigation's motion, keyed on what lib/railMotion.js writes:
+   <html data-rail-motion="off|subtle|lively|bold" style="--rail-lift"> for
+   the strength, and the aside's own `data-motion` (present only while motion
+   is on and the sidebar is a desktop rail, never the phone drawer). Every
+   rule here is transform or opacity. The spring curve (one overshoot) is for
+   the icon lift on the way up and the one-time pop alone; the icon settling
+   back, the pills, the flyout, the cascade, the count bump and the chevron
+   all ease out. Under reduced motion lib/railMotion.js resolves to Off, and the
+   media query below stops anything mid-flight. */
+.sidebar[data-motion] .nav-list { position: relative; }
+.sidebar[data-motion] .nav-item { position: relative; z-index: 1; }
+/* The rows' own hover / active fills move onto the pills, so nothing paints twice. */
+.sidebar[data-motion] .nav-item:hover, .sidebar[data-motion] .nav-item.active,
+[data-theme="dark"] .sidebar[data-motion] .nav-item:hover, [data-theme="dark"] .sidebar[data-motion] .nav-item.active { background: transparent; }
+.nav-pill {
+  position: absolute; left: 0; right: 0; top: 0; height: 36px; margin: 0; padding: 0;
+  border-radius: 6px; list-style: none; pointer-events: none; z-index: 0; will-change: transform;
+}
+.nav-pill--hover {
+  background: var(--wk-hover, var(--sidebar-hover-bg)); opacity: 0;
+  transition: transform var(--dur-md) var(--ease-out), opacity var(--dur-sm) var(--ease-out);
+}
+.nav-pill--hover.is-on { opacity: 1; }
+.nav-pill--active {
+  background: var(--wk-brand-tint, var(--sidebar-active-bg));
+  transition: transform var(--dur-lg) var(--ease-out), opacity var(--dur-sm) var(--ease-out);
+}
+[data-theme="dark"] .nav-pill--hover { background: var(--sidebar-hover-bg); }
+[data-theme="dark"] .nav-pill--active { background: rgba(43, 69, 225, .22); }
+/* The lift: the icon only, never the row, so neighbors stay put and text
+   never reflows. Hover-capable pointers only - a finger has no hover. The
+   spring only on the way up (260ms); it settles back in 200ms, ease-out. */
+.sidebar[data-motion] .nav-ico { transition: transform 200ms var(--ease-out); }
+@media (hover: hover) {
+  .sidebar[data-motion] .nav-item:hover .nav-ico { transform: scale(var(--rail-lift, 1.18)); transition-duration: 260ms; transition-timing-function: var(--ease-spring); }
+  .sidebar[data-motion] .nav-item:active .nav-ico { transform: scale(.96); transition-duration: var(--dur-xs); transition-timing-function: var(--ease-out); }
+}
+/* The one-time pop on the newly active icon plays on the glyph inside, so it
+   composes with the lift on .nav-ico instead of replacing it: one keyframe,
+   the spring supplies the single overshoot. */
+.sidebar[data-motion] .nav-ico.is-pop > svg { animation: nav-pop 320ms var(--ease-spring); }
+@keyframes nav-pop { from { transform: scale(.9); } }
+/* Unfold: the words arrive top to bottom, 14ms apart; folding is instant.
+   `backwards` holds the start state through each delay only. */
+.sidebar.is-opening .nav-label, .sidebar.is-opening .nav-kicker, .sidebar.is-opening .company-name,
+.sidebar.is-opening .nav-count:not(.is-corner) {
+  animation: nav-slidein 260ms var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 14ms);
+}
+@keyframes nav-slidein { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+/* The edge tab's chevron turns with the rail instead of swapping glyphs;
+   the turn is animated only with rail motion on. */
+.sidebar[data-motion] .sidebar-collapse-btn svg { transition: transform var(--dur-lg) var(--ease-out); }
+.sidebar.collapsed .sidebar-collapse-btn svg { transform: rotate(180deg); }
+/* A waiting count that changed bumps once - still the quiet gray number. */
+.sidebar[data-motion] .nav-count.is-bump { animation: nav-bump 320ms var(--ease-out); }
+@keyframes nav-bump { 0% { transform: scale(.7); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .nav-pill, .sidebar .nav-ico, .sidebar .nav-ico > svg, .sidebar-collapse-btn svg { transition: none !important; animation: none !important; }
+  .sidebar.is-opening .nav-label, .sidebar.is-opening .nav-kicker, .sidebar.is-opening .company-name, .sidebar.is-opening .nav-count,
+  .sidebar .nav-count.is-bump { animation: none !important; }
 }
 
 /* ── Settings > Performance > KPI Scorecards (Oct 30 2026) ─────────────────── */

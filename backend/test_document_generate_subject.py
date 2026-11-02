@@ -41,7 +41,7 @@ class GenerateWithSubjectTests(unittest.TestCase):
         email = os.environ.get("NEXUS_DEV_EMAIL", "dev@localhost").lower()
         with SessionLocal() as db:
             if not db.query(models.NexusRole).filter(models.NexusRole.email == email).first():
-                db.add(models.NexusRole(email=email, role="administrator", assigned_by="test"))
+                db.add(models.NexusRole(email=email, role="owner", assigned_by="test"))   # Super Administrator
             cls.emp_id = str(uuid.uuid4())
             db.add(models.NexusEmployee(id=cls.emp_id, first_name="Asha", last_name="Rao",
                                         work_email="asha.rao@greensglobal.com", job_title="Site Engineer",
@@ -117,7 +117,7 @@ class GenerateWithSubjectTests(unittest.TestCase):
         with SessionLocal() as db:
             _row, _h, pages, _f, _lh, _ps = _export_prep(
                 db, did, {"email": os.environ.get("NEXUS_DEV_EMAIL", "dev@localhost").lower(),
-                          "role": "administrator", "level": 4})
+                          "role": "owner", "level": 5})
         return " ".join(_block_text(b) for page in pages for b in page)
 
 
