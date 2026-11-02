@@ -78,7 +78,7 @@ import { MapSpotIntake, dataUrlToFile } from './TicketMapSpot';
 // from the site map - the spot goes with the ticket as map_spot, the map's
 // picture is attached once the ticket exists, and a photo is asked for.
 // `initial` (Help Center, Oct 2026): { subject, description, type } handed
-// over from help - Ask Nexus's File a Ticket, "I Need To..." - plain text.
+// over from help - Ask Nexus's File a Ticket, "How Do I..." - plain text.
 export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, forProperty = null, onBatch = null, mapSpot = null, initial = null }) {
   // Reachable standalone from Support.jsx without TicketsView ever mounting
   // (its own ticket composer) - needs its own call so intake-field/SLA

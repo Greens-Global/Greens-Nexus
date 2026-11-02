@@ -39,10 +39,10 @@ import { registerTour } from '../lib/tours';
 import { useActionCounts, tabCount } from '../lib/useActionCounts';
 import { confirmSwitchTicket } from '../tickets/drawerGuard';
 import { useIsMobile } from '../lib/useIsMobile';
-// Help Center additions (Oct 2026): the search bar with Ask Nexus, "I Need
-// To...", Known Issues and "Expect a reply by" - each its own file in support/.
+// Help Center additions (Oct 2026): the search bar with Ask Nexus, "How Do I..." (was "I Need
+// To..."), Known Issues and "Expect a reply by" - each its own file in support/.
 import HelpCenterSearch from '../support/HelpCenterSearch';
-import NeedTo from '../support/NeedTo';
+import HowDoI from '../support/HowDoI';
 import KnownIssuesBanner from '../support/KnownIssues';
 import ExpectReply from '../support/ExpectReply';
 
@@ -616,9 +616,12 @@ export default function Support({ activeSub, onSubChange }) {
             <p className="support-card-desc">{o.desc}</p>
           </button>
         ))}
+        {/* "How Do I..." (Neil, 11/02/2026): the old "I Need To..." strip of
+            seven small cards, now ONE tile in this grid spanning its full
+            width - a question per row, the answer and its button on a
+            dropdown. On phones it renders after the tickets (below). */}
+        {!isPhone && <HowDoI onTicket={(seed) => setSubmitting(seed || true)} />}
       </div>
-
-      {!isPhone && <NeedTo onTicket={(seed) => setSubmitting(seed || true)} />}
 
       <div className={`dash-card${cardMode ? ' hc-tickets-phone' : ''}`} data-tour="support-open-tickets" data-tier={tier} data-layout={cardMode ? 'cards' : 'table'} ref={cardRef}>
         {/* Flush left on every tab, empty or loading too, so the tabs never
@@ -1005,7 +1008,7 @@ export default function Support({ activeSub, onSubChange }) {
           </>
         )}
       </div>
-      {isPhone && <NeedTo onTicket={(seed) => setSubmitting(seed || true)} />}
+      {isPhone && <div className="support-grid"><HowDoI onTicket={(seed) => setSubmitting(seed || true)} /></div>}
       </>)}
 
       {submitting && (

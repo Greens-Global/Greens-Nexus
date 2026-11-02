@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act, within, waitFor } from '@testing-library/react';
 
 // Help Center additions (Oct 2026): Ask Nexus, Was This Helpful?, Known
-// Issues, "I Need To...", the Help Center search bar, "Expect a reply by" and
+// Issues, "How Do I..." (was "I Need To..."), the Help Center search bar, "Expect a reply by" and
 // the failed-search record.
 
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ instance: {}, accounts: [] }) }));
@@ -34,7 +34,7 @@ const { default: AskNexus } = await import('./AskNexus');
 const { default: HelpFeedback } = await import('./HelpFeedback');
 const { default: KnownIssuesBanner, KnownIssuesNotice } = await import('./KnownIssues');
 const { __resetKnownIssues } = await import('./knownIssuesStore');
-const { default: NeedTo } = await import('./NeedTo');
+const { default: HowDoI } = await import('./HowDoI');
 const { default: HelpCenterSearch } = await import('./HelpCenterSearch');
 const { default: ExpectReply } = await import('./ExpectReply');
 const { logHelpSearch, __resetHelpLog } = await import('./helpLog');
@@ -129,29 +129,48 @@ describe('Known Issues', () => {
   });
 });
 
-describe('I Need To...', () => {
-  it('goes straight to the real screen, and files Request Access as an Access Request ticket', () => {
+describe('How Do I...', () => {
+  it('is one tile: a question per row, closed until opened, one open at a time', () => {
+    render(<HowDoI onTicket={() => {}} />);
+    expect(screen.getByRole('region', { name: 'How Do I' })).toBeTruthy();
+    expect(screen.getByText('How Do I...')).toBeTruthy();
+    const q = screen.getByRole('button', { name: 'Request Time Off' });
+    expect(q.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('button', { name: 'Go to Time Off' })).toBeNull();
+    fireEvent.click(q);
+    expect(q.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText(/Open Workday > Time Off/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Go to Time Off' })).toBeTruthy();
+    // Opening another closes the first.
+    fireEvent.click(screen.getByRole('button', { name: 'Report a Bug' }));
+    expect(q.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('button', { name: 'Go to Time Off' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Report a Bug' }).getAttribute('aria-expanded')).toBe('true');
+  });
+  it('the answer\'s button goes straight to the real screen, and files Request Access as an Access Request ticket', () => {
     const onTicket = vi.fn();
     const nav = vi.fn();
     window.addEventListener('nexus:navigate', nav);
-    render(<NeedTo onTicket={onTicket} />);
-    fireEvent.click(screen.getByRole('button', { name: /Request Time Off/ }));
+    render(<HowDoI onTicket={onTicket} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Request Time Off' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Time Off' }));
     expect(nav.mock.calls[0][0].detail).toEqual({ view: 'timeclock', sub: 'timeoff' });
-    fireEvent.click(screen.getByRole('button', { name: /Request Access/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Request Access to Something' }));
+    fireEvent.click(screen.getByRole('button', { name: 'File an Access Request' }));
     expect(onTicket).toHaveBeenCalledWith({ type: 'access_request' });
     window.removeEventListener('nexus:navigate', nav);
   });
   it('hides Fix My Time Sheet from a time-tracking-exempt person', () => {
     role.timeTrackingExempt = true;
-    render(<NeedTo onTicket={() => {}} />);
+    render(<HowDoI onTicket={() => {}} />);
     expect(screen.queryByText('Fix My Time Sheet')).toBeNull();
     expect(screen.getByText('Request Time Off')).toBeTruthy();
   });
-  it('an external guest without Workday sees only the ticket doors', () => {
+  it('an external guest without Workday sees only the ticket questions', () => {
     role.isExternal = true;
-    render(<NeedTo onTicket={() => {}} />);
+    render(<HowDoI onTicket={() => {}} />);
     expect(screen.queryByText('Request Time Off')).toBeNull();
-    expect(screen.queryByText('Ask HR')).toBeNull();
+    expect(screen.queryByText('Ask HR Something Private')).toBeNull();
     expect(screen.getByText('Report a Bug')).toBeTruthy();
   });
 });
