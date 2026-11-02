@@ -76,6 +76,11 @@ export function useBoardCollab({ note, canEdit, enabled, me, name }) {
   const pointerTimer = useRef(0);
   const pointerNext = useRef(null);
   const lastSel = useRef('');
+  // The display name arrives when the People directory loads - after the
+  // session may already be up. It is read through a ref and handed to
+  // presence when it changes, never by tearing the session down.
+  const nameRef = useRef(name);
+  useEffect(() => { nameRef.current = name; }, [name]);
 
   useEffect(() => {
     if (!on) return undefined;
@@ -122,7 +127,7 @@ export function useBoardCollab({ note, canEdit, enabled, me, name }) {
         }
         if (!alive) return;
         if (!doc) throw new Error('Could not start the live session');
-        const user = { name: name || me, color: caretColor(me), email: me };
+        const user = { name: nameRef.current || me, color: caretColor(me), email: me };
         awareness = rt.newAwareness(doc, user);
         const others = () => {
           const out = [];
@@ -192,7 +197,17 @@ export function useBoardCollab({ note, canEdit, enabled, me, name }) {
       // This session is over (disabled, a restart, another board): nothing of it stays on screen.
       setSession(null); setPhase('off'); setLive(false); setTrusted(true); setPeers([]);
     };
-  }, [noteId, on, gen, me, name, canEdit, restart]);
+  }, [noteId, on, gen, me, canEdit, restart]);
+
+  // A name that arrives (or changes) mid-session goes into presence as is.
+  useEffect(() => {
+    const aw = session?.awareness;
+    if (!aw || !name) return;
+    try {
+      const cur = aw.getLocalState()?.user || {};
+      if (cur.name !== name) aw.setLocalStateField('user', { ...cur, name, email: me, color: cur.color || caretColor(me) });
+    } catch { /* the session is closing */ }
+  }, [name, me, session]);
 
   // The engine is on screen (Board.jsx calls this once it has the api; again
   // if the collab object changed). Idempotent.
@@ -235,6 +250,8 @@ export function useBoardCollab({ note, canEdit, enabled, me, name }) {
   useEffect(() => () => clearTimeout(pointerTimer.current), []);
 
   const resync = useCallback(() => { sessionRef.current?.conn?.resync(); }, []);
+  // Board asks this of every changed element: did the live session put it there?
+  const isRemoteElement = useCallback((el) => !!sessionRef.current?.binding?.isRemote?.(el), []);
 
   // The live state could not be used: drop it on the server (the next
   // opener rebuilds it from the saved scene) and finish on the saves.
@@ -248,7 +265,7 @@ export function useBoardCollab({ note, canEdit, enabled, me, name }) {
   const status = !on ? 'off' : phase !== 'ready' ? (phase === 'failed' ? 'off' : 'connecting') : !live ? 'connecting' : trusted ? 'live' : 'stale';
 
   return useMemo(() => ({
-    enabled: on, phase, status, live: status === 'live', peers, restart, resync, attach, onChange, pointer, fail,
+    enabled: on, phase, status, live: status === 'live', peers, restart, resync, attach, onChange, pointer, fail, isRemoteElement,
     epoch: session?.epoch || '',
     keyTag: session?.keyTag || '',
     // The surface useNoteSync reads (a board has no words to hand over).
@@ -258,5 +275,5 @@ export function useBoardCollab({ note, canEdit, enabled, me, name }) {
     encodeState: () => (session ? session.rt.encodeState(session.doc) : ''),
     applyState: (b64) => { if (session) session.rt.applyState(session.doc, b64); },
     bindEditor: noop,
-  }), [on, phase, status, peers, restart, resync, attach, onChange, pointer, fail, session]);
+  }), [on, phase, status, peers, restart, resync, attach, onChange, pointer, fail, isRemoteElement, session]);
 }

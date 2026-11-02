@@ -96,6 +96,19 @@ describe('starting a board session', () => {
     expect(apiMock.noteCollabSeed).toHaveBeenCalledTimes(1);   // the server already had a state; the second browser loaded it
   });
 
+  it('a name that arrives after the session started goes into presence without restarting it', async () => {
+    server(sceneOf([el('r1')]));
+    const { result, rerender } = renderHook(({ name }) => useBoardCollab({ note: note(), canEdit: true, enabled: true, me: 'neil@greensglobal.com', name }), { initialProps: { name: '' } });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    const epoch = result.current.epoch;
+    const calls = apiMock.noteCollab.mock.calls.length;
+    rerender({ name: 'Neil Kadakia' });
+    await act(async () => {});
+    expect(result.current.phase).toBe('ready');
+    expect(result.current.epoch).toBe(epoch);
+    expect(apiMock.noteCollab.mock.calls.length).toBe(calls);   // no second session fetched
+  });
+
   it('a stored state that is not plain elements is dropped once and rebuilt from the scene', async () => {
     const st = server(sceneOf([el('ok')]));
     const bad = new rt.Y.Doc(); bad.getMap(ELEMENTS).set('x', 'junk');

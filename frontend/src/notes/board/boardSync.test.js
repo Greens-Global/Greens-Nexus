@@ -179,6 +179,53 @@ describe('two browsers on one board', () => {
   });
 });
 
+describe('remote changes on the engine', () => {
+  it('pass through the engine\'s repair (restore) before they reach the canvas', async () => {
+    const [da, db] = pair();
+    const apiB = fakeApi();
+    const ba = createBoardBinding({ doc: da, canEdit: true });
+    const bb = createBoardBinding({ doc: db, canEdit: true });
+    const restore = vi.fn((els) => els.filter((e) => e.type !== 'bogus').map((e) => ({ ...e, repaired: true })));
+    ba.attach(fakeApi()); bb.attach(apiB, { restore });
+    ba.push([el('ok'), el('bad', { type: 'bogus' })], {});
+    await flush();
+    expect(restore).toHaveBeenCalled();
+    const put = apiB.updateScene.mock.calls.at(-1)[0].elements;
+    expect(put.map((e) => e.id)).toEqual(['ok']);
+    expect(put[0].repaired).toBe(true);
+    ba.detach(); bb.detach();
+  });
+
+  it('a restore that throws puts nothing on the engine rather than crashing', async () => {
+    const [da, db] = pair();
+    const apiB = fakeApi([el('mine')]);
+    const ba = createBoardBinding({ doc: da, canEdit: true });
+    const bb = createBoardBinding({ doc: db, canEdit: true });
+    ba.attach(fakeApi()); bb.attach(apiB, { restore: () => { throw new Error('broken'); } });
+    ba.push([el('x')], {});
+    await flush();
+    expect(apiB.getSceneElementsIncludingDeleted().map((e) => e.id)).toEqual(['mine']);
+    ba.detach(); bb.detach();
+  });
+
+  it('knows which element copies it put on the engine (isRemote), and which this browser drew', async () => {
+    const [da, db] = pair();
+    const apiB = fakeApi();
+    const ba = createBoardBinding({ doc: da, canEdit: true });
+    const bb = createBoardBinding({ doc: db, canEdit: true });
+    ba.attach(fakeApi()); bb.attach(apiB);
+    ba.push([el('r1', { version: 3, versionNonce: 9 })], {});
+    await flush();
+    const got = apiB.getSceneElementsIncludingDeleted()[0];
+    expect(bb.isRemote(got)).toBe(true);
+    expect(bb.isApplying()).toBe(false);
+    // B edits it: that copy is B's own.
+    expect(bb.isRemote({ ...got, x: 5, version: 4, versionNonce: 1 })).toBe(false);
+    expect(bb.isRemote(el('never-seen'))).toBe(false);
+    ba.detach(); bb.detach();
+  });
+});
+
 describe('files map', () => {
   it('FILES holds the meta the scene keeps', () => {
     const doc = seedBoardDoc(scene([], { f: { id: 'f', mimeType: 'image/png', url: 'u', created: 1 } }));

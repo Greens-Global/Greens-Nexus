@@ -107,8 +107,11 @@ export function reconcile(local, remote) {
 
 /**
  * The binding between one document and one engine.
- *   attach(api, { onRemoteFiles })  - the engine is on screen: put the document's
- *                                      elements on it, and its newer ones into the document
+ *   attach(api, { onRemoteFiles, restore })  - the engine is on screen: put the
+ *                                      document's elements on it (through `restore`,
+ *                                      the engine's restoreElements), and its newer
+ *                                      ones into the document
+ *   isRemote(element)               - this copy came from the document, not this browser
  *   push(elements, filesMeta)       - this browser changed something (no-op for a viewer)
  *   detach()
  */
@@ -117,14 +120,32 @@ export function createBoardBinding({ doc, canEdit }) {
   const files = doc.getMap(FILES);
   let api = null;
   let onRemoteFiles = null;
+  let restore = null;
   let applyQueued = false;
+  let applying = false;
   let knownFiles = new Set();
+  // id -> "version:nonce" of each element copy this binding put on the
+  // engine: Board reads it (isRemote) so the others' strokes, echoed back by
+  // the engine's onChange, never schedule a save here - the person who drew
+  // them saves them.
+  const applied = new Map();
+  const keyOf = (e) => `${e?.version || 0}:${e?.versionNonce ?? 0}`;
 
   const applyRemote = () => {
     applyQueued = false;
     if (!api) return;
-    const next = reconcile(api.getSceneElementsIncludingDeleted(), docElements(doc));
-    api.updateScene({ elements: next, captureUpdate: CAPTURE_NEVER });
+    applying = true;
+    try {
+      const local = api.getSceneElementsIncludingDeleted();
+      const mine = new Map((local || []).map((e) => [e?.id, e]));
+      // The engine's own repair first (Board hands restoreElements in): a
+      // malformed element from another browser never reaches the canvas loop.
+      let remote = docElements(doc);
+      if (restore) { try { remote = restore(remote) || []; } catch { remote = []; } }
+      for (const r of remote) if (r?.id && remoteWins(mine.get(r.id), r)) applied.set(r.id, keyOf(r));
+      const next = reconcile(local, remote);
+      api.updateScene({ elements: next, captureUpdate: CAPTURE_NEVER });
+    } finally { applying = false; }
   };
   const scheduleApply = () => {
     if (applyQueued) return;
@@ -159,6 +180,7 @@ export function createBoardBinding({ doc, canEdit }) {
     attach(nextApi, opts = {}) {
       api = nextApi;
       onRemoteFiles = opts.onRemoteFiles || null;
+      restore = typeof opts.restore === 'function' ? opts.restore : null;
       files.forEach((_m, id) => knownFiles.add(id));
       // What the document has goes on the engine; what the engine already
       // drew (a reopened board, a rebuilt session) goes into the document.
@@ -166,11 +188,17 @@ export function createBoardBinding({ doc, canEdit }) {
       scheduleApply();
     },
     push,
+    /** Is this exact copy of an element one the live session put on the engine? */
+    isRemote: (el) => !!el?.id && applied.get(el.id) === keyOf(el),
+    /** True while the binding is putting the others' changes on the engine. */
+    isApplying: () => applying,
     detach() {
       els.unobserve(onElements);
       files.unobserve(onFiles);
       api = null;
       onRemoteFiles = null;
+      restore = null;
+      applied.clear();
       knownFiles = new Set();
     },
   };
