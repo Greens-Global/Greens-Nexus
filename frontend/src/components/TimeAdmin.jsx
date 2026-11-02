@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { teamsChatUrl } from '../lib/teamsLinks';
 import { createPortal } from 'react-dom';
 import {
   Clock, ChevronDown, ChevronRight, MapPin, AlertTriangle, Download,
@@ -124,7 +125,7 @@ export function actionLogTeamsUrl(g, reqLine) {
   const msg = [`Hi ${(g.name || '').split(' ')[0] || 'there'}, about your time sheet:`,
     ...lines.slice(0, TEAMS_LINES).map(l => `- ${l}`), ...(more > 0 ? [`- and ${more} more`] : []),
     'Can we talk it through?'].join('\n');
-  return `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(g.email)}&message=${encodeURIComponent(msg)}`;
+  return teamsChatUrl(g.email, msg);
 }
 
 function weekRange(offset = 0) {
