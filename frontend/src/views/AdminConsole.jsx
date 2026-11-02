@@ -91,7 +91,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import SaveRow from '../components/SaveRow';
 import { useDraft } from '../lib/useDraft';
-import { GroupDirtyContext, useGroupDirty } from '../lib/groupDirty';
+import { GroupDirtyContext, useGroupDirty, makeGroupReporter, saveAll } from '../lib/groupDirty';
 import { setInlineDirty } from '../lib/dialogGuard';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
@@ -683,23 +683,21 @@ function Group({ id, title, sub, scope, company, override, bare = false, flush =
       window.removeEventListener('scroll', onScroll, { capture: true });
     };
   }, [highlight]);
-  if (bare) {
-    return (
-      <div id={`setting-${id}`} ref={ref} className="nx-set-group">
-        <div className={`nx-set-group-body${flush ? ' is-flush' : ''}`}>{children}{footer}</div>
-      </div>
-    );
-  }
+  // One root element whether bare or not: a search turning the lone group
+  // into one of several must never swap the element and remount the panel
+  // (that threw its draft away).
   return (
-    <section id={`setting-${id}`} ref={ref} aria-label={title} data-highlight={highlight ? 'true' : undefined}
-      className={`nx-set-group${highlight ? ' is-highlight' : ''}`}>
-      <div className="nx-set-group-head">
-        <div className="nx-set-group-head-text">
-          <h4 tabIndex={-1}>{title}</h4>
-          {sub && <p>{sub}</p>}
+    <section id={`setting-${id}`} ref={ref} aria-label={bare ? undefined : title} data-highlight={highlight && !bare ? 'true' : undefined}
+      className={`nx-set-group${highlight && !bare ? ' is-highlight' : ''}`}>
+      {!bare && (
+        <div className="nx-set-group-head">
+          <div className="nx-set-group-head-text">
+            <h4 tabIndex={-1}>{title}</h4>
+            {sub && <p>{sub}</p>}
+          </div>
+          <ScopeChip scope={scope} company={company} override={override} />
         </div>
-        <ScopeChip scope={scope} company={company} override={override} />
-      </div>
+      )}
       <div className={`nx-set-group-body${flush ? ' is-flush' : ''}`}>{children}{footer}</div>
     </section>
   );
@@ -1579,7 +1577,7 @@ const COMPANY_FACE_TABS = {
 // and a subject opens on its own page with a way back. Subject, group and
 // company live in the URL sub (see AdminConsole below); the filter text and
 // the last jump are local (a jump scrolls, it adds no history entry).
-function SettingsBody({ subject, group, company, home = false, onHome, onNavigate, onDirtyChange, entities, refreshEntities, toast, toastOk, toastErr }) {
+function SettingsBody({ subject, group, company, home = false, onNavigate, onDirtyChange, entities, refreshEntities, toast, toastOk, toastErr }) {
   const who = useRole();
   const narrow = useIsMobile('(max-width: 900px)');
   const [query, setQuery] = useState('');
@@ -1618,23 +1616,66 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
   // through the context its group binds in renderGroup; the Company profile
   // form through onDirtyChange). Leaving any of them - another subject or
   // scope here, another top tab or module above - asks first.
-  const [dirtyIds, setDirtyIds] = useState(() => new Set());
-  const reportDirty = useCallback((id, d) => setDirtyIds(prev => {
-    if (prev.has(id) === !!d) return prev;
-    const next = new Set(prev);
-    if (d) next.add(id); else next.delete(id);
-    return next;
-  }), []);
+  // A group may hold several forms (lib/groupDirty.js counts each one), and
+  // each dirty form may say how to save itself: `dirtyGroups` maps a dirty
+  // group's id to those saves.
+  const [dirtyGroups, setDirtyGroups] = useState(() => new Map());
   const reporters = useRef(new Map());
   const reporterFor = (id) => {
-    if (!reporters.current.has(id)) reporters.current.set(id, (d) => reportDirty(id, d));
+    if (!reporters.current.has(id)) {
+      reporters.current.set(id, makeGroupReporter((d, saves) => setDirtyGroups(prev => {
+        if (!d && !prev.has(id)) return prev;
+        const next = new Map(prev);
+        if (d) next.set(id, saves); else next.delete(id);
+        return next;
+      })));
+    }
     return reporters.current.get(id);
   };
-  const dirty = dirtyIds.size > 0;
-  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+  const dirty = dirtyGroups.size > 0;
+  // What is unsaved, by name, and one save for all of it when every dirty
+  // form can save itself (the prompt's Save and Leave).
+  const dirtyTitles = useMemo(() => [...dirtyGroups.keys()].map(id => GROUP_META[id]?.title || id), [dirtyGroups]);
+  const saveDirty = useMemo(() => {
+    const saves = [...dirtyGroups.values()].flat();
+    return saves.length && saves.every(s => typeof s === 'function') ? () => saveAll(saves) : null;
+  }, [dirtyGroups]);
+  useEffect(() => { onDirtyChange?.(dirty, { labels: dirtyTitles, save: saveDirty }); }, [dirty, dirtyTitles, saveDirty, onDirtyChange]);
+  // Discard Changes really discards: the dirty groups remount from the saved
+  // values (a dirty group stays mounted while hidden by the filter, so a
+  // move that keeps it in the tree would otherwise keep its draft).
+  const [generation, setGeneration] = useState({});
   const [pending, setPending] = useState(null);
+  const [saving, setSaving] = useState(false);
   const go = useCallback((target) => { setQuery(''); setPending(null); onNavigate(target); }, [onNavigate]);
-  const nav = useCallback((target) => { if (dirty) setPending(target); else go(target); }, [dirty, go]);
+  // Where the person already is (same subject and scope, and on a phone the
+  // same page): nothing unmounts, so there is nothing to ask - clear the
+  // filter, and land on the group when one is named.
+  const isHere = (target) => {
+    if (!target || (target.company || '') !== (company || '')) return false;
+    if (narrow && !target.home !== !home) return false;   // a phone's subject list and a subject are two pages
+    return target.home ? narrow : target.subject === activeSubject?.key;
+  };
+  const nav = (target) => {
+    if (isHere(target)) {
+      setQuery('');
+      if (target.group && target.group !== group) onNavigate(target);
+      return;
+    }
+    if (dirty) setPending(target); else go(target);
+  };
+  const discardAndGo = () => {
+    const ids = [...dirtyGroups.keys()];
+    setGeneration(gen => ids.reduce((m, id) => ({ ...m, [id]: (m[id] || 0) + 1 }), gen));
+    go(pending);
+  };
+  const saveAndGo = async () => {
+    if (!saveDirty) return;
+    setSaving(true);
+    const ok = await saveDirty();
+    setSaving(false);
+    if (ok) go(pending); else setPending(null);
+  };
   const pickSubject = (key) => nav({ subject: key, group: '', company });
   // On the phone home list, a scope change stays on the list.
   const pickScope = (id) => nav(narrow && home ? { home: true, company: id } : { subject: activeSubject?.key || 'companies', group: '', company: id });
@@ -1667,12 +1708,26 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
     : (activeSubject ? [{ s: activeSubject, items: groupsFor(activeSubject) }] : []);
   // A subject's lone group renders bare: the subject header already names it.
   const bareId = !matches && sections[0]?.items.length === 1 ? sections[0].items[0].id : '';
+  // Groups stay mounted while the filter hides them (Oct 2026: a search used
+  // to unmount the subject's groups and their drafts with them): the subject
+  // on screen keeps every group in the tree, and so does any group with
+  // unsaved changes - a search result edited and then filtered away keeps
+  // its draft until it is saved or discarded.
+  const shownIds = new Set(sections.flatMap(x => x.items.map(g => g.id)));
+  const keptHidden = [
+    ...(activeSubject ? groupsFor(activeSubject) : []),
+    ...searchable.filter(g => dirtyGroups.has(g.id)),
+  ].filter((g, i, all) => !shownIds.has(g.id) && all.findIndex(x => x.id === g.id) === i);
 
-  function renderGroup(g) {
+  // Every group sits in a wrapper with the same key wherever it shows (or
+  // hides), all under one parent, so React moves it instead of remounting.
+  function renderGroup(g, hidden = false) {
     return (
-      <GroupDirtyContext.Provider key={`${g.id}-${company}`} value={reporterFor(g.id)}>
-        {renderGroupBody(g)}
-      </GroupDirtyContext.Provider>
+      <div key={`${g.id}-${company}-${generation[g.id] || 0}`} hidden={hidden || undefined} data-setting-group={g.id}>
+        <GroupDirtyContext.Provider value={reporterFor(g.id)}>
+          {renderGroupBody(g)}
+        </GroupDirtyContext.Provider>
+      </div>
     );
   }
   function renderGroupBody(g) {
@@ -1871,20 +1926,24 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
             </>
           ) : nothingHere}
         </div>
-      ) : sections.map(({ s, items }) => (
-        <section key={s.key} aria-label={matches ? s.label : undefined}>
-          {matches && (
-            <h3 style={{ margin: '4px 0 12px', fontSize: 12, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+      ) : null}
+      {/* One flat list: headings, notes and group wrappers side by side, so a
+          group keeps its place in the tree whether the filter shows it under
+          a heading, on its subject, or hides it. */}
+      <div>
+        {[...sections.flatMap(({ s, items }) => [
+          matches && (
+            <h3 key={`head-${s.key}`} style={{ margin: '4px 0 12px', fontSize: 12, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <s.Icon size={13} aria-hidden="true" /> {s.label}
             </h3>
-          )}
-          {s === activeSubject && differs}
-          {items.map(renderGroup)}
-          {items.length === 0 && (
-            <div style={{ padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>{nothingHere}</div>
-          )}
-          {s === activeSubject && alsoOrg.length > 0 && (
-            <div className="nx-set-diff" style={{ marginTop: -8 }}>
+          ),
+          s === activeSubject && !matches && differs && <div key="differs">{differs}</div>,
+          ...items.map(g => renderGroup(g)),
+          items.length === 0 && (
+            <div key={`none-${s.key}`} style={{ padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>{nothingHere}</div>
+          ),
+          s === activeSubject && !matches && alsoOrg.length > 0 && (
+            <div key="also-org" className="nx-set-diff" style={{ marginTop: -8 }}>
               <Globe size={14} aria-hidden="true" />
               <span>Set for every company:</span>
               {alsoOrg.map((g, i) => (
@@ -1894,14 +1953,17 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
                 </span>
               ))}
             </div>
-          )}
-        </section>
-      ))}
+          ),
+        ].filter(Boolean)), ...keptHidden.map(g => renderGroup(g, true))]}
+      </div>
     </div>
   );
 
   const wide = !matches && !!activeSubject?.wide;
-  const prompt = pending && <UnsavedChangesPrompt onKeepEditing={() => setPending(null)} onDiscard={() => go(pending)} />;
+  const prompt = pending && (
+    <UnsavedChangesPrompt what={dirtyTitles} onKeepEditing={() => setPending(null)} onDiscard={discardAndGo}
+      onSave={saveDirty ? saveAndGo : undefined} saving={saving} saveText="Save and Leave" />
+  );
 
   // ── Phones ──
   if (narrow) {
@@ -1939,7 +2001,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
     }
     return (
       <>
-        <button type="button" className="nx-set-back" onClick={() => (matches ? setQuery('') : onHome?.())}>
+        <button type="button" className="nx-set-back" onClick={() => (matches ? setQuery('') : nav({ home: true, company }))}>
           <ChevronLeft size={16} /> {matches ? 'Clear Search' : 'All Settings'}
         </button>
         {matches && <div style={{ marginBottom: 12 }}>{filterBox}</div>}
@@ -2054,10 +2116,23 @@ export default function AdminConsole({ activeSub, onSubChange }) {
   // A Settings group with unsaved changes: the top tabs ask before moving,
   // and lib/dialogGuard.js hears about it so the sidebar and the browser
   // tab ask too.
+  // `unsaved` = { labels, save }: the dirty groups' titles and one save for
+  // them all (null when one of them cannot save itself), for the prompts.
   const [settingsDirty, setSettingsDirty] = useState(false);
+  const [unsaved, setUnsaved] = useState({ labels: [], save: null });
+  const onSettingsDirty = useCallback((d, meta) => { setSettingsDirty(!!d); setUnsaved(meta || { labels: [], save: null }); }, []);
   const [pendingTab, setPendingTab] = useState(null);
-  useEffect(() => { setInlineDirty('settings', settingsDirty); return () => setInlineDirty('settings', false); }, [settingsDirty]);
+  const [tabSaving, setTabSaving] = useState(false);
+  useEffect(() => { setInlineDirty('settings', settingsDirty, unsaved); return () => setInlineDirty('settings', false); }, [settingsDirty, unsaved]);
   const setTopTab = (id) => { if (settingsDirty && id !== topTab) setPendingTab(id); else applyTopTab(id); };
+  const saveAndSwitch = async () => {
+    setTabSaving(true);
+    const ok = await unsaved.save?.();
+    setTabSaving(false);
+    const id = pendingTab;
+    setPendingTab(null);
+    if (ok) applyTopTab(id);
+  };
 
   // The companies, once, for the scope picker and every company page.
   const [entities, setEntities] = useState([]);
@@ -2100,13 +2175,14 @@ export default function AdminConsole({ activeSub, onSubChange }) {
         </Suspense>
       ) : (
         <SettingsBody subject={resolved.subject} group={resolved.group} company={resolved.company} onNavigate={navigate}
-          home={!!resolved.home} onHome={() => onSubChange?.(resolved.company ? `settings@${resolved.company}` : 'settings')}
-          onDirtyChange={setSettingsDirty} entities={entities} refreshEntities={refreshEntities}
+          home={!!resolved.home}
+          onDirtyChange={onSettingsDirty} entities={entities} refreshEntities={refreshEntities}
           toast={showToast} toastOk={toastOk} toastErr={toastErr} />
       )}
 
       {pendingTab && (
-        <UnsavedChangesPrompt onKeepEditing={() => setPendingTab(null)} onDiscard={() => { const id = pendingTab; setPendingTab(null); applyTopTab(id); }} />
+        <UnsavedChangesPrompt what={unsaved.labels} onKeepEditing={() => setPendingTab(null)} onDiscard={() => { const id = pendingTab; setPendingTab(null); applyTopTab(id); }}
+          onSave={unsaved.save ? saveAndSwitch : undefined} saving={tabSaving} saveText="Save and Leave" />
       )}
 
       {toast && (

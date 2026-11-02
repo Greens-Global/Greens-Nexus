@@ -60,9 +60,16 @@ vi.mock('../components/shifts/ShiftSettingsSections', () => ({
 // The weather panel can stand in for any form with unsaved changes: it
 // reports `dirtyState.weather` through the shared hook (lib/groupDirty.js).
 const dirtyState = { weather: false };
+// Its "Weather note" box is a typed draft of its own, to prove a draft
+// survives the filter and that Discard really drops it.
 vi.mock('../components/shifts/WeatherSettings', async () => {
   const { useGroupDirty } = await import('../lib/groupDirty');
-  return { default: function WeatherPanel({ company }) { useGroupDirty(dirtyState.weather); return <div>Weather panel{company ? ` ${company}` : ''}</div>; } };
+  const { useState } = await import('react');
+  return { default: function WeatherPanel({ company }) {
+    const [note, setNote] = useState('');
+    useGroupDirty(dirtyState.weather || note !== '');
+    return <div>Weather panel{company ? ` ${company}` : ''}<input aria-label="Weather note" value={note} onChange={e => setNote(e.target.value)} /></div>;
+  } };
 });
 // With a company fixed, the export codes say the company has names of its own.
 vi.mock('../components/PayrollExportCodes', async () => {
@@ -277,6 +284,51 @@ describe('AdminConsole', () => {
     expect(hasUnsavedWork()).toBe(false);   // unmounted: nothing left to guard
   });
 
+  it('keeps a draft through the filter: hidden groups stay mounted (no lost edits, 11/02/2026)', async () => {
+    const { hasUnsavedWork } = await import('../lib/dialogGuard');
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    fireEvent.change(await screen.findByLabelText('Weather note', {}, { timeout: 5000 }), { target: { value: 'rain' } });
+    const box = screen.getByLabelText('Filter settings');
+    fireEvent.change(box, { target: { value: 'swap' } });
+    expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();   // hidden...
+    expect(hasUnsavedWork()).toBe(true);                                                       // ...and still unsaved
+    fireEvent.change(box, { target: { value: 'weather' } });
+    expect(screen.getByLabelText('Weather note')).toHaveValue('rain');
+    fireEvent.change(box, { target: { value: '' } });
+    expect(screen.getByLabelText('Weather note')).toHaveValue('rain');
+    // A search result from another subject, edited, then filtered away, keeps its draft too.
+    fireEvent.change(box, { target: { value: 'nothing like this' } });
+    fireEvent.change(box, { target: { value: 'weather' } });
+    expect(screen.getByLabelText('Weather note')).toHaveValue('rain');
+  });
+
+  it('a lone group (bare) keeps its panel when a search turns it into a result', async () => {
+    render(<AdminConsole activeSub="items" onSubChange={() => {}} />);
+    const before = document.querySelector('[data-setting-group="item-types"] section');
+    expect(before).not.toBeNull();
+    fireEvent.change(screen.getByLabelText('Filter settings'), { target: { value: 'item types' } });
+    expect(document.querySelector('[data-setting-group="item-types"] section')).toBe(before);
+  });
+
+  it('names the unsaved group in the prompt, and Discard really drops the draft', async () => {
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
+    fireEvent.change(await screen.findByLabelText('Weather note', {}, { timeout: 5000 }), { target: { value: 'rain' } });
+    // The subject already on screen: nothing unmounts, nothing to ask.
+    fireEvent.click(within(rail()).getByRole('button', { name: 'Shifts & Scheduling' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onSubChange).not.toHaveBeenCalled();
+    fireEvent.click(within(rail()).getByRole('button', { name: 'Companies' }));
+    const ask = screen.getByRole('alertdialog');
+    expect(within(ask).getByText(/Your changes to Weather Alerts on this page have not been saved/)).toBeInTheDocument();
+    expect(ask.querySelector('.modal-content').className).not.toContain('nx-popup');
+    // The weather panel cannot save itself from here: no Save and Leave.
+    expect(within(ask).queryByRole('button', { name: 'Save and Leave' })).not.toBeInTheDocument();
+    fireEvent.click(within(ask).getByRole('button', { name: 'Discard Changes' }));
+    expect(onSubChange).toHaveBeenCalledWith('companies');
+    expect(await screen.findByLabelText('Weather note')).toHaveValue('');
+  });
+
   it('has Shifts & Scheduling with the settings, shift types, groups and weather, all open (Charmi, 09/30)', async () => {
     const onSubChange = vi.fn();
     render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
@@ -470,7 +522,7 @@ describe('AdminConsole', () => {
     expect(screen.getByRole('heading', { name: 'Companies', level: 3 })).toBeInTheDocument();
   });
 
-  it('opens on a list of the subjects on phones, and a subject has a way back', () => {
+  it('opens on a list of the subjects on phones, and a subject has a way back', async () => {
     vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
       matches: true, media: q, onchange: null,
       addEventListener() {}, removeEventListener() {},
@@ -486,6 +538,16 @@ describe('AdminConsole', () => {
     rerender(<AdminConsole activeSub="emails" onSubChange={onSubChange} />);
     expect(screen.getByRole('heading', { name: 'Emails & Reminders' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /All Settings/ }));
+    expect(onSubChange).toHaveBeenLastCalledWith('settings');
+
+    // With unsaved changes, All Settings asks first, like every other move.
+    onSubChange.mockClear();
+    dirtyState.weather = true;
+    rerender(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
+    await screen.findByLabelText('Weather note', {}, { timeout: 5000 });
+    fireEvent.click(screen.getByRole('button', { name: /All Settings/ }));
+    expect(onSubChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
     expect(onSubChange).toHaveBeenLastCalledWith('settings');
   });
 });

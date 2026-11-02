@@ -9,14 +9,35 @@ import { useState, useCallback } from 'react';
 //   const { draft, patch, dirty, reset } = useDraft(cfg);
 //   <input value={draft.name} onChange={e => patch({ name: e.target.value })} />
 //   <SaveRow dirty={dirty} busy={busy} onSave={() => save(draft)} onDiscard={reset} />
-export function useDraft(saved) {
+//
+// `{ rebase: true }`: when the saved value changes under an object draft, the
+// keys the person edited keep their edits and only the others follow - a
+// save that landed for some keys and failed for others leaves the failed
+// ones as a draft (Pay Rules), and a switch saved on click does not wipe a
+// half-typed number beside it. Off by default: a panel that switches what it
+// edits (another company) in place must start over from the new value.
+const isObj = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
+const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+export function useDraft(saved, { rebase = false } = {}) {
   const key = JSON.stringify(saved ?? null);
-  const [state, setState] = useState({ key, draft: saved });
-  // The saved value changed under the draft: start over from it (React's
-  // "adjust state while rendering" idiom - no effect, no extra render pass
-  // with a stale draft).
-  if (state.key !== key) setState({ key, draft: saved });
-  const draft = state.key === key ? state.draft : saved;
+  const [state, setState] = useState({ key, saved, draft: saved });
+  let current = state;
+  if (state.key !== key) {
+    // The saved value changed under the draft: start over from it, or carry
+    // the edited keys across (React's "adjust state while rendering" idiom -
+    // no effect, no extra render pass with a stale draft).
+    let draft = saved;
+    if (rebase && isObj(saved) && isObj(state.draft) && isObj(state.saved)) {
+      draft = { ...saved };
+      for (const k of Object.keys(state.draft)) {
+        if (!same(state.draft[k], state.saved[k])) draft[k] = state.draft[k];
+      }
+    }
+    current = { key, saved, draft };
+    setState(current);
+  }
+  const draft = current.draft;
   const setDraft = useCallback((next) => setState(s => ({ ...s, draft: typeof next === 'function' ? next(s.draft) : next })), []);
   const patch = useCallback((p) => setState(s => ({ ...s, draft: { ...(s.draft || {}), ...p } })), []);
   const reset = useCallback(() => setState(s => ({ ...s, draft: saved })), [saved]);

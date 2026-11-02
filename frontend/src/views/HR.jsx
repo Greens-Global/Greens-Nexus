@@ -3617,7 +3617,9 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
 
   // Only the Overview tab's form carries unsaved state - Departments/Work
   // Sites/Holidays manage and save their own rows independently as you go.
-  const dirty = !!mode && tab === 'overview' && JSON.stringify(f) !== JSON.stringify(formSnapshotRef.current);
+  // The form's edits outlive a switch to another tab, so they stay unsaved
+  // (and the shell keeps asking) whichever tab is showing.
+  const dirty = !!mode && JSON.stringify(f) !== JSON.stringify(formSnapshotRef.current);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   const backToList = () => setMode(null);

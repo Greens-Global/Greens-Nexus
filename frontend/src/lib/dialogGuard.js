@@ -31,7 +31,8 @@ let pending = null; // { resolve(boolean) }
 const subs = new Set();
 const known = new Set(); // backdrops seen dirty, for topmost() lookups
 
-function emit() { subs.forEach(fn => fn(pending)); }
+// A fresh object each time, so a subscriber re-renders when what is unsaved changes.
+function emit() { const p = pending && { ...pending }; subs.forEach(fn => fn(p)); }
 
 export function subscribe(fn) { subs.add(fn); fn(pending); return () => subs.delete(fn); }
 export function isBypassing() { return bypass; }
@@ -78,9 +79,58 @@ export function hasDirtyDialog() {
 // Inline forms with unsaved work - the Settings groups (lib/groupDirty.js):
 // no backdrop to watch, so the shell says so itself. Leaving the page or
 // the module asks for them too; a backdrop click or Escape is not theirs.
+// `meta` says what is unsaved, for the prompt: `labels` (the group titles)
+// and `save` (resolves true once it all saved - lib/groupDirty.js), so the
+// prompt can name the forms and offer Save and Leave.
 const inlineDirty = new Map();
-export function setInlineDirty(key, dirty) { if (dirty) inlineDirty.set(key, true); else inlineDirty.delete(key); }
+export function setInlineDirty(key, dirty, meta = null) {
+  if (dirty) inlineDirty.set(key, meta || {}); else inlineDirty.delete(key);
+  if (pending) emit();
+}
 export function hasUnsavedWork() { return hasDirtyDialog() || inlineDirty.size > 0 || !!leaveAsk; }
+
+// What the plain prompt can say about the unsaved work: the names of the
+// inline forms, and one save for them all - only when nothing else (a dirty
+// popup, a screen's own guard) is unsaved and every form can save itself.
+export function unsavedSummary() {
+  const entries = [...inlineDirty.values()];
+  const labels = [...new Set(entries.flatMap(m => m.labels || []))];
+  const saves = entries.map(m => m.save);
+  const save = entries.length && !hasDirtyDialog() && !leaveAsk && saves.every(s => typeof s === 'function')
+    ? async () => {
+      try { return (await Promise.all(saves.map(s => s()))).every(r => r === true); } catch { return false; }
+    }
+    : null;
+  return { labels, save };
+}
+
+// The browser's Back / Forward with unsaved work (App.jsx's popstate): the
+// address has already moved, so put the entry we were on back, ask, and on
+// Discard (or a save that landed) step back again to where the person was
+// going - that second popstate goes through. `rememberEntry` notes the entry
+// on screen after every move.
+let lastEntry = null;
+let leavingPop = false;
+export function rememberEntry() {
+  if (typeof window === 'undefined') return;
+  lastEntry = { state: window.history.state, url: window.location.href };
+}
+export function guardPopstate(e, apply) {
+  if (!leavingPop && lastEntry && hasUnsavedWork()) {
+    const back = lastEntry;
+    window.history.pushState(back.state, '', back.url);
+    askToLeave().then(ok => {
+      if (!ok) return;
+      leavingPop = true;
+      window.history.back();
+    });
+    return false;
+  }
+  leavingPop = false;
+  apply(e);
+  rememberEntry();
+  return true;
+}
 
 // A screen with its own Save / Keep Editing / Discard prompt (the shift
 // schedule's unshared drafts, Neil Oct 28 2026) registers how to ask; leaving
@@ -96,7 +146,7 @@ export function confirmDiscard() {
   if (pending) return pending.promise;
   let resolve;
   const promise = new Promise(r => { resolve = r; });
-  pending = { promise, resolve: (v) => { pending = null; emit(); resolve(v); } };
+  pending = { promise, summary: unsavedSummary, resolve: (v) => { pending = null; emit(); resolve(v); } };
   emit();
   return promise;
 }
