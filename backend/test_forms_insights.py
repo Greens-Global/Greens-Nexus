@@ -67,7 +67,7 @@ PEOPLE = {
 ROLES = {ADMIN: "administrator", MGR: "manager", SUP: "supervisor"}
 FIELDS = [
     {"token": "odometer", "label": "Odometer", "type": "number", "required": True, "section": "Vehicle"},
-    {"token": "note", "label": "Note", "type": "multiline", "section": "Vehicle"},
+    {"token": "remark", "label": "Remark", "type": "multiline", "section": "Vehicle"},
 ]
 
 
@@ -143,7 +143,7 @@ class FormsInsightsTests(unittest.TestCase):
     def _submit(self, tid, who=REP, note=""):
         self._as(who)
         r = self.client.post(f"/forms/{tid}/entries", json={
-            "entryKey": str(uuid.uuid4()), "answers": {"odometer": ODOMETER, "note": note}, "source": "phone",
+            "entryKey": str(uuid.uuid4()), "answers": {"odometer": ODOMETER, "remark": note}, "source": "phone",
             "workSiteId": SITE_A})
         self.assertEqual(r.status_code, 200, r.text)
         return r.json()
