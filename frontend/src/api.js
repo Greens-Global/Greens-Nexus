@@ -3476,3 +3476,9 @@ api.signOutOtherSessions = () => req('/me/sessions/others', { method: 'POST' });
 // the exact point its weather is read at, and the address the link names.
 api.resolveProjectLink = (link) => req('/construction/resolve-link', { method: 'POST', body: JSON.stringify({ link }) });
 api.resolveJobsiteLink = (link) => req('/timeclock/jobsites/resolve-link', { method: 'POST', body: JSON.stringify({ link }) });
+// Settings walls (11/02/2026): the companies a Full Employee Tracking grant
+// holder may open the Workforce Analytics Policy for (Settings' company list
+// when People's /hr/entities is not theirs to read), and a shift settings
+// reset of one Settings group's own keys (the rest of the override stays).
+api.timeMonitoringCompanies = () => req('/timeclock/monitoring/companies');
+api.shiftRequestSettingsResetKeys = (company, keys) => req(`/timeclock/shift-requests/settings?company=${encodeURIComponent(company)}&keys=${encodeURIComponent((keys || []).join(','))}`, { method: 'DELETE' });

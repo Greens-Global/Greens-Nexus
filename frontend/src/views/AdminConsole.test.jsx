@@ -7,26 +7,39 @@ import { render, screen, fireEvent, cleanup, within, waitFor } from '@testing-li
 
 // Every api call resolves empty, except the companies the scope picker lists.
 const COMPANIES = [{ id: 'c1', name: 'Greens Global' }, { id: 'c2', name: 'Greens India' }];
+// `entities`: how the company list answers ('ok', 'denied' = a 403 from People,
+// 'error' = a failed load); the Workforce Analytics fallback list answers
+// `trackingCompanies` (or 403 when null).
+const apiState = { entities: 'ok', trackingCompanies: null };
+const refusal = () => Object.assign(new Error('Forbidden'), { status: 403 });
 vi.mock('../api', () => ({
   api: new Proxy({}, { get: (_, k) => (
-    k === 'getEntities' ? () => Promise.resolve(COMPANIES)
-      : k === 'getEntitySignatureTemplates' ? () => Promise.resolve({ templates: [], template: 'classic' })
-        : vi.fn(() => Promise.resolve([]))) }),
+    k === 'getEntities' ? () => (apiState.entities === 'ok' ? Promise.resolve(COMPANIES)
+      : Promise.reject(apiState.entities === 'denied' ? refusal() : Object.assign(new Error('Network'), { status: 502 })))
+      : k === 'timeMonitoringCompanies' ? () => (apiState.trackingCompanies ? Promise.resolve(apiState.trackingCompanies) : Promise.reject(refusal()))
+        : k === 'getMyTicketAccess' ? () => Promise.resolve({ canManageDesk: roleState.desk !== false })
+          : k === 'getEntitySignatureTemplates' ? () => Promise.resolve({ templates: [], template: 'classic' })
+            : vi.fn(() => Promise.resolve([]))) }),
 }));
 // Who is looking: an Administrator by default. `grants` = Access Group grants by
 // module ({ hr: 'editor' }); `hrScope` = the companies their People access is
-// limited to (null = company-wide); `hrTeam` = the manager tier (own team).
+// limited to (null = company-wide); `hrTeam` = the manager tier (own team);
+// `manageCompanies` = the companies whose shift / pay settings they may change
+// (null = company-wide, /roles/me); `companyWalled` = a company wall confines
+// them; `desk` = a ticket desk supervisor (false = not).
 const LEVELS = { employee: 1, supervisor: 2, manager: 3, administrator: 4, owner: 5 };
 const RANKS = { viewer: 1, editor: 2, full: 3, owner: 4 };
-const roleState = { role: 'administrator', grants: {}, hrScope: null, hrTeam: false };
-const asRole = (role, extra = {}) => Object.assign(roleState, { role, grants: {}, hrScope: null, hrTeam: false }, extra);
+const ROLE_DEFAULTS = { grants: {}, hrScope: null, hrTeam: false, manageCompanies: null, companyWalled: false, hrContactFor: [], desk: true };
+const roleState = { role: 'administrator', ...ROLE_DEFAULTS };
+const asRole = (role, extra = {}) => Object.assign(roleState, { role, ...ROLE_DEFAULTS }, extra);
 vi.mock('../contexts/RoleContext', () => ({
   useRole: () => ({
     can: (min) => LEVELS[roleState.role] >= (LEVELS[min] ?? 1),
     canAccessModule: (m, minRole, lvl = 'viewer') => LEVELS[roleState.role] >= (LEVELS[minRole] ?? 1)
       || (RANKS[roleState.grants[m]] ?? 0) >= (RANKS[lvl] ?? 1),
     hrScope: roleState.hrScope, hrTeam: roleState.hrTeam,
-    myGrantedModules: new Set(), actingAs: null,
+    manageCompanies: roleState.manageCompanies, companyWalled: roleState.companyWalled, hrContactFor: roleState.hrContactFor,
+    myGrantedModules: new Map(Object.entries(roleState.grants)), actingAs: null,
     startActAs: vi.fn(), stopActAs: vi.fn(),
   }),
 }));
@@ -98,7 +111,7 @@ vi.mock('../components/EmployeeCustomFieldsSettings', () => ({ default: ({ compa
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); asRole('administrator'); dirtyState.weather = false; });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); asRole('administrator'); dirtyState.weather = false; Object.assign(apiState, { entities: 'ok', trackingCompanies: null }); });
 
 const rail = () => screen.getByRole('navigation', { name: 'Settings subjects' });
 // Lazy panels on a slow machine: give a find a little longer than the default second.
@@ -166,9 +179,10 @@ describe('AdminConsole', () => {
     expect(onSubChange).toHaveBeenLastCalledWith('companies');
   });
 
-  it('switches Ticket Manager panels with tabs, keeping an opened panel mounted', () => {
+  it('switches Ticket Manager panels with tabs, keeping an opened panel mounted', async () => {
     render(<AdminConsole activeSub="tickets" onSubChange={() => {}} />);
-    expect(screen.getByRole('tab', { name: /Routing & Escalation/ })).toHaveAttribute('aria-selected', 'true');
+    // The desk role arrives from /task-tickets/my-access, a beat after the page.
+    expect(await screen.findByRole('tab', { name: /Routing & Escalation/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText('Desk panel')).toBeVisible();
 
     fireEvent.click(screen.getByRole('tab', { name: /SLA & Ticket Types/ }));
@@ -197,8 +211,9 @@ describe('AdminConsole', () => {
     // is a People route, an administrator's, or Workforce Analytics' (app
     // ratings take its full grant since Oct 29 2026 - monitoring data is for
     // its grant holders only).
-    asRole('manager', { hrTeam: true, hrScope: [] });
+    asRole('manager', { hrTeam: true, hrScope: [], manageCompanies: [] });
     render(<AdminConsole activeSub="access" onSubChange={() => {}} />);
+    expect(await within(rail()).findByRole('button', { name: 'Tickets' })).toBeInTheDocument();
     for (const name of ['People & Access', 'Security', 'Branding & Email', 'Time & Pay', 'Companies', 'Locations', 'Hiring & Onboarding', 'Shifts & Scheduling', 'Workforce Analytics']) {
       expect(within(rail()).queryByRole('button', { name })).not.toBeInTheDocument();
     }
@@ -214,27 +229,45 @@ describe('AdminConsole', () => {
 
   it('opens each group for exactly who its save route lets in (the registry gates, Oct 23)', async () => {
     // A supervisor with a People (hr) editor grant limited to Greens Global:
-    // Companies, Locations, Shifts and Hiring are theirs - with their company
-    // picked. At Every company the library, the shared records and the
-    // tenant defaults are not, so the page says to pick the company.
-    asRole('supervisor', { grants: { hr: 'editor' }, hrScope: ['c1'] });
-    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    // Companies, Locations and Hiring are theirs - with their company picked
+    // (the Holiday Policies and the Location Library accept them at Every
+    // company too). The shift settings are not: they save through
+    // require_shift_manage, the manager tier and up (11/02/2026).
+    asRole('supervisor', { grants: { hr: 'editor' }, hrScope: ['c1'], manageCompanies: ['c1'], desk: false });
+    render(<AdminConsole activeSub="hiring" onSubChange={() => {}} />);
     // (Branding & Email stays: the company's Email Signature is a People route;
     // People & Access too: its More Details Fields are HR's, Oct 27 2026.)
-    for (const name of ['Companies', 'Locations', 'People & Access', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Branding & Email']) {
+    for (const name of ['Companies', 'Locations', 'People & Access', 'Hiring & Onboarding', 'Branding & Email']) {
       expect(within(rail()).getByRole('button', { name })).toBeInTheDocument();
     }
-    for (const name of ['Security', 'Tickets', 'Items & Equipment', 'Operations']) {
+    for (const name of ['Security', 'Tickets', 'Items & Equipment', 'Operations', 'Shifts & Scheduling']) {
       expect(within(rail()).queryByRole('button', { name })).not.toBeInTheDocument();
     }
+    cleanup();
+    render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Holiday Policies' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Companies' })).toBeInTheDocument();
+    cleanup();
+    render(<AdminConsole activeSub="locations" onSubChange={() => {}} />);
+    expect(await find('Site list')).toBeInTheDocument();
+    cleanup();
+
+    // A manager whose reach is Greens Global: the shift settings with their
+    // company picked; at Every company the tenant defaults are not theirs, so
+    // the page says to pick the company.
+    asRole('manager', { grants: { hr: 'editor' }, hrScope: ['c1'], manageCompanies: ['c1'] });
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(within(rail()).getByRole('button', { name: 'Shifts & Scheduling' })).toBeInTheDocument();
     expect(screen.getByText(/set per company for you - pick one in the Scope box/)).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Shift Types' })).not.toBeInTheDocument();
     cleanup();
     render(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
-    expect(screen.getByRole('region', { name: 'Shift Types' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Shift Types' }, { timeout: 5000 })).toBeInTheDocument();
     expect(await find('Shift settings panel basics c1')).toBeInTheDocument();
     // Weather Alerts are set for every company at once: company-wide access only.
     expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();
+    // The labor budget is HR++'s: an Editor People grant is not.
+    expect(screen.queryByRole('region', { name: 'Labor Budget' })).not.toBeInTheDocument();
     cleanup();
     // People & Access for them is More Details Fields, with their company
     // picked - never the access groups, which are administrators' alone.
@@ -396,8 +429,8 @@ describe('AdminConsole', () => {
     expect(screen.getByRole('region', { name: 'Pay Rules' })).toBeInTheDocument();
 
     rerender(<AdminConsole activeSub="tickets@c1" onSubChange={() => {}} />);
+    expect(await screen.findByRole('tab', { name: /Routing & Escalation/ })).toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(1);
-    expect(screen.getByRole('tab', { name: /Routing & Escalation/ })).toBeInTheDocument();
     expect(screen.getByText('Desk panel c1')).toBeInTheDocument();
 
     rerender(<AdminConsole activeSub="branding@c1" onSubChange={() => {}} />);
@@ -445,12 +478,12 @@ describe('AdminConsole', () => {
     expect(await find('Company page c1: monitoring')).toBeInTheDocument();
   });
 
-  it('filters groups across every subject', () => {
+  it('filters groups across every subject', async () => {
     render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
     const box = screen.getByLabelText('Filter settings');
 
     fireEvent.change(box, { target: { value: 'notifications' } });
-    expect(screen.getByText('Ticket Manager')).toBeInTheDocument();
+    expect(await screen.findByText('Ticket Manager')).toBeInTheDocument();
     expect(screen.getByText('Task Notifications')).toBeInTheDocument();
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 
@@ -487,5 +520,113 @@ describe('AdminConsole', () => {
     expect(screen.getByRole('heading', { name: 'Emails & Reminders' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /All Settings/ }));
     expect(onSubChange).toHaveBeenLastCalledWith('settings');
+  });
+});
+
+// The Settings walls (11/02/2026): mayOpen opens each group only where its
+// save route would let the person in - the shift and pay settings' "Every
+// company" face for company-wide callers only (`tenant`), the organization's
+// records for an unwalled caller (`orgWide`), the labor budget for HR++,
+// the Ticket Manager for a desk supervisor - and an unknown company in the
+// address never has panels mounted against it.
+describe('AdminConsole walls', () => {
+  it('opens the pay and shift settings per company for a walled Administrator, never at Every company', async () => {
+    asRole('administrator', { hrScope: ['c1'], manageCompanies: ['c1'], companyWalled: true });
+    const { rerender } = render(<AdminConsole activeSub="pay" onSubChange={() => {}} />);
+    for (const t of ['Pay Rules', 'India Contractor Policy', 'Time-Off Approval', 'Leave Year-End', 'Leave Policies', 'California Minimum Wage']) {
+      expect(screen.queryByRole('region', { name: t })).not.toBeInTheDocument();
+    }
+    rerender(<AdminConsole activeSub="pay@c1" onSubChange={() => {}} />);
+    expect(await screen.findByRole('region', { name: 'Pay Rules' }, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Time-Off Approval' })).toBeInTheDocument();
+    rerender(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
+    expect(await find('Shift settings panel basics c1')).toBeInTheDocument();
+    // HR++ inside their reach: the labor budget is theirs for their company.
+    expect(screen.getByRole('region', { name: 'Labor Budget' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the brand and the shared ticket rules from a walled caller', async () => {
+    asRole('administrator', { hrScope: ['c1'], manageCompanies: ['c1'], companyWalled: true });
+    render(<AdminConsole activeSub="branding" onSubChange={() => {}} />);
+    expect(screen.queryByRole('region', { name: 'Brand Color' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Email Appearance' })).not.toBeInTheDocument();
+    cleanup();
+    render(<AdminConsole activeSub="tickets" onSubChange={() => {}} />);
+    expect(await screen.findByRole('tab', { name: /Routing & Escalation/ })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Property Rules' })).not.toBeInTheDocument();
+    cleanup();
+    asRole('administrator');
+    render(<AdminConsole activeSub="branding" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Brand Color' })).toBeInTheDocument();
+  });
+
+  it('opens the labor budget for HR++ only - never the manager tier', async () => {
+    asRole('manager', { grants: { hr: 'editor' } });
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Schedule Basics' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Labor Budget' })).not.toBeInTheDocument();
+    cleanup();
+    asRole('manager', { grants: { hr: 'full' } });
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Labor Budget' })).toBeInTheDocument();
+    cleanup();
+    // A company's HR contact: their company's budget, not every company's.
+    asRole('manager', { hrContactFor: ['c1'] });
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(screen.queryByRole('region', { name: 'Labor Budget' })).not.toBeInTheDocument();
+    cleanup();
+    render(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
+    expect(await screen.findByRole('region', { name: 'Labor Budget' }, { timeout: 5000 })).toBeInTheDocument();
+  });
+
+  it('opens Weather Alerts only with company-wide team access', () => {
+    asRole('manager', { manageCompanies: ['c1'] });
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();
+    cleanup();
+    asRole('manager');
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Weather Alerts' })).toBeInTheDocument();
+  });
+
+  it('opens the Ticket Manager for a desk supervisor only', async () => {
+    asRole('manager', { desk: false });
+    render(<AdminConsole activeSub="emails" onSubChange={() => {}} />);
+    expect(await find('Task notify panel')).toBeInTheDocument();
+    expect(within(rail()).queryByRole('button', { name: 'Tickets' })).not.toBeInTheDocument();
+    cleanup();
+    asRole('manager');
+    render(<AdminConsole activeSub="emails" onSubChange={() => {}} />);
+    expect(await within(rail()).findByRole('button', { name: 'Tickets' })).toBeInTheDocument();
+  });
+
+  it('drops an unknown company from the address with a notice, mounting nothing against it', async () => {
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="pay@nope" onSubChange={onSubChange} />);
+    expect(screen.queryByText(/panel nope/)).not.toBeInTheDocument();
+    await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('pay'));
+    expect(screen.getByText(/That company is not one you can open/)).toBeInTheDocument();
+    expect(screen.queryByText(/panel nope/)).not.toBeInTheDocument();
+  });
+
+  it('says the companies could not load, with Retry, instead of "No companies yet"', async () => {
+    apiState.entities = 'error';
+    render(<AdminConsole activeSub="analytics" onSubChange={() => {}} />);
+    expect(await screen.findByText('The companies could not be loaded right now.')).toBeInTheDocument();
+    expect(screen.queryByText(/No companies yet/)).not.toBeInTheDocument();
+    apiState.entities = 'ok';
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByText('The companies could not be loaded right now.')).not.toBeInTheDocument());
+  });
+
+  it('lists the companies a Workforce Analytics grant may open when People is not theirs', async () => {
+    asRole('employee', { grants: { 'employee-tracking': 'full' }, manageCompanies: [] });
+    apiState.entities = 'denied';
+    apiState.trackingCompanies = [{ id: 'c1', name: 'Greens Global' }];
+    render(<AdminConsole activeSub="analytics" onSubChange={() => {}} />);
+    const box = screen.getByLabelText('Applies To');
+    await waitFor(() => expect(within(box).getByRole('option', { name: 'Greens Global' })).toBeInTheDocument());
+    expect(screen.queryByText('The companies could not be loaded right now.')).not.toBeInTheDocument();
   });
 });
