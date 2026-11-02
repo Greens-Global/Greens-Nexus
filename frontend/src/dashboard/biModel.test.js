@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { attentionRows, worstTone, alertCount, visibleModule, boardCsvRows, csvText, matchesStat } from './biModel';
+import { attentionRows, worstTone, alertCount, visibleModule, boardCsvRows, csvText, matchesStat, actionFor, moduleMeta } from './biModel';
 
 // The BI board's data rules (Oct 13 2026): what counts as "needs attention",
 // how a module's alert level is read, and how the filters narrow a card.
@@ -69,5 +69,18 @@ describe('CSV', () => {
     expect(rows[0]).toEqual(['Module', 'Metric', 'Value', 'Alert Level']);
     expect(rows.slice(1)).toEqual([['Tasks', 'Overdue', 623, 'Critical'], ['Tickets', 'Unassigned', 18, 'Critical']]);
     expect(csvText([['a,b', 'say "hi"']])).toBe('"a,b","say ""hi"""');
+  });
+});
+
+// Forms & Checklists (Neil, 11/02/2026): every Forms count is acted on in
+// Documents > Forms, and the card has its own icon rather than the gauge.
+describe('forms block', () => {
+  it('sends every forms count to the Documents > Forms tab', () => {
+    const row = { moduleId: 'forms', moduleLabel: 'Forms', nav: 'documents', key: 'follow_up_open' };
+    expect(actionFor(row)).toEqual({ view: 'documents', sub: 'documents-forms', label: 'Open Forms' });
+    expect(actionFor({ ...row, key: 'entries_7d' }).sub).toBe('documents-forms');
+  });
+  it('has its own icon', () => {
+    expect(moduleMeta('forms').Icon).not.toBe(moduleMeta('nope').Icon);
   });
 });

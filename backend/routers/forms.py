@@ -20,8 +20,15 @@ Announcements). What the answers must obey: form_rules.py (the server checks
 required / showIf / formats / repeat groups again at submit, drops hidden and
 unknown tokens, validates every photo and signature URL with
 routers.items._validate_photo_url, and works formulas out itself). Nothing
-here changes an entry's state by itself - a person reviews it. The Workflows
-events (form.submitted / form.reviewed) are the documents pack's (Task 2).
+here changes an entry's state by itself - a person reviews it.
+
+Workflows (the documents pack, workflows/packs/documents.py): ONE
+`workflows.emit` at each choke point, inside the transaction, never after
+the commit - `form.submitted` in submit_entry right after `db.add(row)`
+(a retry on the same entryKey returns the first entry and emits nothing),
+`form.reviewed` in review_entry after the status change. `extra` is the
+stored answers FLAT plus `form` (the title), so `{{ event.<token> }}`
+resolves in a workflow.
 """
 from __future__ import annotations
 
@@ -42,6 +49,7 @@ import auth
 import form_audience
 import form_entry_pdf
 import form_rules
+import workflows
 from auth import get_current_user
 from database import get_db
 from models import DocFormEntry, DocTemplate, HrWorkSite, NexusEmployee, NexusNotification
@@ -233,6 +241,7 @@ def submit_entry(tid: str, body: EntryIn, user: dict = Depends(get_current_user)
                        shift_id=(body.shiftId or "").strip()[:80], submitted_by=me, submitted_at=now,
                        source=source, status="submitted", deleted_at="")
     db.add(row)
+    workflows.emit(db, "form.submitted", subject=row, actor=me, extra={**answers, "form": tpl.name})
     try:
         db.commit()
     except IntegrityError:
@@ -344,11 +353,16 @@ def review_entry(eid: str, body: ReviewIn, user: dict = Depends(get_current_user
     row = _get_entry(db, eid, reach, lock=True)
     if not reach.can_review(row):
         raise HTTPException(403, "You cannot review your own form")
+    prev_status = row.status or "submitted"
     row.status = status
     row.reviewer_email = _norm(user["email"])
     row.reviewed_at = _now_iso()
     row.review_note = (body.note or "").strip()[:NOTE_MAX]
     _bell_submitter(db, row, user["email"])
+    answers = row.answers if isinstance(row.answers, dict) else {}
+    workflows.emit(db, "form.reviewed", subject=row, actor=row.reviewer_email,
+                   changes={"status": (prev_status, status)},
+                   extra={**answers, "form": row.title or "", "decision": status, "note": row.review_note})
     db.commit(); db.refresh(row)
     return _serialize_many(db, [row], reach)[0]
 
