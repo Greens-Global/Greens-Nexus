@@ -99,19 +99,23 @@ def update_config(body: BrandingIn, user: dict = Depends(require_administrator),
         raise HTTPException(400, f"Opacity must be between {OPACITY_MIN}% and {OPACITY_MAX}%")
     if body.navMotion is not None and body.navMotion not in _VALID_MOTION:
         raise HTTPException(400, "Navigation motion must be off, subtle, lively or bold")
+    # The brand is every company's (11/02/2026): an Administrator walled to
+    # their companies cannot change it.
+    import scoped_settings
+    import settings_walls
+    settings_walls.require_company_wide(db, user, "Changing the brand color")
     data = body.model_dump()
-    if data.get("navMotion") is None:
-        data["navMotion"] = _get_config(db).get("navMotion")
-    cfg = _clean_accent(data)
+
+    def build(stored: dict) -> dict:
+        # Under the row lock, from what is stored now (never the cached copy):
+        # a save that leaves the strength out keeps the one just saved.
+        d = dict(data)
+        if d.get("navMotion") is None:
+            d["navMotion"] = _clean_accent(stored).get("navMotion")
+        return _clean_accent(d)
+    cfg = scoped_settings.merge_save(db, _SETTINGS_KEY, build, user["email"])
     accent = cfg["accent"]
-    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
-    if not row:
-        row = models.NexusSetting(key=_SETTINGS_KEY)
-        db.add(row)
-    row.value = json.dumps(cfg)
-    row.updated_by = user["email"]
     now = datetime.now(timezone.utc).isoformat()
-    row.updated_at = now
     db.add(models.AuditLog(timestamp=now, user_email=user["email"], user_role=user.get("role", ""),
                            action=("Set the brand color to "
                                    + (f"{cfg['customHex']} at {cfg['opacity']}%" if accent == "custom" else accent)
@@ -188,16 +192,15 @@ def update_email_theme(body: EmailThemeIn, user: dict = Depends(require_administ
                        db: Session = Depends(get_db)):
     import cache
     import email_theme
+    import scoped_settings
+    import settings_walls
+    # Every company's email look (11/02/2026): company-wide access only.
+    settings_walls.require_company_wide(db, user, "Changing the email appearance")
     theme = _clean_theme(body)
+    scoped_settings.lock_row(db, email_theme.SETTINGS_KEY)
     before = email_theme.get_saved(db).as_dict()
     now = datetime.now(timezone.utc).isoformat()
-    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == email_theme.SETTINGS_KEY).first()
-    if not row:
-        row = models.NexusSetting(key=email_theme.SETTINGS_KEY)
-        db.add(row)
-    row.value = json.dumps(theme.as_dict())
-    row.updated_by = user["email"]
-    row.updated_at = now
+    scoped_settings.merge_save(db, email_theme.SETTINGS_KEY, lambda _stored: theme.as_dict(), user["email"])
     changed = {k: v for k, v in theme.as_dict().items() if before.get(k) != v}
     db.add(models.AuditLog(timestamp=now, user_email=user["email"], user_role=user.get("role", ""),
                            action="Updated the email appearance", resource_type="branding",

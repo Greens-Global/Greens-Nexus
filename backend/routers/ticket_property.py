@@ -63,6 +63,10 @@ def put_rules(body: dict, user: dict = Depends(get_current_user), db: Session = 
     from auth import _LEVELS
     if not (user.get("level", 0) >= _LEVELS["administrator"] or ticket_roles.can_manage_desk(user, db)):
         raise HTTPException(403, "Only a ticket supervisor or an administrator can change this.")
+    # One set of rules for every company (11/02/2026): a caller walled to
+    # some companies cannot change them for all.
+    import settings_walls
+    settings_walls.require_company_wide(db, user, "Changing the property rules")
     return L.save_rules(db, body, user.get("email") or "")
 
 

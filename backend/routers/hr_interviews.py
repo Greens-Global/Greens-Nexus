@@ -218,8 +218,16 @@ def list_templates(user: dict = Depends(require_hr_read), db: Session = Depends(
     return [_ser_tpl(t) for t in db.query(HrInterviewTemplate).order_by(HrInterviewTemplate.name).all()]
 
 
+def _require_library_write(db: Session, user: dict) -> None:
+    """The questionnaires are one library for every company (no company of
+    their own, 11/02/2026): changed with company-wide People access only."""
+    import settings_walls
+    settings_walls.require_company_wide(db, user, "Changing the interview questionnaires", people=True)
+
+
 @router.post("/interview-templates")
 def create_template(body: TemplateIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    _require_library_write(db, user)
     if not body.name.strip():
         raise HTTPException(400, "Give the questionnaire a role name")
     t = HrInterviewTemplate(id=str(uuid.uuid4()), name=body.name.strip()[:120],
@@ -233,6 +241,7 @@ def create_template(body: TemplateIn, user: dict = Depends(require_hr_write), db
 
 @router.put("/interview-templates/{tid}")
 def update_template(tid: str, body: TemplateIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    _require_library_write(db, user)
     t = db.query(HrInterviewTemplate).filter(HrInterviewTemplate.id == tid).first()
     if not t:
         raise HTTPException(404, "Template not found")
@@ -246,6 +255,7 @@ def update_template(tid: str, body: TemplateIn, user: dict = Depends(require_hr_
 
 @router.delete("/interview-templates/{tid}")
 def delete_template(tid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    _require_library_write(db, user)
     db.query(HrInterviewTemplate).filter(HrInterviewTemplate.id == tid).delete()
     db.commit()
     return {"ok": True}
