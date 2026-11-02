@@ -668,7 +668,9 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           <label style={label} id="ct-team">Which Team Can Help? {req}</label>
           {deptOptions.length <= 8 ? (
             <div role="radiogroup" aria-labelledby="ct-team"
-              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
+              // min(100%, 168px): "Human Resources" fits on one line at 375px, and a
+              // narrower box than the name is never asked for.
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 168px), 1fr))', gap: 8 }}>
               {deptOptions.map((d) => {
                 const on = form.hrDepartmentId === d.id;
                 const Icon = deptIcon(d.name);
