@@ -1101,7 +1101,14 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
     seenPages.current.add(index);
     setPagesTotal(t => (total > t ? total : t));
   }, []);
-  const [values, setValues] = useState(payload.myValues || {});
+  // A federal form's text box may arrive prefilled by the server (`value`:
+  // the first day of employment, the employer block - 11/02/2026); it is the
+  // initial value, and the signer may still change it.
+  const [values, setValues] = useState(() => {
+    const v = { ...(payload.myValues || {}) };
+    for (const f of (payload.fields || [])) if (f.type === 'text' && f.value != null && f.value !== '' && (v[f.id] == null || v[f.id] === '')) v[f.id] = String(f.value);
+    return v;
+  });
   // Upload fields, keyed by field id. Seeded from the server so a signer who
   // comes back to the link sees what they already attached rather than an
   // empty box they would dutifully fill again; the server row is the truth,

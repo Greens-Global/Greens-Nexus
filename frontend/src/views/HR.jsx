@@ -5473,6 +5473,12 @@ export default function HR({ activeSub, onSubChange }) {
     const m = String(activeSub || '').match(/^hr-probation-(.+)$/);
     if (m) { setProbationFocus(m[1]); setOpenTab('overview'); setSelectedId(m[1]); onSubChange?.('hr-people'); }
   }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The federal-form bells ("W-4 Signed - <name>", 11/02/2026) land on
+  // hr-documents-<employee id>: the person's Documents tab.
+  useEffect(() => {
+    const m = String(activeSub || '').match(/^hr-documents-(.+)$/);
+    if (m) { setOpenTab('documents'); setSelectedId(m[1]); onSubChange?.('hr-people'); }
+  }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = !hrTeam && canAccessModule('hr_comp', 'owner', 'viewer');   // a team view never shows pay
   const isAdmin = can('administrator');   // Roles & Access tab is admin-only
