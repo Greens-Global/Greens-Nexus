@@ -427,10 +427,32 @@ META_COLUMNS = ("entryId", "form", "templateVersion", "submittedBy", "submittedB
                 "reviewNote", "linkedTicketId", "linkedTaskId", "linkedAssetId")
 
 
+_CSV_FORMULA_LEADS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_safe(cell):
+    """A text cell a spreadsheet would run as a formula ("=HYPERLINK(..)",
+    "+1", "@SUM") gets a leading apostrophe, so it opens as text. Numbers
+    are left as they are."""
+    if isinstance(cell, str) and cell.startswith(_CSV_FORMULA_LEADS):
+        return "'" + cell
+    return cell
+
+
+def _csv_value(d: dict, v):
+    """One answer's cell: a number stays a number (a negative one is not a
+    formula), any text goes through csv_safe."""
+    text = form_entry_pdf.value_text(d, v)
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return text
+    return csv_safe(text)
+
+
 def _csv_rows(defs: list, entries: list) -> list:
     """Header + one row per entry: the meta columns, then one column per
     token in form order. A repeat group's token holds its rows' values
-    joined with ' | '; photo URLs are joined with spaces."""
+    joined with ' | '; photo URLs are joined with spaces. Every text cell
+    goes through csv_safe."""
     tokens = [d["token"] for d in defs if d.get("token")]
     by_token = {d["token"]: d for d in defs if d.get("token")}
     rows = [list(META_COLUMNS) + tokens]
@@ -441,16 +463,19 @@ def _csv_rows(defs: list, entries: list) -> list:
                 e["source"], form_entry_pdf.STATUS_WORDS.get(e["status"], e["status"]), e["reviewerEmail"],
                 form_entry_pdf.us_datetime(e["reviewedAt"]), e["reviewNote"], e["linkedTicketId"],
                 e["linkedTaskId"], e["linkedAssetId"]]
+        meta = [csv_safe(v) for v in meta]
         values = []
         for t in tokens:
             d = by_token[t]
             g = form_rules.group_of(d)
             if g:
                 group_rows = answers.get(g) if isinstance(answers.get(g), list) else []
-                values.append(" | ".join(form_entry_pdf.value_text(d, r.get(t)) for r in group_rows
-                                         if isinstance(r, dict)))
+                cells = [r.get(t) for r in group_rows if isinstance(r, dict)]
+                joined = " | ".join(form_entry_pdf.value_text(d, v) for v in cells)
+                numeric = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in cells)
+                values.append(joined if numeric else csv_safe(joined))
             else:
-                values.append(form_entry_pdf.value_text(d, answers.get(t)))
+                values.append(_csv_value(d, answers.get(t)))
         rows.append(meta + values)
     return rows
 

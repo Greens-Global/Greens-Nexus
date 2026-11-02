@@ -521,5 +521,27 @@ class FormsTests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
 
 
+    def test_csv_cells_that_would_run_as_formulas_open_as_text(self):
+        from routers import forms as forms_router
+        self.assertEqual(forms_router.csv_safe("=1+1"), "'=1+1")
+        for lead in ("+", "-", "@", "\t", "\r"):
+            self.assertEqual(forms_router.csv_safe(lead + "x"), "'" + lead + "x")
+        self.assertEqual(forms_router.csv_safe("Fine"), "Fine")
+        self.assertEqual(forms_router.csv_safe(-5), -5)
+        fields = [{"token": "note", "label": "Note", "type": "text"},
+                  {"token": "n", "label": "N", "type": "number"}]
+        tpl = self._template("=Danger", fields=fields)
+        e = self._submit(tpl["id"], REP, {"note": '=HYPERLINK("http://evil.example")', "n": -5}, workSiteId=SITE_A)
+        self._as(MGR)
+        r = self.client.post(f"/forms/entries/{e['id']}/review", json={"status": "reviewed", "note": "@SUM(A1)"})
+        self.assertEqual(r.status_code, 200, r.text)
+        rows = list(csv.reader(io.StringIO(self.client.get(f"/forms/templates/{tpl['id']}/export.csv").text)))
+        header, row = rows[0], rows[1]
+        self.assertEqual(row[header.index("note")], '\'=HYPERLINK("http://evil.example")')
+        self.assertEqual(row[header.index("reviewNote")], "'@SUM(A1)")
+        self.assertEqual(row[header.index("form")], "'=Danger")
+        self.assertEqual(row[header.index("n")], "-5")              # a number is left alone
+
+
 if __name__ == "__main__":
     unittest.main()
