@@ -37,6 +37,7 @@ import { Spinner } from './components/AsyncState'
 import DialogGuard from './components/DialogGuard'
 import { DialogHost } from './ui/dialog'
 import { installErrorReporter } from './lib/errorReporter'
+import { registerServiceWorker } from './lib/pwa'
 import { BFF_MODE, bffBootstrap } from './bffAuth'
 
 installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
@@ -109,6 +110,9 @@ let _booted = false;
 function renderConnecting(waitedMs = 0) { if (!_booted) _root.render(<BootConnecting waitedMs={waitedMs} />); }
 
 function renderApp() {
+  // Installable app + push (lib/pwa.js): the worker registers once the person
+  // is signed in, never on the landing page. It only handles push.
+  registerServiceWorker();
   _root.render(
     <StrictMode>
       <RootErrorBoundary>
