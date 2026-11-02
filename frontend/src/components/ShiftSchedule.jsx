@@ -97,23 +97,42 @@ export function laborOver(l) {
   if (!b) return false;
   return (b.hours != null && l.hours > b.hours) || (b.amount != null && l.cost != null && l.cost > b.amount);
 }
-export function laborText(l) {
-  if (!l || !(l.hours > 0)) return '';
+// The line in fragments: [{ text, budget }] in reading order, the " of ...
+// budget" pieces marked so the screen can color them alone when the
+// schedule is over (the scheduled figures stay muted); adjacent plain
+// fragments are merged, so a line with no budget is one text node.
+export function laborParts(l) {
+  if (!l || !(l.hours > 0)) return [];
   const h = l.hours % 1 === 0 ? l.hours : Number(l.hours.toFixed(2));
   const budget = budgetOf(l);
-  const hoursBudget = budget?.hours != null ? ` of ${Number(budget.hours).toLocaleString('en-US')} h budget` : '';
-  const parts = [`Scheduled ${h.toLocaleString('en-US', { maximumFractionDigits: 2 })} h${hoursBudget}`];
+  const plain = (text) => ({ text, budget: false });
+  const over = (text) => ({ text, budget: true });
+  const items = [[plain(`Scheduled ${h.toLocaleString('en-US', { maximumFractionDigits: 2 })} h`)]];
+  if (budget?.hours != null) items[0].push(over(` of ${Number(budget.hours).toLocaleString('en-US')} h budget`));
   if (!l.payHidden) {
     const perCurrency = Object.entries(l.costs || {}).filter(([, v]) => v != null);
-    const amountBudget = budget?.amount != null ? ` of ${money(budget.amount, budget.currency || l.currency)} budget` : '';
-    if (l.cost != null) parts.push(money(l.cost, l.currency) + amountBudget);
-    else if (perCurrency.length > 1) parts.push(perCurrency.map(([c, v]) => money(v, c)).join(' and '));
+    if (l.cost != null) {
+      const cost = [plain(money(l.cost, l.currency))];
+      if (budget?.amount != null) cost.push(over(` of ${money(budget.amount, budget.currency || l.currency)} budget`));
+      items.push(cost);
+    } else if (perCurrency.length > 1) items.push([plain(perCurrency.map(([c, v]) => money(v, c)).join(' and '))]);
     if (l.cost != null || perCurrency.length > 1) {
-      if (l.peopleWithoutRate) parts.push(peopleCount(l.peopleWithoutRate, 'without a rate'));
-      if (l.fixedPayPeople) parts.push(peopleCount(l.fixedPayPeople, 'on fixed pay'));
+      if (l.peopleWithoutRate) items.push([plain(peopleCount(l.peopleWithoutRate, 'without a rate'))]);
+      if (l.fixedPayPeople) items.push([plain(peopleCount(l.fixedPayPeople, 'on fixed pay'))]);
     }
   }
-  return parts.join(' · ');
+  const out = [];
+  items.forEach((frags, i) => {
+    (i > 0 ? [plain(' · '), ...frags] : frags).forEach((f) => {
+      const last = out[out.length - 1];
+      if (last && !last.budget && !f.budget) last.text += f.text;
+      else out.push({ ...f });
+    });
+  });
+  return out;
+}
+export function laborText(l) {
+  return laborParts(l).map((p) => p.text).join('');
 }
 // What the labor line counts, in words a manager uses (the manager tier sees hours only).
 export const laborHelp = (payHidden) => (payHidden
@@ -1237,15 +1256,21 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   // The team line (Neil, Oct 30 2026): the picker, then plain facts - hours
   // scheduled and worked, where the unshared changes are, who confirmed -
   // in words, no chips. On a phone the facts move under the list.
-  const laborLine = laborText(labor);
-  // Over the weekly budget (HR++ only see one): the line goes amber.
+  const laborLine = laborParts(labor);
+  // Over the weekly budget (HR++ only see one): the " of ... budget" fragments
+  // alone go amber - the scheduled figures stay muted, so the eye lands on
+  // the budget and not the whole line.
   const overBudget = laborOver(labor);
   // A title is unreachable on a phone: there the explanation is a visible line.
   const teamFacts = [
-    laborLine ? (
+    laborLine.length ? (
       <span data-labor-line="" {...(overBudget ? { 'data-labor-over': '' } : {})} title={phone ? undefined : laborHelp(!!labor?.payHidden)}
-        style={{ ...(phone ? { display: 'grid', gap: 2 } : {}), ...(overBudget ? { color: 'hsl(var(--color-orange))', fontWeight: 600 } : {}) }}>
-        {laborLine}
+        style={phone ? { display: 'grid', gap: 2 } : undefined}>
+        <span data-labor-text="">
+          {laborLine.map((p, i) => (p.budget
+            ? <span key={i} data-labor-budget="" style={overBudget ? { color: 'hsl(var(--color-orange))', fontWeight: 600 } : undefined}>{p.text}</span>
+            : <Fragment key={i}>{p.text}</Fragment>))}
+        </span>
         {phone && <span data-labor-help="" style={{ fontSize: 11.5, color: 'var(--muted)' }}>{laborHelp(!!labor?.payHidden)}</span>}
       </span>
     ) : null,
