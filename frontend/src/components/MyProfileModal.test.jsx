@@ -52,3 +52,18 @@ describe('Profile - Navigation Motion (Neil, 11/01/2026)', () => {
     expect(within(group).getByRole('radio', { name: 'Subtle' }).getAttribute('aria-checked')).toBe('true');
   });
 });
+
+describe('Profile - Phone Notifications (Frontline Reach, 11/02/2026)', () => {
+  it('lists the section and, with no push keys on the server, says so and keeps the switch off', async () => {
+    apiSpies.pushConfig = vi.fn(() => Promise.resolve({ enabled: false, publicKey: '' }));
+    render(<MyProfileModal onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /Phone Notifications/ }));
+    expect(screen.getByRole('heading', { name: 'Phone Notifications' })).toBeTruthy();
+    expect(screen.getByText('Install Nexus')).toBeTruthy();
+    await waitFor(() => expect(apiSpies.pushConfig).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText(/Not set up yet|Not available in this browser/)).toBeTruthy());
+    const sw = screen.getByRole('switch', { name: /Push to This Device/ });
+    expect(sw.checked).toBe(false);
+    expect(sw.disabled).toBe(true);
+  });
+});

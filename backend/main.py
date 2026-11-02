@@ -2601,6 +2601,11 @@ def _run_migrations():
         # routers/announcements.py.
         "ALTER TABLE nexus_announcements ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE nexus_announcement_reads ENABLE ROW LEVEL SECURITY",
+        # Web Push (Frontline Reach, Neil 11/02/2026): a device's push subscription
+        # and the outbox the bell feeds. New tables - RLS per CLAUDE.md.
+        # models.NexusPushSubscription / NexusPushOutbox, push.py.
+        "ALTER TABLE nexus_push_subscriptions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE nexus_push_outbox ENABLE ROW LEVEL SECURITY",
         # HR life events (Neil, Oct 8): hiring packet / promotion / separation
         # through Nexus Sign, filed to the person's Egnyte folder. New tables -
         # RLS per CLAUDE.md. models.HrPacketSetting, models.HrLifeEvent.
@@ -4131,6 +4136,18 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(ticket_notify_loop()))
         except Exception as e:
             print(f"[startup] ticket notification loop skipped: {e}")
+        # Web Push (Frontline Reach, Neil 11/02/2026): drains the outbox the
+        # bell feeds. Started only when the three VAPID settings exist, so a
+        # server without keys spends nothing and says so once.
+        try:
+            import push as _push_mod
+            if _push_mod.configured():
+                _tasks.append(_a.create_task(_push_mod.push_loop()))
+                print("[startup] web push on")
+            else:
+                print("[startup] web push off (NEXUS_VAPID_* not set)")
+        except Exception as e:
+            print(f"[startup] web push loop skipped: {e}")
         try:
             from task_notify import task_notify_loop
             _tasks.append(_a.create_task(task_notify_loop()))
@@ -4773,6 +4790,13 @@ def health():
     could tell. No values are exposed, only whether each is configured."""
     import intacct_client
     import secret_box
+
+    def _push_health() -> bool:
+        try:
+            import push as _p
+            return _p.configured()
+        except Exception:
+            return False
     return {"status": "ok",
             "secrets": {"vault_key": secret_box.KEY_CONFIGURED,
                         "app_url_explicit": bool(os.getenv("NEXUS_APP_URL", "").strip()),
@@ -4786,7 +4810,10 @@ def health():
                         "cubby_api_key": bool(os.getenv("CUBBY_API_KEY", "").strip()),
                         # People > Sync Employee Codes reads Intacct directly
                         # (intacct_client.py, the five INTACCT_* settings).
-                        "intacct_direct": intacct_client.configured()}}
+                        "intacct_direct": intacct_client.configured(),
+                        # Web Push to installed phones (push.py): the three
+                        # NEXUS_VAPID_* settings. Off = the bell only.
+                        "push": _push_health()}}
 
 
 @app.get("/health/ready")
@@ -5012,7 +5039,10 @@ app.include_router(acct_scan.router)               # Accounting: amount by entit
 from routers import accounting_ama  # noqa: E402
 app.include_router(accounting_ama.router)          # Accounting > AMA: asset management agreements, billed read from the ledger (Priyanka, Oct 7)
 from routers import announcements, my_work, my_team  # noqa: E402
+from routers import push as push_router  # noqa: E402  - Web Push devices (Frontline Reach, Neil 11/02/2026)
+import push as _push  # noqa: E402,F401  - registers the after_insert hook that queues a push for every named bell notice
 app.include_router(announcements.router)           # Dashboard > Announcements tile: company / department notices, read + acknowledge marks (Oct 7)
+app.include_router(push_router.router)                   # Web Push devices: config / subscribe / unsubscribe (Frontline Reach, Neil 11/02/2026)
 app.include_router(my_work.router)                 # Dashboard > My Work tile: the caller's open work by due bucket (Oct 7)
 app.include_router(my_team.router)                 # Dashboard > My Team tile: direct reports today + their overdue work, supervisor+ (Oct 7)
 from routers import implementation  # noqa: E402

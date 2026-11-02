@@ -1,0 +1,19 @@
+{
+  "name": "Nexus",
+  "short_name": "Nexus",
+  "description": "Greens Global's company portal - time clock, shifts, tasks, tickets and notices.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f6f7fb",
+  "theme_color": "#248f4b",
+  "lang": "en-US",
+  "icons": [
+    { "src": "/icons/nexus-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/nexus-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/nexus-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
