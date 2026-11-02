@@ -391,3 +391,36 @@
   .nt-doc.is-board { padding-bottom: 0; }
   .nt-board { margin: 8px -14px 0; min-height: 60vh; }
 }
+
+/* ── Boards inside notes (Insert Board / Mark Up, 11/02/2026) ──────────── */
+.nt-board-embed { position: relative; margin: .5em 0 .8em; max-width: 560px; }
+.nt-board-embed-open { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px; border: 1px solid var(--wk-line2); border-radius: 12px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.nt-board-embed-open:hover { background: var(--wk-hover); }
+.nt-board-embed-open:disabled { cursor: default; opacity: .6; }
+.nt-board-embed-thumb { display: block; width: 96px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid var(--wk-line2); background: var(--card); flex-shrink: 0; }
+.nt-board-embed-thumb.is-empty { display: grid; place-items: center; color: var(--wk-faint, #9699a6); background: var(--wk-hover); }
+.nt-board-embed-text { display: flex; flex-direction: column; min-width: 0; }
+.nt-board-embed-kicker { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--wk-faint, #9699a6); }
+.nt-board-embed-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-board-embed .nt-media-x { top: 6px; right: 6px; }
+/* The Insert Board picker, under the toolbar. */
+.nt-board-pick { position: absolute; z-index: 30; top: 48px; right: 12px; width: min(360px, calc(100% - 24px)); background: var(--card); border: 1px solid var(--wk-line2); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.14); overflow: hidden; }
+.nt-editor { position: relative; }
+.nt-board-pick-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--wk-line2); color: var(--wk-faint, #9699a6); }
+.nt-board-pick-head input { flex: 1; min-width: 0; border: none; background: transparent; font: inherit; font-size: 13.5px; color: var(--ink); outline: none; }
+.nt-board-pick-empty { padding: 14px 12px; font-size: 13px; color: var(--wk-faint, #9699a6); }
+.nt-board-pick-list { list-style: none; margin: 0; padding: 6px; max-height: 300px; overflow-y: auto; }
+.nt-board-pick-list button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px; border: none; border-radius: 8px; background: transparent; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+.nt-board-pick-list button:hover, .nt-board-pick-list button:focus-visible { background: var(--wk-hover); outline: none; }
+.nt-board-pick-list img, .nt-board-pick-list .is-empty { width: 56px; height: 36px; border-radius: 6px; object-fit: cover; border: 1px solid var(--wk-line2); flex-shrink: 0; display: grid; place-items: center; color: var(--wk-faint, #9699a6); background: var(--wk-hover); }
+.nt-board-pick-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-board-pick-when { font-size: 12px; color: var(--wk-faint, #9699a6); }
+/* New Board's template picker (board/TemplatePicker.jsx). */
+.nt-tpl-hint { margin: 0 0 14px; font-size: 13.5px; color: var(--wk-dim, #676879); }
+.nt-tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.nt-tpl { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 14px; border: 1px solid var(--wk-line2); border-radius: 12px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; min-height: 112px; }
+.nt-tpl:hover { background: var(--wk-hover); border-color: var(--wk-green); }
+.nt-tpl:focus-visible { outline: 2px solid var(--wk-green); outline-offset: 1px; }
+.nt-tpl:disabled { opacity: .55; cursor: default; }
+.nt-tpl-label { font-size: 14px; font-weight: 700; }
+.nt-tpl-sub { font-size: 12px; color: var(--wk-faint, #9699a6); line-height: 1.35; }

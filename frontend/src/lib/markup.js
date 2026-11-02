@@ -111,7 +111,7 @@ export async function openMarkup({ imageUrl, mimeType = '', name = '', source: g
   const [{ createBoard, openBoard }, { uploadBoardFile }, { emptyScene, serializeScene }] = await Promise.all([
     import('../notes/newBoard'), import('../notes/board/files'), import('../notes/board/scene'),
   ]);
-  let blob, width = 0, height = 0, type = mimeType;
+  let blob, width, height, type;
   if (isPdfSource(mimeType, name || (typeof imageUrl === 'string' ? imageUrl : ''))) {
     const { renderPdfPage } = await import('../notes/board/pdfPage');
     const r = await renderPdfPage(imageUrl, page);

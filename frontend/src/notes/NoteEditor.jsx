@@ -22,12 +22,13 @@ import {
   Undo2, Redo2, Bold, Italic, Underline, Strikethrough, Highlighter, Code, Heading1, Heading2, Heading3,
   List, ListOrdered, ListChecks, IndentIncrease, IndentDecrease, Quote, SquareCode, AlignLeft, AlignCenter,
   AlignRight, Link2, Table as TableIcon, Minus, CalendarDays, Pilcrow, ListPlus, Rows3, Columns3, Trash2, Check, X,
-  Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff,
+  Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff, PenTool,
 } from 'lucide-react';
 import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { useKeyboardInset, keyboardUp } from '../lib/useVisualViewport';
+import BoardPicker from './board/BoardPicker';
 import {
   EDITED, mediaKind, checkMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
   canRecord, canDictate, clock,
@@ -137,6 +138,7 @@ export default function NoteEditor({
 }) {
   const [menu, setMenu] = useState(null);   // { kind: 'slash'|'mention', query, from, index }
   const [link, setLink] = useState(null);   // { href } while the link bar is open
+  const [boardPick, setBoardPick] = useState(false);   // Insert Board picker (board/BoardPicker.jsx)
   const changeRef = useRef(onChange);
   const collabRef = useRef(collab);
   const remoteRef = useRef(onRemoteChange);
@@ -278,7 +280,9 @@ export default function NoteEditor({
   const toggleVoice = () => { clearErr(); if (voice.recording) voice.stop(); else voice.start(); };
   const toggleDictate = () => { clearErr(); if (dictation.listening) dictation.stop(); else dictation.start(); };
   const pickVideo = () => { clearErr(); videoInput.current?.click(); };
-  useEffect(() => { actRef.current = { dictate: toggleDictate, voice: toggleVoice, video: pickVideo }; });
+  const openBoardPick = () => { if (!readOnly) setBoardPick(true); };
+  const insertBoard = (attrs) => { setBoardPick(false); if (!editor) return; touched.current = true; editor.chain().focus().setMeta(EDITED, true).insertBoard(attrs).run(); };
+  useEffect(() => { actRef.current = { dictate: toggleDictate, voice: toggleVoice, video: pickVideo, board: openBoardPick }; });
   const showPhoneBar = phone && toolbar && !readOnly && (focused || live || !!busy || !!err);
   const inset = useKeyboardInset(showPhoneBar);
 
@@ -310,6 +314,7 @@ export default function NoteEditor({
       dictateOk && { key: 'dictate', label: 'Dictate', hint: 'Type what you say', icon: Mic, keys: 'voice speech talk speak mic', act: 'dictate' },
       recordOk && { key: 'voice', label: 'Voice Note', hint: 'Record a clip that stays in the note', icon: AudioLines, keys: 'audio record recording mic', act: 'voice' },
       { key: 'video', label: 'Video', hint: 'Add a clip from this computer', icon: Clapperboard, keys: 'movie clip film', act: 'video' },
+      { key: 'board', label: 'Board', hint: 'Insert one of your boards', icon: PenTool, keys: 'whiteboard drawing sketch markup', act: 'board' },
     ].filter(Boolean);
     return [...SLASH, ...(live ? [] : capture)].filter((s) => !q || s.label.toLowerCase().includes(q) || (s.keys || '').includes(q)).slice(0, 12);
   }, [menu, people, dictateOk, recordOk, live]);
@@ -445,11 +450,13 @@ export default function NoteEditor({
           {recordOk && <TBtn icon={AudioLines} text={voice.recording ? 'Stop and Save' : 'Voice Note'} label={voice.recording ? 'Stop and Save the Voice Note' : 'Record a Voice Note'}
             active={voice.recording} danger={voice.recording} disabled={dictation.listening} onClick={toggleVoice} />}
           <TBtn icon={Clapperboard} text="Video" label="Add a Video" disabled={live} onClick={pickVideo} />
+          <TBtn icon={PenTool} text="Board" label="Insert Board - one of your boards, as a picture that opens it" active={boardPick} onClick={openBoardPick} />
           {onMakeTask && <TBtn icon={ListPlus} text="Make a Task" label="Make a Task - from the selection or the current line" onClick={makeTask} />}
           </div>
         </div>
       )}
       {!readOnly && !phone && <MediaStatus voice={voice} dictation={dictation} busy={busy} error={err} onDismiss={clearErr} />}
+      <BoardPicker open={boardPick} onClose={() => setBoardPick(false)} onPick={insertBoard} />
       {!readOnly && inTable && (
         <div className="nt-subbar" role="toolbar" aria-label="Table">
           <span className="nt-subbar-label">Table</span>
