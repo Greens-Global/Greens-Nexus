@@ -76,6 +76,21 @@ const SHORTCUTS = [
   ['Delete', 'Remove a draft'], ['Ctrl + C / Ctrl + X', 'Copy or cut the selected shift'], ['Ctrl + Click', 'Add a day to the selection'], ['Ctrl + V', 'Paste it on the selected day (or every selected day)'], ['Esc', 'Clear the selection and the clipboard'],
 ];
 
+
+// "Scheduled 312 h · $7,840 · 2 people without a rate · 1 on fixed pay" - the
+// trailing parts only when they are not zero; hours alone when pay is hidden.
+export function laborText(l) {
+  if (!l || !(l.hours > 0)) return '';
+  const parts = [`Scheduled ${l.hours % 1 === 0 ? l.hours : l.hours.toFixed(2).replace(/0$/, '')} h`];
+  if (!l.payHidden && l.cost != null) {
+    const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: l.currency || 'USD', maximumFractionDigits: Number.isInteger(l.cost) ? 0 : 2 });
+    parts.push(money.format(l.cost));
+    if (l.peopleWithoutRate) parts.push(`${l.peopleWithoutRate} ${l.peopleWithoutRate === 1 ? 'person' : 'people'} without a rate`);
+    if (l.fixedPayPeople) parts.push(`${l.fixedPayPeople} on fixed pay`);
+  }
+  return parts.join(' · ');
+}
+
 export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   const { myEmail } = useRole() || {};
   const me = (myEmail || '').toLowerCase();
@@ -164,6 +179,18 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   // before it, never blocking it. A failed call is simply no actuals (no
   // banner); each schedule reload refetches. View Options > Actuals hides it.
   const [actuals, setActuals] = useState(null);
+  // Scheduled labor (Frontline Reach, Neil 11/02/2026): hours net of unpaid
+  // breaks and the cost at each person's rate that day, for the people this
+  // scheduler manages - fetched beside the schedule, refetched with it, and
+  // a failed call is simply no line. The manager tier gets hours only (the
+  // server strips pay).
+  const [labor, setLabor] = useState(null);
+  useEffect(() => {
+    if (!data || data.canManage === false || loadedRange.current !== `${start}|${end}`) { setLabor(null); return undefined; }
+    let alive = true;
+    api.timeScheduleLabor(start, end).then((r) => { if (alive) setLabor(r || null); }).catch(() => { if (alive) setLabor(null); });
+    return () => { alive = false; };
+  }, [data, start, end]);
   const showActuals = prefs.actuals !== false;
   const reachesToday = start <= todayIso();
   useEffect(() => {
@@ -1181,7 +1208,9 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   // The team line (Neil, Oct 30 2026): the picker, then plain facts - hours
   // scheduled and worked, where the unshared changes are, who confirmed -
   // in words, no chips. On a phone the facts move under the list.
+  const laborLine = laborText(labor);
   const teamFacts = [
+    laborLine ? <span data-labor-line="" title="Hours net of unpaid breaks, priced at each person's rate on that day; fixed pay is counted, not priced.">{laborLine}</span> : null,
     adherence ? <AdherenceLine text={adherence} style={{ marginBottom: 0, minWidth: 0, whiteSpace: phone ? 'normal' : undefined }} /> : null,
     unsharedLine ? <span data-unshared-line="" title="Changes the team has not seen yet. Save & Share sends them.">{unsharedLine}</span> : null,
     managing && confirmations && confirmations.total > 0 ? <ConfirmChip c={confirmations} onNudge={nudge} compact={phone} /> : null,

@@ -2577,6 +2577,8 @@ export const api = {
   timeMyConfirmations:        () => req('/timeclock/my-schedule/confirmations'),
   timeSchedConfirm:           (publishId) => req(`/timeclock/schedule/confirm/${encodeURIComponent(publishId)}`, { method: 'POST' }),
   timeSchedConfirmations:     (start, end) => req(`/timeclock/schedule/confirmations?start=${start}&end=${end}`),
+  // Scheduled hours and labor cost for the planner header (Frontline Reach, 11/02/2026); pay hidden for the manager tier.
+  timeScheduleLabor:          (start, end) => req(`/timeclock/schedule/labor?start=${start}&end=${end}`),
   timeSchedNudge:             (data) => req('/timeclock/schedule/nudge', { method: 'POST', body: JSON.stringify(data) }),
   // The offer letter first, then the hiring packet (Neil, Oct 14). Options: which
   // letter this kind of hire gets and what it asks of HR; start: generated and
