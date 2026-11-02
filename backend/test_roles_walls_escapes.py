@@ -44,7 +44,8 @@ PEOPLE = {SUPER: (COA, "owner"), ADMIN_A: (COA, "administrator"), ADMIN_B: (COB,
           GUEST: ("", "employee")}
 
 TABLES = ("NexusRole", "NexusEmployee", "NexusGroup", "NexusGroupMember", "HrEntity", "NexusSetting",
-          "NexusAccessScope", "AuditLog", "TaskProject", "JobRole", "ActAsSession")
+          "NexusAccessScope", "AuditLog", "AuditChange", "TaskProject", "JobRole", "ActAsSession",
+          "TaskNotification", "NexusNotification", "Task", "TaskTeam", "TaskTicket")
 
 
 class _Base(unittest.TestCase):
@@ -484,6 +485,112 @@ class JobTitleStampTests(_Base):
         finally:
             db.close()
         self.assertEqual(self._title(AEMP), "Ops Manager")
+
+
+class LevelFourShortcutTestsMore(_Base):
+    """Item 4, continued: scorecard, audit feed, policy report, externals,
+    the desk supervisor, the "admins" bell fan-out."""
+
+    def test_scorecard_scope_is_their_company(self):
+        import workforce_scorecard as sc
+        db = self._db()
+        try:
+            emails, kind = sc.scope_for(db, {"email": ADMIN_A, "level": 4})
+            self.assertEqual(kind, "company")
+            self.assertIn(AEMP, emails)
+            self.assertNotIn(BEMP, emails)
+            self.assertEqual(sc.scope_for(db, {"email": SUPER, "level": 5}), (None, "all"))
+        finally:
+            db.close()
+
+    def test_audit_feed_shows_only_their_companies_people(self):
+        db = self._db()
+        try:
+            for i, who in enumerate((AEMP, BEMP)):
+                db.add(models.AuditLog(timestamp=f"2026-11-01T10:00:0{i}", user_email=who, action=f"Updated by {who}",
+                                       resource_type="task-tickets", resource_id=f"r-{i}", module="tickets",
+                                       request_id=f"rq-esc-{i}"))
+            db.commit()
+        finally:
+            db.close()
+        self._as(ADMIN_A)
+        text = self.client.get("/audit/events?from=2026-10-01").text
+        self.assertIn(f"Updated by {AEMP}", text)
+        self.assertNotIn(f"Updated by {BEMP}", text)
+        csv_text = self.client.get("/audit/export.csv?from=2026-10-01").text
+        self.assertIn(AEMP, csv_text)
+        self.assertNotIn(BEMP, csv_text)
+        facets = self.client.get("/audit/facets?from=2026-10-01").json()
+        self.assertNotIn(BEMP, {a["email"] for a in facets["actors"]})
+        self._as(SUPER)
+        self.assertIn(f"Updated by {BEMP}", self.client.get("/audit/events?from=2026-10-01").text)
+
+    def test_policy_report_is_their_company(self):
+        self._as(ADMIN_A)
+        rep = self.client.get("/policy/report").json()
+        people = {p["email"] for p in rep["pending"]} | {p["email"] for p in rep["acceptedPeople"]}
+        self.assertIn(AEMP, people)
+        self.assertNotIn(BEMP, people)
+        self.assertNotIn(BEMP, self.client.get("/policy/report.csv").text)
+        self._as(SUPER)
+        self.assertIn(BEMP, {p["email"] for p in self.client.get("/policy/report").json()["pending"]})
+
+    def test_externals_of_another_company_are_out_of_reach(self):
+        db = self._db()
+        try:
+            db.add(models.NexusEmployee(id="e-ext-b", first_name="Bo", last_name="Ext", work_email="bo@partner.example",
+                                        status="active", deleted_at="", company=COB, identity_type="guest"))
+            db.commit()
+        finally:
+            db.close()
+        self._as(ADMIN_A)
+        listed = {r["email"] for r in self.client.get("/external-users").json()}
+        self.assertIn(GUEST, listed, "a guest with no company is shared")
+        self.assertNotIn("bo@partner.example", listed)
+        r = self.client.post("/external-users/bo@partner.example/invite")
+        self.assertEqual(r.status_code, 404, r.text)
+        self._as(SUPER)
+        self.assertIn("bo@partner.example", {r["email"] for r in self.client.get("/external-users").json()})
+
+    def test_desk_supervisor_only_within_their_companies(self):
+        import ticket_roles
+        db = self._db()
+        try:
+            admin = {"email": ADMIN_A, "level": 4}
+            self.assertEqual(ticket_roles.ticket_role(admin, db, company=COA), ticket_roles.SUPERVISOR)
+            self.assertEqual(ticket_roles.ticket_role(admin, db, company=COB), ticket_roles.REQUESTER)
+            self.assertFalse(ticket_roles.can_delete(admin, db, company=COB))
+            self.assertTrue(ticket_roles.can_delete(admin, db, company=COA))
+            self.assertEqual(ticket_roles.ticket_role({"email": SUPER, "level": 5}, db, company=COB),
+                             ticket_roles.SUPERVISOR)
+        finally:
+            db.close()
+
+    def test_admins_fan_out_reaches_only_the_teams_company(self):
+        from routers.task_util import task_notify
+        db = self._db()
+        try:
+            db.add(models.TaskTeam(id="team-esc-b", name="Beta Team", company_id=COB, created_by=BEMP))
+            db.add(models.TaskTeam(id="team-esc-a", name="Alpha Team", company_id=COA, created_by=AEMP))
+            db.commit()
+            task_notify(db, kind="member_request", for_email="admins", title="Team Member Request B",
+                        department_id="team-esc-b", request_id="mr-b", main_bell=True)
+            task_notify(db, kind="member_request", for_email="admins", title="Team Member Request A",
+                        department_id="team-esc-a", request_id="mr-a", main_bell=True)
+            db.commit()
+            bells = {(n.recipient, n.title) for n in db.query(models.NexusNotification).all()}
+        finally:
+            db.close()
+        self.assertIn((ADMIN_B, "Team Member Request B"), bells)
+        self.assertIn((SUPER, "Team Member Request B"), bells)
+        self.assertNotIn((ADMIN_A, "Team Member Request B"), bells)
+        self.assertIn((ADMIN_A, "Team Member Request A"), bells)
+        self._as(ADMIN_A)
+        titles = {n["title"] for n in self.client.get("/task-notifications").json()}
+        self.assertEqual(titles, {"Team Member Request A"})
+        self._as(SUPER)
+        titles = {n["title"] for n in self.client.get("/task-notifications").json()}
+        self.assertEqual(titles, {"Team Member Request A", "Team Member Request B"})
 
 
 if __name__ == "__main__":
