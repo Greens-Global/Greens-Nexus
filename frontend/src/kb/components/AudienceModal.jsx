@@ -2,7 +2,7 @@
 // Used by Policies (who signs), assignment rules and Training Plans.
 import { useEffect, useMemo, useState } from 'react';
 import { Users, X } from 'lucide-react';
-import { Modal } from '../../tasks/components';
+import { Modal, DateField } from '../../tasks/components';
 import { api } from '../../api';
 import { PeopleMultiPick } from './PeoplePick';
 import { Av } from './Chips';
@@ -14,14 +14,18 @@ const RULE_KEYS = [
 ];
 
 export function emptyAudience() {
-  return { everyone: true, companies: [], departments: [], job_titles: [], locations: [], managers: [], people: [], employment_types: [], due_days: 14, renew_months: 0 };
+  return { everyone: true, companies: [], departments: [], job_titles: [], locations: [], managers: [], people: [], employment_types: [], due_days: 14, renew_months: 0, due_date: '', new_hires_only: false, escalate_days: 0 };
 }
 
 export function normalizeAudience(a) {
   return { ...emptyAudience(), ...(a || {}), everyone: !!(a?.everyone) };
 }
 
-export default function AudienceModal({ value, onChange, onClose, title = 'Who This Applies To', timing = true, dueLabel = 'Due', renewLabel = 'Renew every' }) {
+// `rule`: the audience is an assignment rule, so it also carries the due mode
+// (within N days, or by one date for everyone with N days of grace for a
+// late joiner), the onboarding-only switch and the escalation limit
+// (Sagar, 11/03/2026).
+export default function AudienceModal({ value, onChange, onClose, title = 'Who This Applies To', timing = true, dueLabel = 'Due', renewLabel = 'Renew every', rule = false }) {
   const [a, setA] = useState(normalizeAudience(value));
   const [opts, setOpts] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -85,9 +89,26 @@ export default function AudienceModal({ value, onChange, onClose, title = 'Who T
           )}
           <div className="kb-field"><label>Named People (always included)</label><PeopleMultiPick value={a.people} onChange={(v) => setA((x) => ({ ...x, people: v }))} /></div>
           {timing && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div className="kb-field"><label>{dueLabel}</label><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="number" min="0" className="kb-input" style={{ width: 90 }} value={a.due_days} onChange={(e) => setA((x) => ({ ...x, due_days: Number(e.target.value) || 0 }))} /><span className="kb-meta">days after start date (or today)</span></div></div>
-              <div className="kb-field"><label>{renewLabel}</label><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="number" min="0" className="kb-input" style={{ width: 90 }} value={a.renew_months} onChange={(e) => setA((x) => ({ ...x, renew_months: Number(e.target.value) || 0 }))} /><span className="kb-meta">months (0 = never)</span></div></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {rule && (
+                <div className="kb-field"><label>{dueLabel}</label>
+                  <div className="kb-seg" role="radiogroup" aria-label="Due mode" style={{ alignSelf: 'flex-start' }}>
+                    <button type="button" role="radio" aria-checked={!a.due_date} className={!a.due_date ? 'on' : ''} onClick={() => setA((x) => ({ ...x, due_date: '' }))}>Within a number of days</button>
+                    <button type="button" role="radio" aria-checked={!!a.due_date} className={a.due_date ? 'on' : ''} onClick={() => setA((x) => ({ ...x, due_date: x.due_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10) }))}>By one date for everyone</button>
+                  </div>
+                  {a.due_date && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}><DateField value={a.due_date} onChange={(v) => setA((x) => ({ ...x, due_date: v || '' }))} noPast style={{ minHeight: 40, borderRadius: 10, width: 200 }} /><span className="kb-meta">The same date for the whole company or department.</span></div>}
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="kb-field"><label>{rule && a.due_date ? 'Grace for a late joiner' : dueLabel}</label><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="number" min="0" className="kb-input" style={{ width: 90 }} value={a.due_days} onChange={(e) => setA((x) => ({ ...x, due_days: Number(e.target.value) || 0 }))} /><span className="kb-meta">{rule && a.due_date ? 'days from their start date, for someone who joins after the date' : 'days after start date (or today)'}</span></div></div>
+                <div className="kb-field"><label>{renewLabel}</label><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="number" min="0" className="kb-input" style={{ width: 90 }} value={a.renew_months} onChange={(e) => setA((x) => ({ ...x, renew_months: Number(e.target.value) || 0 }))} /><span className="kb-meta">months (0 = never)</span></div></div>
+              </div>
+              {rule && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label className="kb-check" style={{ alignItems: 'flex-start' }}><input type="checkbox" checked={!!a.new_hires_only} onChange={(e) => setA((x) => ({ ...x, new_hires_only: e.target.checked }))} style={{ marginTop: 3 }} /><span>New hires only<div className="kb-help">An onboarding track: only people who start on or after today, due from their start date. Nobody already here is assigned.</div></span></label>
+                  <div className="kb-field"><label>Escalate to the supervisor</label><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="number" min="0" className="kb-input" style={{ width: 90 }} value={a.escalate_days} onChange={(e) => setA((x) => ({ ...x, escalate_days: Number(e.target.value) || 0 }))} /><span className="kb-meta">days overdue (0 = never). Their manager, else the HR contact, then weekly.</span></div></div>
+                </div>
+              )}
             </div>
           )}
         </div>

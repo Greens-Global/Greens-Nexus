@@ -1352,6 +1352,7 @@ class KbCourse(Base):
     description = Column(String, default="")
     overview    = Column(String, default="")           # "what you'll learn" - JSON list of objective strings
     recert_months = Column(Integer, default=0)         # 0 = no recertification; else retake every N months
+    default_due_days = Column(Integer, default=0)     # days a hand assignment gets when no date is picked (11/03/2026)
     departments = Column(String, default="")
     status      = Column(String, default="draft")     # draft | published
     owner_email = Column(String, default="")
@@ -1413,6 +1414,7 @@ class KbCourseAssignment(Base):
     source      = Column(String, default="manual")    # manual | rule | plan | renewal (rebuild, Oct 2026)
     rule_id     = Column(String, default="")          # KbAssignmentRule.id that made it
     plan_id     = Column(String, default="")          # KbTrainingPlan.id it belongs to
+    escalated_at = Column(String, default="")         # first time the supervisor was told it is overdue (11/03/2026)
 
 
 class KbQuizAttempt(Base):
@@ -8300,6 +8302,16 @@ class KbAssignmentRule(Base):
     created_at   = Column(String, default="")
     updated_at   = Column(String, default="")
     last_run_at  = Column(String, default="")
+    # Due modes (Sagar, 11/03/2026): '' = within `due_days` of the start date
+    # (or of today); a date = one calendar date for everyone the rule covers
+    # (company-wide or department-wide), with `due_days` as the grace for a
+    # person who joins after it. new_hires_only = an onboarding track: only
+    # people whose start date is on or after the rule's own start. escalate_days
+    # = days overdue before the supervisor (else the HR contact) is told, then
+    # weekly. ALTER lines in main.py.
+    due_date       = Column(String, default="")
+    new_hires_only = Column(Boolean, default=False)
+    escalate_days  = Column(Integer, default=0)
 
 
 class KbTrainingPlan(Base):
@@ -8311,6 +8323,7 @@ class KbTrainingPlan(Base):
     description = Column(String, default="")
     items       = Column(Text, default="")           # JSON [{kind: course|policy, id, order}]
     due_days    = Column(Integer, default=30)
+    due_date    = Column(String, default="")         # one calendar date for everyone (11/03/2026); '' = due_days from start
     audience    = Column(Text, default="")           # JSON, "" = assigned by name only
     active      = Column(Boolean, default=True)
     created_by  = Column(String, default="")
