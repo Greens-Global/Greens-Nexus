@@ -11111,6 +11111,7 @@
         const el = _scrollEls[n - 1];
         if (!el) return false;
         state.currentPage = n;
+        dom.pageInput.value = n;
         // Draw the target BEFORE scrolling so it isn't blank on arrival, then
         // scroll to it, then re-run the scroll handler so pages that scrolled
         // into view along the way (and any freed ones) get (re)rendered.
@@ -13139,7 +13140,7 @@ Replacement:`;
             contentSnap: (p) => _contentSnap(p),   // test probe for Snap to Content
             measures: () => fabricCanvas.getObjects().filter(o => o._measure).map(o => o._measure),
             scaleState: () => ({ scale: measureScale, unit: measureUnit, locked: _scaleLocked, stored: { ..._pageScales } }),
-            addObj: (o) => { fabricCanvas.add(o); fabricCanvas.renderAll(); saveAnnotationState(); },
+            addObj: (o) => { fabricCanvas.add(o); fabricCanvas.renderAll(); },
             rect: (opts) => new fabric.Rect(opts),
             ellipse: (opts) => new fabric.Ellipse(opts),
             itext: (t, opts) => new fabric.IText(t, opts),

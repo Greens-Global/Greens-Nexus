@@ -844,6 +844,7 @@ test.describe('5. scroll mode', () => {
   async function onPageTwo(browser) {
     const page = await openEngine(browser, await simplePdf(['ONE', 'TWO', 'THREE']), 'scroll.pdf', { query: HOOKS });
     expect(await page.evaluate(() => window.isScrollMode())).toBe(true);
+    await settle(page, 1500); // the view pins itself to the first page while it settles
     await page.locator('.thumbnail-item').nth(1).click();
     await waitIdle(page);
     await expect(page.locator('#pageInput')).toHaveValue('2');
