@@ -1336,6 +1336,139 @@
       ]
     },
     {
+      "dates": [],
+      "fields": [
+        {
+          "key": "title",
+          "label": "Form",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Submitted",
+              "value": "submitted"
+            },
+            {
+              "label": "Reviewed",
+              "value": "reviewed"
+            },
+            {
+              "label": "Needs Follow-Up",
+              "value": "follow_up"
+            },
+            {
+              "label": "Closed",
+              "value": "closed"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "submitted_by",
+          "label": "Submitted By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "site",
+          "label": "Site",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "company",
+          "label": "Company",
+          "options": "companies",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "submitted_at",
+          "label": "Submitted At",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "source",
+          "label": "Source",
+          "options": [
+            {
+              "label": "Web",
+              "value": "web"
+            },
+            {
+              "label": "Phone",
+              "value": "phone"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "reviewer_email",
+          "label": "Reviewer",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "reviewed_at",
+          "label": "Reviewed At",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "review_note",
+          "label": "Review Note",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "linked_ticket_id",
+          "label": "Linked Ticket",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "linked_task_id",
+          "label": "Linked Task",
+          "type": "text",
+          "visibility": "all"
+        }
+      ],
+      "key": "form_entry",
+      "label": "Form Entry",
+      "module": "documents",
+      "people": [
+        {
+          "key": "self",
+          "label": "Submitter"
+        },
+        {
+          "key": "manager",
+          "label": "Manager"
+        },
+        {
+          "key": "reviewer",
+          "label": "Reviewer"
+        },
+        {
+          "key": "hr_contact",
+          "label": "HR Contact"
+        }
+      ]
+    },
+    {
       "dates": [
         {
           "key": "target_start",
@@ -3519,6 +3652,26 @@
       "key": "extra_time.decided",
       "label": "Extra Time Is Decided",
       "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "form_entry",
+      "group": "Forms",
+      "key": "form.reviewed",
+      "label": "Form Is Reviewed",
+      "module": "documents",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "form_entry",
+      "group": "Forms",
+      "key": "form.submitted",
+      "label": "Form Is Submitted",
+      "module": "documents",
       "volume": "normal"
     },
     {

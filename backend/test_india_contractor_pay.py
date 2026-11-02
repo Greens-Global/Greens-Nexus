@@ -541,8 +541,10 @@ class CardTests(Base):
         self.assertNotIn("indiaPolicy", c)
         self.assertNotIn("extraTimePay", c["totals"])
         t = c["totals"]
-        # Old rules: two absent days at 2,700; weekend pay 1.35 x 2,700 x h / 9 (5 h and 3 h).
-        self.assertEqual((t["deduction"], t["weekendBonus"], t["totalPay"]), (5400.0, 3240.0, 56565.0))
+        # Old rules with the Oct 31 2026 salaried bands: the no-punch day absent
+        # (2,700) and the 3 h SHORT day a half day (1,350); weekend pay
+        # 1.35 x 2,700 x h / 9 (5 h and 3 h).
+        self.assertEqual((t["deduction"], t["weekendBonus"], t["totalPay"]), (4050.0, 3240.0, 57915.0))
         self.assertEqual(icp.config(self.db, CO)["startDate"], "2026-11-01")
 
     def test_out_of_scope_cards_are_unchanged(self):
@@ -553,7 +555,7 @@ class CardTests(Base):
             c = self.card(em)
             self.assertNotIn("indiaPolicy", c, em)
             self.assertEqual((c["totals"]["deduction"], c["totals"]["weekendBonus"], c["totals"]["totalPay"]),
-                             (5400.0, 3240.0, 56565.0), em)
+                             (4050.0, 3240.0, 57915.0), em)
             self.assertNotIn("credit", self.day(c, ABSENT))
         # The switch off for the India company: old rules for its contractor too.
         self.db.query(models.NexusSetting).delete()
@@ -562,7 +564,7 @@ class CardTests(Base):
         self.db.commit()
         c = self.card()
         self.assertNotIn("indiaPolicy", c)
-        self.assertEqual(c["totals"]["totalPay"], 56565.0)
+        self.assertEqual(c["totals"]["totalPay"], 57915.0)
 
     def test_finalized_month_never_reprices(self):
         _worked_example(self.db, CON)
@@ -597,7 +599,7 @@ class CardTests(Base):
         self.db.commit()
         c = self.card()
         self.assertNotIn("indiaPolicy", c)
-        self.assertEqual(c["totals"]["totalPay"], 56565.0)
+        self.assertEqual(c["totals"]["totalPay"], 57915.0)
 
     def test_settings_route(self):
         r = self.client.get("/timeclock/payroll/india-contractor-policy", params={"company": CO_US})

@@ -1035,6 +1035,8 @@ def _run_migrations():
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
             # Pay-printing envelopes need Pay & Benefits to download (Oct 14). models.HrSignRequest.prints_pay.
             "ALTER TABLE hr_sign_requests ADD COLUMN prints_pay INTEGER DEFAULT 0",
+            # Where the sealed copy was filed in Egnyte (Oct 31 2026). models.HrSignRequest.egnyte_filed_path.
+            "ALTER TABLE hr_sign_requests ADD COLUMN egnyte_filed_path VARCHAR DEFAULT ''",
             # Template Publish (Oct 14). models.DocTemplate.published_*.
             "ALTER TABLE doc_templates ADD COLUMN published_version INTEGER DEFAULT 0",
             "ALTER TABLE doc_templates ADD COLUMN published_meta JSON DEFAULT '{}'",
@@ -1414,6 +1416,8 @@ def _run_migrations():
             "ALTER TABLE nexus_notes ADD COLUMN ydoc TEXT DEFAULT ''",
             "ALTER TABLE nexus_notes ADD COLUMN yepoch VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_notes ADD COLUMN collab_key VARCHAR DEFAULT ''",
+            # Cubby tasks in Nexus Tasks (Oct 31 2026) - see the Postgres list. models.Task.
+            "ALTER TABLE tasks ADD COLUMN cubby_task_id VARCHAR DEFAULT ''",
             # Boards (Neil 11/02/2026) - see the Postgres list. models.NexusNote / NexusNoteVersion.
             "ALTER TABLE nexus_notes ADD COLUMN scene TEXT DEFAULT ''",
             "ALTER TABLE nexus_notes ADD COLUMN thumb_url VARCHAR DEFAULT ''",
@@ -1429,6 +1433,22 @@ def _run_migrations():
             # Posts from before these columns were belled at create: stamp them
             # published, or the first publish pass would bell everyone again.
             "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
+            # Forms (Neil 11/02/2026): a form is a DocTemplate with its audience. models.DocTemplate.
+            "ALTER TABLE doc_templates ADD COLUMN audience VARCHAR DEFAULT 'company'",
+            "ALTER TABLE doc_templates ADD COLUMN work_site_id VARCHAR DEFAULT ''",
+            "ALTER TABLE doc_templates ADD COLUMN show_on_shifts INTEGER DEFAULT 0",
+            # A published version keeps its field list (entries read against it). models.DocTemplateVersion.
+            "ALTER TABLE doc_template_versions ADD COLUMN field_defs JSON",
+            # Work-site audience (Neil, 11/02/2026).
+            "ALTER TABLE nexus_announcements ADD COLUMN work_site_id VARCHAR DEFAULT ''",
+            # Federal forms in hiring packets (Neil, 11/02/2026) - see the Postgres list.
+            "ALTER TABLE hr_packet_settings ADD COLUMN federal_forms JSON DEFAULT '[]'",
+            # Sign-in notices (Neil, 11/02/2026): where each session signed in
+            # from (sign_in_watch.record). models.ServerSession.
+            "ALTER TABLE server_sessions ADD COLUMN ip VARCHAR DEFAULT ''",
+            "ALTER TABLE server_sessions ADD COLUMN user_agent VARCHAR DEFAULT ''",
+            "ALTER TABLE server_sessions ADD COLUMN ua_summary VARCHAR DEFAULT ''",
+            "ALTER TABLE server_sessions ADD COLUMN location VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2719,6 +2739,8 @@ def _run_migrations():
         "ALTER TABLE hr_role_change_requests ENABLE ROW LEVEL SECURITY",
         # Pay-printing envelopes need Pay & Benefits to download (Oct 14). models.HrSignRequest.prints_pay.
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS prints_pay INTEGER DEFAULT 0",
+        # Where the sealed copy was filed in Egnyte (Oct 31 2026). models.HrSignRequest.egnyte_filed_path.
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS egnyte_filed_path VARCHAR DEFAULT ''",
         # Template Publish (Oct 14). models.DocTemplate.published_*.
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_version INTEGER DEFAULT 0",
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_meta JSONB DEFAULT '{}'::jsonb",
@@ -3395,6 +3417,12 @@ def _run_migrations():
         "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS yepoch VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS collab_key VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_note_presence ENABLE ROW LEVEL SECURITY",
+        # Cubby tasks in Nexus Tasks (Neil, Oct 30 2026, cubby_tasks.py): the
+        # pointer on the task and the link table, a new table with explicit
+        # RLS. models.Task.cubby_task_id, models.CubbyTaskLink.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS cubby_task_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_tasks_cubby_task_id ON tasks (cubby_task_id)",
+        "ALTER TABLE cubby_task_links ENABLE ROW LEVEL SECURITY",
         # Boards (Neil 11/02/2026): a whiteboard is a note - its drawing, a
         # thumbnail and where a Mark Up came from; versions keep the drawing.
         # Existing tables, no new RLS. models.NexusNote / NexusNoteVersion.
@@ -3414,6 +3442,28 @@ def _run_migrations():
         # Posts from before these columns were belled at create: stamp them
         # published, or the first publish pass would bell everyone again.
         "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
+        # Forms (Neil 11/02/2026): a form is a DocTemplate with an audience;
+        # its entries are a new table - RLS per CLAUDE.md. models.DocTemplate / DocFormEntry.
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS audience VARCHAR DEFAULT 'company'",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS show_on_shifts INTEGER DEFAULT 0",
+        "ALTER TABLE doc_form_entries ENABLE ROW LEVEL SECURITY",
+        # A published version keeps its field list (entries read against it). models.DocTemplateVersion.
+        "ALTER TABLE doc_template_versions ADD COLUMN IF NOT EXISTS field_defs JSONB",
+        # Work-site audience (Neil, 11/02/2026).
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
+        # Federal forms in hiring packets (Neil, 11/02/2026): which of the W-4,
+        # I-9 and Direct Deposit Authorization a US hiring packet sends.
+        # models.HrPacketSetting.federal_forms. Additive.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS federal_forms JSONB DEFAULT '[]'::jsonb",
+        # Sign-in notices (Neil, 11/02/2026): where each session signed in from
+        # (sign_in_watch.record) and the new nexus_sign_ins table's RLS.
+        # models.ServerSession / NexusSignIn.
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS ip VARCHAR DEFAULT ''",
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS user_agent VARCHAR DEFAULT ''",
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS ua_summary VARCHAR DEFAULT ''",
+        "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_sign_ins ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4115,6 +4165,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] checklist ID evidence backfill skipped: {e}")
+    # Federal forms (Neil, 11/02/2026): onboarding templates seeded earlier
+    # get the W-4 / direct deposit and I-9 signals on ON-05 / ON-18 / ON-23,
+    # once (hr_checklists.backfill_federal_forms).
+    try:
+        from database import SessionLocal
+        import hr_checklists
+        db = SessionLocal()
+        try:
+            n = hr_checklists.backfill_federal_forms(db)
+            if n:
+                print(f"[startup] federal form signals added to {n} onboarding template(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] federal form signal backfill skipped: {e}")
     # Ask HR runs through Tickets (Neil, Oct 27 2026): every OPEN old Ask HR
     # request becomes a confidential HR ticket, once (hr_tickets.migrate_open
     # - a row that has its ticket_id is never moved again; resolved rows stay
@@ -4534,6 +4599,11 @@ async def lifespan(app: FastAPI):
             if is_deployed_worker():
                 from cubby import cubby_snapshot_loop
                 _tasks.append(_a.create_task(cubby_snapshot_loop()))
+                # Completions and reopenings of Cubby-linked tasks back to
+                # Cubby, every minute, behind the Close Tasks in Cubby switch
+                # (Neil, Oct 30 2026, cubby_tasks.py).
+                from cubby_tasks import cubby_task_push_loop
+                _tasks.append(_a.create_task(cubby_task_push_loop()))
             else:
                 print("[startup] Cubby snapshot loop skipped (not the deployed worker)")
         except Exception as e:
@@ -4621,6 +4691,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] notification retention sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] notification retention sweep skipped: {e}")
+        # Sign-in watch sweep (Neil, 11/02/2026): idle server sessions and
+        # sign-ins past 180 days go; the notice itself runs in the sign-in
+        # doors, not here. Deployed-worker gated like the two sweeps above.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from sign_in_watch import sign_in_watch_loop
+                _tasks.append(_a.create_task(sign_in_watch_loop()))
+            else:
+                print("[startup] sign-in watch sweep skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] sign-in watch sweep skipped: {e}")
         # "What's New" drafts itself (Sept 2026): the same generation the
         # Manage > "Generate from git" button runs, fired a few minutes after
         # each merge by the GitHub push webhook and daily as a backstop, so dev
@@ -5210,6 +5292,8 @@ from routers import ops_budget as ops_budget_router  # noqa: E402 - also registe
 app.include_router(ops_budget_router.router)       # Operations > Ops Budget: results vs budget and last year, per site (Oct 21 2026)
 from routers import ops_settings as ops_settings_router  # noqa: E402
 app.include_router(ops_settings_router.router)     # Operations settings: the Push to Cubby switch, OFF by default (Visesh, Oct 21 2026)
+from routers import cubby_tasks as cubby_tasks_router  # noqa: E402
+app.include_router(cubby_tasks_router.router)      # Cubby tasks <-> Nexus Tasks: switches, facility -> project map (Neil, Oct 30 2026)
 from routers import ops_cma as ops_cma_router  # noqa: E402
 app.include_router(ops_cma_router.router)          # Operations > Rate Management CMA: comp set, surveys, history, review & push (Miranda, Oct 21 2026)
 from routers import ops_customer_map as ops_customer_map_router  # noqa: E402
@@ -5267,3 +5351,7 @@ from routers import kb_reminder_settings  # noqa: E402
 app.include_router(kb_reminder_settings.router)  # Training Reminders switches - Settings > Emails & Reminders (Sagar, Oct 28 2026)
 from routers import notes as notes_router  # noqa: E402 - two new tables: create_all + explicit RLS lines
 app.include_router(notes_router.router)  # Notes: the scratchpad that follows you - Dashboard > Notes, Quick Note, the Notes widget (Neil, Oct 29 2026)
+from routers import forms as forms_router  # noqa: E402 - doc_form_entries: create_all + the explicit RLS line above
+app.include_router(forms_router.router)  # Forms & Checklists: fill a form on the phone, entries, review, PDF, CSV (Neil, 11/02/2026)
+from routers import me_sessions as me_sessions_router  # noqa: E402 - nexus_sign_ins: create_all + explicit RLS line
+app.include_router(me_sessions_router.router)  # My Profile > Security: where you are signed in, sign out other devices, recent sign-ins (Neil, 11/02/2026)

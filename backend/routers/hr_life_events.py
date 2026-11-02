@@ -414,6 +414,10 @@ class DocumentsPacketIn(BaseModel):
     country:          Optional[str] = ""           # where the person works: US, IN ... ('' = any)
     region:           Optional[str] = ""           # the state inside it: CA, TX ... ('' = anywhere in the country)
     extra_docs:       Optional[list] = None        # documents for a team or role: [{match, value, templateIds}]
+    # Federal forms sent with a US hiring packet (Neil, 11/02/2026): ["w4", "i9",
+    # "direct_deposit"]. Either spelling lands.
+    federal_forms:    Optional[list] = None
+    federalForms:     Optional[list] = None
 
 
 @router.put("/packets/documents")
@@ -476,6 +480,8 @@ def save_documents_packet(body: DocumentsPacketIn, user: dict = Depends(require_
     try:
         row.details_form = hpd.clean_form(body.details_form) if body.event == "hire" else []
         row.extra_docs = hpd.clean_blocks(body.extra_docs)
+        forms = body.federal_forms if body.federal_forms is not None else body.federalForms
+        row.federal_forms = hpd.clean_federal_forms(forms) if body.event == "hire" else []
     except hpd.PacketProblem as e:
         db.rollback()
         raise HTTPException(400, str(e))

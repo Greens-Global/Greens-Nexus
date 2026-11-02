@@ -151,6 +151,9 @@ keep the diff minimal.
   read by `routers/action_counts.py`. A new approval kind registers an
   `@source` in `approvals_inbox.py` - never a separate count query, or the
   badge and the inbox disagree.
+  On a phone Approvals is `approvals/ApprovalsPhone.jsx`: one card, two
+  decisions, the Filter sheet; the desktop list is unchanged; no bulk
+  approve on a phone (Neil, 11/02/2026).
 
 - **Tiers (Neil, 11/02/2026, `docs/Roles.md`):** the role KEYS stay
   `employee | supervisor | manager | administrator | owner` (levels 1-5);
@@ -314,6 +317,12 @@ keep the diff minimal.
   still counted in `workedMin` (the attested total) - SwipeClock parity
   (Charmi, Sep 21). No separate leave-hours table; approved time-off
   requests are NOT auto-punched.
+- Salaried (fixed monthly pay) day bands (Neil / Charmi via Sagar, Oct 31
+  2026, `timeclock._attendance_bands`): a past weekday is a full day from
+  4 h worked, a half day (half the daily rate docked) from 2.5 h, absent
+  (the day docked) below - whatever the person's full-day hours. The Time
+  Sheet no longer prints a "Bands:" line; the day statuses say the result.
+  India contractors never use these (8 h / 4 h credits, `india_contractor_pay`).
 
 - Task emails are BATCHED (Neil, Sep 24): an event that can wait goes into
   `task_email_queue`, and `task_notify.flush_batches` (every minute, inside
@@ -355,8 +364,11 @@ keep the diff minimal.
   Images are files in the private `task-files` bucket under
   `notes/boards/<noteId>/`, never data URLs in the scene. The engine is the
   self-hosted Excalidraw package in `frontend/src/notes/board/Board.jsx`,
-  lazy in the one `vendor-excalidraw` chunk (the single bundle-budget
-  exception, `scripts/check-bundle-size.mjs`); its fonts are copied by
+  reached only through `notes/board/engine`'s `import()` and split by the
+  build into its own lazy chunk - NO manual chunk for it (11/02/2026: a
+  manual chunk dragged its shared dependencies in and put 3 MB on first
+  paint; `scripts/check-bundle-size.mjs` now fails when the engine is in
+  the entry's static graph or first paint passes 3,000 KB); its fonts are copied by
   `scripts/copy-excalidraw-assets.mjs` on build, English only, nothing from a
   CDN (the CSP is self only). Clean look by default, Sketch per board
   (`scene.js` `applyLook`). Live drawing rides the Notes encrypted transport
@@ -370,7 +382,17 @@ keep the diff minimal.
   Never add a second drawing engine, a second markup path, or a Whiteboards
   module - boards live in Notes. jsdom cannot load the engine: tests get the
   global mock in `frontend/vitest.setup.js`. Users never see the word
-  Excalidraw.
+  Excalidraw. **The engine is behind `notes/board/engine`** (Neil,
+  11/02/2026: it must stay replaceable): `engine/index.js` is the contract
+  and `loadEngine()`, `engine/excalidraw.jsx` the ONE file that imports the
+  package - `scripts/check-engine-imports.mjs` (in `npm run lint`) fails any
+  other; Board, the exports and the live session know only the Engine
+  object. When the chunk does not load the board shows its last picture
+  read-only with Retry (`engine/fallback.jsx`, never blank, never a throw to
+  the boundary); every save goes to an IndexedDB draft first
+  (`board/draft.js`, offered back on open with Restore / Discard, cleared
+  when the save lands); `scene.js compact` runs before a save and a scene
+  still over 2 MB is refused with a notice, never sent as a 413.
 - **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
   on the phone (`public/manifest.webmanifest`, `public/sw.js` - a push-only
   worker, no caching, offline is deferred) and pushes the BELL: a Web Push
@@ -395,6 +417,52 @@ keep the diff minimal.
   labor line is `GET /timeclock/schedule/labor` (hours from
   `shift_attendance._paid_minutes`, rates from the payroll history by day,
   fixed pay counted not priced, managers never see pay).
+- **Forms are templates (Neil, 11/02/2026, `docs/Forms.md`):** a field form
+  (inspection, incident report, vehicle check, checklist) is a `DocTemplate`
+  with `doc_type='form'` - the same field list plus form-only keys (`section`,
+  `showIf`, `formula`, `repeat`) and types (photo, gps, scan, rating, yesno,
+  live signature), built and reviewed under Documents > Forms. Entries are
+  their own table (`doc_form_entries`, RLS) with the ONE reach rule in
+  `backend/form_audience.py` (shared with announcements: a person with no
+  allowed sites is not a site member); a submitter never reviews their own
+  entry, and nothing changes an entry's state by itself. Crews fill a form
+  from Workday's Fill a Form tile, the shift card (`showOnShifts` for the
+  shift's site), the + menu and the Quick Actions dock; photos and
+  signatures go to `task-files/forms/<entryKey>/`; the same `entryKey` sent
+  twice is one entry. `form.submitted` / `form.reviewed` are emitted through
+  `workflows.emit` at the two choke points in `routers/forms.py` with the
+  answers FLAT on `extra`; the Insights Forms card carries counts, never
+  answers. Never add a second form engine, a second entry store or an
+  offline path outside the punch-queue pattern.
+- **Federal forms (Neil, 11/02/2026, `backend/federal_forms/`,
+  `docs/Federal-Forms.md`):** Form W-4, Form I-9 (Section 2 by HR) and the
+  Direct Deposit Authorization are filled and signed in Nexus Sign - from
+  the hiring packet (`HrPacketSetting.federal_forms`, US employees only)
+  or one at a time from the person's Documents tab (HR++). ONE package:
+  the official PDFs are bundled with their SHA-256, fields come from each
+  PDF's own widgets (`maps/*.json`, `prepare()`), editions are pinned
+  (`editions.py`: a lapsed edition REFUSES to send, HR is belled 60 days
+  ahead), answers are checked by `formats.py` / `rules.py`. SSN, routing
+  and account numbers are `sensitive` fields: encrypted at rest
+  (`enc:` via `secret_box`), masked to every other party, never in a bell,
+  email, log or on the person record, printed only into the sealed PDF,
+  which is restricted (`prints_pay`, Pay & Benefits only, never an email
+  attachment, every open a `viewed_final` event). This deliberately
+  reverses the old "W-4 / I-9 / direct deposit live outside Nexus" notes.
+  Never add E-Verify, remote examination, state forms or a second
+  template path without Neil.
+- **Homebase lifts (Neil, 11/02/2026):** an early punch is NEVER blocked -
+  it is recorded and the manager gets one grouped bell per team and day
+  (`early_punch.py`, setting `earlyPunchAlertMin`, 0 = off); the weekly
+  labor budget (`laborBudgetHours` / `laborBudgetAmount`) is visible on
+  the planner to HR++ only (`hr_access.is_hr_for_company`) - managers get
+  neither the figure nor the flag; a time-off request carries a
+  RECOMMENDATION (`timeoff_recommend.py`: "Recommended: Approve" / "Check
+  First" with reasons) and nothing ever approves or rejects by code; an
+  announcement may target a work site (`work_site_id`; a person with an
+  empty `work_site_ids` is NOT a site member) and its reads route lists
+  who has not acknowledged; the planner's live strip (In / On Break /
+  Late / Off) reads Late from `shift_expect` like everything else.
 - Timesheets are approved through review + Nexus Sign (`timesheet_review.py`;
   ONLY THE EMPLOYEE SIGNS - Neil, Oct 16 2026). After the period's last day
   the manager (else the company's HR contact; nobody at all = the Global
@@ -671,6 +739,26 @@ keep the diff minimal.
   makes it usable, a document is made from the published wording
   (`_released`) exactly as an HR packet prints it, and a template live since
   before this is released as it stands on first use or first edit.
+
+- **Cubby tasks in Nexus Tasks (Neil, Oct 30 2026, `backend/cubby_tasks.py`,
+  Settings > Operations > Cubby Tasks).** After each 15-minute Cubby sync
+  (`cubby_sync.run_claimed` calls `cubby_tasks.after_sync`), every open
+  Cubby task becomes ONE Nexus task linked by Cubby's id (`tasks.cubby_task_id`
+  + `cubby_task_links`): in the facility's project from the Settings map
+  (no project = skipped and counted, never guessed), assigned to the people
+  Cubby has it assigned to - the assignee is NOT in Cubby's API, it comes from
+  Cubby's reporting warehouse (`cubby_warehouse.task_rows` / `manager_rows`,
+  names matched to Nexus people by work email); a group-assigned or
+  unassigned task goes to the project alone. ONE WAY for content: a task
+  made in Nexus never goes to Cubby; only Cubby's own fields (title,
+  description, due date) refresh, and only once Cubby's `updatedAt` moved.
+  Done both ways for Cubby tasks only: closed in Cubby closes it here;
+  closed or reopened in Nexus by ANY path is queued by the before_flush hook
+  (`cubby_tasks.wire`, in `database.py`) and sent by `cubby_task_push_loop`
+  through `ops_cubby_push.set_task_status` behind ITS OWN "Close Tasks in
+  Cubby" switch (default OFF; never the rate-and-rent Push to Cubby switch).
+  Every Nexus write goes through `routers.tasks._create_task` / `update_task`
+  as the facility project's owner - never a second write path.
 
 ## Asana — removed (Sep 2026)
 

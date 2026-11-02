@@ -214,7 +214,8 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   // get it: that bar is down to Manage alone at phone width, and the floating
   // "+" is the better shape for a thumb anyway.
   const inlineCreate = !isMobile;
-  // ...and the floating "+" makes this page's own thing (see FAB_CREATES).
+  // ...and on a phone the floating "+" makes this page's own thing (see
+  // FAB_CREATES). Computers have no floating button (Neil, 11/02/2026).
   const fabCreate = FAB_CREATES[sub] || '';
 
   // Bottom-right corner, stacked: Report a Bug sits on the floor, the create
@@ -324,11 +325,13 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
           instead of letting the sub-view's own body scroll. */}
       {/* data-tour tracks the active tab, so the guided tour can spotlight
           "this whole screen" without every sub-view needing its own hook. */}
-      {/* The page's own floating create. Suppressed on Manage (nothing there is
-          created this way) and, on phones, on the two screens whose own
+      {/* The page's own floating create - PHONES ONLY (Neil, 11/02/2026: on a
+          computer the floating "+" was goofy; the bar's "+ Create" is the
+          create control there). Suppressed on Manage (nothing there is
+          created this way) and on the two phone screens whose own
           MobileTaskBar already carries a "+" - two floating create buttons on
           one phone screen is the thing that bar exists to avoid. */}
-      {!onManage && fabCreate && (!isMobile || !hasMobileBar) && (
+      {!onManage && fabCreate && isMobile && !hasMobileBar && (
         <CreateMenu onNavigate={go} taskDefaults={taskDefaults} bottom={fabBottom} create={fabCreate} />
       )}
 

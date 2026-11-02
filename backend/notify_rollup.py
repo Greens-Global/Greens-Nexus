@@ -18,6 +18,7 @@ costs a duplicate notice, never a lost one.
 import json
 import uuid
 from datetime import datetime, timezone
+from typing import Callable, Optional
 
 from models import NexusNotification
 
@@ -47,10 +48,12 @@ def _find(db, recipient: str, key: str, ntype: str, open_only: bool):
     return q.order_by(NexusNotification.created_at.desc()).with_for_update().first()
 
 
-def upsert_rollup(db, *, recipient: str, key: str, title: str, line: str, action: dict | None = None,
+def upsert_rollup(db, *, recipient: str, key: str, title: str = "", line: str = "",
+                  action: dict | None = None,
                   company: str = "", requested_by: str = "", replace: bool = False,
                   ntype: str = "custom_alert", quiet: bool = False, priority: int | None = None,
-                  open_only: bool = False) -> bool:
+                  open_only: bool = False,
+                  words: Optional[Callable[[], Optional[tuple]]] = None) -> bool:
     """Write or grow the notice `key` for `recipient`. `replace` swaps the
     whole body for `line` (a report that is rewritten, not appended to).
     `quiet` (Oct 15) rewrites the words but leaves the notice where its
@@ -60,11 +63,21 @@ def upsert_rollup(db, *, recipient: str, key: str, title: str, line: str, action
     grows only a notice that is still open (not actioned): a resolved one
     is history, and the key gets a new notice (the no-show bell's
     team-day that empties and fills again).
+    `words` (11/02/2026) is a callable that builds (title, line) AFTER the
+    notice row is locked - for a body recomputed from the database (the
+    early-punch rollup reads the day's punches) so two requests that race
+    both end up in the final text instead of the last writer's view
+    overwriting the other's; it may answer None to write nothing.
     Returns True when a new notice was written (the first of its kind)."""
     recipient = (recipient or "").strip().lower()
     if not recipient or not key:
         return False
     row = _find(db, recipient, key, ntype, open_only)
+    if words is not None:
+        got = words()
+        if not got:
+            return False
+        title, line = got
     if row is None:
         db.add(NexusNotification(
             id=str(uuid.uuid4()), type=ntype, recipient=recipient, title=title, body=line,

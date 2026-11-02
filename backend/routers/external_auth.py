@@ -47,8 +47,10 @@ from typing import Optional
 from sqlalchemy import func
 
 import bff_session as bff
+import client_ip
 import graph_mail
 import sentdm
+import sign_in_watch
 from app_url import app_url
 import email_theme
 from database import SessionLocal
@@ -399,10 +401,15 @@ def revoke_credentials(db, email: str) -> None:
 
 # ── shared responses ─────────────────────────────────────────────────────────
 
-def _session_response(db, email: str, payload: dict) -> JSONResponse:
-    """Mint the BFF session and set the SAME cookies /auth/callback sets."""
+def _session_response(db, email: str, payload: dict, request: Request = None) -> JSONResponse:
+    """Mint the BFF session and set the SAME cookies /auth/callback sets.
+    With the request at hand, the sign-in is recorded for the new sign-in
+    notice too (sign_in_watch, Neil 11/02/2026) - never in its way."""
     from routers.auth_bff import _set_cookie, _SESSION_MAX_AGE
     sid, csrf = bff.create_passwordless_session(db, email)
+    if request is not None:
+        sign_in_watch.watch(db, email=email, session_id=sid, ip=client_ip.client_ip(request),
+                            user_agent=request.headers.get("user-agent", ""))
     resp = JSONResponse(content=payload)
     _set_cookie(resp, bff.SESSION_COOKIE, sid, http_only=True, max_age=_SESSION_MAX_AGE)
     _set_cookie(resp, bff.CSRF_COOKIE, csrf, http_only=False, max_age=_SESSION_MAX_AGE)
@@ -607,7 +614,7 @@ def activate_verify(body: ActivateVerifyIn, request: Request):
         emp.invite_status = "accepted"   # feeds the People > External list badge
         db.commit()
         _audit(db, email, "external_activated", "invite redeemed, account activated", ip)
-        return _session_response(db, email, {"ok": True, "next": "/"})
+        return _session_response(db, email, {"ok": True, "next": "/"}, request)
     finally:
         db.close()
 
@@ -633,7 +640,7 @@ def activate_verify_phone(body: ActivateVerifyIn, request: Request):
         db.commit()
         _audit(db, email, "external_activated",
                "invite redeemed, email + phone verified, account activated", ip)
-        return _session_response(db, email, {"ok": True, "next": "/"})
+        return _session_response(db, email, {"ok": True, "next": "/"}, request)
     finally:
         db.close()
 
@@ -706,7 +713,7 @@ def login_verify(body: LoginVerifyIn, request: Request):
             if outcome is not True:
                 return outcome
             _audit(db, email, "external_login", "passwordless sign-in", ip)
-            return _session_response(db, email, {"ok": True, "next": "/"})
+            return _session_response(db, email, {"ok": True, "next": "/"}, request)
         staged = _staged_external(db, email)
         if not staged:
             return JSONResponse(status_code=400, content={"detail": "Invalid or expired code."})
@@ -716,7 +723,7 @@ def login_verify(body: LoginVerifyIn, request: Request):
             return outcome
         _audit(db, email, "external_staged_test_login",
                "staged account signed in with an admin test code", ip)
-        return _session_response(db, email, {"ok": True, "next": "/"})
+        return _session_response(db, email, {"ok": True, "next": "/"}, request)
     finally:
         db.close()
 

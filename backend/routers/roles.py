@@ -116,7 +116,25 @@ def get_my_role(
             "hr_scope": sorted(scope) if scope is not None else None,
             "hr_team": is_team_scope(scope),
             "time_tracking_exempt": is_time_tracking_exempt(db, user["email"]),
-            "date_format": _date_format(db, user["email"])}
+            "date_format": _date_format(db, user["email"]),
+            # hr_contact_for (11/02/2026): the companies whose HR contact the
+            # caller is (People > Companies) - HR for them whatever their
+            # grant says (hr_access.is_hr_for_company), so a screen can show
+            # an HR action the server would allow (Send Federal Form).
+            "hr_contact_for": _hr_contact_for(db, user["email"])}
+
+
+def _hr_contact_for(db: Session, email: str) -> list:
+    from models import HrEntity
+    me = (email or "").strip().lower()
+    if not me:
+        return []
+    out = []
+    for ent in db.query(HrEntity.id, HrEntity.hr_contact_email).all():
+        raw = (ent.hr_contact_email or "")
+        if me in [e.strip().lower() for e in raw.split(",") if e.strip()]:
+            out.append(ent.id)
+    return sorted(out)
 
 
 class DateFormatIn(BaseModel):

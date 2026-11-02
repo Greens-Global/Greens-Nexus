@@ -5,7 +5,13 @@ const { exportToBlob, exportToSvg, exportToClipboard } = vi.hoisted(() => ({
   exportToSvg: vi.fn(async () => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('width', '10'); return s; }),
   exportToClipboard: vi.fn(async () => {}),
 }));
-vi.mock('@excalidraw/excalidraw', () => ({ exportToBlob, exportToSvg, exportToClipboard }));
+// The adapter (./engine/excalidraw.jsx) is what reads the package; only the
+// export calls are watched here, the rest is the setup file's stand-in.
+vi.mock('@excalidraw/excalidraw', () => ({
+  exportToBlob, exportToSvg, exportToClipboard,
+  Excalidraw: () => null, MainMenu: () => null, THEME: { LIGHT: 'light', DARK: 'dark' },
+  CaptureUpdateAction: { IMMEDIATELY: 'IMMEDIATELY', NEVER: 'NEVER' }, restoreElements: (els) => els,
+}));
 
 import { exportPng, exportSvg, exportThumb, copyPng, downloadScene } from './exportBoard';
 import { SCENE_TYPE } from './scene';

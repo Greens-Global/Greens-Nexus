@@ -3,9 +3,9 @@
 // Templates and Catalog agree, and an unknown key still reads as a title.
 const LABELS = {
   core: 'Core', hr: 'HR', tasks: 'Tasks', tickets: 'Tickets', time: 'Time Clock',
-  shifts: 'Shifts', items: 'Items', approvals: 'Approvals', performance: 'Performance',
+  shifts: 'Shifts', items: 'Items', documents: 'Documents', approvals: 'Approvals', performance: 'Performance',
 };
-const ORDER = ['core', 'hr', 'tasks', 'tickets', 'time', 'shifts', 'items'];
+const ORDER = ['core', 'hr', 'tasks', 'tickets', 'time', 'shifts', 'items', 'documents'];
 
 export function moduleLabel(key) {
   if (!key) return 'Other';

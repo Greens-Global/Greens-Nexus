@@ -126,6 +126,10 @@ export function RoleProvider({ children }) {
   // Manager tier (Oct 6): People shows only their own team - the list, five
   // read-only profile tabs and Time - and never pay. Set by the server.
   const [hrTeam, setHrTeam] = useState(false);
+  // The companies whose HR contact this person is (11/02/2026, /roles/me
+  // hr_contact_for): HR for those companies whatever their grant says, so a
+  // screen can show an HR action the server would allow (Send Federal Form).
+  const [hrContactFor, setHrContactFor] = useState([]);
   // Time-tracking exempt (Oct 8): true = salaried, no time clock at all, so
   // no time widget is placed or offered on the dashboard. null = not known
   // yet. Seeded from the per-person memory (lib/timeTracking) so a known
@@ -200,6 +204,7 @@ export function RoleProvider({ children }) {
             setHrTeam(!!data.hr_team);
             setServerLevel(Number.isInteger(data.level) ? data.level : null);
             setMyTitle(typeof data.title === 'string' ? data.title.trim() : '');
+            setHrContactFor(Array.isArray(data.hr_contact_for) ? data.hr_contact_for : []);
             // shortcut: a format changed on another device shows here from the next render on, not on screens already drawn; this browser remembers it for the next load.
             if (data.date_format) setDateFormat(data.date_format);
             if (typeof data.time_tracking_exempt === 'boolean') {
@@ -413,6 +418,7 @@ export function RoleProvider({ children }) {
       myGrantedModules, canAccessModule,
       actingAs, startActAs, stopActAs,
       myLevel, myTier, myTitle,
+      hrContactFor,
     }}>
       {children}
     </RoleCtx.Provider>

@@ -746,6 +746,9 @@ function MainApp() {
     // screen: devnotes/BuildMode.jsx hears the same event and opens the pin
     // on its own route. Nothing to change here.
     if (view === 'dev-notes') return;
+    // A new sign-in bell ({ view: 'profile', sub: 'security' }, 11/02/2026) is
+    // not a screen either: TopHeader hears the same event and opens Profile on it.
+    if (view === 'profile') return;
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);

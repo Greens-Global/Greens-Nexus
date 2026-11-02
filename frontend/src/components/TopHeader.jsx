@@ -14,18 +14,27 @@ import QuickCreate from "./QuickCreate";   // the "+" Create menu (Oct 29 2026)
 // "/dashboard" to its canonical URL) rewrites the address before the header
 // ever renders, and the query went with it - the link opened nothing. Taken
 // once and dropped from the URL so a refresh doesn't reopen Email Settings.
-let EMAIL_SETTINGS_LINK = typeof window !== 'undefined'
-  && new URLSearchParams(window.location.search).get('emailSettings') === '1';
-function takeEmailSettingsLink() {
-  if (!EMAIL_SETTINGS_LINK) return false;
-  EMAIL_SETTINGS_LINK = false;
+// ?profile=<section> (Neil, 11/02/2026) is the general form: the new sign-in
+// bell's push and its email land on ?profile=security.
+function _profileLinkFromUrl() {
+  if (typeof window === 'undefined') return '';
   const q = new URLSearchParams(window.location.search);
-  if (q.has('emailSettings')) {
-    q.delete('emailSettings');
+  if (q.get('emailSettings') === '1') return 'email';
+  const section = q.get('profile') || '';
+  return /^[a-z]+$/.test(section) ? section : '';
+}
+let PROFILE_LINK = _profileLinkFromUrl();
+function takeProfileLink() {
+  if (!PROFILE_LINK) return '';
+  const section = PROFILE_LINK;
+  PROFILE_LINK = '';
+  const q = new URLSearchParams(window.location.search);
+  if (q.has('emailSettings') || q.has('profile')) {
+    q.delete('emailSettings'); q.delete('profile');
     const rest = q.toString();
     window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
   }
-  return true;
+  return section;
 }
 import { useMsal }        from "@azure/msal-react";
 import { BFF_MODE, bffLogout } from "../bffAuth";
@@ -64,9 +73,18 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // Profile (Neil, Oct 13 2026; was My Profile): everything that relates only
   // to you - photo, signature, appearance, world clock and Email Settings,
   // which used to be a menu item of its own. 'email' opens it on that section:
-  // the "Email Settings" link in every task email lands on ?emailSettings=1 -
-  // see EMAIL_SETTINGS_LINK above for why that is read at module load.
-  const [myProfileOpen, setMyProfileOpen] = useState(() => (takeEmailSettingsLink() ? 'email' : false));
+  // the "Email Settings" link in every task email lands on ?emailSettings=1,
+  // the new sign-in notice on ?profile=security - see PROFILE_LINK above for
+  // why those are read at module load. A string here is the section to open.
+  const [myProfileOpen, setMyProfileOpen] = useState(() => takeProfileLink() || false);
+  // A bell whose action is { view: 'profile', sub } (the new sign-in notice,
+  // 11/02/2026) is not a screen: App ignores the view and the header opens
+  // Profile on that section.
+  useEffect(() => {
+    const onNav = (e) => { if (e.detail?.view === 'profile') setMyProfileOpen(e.detail.sub || 'appearance'); };
+    window.addEventListener('nexus:navigate', onNav);
+    return () => window.removeEventListener('nexus:navigate', onNav);
+  }, []);
   // Asana severed (Aug 27). This used to catch the OAuth callback's
   // ?asana=connected|denied|error and reopen Account Settings on it. Nobody can
   // start that flow any more, but a stale bookmark or an in-flight redirect
@@ -491,7 +509,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     )}
 
     {myProfileOpen && (
-      <MyProfileModal onClose={() => setMyProfileOpen(false)} focusEmail={myProfileOpen === 'email'}
+      <MyProfileModal key={String(myProfileOpen)} onClose={() => setMyProfileOpen(false)} focusEmail={myProfileOpen === 'email'}
+        initialSection={typeof myProfileOpen === 'string' ? myProfileOpen : undefined}
         theme={theme} onThemeToggle={onThemeToggle}
         wkTheme={wkTheme} setWkTheme={setWkTheme}
         sidebarPinned={sidebarPinned} onSidebarPinnedChange={onSidebarPinnedChange} />

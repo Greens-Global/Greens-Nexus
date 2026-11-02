@@ -70,8 +70,14 @@ ONBOARDING = [
     _row("ON-04", P1, "Pre-Boarding Packet Signed", "hr", "S", -10,
          signal="envelope:nda,handbook_ack",
          hint="One Nexus Sign envelope to the personal email: NDA, handbook or contractor policy, IT policy, new hire information form. No ID numbers in it."),
+    # The W-4 and the direct deposit authorization are sent and signed in Nexus
+    # Sign with the hiring packet or from the person's record (Neil,
+    # 11/02/2026); both signed ticks it. State withholding stays with the
+    # payroll provider.
     _row("ON-05", P1, "Payroll Provider Onboarding (Tax Forms, Direct Deposit)", "accounting", "S", -10, applies=EMP,
-         hint="W-4, state withholding, direct deposit and full tax IDs go into the payroll provider, never Nexus."),
+         signal="envelope:w4+direct_deposit",
+         hint="Sent and signed in Nexus Sign; the signed forms file to the person's folder. State withholding goes "
+              "into the payroll provider. (Neil, 11/02/2026)"),
     _row("ON-06", P1, "W-9 (US) Or PAN (India) Sent To Accounting", "accounting", "S", -7, applies=CONTRACTOR),
     _row("ON-07", P1, "Contract End Date On The Profile", "hr", "S", -7, applies=CONTRACTOR,
          signal="contract_end", hint="Nexus reminds HR from this date."),
@@ -98,8 +104,9 @@ ONBOARDING = [
 
     _row("ON-17", P3, "Temporary Password Delivered And First Sign-In", "it", "S", 0,
          hint="By phone or in person, never in the same email as the username."),
-    _row("ON-18", P3, "Form I-9 Section 1", "employee", "S", 0, applies=US_EMP,
-         hint="Completed outside Nexus, by the end of the first day."),
+    _row("ON-18", P3, "Form I-9 Section 1", "employee", "S", 0, applies=US_EMP, signal="envelope:i9_s1",
+         hint="Signed in Nexus Sign with the hiring packet, or sent from the person's record, by the end of the "
+              "first day. (Neil, 11/02/2026)"),
     _row("ON-19", P3, "Equipment Accepted", "employee", "S", 0, signal="item_active"),
     _row("ON-20", P3, "HR Session (Handbook, Leave, Time Clock, Payroll Dates)", "hr", "S", 0),
     _row("ON-21", P3, "Team Intro, Buddy And First-Week Goals", "manager", "S", 0),
@@ -109,8 +116,9 @@ ONBOARDING = [
          hint="Provisioning already sets Active. Tick this once the person has actually started, signed in and done I-9 Section 1."),
 
     _row("ON-23", P4, "Form I-9 Section 2 (And E-Verify If Used)", "hr", "S", 3, bd=True, applies=US_EMP,
-         signal="id_on_file",
-         hint="The employer examines the original documents within 3 business days of the start date."),
+         signal="id_on_file|envelope:i9_s2",
+         hint="The employer examines the original documents within 3 business days of the start date and signs "
+              "Section 2 in Nexus Sign; an ID on the Documents tab ticks it too. (Neil, 11/02/2026)"),
     _row("ON-24", P4, "Right-To-Work Recorded On The Compliance Tab", "hr", "S", 3, bd=True,
          signal="work_auth_verified",
          hint="Dates only, no document numbers."),

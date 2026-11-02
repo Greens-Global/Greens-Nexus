@@ -5,7 +5,7 @@ import time
 import uuid
 import httpx
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Request
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -1538,6 +1538,16 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
     elif row.kind == "contract" and _contract_prints_pay(db, row) and not _has_comp(user, db):
         # A signed offer / promotion letter filed from Nexus Sign (Oct 14).
         raise HTTPException(403, "This document shows pay - Pay & Benefits access is needed")
+    if row.kind == "contract" and row.storage_path:
+        # The filed copy of an envelope with a sensitive field (a federal
+        # form's SSN or bank number) is audited each time it is opened
+        # (Neil, 11/02/2026) - the same event the Nexus Sign routes write.
+        from models import HrSignRequest
+        from routers import esign as _esign
+        env = db.query(HrSignRequest).filter(HrSignRequest.final_pdf_path == row.storage_path).first()
+        if env is not None:
+            _esign._note_final_view(db, env, user["email"])
+            db.commit()
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.storage_path}",
         headers=_storage_headers(), json={"expiresIn": 300}, timeout=15,
@@ -1564,6 +1574,133 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
 
 # ── Paystubs - HrDocument rows with kind="paystub", hr_comp-gated ────────────
 # Employees see/download their own via /myhr/paystubs (routers/myhr.py).
+
+# ── Federal forms from the person record (Neil, 11/02/2026) ─────────────────
+# One form - the W-4, the I-9 or the Direct Deposit Authorization - sent by
+# itself to someone already in People, by HR++ for their company (the HR
+# contact, an administrator or owner, a Full People grant inside their reach;
+# hr_access.is_hr_for_company) and never for your own record. The same builder
+# the hiring packet uses (hr_packet_docs.federal_documents) prepares the form;
+# the person signs first, HR second on the I-9; link_kind 'federal_form' with
+# link_id "<employee id>:<kind>" is how the signing hooks and the checklist
+# signals know which form it was. The signed PDF files under the person's
+# Egnyte folder: "Tax and Payroll Forms" (W-4, direct deposit) or "Form I-9".
+
+class FederalFormSendIn(BaseModel):
+    kind: str
+
+
+def _federal_status_rows() -> list:
+    import federal_forms
+    from federal_forms import editions
+    out = []
+    for kind, spec in federal_forms.FORMS.items():
+        st = editions.status(kind)
+        src = spec.get("source_url", "")
+        out.append({"kind": kind, "title": spec["title"], "edition": spec["edition"],
+                    "editionLabel": spec["editionLabel"], "expires": st["expires"], "state": st["state"],
+                    "message": st["message"], "roles": list(spec["roles"]),
+                    "sourceUrl": src if src.startswith("http") else ""})
+    return out
+
+
+@router.get("/federal-forms/status")
+def federal_forms_status(user: dict = Depends(require_hr_read)):
+    """Settings > Hiring & Onboarding: each bundled form's edition and whether
+    it is current, expiring or expired (read-only; updating an edition is a
+    code change - docs/Federal-Forms.md)."""
+    from federal_forms import editions
+    return {"forms": _federal_status_rows(), "today": editions.date.today().strftime("%m/%d/%Y")}
+
+
+@router.post("/employees/{eid}/federal-forms/send")
+def send_federal_form(eid: str, body: FederalFormSendIn, request: Request,
+                      user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    import federal_forms
+    import hr_access
+    import hr_checklists as hc
+    import hr_life_events as hle
+    import hr_packet_docs as hpd
+    from models import HrSignRequest
+    from routers import esign
+    kind = (body.kind or "").strip()
+    if kind not in federal_forms.FORMS:
+        raise HTTPException(400, "Pick Form W-4, Form I-9 or the Direct Deposit Authorization.")
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
+    me = (user["email"] or "").lower()
+    if me == (emp.work_email or "").lower() or me == (emp.personal_email or "").lower():
+        raise HTTPException(403, "You cannot send yourself a federal form - ask HR.")
+    if not hr_access.is_hr_for_company(db, user, emp.company or ""):
+        raise HTTPException(403, "Only HR for this person's company sends federal forms - the company's HR contact, "
+                                 "an administrator, or a Full People grant that covers it.")
+    if emp.status not in ("active", "onboarding"):
+        raise HTTPException(409, "This person is not active in People.")
+    country = hle.country_of(db, emp.company or "") or (emp.country or "").upper()[:2]
+    if not hpd.federal_applies(country, hle.worker_type_of(emp.employment_type)):
+        raise HTTPException(400, "Federal forms are for employees of a US company. Contractors use the W-9; "
+                                 "another country's paperwork is its own hiring packet.")
+    spec = federal_forms.FORMS[kind]
+    # Someone in People signs with their work email when they have one (an
+    # internal signer, inside Nexus); a hire not yet provisioned gets the
+    # link at their personal email.
+    to_email = (emp.work_email or emp.personal_email or "").strip().lower()
+    if not to_email:
+        raise HTTPException(409, "This person has no email in People to send the form to.")
+    link_id = f"{eid}:{kind}"
+    if (db.query(HrSignRequest.id).filter(HrSignRequest.link_kind == hle.FEDERAL_LINK_KIND,
+                                          HrSignRequest.link_id == link_id, HrSignRequest.status == "pending")
+            .first()) is not None:
+        raise HTTPException(409, f"A {spec['title']} is already out for {emp.first_name} to sign - void it in "
+                                 f"Nexus Sign first if it must go again.")
+    name = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
+    kind_of_person = "internal" if to_email == (emp.work_email or "").lower() else "external"
+    parties = [esign.PartyIn(role_key="employee", name=name, email=to_email, kind=kind_of_person, ordinal=1,
+                             party_role="signer", title=emp.job_title or "")]
+    hr_key = ""
+    if "hr" in spec["roles"]:
+        ent = db.query(HrEntity).filter(HrEntity.id == emp.company).first() if emp.company else None
+        hr_email = (hc.resolve_owner(db, "hr", emp, hc.role_owners(db, emp.company or ""), ent) or "").lower()
+        if not hr_email or hr_email == to_email or hr_email == (emp.work_email or "").lower():
+            hr_email = me                      # the sender is HR++ for this company
+        hr_person = hpd.person(db, hr_email)
+        hr_key = "hr"
+        parties.append(esign.PartyIn(role_key="hr", email=hr_email, kind="internal", ordinal=2, party_role="signer",
+                                     name=((hr_person.display_name or f"{hr_person.first_name} {hr_person.last_name}").strip()
+                                           if hr_person else hr_email),
+                                     title=(hr_person.job_title if hr_person else "") or ""))
+    ent = db.query(HrEntity).filter(HrEntity.id == emp.company).first() if emp.company else None
+    try:
+        docs = hpd.federal_documents(db, kinds=[kind], entity=ent, start_date=emp.start_date or "",
+                                     person_key="employee", hr_key=hr_key)
+    except hpd.FederalFormProblem as e:
+        raise HTTPException(400, str(e))
+    except hle.PacketError as e:
+        raise HTTPException(e.status, str(e))
+    # Where the signed copy files: the person's folder, a form subfolder.
+    # Resolved only when Egnyte is connected; '' = Nexus Sign's own fallback.
+    folder = ""
+    try:
+        import egnyte_wiring
+        import services.egnyte as svc
+        if svc.configured():
+            folder = f"{egnyte_wiring.provision_person_folder(emp, db)}/{hpd.federal_subfolder(kind)}"
+    except Exception as e:   # noqa: BLE001 - filing is best effort, sending is not
+        print(f"[federal-forms] person folder for {eid} not resolved: {e}")
+    title = f"{spec['title']} - {name}"
+    ip, ua = esign._client_meta(request)
+    try:
+        out = esign.envelope_from_documents(
+            db, user, documents=docs, parties=parties, title=title, employee_id=eid, entity_id=emp.company or "",
+            message="", ip=ip, user_agent=ua, excluded_ack=True, document_class="employment",
+            link_kind=hle.FEDERAL_LINK_KIND, link_id=link_id, sender_signs_first=False, egnyte_folder=folder)
+    except HTTPException:
+        hpd.federal_discard(docs)      # a refused send leaves no flat PDF behind
+        raise
+    return {**out, "requestId": out["id"], "kind": kind, "title": title}
+
 
 @router.get("/employees/{eid}/paystubs")
 def list_paystubs(eid: str, user: dict = Depends(require_comp_read_or_manager),
