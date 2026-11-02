@@ -19,6 +19,11 @@
 // sections; a detail panel beside the list on a wide screen (a popup on a
 // phone); a History tab; keyboard triage (J / K move, A approve, R reject,
 // Enter review, O open). Undo, bulk approve and the Review facts carry over.
+//
+// On a phone (under 760px; Neil, 11/02/2026) the same state renders
+// approvals/ApprovalsPhone.jsx instead - one card per request, two big
+// decisions, the Filter sheet. Every decision still comes back through
+// `decide` below; nothing bulk-approves there.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, ChevronRight, ArrowUpRight, Users, Search, Inbox, Flame, Hourglass, History, ListChecks, Building2, Layers, UserRound, Keyboard, X } from 'lucide-react';
 import { PrioritySignal, StatusLabel } from '../components/StatusLabel';
@@ -27,15 +32,16 @@ import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { ForChip } from '../components/DelegateApprovals';
 import { NAV } from '../components/Sidebar';
-import { Avatar, Modal } from '../tasks/components';
+import { Modal } from '../tasks/components';
 import { dialog } from '../ui/dialog';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { openNotificationTarget } from '../lib/openTarget';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useIsMobile } from '../lib/useIsMobile';
 import { UNDO_MS, bulkAction, doneWord, runApproval, runsInline, waited } from '../lib/approvalActions';
+import ApprovalsPhone from './ApprovalsPhone';
+import { NO_KEYS, NOTE_ASK, PersonMark, daysWaiting, fullName, sectionize } from './shared';
 
-const NO_KEYS = new Set(['reject', 'decline', 'deny', 'no']);
 const actClass = (a) => (a.tone === 'primary' ? 'primary-btn apv-btn apv-yes'
   : NO_KEYS.has(a.key) ? 'apv-btn apv-no' : 'secondary-btn apv-btn');
 const POLL_MS = 60000;
@@ -48,14 +54,6 @@ const DEFAULT_GROUPS = [
   { key: 'people', label: 'People' }, { key: 'work', label: 'Work' }, { key: 'equipment', label: 'Equipment' },
   { key: 'access', label: 'Access' }, { key: 'workflows', label: 'Workflows' },
 ];
-const NOTE_ASK = {
-  reject: { title: 'Reject', message: 'Sent to them with the decision.', placeholder: 'Reason (optional)' },
-  decline: { title: 'Decline', message: 'Sent to them with the decision.', placeholder: 'Reason (optional)' },
-  send_back: { title: 'Send Back', message: 'Say what needs to change - they see this note.', placeholder: 'What needs to change' },
-  yes: { title: 'Vote Yes', message: 'Say why - it goes on the candidate\'s notes in Hiring.', placeholder: 'Why yes' },
-  no: { title: 'Vote No', message: 'Say why - it goes on the candidate\'s notes in Hiring.', placeholder: 'Why no' },
-};
-
 export function go(link) {
   if (!link?.view) return;
   window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: link.view, sub: link.sub ?? null } }));
@@ -87,15 +85,6 @@ const SORTERS = {
   kind: (a, b) => (a.group || '').localeCompare(b.group || '') || when(a).localeCompare(when(b)),
 };
 const matchesPriority = (r, f) => f === 'all' || (f === 'high' ? (PRIORITY_RANK[r.priority] ?? 2) <= 1 : (r.priority || 'medium') === f);
-const daysWaiting = (r) => {
-  if (!r.createdAt) return 0;
-  const d = (Date.now() - new Date(r.createdAt).getTime()) / 86400e3;
-  return Number.isFinite(d) ? Math.max(0, Math.floor(d)) : 0;
-};
-export const fullName = (person) => {
-  const name = String(person?.name || '').trim();
-  return name.includes('@') ? name.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : name;
-};
 const moduleName = (link) => NAV.find((n) => n.view === link?.view)?.label || '';
 const ACTION_WORD = { approve: 'Approved', reject: 'Rejected', decline: 'Declined', accept: 'Accepted', send_back: 'Sent Back',
   yes: 'Voted Yes', no: 'Voted No', deny: 'Denied', changes: 'Changes Requested' };
@@ -216,12 +205,17 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
     pending.current.set(row.key, { row, action, note, timer });
   }
 
-  async function decide(row, action) {
+  // `givenNote`: the phone's NoteSheet has already asked (ApprovalsPhone);
+  // undefined means ask here, the desktop way.
+  async function decide(row, action, givenNote) {
     if (action.key === 'open' || !runsInline(row, action.key)) { go(row.link); return; }
     let note = '';
-    if (action.note && action.note !== 'none') {
+    const required = action.note === 'required';
+    if (typeof givenNote === 'string') {
+      note = givenNote.trim();
+      if (required && !note) return;
+    } else if (action.note && action.note !== 'none') {
       const ask = NOTE_ASK[action.key] || { title: action.label, message: '', placeholder: 'Note' };
-      const required = action.note === 'required';
       const v = await dialog.prompt(ask.message, { title: `${ask.title}: ${row.title}`, placeholder: ask.placeholder, confirmText: action.label, required, multiline: true, danger: action.key === 'reject' });
       if (v === null || v === undefined) return;
       note = String(v).trim();
@@ -287,7 +281,12 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
     && (!company || (r.companyName || 'No Company') === company)
     && (!q || [r.person?.name, r.title, r.detail, r.forName, r.department].some((s) => (s || '').toLowerCase().includes(q)));
   const shown = useMemo(() => decideRows.filter(passes).sort(SORTERS[sortKey] || SORTERS.oldest), [decideRows, kind, prioFilter, ageFilter, dept, company, q, sortKey]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const shownAct = useMemo(() => actRows.filter((r) => matchesPriority(r, prioFilter) && (!q || [r.person?.name, r.title, r.detail].some((s) => (s || '').toLowerCase().includes(q)))).sort(SORTERS[sortKey] || SORTERS.oldest), [actRows, prioFilter, q, sortKey]);
+  const passesAct = (r) => matchesPriority(r, prioFilter) && (!q || [r.person?.name, r.title, r.detail].some((s) => (s || '').toLowerCase().includes(q)));
+  const shownAct = useMemo(() => actRows.filter(passesAct).sort(SORTERS[sortKey] || SORTERS.oldest), [actRows, prioFilter, q, sortKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The phone surface keeps a decided row's card for one beat after it is
+  // hidden, so it is handed the lists WITH the hidden rows and the keys.
+  const phoneRows = useMemo(() => (phone ? (data?.rows || []).filter((r) => r.scope !== 'act' && passes(r)).sort(SORTERS[sortKey] || SORTERS.oldest) : []), [phone, data, kind, prioFilter, ageFilter, dept, company, q, sortKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const phoneOwn = useMemo(() => (phone ? (data?.rows || []).filter((r) => r.scope === 'act' && passesAct(r)).sort(SORTERS[sortKey] || SORTERS.oldest) : []), [phone, data, prioFilter, q, sortKey]);   // eslint-disable-line react-hooks/exhaustive-deps
   const sections = useMemo(() => sectionize(shown, effectiveGroupBy, groupLabels), [shown, effectiveGroupBy, groupLabels]);
   const filtering = prioFilter !== 'all' || !!q || !!ageFilter || !!dept || !!company;
   const clearFilters = () => { setPrioFilter('all'); setQuery(''); setAgeFilter(0); setDept(''); setCompany(''); };
@@ -307,7 +306,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
   // ── keyboard triage (J / K move, A approve, R reject, Enter review, O open, ? keys) ──
   useEffect(() => {
     const onKey = (e) => {
-      if (tab !== 'waiting' || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (phone || tab !== 'waiting' || e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       if (document.querySelector('[role=dialog]') && !reviewing) return;
@@ -328,6 +327,38 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+
+  const toastEl = toast && (
+    <div role="status" aria-live="polite" className={`apv-toast${toast.kind === 'error' ? ' is-error' : ''}`}>
+      <span>{toast.msg}</span>
+      {toast.kind === 'undo' && <button type="button" className="apv-toast-undo" onClick={() => undo(toast.keys)}>Undo</button>}
+      {toast.kind !== 'undo' && toast.link?.view && <button type="button" className="apv-toast-open" onClick={() => { go(toast.link); say(null); }}>Open</button>}
+    </div>
+  );
+
+  if (phone) {
+    const setFilter = (patch) => {
+      if ('query' in patch) setQuery(patch.query);
+      if ('prioFilter' in patch) setPrioFilter(patch.prioFilter);
+      if ('ageFilter' in patch) setAgeFilter(patch.ageFilter);
+      if ('dept' in patch) setDept(patch.dept);
+      if ('company' in patch) setCompany(patch.company);
+    };
+    return (
+      <div className="apv-center apv-phone-root" data-group-by={effectiveGroupBy}>
+        <ApprovalsPhone tab={tab} setTab={setTab}
+          rows={phoneRows} ownRows={phoneOwn} hiddenKeys={hidden} groupLabels={groupLabels} counts={counts} kind={kind} setKind={setKind}
+          filters={{ query, prioFilter, ageFilter, dept, company }} setFilters={setFilter} clearFilters={clearFilters} filtering={filtering}
+          groupBy={effectiveGroupBy} setGroupBy={setGroupBy} sortKey={sortKey} setSortKey={setSortKey}
+          deptCounts={deptCounts} companyCounts={companyCounts} seesAll={seesAll}
+          onAct={decide} loading={loading && !data} error={error && !data} onRetry={() => { setLoading(true); load(); }} errors={errors} onReload={() => load()}
+          canApprove={!!who.canApprove}
+          DetailView={Detail}
+          history={<HistoryList history={history} onReload={loadHistory} />} />
+        {toastEl}
+      </div>
+    );
+  }
 
   const Tile = ({ label, n, Icon, tone, on, onClick, hint }) => (
     <button type="button" className={`apv-tile${on ? ' is-on' : ''}`} data-tone={tone} onClick={onClick} aria-pressed={on} title={hint}>
@@ -505,13 +536,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
           </div>
         </Modal>
       )}
-      {toast && (
-        <div role="status" aria-live="polite" className={`apv-toast${toast.kind === 'error' ? ' is-error' : ''}`}>
-          <span>{toast.msg}</span>
-          {toast.kind === 'undo' && <button type="button" className="apv-toast-undo" onClick={() => undo(toast.keys)}>Undo</button>}
-          {toast.kind !== 'undo' && toast.link?.view && <button type="button" className="apv-toast-open" onClick={() => { go(toast.link); say(null); }}>Open</button>}
-        </div>
-      )}
+      {toastEl}
     </div>
   );
 }
@@ -522,30 +547,11 @@ function tally(rows, keyOf) {
   return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
 
-function sectionize(rows, by, groupLabels) {
-  if (by === 'none') return [{ key: 'all', label: '', rows, oldest: 0 }];
-  const keyOf = by === 'department' ? (r) => r.department || 'No Department'
-    : by === 'company' ? (r) => r.companyName || 'No Company'
-      : by === 'person' ? (r) => fullName(r.person) || 'Your Team'
-        : (r) => r.group || '';
-  const labelOfKey = by === 'kind' ? (k) => groupLabels.find((g) => g.key === k)?.label || k : (k) => k;
-  const m = new Map();
-  rows.forEach((r) => { const k = keyOf(r); if (!m.has(k)) m.set(k, []); m.get(k).push(r); });
-  // Sections keep the order the chosen sort gave their first row, so "Priority"
-  // or "Newest" still reads top to bottom across sections.
-  return [...m.entries()].map(([k, rs]) => ({ key: k, label: labelOfKey(k), rows: rs, oldest: Math.max(0, ...rs.map(daysWaiting)) }));
-}
-
 function RailGroup({ title, children }) {
   return <div className="apv-rail-g"><div className="apv-rail-t">{title}</div>{children}</div>;
 }
 function RailItem({ on, n, onClick, children }) {
   return <button type="button" role="tab" aria-selected={on} className={`apv-rail-i${on ? ' is-on' : ''}`} onClick={onClick}><span>{children}</span><b>{n}</b></button>;
-}
-
-function PersonMark({ person, size }) {
-  if (person?.email) return <Avatar email={person.email} name={person.name} size={size} />;
-  return <span aria-hidden="true" className="apv-mark" style={{ width: size, height: size }}><Users size={Math.round(size * 0.5)} /></span>;
 }
 
 function Row({ row, onAct, onReview, selectable, selected, onToggle, focused, onFocus, showDept, own }) {
