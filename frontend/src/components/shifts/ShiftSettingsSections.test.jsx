@@ -811,3 +811,35 @@ describe('ShiftSettingsPanel parts', () => {
     expect(screen.getAllByText(/has its own settings\. Changes in any shift group apply/)).toHaveLength(1);
   });
 });
+
+// Time off recommendation (Neil, 11/02/2026, timeoff_recommend.py): two day
+// counts under the time-off switch, saved through the group's one Save row
+// like every other number; a hint for the manager, never a decision.
+describe('ShiftSettingsPanel time off recommendation', () => {
+  it('saves the notice and short-request days, clamped to 0-90 and 1-30, through the one Save row', async () => {
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} part="requests" />);
+    const notice = await screen.findByLabelText('Time off notice');
+    expect(notice.value).toBe('7');
+    const short = screen.getByLabelText('Short request');
+    expect(short.value).toBe('3');
+    expect(screen.getByText('Time Off Notice')).toBeTruthy();
+    expect(screen.getByText('Short Request')).toBeTruthy();
+    expect(screen.getByText("A request asked at least this many days ahead is 'Recommended: Approve'. A hint for the manager, never a decision.")).toBeTruthy();
+    expect(screen.getByText("A request of at most this many working days is 'Recommended: Approve'.")).toBeTruthy();
+    expect(screen.getAllByText('days').length).toBe(2);
+    expect(saveButton().disabled).toBe(true);
+    fireEvent.change(notice, { target: { value: '120' } });
+    expect(shiftRequestSettingsSaveFor).not.toHaveBeenCalled();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ timeOffNoticeDays: 90 }, ''));
+    fireEvent.change(screen.getByLabelText('Short request'), { target: { value: '0' } });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ timeOffShortDays: 1 }, ''));
+  });
+  it('shows what the API sends for the two day counts', async () => {
+    shiftRequestSettingsGetFor.mockResolvedValue({ ...SETTINGS, timeOffNoticeDays: 14, timeOffShortDays: 5 });
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} part="requests" />);
+    expect((await screen.findByLabelText('Time off notice')).value).toBe('14');
+    expect(screen.getByLabelText('Short request').value).toBe('5');
+  });
+});

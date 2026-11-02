@@ -5,7 +5,7 @@
 // presets that used to be Shifts > Presets & Teams) and the Groups (who is
 // scheduled together, who schedules them, their Teams chat). Registered in
 // views/AdminConsole.jsx GLOBAL_CATEGORIES / GLOBAL_SECTIONS.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, X, Check, MessageSquare, Search, ChevronUp, ChevronDown, Pencil, Hash, CloudRain, CalendarDays } from 'lucide-react';
 import { api } from '../../api';
 import { useDraft } from '../../lib/useDraft';
@@ -164,7 +164,7 @@ const SWITCHES = [
 // holds, so a company's group can say whether it differs from the default.
 export const SHIFT_SETTING_PARTS = {
   basics: ['timeZone', 'weekStart', 'defaultGraceMin'],
-  requests: [...SWITCHES.map(([k]) => k), 'releaseShifts', 'releaseNeedsApproval', 'openShiftsAcrossTeams'],
+  requests: [...SWITCHES.map(([k]) => k), 'releaseShifts', 'releaseNeedsApproval', 'openShiftsAcrossTeams', 'timeOffNoticeDays', 'timeOffShortDays'],
   attendance: ['noShowAlertMin', 'leftEarlyMin', 'earlyPunchAlertMin', 'timesheetEscalateDays', 'breakNudgeMin', 'mealReminderMin', 'noShowOnUsualHours'],
   overtime: ['otAlertOn', 'otAlertDailyLeadMin', 'otAlertWeeklyLeadMin'],
   rules: ['ruleMinRestHours', 'ruleMaxDaysInRow', 'ruleDailyOtHours', 'ruleWeeklyOtHours', 'ruleMaxWeekHours', 'publishReasonRequired'],
@@ -286,7 +286,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
       if (typed === was[k]) continue;
       const n = Number(typed);
       if (typed === '' || !Number.isFinite(n)) continue;
-      patch[k] = Math.max(0, Math.min(NUM_MAX[k], Math.round(n)));
+      patch[k] = Math.max(NUM_MIN[k] ?? 0, Math.min(NUM_MAX[k], Math.round(n)));
     }
     if (!Object.keys(patch).length) { resetNums(); return; }
     setSavingNums(true);
@@ -328,7 +328,21 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
             {block('requests', 'Requests And Visibility', (
               <>
                 {SWITCHES.map(([k, text]) => (
-                  <SwitchRow key={k} id={`shift-${k}`} title={text} checked={OFF_BY_DEFAULT.has(k) ? cfg[k] === true : cfg[k] !== false} onChange={(on) => save({ [k]: on })} />
+                  <Fragment key={k}>
+                    <SwitchRow id={`shift-${k}`} title={text} checked={OFF_BY_DEFAULT.has(k) ? cfg[k] === true : cfg[k] !== false} onChange={(on) => save({ [k]: on })} />
+                    {k === 'timeOffRequests' && (
+                      // Time off recommendation (Neil, 11/02/2026, timeoff_recommend.py): two day counts
+                      // behind "Recommended: Approve" - a hint for the manager, never a decision.
+                      <>
+                        <MinutesField nested muted={cfg.timeOffRequests === false} label="Time Off Notice" aria="Time off notice" unit="days" max={90}
+                          value={nums?.timeOffNoticeDays} fallback={7} onChange={(v) => patchNum({ timeOffNoticeDays: v })}
+                          hint="A request asked at least this many days ahead is 'Recommended: Approve'. A hint for the manager, never a decision." />
+                        <MinutesField nested muted={cfg.timeOffRequests === false} label="Short Request" aria="Short request" unit="days" max={30}
+                          value={nums?.timeOffShortDays} fallback={3} onChange={(v) => patchNum({ timeOffShortDays: v })}
+                          hint="A request of at most this many working days is 'Recommended: Approve'." />
+                      </>
+                    )}
+                  </Fragment>
                 ))}
                 {/* Shifts Phase 3b (Oct 15): staff move their own work. */}
                 <SwitchRow id="shift-releaseShifts" title="People can release a shift to the open pool" checked={cfg.releaseShifts === true} onChange={(on) => save({ releaseShifts: on })} />
@@ -505,12 +519,16 @@ const NUM_MAX = {
   otAlertDailyLeadMin: 240, otAlertWeeklyLeadMin: 480,
   ruleMinRestHours: 24, ruleMaxDaysInRow: 14, ruleDailyOtHours: 24, ruleWeeklyOtHours: 80, ruleMaxWeekHours: 100,
   laborBudgetHours: 100000, laborBudgetAmount: 10000000,
+  timeOffNoticeDays: 90, timeOffShortDays: 30,
 };
+// The least a number may be - 0 unless said here (a short request is at least one day).
+const NUM_MIN = { timeOffShortDays: 1 };
 const NUM_DEFAULT = {
   defaultGraceMin: 10, noShowAlertMin: 10, leftEarlyMin: 15, earlyPunchAlertMin: 0, timesheetEscalateDays: 2, breakNudgeMin: 60, mealReminderMin: 270,
   otAlertDailyLeadMin: 30, otAlertWeeklyLeadMin: 120,
   ruleMinRestHours: 0, ruleMaxDaysInRow: 0, ruleDailyOtHours: 0, ruleWeeklyOtHours: 0, ruleMaxWeekHours: 0,
   laborBudgetHours: 0, laborBudgetAmount: 0,
+  timeOffNoticeDays: 7, timeOffShortDays: 3,
 };
 const NUM_KEYS = Object.keys(NUM_MAX);
 // What the boxes show, as text: the saved value, else the default - so a
