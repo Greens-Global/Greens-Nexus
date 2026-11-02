@@ -143,18 +143,17 @@ class TierWordsSeedTests(unittest.TestCase):
         self.assertEqual(titles[VISESH], "Global Admin")
         self.assertEqual(titles[NEIL], "")
 
-    def test_job_role_stamping_risk_is_documented(self):
-        """routers/jobroles.py apply_job_role still copies the job role's name
-        into job_title (`emp.job_title = jr.name.strip()`), so assigning an
-        owner/administrator-tier job role ("Super Administrators") would
-        stamp a tier word under the person's name again. apply_job_role
-        should skip stamping job_title for administrator / owner-tier job
-        roles - owned by another pass; this test pins the risk so the fix is
-        visible when it lands (flip the assertion then)."""
+    def test_job_role_stamping_skips_tier_roles(self):
+        """routers/jobroles.py apply_job_role copies a job role's name into
+        job_title only for roles below the administrator tier - an
+        administrator / owner-tier role ("Super Administrators") is an access
+        role, and its name would put a tier word back under the person's name
+        (11/02/2026). The stamp is still there for ordinary job roles."""
         import inspect
         from routers import jobroles
         src = inspect.getsource(jobroles.apply_job_role)
         self.assertIn("emp.job_title = jr.name.strip()", src)
+        self.assertRegex(src, r"administrator|owner")
         # Whatever the stamp writes, this pass never re-runs to clean it.
         self._run(seed.clear_tier_words_once)
         self.assertIsNone(self._run(seed.clear_tier_words_once))
