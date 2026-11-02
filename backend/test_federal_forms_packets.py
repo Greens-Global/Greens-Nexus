@@ -513,6 +513,9 @@ class WatchTests(FederalPacketCase):
         _Frozen.value = date(2026, 12, 1)
         watch.run_daily()
         self.assertIn((HR, "fedform:w4:expiring", "2027 Form W-4 Due In January"), self._refs())
+        # The bell opens the Federal Forms group itself, not the subject's top.
+        bell = next(n for n in self.db.query(models.NexusNotification).all() if n.ref_id == "fedform:w4:expiring")
+        self.assertEqual(json.loads(bell.action), {"view": "admin", "sub": "hiring:federal-forms", "label": "Open Settings"})
 
 
 class ChecklistSeedTests(FederalPacketCase):
