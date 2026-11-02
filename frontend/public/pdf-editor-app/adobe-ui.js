@@ -72,11 +72,11 @@
     menu.className = 'dropdown-menu';
     menu.id = 'shapeMenu';
     const KINDS = [
-      ['rect', '▭ Rectangle'], ['square', '□ Square'], ['circle', '◯ Circle / Ellipse'], ['triangle', '△ Triangle'],
-      ['line', '― Line'], ['polyline', '⌇ Polyline (multi-segment)'], ['polygon', '⬠ Polygon (multi-point)'],
-      ['arrow', '→ Arrow'], ['arrow2', '↔ Double arrow'],
-      ['cloud', '☁ Cloud (revision)'], ['callout', '💬 Text callout (arrow + note)'],
-      ['ellipsecallout', '🗨 Speech bubble'],
+      ['rect', 'Rectangle'], ['square', 'Square'], ['circle', 'Circle / Ellipse'], ['triangle', 'Triangle'],
+      ['line', 'Line'], ['polyline', 'Polyline (Multi-Segment)'], ['polygon', 'Polygon (Multi-Point)'],
+      ['arrow', 'Arrow'], ['arrow2', 'Double Arrow'],
+      ['cloud', 'Cloud (Revision)'], ['callout', 'Text Callout (Arrow + Note)'],
+      ['ellipsecallout', 'Speech Bubble'],
       // Count removed from Shapes (S2): it was a rival to Measure > Count and the
       // two didn't share a tally, so users double-counted. Use Measure > Count.
       // Redact removed from Shapes (S1): one mis-click below Rectangle risked
@@ -84,10 +84,10 @@
       // Measure & Scale: calibrate once against a known distance on the plan,
       // then every line/perimeter/area is labeled with the real-world size.
       ['--measure--', 'Measure & Scale'],
-      ['mcalibrate', '📐 Calibrate scale (set the plan scale)'],
-      ['mlength', '↦ Measure length'],
-      ['mperim', '⟿ Measure perimeter'],
-      ['marea', '▦ Measure area'],
+      ['mcalibrate', 'Calibrate Scale (Set the Plan Scale)'],
+      ['mlength', 'Measure Length'],
+      ['mperim', 'Measure Perimeter'],
+      ['marea', 'Measure Area'],
     ];
     for (const [kind, text] of KINDS) {
       // A "--measure--" entry is a non-clickable section header, not a shape.
@@ -121,11 +121,11 @@
     // Line style: solid / dashed / dotted (applies to the next drawn shape)
     const styleDiv = document.createElement('div');
     styleDiv.className = 'dropdown-group-label';
-    styleDiv.textContent = 'Line style';
+    styleDiv.textContent = 'Line Style';
     menu.appendChild(styleDiv);
     const styleRow = document.createElement('div');
     styleRow.style.cssText = 'display:flex;gap:4px;padding:4px 12px 8px;';
-    for (const [sv, sl] of [['solid', '——'], ['dashed', '– –'], ['dotted', '· · ·']]) {
+    for (const [sv, sl] of [['solid', 'Solid'], ['dashed', 'Dashed'], ['dotted', 'Dotted']]) {
       const sb = document.createElement('button');
       sb.textContent = sl;
       sb.title = sv;
@@ -239,7 +239,7 @@
     document.body.appendChild(imgPdfInput);
     mk('Image → PDF', 'Combine PNG/JPG images into a PDF (one page per image)', () => window.imageToPdfDialog ? window.imageToPdfDialog() : imgPdfInput.click());
 
-    mk('PDF → Word', 'Editable Word file — font sizes and bold are kept; scanned pages are included as exact images',
+    mk('PDF → Word', 'Editable Word file - font sizes and bold are kept; scanned pages are included as exact images',
       () => { if (!needDoc()) window.exportWordSmart && window.exportWordSmart(); }, 'word');
     mk('PDF → Excel', 'Extract the text into an Excel spreadsheet', () => clickExport('excel'), 'excel');
 
@@ -253,8 +253,8 @@
     const imgMenu = document.createElement('div');
     imgMenu.className = 'dropdown-menu';
     imgMenu.id = 'imgExportMenu';
-    for (const [k, t] of [['png', 'PNG — this page'], ['jpeg', 'JPEG — this page'], ['tiff', 'TIFF — this page'],
-                          ['all-png', 'PNG — all pages'], ['all-jpeg', 'JPEG — all pages']]) {
+    for (const [k, t] of [['png', 'PNG - This Page'], ['jpeg', 'JPEG - This Page'], ['tiff', 'TIFF - This Page'],
+                          ['all-png', 'PNG - All Pages'], ['all-jpeg', 'JPEG - All Pages']]) {
       const it = document.createElement('button');
       it.className = 'dropdown-item';
       it.textContent = t;
@@ -275,10 +275,10 @@
     dMenu.className = 'dropdown-menu';
     dMenu.id = 'drawMenu';
     const DMODES = [
-      ['pen', '🖊 Pen — smooth solid line'],
-      ['pencil', '✏️ Pencil — thin, light stroke'],
-      ['marker', '🖍 Marker — broad, semi-transparent'],
-      ['spray', '💨 Spray — airbrush dots'],
+      ['pen', 'Pen - Smooth Solid Line'],
+      ['pencil', 'Pencil - Thin, Light Stroke'],
+      ['marker', 'Marker - Broad, Semi-Transparent'],
+      ['spray', 'Spray - Airbrush Dots'],
     ];
     for (const [mode, label] of DMODES) {
       const it = document.createElement('button');
@@ -316,8 +316,8 @@
     hlMenu.className = 'dropdown-menu';
     hlMenu.id = 'highlightMenu';
     const HMODES = [
-      ['text', '🖍 Highlight text (exact words)'],
-      ['free', '✏️ Freehand highlight'],
+      ['text', 'Highlight Text (Exact Words)'],
+      ['free', 'Freehand Highlight'],
       ['underline', '↧ Underline text'],
       ['strike', '⊘ Strikethrough text'],
     ];
@@ -360,25 +360,25 @@
     mMenu.className = 'dropdown-menu';
     mMenu.id = 'measureMenu';
     const MMODES = [
-      ['setscale',   '⚖ Set scale directly...', true],  // action, not a kind (label reflects live scale via updateMeasureMenuLabels)
-      ['embedscale', '🧾 Use embedded scale (from the PDF)', true],
-      ['mcalibrate', '📐 Calibrate by drawing a known line'],
-      ['storescale', '📌 Store scale in this page', true],
-      ['lockscale',  '🔒 Lock / unlock scale', true],
-      ['mlength',    '↦ Measure length'],
-      ['mpolylen',   '⌇ Measure polyline length'],
-      ['mperim',     '⟿ Measure perimeter'],
-      ['marea',      '▦ Measure area'],
-      ['mdynfill',   '🪣 Dynamic fill (auto-detect a room)'],
-      ['mcutout',    '⊟ Area cutout (subtract a void)'],
-      ['mangle',     '∠ Measure angle'],
-      ['mradius',    '◐ Measure radius / diameter'],
-      ['mvolume',    '⬒ Measure volume (area × depth)'],
-      ['mcount',     '# Count'],
-      ['countgroup', '🏷 Count group (name + color)...', true],
-      ['snapcontent','🧲 Snap to Content (on/off)', true],  // action: toggle snapping
-      ['hidelabels', '👁 Show / hide measurement labels', true],
-      ['mlist',      '☰ Measurements list & totals', true],  // action: open the panel
+      ['setscale',   'Set Scale Directly...', true],  // action, not a kind (label reflects live scale via updateMeasureMenuLabels)
+      ['embedscale', 'Use Embedded Scale (From the PDF)', true],
+      ['mcalibrate', 'Calibrate by Drawing a Known Line'],
+      ['storescale', 'Store Scale in This Page', true],
+      ['lockscale',  'Lock / Unlock Scale', true],
+      ['mlength',    'Measure Length'],
+      ['mpolylen',   'Measure Polyline Length'],
+      ['mperim',     'Measure Perimeter'],
+      ['marea',      'Measure Area'],
+      ['mdynfill',   'Dynamic Fill (Auto-Detect a Room)'],
+      ['mcutout',    'Area Cutout (Subtract a Void)'],
+      ['mangle',     'Measure Angle'],
+      ['mradius',    'Measure Radius / Diameter'],
+      ['mvolume',    'Measure Volume (Area × Depth)'],
+      ['mcount',     'Count'],
+      ['countgroup', 'Count Group (Name + Color)...', true],
+      ['snapcontent','Snap to Content (On/Off)', true],  // action: toggle snapping
+      ['hidelabels', 'Show / Hide Measurement Labels', true],
+      ['mlist',      'Measurements List & Totals', true],  // action: open the panel
     ];
     for (const [kind, label, isAction] of MMODES) {
       const it = document.createElement('button');
@@ -396,15 +396,15 @@
           else if (kind === 'storescale' && window.storeScaleInPage) window.storeScaleInPage();
           else if (kind === 'lockscale' && window.toggleScaleLock) {
             const locked = window.toggleScaleLock();
-            it.textContent = (locked ? '🔒 ' : '🔓 ') + 'Lock / unlock scale';
+            it.textContent = (locked ? 'Unlock Scale' : 'Lock Scale');
           }
           else if (kind === 'snapcontent' && window.toggleSnapContent) {
             const on = window.toggleSnapContent();
-            it.textContent = (on ? '✓ ' : '') + '🧲 Snap to Content (on/off)';
+            it.textContent = (on ? '✓ ' : '') + 'Snap to Content (On/Off)';
           }
           else if (kind === 'hidelabels' && window.toggleMeasureLabels) {
             const hidden = window.toggleMeasureLabels();
-            it.textContent = (hidden ? '✓ ' : '') + '👁 Show / hide measurement labels';
+            it.textContent = (hidden ? '✓ ' : '') + 'Show / Hide Measurement Labels';
           }
           else if (kind === 'countgroup' && window.openCountGroupDialog) window.openCountGroupDialog();
           return;
@@ -437,9 +437,9 @@
     window.updateMeasureMenuLabels = function (info) {
       const setItem = mMenu.querySelector('.dropdown-item[data-kind="setscale"]');
       if (setItem) setItem.textContent = info && info.scaleText
-        ? '⚖ ' + info.scaleText : '⚖ Set scale directly...';
+        ? info.scaleText : 'Set Scale Directly...';
       const lockItem = mMenu.querySelector('.dropdown-item[data-kind="lockscale"]');
-      if (lockItem) lockItem.textContent = (info && info.locked ? '🔒 Scale locked - click to unlock' : '🔓 Lock scale');
+      if (lockItem) lockItem.textContent = (info && info.locked ? 'Unlock Scale' : 'Lock Scale');
     };
     measureBtn.addEventListener('click', () => {
       const r = measureBtn.getBoundingClientRect();
@@ -525,9 +525,9 @@
   const layersPanel = document.createElement('aside');
   layersPanel.className = 'layers-panel';
   layersPanel.innerHTML =
-    '<div class="layers-head"><span>Layers</span><button class="icon-btn" id="layersClose" title="Close">✕</button></div>' +
+    '<div class="layers-head"><span>Layers</span><button class="icon-btn" id="layersClose" title="Close"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>' +
     '<div class="layers-hint">Each layer is one set of markups (e.g. "Layer 2"). Click a layer to draw on it; the eye hides it. Hidden layers are not saved into the PDF.</div>' +
-    '<button class="layers-add" id="layersAdd">+ New layer</button>' +
+    '<button class="layers-add" id="layersAdd">+ New Layer</button>' +
     '<div class="layers-list" id="layersList"></div>';
   function toggleLayersPanel(force) {
     const on = force !== undefined ? force : layersPanel.style.display !== 'flex';
@@ -586,7 +586,7 @@
       // delete
       const del = document.createElement('button');
       del.className = 'layer-del';
-      del.textContent = '✕';
+      del.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
       del.title = 'Delete this layer and its markups';
       del.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -692,7 +692,7 @@
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
       members: [el('#compressBtn'), el('#sanitizeBtn'), el('#ocrBtn'), buildRedactBtn()] },
     { id: 'layers',   label: 'Layers',          tint: '#e8734a',
-      desc: 'Versions of markups — show or hide',
+      desc: 'Versions of markups - show or hide',
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>',
       action: () => toggleLayersPanel() },
   ];
@@ -858,7 +858,7 @@
     sep.className = 'page-sep';
     sep.textContent = '/';
     info.append(pageInput, sep, totalPages);
-    pageInput.title = 'Current page — type a number and press Enter';
+    pageInput.title = 'Current page - type a number and press Enter';
   }
   const zo = el('#zoomOut'), zi = el('#zoomIn');
   if (zo) zo.innerHTML = '&#8722;';
@@ -1145,7 +1145,7 @@
   if (dl) {
     const span = dl.querySelector('span');
     if (span) span.textContent = 'Save ▾';
-    dl.title = 'Save this document — choose a format';
+    dl.title = 'Save this document - choose a format';
     dl.classList.add('save-pdf-btn');
     right.appendChild(dl);
 
@@ -1155,19 +1155,19 @@
     const exp = (k) => el(`#exportMenu [data-export="${k}"]`)?.click();
     // Most-used formats up front; everything else behind "Other formats".
     const PRIMARY = [
-      ['PDF — all pages', () => window.downloadPDF && window.downloadPDF()],
-      ['PDF — selected pages…', () => el('#splitBtn')?.click()],
-      ['PNG image — this page', () => exp('png')],
-      ['JPEG image — this page', () => exp('jpeg')],
+      ['PDF - All Pages', () => window.downloadPDF && window.downloadPDF()],
+      ['PDF - Selected Pages...', () => el('#splitBtn')?.click()],
+      ['PNG Image - This Page', () => exp('png')],
+      ['JPEG Image - This Page', () => exp('jpeg')],
     ];
     const OTHER = [
       ['Flattened PDF (uneditable)', () => window.saveFlattened && window.saveFlattened()],
-      ['All text (.txt)', () => window.extractAllText && window.extractAllText()],
+      ['All Text (.txt)', () => window.extractAllText && window.extractAllText()],
       ['Word (.docx)', () => window.exportWordSmart && window.exportWordSmart()],
       ['Excel (.xlsx)', () => exp('excel')],
-      ['TIFF image — this page', () => exp('tiff')],
-      ['PNG images — all pages (ZIP)', () => exp('all-png')],
-      ['JPEG images — all pages (ZIP)', () => exp('all-jpeg')],
+      ['TIFF Image - This Page', () => exp('tiff')],
+      ['PNG Images - All Pages (ZIP)', () => exp('all-png')],
+      ['JPEG Images - All Pages (ZIP)', () => exp('all-jpeg')],
     ];
     const addItem = (parent, text, fn) => {
       const it = document.createElement('button');
@@ -1179,7 +1179,7 @@
     for (const [text, fn] of PRIMARY) addItem(saveMenu, text, fn);
     const moreBtn = document.createElement('button');
     moreBtn.className = 'dropdown-item';
-    moreBtn.textContent = 'Other formats  ▸';
+    moreBtn.textContent = 'Other Formats  ▸';
     saveMenu.appendChild(moreBtn);
     const moreBox = document.createElement('div');
     moreBox.style.display = 'none';
@@ -1189,7 +1189,7 @@
       e.stopPropagation();
       const open = moreBox.style.display !== 'none';
       moreBox.style.display = open ? 'none' : 'block';
-      moreBtn.textContent = open ? 'Other formats  ▸' : 'Other formats  ▾';
+      moreBtn.textContent = open ? 'Other Formats  ▸' : 'Other formats  ▾';
     });
     document.body.appendChild(saveMenu);
     // Intercept the button's click BEFORE app.js's own target listener can
@@ -1224,7 +1224,7 @@
   const outlinePanel = document.createElement('aside');
   outlinePanel.className = 'outline-panel';
   outlinePanel.style.display = 'none';
-  outlinePanel.innerHTML = '<div class="outline-head"><span>Bookmarks</span><button class="icon-btn" id="outlineClose">✕</button></div><div class="outline-list" id="outlineList"></div>';
+  outlinePanel.innerHTML = '<div class="outline-head"><span>Bookmarks</span><button class="icon-btn" id="outlineClose"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div><div class="outline-list" id="outlineList"></div>';
   mainContainer.appendChild(outlinePanel);
   outlinePanel.querySelector('#outlineClose').addEventListener('click', () => { outlinePanel.style.display = 'none'; });
   async function toggleOutline() {
@@ -1328,7 +1328,7 @@
         header.style.display = (name || _everHadDoc) ? '' : 'none';
       }
       // Window/tab title mirrors the open document, like every desktop app.
-      document.title = name ? `${name} — PDF Tools` : 'PDF Tools';
+      document.title = name ? `${name} - PDF Tools` : 'PDF Tools';
       // Landing-page card flow: the PDF just finished loading — run the tool
       // the user picked (buttons need a beat to enable first).
       if (name && pendingAction) { const fn = pendingAction; pendingAction = null; setTimeout(fn, 400); }

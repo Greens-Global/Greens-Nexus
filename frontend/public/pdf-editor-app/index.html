@@ -100,7 +100,7 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="8" rx="1" fill="rgba(255,235,59,0.4)"/><line x1="3" y1="12" x2="21" y2="12"/></svg>
                 <span>Highlight</span>
             </button>
-            <button id="measureTool" class="tool-btn" title="Measure &amp; Scale — calibrate the plan, then measure length / perimeter / area">
+            <button id="measureTool" class="tool-btn" title="Measure &amp; Scale - calibrate the plan, then measure length / perimeter / area">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3 3 21"/><path d="m6 8 2 2"/><path d="m9 5 2 2"/><path d="m11 13 2 2"/><path d="m14 10 2 2"/></svg>
                 <span>Measure</span>
             </button>
@@ -251,7 +251,7 @@
             <div class="eraser-options" id="eraserOptions" style="display:none;">
                 <label class="eraser-toggle" title="OFF: the eraser removes only your annotations (highlights, drawings, shapes) and never touches the PDF text. ON: it covers original PDF text/images with the background color (whiteout / redact).">
                     <input type="checkbox" id="eraserWhiteout">
-                    <span>Whiteout (cover original text)</span>
+                    <span>Whiteout (Cover Original Text)</span>
                 </label>
             </div>
             <!-- Hide/show the toolbar for more document viewing space (Pranshu).
@@ -270,7 +270,7 @@
         <div class="paint-section">
             <span class="paint-label">Color</span>
             <div class="color-swatches">
-                <label class="swatch swatch-custom" title="Choose any color — full picker with eyedropper">
+                <label class="swatch swatch-custom" title="Choose any color - full picker with eyedropper">
                     <input type="color" id="pbCustomColor" value="#000000">
                 </label>
                 <span class="pb-color-current" id="pbColorCurrent" title="Current color"></span>
@@ -283,7 +283,7 @@
             <span id="pbSizeVal" style="font-size:11px;color:var(--text-secondary);min-width:22px;text-align:center;">6</span>
         </div>
         <div class="paint-sep"></div>
-        <button id="pbEraser" class="paint-eraser-btn" title="Eraser — click again to go back to the pen (E)">
+        <button id="pbEraser" class="paint-eraser-btn" title="Eraser - click again to go back to the pen (E)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16l9-9 8 8-4 4"/><line x1="6" y1="11" x2="13" y2="18"/></svg>
             <span>Eraser</span>
         </button>
@@ -453,7 +453,7 @@
                     <button id="zoomFitPage" class="nav-btn nav-icon-btn" title="Fit whole page on screen" aria-label="Fit whole page">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="1"/><polyline points="8 8 12 5 16 8"/><polyline points="8 16 12 19 16 16"/></svg>
                     </button>
-                    <button id="scrollModeBtn" class="nav-btn nav-icon-btn" title="Continuous scroll — read all pages by scrolling (click a page to edit)" aria-label="Continuous scroll">
+                    <button id="scrollModeBtn" class="nav-btn nav-icon-btn" title="Continuous scroll - read all pages by scrolling (click a page to edit)" aria-label="Continuous scroll">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="5" rx="1"/><rect x="6" y="10" width="12" height="5" rx="1"/><rect x="6" y="17" width="12" height="4" rx="1"/></svg>
                     </button>
                 </div>
@@ -486,7 +486,7 @@
                     <input type="color" id="commentColor" value="#e53935" title="Color used to mark the commented text">
                 </div>
                 <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">
-                    Drag across words on the page — your comment attaches to that text.
+                    Drag across words on the page - your comment attaches to that text.
                 </div>
                 <textarea id="commentInput" placeholder="Add a comment..." rows="3"></textarea>
                 <button id="addCommentBtn" class="comment-add-btn">Add Comment</button>
@@ -500,7 +500,7 @@
             <span>Measurements</span>
             <div class="measure-list-actions">
                 <button id="measureExportBtn" class="icon-btn" title="Export to Excel (.xlsx)">Excel</button>
-                <button id="measureListClose" class="icon-btn" title="Close">✕</button>
+                <button id="measureListClose" class="icon-btn" title="Close"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
             </div>
         </div>
         <div class="measure-list-tools">
@@ -532,8 +532,8 @@
     <!-- Search Bar -->
     <div class="search-bar" id="searchBar" style="display:none;">
         <input type="text" id="searchInput" placeholder="Search text in PDF...">
-        <button id="searchCase" class="search-opt" title="Match case" aria-pressed="false">Aa</button>
-        <button id="searchWord" class="search-opt" title="Whole word" aria-pressed="false">|W|</button>
+        <button id="searchCase" class="search-opt" title="Match Case" aria-pressed="false">Aa</button>
+        <button id="searchWord" class="search-opt" title="Whole Word" aria-pressed="false">|W|</button>
         <button id="searchListToggle" class="search-opt" title="Show all results" aria-pressed="false">&#9776;</button>
         <span id="searchInfo">0/0</span>
         <button id="searchPrev" class="nav-btn">&#9650;</button>
@@ -555,7 +555,7 @@
                 </button>
             </div>
             <div class="modal-body">
-                <label>Page range (e.g. 1-3, 5, 8-10):</label>
+                <label>Page Range (e.g. 1-3, 5, 8-10):</label>
                 <input type="text" id="splitRange" placeholder="1-3" class="modal-input">
                 <p class="modal-hint">Total pages: <span id="splitTotal">0</span></p>
                 <p class="modal-hint" id="splitError" role="alert" style="display:none;color:var(--danger);"></p>
@@ -578,15 +578,15 @@
             </div>
             <div class="modal-body">
                 <p class="modal-hint" style="margin:0 0 10px;">This places a picture of a signature, with no identity or audit trail. For a real signature use Nexus Sign.</p>
-                <label>Type your name:</label>
+                <label>Type Your Name:</label>
                 <input type="text" id="signatureName" placeholder="Your Name" class="modal-input" maxlength="40" autocomplete="off">
 
-                <label style="margin-top:12px;">Choose a signature style:</label>
+                <label style="margin-top:12px;">Choose a Signature Style:</label>
                 <div id="signatureStyleList" class="signature-style-list"></div>
 
-                <label style="margin-top:12px;">Signature color:</label>
+                <label style="margin-top:12px;">Signature Color:</label>
                 <div class="signature-color-row">
-                    <input type="color" id="signatureColor" value="#0a2a66" title="Choose the signature color — full picker with RGB values">
+                    <input type="color" id="signatureColor" value="#0a2a66" title="Choose the signature color - full picker with RGB values">
                     <span class="modal-hint">Click to pick any color (RGB / eyedropper).</span>
                     <span class="modal-hint">The signature is inserted onto the page and can be moved &amp; resized.</span>
                 </div>
@@ -609,8 +609,8 @@
     <div class="crop-confirm-bar" id="cropConfirmBar" style="display:none;">
         <span>Drag a rectangle to select the crop area, then confirm or cancel.</span>
         <select id="cropScope" class="crop-scope" title="Apply the crop to">
-            <option value="page">This page</option>
-            <option value="all">All pages</option>
+            <option value="page">This Page</option>
+            <option value="all">All Pages</option>
         </select>
         <button id="cropApply" class="crop-btn apply" disabled>Apply Crop</button>
         <button id="cropCancel" class="crop-btn cancel">Cancel</button>

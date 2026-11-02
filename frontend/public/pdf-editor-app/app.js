@@ -425,7 +425,7 @@
             fabricCanvas.renderAll();
             setActiveTool('select');
             saveAnnotationState();
-            showToast('Signature added — drag to position, corners to resize');
+            showToast('Signature added - drag to position, corners to resize');
         });
     }
 
@@ -610,7 +610,7 @@
                 _eraserWhiteout = eraserWhiteoutCb.checked;
                 if (state.activeTool === 'eraser') applyToolMode();
                 showToast(_eraserWhiteout
-                    ? 'Whiteout ON — covers original PDF text/images'
+                    ? 'Whiteout on - paints over the original PDF text and images'
                     : 'Eraser removes your annotations only');
             });
         }
@@ -825,7 +825,7 @@
         if (measureKind) {
             if (e.key === 'Enter') { e.preventDefault(); measureFinish(); return; }
             // stopPropagation so the ribbon's window-level Escape can't also fire.
-            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); measureCancel(); setStatus('Measurement cancelled'); return; }
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); measureCancel(); setStatus('Measurement canceled'); return; }
             if (e.key === 'Backspace' && measurePts.length) {
                 e.preventDefault(); measurePts.pop(); measureRedraw();
                 setStatus(measurePts.length ? 'Removed last point - ' + measurePts.length + ' left' : 'Click to start again');
@@ -968,8 +968,8 @@
         }
         if (hasDoc) {
             const choice = await _choiceModal('Open PDF', 'A document is already open. What would you like to do?', [
-                { key: 'new',   label: 'Open as new PDF' },
-                { key: 'merge', label: 'Merge into current PDF' },
+                { key: 'new',   label: 'Open as New PDF' },
+                { key: 'merge', label: 'Merge Into Current PDF' },
             ]);
             if (!choice) return;                       // cancelled
             if (choice === 'merge') { await mergeFilesIntoDoc([file]); return; }
@@ -1026,8 +1026,8 @@
                     if (err && err.name === 'PasswordException' && attempt < 3) {
                         pdfPassword = await customPrompt(
                             attempt === 0 ? 'This PDF is password-protected. Enter the password:'
-                                          : 'Wrong password — try again:', 'Password');
-                        if (!pdfPassword) { setStatus('Open cancelled — password required'); return; }
+                                          : 'Wrong password - try again:', 'Password');
+                        if (!pdfPassword) { setStatus('Open canceled - password required'); return; }
                         continue;
                     }
                     throw err;
@@ -1120,12 +1120,12 @@
             // A malformed/damaged PDF: try to REPAIR it with pdf-lib (which is
             // far more tolerant) before giving up, like a real viewer.
             try {
-                setStatus('File looks damaged — attempting repair...');
+                setStatus('File looks damaged - attempting repair...');
                 const repaired = await PDFLib.PDFDocument.load(
                     file ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array(state.pdfBytes),
                     { ignoreEncryption: true, throwOnInvalidObject: false });
                 const fixed = await repaired.save();
-                showToast('PDF was damaged — opened a repaired copy');
+                showToast('PDF was damaged - opened a repaired copy');
                 setStatus('Opened a repaired copy of a damaged PDF');
                 return await loadPDF(new File([fixed], (file && file.name) || 'repaired.pdf', { type: 'application/pdf' }));
             } catch (err2) {
@@ -2391,7 +2391,7 @@
         if (!measureScale) return 'No scale - click to set';
         const perInch = measureScale * 72;   // real units represented by 1 inch on the page
         const shown = perInch >= 100 ? perInch.toFixed(0) : perInch.toFixed(2);
-        return '1 in = ' + shown + ' ' + measureUnit + '  ·  ' + measureUnit + '  ·  ' + _mPrecision() + 'dp' + (_scaleLocked ? '  🔒' : '');
+        return '1 in = ' + shown + ' ' + measureUnit + '  ·  ' + measureUnit + '  ·  ' + _mPrecision() + 'dp' + (_scaleLocked ? '  ·  Locked' : '');
     }
     _updateScaleChip = function () {
         const chip = document.getElementById('scaleChip');
@@ -3015,8 +3015,8 @@
     // A15: name + color the current count group, so counts of different kinds
     // (columns, fixtures, ...) tally separately with their own color.
     window.openCountGroupDialog = async function () {
-        const v = await _toolModal('Count group', `
-            <label class="modal-label">Group name (what you're counting):</label>
+        const v = await _toolModal('Count Group', `
+            <label class="modal-label">Group Name (what you're counting):</label>
             <input type="text" class="modal-input" data-k="name" value="${(_countGroup || 'Count').replace(/"/g,'&quot;')}" placeholder="e.g. Columns, Fixtures">
             <label class="stamp-date-row" style="padding:10px 0 0;"><span>Marker color</span>
                 <input type="color" data-k="color" value="${_measureColor()}"></label>`, 'Set Group');
@@ -3093,8 +3093,8 @@
                 </label>
                 <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Apply to
                   <select class="modal-input" data-k="scope" style="width:150px;">
-                    <option value="page">This page</option>
-                    <option value="all">All pages</option>
+                    <option value="page">This Page</option>
+                    <option value="all">All Pages</option>
                   </select>
                 </label>
             </div>
@@ -3151,7 +3151,7 @@
             const ans = await customPrompt(
                 'Enter the real length of the line you drew (number + unit), e.g. 10 ft, 5 m, 24 in:',
                 'e.g. 10 ft', realLen == null ? '10 ft' : '');
-            if (!ans) { setStatus('Calibration cancelled - scale unchanged'); return; }
+            if (!ans) { setStatus('Calibration canceled - scale unchanged'); return; }
             const m = ans.trim().match(/^([\d.]+)\s*([a-zA-Z"']+)?$/);
             if (m && parseFloat(m[1]) > 0) { realLen = parseFloat(m[1]); unit = m[2] || measureUnit; break; }
             showToast('Could not read that - try like "10 ft". Enter again or Cancel.');
@@ -3172,11 +3172,11 @@
         if ((state.totalPages || 1) > 1) {
             const drawn = 'You drew ' + pagePx.toFixed(1) + ' pt (' + (pagePx / 72).toFixed(2) +
                 ' in) = ' + realLen + ' ' + unit + '.';
-            scope = await _choiceModal('Apply this scale',
+            scope = await _choiceModal('Apply This Scale',
                 drawn + ' Apply it to just this page, or to every page in the document?',
                 [{ key: 'all', label: 'All ' + (state.totalPages || 1) + ' pages' },
-                 { key: 'page', label: 'This page only' }]);
-            if (!scope) { setStatus('Calibration cancelled - scale unchanged'); return; }
+                 { key: 'page', label: 'This Page Only' }]);
+            if (!scope) { setStatus('Calibration canceled - scale unchanged'); return; }
         }
         if (scope === 'all') {
             for (let i = 1; i <= (state.totalPages || 1); i++) _pageScales[i] = { scale: newScale, unit };
@@ -3195,11 +3195,11 @@
         measureScale = newScale; measureUnit = newUnit;
         _pageScales[state.currentPage] = { scale: measureScale, unit: measureUnit };
         if (existing.length) {
-            const choice = await _choiceModal('Scale changed',
+            const choice = await _choiceModal('Scale Changed',
                 'You changed the scale with ' + existing.length + ' measurement' +
                 (existing.length > 1 ? 's' : '') + ' already on this page. Recalculate ' +
                 (existing.length > 1 ? 'them' : 'it') + ' to the new scale, or keep the values as originally taken?',
-                [{ key: 'recalc', label: 'Recalculate' }, { key: 'keep', label: 'Keep as taken' }]);
+                [{ key: 'recalc', label: 'Recalculate' }, { key: 'keep', label: 'Keep as Taken' }]);
             if (choice === 'recalc') {
                 const n = _recomputeAllOnPage();
                 showToast('Scale set (' + newUnit + ') - recalculated ' + n + ' measurement' + (n > 1 ? 's' : ''));
@@ -3294,7 +3294,7 @@
     // In-page confirm for arming Redact (S1) - window.confirm can be dropped in an
     // iframe, so use the styled choice modal.
     window.confirmRedact = async function () {
-        const choice = await _choiceModal('Redact content',
+        const choice = await _choiceModal('Redact Content',
             'Redaction permanently removes the content under each box when you save the PDF. This cannot be undone after download. Draw the boxes, then Save to apply. Continue?',
             [{ key: 'go', label: 'Continue' }]);
         return choice === 'go';
@@ -3631,7 +3631,7 @@
         const ans = await customPrompt(
             'Enter the depth / thickness in ' + measureUnit + ' (e.g. 0.5):',
             'depth in ' + measureUnit, '1');
-        if (!ans) { fabricCanvas.remove(shape); fabricCanvas.renderAll(); setStatus('Volume cancelled'); return; }
+        if (!ans) { fabricCanvas.remove(shape); fabricCanvas.renderAll(); setStatus('Volume canceled'); return; }
         const depth = parseFloat(ans);
         if (!(depth > 0)) { fabricCanvas.remove(shape); showToast('Enter a valid depth'); return; }
         const vol = area * depth;
@@ -3686,7 +3686,7 @@
             if (o._measureCaption || o._measureDecor || o._isLeader) return null; // measurement helpers
             if (o.excludeFromExport || o._isTextCover || o._isCommentMark) return null;
             if (o._isStamp) return { kind: 'Stamp', label: _objText(o) || 'Stamp' };
-            if (o._isRedact) return { kind: 'Redaction', label: 'Redaction box' };
+            if (o._isRedact) return { kind: 'Redaction', label: 'Redaction Box' };
             const t = o.type;
             if (t === 'i-text' || t === 'text' || t === 'textbox') return { kind: 'Text', label: _objText(o) };
             if (t === 'image') return { kind: 'Image', label: 'Image' };
@@ -3821,7 +3821,7 @@
             const swColor = m.color || '#1971c2';
             const dot = `<span class="measure-swatch" style="background:${escH(swColor)}"></span>`;
             const mixed = (m.scaleAt != null && measureScale != null && Math.abs(m.scaleAt - measureScale) > 1e-6)
-                ? ' <span class="measure-flag" title="Captured under a different scale than the current one">⚠</span>' : '';
+                ? ' <span class="measure-flag" title="Captured under a different scale than the current one"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>' : '';
             html += `<div class="measure-row" data-mid="${escH(m._mid || '')}" data-i="${i}" title="Click to edit; right-click for more">
                 ${dot}<span class="measure-row-type">${name}${mixed}</span>
                 <span class="measure-row-page">p${m.page}</span>
@@ -3830,7 +3830,7 @@
         });
         html += '<div class="measure-totals-head">Totals</div>';
         Object.values(totals).forEach((t) => {
-            const mixed = t.scales.size > 1 ? ' <span class="measure-flag" title="This total mixes measurements taken at different scales">⚠ mixed scale</span>' : '';
+            const mixed = t.scales.size > 1 ? ' <span class="measure-flag" title="This total mixes measurements taken at different scales"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Mixed Scale</span>' : '';
             const label = t.subject === t.type ? t.type : t.subject + ' - ' + t.type;
             let val;
             if (t.kind === 'mcount') val = String(t.count);
@@ -3922,7 +3922,7 @@
         const menu = document.createElement('div');
         menu.className = 'measure-ctx';
         menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:99999;`;
-        const items = [['Edit', 'edit'], ['Duplicate', 'dup'], ['Copy value', 'copy'], ['Delete', 'del']];
+        const items = [['Edit', 'edit'], ['Duplicate', 'dup'], ['Copy Value', 'copy'], ['Delete', 'del']];
         menu.innerHTML = items.map(([lbl, act]) =>
             `<button data-act="${act}"${act === 'del' ? ' class="danger"' : ''}>${lbl}</button>`).join('');
         document.body.appendChild(menu);
@@ -3953,8 +3953,8 @@
         menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:99999;`;
         const strokeable = obj.stroke !== undefined && obj.stroke !== null && !['i-text','text','textbox'].includes(obj.type);
         menu.innerHTML =
-            '<button data-act="color">Change color</button>' +
-            (strokeable ? '<button data-act="width">Line width...</button>' : '') +
+            '<button data-act="color">Change Color</button>' +
+            (strokeable ? '<button data-act="width">Line Width...</button>' : '') +
             '<button data-act="opacity">Opacity...</button>' +
             '<button data-act="dup">Duplicate</button>' +
             '<button data-act="del" class="danger">Delete</button>';
@@ -4586,7 +4586,7 @@
         _isRestoring = false;
         const entries = _hlClipped(start.x, start.y, p.x, p.y);
         if (!entries.length) {
-            showToast('No text there — switch Highlight to Freehand for drawings');
+            showToast('No text there - switch Highlight to Freehand for drawings');
             fabricCanvas.renderAll();
             return;
         }
@@ -4720,7 +4720,7 @@
                 });
                 refreshCommentPanel();
                 updateThumbnailBadges();
-                showToast('Comment added — view all in Comments');
+                showToast('Comment added - view all in Comments');
             });
         }
         _cmPopup._entries = entries;
@@ -4826,7 +4826,7 @@
             b.addEventListener('click', fn);
             _miniBar.appendChild(b);
         };
-        mk('📋 Copy', () => {
+        mk('Copy', () => {
             const ents = _miniBar._entries; hideMiniBar();
             if (!ents) return;
             const text = ents.map(e => e.item.str).join(' ').replace(/\s+/g, ' ').trim();
@@ -4834,7 +4834,7 @@
                 () => showToast('Copied: "' + text.slice(0, 40) + (text.length > 40 ? '…"' : '"')),
                 () => showToast('Copy failed'));
         });
-        mk('🖍 Highlight', () => {
+        mk('Highlight', () => {
             const ents = _miniBar._entries; hideMiniBar();
             if (!ents) return;
             const chosen = _highlightColor();
@@ -4847,7 +4847,7 @@
             fabricCanvas.renderAll();
             saveAnnotationState();
         });
-        if (COMMENTS_ENABLED) mk('💬 Comment', () => {
+        if (COMMENTS_ENABLED) mk('Comment', () => {
             const ents = _miniBar._entries;
             const bx = parseFloat(_miniBar.style.left) || 0, by = parseFloat(_miniBar.style.top) || 0;
             hideMiniBar();
@@ -4970,7 +4970,7 @@
             state.activeLayer = id;
             if (!l.visible) { l.visible = true; applyLayerVisibility(); } // marking on a hidden layer makes no sense
             if (l.color) dom.colorPicker.value = l.color; // layer color = default ink
-            setStatus('Drawing on layer: ' + l.name + ' — everything you add now belongs to it');
+            setStatus('Drawing on layer: ' + l.name + ' - everything you add now belongs to it');
         },
         assignSelected: (id) => {
             // Move the currently selected markup(s) onto another layer
@@ -5151,8 +5151,8 @@
         _shortcutsEl.className = 'modal-overlay';
         _shortcutsEl.style.display = 'flex';
         _shortcutsEl.innerHTML = '<div class="modal" style="max-width:520px;">' +
-            '<div class="modal-header"><span>Keyboard shortcuts</span>' +
-            '<button class="icon-btn" data-x="1">✕</button></div><div class="modal-body">' +
+            '<div class="modal-header"><span>Keyboard Shortcuts</span>' +
+            '<button class="icon-btn" data-x="1"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div><div class="modal-body">' +
             ROWS.map(([g, rows]) =>
                 '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin:10px 0 6px;">' + g + '</div>' +
                 rows.map(([k, d]) => '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12.5px;">' +
@@ -5500,15 +5500,15 @@
         // scope dropdown on the crop bar pre-selects "all pages" here (B9).
         const barScope = (document.getElementById('cropScope') || {}).value;
         const sel = (v) => barScope === 'all' ? (v === 'all' ? ' selected' : '') : (v === 'dup' ? ' selected' : '');
-        const choice = await _toolModal('Apply crop', `
+        const choice = await _toolModal('Apply Crop', `
             <label class="modal-label">How do you want to crop page ${state.currentPage}?</label>
             <select class="modal-input" data-k="mode">
-                <option value="dup"${sel('dup')}>Keep original — add a cropped copy after it</option>
-                <option value="replace"${sel('replace')}>Crop this page (replace it)</option>
-                <option value="all"${sel('all')}>Crop ALL ${state.totalPages} pages with this area</option>
+                <option value="dup"${sel('dup')}>Keep Original - Add a Cropped Copy After It</option>
+                <option value="replace"${sel('replace')}>Crop This Page (Replace It)</option>
+                <option value="all"${sel('all')}>Crop All ${state.totalPages} Pages With This Area</option>
             </select>
             <p class="modal-hint" style="margin-top:10px;">You can undo the crop any time with Cmd/Ctrl+Z.
-            Note: crop hides the outside area — to permanently remove sensitive content use Redact instead.</p>`, 'Apply Crop');
+            Note: crop hides the outside area - to permanently remove sensitive content use Redact instead.</p>`, 'Apply Crop');
         if (!choice) return;
 
         setStatus('Applying crop...');
@@ -5518,8 +5518,8 @@
             // Rotated pages: the axis mapping below is wrong for /Rotate 90/270
             const pjRot = (await state.pdfDoc.getPage(state.currentPage)).rotate || 0;
             if (pjRot % 360 !== 0) {
-                showToast('Crop is not supported on rotated pages yet — rotate the page upright first');
-                setStatus('Crop cancelled: page is rotated');
+                showToast('Crop is not supported on rotated pages yet - rotate the page upright first');
+                setStatus('Crop canceled: page is rotated');
                 return;
             }
             pushDocSnapshot('Crop');
@@ -5575,7 +5575,7 @@
                 setActiveTool('select');
                 renderPage(state.currentPage);
                 generateThumbnails();
-                setStatus('All ' + state.totalPages + ' pages cropped — Cmd/Ctrl+Z to undo');
+                setStatus('All ' + state.totalPages + ' pages cropped - Cmd/Ctrl+Z to undo');
                 showToast('All pages cropped');
                 return;
             }
@@ -5631,10 +5631,10 @@
             dom.pageInput.max = state.totalPages;
             dom.fileInfo.textContent = `${state.fileName} | ${state.totalPages} page(s)`;
             if (choice.mode === 'dup') {
-                setStatus('Cropped copy added — original kept. Cmd/Ctrl+Z to undo.');
+                setStatus('Cropped copy added - original kept. Cmd/Ctrl+Z to undo.');
                 showToast('Cropped copy added after the original page');
             } else {
-                setStatus('Page cropped — Cmd/Ctrl+Z to undo');
+                setStatus('Page cropped - Cmd/Ctrl+Z to undo');
                 showToast('Page ' + state.currentPage + ' cropped');
             }
         } catch (err) {
@@ -5905,12 +5905,12 @@
         // Ask WHERE to merge (Pranshu): at the start, after the last page
         // (default), or after a specific page of the current document.
         const total = state.totalPages || 1;
-        const w = await _toolModal('Merge PDF - where?', `
-            <label class="modal-label">Insert the merged pages:</label>
+        const w = await _toolModal('Merge PDF - Where?', `
+            <label class="modal-label">Insert the Merged Pages:</label>
             <select class="modal-input" data-k="pos">
-                <option value="end">After the last page (append)</option>
-                <option value="start">At the very start</option>
-                <option value="after">After a specific page...</option>
+                <option value="end">After the Last Page (Append)</option>
+                <option value="start">At the Very Start</option>
+                <option value="after">After a Specific Page...</option>
             </select>
             <input type="number" class="modal-input" data-k="afterPage" min="1" max="${total}" value="${total}"
                    placeholder="page number" style="margin-top:6px;display:none;">
@@ -6024,10 +6024,10 @@
 
         // Let the user choose the new page's size instead of silently copying
         // the current page (which surprises people on cropped/odd-size docs).
-        const v = await _toolModal('Add blank page', `
-            <label class="modal-label">Page size:</label>
+        const v = await _toolModal('Add Blank Page', `
+            <label class="modal-label">Page Size:</label>
             <select class="modal-input" data-k="size">
-                <option value="same">Same as current page</option>
+                <option value="same">Same as Current Page</option>
                 <option value="a4">A4 (210 × 297 mm)</option>
                 <option value="letter">Letter (8.5 × 11 in)</option>
                 <option value="legal">Legal (8.5 × 14 in)</option>
@@ -6220,7 +6220,7 @@
         }
         if (_guardStructural()) return;
 
-        pushDocSnapshot('Delete page');
+        pushDocSnapshot('Delete Page');
         setStatus('Deleting page...');
 
         try {
@@ -6541,7 +6541,7 @@
             if (i > 1) {
                 const upBtn = document.createElement('button');
                 upBtn.className = 'thumb-btn';
-                upBtn.title = 'Move up';
+                upBtn.title = 'Move Up';
                 upBtn.innerHTML = '&#9650;';
                 upBtn.draggable = false;
                 upBtn.addEventListener('click', (e) => {
@@ -6555,7 +6555,7 @@
             if (i < state.totalPages) {
                 const downBtn = document.createElement('button');
                 downBtn.className = 'thumb-btn';
-                downBtn.title = 'Move down';
+                downBtn.title = 'Move Down';
                 downBtn.innerHTML = '&#9660;';
                 downBtn.draggable = false;
                 downBtn.addEventListener('click', (e) => {
@@ -6568,7 +6568,7 @@
             // Delete button
             const delBtn = document.createElement('button');
             delBtn.className = 'thumb-btn delete-btn';
-            delBtn.title = 'Delete page';
+            delBtn.title = 'Delete Page';
             delBtn.innerHTML = '&times;';
             delBtn.draggable = false;
             delBtn.addEventListener('click', (e) => {
@@ -7507,7 +7507,7 @@
         fabricCanvas.renderAll();
 
         showContextualBar(editText);
-        setStatus(`Editing: "${item.str.substring(0, 40)}"  |  ${exactFaceFamily ? 'original font — ' + fontSource : 'substitute: ' + detected.fontFamily} · ${Math.round(fontSizePx)}px`);
+        setStatus(`Editing: "${item.str.substring(0, 40)}"  |  ${exactFaceFamily ? 'original font - ' + fontSource : 'substitute: ' + detected.fontFamily} · ${Math.round(fontSizePx)}px`);
     }
 
     // ── Sample background color from pdfCanvas at a display-coordinate bbox ──
@@ -8159,12 +8159,12 @@
             const savedName = (() => { try { return localStorage.getItem(STAMP_NAME_KEY) || ''; } catch { return ''; } })();
             overlay.innerHTML = `
                 <div class="modal">
-                    <div class="modal-header"><span>Custom stamp</span></div>
+                    <div class="modal-header"><span>Custom Stamp</span></div>
                     <div class="modal-body">
                         <button type="button" class="crop-btn" id="csApproval" style="width:100%;margin-bottom:12px;background:hsla(140,60%,40%,0.14);color:#1a7a3f;border:1px solid hsla(140,60%,40%,0.35);font-weight:600;">✓ Approval stamp (your name + today's date)</button>
-                        <label class="modal-label">Your name (for approval stamps):</label>
+                        <label class="modal-label">Your Name (for Approval Stamps):</label>
                         <input type="text" class="modal-input" id="csName" placeholder="e.g. Ankush Narkhede" maxlength="40" value="${escapeHtml(savedName)}">
-                        <label class="modal-label" style="margin-top:10px;">Stamp text:</label>
+                        <label class="modal-label" style="margin-top:10px;">Stamp Text:</label>
                         <input type="text" class="modal-input" id="csText" placeholder="e.g. GREENS GLOBAL" maxlength="60">
                         <label class="stamp-date-row" style="padding:10px 0 0;">
                             <input type="checkbox" id="csDateOn">
@@ -8197,7 +8197,7 @@
                 const nm = nameInput.value.trim();
                 if (!nm) { nameInput.focus(); showToast('Enter your name first'); return; }
                 try { localStorage.setItem(STAMP_NAME_KEY, nm); } catch { /* ignore */ }
-                input.value = 'APPROVED — ' + nm;
+                input.value = 'APPROVED - ' + nm;
                 overlay.querySelector('#csDateOn').checked = true;
                 overlay.querySelector('#csColor').value = '#1a7a3f';
             });
@@ -8575,8 +8575,8 @@
                 const p1 = await state.pdfDoc.getPage(state.currentPage);
                 const tc = await p1.getTextContent();
                 if (!tc.items.some(it => it.str && it.str.trim())) {
-                    setStatus('No selectable text on this page — it looks scanned. Run Scan & OCR first, then search.');
-                    showToast('Scanned PDF — run Scan & OCR to make it searchable');
+                    setStatus('No selectable text on this page - it looks scanned. Run Scan & OCR first, then search.');
+                    showToast('Scanned PDF - run Scan & OCR to make it searchable');
                     return;
                 }
             } catch (_) {}
@@ -8943,7 +8943,7 @@
                 banner = document.createElement('div');
                 banner.id = 'organizeLockBanner';
                 banner.className = 'organize-lock-banner';
-                banner.textContent = '🔒 This PDF is password/permissions-protected - structural page editing (rotate, add, merge, watermark, page numbers, N-up, remove blank) is disabled. You can still view, annotate and measure.';
+                banner.textContent = 'This PDF is password/permissions-protected - structural page editing (rotate, add, merge, watermark, page numbers, N-up, remove blank) is disabled. You can still view, annotate and measure.';
                 (dom.editorArea || document.body).prepend(banner);
             }
             banner.style.display = 'block';
@@ -9069,18 +9069,18 @@
         _exitScrollForOp();
         if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
         if (_guardStructural()) return;
-        const v = await _toolModal('Add watermark', `
-            <label class="modal-label">Watermark text:</label>
+        const v = await _toolModal('Add Watermark', `
+            <label class="modal-label">Watermark Text:</label>
             <input type="text" class="modal-input" data-k="text" value="CONFIDENTIAL" maxlength="60">
             <!-- Live preview (S3) -->
             <div style="margin-top:10px;height:70px;border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:repeating-conic-gradient(#f4f4f6 0% 25%, #fff 0% 50%) 50% / 16px 16px;">
                 <span id="wmPreview" style="font-weight:700;font-family:Arial;white-space:nowrap;">CONFIDENTIAL</span>
             </div>
-            <label class="modal-label" style="margin-top:10px;">Apply to:</label>
+            <label class="modal-label" style="margin-top:10px;">Apply To:</label>
             <select class="modal-input" data-k="scope">
-                <option value="all">All pages</option>
-                <option value="current">Current page only (page ${state.currentPage})</option>
-                <option value="range">Specific pages...</option>
+                <option value="all">All Pages</option>
+                <option value="current">Current Page Only (Page ${state.currentPage})</option>
+                <option value="range">Specific Pages...</option>
             </select>
             <input type="text" class="modal-input" data-k="range" placeholder="e.g. 1-3, 5, 8" style="margin-top:6px;display:none;">
             <label class="stamp-date-row" style="padding:10px 0 0;"><span>Color</span>
@@ -9091,9 +9091,9 @@
                 <input type="range" data-k="angle" min="-90" max="90" value="45" style="flex:1;"><span id="wmAngVal" style="width:42px;text-align:right;">45&deg;</span></label>
             <label class="stamp-date-row" style="padding:8px 0 0;"><span>Size</span>
                 <select class="modal-input" data-k="sizeMode" style="flex:1;">
-                    <option value="fit">Fit to page (large)</option>
+                    <option value="fit">Fit to Page (Large)</option>
                     <option value="med">Medium</option>
-                    <option value="small">Small (footer style)</option>
+                    <option value="small">Small (Footer Style)</option>
                 </select></label>`, 'Add Watermark',
             (root) => {
                 const sc = root.querySelector('[data-k="scope"]');
@@ -9192,14 +9192,14 @@
         _exitScrollForOp();
         if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
         if (_guardStructural()) return;
-        const v = await _toolModal('Add page numbers', `
+        const v = await _toolModal('Add Page Numbers', `
             <label class="modal-label">Position:</label>
             <select class="modal-input" data-k="pos">
-                <option value="bc">Bottom center</option>
-                <option value="br">Bottom right</option>
-                <option value="bl">Bottom left</option>
-                <option value="tr">Top right</option>
-                <option value="tc">Top center</option>
+                <option value="bc">Bottom Center</option>
+                <option value="br">Bottom Right</option>
+                <option value="bl">Bottom Left</option>
+                <option value="tr">Top Right</option>
+                <option value="tc">Top Center</option>
             </select>
             <label class="modal-label" style="margin-top:10px;">Format:</label>
             <select class="modal-input" data-k="fmt">
@@ -9219,11 +9219,11 @@
                     <input type="number" class="modal-input" data-k="margin" value="24" min="4" max="120" style="width:80px;">
                 </label>
             </div>
-            <label class="modal-label" style="margin-top:10px;">Apply to pages:</label>
+            <label class="modal-label" style="margin-top:10px;">Apply to Pages:</label>
             <select class="modal-input" data-k="scope">
-                <option value="all">All pages</option>
-                <option value="skipfirst">All except the first page</option>
-                <option value="range">A range...</option>
+                <option value="all">All Pages</option>
+                <option value="skipfirst">All Except the First Page</option>
+                <option value="range">A Range...</option>
             </select>
             <input type="text" class="modal-input" data-k="range" placeholder="e.g. 2-10, 12" style="margin-top:6px;display:none;">`,
             'Add Numbers', (overlay) => {
@@ -9280,9 +9280,9 @@
             <p class="modal-hint" style="margin:0 0 10px;">Current size: <b>${beforeSize}</b>. Save your markups first - compression works on the saved document content.</p>
             <label class="modal-label">Compression Level:</label>
             <select class="modal-input" data-k="level">
-                <option value="light" selected>Light - keeps text selectable (small gain)</option>
-                <option value="strong">Strong - turns pages into images (big gain)</option>
-                <option value="extreme">Extreme - turns pages into images, lower quality</option>
+                <option value="light" selected>Light - Keeps Text Selectable (Small Gain)</option>
+                <option value="strong">Strong - Turns Pages Into Images (Big Gain)</option>
+                <option value="extreme">Extreme - Turns Pages Into Images, Lower Quality</option>
             </select>
             <p class="modal-hint" data-image-warning role="alert" style="display:none;margin:10px 0 0;color:var(--danger);">This level turns every page into a picture. Text can no longer be selected, searched or copied, links and form fields stop working, and a small or text-only file can get larger.</p>`, 'Compress', (overlay) => {
             const level = overlay.querySelector('[data-k="level"]');
@@ -9368,7 +9368,7 @@
                         opts.map(o => `<option ${o === sel ? 'selected' : ''}>${o.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</option>`).join('') + '</select>';
             }
         });
-        const v = await _toolModal('Fill form fields', body, 'Apply to PDF');
+        const v = await _toolModal('Fill Form Fields', body, 'Apply to PDF');
         if (!v) return;
         setStatus('Filling form...');
         try {
@@ -9451,14 +9451,14 @@
                      creator: doc.getCreator() || '' };
         } catch (_) { showToast('Could not read document info'); return; }
         const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-        const v = await _toolModal('Document information', `
+        const v = await _toolModal('Document Information', `
             <label class="modal-label">Title:</label>
             <input type="text" class="modal-input" data-k="title" value="${esc(meta.title)}">
             <label class="modal-label" style="margin-top:8px;">Author:</label>
             <input type="text" class="modal-input" data-k="author" value="${esc(meta.author)}">
             <label class="modal-label" style="margin-top:8px;">Subject:</label>
             <input type="text" class="modal-input" data-k="subject" value="${esc(meta.subject)}">
-            <label class="modal-label" style="margin-top:8px;">Keywords (comma separated):</label>
+            <label class="modal-label" style="margin-top:8px;">Keywords (Comma Separated):</label>
             <input type="text" class="modal-input" data-k="keywords" value="${esc(meta.keywords)}">
             <p class="modal-hint" style="margin-top:8px;">${state.totalPages} page(s) · ${(((state.pdfBytes.byteLength||state.pdfBytes.length)/1024)|0)} KB</p>`,
             'Save Info');
@@ -9725,8 +9725,8 @@
                 const bytes = await out.save();
                 if (otherDoc && otherDoc.destroy) { try { otherDoc.destroy(); } catch (_) {} }
                 await loadPDF(new File([bytes], 'comparison.pdf', { type: 'application/pdf' }));
-                setStatus('Comparison ready — ' + changedPages + ' page(s) differ (changes in red)');
-                showToast(changedPages + ' page(s) differ — differences shown in red');
+                setStatus('Comparison ready - ' + changedPages + ' page(s) differ (changes in red)');
+                showToast(changedPages + ' page(s) differ - differences shown in red');
             } catch (err) { console.error(err); showToast('Compare failed: ' + err.message); }
     }
     window.comparePdfsTool = comparePdfsTool;
@@ -9812,17 +9812,17 @@
                 if (ink < 20) blanks.push(p); // needs to be VERY empty to count as blank
             }
             if (!blanks.length) { showToast('No blank pages found'); setStatus('No blank pages found'); return; }
-            if (blanks.length >= state.totalPages) { showToast('Every page looks blank — nothing removed'); setStatus('Ready'); return; }
+            if (blanks.length >= state.totalPages) { showToast('Every page looks blank - nothing removed'); setStatus('Ready'); return; }
             // In-page confirm with the exact page list (window.confirm can be
             // dropped in an iframe, so it fired with no dialog before).
-            const choice = await _choiceModal('Remove blank pages',
+            const choice = await _choiceModal('Remove Blank Pages',
                 'Found ' + blanks.length + ' page' + (blanks.length > 1 ? 's' : '') + ' that look blank: page' +
                 (blanks.length > 1 ? 's ' : ' ') + blanks.join(', ') + '. Remove ' + (blanks.length > 1 ? 'them' : 'it') +
                 '? This cannot be undone after you Download.',
                 [{ key: 'remove', label: 'Remove ' + blanks.length + ' page' + (blanks.length > 1 ? 's' : '') }]);
             if (choice !== 'remove') { setStatus('Ready'); return; }
             saveCurrentAnnotations();
-            pushDocSnapshot('Remove blank pages');
+            pushDocSnapshot('Remove Blank Pages');
             const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             blanks.sort((a, b) => b - a).forEach(p => doc.removePage(p - 1));
             const out = await doc.save();
@@ -9839,8 +9839,8 @@
         _exitScrollForOp();
         if (!state.pdfBytes) return;
         if (_guardStructural()) return;
-        const v = await _toolModal('Multiple pages per sheet (N-up)', `
-            <label class="modal-label">Pages per sheet:</label>
+        const v = await _toolModal('Multiple Pages per Sheet (N-Up)', `
+            <label class="modal-label">Pages per Sheet:</label>
             <select class="modal-input" data-k="n">
                 <option value="2">2 (side by side)</option>
                 <option value="4">4 (2 × 2)</option>
@@ -10210,7 +10210,7 @@
                 requestAnimationFrame(() => { dom.canvasScrollWrapper.scrollTop = 0; });
                 setTimeout(() => { dom.canvasScrollWrapper.scrollTop = 0; }, 120);
             }
-            setStatus('Edit mode — page ' + state.currentPage);
+            setStatus('Edit mode - page ' + state.currentPage);
         }
         if (btn) btn.classList.toggle('active', on);
     }
@@ -10502,8 +10502,8 @@
               '<div class="cs-badge">Coming soon</div>' +
               '<h3 class="cs-title">' + escapeHtml(feature) + ' is on the way</h3>' +
               '<p class="cs-blurb">' + escapeHtml(blurb || '') + '</p>' +
-              '<p class="cs-note">We’re putting the finishing touches on this feature so it works flawlessly. It’ll be available here shortly — thanks for your patience!</p>' +
-              '<button class="cs-btn">Got it</button>' +
+              '<p class="cs-note">We’re putting the finishing touches on this feature so it works flawlessly. It’ll be available here shortly - thanks for your patience!</p>' +
+              '<button class="cs-btn">Got It</button>' +
             '</div>';
         document.body.appendChild(ov);
         const close = () => ov.remove();
@@ -11049,8 +11049,8 @@
             const pdfFile = new File([bytes], (file.name || 'document').replace(/\.docx?$/i, '') + '.pdf',
                 { type: 'application/pdf' });
             await loadPDF(pdfFile);
-            setStatus('Word converted to PDF — click "Download" (top left) to save it');
-            showToast('Converted — click "Download" to save the PDF');
+            setStatus('Word converted to PDF - click "Download" (top left) to save it');
+            showToast('Converted - click "Download" to save the PDF');
         } catch (err) {
             console.error(err);
             setStatus('Word conversion failed: ' + err.message);
@@ -11082,8 +11082,8 @@
             const name = list.length === 1
                 ? list[0].name.replace(/\.(png|jpe?g)$/i, '') + '.pdf' : 'images.pdf';
             await loadPDF(new File([bytes], name, { type: 'application/pdf' }));
-            setStatus('Images converted — use Organize ▸ "Add Images" to add more, then "Save"');
-            showToast('Converted — add more via Organize ▸ Add Images');
+            setStatus('Images converted - use Organize ▸ "Add Images" to add more, then "Save"');
+            showToast('Converted - add more via Organize ▸ Add Images');
         } catch (err) {
             console.error(err);
             showToast('Could not convert those images');
@@ -11102,14 +11102,14 @@
             '<div class="i2p-modal" role="dialog" aria-modal="true">' +
               '<div class="i2p-head">' +
                 '<span class="i2p-title">Image → PDF</span>' +
-                '<button class="i2p-x" title="Close">✕</button>' +
+                '<button class="i2p-x" title="Close"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' +
               '</div>' +
               '<div class="i2p-body">' +
-                '<div class="i2p-empty">No images yet — add PNG or JPG images to build your PDF.</div>' +
+                '<div class="i2p-empty">No images yet - add PNG or JPG images to build your PDF.</div>' +
                 '<div class="i2p-grid"></div>' +
               '</div>' +
               '<div class="i2p-foot">' +
-                '<button class="i2p-btn i2p-add">＋ Add images</button>' +
+                '<button class="i2p-btn i2p-add">+ Add Images</button>' +
                 '<span class="i2p-count"></span>' +
                 '<button class="i2p-btn i2p-create" disabled>Create PDF</button>' +
               '</div>' +
@@ -11132,7 +11132,7 @@
                 cell.innerHTML =
                     '<img src="' + url + '" alt="">' +
                     '<span class="i2p-n">' + (idx + 1) + '</span>' +
-                    '<button class="i2p-del" title="Remove">✕</button>';
+                    '<button class="i2p-del" title="Remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
                 cell.querySelector('img').onload = () => URL.revokeObjectURL(url);
                 cell.querySelector('.i2p-del').addEventListener('click', () => { picked.splice(idx, 1); render(); });
                 grid.appendChild(cell);
@@ -11182,7 +11182,7 @@
             }
             const out = await doc.save();
             await loadPDF(new File([out], state.fileName || 'document.pdf', { type: 'application/pdf' }));
-            setStatus('Added ' + list.length + ' image page' + (list.length > 1 ? 's' : '') + ' — click "Save" to keep them');
+            setStatus('Added ' + list.length + ' image page' + (list.length > 1 ? 's' : '') + ' - click "Save" to keep them');
             showToast('Images added as new pages');
         } catch (err) {
             console.error(err);
