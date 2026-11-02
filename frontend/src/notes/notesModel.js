@@ -52,7 +52,8 @@ export function dayHeading(day, today = localDay()) {
   return `${formatWeekday(day)}, ${formatDate(day)}`;
 }
 
-export const noteTitle = (n) => (n?.title || '').trim() || (n?.kind === 'daily' ? 'Daily Scratchpad' : 'Untitled Note');
+export const isBoard = (n) => n?.kind === 'board';
+export const noteTitle = (n) => (n?.title || '').trim() || (n?.kind === 'daily' ? 'Daily Scratchpad' : isBoard(n) ? 'Untitled Board' : 'Untitled Note');
 
 // [{ day, notes }] newest day first; inside a day, pinned first then newest edit.
 export function groupByDay(notes) {
