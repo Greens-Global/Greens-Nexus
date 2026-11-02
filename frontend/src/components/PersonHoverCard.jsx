@@ -171,7 +171,7 @@ export default function PersonHover({ email, name = '', children, disabled = fal
                 <a href={`mailto:${card.workEmail || em}`} style={ACTION} onClick={(e) => e.stopPropagation()}>
                   <Mail size={13} /> Email
                 </a>
-                <PersonActions email={card.workEmail || em} name={card.name || em} external={!!card.external} myEmail={myEmail} size="sm" />
+                <PersonActions email={card.workEmail || em} name={card.name || em} external={!!card.external} myEmail={myEmail} variant="pill" />
                 {canOpen && (
                   <button onClick={(e) => { e.stopPropagation(); go(); }} style={{ ...ACTION, border: 'none', cursor: 'pointer' }}>
                     <User size={13} /> Profile
