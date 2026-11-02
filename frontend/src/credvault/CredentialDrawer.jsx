@@ -5,6 +5,7 @@
 // phone the same content slides in as a full-screen sheet (CredentialSheet).
 // The screen owns the data and the gated calls; this file only lays them out.
 import { useEffect, useRef, useState } from "react";
+import { teamsChatUrl } from '../lib/teamsLinks';
 import {
   X, Copy, Check, Eye, EyeOff, ExternalLink, Pencil, Trash2, RefreshCw, Share2, KeyRound, Star,
   ShieldAlert, Clock, UserMinus, Lock, Send, ShieldCheck,
@@ -186,7 +187,7 @@ export function CredentialDetail({
             </div>
             <div className="cv-person">
               <span>{nameOf(cred.owner)} <span className="cv-muted">· Owner</span></span>
-              {cred.owner && cred.owner !== myEmail && <a href={`https://teams.microsoft.com/l/chat/0/0?users=${cred.owner}`} target="_blank" rel="noopener noreferrer" title={`Chat with ${nameOf(cred.owner)} on Teams`} style={{ display: "flex" }}><TeamsIcon size={18} /></a>}
+              {cred.owner && cred.owner !== myEmail && <a href={teamsChatUrl(cred.owner)} target="_blank" rel="noopener noreferrer" title={`Chat with ${nameOf(cred.owner)} on Teams`} style={{ display: "flex" }}><TeamsIcon size={18} /></a>}
             </div>
             {cred.backupOwner && <div className="cv-person"><span>{nameOf(cred.backupOwner)} <span className="cv-muted">· Backup Owner</span></span></div>}
             {access?.heads?.filter((h) => h !== cred.owner && h !== cred.backupOwner).map((h) => (

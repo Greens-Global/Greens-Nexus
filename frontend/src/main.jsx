@@ -37,6 +37,7 @@ import { Spinner } from './components/AsyncState'
 import DialogGuard from './components/DialogGuard'
 import { DialogHost } from './ui/dialog'
 import { installErrorReporter } from './lib/errorReporter'
+import { registerServiceWorker } from './lib/pwa'
 import { BFF_MODE, bffBootstrap } from './bffAuth'
 
 installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
@@ -109,6 +110,13 @@ let _booted = false;
 function renderConnecting(waitedMs = 0) { if (!_booted) _root.render(<BootConnecting waitedMs={waitedMs} />); }
 
 function renderApp() {
+  // Installable app + push (lib/pwa.js): the worker registers with the app
+  // shell - never on a public page (an e-sign link, the careers form, a
+  // policy page), where the visitor has no account to push to. It only
+  // handles push. BFF mode reaches here only once the session is confirmed;
+  // MSAL mode registers at first render and the worker simply has nothing to
+  // show until the person signs in and turns push on.
+  if (!isPublicPath) registerServiceWorker();
   _root.render(
     <StrictMode>
       <RootErrorBoundary>

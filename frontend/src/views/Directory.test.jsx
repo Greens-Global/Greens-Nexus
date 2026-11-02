@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { teamsChatUrl, teamsCallUrl } from '../lib/teamsLinks';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
 // Contact Directory (Oct 2026) render smoke: the list groups by department
@@ -49,6 +50,9 @@ describe('Contact Directory', () => {
     fireEvent.click(rows[1]);                                     // Sam
     expect(screen.getAllByText('Sam Staff').length).toBeGreaterThan(1);
     expect(screen.getByText('Chat').closest('a').getAttribute('href')).toContain('teams.microsoft.com/l/chat/0/0?users=sam%40x.com');
+    // The card's Chat and Call come from the one Teams helper (lib/teamsLinks.js, 11/02/2026).
+    expect(screen.getByText('Chat').closest('a').getAttribute('href')).toBe(teamsChatUrl('sam@x.com'));
+    expect(screen.getByText('Call').closest('a').getAttribute('href')).toBe(teamsCallUrl('sam@x.com'));
     expect(screen.getByText('Video').closest('a').getAttribute('href')).toContain('withVideo=true');
     expect(screen.getAllByText('On Shift').length).toBe(2);       // row pill + card chip
     // Email opens Outlook on the web in a new tab, never in place of Nexus.

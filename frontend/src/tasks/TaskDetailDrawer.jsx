@@ -25,6 +25,7 @@ import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInPro
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
 import { Avatar, Modal, PersonMultiSelect, ChipMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, MenuCaption, PersonDot, useEscapeLayer } from './components';
+import PersonActions from '../components/PersonActions';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
 import { useFrequentCollaborators, frequentRows } from './frequentPeople';
@@ -1355,6 +1356,26 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
               completes it for all (one row, one flag). */}
           <PersonMultiSelect value={taskAssignees(task)} people={people} addTitle="Add assignee"
             onChange={(list) => patch({ assigneeIds: list })} placeholder="Unassigned" />
+          {/* Message / Call each assignee on Teams (Frontline Reach, 11/02/2026):
+              the first name before each pair, so three assignees are not six
+              identical icons; only people in Nexus People, never yourself. */}
+          {(() => {
+            const rows = taskAssignees(task).map((e) => {
+              const p = people?.find((x) => (x.email || '').toLowerCase() === (e || '').toLowerCase());
+              return { e, p, show: !!p && !p.external && !!e && e.toLowerCase() !== (myEmail || '').toLowerCase() };
+            }).filter((r) => r.show);
+            if (!rows.length) return null;
+            return (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 6 }}>
+                {rows.map(({ e }) => (
+                  <span key={e} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--muted)' }}>
+                    <span>{(nameOf(e) || e).split(' ')[0]}</span>
+                    <PersonActions email={e} name={nameOf(e)} myEmail={myEmail} size="sm" />
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </Row>
 

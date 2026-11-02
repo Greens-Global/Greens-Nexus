@@ -1,6 +1,6 @@
 // TicketDrawer - split out of TicketsView.jsx (Oct 2026); the code below
 // moved verbatim, see TicketsView.jsx for the module overview.
-import { useEffect, useRef, useState } from 'react';
+import { useMemo, useEffect, useRef, useState } from 'react';
 import { Plus, Pencil, Trash2, CheckCircle2, ClipboardList, Paperclip, MessageSquare, History, ArrowUp, MousePointer2, Lock, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
@@ -12,6 +12,7 @@ import { setOpenTicketId, clearOpenTicketId } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle } from '../tasks/theme';
 import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
 import { Avatar, PriorityChip, Modal, PersonSelect, usePeople, useIsMobile } from '../tasks/components';
+import PersonActions from '../components/PersonActions';
 import { dialog as appDialog } from '../ui/dialog';
 import {
   fmtDate, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS,
@@ -134,6 +135,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // not the whole task workspace.
   const onDecided = () => reloadTickets?.();
   const people = usePeople();
+  const personById = useMemo(() => new Map((people || []).map((p) => [(p.email || '').toLowerCase(), p])), [people]);
   const collabExtras = useCollaboratorExtras();
   const sites = useTicketSites();
   const isMobile = useIsMobile();
@@ -791,14 +793,23 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         <div style={field}>
           <label style={label}>Requester</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}>
-            {t.requesterId ? <><Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /><span style={{ fontSize: 13, color: NX.ink }}>{nameOf(t.requesterId)}</span></> : <span style={{ fontSize: 13, color: NX.faint }}>-</span>}
-            {canRequestControl && (
-              <button type="button" onClick={() => setRequestingControl(true)}
-                title={`Ask ${nameOf(t.requesterId) || 'them'} for permission to view and control their screen - nothing is visible until they accept`}
-                style={{ ...btn('outline'), marginLeft: 'auto', padding: '4px 9px', fontSize: 12, gap: 5 }}>
-                <MousePointer2 size={13} /> Request Control
-              </button>
-            )}
+            {t.requesterId ? <><Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /><span style={{ fontSize: 13, color: NX.ink, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(t.requesterId)}</span></> : <span style={{ fontSize: 13, color: NX.faint }}>-</span>}
+            {/* Message / Call on Teams (11/02/2026) sit with Request Control at the
+                right - only for a requester who is in Nexus People (a ticket
+                mailed in from outside has no one to reach on Teams). */}
+            <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              {t.requesterId && (
+                <PersonActions email={t.requesterId} name={nameOf(t.requesterId)} known={personById.has((t.requesterId || '').toLowerCase())}
+                  external={!!personById.get((t.requesterId || '').toLowerCase())?.external} myEmail={myEmail} size="sm" />
+              )}
+              {canRequestControl && (
+                <button type="button" onClick={() => setRequestingControl(true)}
+                  title={`Ask ${nameOf(t.requesterId) || 'them'} for permission to view and control their screen - nothing is visible until they accept`}
+                  style={{ ...btn('outline'), padding: '4px 9px', fontSize: 12, gap: 5 }}>
+                  <MousePointer2 size={13} /> Request Control
+                </button>
+              )}
+            </span>
           </div>
         </div>
         {canSeeAssignSla && (
@@ -808,15 +819,26 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
                 so showing an open picker would only produce a 409 the user can't act on. */}
             {/* Phones get a bottom sheet (TicketAssignSheet) - the anchored
                 dropdown and its auto-focused search fought the keyboard. */}
-            {isMobile ? (
-              <MobileAssignField value={v.assigneeId || ''} people={people} nameOf={nameOf} onChange={(val) => stage({ assigneeId: val || '' })}
-                disabled={!canWorking || t.approvalStatus === 'pending'}
-                placeholder={t.approvalStatus === 'pending' ? 'Awaiting Approval' : 'Unassigned'} />
-            ) : (
-              <PersonSelect value={v.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
-                disabled={!canWorking || t.approvalStatus === 'pending'}
-                placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
-            )}
+            {/* Message / Call the person working it - Teams, not a second inbox
+                (11/02/2026): the two icons sit right of the picker, which
+                already shows the name. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {isMobile ? (
+                  <MobileAssignField value={v.assigneeId || ''} people={people} nameOf={nameOf} onChange={(val) => stage({ assigneeId: val || '' })}
+                    disabled={!canWorking || t.approvalStatus === 'pending'}
+                    placeholder={t.approvalStatus === 'pending' ? 'Awaiting Approval' : 'Unassigned'} />
+                ) : (
+                  <PersonSelect value={v.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
+                    disabled={!canWorking || t.approvalStatus === 'pending'}
+                    placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
+                )}
+              </div>
+              {v.assigneeId && (
+                <PersonActions email={v.assigneeId} name={nameOf(v.assigneeId)} known={personById.has((v.assigneeId || '').toLowerCase())}
+                  external={!!personById.get((v.assigneeId || '').toLowerCase())?.external} myEmail={myEmail} size="sm" />
+              )}
+            </div>
           </div>
         )}
         {t.assignedById && (
