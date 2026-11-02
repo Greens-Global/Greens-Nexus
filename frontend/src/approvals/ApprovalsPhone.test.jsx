@@ -39,6 +39,13 @@ vi.mock('../contexts/RoleContext', async (importOriginal) => ({
   useRole: () => ({ isExternal: false, can: () => false, myGrantedModules: new Set(), myEmail: 'me@greensglobal.com' }),
 }));
 
+// jsdom has no PointerEvent (see ApprovalCard.test.jsx).
+if (typeof window.PointerEvent === 'undefined') {
+  window.PointerEvent = class PointerEvent extends window.MouseEvent {
+    constructor(type, init = {}) { super(type, init); this.pointerId = init.pointerId ?? 1; this.pointerType = init.pointerType || 'mouse'; }
+  };
+}
+
 const { default: Approvals } = await import('./ApprovalsCenter');
 const { UNDO_MS } = await import('../lib/approvalActions');
 const { MOTION, setMotionEnabled } = await import('../lib/motion');
@@ -322,6 +329,62 @@ describe('Approvals on a phone', () => {
     } finally {
       window.matchMedia = realMatch;
     }
+  });
+
+  // Motion on, outside a test run's reduced-motion default.
+  const withMotion = async (fn) => {
+    const realMatch = window.matchMedia;
+    window.matchMedia = (q) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
+    setMotionEnabled(true);
+    try { await fn(); } finally { window.matchMedia = realMatch; }
+  };
+
+  it("the last card of a section takes the section's label with it, and its ghost sits over the list", async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    timeOffDecide.mockResolvedValue({});
+    await withMotion(async () => {
+      render(<Approvals activeSub="" onSubChange={() => {}} />);
+      await screen.findByText(TIME_OFF);
+      openFilters();
+      fireEvent.click(group('Group By').getByRole('button', { name: 'Person' }));
+      fireEvent.click(within(sheet()).getByRole('button', { name: 'Done' }));
+      const labels = () => [...document.querySelectorAll('.apv-ph-sec-h')].map((h) => h.textContent);
+      // Every label is a FLIP item, so the labels below glide up with the cards.
+      document.querySelectorAll('.apv-ph-sec-h').forEach((h) => expect(h.getAttribute('data-flip')).toMatch(/^sec:/));
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      fireEvent.click(btn(/^Approve: Time Off/));                 // Priya's only card
+      const ghost = document.querySelector('.apv-ph-ghost');
+      expect(ghost).toBeTruthy();
+      expect(ghost.closest('.apv-ph-sec')).toBeNull();
+      expect(labels().some((t) => t.startsWith('Priya Sharma'))).toBe(false);   // no "Priya Sharma · 0" for the beat
+      expect(labels().some((t) => / · 0/.test(t))).toBe(false);
+    });
+  });
+
+  it('the ghost leaves the way the decision went: right for a yes, left for a no, from where a swipe let go', async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    await withMotion(async () => {
+      render(<Approvals activeSub="" onSubChange={() => {}} />);
+      await screen.findByText(TIME_OFF);
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      fireEvent.click(btn(/^Approve: Time Off/));
+      let ghost = document.querySelector('.apv-ph-ghost');
+      expect(ghost.style.getPropertyValue('--dir')).toBe('1');
+      expect(ghost.style.getPropertyValue('--from-x')).toBe('0px');
+      await act(async () => { vi.advanceTimersByTime(MOTION.md + 200); });
+      // A left swipe on the item (Yours To Do: Decline, optional note) - it leaves left, from where it was let go.
+      const item = screen.getByText(ITEM, { selector: '.apv-ph-ttl' }).closest('.apv-ph-card');
+      Object.defineProperty(item, 'offsetWidth', { value: 300, configurable: true });
+      const touch = (x) => ({ pointerType: 'touch', pointerId: 1, clientX: x, clientY: 100 });
+      fireEvent.pointerDown(item, touch(260));
+      fireEvent.pointerMove(item, touch(240));
+      fireEvent.pointerMove(item, touch(100));
+      fireEvent.pointerUp(item, touch(100));
+      ghost = [...document.querySelectorAll('.apv-ph-ghost')].find((g) => g.textContent.includes(ITEM));
+      expect(ghost.className).toContain('is-no');
+      expect(ghost.style.getPropertyValue('--dir')).toBe('-1');
+      expect(ghost.style.getPropertyValue('--from-x')).toBe('-160px');
+    });
   });
 
   // Review Focus 5: a row that only opens its module shows Review and Open.

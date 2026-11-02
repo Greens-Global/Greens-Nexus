@@ -9,9 +9,13 @@
 //
 // Motion (lib/motion.js tokens, transform and opacity only):
 //   - a decided card stays for one beat as a GHOST - lifted out of the flow
-//     at the spot it held, flashing its action color at 12% for --dur-xs,
-//     then sliding right and fading over --dur-sm (the exit, 70% of the
-//     --dur-md the neighbors glide up in through useFlip) - then unmounts;
+//     at the spot it held (drawn at list level, so a section whose last
+//     card it was loses its label with it), flashing its action color at
+//     12% for --dur-xs, then sliding on and fading over --dur-sm (the exit,
+//     70% of the --dur-md the neighbors and section labels glide up in
+//     through useFlip) - then unmounts. It leaves the way it was going: from
+//     where a swipe let it go (--from-x), right for a yes, left for a no
+//     (--dir);
 //   - Undo brings the row back into the data at the same index, and useFlip
 //     fades the returning card in while the neighbors glide down;
 //   - the count pill bumps (scale 1 -> 1.08 -> 1, --dur-sm) when it changes;
@@ -46,7 +50,7 @@ export default function ApprovalsPhone({
   const [filterOpen, setFilterOpen] = useState(false);
   const [asking, setAsking] = useState(null);        // { row, action } waiting on its note
   const [reviewing, setReviewing] = useState(null);
-  const [ghosts, setGhosts] = useState(() => new Map());   // key -> { row, tone, top }
+  const [ghosts, setGhosts] = useState(() => new Map());   // key -> { row, tone, top, fromX, dir }
   const listRef = useRef(null);
   const cardEls = useRef(new Map());
   const timers = useRef(new Set());
@@ -67,7 +71,7 @@ export default function ApprovalsPhone({
   // ── acting ──
   // The card leaves the data at once (onAct -> decide -> hide); with motion
   // on, a ghost of it holds its spot for the beat so the eye sees it go.
-  const fire = (row, action, note) => {
+  const fire = (row, action, note, meta) => {
     lockUntil.current = Date.now() + LOCK_MS;
     const wait = motionWait(GHOST_MS);
     const el = cardEls.current.get(row.key);
@@ -75,7 +79,9 @@ export default function ApprovalsPhone({
     if (wait && el && root && runsInline(row, action.key)) {
       const top = el.getBoundingClientRect().top - root.getBoundingClientRect().top;
       const tone = action.tone === 'primary' || YES_KEYS.has(action.key) ? 'yes' : 'no';
-      setGhosts((g) => new Map(g).set(row.key, { row, tone, top }));
+      const fromX = Math.round(meta?.fromX || 0);
+      const dir = fromX ? Math.sign(fromX) : tone === 'yes' ? 1 : -1;
+      setGhosts((g) => new Map(g).set(row.key, { row, tone, top, fromX, dir }));
       const t = setTimeout(() => {
         timers.current.delete(t);
         setGhosts((g) => { if (!g.has(row.key)) return g; const n = new Map(g); n.delete(row.key); return n; });
@@ -84,30 +90,26 @@ export default function ApprovalsPhone({
     }
     onAct(row, action, note);
   };
-  const act = (row, action) => {
+  const act = (row, action, meta) => {
     if (Date.now() < lockUntil.current) return;
     if (action.key === 'open' || !runsInline(row, action.key)) { onAct(row, action); return; }
     if (needsNote(action)) { setAsking({ row, action }); return; }
-    fire(row, action, '');
+    fire(row, action, '', meta);
   };
   const review = (row) => setReviewing(row);
 
-  const card = (r, own = false) => {
-    if (hiddenKeys.has(r.key)) {
-      const g = ghosts.get(r.key);
-      if (!g) return null;
-      return (
-        <div key={`ghost:${r.key}`} className={`apv-ph-ghost is-${g.tone}`} style={{ top: g.top }}>
-          <ApprovalCard row={g.row} own={own} ghost onAct={() => {}} onReview={() => {}} />
-        </div>
-      );
-    }
-    return (
-      <div key={r.key} data-flip={r.key} ref={(el) => { if (el) cardEls.current.set(r.key, el); else cardEls.current.delete(r.key); }}>
-        <ApprovalCard row={r} own={own} swipe={!reduce} onAct={act} onReview={() => review(r)} />
-      </div>
-    );
-  };
+  const card = (r, own = false) => (
+    <div key={r.key} data-flip={r.key} ref={(el) => { if (el) cardEls.current.set(r.key, el); else cardEls.current.delete(r.key); }}>
+      <ApprovalCard row={r} own={own} swipe={!reduce} onAct={act} onReview={() => review(r)} />
+    </div>
+  );
+  // The ghosts sit over the list, not inside a section: the section a ghost
+  // came from is drawn from its visible cards alone.
+  const ghostEls = [...ghosts].filter(([k]) => hiddenKeys.has(k)).map(([k, g]) => (
+    <div key={`ghost:${k}`} className={`apv-ph-ghost is-${g.tone}`} style={{ top: g.top, '--from-x': `${g.fromX}px`, '--dir': g.dir }}>
+      <ApprovalCard row={g.row} own={g.row.scope === 'act'} ghost onAct={() => {}} onReview={() => {}} />
+    </div>
+  ));
 
   const head = (
     <div className="apv-ph-head">
@@ -159,33 +161,29 @@ export default function ApprovalsPhone({
         }>
         <div className="apv-ph-list" ref={listRef}>
           {sections.map((s) => {
-            const cards = s.rows.map((r) => card(r)).filter(Boolean);
-            if (!cards.length) return null;
-            const n = sum(s.rows.filter(visible));
+            const live = s.rows.filter(visible);
+            if (!live.length) return null;
             return (
               <section key={s.key} className="apv-ph-sec" aria-label={s.label || 'Approvals'}>
                 {groupBy !== 'none' && (
-                  <div className="apv-ph-sec-h" style={{ position: 'sticky', top: STICKY_TOP }}>
-                    <span className="apv-ph-sec-l">{s.label}</span><span className="apv-ph-sec-n">{` · ${n}`}</span>
+                  <div className="apv-ph-sec-h" data-flip={`sec:${s.key}`} style={{ position: 'sticky', top: STICKY_TOP }}>
+                    <span className="apv-ph-sec-l">{s.label}</span><span className="apv-ph-sec-n">{` · ${sum(live)}`}</span>
                     {s.oldest >= 3 && <StatusLabel label={`Oldest ${s.oldest}d`} color={s.oldest >= 7 ? '#dc2626' : '#d97706'} size="sm" className="apv-ph-sec-old" />}
                   </div>
                 )}
-                {cards}
+                {live.map((r) => card(r))}
               </section>
             );
           })}
-          {(() => {
-            const cards = ownRows.map((r) => card(r, true)).filter(Boolean);
-            if (!cards.length) return null;
-            return (
-              <section className="apv-ph-sec apv-ph-own" aria-label="Yours To Do">
-                <div className="apv-ph-sec-h" style={{ position: 'sticky', top: STICKY_TOP }}>
-                  <ListChecks size={13} aria-hidden="true" /><span className="apv-ph-sec-l">Yours To Do</span><span className="apv-ph-sec-n">{` · ${sum(shownOwn)}`}</span>
-                </div>
-                {cards}
-              </section>
-            );
-          })()}
+          {shownOwn.length > 0 && (
+            <section className="apv-ph-sec apv-ph-own" aria-label="Yours To Do">
+              <div className="apv-ph-sec-h" data-flip="sec:own" style={{ position: 'sticky', top: STICKY_TOP }}>
+                <ListChecks size={13} aria-hidden="true" /><span className="apv-ph-sec-l">Yours To Do</span><span className="apv-ph-sec-n">{` · ${sum(shownOwn)}`}</span>
+              </div>
+              {shownOwn.map((r) => card(r, true))}
+            </section>
+          )}
+          {ghostEls}
         </div>
       </AsyncSection>
       {filterOpen && (

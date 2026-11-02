@@ -8282,11 +8282,12 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .apv-ph-open { flex: 0 1 auto; padding: 0 16px; background: var(--card); border-color: var(--line); color: var(--ink); }
 .apv-ph-more { flex: 0 0 44px; width: 44px; min-height: 48px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--muted); display: inline-grid; place-items: center; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .apv-ph-btn:focus-visible, .apv-ph-more:focus-visible, .apv-ph-chip:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: 2px; }
-.apv-ph-ghost { position: absolute; left: 0; right: 0; z-index: 1; pointer-events: none; animation: apv-ph-leave var(--dur-sm) var(--ease-in) var(--dur-xs) forwards; }
+.apv-ph-ghost { position: absolute; left: 0; right: 0; z-index: 1; pointer-events: none; transform: translateX(var(--from-x, 0px)); animation: apv-ph-leave var(--dur-sm) var(--ease-in) var(--dur-xs) forwards; }
 .apv-ph-ghost::after { content: ''; position: absolute; inset: 0; border-radius: 12px; background: var(--tone, #16a34a); opacity: 0; animation: apv-ph-flash var(--dur-xs) ease-out forwards; }
 .apv-ph-ghost.is-yes { --tone: #16a34a; }
 .apv-ph-ghost.is-no { --tone: #dc2626; }
-@keyframes apv-ph-leave { to { transform: translateX(24px); opacity: 0; } }
+/* From where the swipe let go (--from-x, 0 for a tap), on 24px the way it was going (--dir: 1 right, -1 left). */
+@keyframes apv-ph-leave { from { transform: translateX(var(--from-x, 0px)); } to { transform: translateX(calc(var(--from-x, 0px) + var(--dir, 1) * 24px)); opacity: 0; } }
 @keyframes apv-ph-flash { to { opacity: .12; } }
 .apv-ph-empty { padding: 44px 20px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; background: var(--card); }
 .apv-ph-empty-ic { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: color-mix(in srgb, #16a34a 12%, var(--card)); color: #16a34a; animation: apv-ph-pop var(--dur-md) var(--ease-spring) both; }
