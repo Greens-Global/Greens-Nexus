@@ -446,9 +446,16 @@ class SensitiveFieldTests(unittest.TestCase):
 
     # ── audit ──────────────────────────────────────────────────────────────
 
-    def test_sign_parties_are_an_hr_table_for_the_audit_mask(self):
+    def test_a_sign_party_field_values_json_is_redacted_in_audit_rows(self):
         import audit_capture
-        self.assertIn("hr_sign_parties", audit_capture._HR_TABLES)
+        # The whole JSON, not a word match: the SSN sits under the field's
+        # own id ("ssn", "acct", "secret"...) inside one column.
+        self.assertEqual(audit_capture._redact_reason("hr_sign_parties", "field_values"),
+                         "sensitive")
+        self.assertEqual(audit_capture._redact_reason("hr_sign_parties", "FIELD_VALUES"),
+                         "sensitive")
+        self.assertEqual(audit_capture._redact_reason("hr_sign_parties", "status"), "")
+        self.assertEqual(audit_capture._redact_reason("task_tickets", "field_values"), "")
 
 
 if __name__ == "__main__":
