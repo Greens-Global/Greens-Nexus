@@ -7674,7 +7674,9 @@ label.nx-set-row-main { cursor: pointer; }
 /* Shell */
 .nx-set-shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 32px; align-items: start; }
 .nx-set-rail { position: sticky; top: 0; max-height: calc(100vh - 140px); overflow-y: auto; padding: 6px 6px 24px 6px; margin: -4px -2px 0 -6px; display: flex; flex-direction: column; gap: 1px; scrollbar-width: thin; }
-.nx-set-rail-section { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--wk-faint, var(--muted)); padding: 16px 10px 6px; }
+/* Section labels: the house label (DESIGN.md - 12px, normal case, no
+   tracking), dark enough to read (11/02/2026: was #9699a6 at 10.5px, 2.8:1). */
+.nx-set-rail-section { font-size: 12px; font-weight: 600; color: var(--muted); padding: 16px 10px 6px; }
 .nx-set-rail-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border-radius: 8px; border: none; background: transparent; cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; color: var(--ink); text-align: left; transition: background var(--transition-fast), color var(--transition-fast); }
 .nx-set-rail-item:hover { background: var(--paper); }
 .nx-set-rail-item:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
@@ -7716,7 +7718,7 @@ label.nx-set-row-main { cursor: pointer; }
 .nx-set-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .7; }
 .nx-set-badge.is-own { color: hsl(var(--color-orange)); background: hsla(var(--color-orange), .08); border-color: hsla(var(--color-orange), .35); }
 .nx-set-diff { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); padding: 10px 14px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); margin: -4px 0 24px; }
-.nx-set-diff.is-own { border-left: 3px solid hsl(var(--color-orange)); }
+.nx-set-diff.is-own { border-color: color-mix(in srgb, var(--nx-own) 38%, transparent); background: color-mix(in srgb, var(--nx-own) 5%, var(--card)); }
 .nx-set-diff button { background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: hsl(var(--color-orange)); }
 .nx-set-diff button:hover { text-decoration: underline; }
 .nx-set-list { display: flex; flex-direction: column; }
@@ -7727,7 +7729,7 @@ label.nx-set-row-main { cursor: pointer; }
 .nx-set-tile { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; background: var(--paper); border: 1px solid var(--line); color: var(--ink); }
 
 /* Phones: the subjects are a list (Settings home), a subject opens on its own. */
-.nx-set-home-section { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 20px 4px 8px; }
+.nx-set-home-section { font-size: 12px; font-weight: 600; color: var(--muted); margin: 18px 4px 8px; }
 .nx-set-back { display: inline-flex; align-items: center; gap: 4px; border: none; background: none; padding: 6px 0; margin-bottom: 6px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; color: var(--wk-brand); }
 @media (max-width: 900px) {
   .nx-set-head { position: static; padding-top: 0; }
@@ -7757,9 +7759,13 @@ label.nx-set-row-main { cursor: pointer; }
 }
 .nx-set-sync { padding: 0 18px 14px; margin-top: -4px; }
 .nx-set-sync:empty { display: none; }
-.nx-switch { background: #cfd5e1; }
-[data-theme="dark"] .nx-switch { background: rgba(255, 255, 255, .2); }
-.nx-switch:checked { background: var(--wk-brand); }
+/* Off: a light track with an edge that reads at 3:1 on white (11/02/2026:
+   #cfd5e1 alone was 1.5:1). The visual stays 36 x 20; ::before widens what a
+   finger or a pointer can hit to 28px tall. */
+.nx-switch { background: #e4e8ef; box-shadow: inset 0 0 0 1px #848da0; }
+[data-theme="dark"] .nx-switch { background: rgba(255, 255, 255, .14); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .5); }
+.nx-switch:checked, [data-theme="dark"] .nx-switch:checked { background: var(--wk-brand); box-shadow: none; }
+.nx-switch::before { content: ""; position: absolute; inset: -4px -4px; }
 @media (min-width: 901px) { .nx-set-pagehead { display: none; } }
 /* Sticky rail and subject header: .viewport is overflow-y: auto but never
    scrolls itself (the page does), and body's overflow-x: hidden makes it a
@@ -7783,6 +7789,33 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .nx-set-group-body.is-flush .nx-set-card:first-child { border-top: none; }
 @media (max-width: 900px) { .nx-set-group-body.is-flush .nx-set-pad { padding: 12px 14px; } }
 .nx-set-group-body.is-flush > div:not(.nx-set-note) { gap: 0 !important; }
+/* Settings text that passes AA (11/02/2026): the muted grey on the light
+   paper/canvas was 4.36:1 and green text on white 4.4:1. Scoped to the
+   Settings page, light theme only - dark already passes. */
+:root:not([data-theme="dark"]) .nx-settings { --muted: #5d6a7e; --color-green: 142, 62%, 28%; }
+/* The house label above a control (DESIGN.md: 12px, normal case). */
+.nx-set-label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+/* Search results: the subject over its matches, and the words found. */
+.nx-set-results-head { margin: 4px 0 12px; font-size: 13px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.nx-set-mark { background: var(--wk-brand-tint); color: inherit; border-radius: 3px; padding: 0 1px; }
+/* A small icon button with a full-size target (28 x 28). */
+.nx-set-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--muted); cursor: pointer; }
+.nx-set-icon-btn:hover { color: var(--ink); background: var(--paper); }
+.nx-set-icon-btn:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
+/* Phones: a setting stacks - title and description, then its control at
+   full width - so a label never wraps to three lines beside a select. A
+   switch stays on the right of its row. */
+@media (max-width: 640px) {
+  .nx-set-row-main:not(:has(> .nx-set-row-control > .nx-switch)) { flex-direction: column; align-items: stretch; gap: 10px; }
+  .nx-set-row-main:not(:has(> .nx-set-row-control > .nx-switch)) > .nx-set-row-control { width: 100%; flex-wrap: wrap; }
+  .nx-set-row-main:not(:has(> .nx-set-row-control > .nx-switch)) > .nx-set-row-control > select,
+  .nx-set-row-main:not(:has(> .nx-set-row-control > .nx-switch)) > .nx-set-row-control > .form-input { flex: 1 1 auto; width: 100%; max-width: none; }
+  .nx-set-row-main:not(:has(> .nx-set-row-control > .nx-switch)) > .nx-set-row-text { flex: 0 1 auto; }
+  .nx-set-pagehead { margin-bottom: 10px !important; }
+  /* The scope box is 44px tall on a phone: its text sits in the middle. */
+  .nx-set-scope select { padding-top: 10px; padding-bottom: 10px; }
+  .nx-set-pagehead .view-title-group p { display: none; }
+}
 @media (max-width: 900px) {
   /* A wide control (the time zone list) goes under its text instead of squeezing it. */
   .nx-set-row-main { flex-wrap: wrap; row-gap: 10px; }
