@@ -18,8 +18,11 @@ the first X-Forwarded-For hop) and the browser's User-Agent. It:
      the request after commit. The Web Push follows the bell (push.py).
 
 Rules: never block or delay the sign-in - `watch` cannot raise; the email
-and the bell never carry the session id; US dates and 12-hour times; the
-location is left out of the sentence when it is unknown, never "Unknown".
+and the bell never carry the session id; US dates and 12-hour times in the
+PERSON's own zone (`person_zone`: their latest punch, else their People
+country, else the company's saved shift time zone - "(Pacific time)" when
+nothing says); the location is left out of the sentence when it is unknown,
+never "Unknown".
 
 `sweep` (the Workflows > Automations job "sign_in_watch", daily, deployed
 worker only) removes server_sessions rows idle past Settings > Security's
@@ -44,7 +47,7 @@ from models import NexusNotification, NexusSignIn, ServerSession
 
 WINDOW_DAYS = 180
 TITLE = "New Sign-In To Nexus"
-NOT_YOU = "Not you? Open My Profile > Security and sign out other devices."
+NOT_YOU = "Not you? Open Profile > Security and sign out other devices."   # the menu says Profile
 ACTION = {"view": "profile", "sub": "security", "label": "Open Security", "url": "/?profile=security"}
 _LOCK_KEY = 794217     # stable advisory-lock id (notification retention is 794216)
 
@@ -61,13 +64,51 @@ def _parse(iso: str):
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
-def when_text(iso: str) -> str:
-    """'Mon 11/02/2026 8:33 AM PT' - the company's clock, US format."""
+def person_zone(db, email: str):
+    """The zone this person's clock reads in (a ZoneInfo), or None when nothing
+    says. The same facts timeclock._employee_zone_key reads: their latest
+    punch's offset (IST is -330 in JS getTimezoneOffset terms, anything else
+    is Pacific), else their People country, else the shift time zone their
+    company (or the tenant) SAVED under Settings > Shifts & Scheduling - the
+    unsaved default is not a fact about the person."""
+    try:
+        from sqlalchemy import func
+        from zoneinfo import ZoneInfo
+
+        from models import NexusEmployee, TimePunch
+        from routers.shift_requests import _saved_settings
+        from routers.timeclock import _ZONE_KEY_TZ
+        email = (email or "").strip().lower()
+        p = (db.query(TimePunch.tz_offset_min).filter(TimePunch.employee_email == email)
+             .order_by(TimePunch.at.desc()).first())
+        if p is not None and p[0] is not None:
+            return ZoneInfo(_ZONE_KEY_TZ["india" if int(p[0]) == -330 else "california"])
+        emp = (db.query(NexusEmployee.country, NexusEmployee.company)
+               .filter(func.lower(NexusEmployee.work_email) == email).first())
+        country = ((emp[0] if emp else "") or "").strip().upper()
+        if country in ("IN", "INDIA"):
+            return ZoneInfo(_ZONE_KEY_TZ["india"])
+        if country in ("US", "USA", "UNITED STATES"):
+            return ZoneInfo(_ZONE_KEY_TZ["california"])
+        company = ((emp[1] if emp else "") or "").strip()
+        saved = {**_saved_settings(db), **(_saved_settings(db, company) if company else {})}
+        tz = (saved.get("timeZone") or "").strip()
+        return ZoneInfo(tz) if tz else None
+    except Exception:   # noqa: BLE001 - a zone is a nicety; the notice goes out either way
+        return None
+
+
+def when_text(iso: str, zone=None) -> str:
+    """'Mon 11/02/2026 8:33 AM PST' in the person's own zone (`zone`, a
+    ZoneInfo), US format with the zone's short name; with no zone known the
+    stamp is Pacific and says so in words - "(Pacific time)", never a bare
+    abbreviation."""
     d = _parse(iso)
     if d is None:
         return ""
-    local = d.astimezone(PACIFIC)
-    return f"{local.strftime('%a')} {local.strftime('%m/%d/%Y')} {local.strftime('%I:%M %p').lstrip('0')} PT"
+    local = d.astimezone(zone or PACIFIC)
+    stamp = f"{local.strftime('%a')} {local.strftime('%m/%d/%Y')} {local.strftime('%I:%M %p').lstrip('0')}"
+    return f"{stamp} {local.strftime('%Z')}" if zone is not None else f"{stamp} (Pacific time)"
 
 
 def device_key(summary: str, ip: str) -> str:
@@ -106,8 +147,8 @@ def record(db, *, email: str, session_id: str, ip: str, user_agent: str) -> Nexu
     return row
 
 
-def notice_body(row: NexusSignIn) -> str:
-    parts = [when_text(row.at)]
+def notice_body(row: NexusSignIn, zone=None) -> str:
+    parts = [when_text(row.at, zone)]
     if row.location:
         parts.append(row.location)
     parts.append(row.ua_summary or "Unrecognized device")
@@ -120,12 +161,13 @@ def notify_new(db, row: NexusSignIn) -> None:
     to = (row.email or "").strip().lower()
     if not to:
         return
+    zone = person_zone(db, to)
     db.add(NexusNotification(
-        id=str(uuid.uuid4()), type="custom_alert", recipient=to, title=TITLE, body=notice_body(row),
+        id=str(uuid.uuid4()), type="custom_alert", recipient=to, title=TITLE, body=notice_body(row, zone),
         ref_id=f"signin:{row.id}", item_name="", requested_by="sign_in_watch", action=json.dumps(ACTION),
         actioned=False, read_by="", company=notification_company(db, to), created_at=_now_iso(), priority=0))
     row.notified = True
-    _mail_after_commit(db, [(to, TITLE, _email_html(db, to, row))])
+    _mail_after_commit(db, [(to, TITLE, _email_html(db, to, row, zone))])
     db.commit()
 
 
@@ -155,7 +197,7 @@ def watch(db, *, email: str, session_id: str, ip: str, user_agent: str):
 
 # ── email ────────────────────────────────────────────────────────────────────
 
-def _email_html(db, to: str, row: NexusSignIn) -> str:
+def _email_html(db, to: str, row: NexusSignIn, zone=None) -> str:
     """hr_probation._email_html's layout with the recipient's company logo
     (email_theme.logo_for - the one logo chain). Facts only - no session id."""
     import email_theme
@@ -165,7 +207,7 @@ def _email_html(db, to: str, row: NexusSignIn) -> str:
     url = f"{app_url()}/?profile=security"
     intro = (f"Your Nexus account was just signed in to from a device you had not used in the last "
              f"{WINDOW_DAYS} days. If this was you, there is nothing to do.")
-    rows = [("When", when_text(row.at)), ("Location", row.location or ""),
+    rows = [("When", when_text(row.at, zone)), ("Location", row.location or ""),
             ("Device", row.ua_summary or "Unrecognized device"), ("IP Address", row.ip or "")]
     cells = "".join(
         f'<tr><td style="padding:8px 12px;font-size:12px;color:#6b7280;width:130px;vertical-align:top;border-top:1px solid #e5e7eb">{escape(k)}</td>'
