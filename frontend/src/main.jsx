@@ -5,7 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { msalInstance } from './msalInstance'
 import { queryClient } from './lib/queryClient'
 import { setCacheBridge } from './api'
-// The Notes board engine (@excalidraw/excalidraw, lazy in vendor-excalidraw)
+// The Notes board engine (@excalidraw/excalidraw, its own lazy chunk)
 // builds its font URL list the moment its chunk evaluates, from
 // window.EXCALIDRAW_ASSET_PATH - so the path must exist before any chunk
 // loads, not in Board.jsx (which runs after the engine it imports). Without

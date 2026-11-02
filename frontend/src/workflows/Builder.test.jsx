@@ -410,6 +410,9 @@ describe('Builder', () => {
   // the button with no dialog; a refusal rewinds it with the reason.
   it('deletes on a full hold of Delete, with no dialog, then goes back to the list', async () => {
     const go = open();
+    // Delete renders disabled until the workflow has loaded; a press before
+    // that is ignored (the CI runner is slow enough to lose the hold - 11/02/2026).
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
     const del = await screen.findByRole('button', { name: 'Delete, press and hold' });
     vi.useFakeTimers();
     try {
@@ -429,9 +432,15 @@ describe('Builder', () => {
     vi.useFakeTimers();
     try {
       fireEvent.pointerDown(del, { button: 0, pointerId: 1 });
-      await act(async () => { vi.advanceTimersByTime(1200); });
+      // The hold timer fires at 1200 ms, the rejection lands on a microtask,
+      // and HoldButton's live region speaks the refusal on a 30 ms timer
+      // (announce). Advance ASYNC so the microtask runs, then past the 30 ms
+      // so that timer fires while the fake clock still owns it - a timer left
+      // pending when the real clock comes back is dropped, which is what made
+      // this flaky on CI (11/02/2026).
+      await act(async () => { await vi.advanceTimersByTimeAsync(1200); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
     } finally { vi.useRealTimers(); }
-    // The refusal lands on a microtask after the hold timer fires; wait for it (flaky on CI with getByRole).
     expect(await screen.findByRole('alert', {}, { timeout: 5000 })).toHaveTextContent('Only the owner may delete this workflow');
     expect(go).not.toHaveBeenCalledWith('list');
   });

@@ -269,6 +269,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   // minute while the tab is in view. A failed call keeps the last map, and
   // the schedule never waits on it.
   const [liveMap, setLiveMap] = useState(null);
+  const [liveLate, setLiveLate] = useState([]);   // who the server says is late right now (the strip)
   const hasTeam = !!team;
   useEffect(() => {
     if (mine || !thisWeek || !hasTeam) return undefined;
@@ -276,7 +277,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
     const pull = () => {
       if (document.visibilityState === 'hidden') return;
       Promise.resolve().then(() => api.timeMyScheduleLive())
-        .then((r) => { if (alive && r?.people && typeof r.people === 'object') setLiveMap(r.people); })
+        .then((r) => { if (alive && r?.people && typeof r.people === 'object') { setLiveMap(r.people); setLiveLate(Array.isArray(r.late) ? r.late : []); } })
         .catch(() => {});
     };
     pull();
@@ -429,7 +430,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
 
       {mine ? null : data && team ? (
         <TeamShiftGrid teams={teams} team={team} allTeam={allTeam} onPickTeam={setTeamId} days={days} rows={teamRows} onNow={onNow}
-          openShifts={openList} onRequestOpen={requestOpen} busyOpenId={busyOpen} thisWeek={thisWeek} live={thisWeek ? liveMap : null}
+          openShifts={openList} onRequestOpen={requestOpen} busyOpenId={busyOpen} thisWeek={thisWeek} live={thisWeek ? liveMap : null} late={thisWeek ? liveLate : []}
           timeZoneLabel={teamZoneLabel} teamZone={teamZone} />
       ) : data && teamZoneLabel ? (
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>

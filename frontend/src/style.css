@@ -1757,6 +1757,49 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 }
 .support-card-title { font-weight: 700; font-size: 14px; color: var(--ink); margin-bottom: 5px; }
 .support-card-desc { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+/* "How Do I..." (support/HowDoI.jsx, Neil, 11/02/2026): ONE full-width tile in
+   the Help Center grid, a question per row, the answer dropping down with the
+   one button that does it. A <section>, not a button, so the tile's own hover
+   lift and arrow do not apply; the rows carry the hover tint instead. */
+.how-do-i { grid-column: 1 / -1; position: relative; cursor: default; }
+.how-do-i:hover { background: var(--card); outline: none; transform: none; box-shadow: var(--shadow-md); }
+.how-do-i:hover .support-icon { background: var(--mist); color: var(--fern); }
+.how-do-i-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
+.how-do-i-head .support-icon { margin-bottom: 0; flex-shrink: 0; }
+.how-do-i-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 0 24px; }
+.how-do-i-row { border-top: 1px solid var(--line); min-width: 0; }
+.how-do-i-q {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 4px;
+  background: none; border: none; cursor: pointer; text-align: left; font-family: inherit; color: var(--ink);
+  font-size: 13.5px; font-weight: 600; border-radius: 8px;
+  transition: background var(--dur-sm) var(--ease-out), color var(--dur-sm) var(--ease-out);
+}
+.how-do-i-q:hover { background: color-mix(in srgb, var(--wk-brand) 8%, transparent); }
+.how-do-i-q:focus-visible { outline: 2px solid var(--fern); outline-offset: -2px; }
+.how-do-i-ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; background: var(--mist); color: var(--fern); }
+.how-do-i-row.is-open .how-do-i-ico, .how-do-i-q:hover .how-do-i-ico { background: color-mix(in srgb, var(--wk-brand) 16%, var(--card)); color: var(--wk-brand); }
+.how-do-i-label { flex: 1; min-width: 0; }
+.how-do-i-chev { color: var(--muted); flex-shrink: 0; transition: transform var(--dur-md) var(--ease-out); }
+.how-do-i-row.is-open .how-do-i-chev { transform: rotate(180deg); color: var(--wk-brand); }
+/* The answer slides down: grid-rows 0fr -> 1fr is the one height animation
+   that costs no layout thrash and needs no measured height. */
+.how-do-i-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-md) var(--ease-out); }
+.how-do-i-row.is-open .how-do-i-panel { grid-template-rows: 1fr; }
+.how-do-i-panel-in { overflow: hidden; min-height: 0; padding: 0 4px 0 44px; }
+.how-do-i-row.is-open .how-do-i-panel-in { padding-bottom: 14px; }
+.how-do-i-answer { margin: 2px 0 10px; font-size: 13px; line-height: 1.55; color: var(--muted); max-width: 68ch; }
+.how-do-i-act {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--wk-brand) 40%, transparent); background: color-mix(in srgb, var(--wk-brand) 10%, var(--card));
+  color: var(--wk-brand); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background var(--dur-sm) var(--ease-out), transform var(--dur-xs) var(--ease-out);
+}
+.how-do-i-act:hover { background: color-mix(in srgb, var(--wk-brand) 18%, var(--card)); }
+.how-do-i-act:active { transform: translateY(1px); }
+.how-do-i-act:focus-visible { outline: 2px solid var(--fern); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .how-do-i-panel, .how-do-i-chev, .how-do-i-q, .how-do-i-act { transition: none; }
+}
 .link-btn { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-weight: 600; font-size: 12.5px; background: none; border: none; cursor: pointer; font-family: inherit; margin-top: 10px; transition: color var(--transition-fast); }
 .link-btn:hover { color: var(--ink); }
 
@@ -7916,6 +7959,13 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .hc-page--phone .support-card-title { font-size: 13.5px; line-height: 1.3; margin-bottom: 0; }
   .hc-page--phone .support-card-desc,
   .hc-page--phone .support-card-arrow { display: none; }
+  .hc-page--phone .how-do-i { grid-column: 1 / -1; min-height: 0; padding: 14px; display: block; }
+  .hc-page--phone .how-do-i .support-card-desc { display: block; }
+  .hc-page--phone .how-do-i-head { margin-bottom: 8px; }
+  .hc-page--phone .how-do-i-list { grid-template-columns: 1fr; }
+  .hc-page--phone .how-do-i-q { padding: 13px 2px; min-height: 48px; font-size: 15px; }
+  .hc-page--phone .how-do-i-panel-in { padding-left: 42px; }
+  .hc-page--phone .how-do-i-act { min-height: 40px; }
   .hc-page--phone .hc-tickets-phone { padding: 14px; }
   .hc-page--phone .view-header { margin-bottom: 0; }
 }

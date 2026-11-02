@@ -37,6 +37,26 @@ import services.egnyte as svc  # noqa: E402
 from routers import esign  # noqa: E402
 from routers import hr as hr_router  # noqa: E402
 
+# The file's dates are fixed (a hire starting 11/02/2026 whose offer expires
+# 10/30/2026), so the clock is pinned to the day they were written - a run on
+# any later day would otherwise refuse every offer as already expired.
+# test_today_is_the_business_day_not_utc checks the real helper.
+_REAL_TODAY = hle._today
+PINNED_TODAY = "2026-10-23"
+hle._today = lambda: PINNED_TODAY
+
+
+class _PinnedDatetime(datetime):
+    """Nexus Sign's own clock (its lazy expiry reads datetime.now in the
+    company's zone): the same pinned day, so an envelope that expires
+    10/30/2026 is still open to sign."""
+    @classmethod
+    def now(cls, tz=None):
+        return datetime(2026, 10, 23, 12, 0, 0, tzinfo=tz)
+
+
+esign.datetime = _PinnedDatetime
+
 ENTITY = "ent-hle"
 HR = "hana.hr@greensglobal.com"
 MGR = "max.mgr@greensglobal.com"
@@ -1013,7 +1033,7 @@ class OffboardTests(LifeEventCase):
 
     def test_today_is_the_business_day_not_utc(self):
         from zoneinfo import ZoneInfo
-        self.assertEqual(hle._today(), datetime.now(ZoneInfo(hle.BUSINESS_TZ)).strftime("%Y-%m-%d"))
+        self.assertEqual(_REAL_TODAY(), datetime.now(ZoneInfo(hle.BUSINESS_TZ)).strftime("%Y-%m-%d"))
 
     def test_a_declined_package_can_be_replaced_without_canceling(self):
         ev, _r = self._off("2099-01-31")

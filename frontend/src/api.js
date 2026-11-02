@@ -1304,6 +1304,11 @@ export const api = {
   revertOpsCmaChange: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/revert`, { method: "POST", timeoutMs: 120_000 }),
   getOpsSettings: () => req("/facility-ops/settings"),
   saveOpsSettings: (data) => req("/facility-ops/settings", { method: "PUT", body: JSON.stringify(data) }),
+  // Cubby tasks <-> Nexus Tasks (Neil, Oct 30 2026): Settings > Operations > Cubby Tasks, and the drawer's From Cubby row.
+  getCubbyTaskSettings: () => req("/cubby-tasks/settings"),
+  saveCubbyTaskSettings: (data) => req("/cubby-tasks/settings", { method: "PUT", body: JSON.stringify(data) }),
+  runCubbyTaskSync: () => req("/cubby-tasks/sync-now", { method: "POST" }),
+  getCubbyTaskLink: (taskId) => req(`/cubby-tasks/link/${encodeURIComponent(taskId)}`),
   // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
   getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
   // Operations > Pricing Insights (Oct 20): ranked insights + sections from Cubby's pricing and the market. '' = every facility.
@@ -1534,6 +1539,7 @@ export const api = {
   getSignRequest:     (id)        => req(`/esign/requests/${id}`),
   remindSign:         (id)        => req(`/esign/requests/${id}/remind`, { method: 'POST' }),
   voidSign:           (id)        => req(`/esign/requests/${id}/void`, { method: 'POST' }),
+  fileSignToEgnyte:   (id, folder) => req(`/esign/requests/${id}/file-egnyte`, { method: 'POST', body: JSON.stringify({ folder }) }),
   downloadSign:       (id)        => req(`/esign/requests/${id}/download`),
   verifySign:         (id)        => req(`/esign/requests/${id}/verify`),
   mySignatures:       ()          => req('/esign/mine'),
@@ -3385,3 +3391,18 @@ api.pushConfig = () => req('/push/config');
 api.pushSubscribe = (sub) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
 api.pushUnsubscribe = (endpoint) => req('/push/subscribe', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
 api.pushSubscriptions = () => req('/push/subscriptions');
+
+// Federal forms (Neil, 11/02/2026; backend federal_forms/ + routers/hr.py):
+// HR++ sends one form - w4 / i9 / direct_deposit - to one employee, and
+// Settings reads the edition watch. A hiring packet's forms travel as
+// `federal_forms` on saveDocumentsPacket's body like its other fields.
+api.sendFederalForm = (eid, kind) => req(`/hr/employees/${encodeURIComponent(eid)}/federal-forms/send`, { method: 'POST', body: JSON.stringify({ kind }) });
+api.federalFormsStatus = () => req('/hr/federal-forms/status');
+// My Profile > Security (Neil, 11/02/2026; backend routers/me_sessions.py):
+// where you are signed in (a session is named by a hash - the cookie value
+// itself never comes back), sign one or every other device out, and the last
+// 20 sign-ins with the device and the approximate place.
+api.mySessions = () => req('/me/sessions');
+api.mySignIns = () => req('/me/sign-ins');
+api.signOutSession = (id) => req(`/me/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+api.signOutOtherSessions = () => req('/me/sessions/others', { method: 'POST' });

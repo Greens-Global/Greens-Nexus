@@ -47,6 +47,8 @@ describe('Property on a ticket', () => {
     render(<CreateTicketModal onClose={vi.fn()} />);
     await screen.findByPlaceholderText(/What is the issue\?/);
     expect(screen.queryByText('Property')).toBeNull();
+    // The team boxes are min(100%, 168px) wide: "Human Resources" stays on one line at 375px.
+    expect(screen.getByRole('radiogroup', { name: /Which Team Can Help/ }).getAttribute('style')).toContain('minmax(min(100%, 168px), 1fr)');
     await pickDept('Human Resources');
     expect(screen.queryByText('Property')).toBeNull();
     await pickDept('Facilities');
