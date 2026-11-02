@@ -77,3 +77,14 @@ vi.mock('@excalidraw/excalidraw', async () => {
   };
 });
 vi.mock('@excalidraw/excalidraw/index.css', () => ({}));
+
+// ProseMirror measures the selection to scroll it into view after a focus
+// (`coordsAtPos` -> `Range.getClientRects`), and jsdom has no layout: without
+// these the Insert Board test left an uncaught TypeError on CI's Node 20 and
+// failed the whole run with every test green.
+if (typeof Range !== 'undefined') {
+  const emptyRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON() { return {}; } });
+  const emptyRects = () => { const list = []; list.item = () => null; return list; };
+  if (!Range.prototype.getClientRects) Range.prototype.getClientRects = emptyRects;
+  if (!Range.prototype.getBoundingClientRect) Range.prototype.getBoundingClientRect = emptyRect;
+}
