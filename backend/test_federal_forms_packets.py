@@ -18,6 +18,7 @@ import re
 import tempfile
 import unittest
 from datetime import date
+from unittest import mock
 
 # A throwaway sqlite of its own, so `python -m unittest test_federal_forms_packets`
 # never ALTERs or clears a local greens_nexus.db (CLAUDE.md: one file per process).
@@ -27,6 +28,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_tmp.name}"
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 os.environ.setdefault("NEXUS_FROM_EMAIL", "nexus@greensglobal.com")
 
+from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import auth  # noqa: E402
@@ -34,6 +36,7 @@ import cache  # noqa: E402
 import database  # noqa: E402
 import hr_checklist_seed  # noqa: E402
 import hr_checklists as hc  # noqa: E402
+import hr_life_events as hle  # noqa: E402
 import hr_packet_docs as hpd  # noqa: E402
 import job_switch  # noqa: E402
 import main  # noqa: E402
@@ -626,6 +629,47 @@ class PersonSignedTicksTests(FederalPacketCase):
         self.db.query(models.HrSignRequest).filter_by(id="r-pkt").update({"status": "completed"})
         self.db.commit()
         self.assertTrue(hc._sig_envelope(self.db, emp, "i9_s2"))
+
+
+class RefusedSendStoresNothingTests(FederalPacketCase):
+    def test_a_refusal_inside_federal_documents_uploads_nothing(self):
+        """Every form is prepared and checked before any is stored: the I-9
+        with no HR signer refuses the whole batch and the W-4 ahead of it
+        never reaches the bucket."""
+        ent = self.db.query(models.HrEntity).filter_by(id=CO).first()
+        puts = []
+        with mock.patch.object(esign, "_storage_put", side_effect=lambda *a, **k: puts.append(a[1]) or esign._StorageResult(True)):
+            with self.assertRaises(hpd.FederalFormProblem) as cm:
+                hpd.federal_documents(self.db, kinds=["w4", "i9"], entity=ent, start_date="2026-11-16",
+                                      person_key="employee", hr_key="")
+        self.assertIn("needs an HR signer", str(cm.exception))
+        self.assertEqual(puts, [])
+
+    def test_a_store_that_fails_takes_back_what_it_stored(self):
+        ent = self.db.query(models.HrEntity).filter_by(id=CO).first()
+        puts, removed = [], []
+        results = iter([esign._StorageResult(True), esign._StorageResult(False, text="boom")])
+        with mock.patch.object(esign, "_storage_put", side_effect=lambda b, path, *a, **k: puts.append(path) or next(results)), \
+                mock.patch.object(esign, "_storage_remove", side_effect=lambda b, path: removed.append(path) or esign._StorageResult(True)):
+            with self.assertRaises(hle.PacketError):
+                hpd.federal_documents(self.db, kinds=["w4", "direct_deposit"], entity=ent, start_date="2026-11-16",
+                                      person_key="employee", hr_key="")
+        self.assertEqual(len(puts), 2)
+        self.assertEqual(removed, puts[:1])
+
+    def test_a_send_the_envelope_refuses_leaves_no_flat_pdf_behind(self):
+        puts, removed = [], []
+        with mock.patch.object(esign, "_storage_put", side_effect=lambda b, path, *a, **k: puts.append(path) or esign._StorageResult(True)), \
+                mock.patch.object(esign, "_storage_remove", side_effect=lambda b, path: removed.append(path) or esign._StorageResult(True)), \
+                mock.patch.object(esign, "envelope_from_documents", side_effect=HTTPException(409, "Ana already has a Form W-4 out.")):
+            r = self.client.post("/hr/employees/e-ana/federal-forms/send", json={"kind": "w4"})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(len(puts), 1)
+        self.assertEqual(removed, puts)
+        self.assertEqual(self.db.query(models.HrSignRequest).count(), 0)
+
+    def test_storage_remove_local_branch_tolerates_a_missing_file(self):
+        self.assertTrue(esign._storage_remove(esign._DOC_BUCKET, "esign/never-stored/w4.pdf").is_success)
 
 
 class FormatsOneSourceTests(unittest.TestCase):
