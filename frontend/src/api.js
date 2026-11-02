@@ -1,7 +1,7 @@
 import { msalInstance, msalReady } from './msalInstance';
 import { apiTokenRequest, loginRequest } from './authConfig';
 import { BFF_MODE, csrfToken, bffLogin } from './bffAuth';
-import { rewriteResponseText, restoreRequestBody } from './lib/storageView';
+import { rewriteResponseText, restoreRequestBody, fromViewUrl } from './lib/storageView';
 
 // Recover a dead session app-wide. When even a FORCE-refreshed token still 401s,
 // MSAL's silent hidden-iframe renewal is failing - modern browsers block the
@@ -3218,6 +3218,11 @@ export const api = {
   noteCollab: (id) => req(`/notes/${encodeURIComponent(id)}/collab`),
   noteCollabSeed: (id, data) => req(`/notes/${encodeURIComponent(id)}/collab/seed`, { method: "POST", body: JSON.stringify(data) }),
   noteCollabReset: (id) => req(`/notes/${encodeURIComponent(id)}/collab/reset`, { method: "POST" }),
+  // Notes boards (11/02/2026): a protected file (an image on a board) as a
+  // Blob through the signed-in viewer, whatever form of its URL the scene
+  // kept - canonical or the viewer's. The engine wants a data URL in memory;
+  // the scene never stores one.
+  viewerBlob: (u) => reqBlob(`/files/view?u=${encodeURIComponent(fromViewUrl(u))}`),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with
