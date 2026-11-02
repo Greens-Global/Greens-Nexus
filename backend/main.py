@@ -1426,6 +1426,9 @@ def _run_migrations():
             "ALTER TABLE nexus_announcements ADD COLUMN publish_at VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_announcements ADD COLUMN notify VARCHAR DEFAULT 'quiet'",
             "ALTER TABLE nexus_announcements ADD COLUMN notified_at VARCHAR DEFAULT ''",
+            # Posts from before these columns were belled at create: stamp them
+            # published, or the first publish pass would bell everyone again.
+            "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3408,6 +3411,9 @@ def _run_migrations():
         "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS publish_at VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS notify VARCHAR DEFAULT 'quiet'",
         "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS notified_at VARCHAR DEFAULT ''",
+        # Posts from before these columns were belled at create: stamp them
+        # published, or the first publish pass would bell everyone again.
+        "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
