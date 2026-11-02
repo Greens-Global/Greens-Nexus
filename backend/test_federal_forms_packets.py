@@ -573,6 +573,39 @@ class ChecklistSeedTests(FederalPacketCase):
         self.assertTrue(hc._sig_envelope(self.db, emp, "i9_s2"))
 
 
+class PersonSignedTicksTests(FederalPacketCase):
+    def test_w4_and_direct_deposit_tick_when_the_person_signed_section_2_needs_the_envelope(self):
+        """The W-4 and the Direct Deposit Authorization are the person's own
+        statements: their signature ticks the row while the packet still
+        waits for HR's countersign on another document (11/02/2026); the
+        I-9's Section 2 is HR's and ticks only on the completed envelope."""
+        emp = self.db.query(models.NexusEmployee).filter_by(id="e-ana").first()
+        self.db.add(models.HrSignRequest(
+            id="r-pkt", title="Hiring Packet", employee_id="e-ana", status="pending", pdf_storage_path="p",
+            documents=[{"name": "w4.pdf", "path": "p1", "formKind": "w4", "fields": [
+                            {"id": "w4-ssn", "role": "employee", "type": "text", "source": "person"}]},
+                       {"name": "dd.pdf", "path": "p2", "formKind": "direct_deposit", "fields": [
+                            {"id": "direct_deposit-dd1_account", "role": "employee", "type": "text", "source": "person"}]},
+                       {"name": "i9.pdf", "path": "p3", "formKind": "i9", "fields": [
+                            {"id": "i9-ssn", "role": "employee", "type": "text", "source": "person"},
+                            {"id": "i9-a1_title", "role": "hr", "type": "text", "source": "hr"}]}]))
+        self.db.add(models.HrSignParty(id="p-ana", request_id="r-pkt", role_key="employee", name="Ana", email=ANA,
+                                       ordinal=1, status="waiting"))
+        self.db.add(models.HrSignParty(id="p-hr", request_id="r-pkt", role_key="hr", name="Charmi", email=HR,
+                                       ordinal=2, status="waiting"))
+        self.db.commit()
+        for kind in ("w4", "direct_deposit", "w4+direct_deposit", "i9_s1", "i9_s2"):
+            self.assertFalse(hc._sig_envelope(self.db, emp, kind), kind)
+        self.db.query(models.HrSignParty).filter_by(id="p-ana").update({"status": "signed"})
+        self.db.commit()
+        for kind in ("w4", "direct_deposit", "w4+direct_deposit", "i9_s1"):
+            self.assertTrue(hc._sig_envelope(self.db, emp, kind), kind)
+        self.assertFalse(hc._sig_envelope(self.db, emp, "i9_s2"))
+        self.db.query(models.HrSignRequest).filter_by(id="r-pkt").update({"status": "completed"})
+        self.db.commit()
+        self.assertTrue(hc._sig_envelope(self.db, emp, "i9_s2"))
+
+
 class FormatsOneSourceTests(unittest.TestCase):
     def test_esign_formats_is_the_federal_forms_module(self):
         import esign_formats

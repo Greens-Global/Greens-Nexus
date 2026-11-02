@@ -912,13 +912,23 @@ def _form_docs(req):
     return out
 
 
+# The form signals the PERSON's signature ticks: Form I-9 Section 1, the
+# Form W-4 and the Direct Deposit Authorization are the person's own
+# statements - signed is done, whatever else the envelope still waits for
+# (an HR countersign on a packet, a later document). Section 2 is HR's and
+# ticks on the completed envelope.
+_PERSON_SIGNED_KINDS = ("i9_s1", "w4", "direct_deposit")
+
+
 def _sig_federal(db, emp, kind: str, cand_ids: list) -> bool:
     form = "i9" if kind in ("i9_s1", "i9_s2") else kind
     for req in _person_envelopes(db, emp, cand_ids):
         docs = [fields for fk, fields in _form_docs(req) if fk == form]
         if not docs:
             continue
-        if kind == "i9_s1":
+        if req.status == "completed":
+            return True
+        if kind in _PERSON_SIGNED_KINDS:
             # The person's part is signed when the party who owns the
             # person-sourced boxes has signed - whatever the envelope's state.
             roles = {f.get("role") for fields in docs for f in fields if f.get("source") == "person"}
@@ -927,8 +937,6 @@ def _sig_federal(db, emp, kind: str, cand_ids: list) -> bool:
                               HrSignParty.status == "signed").first()) if roles else None
             if signed is not None:
                 return True
-        elif req.status == "completed":
-            return True
     return False
 
 
