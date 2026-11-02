@@ -152,6 +152,25 @@ keep the diff minimal.
   `@source` in `approvals_inbox.py` - never a separate count query, or the
   badge and the inbox disagree.
 
+- **Tiers (Neil, 11/02/2026, `docs/Roles.md`):** the role KEYS stay
+  `employee | supervisor | manager | administrator | owner` (levels 1-5);
+  the words people see are Employee, Supervisor, Manager, **Administrator**
+  (4) and **Super Administrator** (5) - never "Global Admin" / "IT Admin"
+  (`frontend/scripts/check-role-copy.mjs` fails the lint). An Administrator
+  is ALWAYS company-walled (`auth.company_scope`, walls switch on or off);
+  only level 5 or a member of a group flagged `is_global_admin` passes the
+  walls (`auth.is_global_admin` - no level-4 fallback). Only a Super
+  Administrator flags or touches a flagged group, sets the walls, or grants
+  administrator / owner. The five Super Administrators (Neil, Visesh,
+  Charmi, Pranshu, Sagar) were set ONCE by `super_admins_seed.apply_once`
+  (mark `roles.super_admins_set_2026_11_02`); change them in Settings, never
+  in code. Under a person's name the screen shows their JOB TITLE, never the
+  tier; the tier is a mark only (`components/TierMark.jsx`: Super
+  Administrator a filled shield, Administrator an outline shield, Manager a
+  small people glyph, nothing for others), fed by the `tier` field on the
+  people payloads (`auth.tier_of`). `useRole()` exposes `myLevel`, `myTier`,
+  `myTitle`.
+
 ## Frontend conventions
 
 - All server calls go through `frontend/src/api.js` — add new endpoints there.
