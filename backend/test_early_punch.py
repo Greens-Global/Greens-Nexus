@@ -161,6 +161,33 @@ class EarlyPunchTests(unittest.TestCase):
         self.assertEqual(bells[0].body, "2 people punched in early: Amy Lee (25 min), Bob X (20 min).")
         self.assertEqual(self.db.query(models.NexusNotification).count(), 2, "one per recipient, never per punch")
 
+    def test_two_early_punches_racing_both_end_up_in_the_body(self):
+        """The body is built AFTER the notice row is locked (notify_rollup
+        `words`): Bob's clock-in lands while Amy's request waits for the lock
+        and the final text names both - the old order (compute, then lock,
+        then write) wrote Amy's view over Bob's."""
+        import notify_rollup
+        self._setting(earlyPunchAlertMin=15)
+        amy = self._punch(AMY, "in", START - timedelta(minutes=25))
+        real_find = notify_rollup._find
+        landed = {"done": False}
+
+        def _find_with_bob_landing(db, recipient, key, ntype, open_only):
+            if not landed["done"]:
+                landed["done"] = True
+                self._punch(BOB, "in", START - timedelta(minutes=20))   # the other request's commit
+            return real_find(db, recipient, key, ntype, open_only)
+
+        with mock.patch.object(notify_rollup, "_find", _find_with_bob_landing):
+            out = early_punch.check(self.db, amy, self._emp(AMY))
+        self.db.commit()
+        self.assertEqual(out["minutesEarly"], 25)
+        for em in (MGR, SCHED):
+            bells = self._bells(em)
+            self.assertEqual(len(bells), 1, em)
+            self.assertEqual(bells[0].title, "Early Punches Today")
+            self.assertEqual(bells[0].body, "2 people punched in early: Amy Lee (25 min), Bob X (20 min).")
+
     def test_within_window_no_bell(self):
         self._setting(earlyPunchAlertMin=15)
         self.assertIsNone(self._check(AMY, early_min=10))

@@ -190,11 +190,17 @@ def _alert(db: Session, emp, dd: date, gid: str, settings) -> None:
         scope = list(members) if gid else _reports_of(db, recipient)
         if me not in scope:
             scope.append(me)
-        early = _early_people(db, scope, dd, settings)
-        if not any(p["email"] == me for p in early):
-            continue   # the window moved under us - nothing to say for this reader
-        title, body = _words(early)
-        upsert_rollup(db, recipient=recipient, key=key, title=title, line=body, action=action,
+
+        def _say(scope=scope):
+            # Built once the notice row is locked (notify_rollup `words`),
+            # so a second early punch that landed while we waited is in
+            # the body too - two requests racing never lose each other.
+            early = _early_people(db, scope, dd, settings)
+            if not any(p["email"] == me for p in early):
+                return None   # the window moved under us - nothing to say for this reader
+            return _words(early)
+
+        upsert_rollup(db, recipient=recipient, key=key, words=_say, action=action,
                       company=emp.company or "", requested_by=me, replace=True, open_only=True)
 
 
