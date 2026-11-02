@@ -702,12 +702,6 @@
       action: () => toggleLayersPanel() },
   ];
 
-  // AI features are disabled: hide every AI entry point. The elements stay in
-  // the DOM (app.js binds listeners to them by id — removing them would crash
-  // its init), they are just never visible or reachable.
-  for (const sel of ['#aiToggleBtn', '#aiPanel', '#tbAiEdit']) {
-    const n = el(sel); if (n) n.style.display = 'none';
-  }
 
   // Move each group's members into its own container inside the context bar.
   for (const g of GROUPS) {
@@ -762,7 +756,6 @@
     if (g.svg) { const t = document.createElement('span'); t.innerHTML = g.svg; return t.firstChild; }
     const src = g.members && g.members.find(Boolean);
     const svg = src && src.querySelector && src.querySelector('svg');
-    if (g.id === 'ai') { const b = el('#aiToggleBtn'); return b?.querySelector('svg')?.cloneNode(true) || null; }
     return svg ? svg.cloneNode(true) : null;
   };
 
