@@ -61,6 +61,7 @@ MGR = "wfdoc.mgr@greensglobal.com"          # manager, co-a; REP reports to them
 REP = "wfdoc.rep@greensglobal.com"          # employee, reports to MGR, site A
 OTHER = "wfdoc.other@greensglobal.com"      # employee, co-b
 HR_A = "wfdoc.hr@greensglobal.com"          # the HR contact of co-a
+MGR2 = "wfdoc.mgr2@greensglobal.com"        # manager, co-a; nobody reports to them, no team site
 
 PEOPLE = {
     ADMIN: dict(company=CO_A, department="Operations"),
@@ -68,8 +69,9 @@ PEOPLE = {
     REP: dict(company=CO_A, department="Operations", manager_email=MGR, work_site_ids=json.dumps([SITE_A])),
     OTHER: dict(company=CO_B, department="Operations"),
     HR_A: dict(company=CO_A, department="People"),
+    MGR2: dict(company=CO_A, department="Operations"),
 }
-ROLES = {ADMIN: "administrator", MGR: "manager"}
+ROLES = {ADMIN: "administrator", MGR: "manager", MGR2: "manager"}
 
 FIELDS = [
     {"token": "odometer", "label": "Odometer", "type": "number", "required": True, "section": "Vehicle"},
@@ -140,6 +142,7 @@ class DocumentsPackTests(unittest.TestCase):
             db.query(models.DocTemplateVersion).delete(synchronize_session=False)
             db.query(models.DocTemplate).delete(synchronize_session=False)
             db.query(models.WorkflowEvent).delete(synchronize_session=False)
+            db.query(models.WorkflowRun).filter(models.WorkflowRun.id.like("wfdoc-%")).delete(synchronize_session=False)
             db.query(models.NexusNotification).filter(models.NexusNotification.recipient.like("wfdoc.%")).delete(synchronize_session=False)
             db.commit()
         finally:
@@ -316,6 +319,31 @@ class DocumentsPackTests(unittest.TestCase):
         self.assertEqual(ent.company_of(row), CO_A)
         link = ent.link(row)
         self.assertEqual((link["view"], link["sub"], link["entryId"]), ("documents", "documents-forms", row.id))
+
+    def test_a_run_shows_the_answers_only_to_someone_who_may_see_the_entry(self):
+        from workflows import store
+        tpl = self._template()
+        entry = self._submit(tpl["id"])
+        ev = self._events("form.submitted")[0]
+        run = models.WorkflowRun(id="wfdoc-run-1", workflow_id="wfdoc-wf", workflow_name="Check", version=1,
+                                 event_id=ev.id, trigger_kind="event", entity="form_entry",
+                                 subject_id=entry["id"], company_id=CO_A, status="succeeded",
+                                 started_at="2026-11-02T10:00:00+00:00")
+        self.db.add(run)
+        self.db.commit()
+
+        def extra_for(user):
+            out = store.serialize_run(self.db, run, steps=True, viewer=user)
+            return out["event"]["payload"]["extra"]
+
+        outsider = extra_for({"email": MGR2, "role": "manager", "level": 3})
+        self.assertEqual(outsider, {"form": "Vehicle Check"})        # no answer tokens
+        for token in ("odometer", "injury", "total", "tires"):
+            self.assertNotIn(token, outsider)
+        reviewer = extra_for({"email": MGR, "role": "manager", "level": 3})
+        self.assertEqual(reviewer["odometer"], 48210)
+        self.assertEqual(reviewer["total"], 12)
+        self.assertEqual(reviewer["form"], "Vehicle Check")
 
     def test_building_on_form_events_takes_a_manager_or_the_documents_grant(self):
         keys = {"form.submitted", "form.reviewed"}
