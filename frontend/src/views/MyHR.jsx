@@ -803,14 +803,14 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
           the end of the top row. New Request, then every request sent with
           HR's answer; what HR changed since the last look is marked. */}
       {askPanel && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: phone ? 0 : 16 }}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: phone ? 'center' : 'stretch', justifyContent: phone ? 'center' : 'flex-end', padding: 0 }}
           onClick={nudgeAsk}>
           {/* 85%, like Reimbursements and Purchase Requests - the Workday panels' exception in CLAUDE.md (Sagar, Oct 27).
               A phone gets the whole screen, like theirs (phone pass, Oct 29 2026). */}
-          <div role="dialog" aria-label="Ask HR" className={`${askPopupClass}${phone ? ' nx-sheet' : ''}`} onClick={(e) => e.stopPropagation()}
+          <div role="dialog" aria-label="Ask HR" className={`${askPopupClass}${phone ? ' nx-sheet' : ' nx-sheet-right'}`} onClick={(e) => e.stopPropagation()}
             style={phone
               ? { background: 'var(--card)', width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }
-              : { background: 'var(--card)', borderRadius: 14, width: '85vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '85vh', maxHeight: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              : { background: 'var(--card)', borderRadius: '16px 0 0 16px', width: '85vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
             <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--line)' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Ask HR</div>

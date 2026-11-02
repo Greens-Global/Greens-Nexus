@@ -39,6 +39,8 @@ import { IMAGE_MODE, isCoverCandidate } from './boardLayout';
 import CommentThread from './CommentThread';
 import { draftKey, getDraft, hasWords, useTaskDraft, useTaskDrafts, clearDraftsFor, clearDraft } from './taskDrafts';
 import { isBypassing } from '../lib/dialogGuard';
+import { useExit } from '../lib/motion';
+import { useSheetStack } from '../lib/sheetStack';
 import TimeTracking from './TimeTracking';
 import { toDownloadUrl } from '../lib/storageView';
 import { openNotificationTarget } from '../lib/openTarget';
@@ -277,13 +279,16 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const visitedIds = [...new Set([taskId, ...trail, activeId])];
   const unsent = useTaskDrafts(visitedIds);
   const [asking, setAsking] = useState(false);
+  // The drawer is a sheet from the right (Neil, 11/01/2026): it slides out
+  // through the shared exit (lib/motion.js) before the parent unmounts it.
+  const [closing, exitNow] = useExit(onClose);
   const requestClose = () => {
     const el = document.activeElement;
     if (el && asideRef.current?.contains(el) && typeof el.blur === 'function') el.blur();
     // A Discard the app-wide guard already confirmed (lib/dialogGuard.js).
-    if (isBypassing()) { clearDraftsFor(visitedIds); onClose(); return; }
+    if (isBypassing()) { clearDraftsFor(visitedIds); exitNow(); return; }
     if (unsent.length) { setAsking(true); return; }
-    onClose();
+    exitNow();
   };
   // Keep Editing lands on the tab that holds the first unsent box.
   const keepEditing = () => {
@@ -345,6 +350,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   // drawer, so the expand/collapse toggle and the drag-to-resize handle are
   // both dropped and the saved width is ignored.
   const isMobile = useIsMobile();
+  // A sheet over this one (Create Ticket, a picker) recedes it a little.
+  useSheetStack(asideRef, !isMobile, closing);
 
   // Derive relations from the live task list (robust against optimistic updates).
   // In display order: due date then priority, or the order they were dragged
@@ -365,10 +372,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     // missing task still renders nothing, exactly as before.
     if (!store.loading) return null;
     return createPortal(
-      <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
-        <aside role="status" aria-live="polite" aria-busy="true" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
+      <div className={`nx-tasks-portal${closing ? ' is-closing' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) exitNow(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
+        <aside role="status" aria-live="polite" aria-busy="true" className="nx-sheet-right" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 14px', borderBottom: `1px solid ${NX.border}` }}>
-            <button onClick={onClose} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><X size={16} /></button>
+            <button onClick={exitNow} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><X size={16} /></button>
           </div>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
             <Spinner size="section" />
@@ -489,8 +496,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const draftTabs = new Set(unsent.filter((d) => d.taskId === activeId).map((d) => (DRAFT_TAB[d.kind] === 'checklist' ? 'overview' : DRAFT_TAB[d.kind])));
 
   return createPortal(
-    <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
-      <aside ref={asideRef} style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
+    <div className={`nx-tasks-portal${closing ? ' is-closing' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
+      <aside ref={asideRef} className="nx-sheet-right" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
         {/* drag handle */}
         {!isMobile && (
           <div onMouseDown={() => { dragging.current = true; document.body.style.userSelect = 'none'; }} title="Drag to resize" style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: 6, cursor: 'ew-resize', zIndex: 5 }} />
@@ -647,8 +654,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
         </FieldHistoryContext.Provider>
         {asking && unsent.length > 0 && (
           <UnsentPrompt drafts={unsent} taskById={taskById} activeId={activeId}
-            onKeep={keepEditing} onDiscard={() => { clearDraftsFor(visitedIds); setAsking(false); onClose(); }}
-            onSent={() => { setAsking(false); onClose(); }} />
+            onKeep={keepEditing} onDiscard={() => { clearDraftsFor(visitedIds); setAsking(false); exitNow(); }}
+            onSent={() => { setAsking(false); exitNow(); }} />
         )}
         {moving && <MoveTaskModal taskId={moving} onClose={() => setMoving(null)} />}
         {savingTemplate && <SaveTemplateModal task={task} subtasks={subtasks} onClose={() => setSavingTemplate(false)} />}
