@@ -254,4 +254,16 @@ describe('FillForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Stamp My Location' }));
     expect(await screen.findByText('Location is off or did not answer. Allow location for Nexus in your browser settings, then tap Stamp My Location again.')).toBeTruthy();
   });
+
+  it('with one work site the entry is at that site without asking', async () => {
+    formGet.mockResolvedValue({ ...TEMPLATE, workSites: [TEMPLATE.workSites[0]] });
+    render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    expect(screen.queryByText('Work Site')).toBeNull();
+    typeIn('Plate', 'ABC123');
+    fireEvent.click(screen.getByRole('button', { name: 'No' }));
+    submit();
+    await waitFor(() => expect(formSubmit).toHaveBeenCalledTimes(1));
+    expect(formSubmit.mock.calls[0][1].workSiteId).toBe('s1');
+  });
 });

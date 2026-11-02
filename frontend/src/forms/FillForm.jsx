@@ -366,6 +366,9 @@ export default function FillForm({ templateId, template: given = null, preview =
   const sections = useMemo(() => groupDefs(defs), [defs]);
   const computed = useMemo(() => computeFormulas(defs, answers), [defs, answers]);
   const sites = tpl?.workSites || [];
+  // A company with one work site: the entry is at it, without a question.
+  const onlySite = sites.length === 1 ? sites[0].id : '';
+  useEffect(() => { if (onlySite) setSite((cur) => cur || onlySite); }, [onlySite]);
 
   // The draft: saved a beat after each change (not while the offer is open,
   // never in a preview, never after the send).
