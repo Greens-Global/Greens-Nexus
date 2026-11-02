@@ -190,3 +190,28 @@
 - Spec coverage: five lifts (Tasks 1-5), forms (6-9), docs (10). Shift feedback, kiosk, DeskTime items are deliberately absent.
 - Types: `prepare()` returns the same field shape `_clean_fields` consumes; `formKind` travels on the document entry from Task 7 to Task 8.
 - Review Focus tests are placed in Tasks 1, 3, 4, 6.
+
+---
+
+## Part 3 - Boards: own the seams, keep the engine replaceable (Neil, 11/02/2026)
+
+Neil's concern: "requiring Excalidraw may not scale with time". Decision for this PR: do not rebuild the drawing engine (a from-scratch editor with Excalidraw's parity - freehand, text, bound arrows, groups, frames, multi-touch, undo, export, reconciliation - is months, and the lock-in is the element JSON, not the package). Instead make the engine a replaceable part behind one adapter, and make the board survive the engine failing.
+
+### Task 11: Board engine adapter + robustness
+
+**Files:**
+- Create: `frontend/src/notes/board/engine/index.js` (the adapter contract), `frontend/src/notes/board/engine/excalidraw.jsx` (the only file in the repo that imports `@excalidraw/excalidraw` or its CSS besides the vitest mock), `frontend/src/notes/board/engine/fallback.jsx` (read-only PNG view with Retry)
+- Modify: `frontend/src/notes/board/Board.jsx`, `BoardEmbed.jsx`, `exportBoard.js`, `useBoardCollab.js`, `boardSync.js`, `scene.js` - every engine call goes through the adapter
+- Create: `frontend/src/notes/board/draft.js` (IndexedDB local draft per note id)
+- Modify: `frontend/vitest.setup.js` mock stays; add `frontend/scripts/check-engine-imports.mjs` to the lint script (fails when any file outside `notes/board/engine/` imports `@excalidraw/`)
+- Modify: `CLAUDE.md` Boards bullet (one line: the engine is behind `notes/board/engine`; nothing else imports it)
+- Test: `frontend/src/notes/board/engine/*.test.jsx`, `draft.test.js`, Board tests
+
+**Interfaces:**
+- `engine/index.js` exports `loadEngine() -> Promise<Engine>` (lazy, the vendor chunk) and the contract: `Engine = { Canvas: React component taking {scene, onChange(scene), look, readOnly, viewportRef}, toScene(raw) -> NexusScene, fromScene(scene) -> raw, exportPng(scene, opts) -> Blob, exportSvg(scene) -> string, reconcile(local, remote) -> scene, version: string }`. `NexusScene` is the existing `nexus-board` JSON (`scene.js`), unchanged on disk.
+- `draft.js`: `saveDraft(noteId, scene)`, `loadDraft(noteId) -> scene|null`, `clearDraft(noteId)`; a draft newer than the saved `rev` is offered on open ("You have unsaved drawing from 11/02/2026 2:14 PM - Restore / Discard"), cleared on a successful save.
+- Fallback: when `loadEngine()` rejects (chunk missing after a deploy, CSP, offline), the board renders the last `thumb_url` full-width, read-only, with "The drawing tools did not load. Retry" and a Retry button; never blank, never a thrown error to the boundary.
+- Scene guard: before save, `scene.js compact(scene)` drops `isDeleted` elements older than the last save and unreferenced files; a scene still over 2 MB shows "This board is too large to save - move some of it to a new board" instead of a 413.
+
+- [ ] **Step 1: Failing tests**: import guard script fails on a planted import; `loadEngine` rejection renders the fallback with the thumbnail and Retry; draft saved on change and offered on reopen; compact drops old deleted elements; existing Board tests still pass through the adapter.
+- [ ] **Step 2-5:** implement, pass (`npx vitest run src/notes/board`, `npm run lint`, `npm run build` with the bundle budget), commit `feat(boards): engine behind one adapter, local draft recovery, read-only fallback when the engine fails (Neil, 11/02/2026)`.
