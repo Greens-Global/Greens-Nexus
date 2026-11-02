@@ -7642,6 +7642,90 @@ def unshared_changes(start: str = "", end: str = "", group_id: str = "", user: d
     return {"count": len(dates), "firstDate": dates[0] if dates else "", "lastDate": dates[-1] if dates else ""}
 
 
+@router.get("/schedule/labor")
+def schedule_labor(start: str, end: str, user: dict = Depends(require_schedule_write),
+                   db: Session = Depends(get_db)):
+    """Scheduled labor for the planner's header (Frontline Reach, Neil
+    11/02/2026): the hours and cost of the live shifts in [start, end] for
+    the people this scheduler manages. Hours are a shift's length less its
+    unpaid break (shift_attendance._paid_minutes - the planner's own paidMin
+    rule), priced at the person's rate IN EFFECT THAT DAY (_rate_on, the
+    payroll history), so a raise mid-week applies from its date. Fixed pay is
+    counted in `fixedPayPeople` and adds hours but no cost; a person with no
+    rate counts in `peopleWithoutRate`. Published and draft shifts are split
+    as well as summed. Cancelled (weather) days, shifts being removed and
+    open shifts (nobody to price) are left out. The manager tier never sees
+    pay (_pay_hidden): they get hours only, `payHidden: true`."""
+    d0 = _parse_day(start, "start date")
+    d1 = _parse_day(end, "end date")
+    if d1 < d0:
+        raise HTTPException(400, "The end date is before the start date.")
+    if (d1 - d0).days > 92:
+        raise HTTPException(400, "Three months at most.")
+    scope = _visible_emails(db, user)
+    pay_hidden = _pay_hidden(db, user)
+    people = _active_people(db)
+    q = (db.query(ScheduledShift)
+         .filter(ScheduledShift.work_date >= d0.isoformat(), ScheduledShift.work_date <= d1.isoformat(),
+                 ScheduledShift.employee_email != ""))
+    if scope is not None:
+        q = q.filter(ScheduledShift.employee_email.in_(list(scope)))
+    rows = [r for r in q.all()
+            if not (getattr(r, "pending_delete", 0) or 0) and (r.employee_email or "").lower() in people]
+    from shift_attendance import _paid_minutes
+    hist, current = {}, {}
+
+    def _pay_on(em: str, day: str) -> dict:
+        if em not in hist:
+            hist[em] = _rate_history(db, em)
+            current[em] = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+        return _rate_on(db, em, day, hist=hist[em], rate_row=current[em])
+
+    days: dict = {}
+    buckets = {"published": {"min": 0, "cost": 0.0}, "draft": {"min": 0, "cost": 0.0}}
+    fixed, no_rate, currencies = set(), set(), {}
+    for r in rows:
+        mins = _paid_minutes(r)
+        if mins <= 0:
+            continue
+        em = (r.employee_email or "").lower()
+        pay = _pay_on(em, r.work_date)
+        cost = 0.0
+        if (pay.get("payType") or "hourly") == "fixed":
+            fixed.add(em)
+        elif float(pay.get("hourlyRate") or 0) > 0:
+            cost = round(mins / 60.0 * float(pay["hourlyRate"]), 2)
+            cur = pay.get("currency") or "USD"
+            currencies[cur] = currencies.get(cur, 0.0) + cost
+        else:
+            no_rate.add(em)
+        day = days.setdefault(r.work_date, {"min": 0, "cost": 0.0})
+        day["min"] += mins
+        day["cost"] += cost
+        b = buckets["published" if int(getattr(r, "published", 1) or 0) else "draft"]
+        b["min"] += mins
+        b["cost"] += cost
+    hours = lambda m: round(m / 60.0, 2)   # noqa: E731
+    total_min = sum(d["min"] for d in days.values())
+    total_cost = round(sum(d["cost"] for d in days.values()), 2)
+    currency = max(currencies, key=currencies.get) if currencies else "USD"
+    out = {
+        "start": d0.isoformat(), "end": d1.isoformat(),
+        "hours": hours(total_min), "payHidden": pay_hidden,
+        "days": [{"day": d, "hours": hours(v["min"]), **({} if pay_hidden else {"cost": round(v["cost"], 2)})}
+                 for d, v in sorted(days.items())],
+        "published": {"hours": hours(buckets["published"]["min"]), "cost": None if pay_hidden else round(buckets["published"]["cost"], 2)},
+        "draft": {"hours": hours(buckets["draft"]["min"]), "cost": None if pay_hidden else round(buckets["draft"]["cost"], 2)},
+    }
+    if pay_hidden:
+        out.update({"cost": None, "currency": currency, "costs": {}, "peopleWithoutRate": None, "fixedPayPeople": None})
+    else:
+        out.update({"cost": total_cost, "currency": currency,
+                    "costs": {k: round(v, 2) for k, v in currencies.items()},
+                    "peopleWithoutRate": len(no_rate), "fixedPayPeople": len(fixed)})
+    return out
+
+
 @router.get("/schedule/check")
 def check_scheduled(email: str, date: str, start: str, end: str, exclude_id: str = "", break_min: int = None,
                     user: dict = Depends(require_schedule_write), db: Session = Depends(get_db)):
