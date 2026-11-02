@@ -1082,6 +1082,11 @@ body.toolbar-collapsed .toolbar-toggle svg {
     transition: background 0.15s;
 }
 
+/* A disabled button swallows the mouse release, which left a crop drag that ended on it unfinished. */
+.crop-btn:disabled {
+    pointer-events: none;
+}
+
 .crop-btn.apply {
     background: var(--accent);
     color: #fff;

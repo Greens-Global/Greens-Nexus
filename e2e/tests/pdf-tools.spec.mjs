@@ -216,7 +216,8 @@ async function verifier(browser) {
   });
   await page.evaluate((b) => {
     pdfjsLib.GlobalWorkerOptions.workerSrc = `${b}/libs/pdf.worker.min.js`;
-    window.__open = (b64, password) => pdfjsLib.getDocument({ data: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), ...(password ? { password } : {}) }).promise;
+    window.__worker = new pdfjsLib.PDFWorker(); // one worker: a new one per file ran the machine out of sockets
+    window.__open = (b64, password) => pdfjsLib.getDocument({ worker: window.__worker, data: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), ...(password ? { password } : {}) }).promise;
     window.__render = async (doc, n, scale) => {
       const p = await doc.getPage(n);
       const v = p.getViewport({ scale });
@@ -1491,7 +1492,6 @@ test.describe('9. page tools', () => {
     await cropFromCanvas(page, A, B, 'replace');
     let { buf } = await saved(page);
     const once = through(BOX, A, B);
-    await expectPages(v, buf, [[null, REDHEX]], { box: once }).catch(() => {});
     expectClose(await colorBox(v, buf, 1, RED, { scale: 2 }), { x0: once[0], y0: once[1], x1: once[2], y1: once[3] }, 'one crop', 0.02);
     await fitPage(page);
     await cropFromCanvas(page, A, B, 'replace');

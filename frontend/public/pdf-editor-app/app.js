@@ -1890,6 +1890,12 @@
         // needed. The jump is bundled into THIS press (one click = one action):
         // we navigate, then finish the undo after render via _forcedPage, without
         // re-consulting the order (so navigation side effects can't derail it).
+            // A page tool's change sits on the same timeline as the markups around it.
+        if (_forcedPage == null && _undoOrder[_undoOrder.length - 1] === 'doc') {
+            _undoOrder.pop();
+            if (_docUndoStack.length) { undoDocChange(); return; }
+            return undo();
+        }
         const targetPage = _forcedPage != null ? _forcedPage
             : (_undoOrder.length ? _undoOrder[_undoOrder.length - 1] : state.currentPage);
         let stack = state.undoStacks[targetPage];
@@ -5490,6 +5496,7 @@
                 comments: JSON.stringify(state.comments),
             });
             if (_docUndoStack.length > 5) _docUndoStack.shift(); // cap memory
+            _undoOrder.push('doc');
             updateUndoRedoButtons();
         } catch (e) {
             console.warn('doc snapshot failed', e);
@@ -9548,7 +9555,7 @@
         Object.keys(_pageScales).forEach(k => delete _pageScales[k]);
         Object.assign(_pageScales, scales);
         for (const list of [_undoOrder, _redoOrder]) {
-            const next = list.map(mapPage).filter(p => p != null);
+            const next = list.map(p => (p === 'doc' ? p : mapPage(p))).filter(p => p != null);
             list.length = 0;
             list.push(...next);
         }
