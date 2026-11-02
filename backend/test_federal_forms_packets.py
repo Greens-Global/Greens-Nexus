@@ -537,12 +537,34 @@ class ChecklistSeedTests(FederalPacketCase):
         self.db.add(models.HrChecklistTemplate(id="tpl-lib", kind="onboarding", entity_id="", name="Onboarding",
                                                items=old, updated_by="seed", updated_at="2026-10-01T00:00:00"))
         self.db.commit()
-        self.assertEqual(hc.backfill_federal_forms(self.db), 1)
+        # A company's own copy: the old seed hint on ON-05, HR's own words on
+        # ON-18, no hint at all on ON-23 (11/02/2026: only the seed's old
+        # hint or an empty one is replaced - what HR wrote stays).
+        ours = [dict(r) for r in old]
+        for r in ours:
+            if r["key"] == "ON-05":
+                r["hint"] = hc.FEDERAL_OLD_HINTS["ON-05"]
+            if r["key"] == "ON-18":
+                r["hint"] = "Bring the completed I-9 to the front desk by lunch on day one."
+            if r["key"] == "ON-23":
+                r["hint"] = ""
+        self.db.add(models.HrChecklistTemplate(id="tpl-co", kind="onboarding", entity_id=CO, name="Onboarding",
+                                               items=ours, updated_by=HR, updated_at="2026-10-05T00:00:00"))
+        self.db.commit()
+        self.assertEqual(hc.backfill_federal_forms(self.db), 2)
         self.db.expire_all()
         items = {r["key"]: r for r in self.db.query(models.HrChecklistTemplate).filter_by(id="tpl-lib").one().items}
         self.assertEqual(items["ON-05"]["signal"], "envelope:w4+direct_deposit")
         self.assertEqual(items["ON-18"]["signal"], "envelope:i9_s1")
         self.assertEqual(items["ON-23"]["signal"], "id_on_file|envelope:i9_s2")
+        seed = {r["key"]: r for r in hr_checklist_seed.ONBOARDING}
+        co = {r["key"]: r for r in self.db.query(models.HrChecklistTemplate).filter_by(id="tpl-co").one().items}
+        self.assertEqual(co["ON-05"]["signal"], "envelope:w4+direct_deposit")
+        self.assertEqual(co["ON-05"]["hint"], seed["ON-05"]["hint"])                 # the seed's old words follow the seed
+        self.assertEqual(co["ON-18"]["signal"], "envelope:i9_s1")
+        self.assertEqual(co["ON-18"]["hint"], "Bring the completed I-9 to the front desk by lunch on day one.")
+        self.assertEqual(co["ON-23"]["signal"], "id_on_file|envelope:i9_s2")
+        self.assertEqual(co["ON-23"]["hint"], seed["ON-23"]["hint"])                 # empty takes the seed's
         self.assertEqual(hc.backfill_federal_forms(self.db), 0)
 
     def test_the_and_condition_needs_both_forms(self):
