@@ -25,7 +25,7 @@
 // Kept off the menu on purpose (Neil, Oct 29 2026): 1:1s, Ask HR,
 // Reimbursements, Credentials, Purchase Requests, Send for Signature,
 // Workflows and Time Off - those start from their own modules.
-import { CheckSquare, NotebookPen, PenTool, FilePlus2, Package, Mail, CalendarPlus } from 'lucide-react';
+import { CheckSquare, NotebookPen, PenTool, FilePlus2, Package, Mail, CalendarPlus, ClipboardList } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { NAV, isNavItemVisible } from '../components/Sidebar';
 
@@ -44,6 +44,9 @@ export const CREATE_ITEMS = [
   { key: 'ticket', group: 'Work', label: 'New Ticket', Icon: TicketToken, module: 'support', compose: 'ticket' },
   { key: 'document', group: 'Work', label: 'New Document', Icon: FilePlus2, module: 'documents', go: ['documents', 'documents-new'] },
   { key: 'item', group: 'Requests', label: 'Request an Item', Icon: Package, module: 'inventory', go: ['inventory', 'catalog'] },
+  // Fill a Form (Forms & Checklists, Neil 11/02/2026): Workday's form picker
+  // (TimeClock.jsx's "form:pick" deep link; "form:<templateId>" opens one).
+  { key: 'form', group: 'Workday', label: 'Fill a Form', Icon: ClipboardList, module: 'myhr', go: ['timeclock', 'form:pick'] },
   // The Dashboard's Quick Actions offer these to everyone who has a Dashboard.
   { key: 'email', group: 'Outlook', label: 'New Email', Icon: Mail, module: 'dashboard', compose: 'email' },
   { key: 'event', group: 'Outlook', label: 'New Event', Icon: CalendarPlus, module: 'dashboard', compose: 'event' },

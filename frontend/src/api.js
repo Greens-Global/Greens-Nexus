@@ -3385,3 +3385,13 @@ api.pushConfig = () => req('/push/config');
 api.pushSubscribe = (sub) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
 api.pushUnsubscribe = (endpoint) => req('/push/subscribe', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
 api.pushSubscriptions = () => req('/push/subscriptions');
+
+// Forms & Checklists (Neil, 11/02/2026; backend routers/forms.py). The forms
+// this person may fill (the server's audience rule), one form's released
+// fields for the fill screen, and the send - idempotent on `entryKey`, so a
+// retry files the same entry once. Photos and signatures go to task-files
+// under forms/<entryKey>/ first (tasks/lib storeTaskFile); the body carries
+// their URLs. body: {entryKey, answers, workSiteId?, shiftId?, source, gps?}.
+api.formsMine = () => req('/forms/mine');
+api.formGet = (templateId) => req(`/forms/${encodeURIComponent(templateId)}`);
+api.formSubmit = (templateId, body) => req(`/forms/${encodeURIComponent(templateId)}/entries`, { method: 'POST', body: JSON.stringify(body) });

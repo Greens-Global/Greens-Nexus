@@ -25,6 +25,7 @@ import { TICKET_STATUS_META, CLOSED_STATES } from '../tickets/ticketMeta';
 import { uploadTicketEvidence } from '../tickets/evidenceUpload';
 import { filesFromPaste } from '../tasks/lib';
 import { setPendingOpen } from '../lib/pendingOpen';
+import FormsTile from '../forms/FormsTile';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -155,7 +156,7 @@ function Stat({ label, value, hint, color, Icon, hero, title, onClick }) {
     : <div className={cls} style={{ cursor: 'default' }} title={title}>{body}</div>;
 }
 
-export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false, askFocus = null }) {
+export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false, askFocus = null, openForm = null }) {
   // A "confirm your schedule" bell or email (Shifts Phase 3a) lands here:
   // My Schedule shows that share's banner - bring the card into view.
   useEffect(() => {
@@ -571,6 +572,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
             <ReimbursementsTile autoOpen={openReimbursements} flash={flash} />
             {/* Purchase Request (Neil, Oct 22 2026): moved here from Item Management - opens the Purchase Requests popup (Sagar, Oct 27), like Reimbursements. */}
             <PurchaseRequestTile onOpen={onOpenPurchase || (() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'purchase' } })))} />
+            {/* Fill a Form (Forms & Checklists, Neil 11/02/2026): the forms this person may fill, in the fill sheet. Shows only when there is one. `openForm` is the "form:<id>" / "form:pick" deep link. */}
+            <FormsTile autoOpen={openForm} flash={flash} />
             </div>
           </div>
         </>
