@@ -33,6 +33,14 @@ export const isPdfSource = (mimeOrName, name = '') => PDF_RE.test(mimeOrName || 
 
 const clip = (s, n) => String(s || '').trim().slice(0, n);
 
+// A source's link back is a path inside Nexus: one leading slash (never `//`
+// or `/\`, which a browser reads as another site) and a screen we know.
+export const SOURCE_PATHS = ['/tickets', '/tasks', '/notes', '/dashboard', '/support', '/help-center'];
+export function isAppPath(url) {
+  if (typeof url !== 'string' || !/^\/(?![/\\])/.test(url)) return false;
+  return SOURCE_PATHS.some((p) => url === p || url.startsWith(`${p}/`) || url.startsWith(`${p}?`) || url.startsWith(`${p}#`));
+}
+
 /** A clean `source` for the board row: a known kind with an id and label,
  *  else a plain file (the attachment's own name), which the API keeps too. */
 export function markupSource(given, att = {}) {
@@ -40,7 +48,7 @@ export function markupSource(given, att = {}) {
   const fallbackId = clip(att.id || att.url || att.name || 'file', ID_MAX) || 'file';
   const id = clip(kind === 'file' ? (given?.id || fallbackId) : given?.id, ID_MAX) || fallbackId;
   const label = clip(given?.label || att.name || 'Picture', LABEL_MAX) || 'Picture';
-  const url = typeof given?.url === 'string' && /^\//.test(given.url) ? given.url.slice(0, 500) : '';
+  const url = isAppPath(given?.url) ? given.url.slice(0, 500) : '';
   return { kind, id, label, url };
 }
 
@@ -82,16 +90,12 @@ function imageSize(blob) {
 }
 
 async function fetchPicture(imageUrl, mimeType) {
-  if (imageUrl && typeof imageUrl === 'object' && typeof imageUrl.arrayBuffer === 'function') return imageUrl;   // a File / Blob
+  if (imageUrl && typeof imageUrl === 'object' && ((typeof Blob !== 'undefined' && imageUrl instanceof Blob) || typeof imageUrl.arrayBuffer === 'function')) return imageUrl;   // a File / Blob
   const url = String(imageUrl || '');
   if (!url) throw new Error('There is no picture to mark up.');
-  if (isOwnImageUrl(url)) {
-    const { blob } = await api.viewerBlob(url);
-    return blob;
-  }
-  const r = await fetch(url);
-  if (!r.ok) throw new Error('Could not read the picture.');
-  const blob = await r.blob();
+  // Only our own storage (through the signed viewer) - never an outside address.
+  if (!isOwnImageUrl(url)) throw new Error('Only a picture stored in Nexus can be marked up.');
+  const { blob } = await api.viewerBlob(url);
   return mimeType && !blob.type ? blob.slice(0, blob.size, mimeType) : blob;
 }
 

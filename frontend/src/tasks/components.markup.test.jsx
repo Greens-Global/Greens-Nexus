@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const markup = vi.hoisted(() => ({ openMarkup: vi.fn() }));
-const pdf = vi.hoisted(() => ({ pdfPageCount: vi.fn() }));
+const pdf = vi.hoisted(() => ({ pdfPageCount: vi.fn(), PDF_PAGES_MAX: 40 }));
 vi.mock('../lib/markup', async (importOriginal) => ({ ...(await importOriginal()), openMarkup: markup.openMarkup }));
 vi.mock('../notes/board/pdfPage', () => pdf);
 vi.mock('../api', () => ({ api: new Proxy({}, { get: () => vi.fn(async () => ({})) }) }));
@@ -64,5 +64,22 @@ describe('AttachmentViewer Mark Up', () => {
     fireEvent.click(screen.getByRole('button', { name: /Mark Up/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('bucket down');
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('a PDF longer than the picker lists the first 40 pages and says so', async () => {
+    pdf.pdfPageCount.mockResolvedValue(120);
+    render(<AttachmentViewer att={{ name: 'specs.pdf', url: 'https://x/specs.pdf' }} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /Mark Up/ }));
+    expect(await screen.findByText('Showing the first 40 pages.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Page 40' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Page 41' })).toBeNull();
+  });
+
+  it('a short PDF has no cap line', async () => {
+    pdf.pdfPageCount.mockResolvedValue(3);
+    render(<AttachmentViewer att={{ name: 'plan.pdf', url: 'https://x/plan.pdf' }} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /Mark Up/ }));
+    await screen.findByText('Which page should go on the board?');
+    expect(screen.queryByText(/Showing the first/)).toBeNull();
   });
 });

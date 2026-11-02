@@ -1694,6 +1694,7 @@ export function TaskCountBadges({ t, store, size = 12 }) {
 export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
   const [marking, setMarking] = useState('');     // '' | 'busy' | 'pages'
   const [pages, setPages] = useState(0);
+  const [pagesCapped, setPagesCapped] = useState(false);
   const [markErr, setMarkErr] = useState('');
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
@@ -1711,9 +1712,9 @@ export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
     setMarkErr(''); setMarking('busy');
     try {
       if (page === 1 && isPdfSource(mime, probe)) {
-        const { pdfPageCount } = await import('../notes/board/pdfPage');
+        const { pdfPageCount, PDF_PAGES_MAX } = await import('../notes/board/pdfPage');
         const n = await pdfPageCount(att.url);
-        if (n > 1) { setPages(n); setMarking('pages'); return; }
+        if (n > 1) { setPages(Math.min(n, PDF_PAGES_MAX)); setPagesCapped(n > PDF_PAGES_MAX); setMarking('pages'); return; }
       }
       await openMarkup({ imageUrl: att.url, mimeType: mime, name: att.name || '', page, source: markupSource(given, att) });
       onClose();
@@ -1773,6 +1774,7 @@ export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
               <button key={n} type="button" onClick={() => markUp(n)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12.5 }}>Page {n}</button>
             ))}
           </div>
+          {pagesCapped && <div style={{ fontSize: 12, color: NX.dim, marginTop: 8 }}>Showing the first {pages} pages.</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
             <button type="button" onClick={() => setMarking('')} style={{ ...btn('ghost'), fontSize: 12.5 }}>Cancel</button>
           </div>

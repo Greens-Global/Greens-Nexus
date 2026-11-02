@@ -49,4 +49,16 @@ describe('pdfPage', () => {
     await renderPdfPage(file, 1);
     expect(apiMock.viewerBlob).not.toHaveBeenCalled();
   });
+
+  it('refuses a PDF that is not in our storage, without fetching it', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    await expect(pdfPageCount('https://evil.example/plan.pdf')).rejects.toThrow(/stored in Nexus/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('counts every page (the picker caps the list itself)', async () => {
+    pdfjs.doc.numPages = 75;
+    try { expect(await pdfPageCount(OWN)).toBe(75); } finally { pdfjs.doc.numPages = 3; }
+  });
 });

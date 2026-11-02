@@ -90,4 +90,28 @@ describe('markup', () => {
     expect(board.openBoard).toHaveBeenCalledWith('note_9');
     expect(apiMock.noteUpdate).not.toHaveBeenCalled();
   });
+
+  it('the back link is a Nexus path only: one slash, a known screen', () => {
+    expect(markupSource({ kind: 'task', id: 'k', label: 'x', url: '//evil.example/tasks' }).url).toBe('');
+    expect(markupSource({ kind: 'task', id: 'k', label: 'x', url: '/\\evil.example' }).url).toBe('');
+    expect(markupSource({ kind: 'task', id: 'k', label: 'x', url: '/admin' }).url).toBe('');
+    expect(markupSource({ kind: 'task', id: 'k', label: 'x', url: '/tasksevil' }).url).toBe('');
+    expect(markupSource({ kind: 'task', id: 'k', label: 'x', url: '/tasks?task=k' }).url).toBe('/tasks?task=k');
+    expect(markupSource({ kind: 'note', id: 'k', label: 'x', url: '/dashboard/notes:k' }).url).toBe('/dashboard/notes:k');
+  });
+
+  it('never fetches a picture that is not in our storage', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    await expect(openMarkup({ imageUrl: 'https://evil.example/x.png', mimeType: 'image/png', source: { kind: 'file', id: 'a', label: 'x.png' } })).rejects.toThrow(/stored in Nexus/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(board.createBoard).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('a File picked on the device is marked up as is', async () => {
+    const file = new File(['png'], 'pick.png', { type: 'image/png' });
+    await openMarkup({ imageUrl: file, mimeType: 'image/png', source: { kind: 'file', id: 'a', label: 'pick.png' } });
+    expect(apiMock.viewerBlob).not.toHaveBeenCalled();
+    expect(files.uploadBoardFile).toHaveBeenCalledTimes(1);
+  });
 });

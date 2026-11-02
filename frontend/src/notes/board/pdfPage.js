@@ -1,8 +1,9 @@
 // A PDF page as a picture, for marking it up on a Board (Neil, 11/02/2026).
 // pdfjs-dist is already in the bundle (vendor-pdf, the Documents and Nexus
 // Sign screens); it is imported lazily here so nothing loads until someone
-// asks. Our own storage is fetched through the signed viewer (api.viewerBlob);
-// anything else, or a File picked on the device, is read as is.
+// asks. Our own storage is fetched through the signed viewer (api.viewerBlob)
+// and a File picked on the device is read as is; any other address is
+// refused - a markup never fetches from somewhere that is not ours.
 import { api } from '../../api';
 import { isOwnImageUrl } from '../../lib/storageView';
 
@@ -32,13 +33,9 @@ async function bytesOf(src) {
   if (typeof Blob !== 'undefined' && src instanceof Blob) return blobBytes(src);   // a File picked on the device
   const url = String(src || '');
   if (!url) throw new Error('No PDF to read.');
-  if (isOwnImageUrl(url)) {
-    const { blob } = await api.viewerBlob(url);
-    return blobBytes(blob);
-  }
-  const r = await fetch(url);
-  if (!r.ok) throw new Error('Could not read the PDF.');
-  return r.arrayBuffer();
+  if (!isOwnImageUrl(url)) throw new Error('Only a PDF stored in Nexus can be marked up.');
+  const { blob } = await api.viewerBlob(url);
+  return blobBytes(blob);
 }
 
 async function open(src) {
@@ -47,10 +44,10 @@ async function open(src) {
   return pdfjs.getDocument({ data }).promise;
 }
 
-/** How many pages, capped at PDF_PAGES_MAX for the picker. */
+/** How many pages the PDF has (the picker lists PDF_PAGES_MAX at most and says so). */
 export async function pdfPageCount(src) {
   const pdf = await open(src);
-  return Math.min(PDF_PAGES_MAX, pdf.numPages || 0);
+  return pdf.numPages || 0;
 }
 
 function canvasToBlob(canvas) {
