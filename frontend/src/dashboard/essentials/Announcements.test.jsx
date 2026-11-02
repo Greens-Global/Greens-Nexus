@@ -376,6 +376,15 @@ describe('Announcements reach (11/02/2026)', () => {
     expect(screen.getByText('Not Yet Acknowledged (2)')).toBeTruthy();
     expect(screen.getByText('Bob Lee, Cy Ng')).toBeTruthy();
     unmount();
+    apiMock.getAnnouncementReads.mockResolvedValue({
+      reads: [{ email: 'ana@greensglobal.com', name: 'Ana Diaz', read_at: '2026-11-02T15:00:00+00:00', acknowledged_at: '2026-11-02T15:00:00+00:00' }],
+      notAcknowledged: [],
+    });
+    const second = render(<Announcements />);
+    await screen.findByText('Safety rule');
+    fireEvent.click(screen.getByText(/^Read by 1/));
+    expect(await screen.findByText('Everyone Has Acknowledged')).toBeTruthy();   // Title Case, like a status label
+    second.unmount();
     apiMock.getAnnouncementReads.mockResolvedValue([{ email: 'ana@greensglobal.com', name: 'Ana Diaz', read_at: '2026-11-02T15:00:00+00:00', acknowledged_at: '' }]);
     render(<Announcements />);
     await screen.findByText('Safety rule');

@@ -353,7 +353,7 @@ function ReadsList({ reads }) {
             // acknowledgers (the server's one audience rule), by name.
             <div data-testid="ann-not-acked" style={{ marginTop: reads.rows.length ? 8 : 6, paddingTop: reads.rows.length ? 8 : 0, borderTop: reads.rows.length ? '1px solid var(--line, #e5e7eb)' : 'none' }}>
               <div style={{ fontWeight: 600, color: pending.length ? 'hsl(var(--color-orange))' : 'hsl(var(--color-green))' }}>
-                {pending.length ? `Not Yet Acknowledged (${pending.length})` : 'Everyone has acknowledged'}
+                {pending.length ? `Not Yet Acknowledged (${pending.length})` : 'Everyone Has Acknowledged'}
               </div>
               {pending.length > 0 && (
                 <div style={{ color: 'var(--ink)', marginTop: 2, overflowWrap: 'anywhere' }}>{pending.map(p => p.name || p.email).join(', ')}</div>
