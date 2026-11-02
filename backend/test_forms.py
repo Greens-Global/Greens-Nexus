@@ -553,18 +553,61 @@ class FormsTests(unittest.TestCase):
             db.close()
 
     def test_links_are_stored_on_the_entry(self):
-        tpl = self._template()
-        e = self._submit(tpl["id"], REP)
-        self._as(MGR)
-        r = self.client.post(f"/forms/entries/{e['id']}/link", json={"ticketId": "tk-1"})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["linkedTicketId"], "tk-1")
-        r = self.client.post(f"/forms/entries/{e['id']}/link", json={"taskId": "task-9", "assetId": "asset-3"})
-        self.assertEqual(r.json()["linkedTaskId"], "task-9")
-        self.assertEqual(r.json()["linkedAssetId"], "asset-3")
-        self.assertEqual(r.json()["linkedTicketId"], "tk-1")
-        self._as(STR_B)
-        self.assertEqual(self.client.post(f"/forms/entries/{e['id']}/link", json={"ticketId": "x"}).status_code, 404)
+        db = database.SessionLocal()
+        try:
+            db.add(models.TaskTicket(id="forms-tk-1", subject="Tire", company_id=CO_A))
+            db.add(models.TaskTicket(id="forms-tk-b", subject="Other co", company_id=CO_B))
+            db.add(models.TaskTicket(id="forms-tk-hr", subject="Private", company_id=CO_A, confidential_desk="hr"))
+            db.add(models.Task(id="forms-task-9", title="Fix tire", company_id=CO_A))
+            db.add(models.Task(id="forms-task-b", title="Other co", company_id=CO_B))
+            db.add(models.PropertyAsset(id="forms-asset-3", name="Truck 3", payload={"kind": "vehicle"}))
+            db.add(models.PropertyAsset(id="forms-asset-p", name="Vault", payload={"private": True}))
+            db.add(models.NexusSetting(key="company_walls", value="on"))
+            db.commit()
+        finally:
+            db.close()
+        self._flush()
+        try:
+            tpl = self._template()
+            e = self._submit(tpl["id"], REP)
+            self._as(MGR)
+            r = self.client.post(f"/forms/entries/{e['id']}/link", json={"ticketId": "forms-tk-1"})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["linkedTicketId"], "forms-tk-1")
+            r = self.client.post(f"/forms/entries/{e['id']}/link",
+                                 json={"taskId": "forms-task-9", "assetId": "forms-asset-3"})
+            self.assertEqual(r.json()["linkedTaskId"], "forms-task-9")
+            self.assertEqual(r.json()["linkedAssetId"], "forms-asset-3")
+            self.assertEqual(r.json()["linkedTicketId"], "forms-tk-1")
+            # A record that does not exist, sits behind the company wall, is a
+            # confidential ticket or a private asset: 404, nothing stored.
+            for body in ({"ticketId": "no-such"}, {"ticketId": "forms-tk-b"}, {"ticketId": "forms-tk-hr"},
+                         {"taskId": "no-such"}, {"taskId": "forms-task-b"},
+                         {"assetId": "no-such"}, {"assetId": "forms-asset-p"}):
+                r = self.client.post(f"/forms/entries/{e['id']}/link", json=body)
+                self.assertEqual(r.status_code, 404, (body, r.text))
+            r = self.client.post(f"/forms/entries/{e['id']}/link", json={"ticketId": ""})   # a blank clears it
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["linkedTicketId"], "")
+            self.assertEqual(r.json()["linkedTaskId"], "forms-task-9")
+            self._as(REP)   # the submitter sees it but may not review it, so may not link it
+            self.assertEqual(self.client.post(f"/forms/entries/{e['id']}/link",
+                                              json={"ticketId": "forms-tk-1"}).status_code, 403)
+            self._as(STR_B)
+            self.assertEqual(self.client.post(f"/forms/entries/{e['id']}/link",
+                                              json={"ticketId": "forms-tk-1"}).status_code, 404)
+        finally:
+            db = database.SessionLocal()
+            try:
+                (db.query(models.TaskTicket).execution_options(include_confidential=True)
+                   .filter(models.TaskTicket.id.like("forms-%")).delete(synchronize_session=False))
+                db.query(models.Task).filter(models.Task.id.like("forms-%")).delete(synchronize_session=False)
+                db.query(models.PropertyAsset).filter(models.PropertyAsset.id.like("forms-%")).delete(synchronize_session=False)
+                db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
+                db.commit()
+            finally:
+                db.close()
+            self._flush()
 
     def test_pdf_and_csv(self):
         tpl = self._template()

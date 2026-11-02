@@ -394,20 +394,64 @@ class LinkIn(BaseModel):
     assetId: Optional[str] = None
 
 
+def _ticket_ok(db: Session, user: dict, scope, tid: str) -> bool:
+    """The ticket exists, sits inside the caller's company walls, and - a
+    confidential one - is theirs to read (ticket_confidential.may_read)."""
+    import ticket_confidential
+    from models import TaskTicket
+    t = (db.query(TaskTicket).execution_options(include_confidential=True)
+         .filter(TaskTicket.id == tid).first())
+    return (t is not None and auth.company_ok(t.company_id or "", scope, shared_when_blank=True)
+            and ticket_confidential.may_read(db, user, t))
+
+
+def _task_ok(db: Session, scope, tid: str) -> bool:
+    """The task exists (not trashed) inside the caller's company walls."""
+    from models import Task
+    from routers.task_util import task_company
+    t = db.query(Task).filter(Task.id == tid).first()
+    if t is None:
+        return False
+    company = task_company(t, auth.company_of_email_map(db)) if scope is not None else ""
+    return auth.company_ok(company, scope, shared_when_blank=True)
+
+
+def _asset_ok(db: Session, user: dict, aid: str) -> bool:
+    """The asset exists, is not in the Trash, and is not a private asset the
+    caller may not see (property_links.viewable). Assets carry no company."""
+    import property_links
+    from models import PropertyAsset
+    prop = db.get(PropertyAsset, aid)
+    return property_links.viewable(prop, user) and not (prop.payload or {}).get("deleted")
+
+
 @router.post("/entries/{eid}/link")
 def link_entry(eid: str, body: LinkIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Remember the ticket / task / asset made from this entry (the record
-    itself is created through the existing calls)."""
+    itself is created through the existing calls). Only someone who may
+    review the entry links it, and only to a record they may see; a blank
+    id clears the link."""
     reach = form_audience.viewer_reach(db, user)
     row = _get_entry(db, eid, reach, lock=True)
+    if not reach.can_review(row):
+        raise HTTPException(403, "Only a reviewer can link this entry")
     if body.ticketId is None and body.taskId is None and body.assetId is None:
         raise HTTPException(400, "Nothing to link")
+    ticket_id = (body.ticketId or "").strip()[:80]
+    task_id = (body.taskId or "").strip()[:80]
+    asset_id = (body.assetId or "").strip()[:80]
+    if ticket_id and not _ticket_ok(db, user, reach.scope, ticket_id):
+        raise HTTPException(404, "Ticket not found")
+    if task_id and not _task_ok(db, reach.scope, task_id):
+        raise HTTPException(404, "Task not found")
+    if asset_id and not _asset_ok(db, user, asset_id):
+        raise HTTPException(404, "Asset not found")
     if body.ticketId is not None:
-        row.linked_ticket_id = (body.ticketId or "").strip()[:80]
+        row.linked_ticket_id = ticket_id
     if body.taskId is not None:
-        row.linked_task_id = (body.taskId or "").strip()[:80]
+        row.linked_task_id = task_id
     if body.assetId is not None:
-        row.linked_asset_id = (body.assetId or "").strip()[:80]
+        row.linked_asset_id = asset_id
     db.commit(); db.refresh(row)
     return _serialize_many(db, [row], reach)[0]
 
