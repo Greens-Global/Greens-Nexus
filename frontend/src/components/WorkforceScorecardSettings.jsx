@@ -327,8 +327,9 @@ function Recipients() {
             <div key={r.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5, flexWrap: 'wrap' }}>
               <span style={{ fontWeight: 600, minWidth: 140 }}>{r.name}</span>
               <span style={{ flex: 1, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.email}</span>
-              <span style={{ color: r.scope === 'all' ? NX.blue : NX.dim, fontWeight: 600 }}>
+              <span style={{ color: r.scope === 'all' || r.scope === 'company' ? NX.blue : NX.dim, fontWeight: 600 }}>
                 {r.scope === 'all' ? 'Whole company'
+                  : r.scope === 'company' ? `Their companies (${r.peopleInScope} ${r.peopleInScope === 1 ? 'person' : 'people'})`
                   : `${r.scope === 'line' ? 'Whole reporting line' : 'Direct reports'} (${r.peopleInScope} ${r.peopleInScope === 1 ? 'person' : 'people'})`}
               </span>
             </div>
@@ -347,7 +348,7 @@ function statusOf(row) {
 }
 
 const LOG_LIMIT = 25;
-const SCOPE_WORD = { direct: 'direct reports', line: 'reporting line', all: 'company' };
+const SCOPE_WORD = { direct: 'direct reports', line: 'reporting line', all: 'company', company: 'their companies' };
 
 function DeliveryLog() {
   const [rows, setRows] = useState(null);

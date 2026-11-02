@@ -271,7 +271,8 @@ def _level_of(db: Session, email: str) -> int:
     return _LEVELS.get((row.role if row else "employee") or "employee", 1)
 
 
-SCOPE_LABEL = {"direct": "your direct reports", "line": "your whole reporting line", "all": "the whole company"}
+SCOPE_LABEL = {"direct": "your direct reports", "line": "your whole reporting line", "all": "the whole company",
+               "company": "your company"}
 
 
 def direct_reports(db: Session, email: str) -> set:
@@ -280,18 +281,32 @@ def direct_reports(db: Session, email: str) -> set:
 
 
 def scope_kind(rank: int, level: int = 1, company: bool = False) -> str:
-    """direct | line | all from a grant rank (auth._MODULE_LEVEL_RANK) and tier."""
+    """direct | line | company | all from a grant rank
+    (auth._MODULE_LEVEL_RANK) and tier. An Administrator (level 4) gets
+    `company` - their own companies' people, never everyone (Neil,
+    11/02/2026: walled, the switch on or off); only a Super Administrator,
+    a Full grant or a company recipient gets `all`."""
     from auth import _MODULE_LEVEL_RANK
-    if company or level >= 4 or rank >= _MODULE_LEVEL_RANK["full"]:
+    if level == 4:
+        return "company"
+    if company or level >= 5 or rank >= _MODULE_LEVEL_RANK["full"]:
         return "all"
     return "line" if rank >= _MODULE_LEVEL_RANK["editor"] else "direct"
 
 
 def scope_emails(db: Session, email: str, kind: str):
-    """The emails a scope kind covers for `email`: None = everyone."""
+    """The emails a scope kind covers for `email`: None = everyone. `all`
+    and `company` are both capped at the caller's company scope - a walled
+    caller's "everyone" is everyone in their companies."""
+    import auth
     from auth import team_emails
-    if kind == "all":
-        return None
+    if kind in ("all", "company"):
+        level = 4 if kind == "company" else auth.level_for(email, db)
+        cs = auth.company_scope({"email": email, "level": level}, db)
+        if cs is None:
+            return None
+        return {(e.work_email or "").lower() for e in db.query(models.NexusEmployee.work_email)
+                .filter(models.NexusEmployee.company.in_(cs)).all() if e.work_email}
     return team_emails(db, email) if kind == "line" else direct_reports(db, email)
 
 

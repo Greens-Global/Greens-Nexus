@@ -340,7 +340,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // HR's to work: the server says per ticket whether this viewer is HR for it
   // or its assignee (hrCanWork) - a manager or a desk role is not.
   const confidential = !!t.confidentialDesk;
-  const privileged = confidential ? !!t.hrCanWork : (myLevel >= 3 || deskAccess.privileged);   // + Global Admins (server's _ticket_privileged)
+  const privileged = confidential ? !!t.hrCanWork : (myLevel >= 3 || deskAccess.privileged);   // + Super Administrators (server's _ticket_privileged)
   // Request Control: LiveView's `assist` mode (components/LiveView.jsx) -
   // consent-first, NOT the Workforce Analytics roster's disclosed-monitoring
   // model. Nothing is visible until the requester accepts a control prompt

@@ -97,9 +97,11 @@ def db():
               models.NexusNotification, models.TaskTicket, models.NexusEmployee, models.NexusRole,
               models.NexusGroup, models.NexusGroupMember, models.NexusSetting, models.TaskCustomField):
         s.query(m).delete()
+    # Everyone is in one company, so the tickets they file land there and the
+    # desk's Administrator - company-walled since 11/02/2026 (Neil) - reaches them.
     for u in PEOPLE:
         s.add(models.NexusEmployee(id=gen_id(), work_email=u["email"], first_name=u["email"].split("@")[0].title(),
-                                   status="active", company=""))
+                                   status="active", company="co"))
     s.add(models.NexusRole(email=DESK["email"], role="administrator"))
     s.add(models.NexusRole(email=MANAGER["email"], role="manager"))
     s.add(models.NexusGroup(id="g-desk", name="Service Desk", allowed_modules="tickets:editor"))

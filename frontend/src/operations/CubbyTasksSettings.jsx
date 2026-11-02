@@ -181,7 +181,7 @@ export default function CubbyTasksSettings({ toastOk, toastErr }) {
 
       {!canEdit && (
         <p className="ops-note" style={{ margin: 0 }}>
-          You can see these settings. Only a Global Admin, an IT Admin or someone with Full access to Operations can change them.
+          You can see these settings. Only a Super Administrator, an Administrator or someone with Full access to Operations can change them.
         </p>
       )}
       {s.updatedAt && (

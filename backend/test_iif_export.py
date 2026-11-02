@@ -73,7 +73,9 @@ class IifExportTests(unittest.TestCase):
                                             employee_code="", department="Ops", status="active", deleted_at=""))
             db.add(models.NexusGroup(id=GROUP, name="IIF Test", allowed_modules="hr:editor"))
             db.add(models.NexusGroupMember(group_id=GROUP, email=ADMIN))
-            db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
+            # A Super Administrator: this payroll reaches every company; an
+            # Administrator is walled to their own (Neil, 11/02/2026).
+            db.add(models.NexusRole(email=ADMIN, role="owner", assigned_by="test"))
             for em in (PAT, QUINN):
                 db.add(models.PayrollRate(employee_email=em, hourly_rate=20.0, pay_type="hourly",
                                           overtime_rule="ca", full_day_hours=8))

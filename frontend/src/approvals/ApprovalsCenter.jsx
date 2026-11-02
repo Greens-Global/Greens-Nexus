@@ -70,7 +70,7 @@ const PRIORITY_FILTERS = [
   { key: 'all', label: 'All Priorities' }, { key: 'urgent', label: 'Urgent' },
   { key: 'high', label: 'High And Up' }, { key: 'medium', label: 'Medium' }, { key: 'low', label: 'Low' },
 ];
-// How the list is sectioned (Pranshu, 10/30/2026: HR and Global Admins see
+// How the list is sectioned (Pranshu, 10/30/2026: HR and Super Administrators see
 // everything, so let them see it by department).
 const GROUP_BYS = [
   { key: 'kind', label: 'Kind', Icon: Layers }, { key: 'department', label: 'Department', Icon: Users },

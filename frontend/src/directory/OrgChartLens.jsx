@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MessageSquare, Phone, LocateFixed, Unlink } from 'lucide-react';
 import { NX, FONT } from '../tasks/theme';
 import OrgChartCanvas, { ReportsPill } from '../components/orgchart/OrgChartCanvas';
+import TierMark from '../components/TierMark';
 import { initialCollapsed, allBranchKeys, countBelow, divisionColor } from '../components/orgchart/tree';
 import { Avatar, RoleBadge, AvailabilityChip } from './ProfilePanel';
 import { buildTree, splitTree, searchPeople, chainUp, inheritedDivision, divisionNames, isOffToday, teamsChat, teamsCall } from './lib';
@@ -207,7 +208,7 @@ export function OrgCard({ p, kids, below, collapsed, onToggle, active, me, hit, 
         <Avatar p={p} size={40} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {p.name}{p.email === me && <span style={{ color: NX.faint, fontWeight: 500 }}> (you)</span>}
+            {p.name}{p.email === me && <span style={{ color: NX.faint, fontWeight: 500 }}> (you)</span>}<TierMark tier={p.tier} size={12} />
           </div>
           <div style={{ fontSize: 11, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.jobTitle || '-'}</div>
           <div style={{ fontSize: 10, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 
 // Build Mode v2 thread (Oct 24 2026): a held pin shows "Waits For <Owner>"
-// and only the owner (or a Global Admin) gets Release To Claude Code; a pin
+// and only the owner (or a Super Administrator) gets Release To Claude Code; a pin
 // Ready To Check shows Open Preview, the host line and Accept / Reopen (Reopen
 // needs a note); an accepted one is "PR Open - Checked"; a promoted bug shows
 // Regression Test Added with a way into Testing.

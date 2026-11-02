@@ -13,7 +13,7 @@ vi.mock('../api', () => ({
       : k === 'getEntitySignatureTemplates' ? () => Promise.resolve({ templates: [], template: 'classic' })
         : vi.fn(() => Promise.resolve([]))) }),
 }));
-// Who is looking: an IT Admin by default. `grants` = Access Group grants by
+// Who is looking: an Administrator by default. `grants` = Access Group grants by
 // module ({ hr: 'editor' }); `hrScope` = the companies their People access is
 // limited to (null = company-wide); `hrTeam` = the manager tier (own team).
 const LEVELS = { employee: 1, supervisor: 2, manager: 3, administrator: 4, owner: 5 };

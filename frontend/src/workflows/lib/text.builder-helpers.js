@@ -34,7 +34,7 @@ export const RECIPIENT_KINDS = [
   { kind: 'followers',     label: 'The Followers',         group: 'On The Record' },
   { kind: 'approver',      label: 'The Approver',          group: 'On The Record' },
   { kind: 'owner',         label: 'The Workflow Owner',    group: 'In Nexus' },
-  { kind: 'global_admins', label: 'The Global Admins',     group: 'In Nexus' },
+  { kind: 'global_admins', label: 'The Super Administrators',     group: 'In Nexus' },
   { kind: 'person',        label: 'A Person',              group: 'Pick', needsValue: 'person' },
   { kind: 'role',          label: 'A Role In The Company', group: 'Pick', needsValue: 'text' },
   { kind: 'department',    label: 'A Department',          group: 'Pick', needsValue: 'text' },

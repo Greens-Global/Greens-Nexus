@@ -48,7 +48,7 @@ import main           # noqa: E402
 import models         # noqa: E402
 from routers import shift_requests   # noqa: E402
 
-BOSS = "sco.boss@greensglobal.com"      # administrator, Global Admin: company-wide
+BOSS = "sco.boss@greensglobal.com"      # Super Administrator (owner): company-wide
 ADMIN_A = "sco.admina@greensglobal.com"  # administrator of company A only (walls on)
 MGR = "sco.mgr@greensglobal.com"        # a plain manager in company A
 A = "sco.a@greensglobal.com"            # company A, reports to MGR
@@ -87,8 +87,8 @@ class ShiftCompanyTests(unittest.TestCase):
                 db.add(models.NexusEmployee(id=f"emp-{em}", first_name=em.split(".")[1].upper(), last_name="X",
                                             work_email=em, status="active", deleted_at="", company=company[em],
                                             manager_email=MGR if em == A else ""))
-            for em in (BOSS, ADMIN_A):
-                db.add(models.NexusRole(email=em, role="administrator", assigned_by="test"))
+            db.add(models.NexusRole(email=BOSS, role="owner", assigned_by="test"))
+            db.add(models.NexusRole(email=ADMIN_A, role="administrator", assigned_by="test"))
             db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
             db.add(models.HrEntity(id=CO_A, name="Alpha Co"))
             db.add(models.HrEntity(id=CO_B, name="Beta Co"))
@@ -415,7 +415,17 @@ class ShiftCompanyTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"{SETTINGS}?company={CO_B}").status_code, 404)
         self.assertEqual(self.client.get(SETTINGS).status_code, 200, "the tenant row still reads (it is their fallback)")
         self._as(BOSS)
-        self.assertEqual(self.client.get(f"{SETTINGS}?company={CO_B}").status_code, 200, "a Global Admin reads every company")
+        self.assertEqual(self.client.get(f"{SETTINGS}?company={CO_B}").status_code, 200, "a Super Administrator reads every company")
+        # Walls OFF: the Administrator (level 4) is walled all the same
+        # (Neil, 11/02/2026); the Super Administrator is not.
+        self._walls(False)
+        self._as(ADMIN_A)
+        self.assertEqual(self.client.get(f"{SETTINGS}?company={CO_B}").status_code, 404)
+        self.assertEqual(self.client.put(f"{SETTINGS}?company={CO_B}", json={"swaps": True}).status_code, 403)
+        self.assertEqual(self.client.put(SETTINGS, json={"swaps": True}).status_code, 403)
+        self.assertEqual(self.client.put(f"{SETTINGS}?company={CO_A}", json={"swaps": True}).status_code, 200)
+        self._as(BOSS)
+        self.assertEqual(self.client.put(f"{SETTINGS}?company={CO_B}", json={"swaps": True}).status_code, 200)
 
     def test_a_company_override_keeps_only_what_differs_from_the_tenant(self):
         self.client.put(SETTINGS, json={"swaps": True, "timeZone": "Asia/Kolkata"})

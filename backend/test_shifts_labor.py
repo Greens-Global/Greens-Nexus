@@ -61,7 +61,7 @@ class LaborTests(unittest.TestCase):
                                             company=ENT if em in (HRC, HOURLY, MGR) else "",
                                             manager_email=MGR if em in (HOURLY, FIXED) else ""))
             db.add(models.HrEntity(id=ENT, name="Greens Labor", hr_contact_email=HRC))
-            db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
+            db.add(models.NexusRole(email=ADMIN, role="owner", assigned_by="test"))   # company-wide labor = a Super Administrator (Administrators are walled, 11/02/2026)
             db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
             db.add(models.NexusRole(email=HRC, role="manager", assigned_by="test"))
             db.add(models.PayrollRate(employee_email=HOURLY, pay_type="hourly", hourly_rate=30, overtime_rule="ca", currency="USD"))

@@ -155,6 +155,25 @@ keep the diff minimal.
   decisions, the Filter sheet; the desktop list is unchanged; no bulk
   approve on a phone (Neil, 11/02/2026).
 
+- **Tiers (Neil, 11/02/2026, `docs/Roles.md`):** the role KEYS stay
+  `employee | supervisor | manager | administrator | owner` (levels 1-5);
+  the words people see are Employee, Supervisor, Manager, **Administrator**
+  (4) and **Super Administrator** (5) - never "Global Admin" / "IT Admin"
+  (`frontend/scripts/check-role-copy.mjs` fails the lint). An Administrator
+  is ALWAYS company-walled (`auth.company_scope`, walls switch on or off);
+  only level 5 or a member of a group flagged `is_global_admin` passes the
+  walls (`auth.is_global_admin` - no level-4 fallback). Only a Super
+  Administrator flags or touches a flagged group, sets the walls, or grants
+  administrator / owner. The five Super Administrators (Neil, Visesh,
+  Charmi, Pranshu, Sagar) were set ONCE by `super_admins_seed.apply_once`
+  (mark `roles.super_admins_set_2026_11_02`); change them in Settings, never
+  in code. Under a person's name the screen shows their JOB TITLE, never the
+  tier; the tier is a mark only (`components/TierMark.jsx`: Super
+  Administrator a filled shield, Administrator an outline shield, Manager a
+  small people glyph, nothing for others), fed by the `tier` field on the
+  people payloads (`auth.tier_of`). `useRole()` exposes `myLevel`, `myTier`,
+  `myTitle`.
+
 ## Frontend conventions
 
 - All server calls go through `frontend/src/api.js` — add new endpoints there.
@@ -653,7 +672,7 @@ keep the diff minimal.
   automatic weekend pay and its Rs 500 floor are gone for them. ONE
   calculation: `india_contractor_pay.reconcile`, called from `_fixed_card`;
   claims in `routers/extra_time.py` (approver = the HR contact, else the
-  Global Admins; HR - administrator / owner / Full HR grant - only within
+  Super Administrators; HR - administrator / owner / Full HR grant - only within
   the contractor's company scope, `extra_time.hr_for`; never your own;
   Review & Approve waits for every claim). For them only, an APPROVED
   Vacation / Sick time off request is paid leave with no punch (Oct 27

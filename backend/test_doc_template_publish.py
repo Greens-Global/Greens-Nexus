@@ -56,7 +56,7 @@ class PublishTests(unittest.TestCase):
         for m in (models.DocTemplate, models.DocTemplateVersion, models.Document, models.DocumentVersion,
                   models.DocLetterhead, models.NexusRole):
             db.query(m).delete()
-        db.add(models.NexusRole(email=ADMIN, role="administrator"))
+        db.add(models.NexusRole(email=ADMIN, role="owner"))   # Super Administrator (Neil, 11/02/2026)
         db.commit()
         db.close()
         cache.module_grants.invalidate()

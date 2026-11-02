@@ -14,7 +14,7 @@ from typing import Optional
 from database import get_db
 import workflows
 from notify_company import notification_company
-from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
+from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited, admits_blank
 from routers.stepup import require_stepup
 from currency import is_currency
 from models import NexusEmployee, PayrollRate, HrRemovedIdentity, PayrollRateHistory
@@ -148,6 +148,8 @@ def _validate(employment_type: Optional[str], status: Optional[str], identity_ty
 def _in_scope(emp: Optional[NexusEmployee], scope) -> bool:
     if emp is not None and is_team_scope(scope):   # People limited to their own team (Oct 6)
         return (emp.work_email or "").strip().lower() in scope.emails
+    if emp is not None and scope is not None and not (emp.company or "") and admits_blank(scope):
+        return True    # an Administrator: people with no company are shared (11/02/2026)
     return emp is not None and (scope is None or (emp.company or "") in scope)
 
 
@@ -166,7 +168,11 @@ def _scoped(q, scope):
     if is_team_scope(scope):
         return q.filter(func.lower(NexusEmployee.work_email).in_(sorted(scope.emails)))
     if scope is not None:
-        q = q.filter(NexusEmployee.company.in_(scope))
+        if admits_blank(scope):
+            q = q.filter(or_(NexusEmployee.company.in_(scope), NexusEmployee.company.is_(None),
+                             NexusEmployee.company == ""))
+        else:
+            q = q.filter(NexusEmployee.company.in_(scope))
     return q
 
 
@@ -192,9 +198,21 @@ def _next_code(db: Session) -> str:
     return f"GG-{best + 1:03d}"
 
 
-def _serialize(e: NexusEmployee) -> dict:
+def _serialize(e: NexusEmployee, db: Session = None, tiers: dict = None) -> dict:
+    # The tier mark beside the name (Neil, 11/02/2026): `tiers` is
+    # auth.tiers_by_email(db) for a list (one query), `db` reads one person
+    # through the role cache; neither given = '' (the field is always there).
+    email = (e.work_email or "").lower()
+    if tiers is not None:
+        tier = tiers.get(email, "")
+    elif db is not None and email:
+        import auth
+        tier = auth.tier_for(email, db)
+    else:
+        tier = ""
     return {
         "id": e.id,
+        "tier":           tier,
         "employeeCode":   e.employee_code,
         "firstName":      e.first_name,
         "lastName":       e.last_name,
@@ -260,7 +278,8 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
         q = (q.execution_options(include_deleted=True)
               .filter(NexusEmployee.deleted_at != "", NexusEmployee.deleted_at.isnot(None)))
     rows = q.order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
-    out = [_team_view(_serialize(e)) for e in rows] if is_team_scope(scope) else [_serialize(e) for e in rows]
+    tiers = __import__("auth").tiers_by_email(db)
+    out = [_team_view(_serialize(e, tiers=tiers)) for e in rows] if is_team_scope(scope) else [_serialize(e, tiers=tiers) for e in rows]
     # More Details values (Oct 27 2026), filtered per caller - never HR Only for a manager.
     import hr_custom_fields
     hr_custom_fields.attach_list_values(db, user, rows, out)
@@ -395,7 +414,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         db.query(HrRemovedIdentity).filter(HrRemovedIdentity.work_email == _wemail).delete()
     db.commit()
     db.refresh(row)
-    return _with_backup(db, _serialize(row))
+    return _with_backup(db, _serialize(row, db=db))
 
 
 @router.patch("/employees/{eid}")
@@ -466,7 +485,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
         except Exception as e:   # the audit row must never fail the save
             db.rollback()
             print(f"[hr] field audit skipped: {e}")
-    out = _with_backup(db, _serialize(row))
+    out = _with_backup(db, _serialize(row, db=db))
     # Nexus is the source of truth for profile edits - mirror them onto the
     # linked Entra account automatically (best-effort: a Graph hiccup must never
     # fail the save; the response says whether Entra took the change).
@@ -487,7 +506,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
             if contact:
                 m365_profile_sync.push(token, row, contact)
                 db.commit()
-            out = _with_backup(db, _serialize(row))
+            out = _with_backup(db, _serialize(row, db=db))
             out["entra"] = {"synced": True, "written": written, "manager": manager}
         except Exception as e:
             out["entra"] = {"synced": False, "error": str(e)[:200]}
@@ -513,7 +532,7 @@ def sync_employee_m365(eid: str, user: dict = Depends(require_hr_write), db: Ses
     except Exception as e:
         raise HTTPException(502, f"Microsoft 365 did not answer: {str(e)[:160]}")
     db.refresh(row)
-    out = _serialize(row)
+    out = _serialize(row, db=db)
     out["m365Result"] = result
     out["m365Result"]["writesEnabled"] = _entra_writes_enabled()
     return out
@@ -573,7 +592,7 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
         raise HTTPException(404, "That person no longer exists in Nexus")
     _assert_scope(row, hr_scope(user, db))
     if not row.deleted_at:
-        return {"ok": True, **_serialize(row)}
+        return {"ok": True, **_serialize(row, db=db)}
 
     q = db.query(HrRemovedIdentity)
     conds = []
@@ -589,7 +608,7 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     db.refresh(row)
-    return {"ok": True, **_serialize(row)}
+    return {"ok": True, **_serialize(row, db=db)}
 
 
 # ── Hiring pipeline (Phase 2) ─────────────────────────────────────────────────
@@ -1242,7 +1261,7 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
     out = _ser_candidate(row)
     if created_employee:
         db.refresh(created_employee)
-        out["createdEmployee"] = _serialize(created_employee)
+        out["createdEmployee"] = _serialize(created_employee, db=db)
     return out
 
 
@@ -2178,7 +2197,7 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
         "steps": [{"step": s.step, "status": s.status, "detail": s.detail}
                   for s in sorted(steps.values(), key=lambda x: x.ordinal)],
         "tempPassword": temp_password if user_id else None,
-        "employee": _serialize(emp),
+        "employee": _serialize(emp, db=db),
     }
 
 
@@ -2276,7 +2295,7 @@ def upload_photo(eid: str, file: UploadFile = File(...),
     emp.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     db.refresh(emp)
-    return _serialize(emp)
+    return _serialize(emp, db=db)
 
 
 # The M365 directory import is scoped to the company's own domains only. Guests
@@ -5538,7 +5557,7 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
         except Exception:
             pass
 
-    return {**_serialize(row), "m365": m365, "items": items_returned, "handover": handover}
+    return {**_serialize(row, db=db), "m365": m365, "items": items_returned, "handover": handover}
 
 
 # ---------------------------------------------------------------------------

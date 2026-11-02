@@ -47,10 +47,10 @@ from sqlalchemy.orm import Session
 import accounting_assumptions as assumptions
 import ama_review
 import models
-from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, company_of, level_for, require_module_grant, scoped_ids
+from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, company_of, level_for, require_module_grant
 from database import SessionLocal, get_db
 from routers import accounting
-from routers.accounting import ACCOUNTING_SCOPE_MODULE, _limit, entity_scope
+from routers.accounting import _limit, entity_scope
 
 router = APIRouter(prefix="/accounting/ask", tags=["Accounting"], dependencies=[Depends(require_module_grant("accounting", "viewer"))])
 
@@ -462,12 +462,14 @@ def _accountant_ok(db: Session, email: str, entity: str, reach_of) -> None:
     emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == email).first()
     if not emp or (emp.status or "active") in ("inactive", "offboarded"):
         raise HTTPException(status_code=400, detail="Pick the accountant from the Nexus People list.")
-    if level_for(email, db) < _LEVELS["administrator"]:
-        if _module_level(email, "accounting", db) < _MODULE_LEVEL_RANK["viewer"]:
-            raise HTTPException(status_code=400, detail="That person does not have Accounting access, so they could not see the question.")
-        allowed = scoped_ids(email, ACCOUNTING_SCOPE_MODULE, db)
-        if allowed is not None and entity not in reach_of(allowed):
-            raise HTTPException(status_code=400, detail="That person's Accounting access does not include this entity.")
+    level = level_for(email, db)
+    if level < _LEVELS["administrator"] and _module_level(email, "accounting", db) < _MODULE_LEVEL_RANK["viewer"]:
+        raise HTTPException(status_code=400, detail="That person does not have Accounting access, so they could not see the question.")
+    # The one entity rule (accounting.allowed_entities): an Administrator
+    # reaches only the entities assigned to them (Neil, 11/02/2026).
+    allowed = accounting.allowed_entities({"email": email, "level": level}, db)
+    if allowed is not None and entity not in reach_of(allowed):
+        raise HTTPException(status_code=400, detail="That person's Accounting access does not include this entity.")
 
 
 async def _reach_fn(email: str):

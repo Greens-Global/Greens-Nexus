@@ -81,10 +81,20 @@ export const EXTERNAL_ROLE_META = {
 export const ROLES = {
   employee:      { label: 'Employee',      level: 1, color: 'var(--color-blue)',   bg: 'hsla(var(--color-blue),0.12)',   description: 'Raise requests, view own activity' },
   supervisor:    { label: 'Supervisor',     level: 2, color: 'var(--color-green)',  bg: 'hsla(var(--color-green),0.12)',  description: 'Allocate items, manage returns' },
-  manager:       { label: 'Manager',        level: 3, color: 'var(--color-orange)', bg: 'hsla(var(--color-orange),0.12)', description: 'Approve requests, team oversight - no access-granting or deletion rights' },
-  administrator: { label: 'IT Admin',       level: 4, color: 'var(--color-purple)', bg: 'hsla(var(--color-purple),0.12)', description: 'Manage settings & inventory, grant access up to Manager - cannot manage other admins or delete core records' },
-  owner:         { label: 'Global Admin',   level: 5, color: 'var(--color-gold)',   bg: 'hsla(var(--color-gold),0.12)',   description: 'Full, unrestricted access - including managing other admins and deleting core records' },
+  manager:       { label: 'Manager',        level: 3, color: 'var(--color-orange)', bg: 'hsla(var(--color-orange),0.12)', description: 'Leads a team: approvals and schedules for their people.' },
+  administrator: { label: 'Administrator',       level: 4, color: 'var(--color-purple)', bg: 'hsla(var(--color-purple),0.12)', description: 'Runs their company: people, settings, modules and approvals inside their company.' },
+  owner:         { label: 'Super Administrator', level: 5, color: 'var(--color-gold)',   bg: 'hsla(var(--color-gold),0.12)',   description: 'Runs Nexus for every company: security, tiers, the organization\'s settings.' },
 };
+
+// The MARK a level carries beside the name (Neil, 11/02/2026) - the same rule
+// as the server's auth.tier_of, drawn by components/TierMark.jsx, never text.
+export function tierOf(level) {
+  const n = Number(level) || 0;
+  if (n >= 5) return 'super';
+  if (n === 4) return 'admin';
+  if (n === 3) return 'manager';
+  return '';
+}
 
 export function RoleProvider({ children }) {
   const { instance, accounts, inProgress } = useMsal();
@@ -125,6 +135,12 @@ export function RoleProvider({ children }) {
   // yet. Seeded from the per-person memory (lib/timeTracking) so a known
   // person never sees a time tile flash in before /roles/me answers.
   const [timeTrackingExempt, setTimeTrackingExempt] = useState(null);
+  // From /roles/me (Neil, 11/02/2026): the server's level (a fallback for a
+  // role key this build does not know) and the person's JOB TITLE - what the
+  // header pill, its card and the phone menu show under the name instead of
+  // the tier word. '' = no title on their HR record (nothing is shown).
+  const [serverLevel, setServerLevel] = useState(null);
+  const [myTitle, setMyTitle] = useState('');
 
   // ── Act As (Jul 2026) ──────────────────────────────────────────────────────
   // { sessionId, targetEmail, targetName, expiresAt } while impersonating, else
@@ -164,6 +180,8 @@ export function RoleProvider({ children }) {
     // Another person (Act As): their exemption is their own, back to the
     // remembered answer until /roles/me says.
     setTimeTrackingExempt(null);
+    setMyTitle('');
+    setServerLevel(null);
     if (!myEmail) {
       // MSAL (and the dev-login bypass) start with an empty accounts[] on the
       // very first render - msal-react only populates it after
@@ -184,6 +202,8 @@ export function RoleProvider({ children }) {
             setIsExternal(!!data.is_external);
             setHrScope(Array.isArray(data.hr_scope) ? data.hr_scope : null);
             setHrTeam(!!data.hr_team);
+            setServerLevel(Number.isInteger(data.level) ? data.level : null);
+            setMyTitle(typeof data.title === 'string' ? data.title.trim() : '');
             setHrContactFor(Array.isArray(data.hr_contact_for) ? data.hr_contact_for : []);
             // shortcut: a format changed on another device shows here from the next render on, not on screens already drawn; this browser remembers it for the next load.
             if (data.date_format) setDateFormat(data.date_format);
@@ -368,8 +388,14 @@ export function RoleProvider({ children }) {
     return map;
   }, [groups, myEmail]);
 
-  const myLevel = ROLES[myRole]?.level ?? 1;
+  // The role key decides the level; the server's number only stands in for a
+  // key this build does not know. Exposed on the context (it was computed
+  // here but never shared before 11/02/2026 - every `myLevel < 3` settings
+  // guard compared against undefined).
+  const myLevel = ROLES[myRole]?.level ?? serverLevel ?? 1;
   const can     = (minRole) => myLevel >= (ROLES[minRole]?.level ?? 1);
+  // Externals carry no mark: they are capped at employee level anyway.
+  const myTier  = isExternal ? '' : tierOf(myLevel);
 
   // True if the user can act on `moduleId` at least at `minModuleLevel` -
   // either because their global role already implies it (`minRole`), or
@@ -391,6 +417,7 @@ export function RoleProvider({ children }) {
       addGroupMembers, removeGroupMember, assignGroupRole,
       myGrantedModules, canAccessModule,
       actingAs, startActAs, stopActAs,
+      myLevel, myTier, myTitle,
       hrContactFor,
     }}>
       {children}

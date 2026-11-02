@@ -33,7 +33,8 @@ with database.engine.connect() as _c:
             pass
 
 COA, COB = "ent-walls-a", "ent-walls-b"
-GLOBAL = "walls.global@greensglobal.com"   # Global Admin (level 4 bootstrap)
+GLOBAL = "walls.global@greensglobal.com"   # Super Administrator (owner, level 5): passes the walls
+ADMIN_A = "walls.admina@greensglobal.com"  # Administrator (level 4) of company A: walled, the switch on or off
 AEMP = "walls.aemp@greensglobal.com"       # company A employee
 AMGR = "walls.amgr@greensglobal.com"       # company A, via a company-scoped role group
 BEMP = "walls.bemp@greensglobal.com"       # company B employee
@@ -61,8 +62,13 @@ class CompanyWallsTests(unittest.TestCase):
                                         work_email=AMGR, status="active", deleted_at="", company=""))
             db.add(models.NexusEmployee(id=f"e-{BEMP}", first_name="Beth", last_name="Beta",
                                         work_email=BEMP, status="active", deleted_at="", company=COB))
-            # GLOBAL is an administrator (level 4) - the bootstrap global admin
-            db.add(models.NexusRole(email=GLOBAL, role="administrator"))
+            # GLOBAL is a Super Administrator (owner, level 5) - the one tier that
+            # sees past the walls (Neil, 11/02/2026: an Administrator, level 4,
+            # is company-walled and the old level-4 bootstrap is gone).
+            db.add(models.NexusRole(email=GLOBAL, role="owner"))
+            db.add(models.NexusEmployee(id=f"e-{ADMIN_A}", first_name="Ada", last_name="Alpha",
+                                        work_email=ADMIN_A, status="active", deleted_at="", company=COA))
+            db.add(models.NexusRole(email=ADMIN_A, role="administrator"))
             db.add(models.NexusRole(email=AEMP, role="employee"))
             db.add(models.NexusRole(email=AMGR, role="manager"))   # a scoped (company A) manager
             db.add(models.NexusRole(email=BEMP, role="employee"))
@@ -137,6 +143,12 @@ class CompanyWallsTests(unittest.TestCase):
         # Default (unarmed): the directory is the old org-wide list for all callers.
         self.assertIn(BEMP, self._dir_emails(AEMP))
         self.assertIn(AEMP, self._dir_emails(BEMP))
+        # ...except an Administrator: their company, plus the people with no
+        # company (shared), whatever the switch says (Neil, 11/02/2026).
+        auth.invalidate_role_cache()
+        mine = self._dir_emails(ADMIN_A)
+        self.assertIn(AEMP, mine); self.assertIn(AMGR, mine)
+        self.assertNotIn(BEMP, mine)
 
     def test_armed_directory_is_company_scoped(self):
         self._arm(True)
@@ -151,6 +163,7 @@ class CompanyWallsTests(unittest.TestCase):
         self._arm(True)
         seen = self._dir_emails(GLOBAL)
         self.assertTrue({AEMP, BEMP, AMGR} <= seen)          # every company
+        self.assertNotIn(BEMP, self._dir_emails(ADMIN_A))    # an Administrator: never
 
     def test_company_scoped_role_places_person_in_that_company(self):
         # AMGR has no home company, but his "Alpha - Manager" group carries company A.
@@ -163,7 +176,9 @@ class CompanyWallsTests(unittest.TestCase):
         self._arm(True)
         db = database.SessionLocal()
         try:
-            self.assertIsNone(auth.company_scope({"email": GLOBAL, "level": 4}, db))
+            self.assertIsNone(auth.company_scope({"email": GLOBAL, "level": 5}, db))
+            # An Administrator (level 4) in company A is confined to it, walls on or off.
+            self.assertEqual(auth.company_scope({"email": AEMP, "level": 4}, db), {COA})
             self.assertEqual(auth.company_scope({"email": AEMP, "level": 1}, db), {COA})
             self.assertEqual(auth.company_scope({"email": AMGR, "level": 1}, db), {COA})
             self.assertEqual(auth.company_scope({"email": BEMP, "level": 1}, db), {COB})
@@ -206,6 +221,11 @@ class CompanyWallsTests(unittest.TestCase):
         self.assertIn("task-walls-b", b); self.assertNotIn("task-walls-a", b)
         g = self._get_ids("/tasks", GLOBAL)          # Global Admin sees both
         self.assertTrue({"task-walls-a", "task-walls-b"} <= g)
+        for on in (True, False):                     # an Administrator: company A only, armed or not
+            self._arm(on)
+            auth.invalidate_role_cache()
+            adm = self._get_ids("/tasks", ADMIN_A)
+            self.assertIn("task-walls-a", adm); self.assertNotIn("task-walls-b", adm)
 
     def test_armed_tickets_are_company_walled(self):
         self._mk_ticket("tkt-walls-a", COA, AEMP)
@@ -215,6 +235,10 @@ class CompanyWallsTests(unittest.TestCase):
         self.assertIn("tkt-walls-a", a); self.assertNotIn("tkt-walls-b", a)
         g = self._get_ids("/task-tickets", GLOBAL)
         self.assertTrue({"tkt-walls-a", "tkt-walls-b"} <= g)
+        self._arm(False)
+        auth.invalidate_role_cache()
+        adm = self._get_ids("/task-tickets", ADMIN_A)
+        self.assertIn("tkt-walls-a", adm); self.assertNotIn("tkt-walls-b", adm)
 
     def _mk_item(self, iid, company):
         db = database.SessionLocal()
@@ -284,6 +308,10 @@ class CompanyWallsTests(unittest.TestCase):
         self.assertEqual(self.client.get("/kb/pages/kb-walls-b").status_code, 404)
         os.environ["NEXUS_DEV_EMAIL"] = GLOBAL
         self.assertEqual(self.client.get("/kb/pages/kb-walls-b").status_code, 200)
+        self._arm(False)
+        auth.invalidate_role_cache()
+        os.environ["NEXUS_DEV_EMAIL"] = ADMIN_A      # an Administrator, walls OFF: still 404
+        self.assertEqual(self.client.get("/kb/pages/kb-walls-b").status_code, 404)
 
     def test_sub_resource_reads_are_walled(self):
         # A task's comments/attachments/activity must 404 across the wall, not just
@@ -295,9 +323,15 @@ class CompanyWallsTests(unittest.TestCase):
             self.assertEqual(self.client.get(f"/tasks/task-walls-b/{sub}").status_code, 404, sub)
         os.environ["NEXUS_DEV_EMAIL"] = GLOBAL
         self.assertEqual(self.client.get("/tasks/task-walls-b/comments").status_code, 200)
+        self._arm(False)
+        auth.invalidate_role_cache()
+        os.environ["NEXUS_DEV_EMAIL"] = ADMIN_A
+        self.assertEqual(self.client.get("/tasks/task-walls-b/comments").status_code, 404)
 
     def test_arm_switch_endpoint_arms_and_audits(self):
-        os.environ["NEXUS_DEV_EMAIL"] = GLOBAL   # administrator = bootstrap global admin
+        os.environ["NEXUS_DEV_EMAIL"] = ADMIN_A  # an Administrator never moves the wall
+        self.assertIn(self.client.put("/access-scopes/config/walls", json={"on": True}).status_code, (401, 403))
+        os.environ["NEXUS_DEV_EMAIL"] = GLOBAL   # a Super Administrator arms the walls
         r = self.client.put("/access-scopes/config/walls", json={"on": True})
         self.assertEqual(r.status_code, 200, r.text)
         self._flush()
@@ -313,15 +347,18 @@ class CompanyWallsTests(unittest.TestCase):
         finally:
             db.close()
 
-    def test_global_admins_group_supersedes_level(self):
-        # Before any Global Admins group: level 4 is the bootstrap global admin.
+    def test_global_reach_is_level_5_or_the_flagged_group(self):
+        # Tiers (Neil, 11/02/2026): no bootstrap - a level-4 Administrator is
+        # never global, with or without a Global Admins group; a Super
+        # Administrator (level 5) always is.
         db = database.SessionLocal()
         try:
-            self.assertTrue(auth.is_global_admin({"email": GLOBAL, "level": 4}, db))
+            self.assertTrue(auth.is_global_admin({"email": GLOBAL, "level": 5}, db))
+            self.assertFalse(auth.is_global_admin({"email": AEMP, "level": 4}, db))
         finally:
             db.close()
-        # Create + populate a Global Admins group with someone else -> the level-4
-        # user who is NOT a member is no longer global (rule: rank != reach).
+        # A populated Global Admins group: its members are global whatever
+        # their level; a level-4 non-member still is not (rule: rank != reach).
         db = database.SessionLocal()
         try:
             db.add(models.NexusGroup(id=GA_GROUP, name="Global Admins", is_global_admin=1))
@@ -331,8 +368,9 @@ class CompanyWallsTests(unittest.TestCase):
             db.close()
         db = database.SessionLocal()
         try:
-            self.assertFalse(auth.is_global_admin({"email": GLOBAL, "level": 4}, db))
+            self.assertFalse(auth.is_global_admin({"email": BEMP, "level": 4}, db))
             self.assertTrue(auth.is_global_admin({"email": AEMP, "level": 1}, db))
+            self.assertTrue(auth.is_global_admin({"email": GLOBAL, "level": 5}, db))
         finally:
             db.close()
 

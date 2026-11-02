@@ -64,7 +64,9 @@ class ShiftBulkTests(unittest.TestCase):
             # the Manager tier sees only its own team) a manager's People grant
             # is team-limited, so the company-wide scope these tests exercise
             # is an administrator's.
-            db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
+            # Company-wide: a Super Administrator (Neil, 11/02/2026 - an
+            # Administrator is walled to their own company, the switch on or off).
+            db.add(models.NexusRole(email=ADMIN, role="owner", assigned_by="test"))
             # a shift GROUP (scheduling group) with A and B
             db.add(models.ShiftGroup(id=GROUP, name="Bulk Team", created_at="2026-08-26T00:00:00"))
             db.add(models.ShiftGroupMember(id=str(uuid.uuid4()), group_id=GROUP, employee_email=A))

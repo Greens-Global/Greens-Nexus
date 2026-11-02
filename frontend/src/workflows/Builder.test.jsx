@@ -144,7 +144,7 @@ describe('Builder', () => {
     expect(screen.getByText('Do notify: Welcome {{ subject.name }}')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Welcome Note')).toBeInTheDocument();
     expect(screen.getByText('Draft')).toBeInTheDocument();
-    // the Run As row (a Global Admin sees it) says what Nexus can and cannot do (permissions review L5)
+    // the Run As row (a Super Administrator sees it) says what Nexus can and cannot do (permissions review L5)
     expect(screen.getByText('Nexus can only send notifications and emails, and reads only the fields everyone can see.')).toBeInTheDocument();
     expect(screen.queryByText(/every record it may touch/)).toBeNull();
   });
@@ -352,13 +352,13 @@ describe('Builder', () => {
 
   it('words a refused Save As Template with the server\'s sentence', async () => {
     api.wfGet.mockImplementation(() => Promise.resolve(workflow({ status: 'active', version: 1 })));
-    api.wfSaveAsTemplate.mockImplementation(() => Promise.reject(Object.assign(new Error('API error 403'), { status: 403, detail: 'Only a Global Admin saves a template for every company' })));
+    api.wfSaveAsTemplate.mockImplementation(() => Promise.reject(Object.assign(new Error('API error 403'), { status: 403, detail: 'Only a Super Administrator saves a template for every company' })));
     open();
     await screen.findByText('Do notify: Welcome {{ subject.name }}');
     fireEvent.click(screen.getByRole('button', { name: /Save As Template/ }));
     await screen.findByLabelText('Name');
     fireEvent.click(screen.getByRole('button', { name: /Save Template/ }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Only a Global Admin saves a template for every company');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only a Super Administrator saves a template for every company');
     expect(document.body.textContent).not.toMatch(/API error/);
     expect(screen.queryByText('Saved as a template')).toBeNull();
   });

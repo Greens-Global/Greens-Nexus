@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Scale } from "lucide-react";
+import { Menu, Search, LogOut, User, ArrowLeft, ChevronDown, Sparkles, X, UserCog, Scale } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
 import QuickNoteButton from "../notes/QuickNoteButton";
@@ -38,7 +38,8 @@ function takeProfileLink() {
 }
 import { useMsal }        from "@azure/msal-react";
 import { BFF_MODE, bffLogout } from "../bffAuth";
-import { useRole, ROLES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
+import { useRole, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
+import TierMark from "./TierMark";
 import { usePersonPhoto } from "../lib/peoplePhotos";
 import { api } from "../api";
 import { useNexusSearch, SEARCH_PLACEHOLDER, SEARCH_HINT, SEARCH_LABEL } from './search/useNexusSearch';
@@ -53,7 +54,7 @@ const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navig
 
 export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel }) {
   const { instance, accounts } = useMsal();
-  const { myRole, actingAs, stopActAs, isExternal } = useRole();
+  const { actingAs, stopActAs, isExternal, myTier, myTitle } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>). When
   // present it takes the header center (Work OS shell). The search bar is
   // NOT part of that bargain any more: it sits in the right cluster on
@@ -109,18 +110,13 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // their avatar shows everywhere else in the app. '' while it loads, and for
   // anyone HR hasn't given a photo, so the initials stay the fallback.
   const photo    = usePersonPhoto(email);
-  // External guests read "External", never a tier name (Visesh, Aug 18).
-  const roleMeta = isExternal ? EXTERNAL_ROLE_META : (ROLES[myRole] ?? ROLES.employee);
-  // What Teams shows under your name is your job title, not an access level -
-  // "Global Admin" there is meaningless to a colleague who just wants to know
-  // what you do. Nexus's own permission tier stays visible as the badge in the
-  // dropdown card below; this only replaces the compact pill's subtitle, and
-  // falls back to the access-level label for anyone with no HR record yet
-  // (e.g. local dev's NEXUS_DEV_EMAIL) rather than showing blank.
-  const [myTitle, setMyTitle] = useState('');
-  useEffect(() => {
-    api.myHrProfile().then(p => setMyTitle(p.jobTitle || '')).catch(() => {});
-  }, []);
+  // Under the name: the JOB TITLE (from /roles/me, via useRole), never the
+  // Nexus tier (Neil, 11/02/2026: "it should not say global admin here under
+  // my name ... pull my title"). No title = blank, never "Employee". External
+  // guests with no title still read "External" (Visesh, Aug 18). The tier is
+  // the small TierMark after the name on the card; the old Shield badge row
+  // that spelled it out is gone.
+  const subtitle = myTitle || (isExternal ? EXTERNAL_ROLE_META.label : '');
 
   const [open,         setOpen]         = useState(false);
   // '' = the menu, 'actas' = the Act As finder in its place (Oct 25 2026).
@@ -410,7 +406,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
             </div>
             <div className="header-user-info">
               <span className="header-user-name">{name.split(" ")[0]}</span>
-              <span className="header-user-role">{myTitle || roleMeta.label}</span>
+              <span className="header-user-role">{subtitle}</span>
             </div>
             <ChevronDown size={13} style={{ color: 'var(--muted)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
           </button>
@@ -427,9 +423,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <div style={{ padding: '14px 14px 10px', display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{
                   width: 42, height: 42, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
-                  background: `hsl(${roleMeta.color})`,
+                  background: 'var(--mist)',   // a neutral tint, not the tier's color (Neil, 11/02/2026)
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 15, fontWeight: 700, color: '#fff', letterSpacing: '.02em',
+                  fontSize: 15, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.02em',
                 }}>
                   {photo
                     ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
@@ -437,22 +433,16 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {name}
+                    {name}<TierMark tier={myTier} />
                   </div>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
                     {email}
                   </div>
-                  {myTitle && (
+                  {subtitle && (
                     <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
-                      {myTitle}
+                      {subtitle}
                     </div>
                   )}
-                  <div style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, background: roleMeta.bg }}>
-                    <Shield size={10} style={{ color: `hsl(${roleMeta.color})`, flexShrink: 0 }} />
-                    <span style={{ fontSize: 10.5, fontWeight: 700, color: `hsl(${roleMeta.color})`, letterSpacing: '.03em' }}>
-                      {roleMeta.label}
-                    </span>
-                  </div>
                 </div>
               </div>
 

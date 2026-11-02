@@ -644,6 +644,12 @@ class PromotionTests(LifeEventCase):
         self.db.add(models.NexusGroup(id="jr-admin", name="IT Administrator", department="IT", is_job_role=1,
                                       tier="administrator", company_id=ENTITY))
         self.db.add(models.NexusGroupMember(group_id="jr-1", email=ERIN))
+        # The Administrator works for Erin's company (Neil, 11/02/2026: an
+        # Administrator is walled to their companies, the switch on or off).
+        for i, em in enumerate((ADMIN_U["email"], "ian.it@greensglobal.com")):
+            if not self.db.query(models.NexusEmployee).filter_by(work_email=em).first():
+                self.db.add(models.NexusEmployee(id=f"id-adm-{i}", work_email=em, first_name="Ada",
+                                                 last_name="Admin", company=ENTITY, status="active"))
         self.db.add(models.HrSignTemplate(id="tpl-promo", name="Promotion Letter", kind="custom", entity_id=ENTITY,
                                           body=PROMO_BODY, status="active",
                                           roles=[{"key": "employee", "label": "Employee", "order": 1},

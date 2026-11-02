@@ -40,7 +40,8 @@ def _assert_isolated():
 _assert_isolated()
 
 COA, COB = "ent-a", "ent-b"
-ADMIN = {"email": "gwen@greensglobal.com", "level": 4}
+ADMIN = {"email": "gwen@greensglobal.com", "level": 4}       # an Administrator: walled to company A (11/02/2026)
+SUPER = {"email": "gwen@greensglobal.com", "level": 5}       # the same person as a Super Administrator
 A_EMP = {"email": "amy@greensglobal.com", "level": 1}
 B_EMP = {"email": "beth@greensglobal.com", "level": 1}
 LEAD = {"email": "lena@greensglobal.com", "level": 1}      # holds the tracking grant, manages Ravi only
@@ -109,7 +110,8 @@ class ScopeGapTests(unittest.TestCase):
         # company B, not the roster just built for company A.
         self.assertEqual(self._names(B_EMP), ["Beth"])
         self.assertEqual(self._names(A_EMP), ["Amy", "Gwen", "Ravi"])
-        self.assertEqual(self._names(ADMIN), ["Amy", "Beth", "Gwen", "Ravi"])     # a Global Admin sees across
+        self.assertEqual(self._names(ADMIN), ["Amy", "Gwen", "Ravi"])             # an Administrator: their company
+        self.assertEqual(self._names(SUPER), ["Amy", "Beth", "Gwen", "Ravi"])     # a Super Administrator sees across
         self.assertEqual(self._names(NOBODY), [])                                # no company: nothing
 
     def test_birthdays_carry_no_year(self):
@@ -121,7 +123,10 @@ class ScopeGapTests(unittest.TestCase):
         return {p["email"]: p["count"] for p in timeclock.list_screenshots(date=DAY, email="", user=user, db=self.db)["people"]}
 
     def test_an_administrator_sees_every_frame(self):
-        self.assertEqual(self._people(ADMIN), {"ravi@greensglobal.com": 2, B_EMP["email"]: 1, LEAD["email"]: 1})
+        # Of their own company (Neil, 11/02/2026: an Administrator is walled,
+        # the switch on or off); a Super Administrator sees every one.
+        self.assertEqual(self._people(ADMIN), {"ravi@greensglobal.com": 2, LEAD["email"]: 1})
+        self.assertEqual(self._people(SUPER), {"ravi@greensglobal.com": 2, B_EMP["email"]: 1, LEAD["email"]: 1})
 
     def test_a_grant_holder_sees_their_own_team(self):
         self.assertEqual(self._people(LEAD), {"ravi@greensglobal.com": 2, LEAD["email"]: 1})
@@ -145,7 +150,9 @@ class ScopeGapTests(unittest.TestCase):
         timeclock._sign_shot_rows = lambda rows: {}          # no storage in a test
         try:
             mine = timeclock.list_screenshots(date=DAY, email="Ravi@greensglobal.com", user=LEAD, db=self.db)
-            theirs = timeclock.list_screenshots(date=DAY, email=B_EMP["email"], user=ADMIN, db=self.db)
+            theirs = timeclock.list_screenshots(date=DAY, email=B_EMP["email"], user=SUPER, db=self.db)
+            with self.assertRaises(HTTPException):     # company B is outside the Administrator's wall
+                timeclock.list_screenshots(date=DAY, email=B_EMP["email"], user=ADMIN, db=self.db)
         finally:
             timeclock._sign_shot_rows = signed
         self.assertEqual([s["id"] for s in mine["shots"]], ["shot-0", "shot-1"])

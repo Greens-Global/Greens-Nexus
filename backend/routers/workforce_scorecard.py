@@ -42,9 +42,10 @@ def _use(db: Session, user: dict, scope: str) -> tuple:
     direct reports unless they ask for `all`. Asking for more than the grant
     allows is silently answered with what it does allow."""
     allowed, kind = sc.scope_for(db, user)
-    if kind == "all" and scope != "all":
+    wide = kind in ("all", "company")     # company: an Administrator's companies (11/02/2026)
+    if wide and scope != "all":
         return sc.direct_reports(db, user["email"]), "direct", True
-    return allowed, kind, kind == "all"
+    return allowed, kind, wide
 
 
 @router.get("/report")

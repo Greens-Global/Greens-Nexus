@@ -69,7 +69,7 @@ def _catalog_text(db, user: dict) -> str:
     lines.append("ACTIONS (key: label, params [key:type required]):")
     for a in cat["actions"]:
         params = ", ".join(f"{p['key']}:{p['type']}{'*' if p['required'] else ''}" for p in a["params"])
-        lines.append(f"- {a['key']}: {a['label']} [{params}]" + (" (Global Admin only)" if a["adminOnly"] else ""))
+        lines.append(f"- {a['key']}: {a['label']} [{params}]" + (" (Super Administrator only)" if a["adminOnly"] else ""))
     lines.append("LIST SOURCES (key: label, entity, params):")
     for s in cat["listSources"]:
         params = ", ".join(f"{p['key']}:{p['type']}" for p in s["params"])
