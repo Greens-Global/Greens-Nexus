@@ -14,6 +14,7 @@ export default defineConfig({
   retries: 0,
   reporter: [['list']],
   use: {
+    actionTimeout: 10_000,
     ...(process.env.CI ? {} : { channel: 'chrome' }),
     viewport: { width: 1440, height: 900 },
     acceptDownloads: true,

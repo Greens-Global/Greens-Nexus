@@ -1734,6 +1734,7 @@ test.describe('13. dirty tracking', () => {
         await pagesAre(10);
       },
       crop: async () => {
+        await fitPage(page);
         await group(page, 'Assemble');
         await page.click('#cropTool');
         await drag(page, [0.1, 0.1], [0.9, 0.9]);
@@ -1742,9 +1743,9 @@ test.describe('13. dirty tracking', () => {
         await clickOk(page);
         await expect(page.locator('.toast')).toContainText(/ropped/);
       },
+      'remove blank': async () => { await organize('#rmBlankBtn'); await page.locator('.modal-overlay [data-choice="remove"]').click({ timeout: 5000 }); await settle(page, 600); },
       watermark: async () => { await organize('#watermarkBtn'); await clickOk(page); await settle(page, 600); },
       'page numbers': async () => { await organize('#pageNumBtn'); await clickOk(page); await settle(page, 600); },
-      'remove blank': async () => { await organize('#rmBlankBtn'); await page.locator('.modal-overlay [data-choice="remove"]').click({ timeout: 5000 }); await settle(page, 600); },
       compress: async () => { await group(page, 'Optimize'); await page.click('#compressBtn'); await page.locator('.modal-overlay [data-k="level"]').selectOption('light'); await clickOk(page); await settle(page, 600); },
       'hiding a layer': async () => { await page.evaluate(() => window.pdfLayers.setVisible(1, false)); await page.evaluate(() => window.pdfLayers.setVisible(1, true)); },
       undo: async () => { await page.click('#undoBtn'); await settle(page, 600); },
