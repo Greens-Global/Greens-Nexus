@@ -8,12 +8,12 @@
 // first and a note opens in the Quick Note sheet over it (PhoneSheet). The
 // sub is `notes` or `notes:<id>`, so a link to one note (the share bell)
 // opens it.
-import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ChevronLeft, ChevronRight, Search, X, Plus, Upload, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
   Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, Link as LinkIcon, Palette,
-  RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote,
+  RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote, PenTool, Image as ImageIcon, FileCode2, Copy, FileJson,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -31,11 +31,19 @@ import { useNoteCollab, collabEligible } from './useNoteCollab';
 import { diffNotes } from './notesMerge';
 import { safeHtml } from './noteSafeHtml';
 import { createTaskFrom, openTask } from './notesTasks';
+import { parseScene } from './board/scene';
+import { exportPng, exportSvg, copyPng, downloadScene } from './board/exportBoard';
+import { storeTaskFile } from '../tasks/lib';
+import { BOARD_THUMB_FOLDER } from './newBoard';
 import {
-  NOTE_COLORS, colorCss, localDay, monthOf, shiftMonth, monthLabel, dayHeading, groupByDay, noteTitle, htmlToText,
+  NOTE_COLORS, colorCss, localDay, monthOf, shiftMonth, monthLabel, dayHeading, groupByDay, noteTitle, isBoard, htmlToText,
   countWords, editedLabel, htmlToMarkdown, markdownToHtml, exportFileName, downloadText, printNote, rememberLastNote, quickNoteKeys,
 } from './notesModel';
 import './notes.css';
+
+// The whiteboard engine (board/Board.jsx, Neil 11/02/2026) is its own chunk,
+// fetched the first time a Board opens - a note's page never pays for it.
+const Board = lazy(() => import('./board/Board'));
 
 const VIEWS = [
   { key: 'all', label: 'All' },
@@ -393,13 +401,18 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     return (people || []).find((p) => p.email === e)?.name || email || 'Someone';
   }, [people, myEmail]);
   // A shared note's editors type together live (useNoteCollab).
-  const eligible = collabEligible(note);
+  const eligible = !isBoard(note) && collabEligible(note);
   const myName = (people || []).find((p) => p.email === (myEmail || '').toLowerCase())?.name || myEmail;
   const collab = useNoteCollab(id, { enabled: eligible, me: myEmail, name: myName });
   useEffect(() => { collabRef.current = collab; }, [collab]);
   const [menu, setMenu] = useState('');      // '' | 'color' | 'more'
   const [dialog, setDialog] = useState('');  // '' | 'share' | 'history'
   const titleRef = useRef(null);
+  // A Board: the engine's api (export menu) and the look picked on it before
+  // the scene carrying it has saved.
+  const [boardApi, setBoardApi] = useState(null);
+  const [lookPick, setLookPick] = useState(null);
+  const thumbBusy = useRef(false);
 
   useEffect(() => { if (id) rememberLastNote(id); }, [id]);
   useEffect(() => { setMenu(''); }, [id]);
@@ -448,6 +461,10 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   const text = htmlToText(note.body);
   const words = countWords(text);
   const mine = note.mine;
+  const board = isBoard(note);
+  const scene = board ? parseScene(note.scene) : null;
+  const look = lookPick || scene?.look || 'clean';
+  const shapes = scene ? scene.elements.filter((el) => !el.isDeleted).length : 0;
 
   const trash = async () => {
     setMenu('');
@@ -468,6 +485,40 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   };
   const exportMd = () => { setMenu(''); downloadText(exportFileName(note), htmlToMarkdown(note.body, noteTitle(note))); };
   const print = () => { setMenu(''); printNote(note, note.body); };
+  // A Board exports a picture, never Markdown (board/exportBoard.js).
+  const saveBlob = (blob, name) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const exportBoardPng = async () => {
+    setMenu('');
+    try { const blob = await exportPng(boardApi, { scale: 2, background: true }); if (blob) saveBlob(blob, exportFileName(note, 'png')); else toast('The board is still loading'); }
+    catch (e) { toast(e.message || 'Could not export the board'); }
+  };
+  const exportBoardSvg = async () => {
+    setMenu('');
+    try { const svg = await exportSvg(boardApi); if (svg) saveBlob(new Blob([svg], { type: 'image/svg+xml' }), exportFileName(note, 'svg')); else toast('The board is still loading'); }
+    catch (e) { toast(e.message || 'Could not export the board'); }
+  };
+  const copyBoard = async () => {
+    setMenu('');
+    try { await copyPng(boardApi); toast('Copied as a picture'); } catch (e) { toast(e.message || 'Could not copy the board'); }
+  };
+  const downloadBoard = () => { setMenu(''); downloadScene(note); };
+  // The list row's picture: the engine hands a PNG a few seconds after the
+  // last change; it goes to the private task-files bucket under this board
+  // and the note keeps the URL (any editor may write it).
+  const onThumb = async (blob) => {
+    if (!blob || readOnly || thumbBusy.current) return;
+    thumbBusy.current = true;
+    try {
+      const url = await storeTaskFile(new File([blob], 'thumb.png', { type: 'image/png' }), undefined, BOARD_THUMB_FOLDER(note.id));
+      if (url) sync.setFields({ thumbUrl: url });
+    } catch { /* the next change makes another */ } finally { thumbBusy.current = false; }
+  };
   const copyLink = async () => {
     setMenu('');
     const url = `${window.location.origin}/dashboard/notes:${note.id}`;
@@ -514,8 +565,15 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                 <button type="button" className="nt-icon-btn" aria-label="More actions" title="More" aria-haspopup="menu" aria-expanded={menu === 'more'}
                   onClick={() => setMenu(menu === 'more' ? '' : 'more')}><MoreHorizontal size={18} /></button>
                 <Popover open={menu === 'more'} onClose={() => setMenu('')} label="More actions">
-                  <button type="button" role="menuitem" className="nt-pop-row" onClick={exportMd}><Download size={15} /> Export as Markdown</button>
-                  <button type="button" role="menuitem" className="nt-pop-row" onClick={print}><Printer size={15} /> Print or Save as PDF</button>
+                  {board ? (<>
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={exportBoardPng}><ImageIcon size={15} /> Export as PNG</button>
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={exportBoardSvg}><FileCode2 size={15} /> Export as SVG</button>
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={copyBoard}><Copy size={15} /> Copy as Picture</button>
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={downloadBoard}><FileJson size={15} /> Download Board File</button>
+                  </>) : (<>
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={exportMd}><Download size={15} /> Export as Markdown</button>
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={print}><Printer size={15} /> Print or Save as PDF</button>
+                  </>)}
                   <button type="button" role="menuitem" className="nt-pop-row" onClick={() => { setMenu(''); setDialog('history'); }}><History size={15} /> Version History</button>
                   <button type="button" role="menuitem" className="nt-pop-row" onClick={copyLink}><LinkIcon size={15} /> Copy Link</button>
                   {mine && !trashed && (<><div className="nt-pop-sep" /><button type="button" role="menuitem" className="nt-pop-row is-danger" onClick={trash}><Trash2 size={15} /> Move to Trash</button></>)}
@@ -526,13 +584,13 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   );
 
   const doc = (
-        <div className="nt-doc">
+        <div className={`nt-doc${board ? ' is-board' : ''}`}>
           {/* The sheet already says Daily Scratchpad - as in Quick Note, no empty title box under it. */}
           {!(isPhone && note.kind === 'daily' && !note.title) && (
             <div className="nt-head">
               <span className="nt-head-rule" style={{ background: colorCss(note.color) }} aria-hidden="true" />
               <input ref={titleRef} className="nt-title" value={note.title || ''} readOnly={readOnly} maxLength={200}
-                placeholder={note.kind === 'daily' ? 'Daily Scratchpad' : 'Untitled Note'} aria-label="Note title"
+                placeholder={note.kind === 'daily' ? 'Daily Scratchpad' : board ? 'Untitled Board' : 'Untitled Note'} aria-label={board ? 'Board title' : 'Note title'}
                 onChange={(e) => sync.edit({ title: e.target.value })} />
               {!isPhone && actions}
             </div>
@@ -543,7 +601,9 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
               <DateField value={note.day} compact title="The day this note belongs to"
                 onChange={(v) => { if (v) sync.setMeta({ day: v }); }} />
             ) : <span>{note.day ? formatDate(note.day) : ''}</span>}
-            <span>{words} {words === 1 ? 'word' : 'words'} · {text.length} characters</span>
+            {board
+              ? <span>{shapes} {shapes === 1 ? 'shape' : 'shapes'}</span>
+              : <span>{words} {words === 1 ? 'word' : 'words'} · {text.length} characters</span>}
             {!mine && <span>Shared by {note.owner}{note.can === 'read' ? ' · Can Read' : ' · Can Edit'}</span>}
             {mine && note.sharedWith?.length > 0 && (
               <button type="button" className="nt-tag" onClick={() => setDialog('share')}>
@@ -575,7 +635,19 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             <div className="nt-banner is-info" role="status"><span className="nt-banner-text">Unsaved words from your last visit were put back and are being saved.</span></div>
           )}
 
-          {eligible && collab.phase !== 'ready' && collab.phase !== 'failed'
+          {board ? (
+            // The whiteboard fills the rest of the pane, edge to edge
+            // (board/Board.jsx); it saves through the same sync as a body.
+            <div className="nt-board" data-look={look}>
+              <Suspense fallback={<div style={{ flex: '1 1 auto', padding: 14 }}><SkeletonBlocks count={3} height={90} /></div>}>
+                <Board note={{ ...note, canEdit: !readOnly }} isPhone={isPhone} look={look}
+                  onLook={(l) => setLookPick(l)}
+                  onScene={readOnly ? undefined : (sceneStr) => sync.edit({ scene: sceneStr })}
+                  onThumb={readOnly ? undefined : onThumb}
+                  collab={null} onApi={setBoardApi} />
+              </Suspense>
+            </div>
+          ) : eligible && collab.phase !== 'ready' && collab.phase !== 'failed'
             ? <div style={{ paddingTop: 14 }}><SkeletonBlocks count={3} height={56} /></div>
             : collab.phase === 'ready'
               ? (
@@ -596,7 +668,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
 
   if (isPhone) {
     return (
-      <PhoneSheet title={note.kind === 'daily' ? 'Daily Scratchpad' : 'Note'} onClose={onBack} actions={actions} color={note.color ? colorCss(note.color) : ''}
+      <PhoneSheet title={note.kind === 'daily' ? 'Daily Scratchpad' : board ? 'Board' : 'Note'} onClose={onBack} actions={actions} color={note.color ? colorCss(note.color) : ''}
         sub={[note.day ? formatDate(note.day) : '', !mine ? `Shared by ${note.owner}` : ''].filter(Boolean).join(' · ')}
         foot={readOnly ? <span>{trashed ? 'In the Trash' : 'Read Only'}</span> : <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} />}>
         {doc}
@@ -653,7 +725,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
 
   // A save (or share / restore) updates its row in place.
   const onSaved = useCallback((n) => {
-    setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === n.id ? { ...x, ...n, preview: htmlToText(n.body).slice(0, 220) } : x)) } : d));
+    setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === n.id ? { ...x, ...n, preview: isBoard(n) ? '' : htmlToText(n.body).slice(0, 220) } : x)) } : d));
   }, []);
   const onTrashChanged = useCallback((n, what) => {
     if (what === 'delete') select('');
@@ -668,8 +740,10 @@ export default function NotesPage({ activeSub, onSubChange }) {
       await load();
       select(n.id);
       return n;
-    } catch (e) { toast(e.message || 'Could not create a note'); return null; }
+    } catch (e) { toast(e.message || (extra.kind === 'board' ? 'Could not start a board' : 'Could not create a note')); return null; }
   };
+  // A Board (Neil, 11/02/2026): a whiteboard note; its scene starts empty.
+  const newBoard = () => newNote({ kind: 'board', scene: '' });
 
   const importFile = async (file) => {
     if (!file) return;
@@ -751,6 +825,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
             <button type="button" className="nt-icon-btn" aria-label="Import a Markdown or text file" title="Import (.md, .txt)" onClick={() => fileRef.current?.click()}><Upload size={17} /></button>
             <input ref={fileRef} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden
               onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ''; }} />
+            <button type="button" className="nt-text-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>
             <button type="button" className="nt-text-btn is-primary" onClick={() => newNote()}><Plus size={15} /> New Note</button>
           </div>
         </div>
@@ -772,7 +847,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
               {data && groups.length === 0 && (
                 <div className="nt-empty">
                   <strong>{q ? 'No notes match' : view === 'trash' ? 'The Trash is empty' : view === 'shared' ? 'Nothing shared with you yet' : view === 'pinned' ? 'No pinned notes' : view === 'today' ? 'Nothing for today yet' : `No notes in ${monthLabel(month)}`}</strong>
-                  {q ? 'Try fewer words.' : view === 'all' || view === 'today' ? 'Start one with New Note, or jot something in Quick Note from the + menu in the top bar.' : ''}
+                  {q ? 'Try fewer words.' : view === 'all' || view === 'today' ? 'Start one with New Note or New Board, or jot something in Quick Note from the + menu in the top bar.' : ''}
                 </div>
               )}
               {groups.map((g) => (
@@ -790,9 +865,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
                           {(n.shared || !n.mine) && <Users size={13} aria-label={n.mine ? 'Shared' : 'Shared with you'} />}
                         </span>
                       </span>
-                      {n.preview && <span className="nt-row-preview">{n.preview}</span>}
+                      {isBoard(n)
+                        ? (n.thumbUrl
+                          ? <img className="nt-row-thumb" src={n.thumbUrl} alt="" loading="lazy" />
+                          : <span className="nt-row-thumb is-empty" aria-hidden="true"><PenTool size={14} /></span>)
+                        : n.preview && <span className="nt-row-preview">{n.preview}</span>}
                       <span className="nt-row-meta">
-                        {view === 'trash' && n.trashedAt ? `Trashed ${formatDate(n.trashedAt)}` : editedLabel(n.updatedAt)}
+                        {isBoard(n) ? 'Board · ' : ''}{view === 'trash' && n.trashedAt ? `Trashed ${formatDate(n.trashedAt)}` : editedLabel(n.updatedAt)}
                         {!n.mine ? ` · from ${n.owner}` : ''}{n.tags?.length ? ` · #${n.tags.join(' #')}` : ''}
                       </span>
                     </button>

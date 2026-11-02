@@ -376,3 +376,18 @@
   .nt-clash-item { grid-template-columns: 1fr; }
   .nt-clash-pick { flex-direction: row; }
 }
+
+/* ── Boards (the whiteboard note, Neil 11/02/2026) ── */
+/* The list row: a picture of the board where a note shows its first words. */
+.nt-row-thumb { display: block; width: 64px; height: 40px; margin-top: 4px; object-fit: cover; border-radius: 4px; border: 1px solid var(--wk-line2); background: var(--card); }
+.nt-row-thumb.is-empty { display: grid; place-items: center; color: var(--wk-faint, #9699a6); background: var(--wk-hover); }
+/* The open board fills the pane edge to edge under the title and meta. */
+.nt-doc.is-board { padding-bottom: 0; }
+.nt-board { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 480px; margin: 12px -28px 0; border-top: 1px solid var(--wk-line2); background: var(--card); }
+.nt-board > * { flex: 1 1 auto; min-height: 0; }
+.nt-qn.is-page .nt-doc.is-board { padding-bottom: 0; }
+.nt-qn.is-page .nt-board { margin: 8px -14px 0; min-height: 60vh; }
+@media (max-width: 768px) {
+  .nt-doc.is-board { padding-bottom: 0; }
+  .nt-board { margin: 8px -14px 0; min-height: 60vh; }
+}

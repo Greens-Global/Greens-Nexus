@@ -21,6 +21,12 @@
 //     typed here are merged into the saved copy, the new session is joined
 //     and the merged words go into IT - never a plain save, which would drop
 //     the state the others just rebuilt.
+//   - A Board (kind 'board', Neil 11/02/2026) saves its `scene` the same way
+//     the body saves (typed = dirty, SAVE_MS later = a PATCH with the rev;
+//     the draft keeps a scene under DRAFT_SCENE_MAX so a reload loses
+//     nothing). A board has no words to merge: when the server moved on,
+//     the rev is taken and the scene drawn here is saved over it (the live
+//     channel, useBoardCollab, is what keeps two editors in step).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { clearDraft, readDraft, writeDraft } from './notesModel';
@@ -31,6 +37,7 @@ const MERGE = { norm: normalizeHtml };
 const REJOIN_MS = 15000;    // longest a save waits for the new live session
 
 export const SAVE_MS = 800;
+const DRAFT_SCENE_MAX = 500_000;   // a board scene the local draft still keeps (localStorage has ~5 MB in all)
 export const BEAT_MS = 8000;
 const EDITING_MS = 30000;   // typed this recently = "editing" to the others
 
@@ -66,6 +73,18 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
   // The server moved on: merge what was typed here into its copy.
   const mergeIn = useCallback((server) => {
     const cur = noteRef.current;
+    if (server.kind === 'board') {
+      // No words to merge on a board: the title merges, the scene drawn
+      // here wins over the server's and is saved again with its rev.
+      const title = mergeTitle(base.current.title, pending.current?.title ?? cur?.title ?? '', server.title || '');
+      const mineScene = pending.current?.scene;
+      rev.current = server.rev;
+      setBase(server);
+      put({ ...server, title: title.title, scene: mineScene ?? server.scene });
+      pending.current = mineScene != null ? { ...(pending.current || {}), title: title.title, scene: mineScene } : null;
+      setMerged(server.updatedBy || 'someone');
+      return true;
+    }
     const mine = { title: pending.current?.title ?? cur?.title ?? '', body: pending.current?.body ?? cur?.body ?? '' };
     const body = mergeNotes(base.current.body, mine.body, server.body || '', {}, MERGE);
     const title = mergeTitle(base.current.title, mine.title, server.title || '');
@@ -191,12 +210,14 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
       if (!alive) return;
       rev.current = n.rev;
       const draft = n.can === 'read' ? null : readDraft(id);
-      const differs = draft && ((draft.body ?? n.body) !== n.body || (draft.title ?? n.title) !== n.title);
-      if (differs && draft.rev === n.rev) {
-        // Typed here and never saved: put it back and save it.
+      const sceneDiffers = n.kind === 'board' && draft?.scene != null && draft.scene !== (n.scene || '');
+      const differs = draft && ((draft.body ?? n.body) !== n.body || (draft.title ?? n.title) !== n.title || sceneDiffers);
+      if (differs && (draft.rev === n.rev || (n.kind === 'board' && sceneDiffers))) {
+        // Typed (or drawn) here and never saved: put it back and save it.
         setBase(n);
-        put({ ...n, title: draft.title ?? n.title, body: draft.body ?? n.body });
-        pending.current = { title: draft.title ?? n.title, body: draft.body ?? n.body };
+        put({ ...n, title: draft.title ?? n.title, body: draft.body ?? n.body, ...(sceneDiffers ? { scene: draft.scene } : {}) });
+        pending.current = { title: draft.title ?? n.title, body: draft.body ?? n.body, ...(sceneDiffers ? { scene: draft.scene } : {}) };
+        rev.current = n.rev;
         setRestored(true);
         setStatus('dirty');
         timer.current = setTimeout(() => saveRef.current(), SAVE_MS);
@@ -300,7 +321,8 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
     put(next);
     lastEdit.current = Date.now();
     pending.current = { ...(pending.current || {}), ...fields };
-    writeDraft(n.id, { rev: rev.current, title: next.title, body: next.body, baseTitle: base.current.title, baseBody: base.current.body });
+    const sceneDraft = n.kind === 'board' && typeof next.scene === 'string' && next.scene.length <= DRAFT_SCENE_MAX ? { scene: next.scene } : {};
+    writeDraft(n.id, { rev: rev.current, title: next.title, body: next.body, baseTitle: base.current.title, baseBody: base.current.body, ...sceneDraft });
     if (conflictRef.current) return;
     setStatus('dirty');
     clearTimeout(timer.current);
@@ -317,6 +339,16 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
   const setMeta = useCallback((fields) => {
     const n = noteRef.current;
     if (!n || !n.mine) return;
+    put({ ...n, ...fields });
+    pending.current = { ...(pending.current || {}), ...fields };
+    if (!conflictRef.current) saveRef.current();
+  }, [put]);
+
+  // Fields any editor may write at once (a board's thumbnail): saved with
+  // whatever else is waiting. Pin / color / tags / day stay the owner's (setMeta).
+  const setFields = useCallback((fields) => {
+    const n = noteRef.current;
+    if (!n || n.can === 'read' || n.trashedAt) return;
     put({ ...n, ...fields });
     pending.current = { ...(pending.current || {}), ...fields };
     if (!conflictRef.current) saveRef.current();
@@ -361,6 +393,6 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
 
   return {
     note, status, conflict, restored, merged, people,
-    edit, seeRemote, setMeta, resolve, keepMine, takeTheirs, replace, refresh, flush: save,
+    edit, seeRemote, setMeta, setFields, resolve, keepMine, takeTheirs, replace, refresh, flush: save,
   };
 }
