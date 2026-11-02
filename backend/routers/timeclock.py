@@ -12376,6 +12376,14 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" 
            "firstNote": getattr(r, "first_note", "") or ""}
     if priv is not None:
         out["canDecide"] = priv.can_decide(r)
+        if out["canDecide"] and r.status == "pending":
+            # Time-off recommendation (Neil, 11/02/2026): "Recommended:
+            # Approve" / "Check First" with reasons, for the DECIDER only -
+            # a hint beside the buttons, never a decision (timeoff_recommend).
+            import timeoff_recommend
+            rec = timeoff_recommend.for_decider(priv.db, r)
+            if rec:
+                out["recommendation"] = rec
         # Who decides it, whenever the viewer cannot: a confidential request,
         # or the viewer's own (nobody approves their own time off - Visesh,
         # 09/30: "no approval or decline for me"; the approvers are named).
