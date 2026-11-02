@@ -18,6 +18,16 @@ import { useState, useCallback } from 'react';
 // edits (another company) in place must start over from the new value.
 const isObj = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+// The new saved value with the person's edits laid over it, field by field
+// inside objects: an untouched field follows the server (an `updatedAt`, a
+// `hasOverride` the save set), an edited one keeps the edit.
+function rebaseValue(was, now, draft) {
+  if (same(draft, was)) return now;
+  if (!isObj(was) || !isObj(now) || !isObj(draft)) return draft;
+  const out = { ...now };
+  for (const k of Object.keys(draft)) out[k] = rebaseValue(was[k], now[k], draft[k]);
+  return out;
+}
 
 export function useDraft(saved, { rebase = false } = {}) {
   const key = JSON.stringify(saved ?? null);
@@ -27,13 +37,8 @@ export function useDraft(saved, { rebase = false } = {}) {
     // The saved value changed under the draft: start over from it, or carry
     // the edited keys across (React's "adjust state while rendering" idiom -
     // no effect, no extra render pass with a stale draft).
-    let draft = saved;
-    if (rebase && isObj(saved) && isObj(state.draft) && isObj(state.saved)) {
-      draft = { ...saved };
-      for (const k of Object.keys(state.draft)) {
-        if (!same(state.draft[k], state.saved[k])) draft[k] = state.draft[k];
-      }
-    }
+    const draft = rebase && isObj(saved) && isObj(state.draft) && isObj(state.saved)
+      ? rebaseValue(state.saved, saved, state.draft) : saved;
     current = { key, saved, draft };
     setState(current);
   }

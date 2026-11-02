@@ -26,4 +26,21 @@ describe('useDraft', () => {
     expect(result.current.draft).toEqual({ a: { n: 2 }, b: { n: 1 }, c: 9 });
     expect(result.current.dirty).toBe(false);
   });
+
+  it('with rebase, an untouched field inside an edited object follows the server', () => {
+    // Pay Rules: the switch saved (enabled + hasOverride come back), the
+    // minutes typed beside it stay a draft.
+    const { result, rerender } = renderHook(({ saved }) => useDraft(saved, { rebase: true }),
+      { initialProps: { saved: { rounding: { enabled: false, nearestMin: 5, hasOverride: false } } } });
+    act(() => result.current.patch({ rounding: { ...result.current.draft.rounding, nearestMin: 10, enabled: true } }));
+    rerender({ saved: { rounding: { enabled: true, nearestMin: 5, hasOverride: true } } });
+    expect(result.current.draft).toEqual({ rounding: { enabled: true, nearestMin: 10, hasOverride: true } });
+    expect(result.current.dirty).toBe(true);
+    // Only the switch was ever changed: after its save the draft is clean.
+    const two = renderHook(({ saved }) => useDraft(saved, { rebase: true }),
+      { initialProps: { saved: { r: { enabled: false, hasOverride: false } } } });
+    act(() => two.result.current.patch({ r: { enabled: true, hasOverride: false } }));
+    two.rerender({ saved: { r: { enabled: true, hasOverride: true } } });
+    expect(two.result.current.dirty).toBe(false);
+  });
 });

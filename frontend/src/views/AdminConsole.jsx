@@ -90,6 +90,7 @@ import { ModalLoading, SkeletonBlocks, Spinner } from '../components/AsyncState'
 import { useIsMobile } from '../lib/useIsMobile';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import SaveRow from '../components/SaveRow';
+import { dialog } from '../ui/dialog';
 import { useDraft } from '../lib/useDraft';
 import { GroupDirtyContext, useGroupDirty, makeGroupReporter, saveAll } from '../lib/groupDirty';
 import { setInlineDirty } from '../lib/dialogGuard';
@@ -742,9 +743,18 @@ const OWN_LINE = { 'shift-settings': 'Companies with shift settings of their own
 // Two companies at a time per group: a subject of several groups at "Every
 // company" must not fire every company's loads at once.
 const STATE_POOL = 2;
+// One company's answer that never comes must not hold the line back for
+// ever: past this it counts as Could Not Load, with Retry.
+const STATE_TIMEOUT_MS = 15000;
+const withTimeout = (p, ms) => new Promise((resolve, reject) => {
+  const t = setTimeout(() => reject(new Error('timed out')), ms);
+  Promise.resolve(p).then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+});
 
 function useCompanyStates(entities, stateOf) {
   const [states, setStates] = useState({});
+  const [round, setRound] = useState(0);
+  const retry = useCallback(() => setRound(r => r + 1), []);
   useEffect(() => {
     if (!stateOf) return undefined;
     let live = true;
@@ -753,20 +763,20 @@ function useCompanyStates(entities, stateOf) {
     const next = () => {
       if (!live || i >= entities.length) return Promise.resolve();
       const en = entities[i++];
-      return Promise.resolve().then(() => stateOf(en.id))
+      return Promise.resolve().then(() => withTimeout(stateOf(en.id), STATE_TIMEOUT_MS))
         .then(st => { if (live) setStates(m => ({ ...m, [en.id]: st })); },
           () => { if (live) setStates(m => ({ ...m, [en.id]: { own: false, label: 'Could Not Load', failed: true } })); })
         .then(next);
     };
     for (let k = 0; k < STATE_POOL; k++) next();
     return () => { live = false; };
-  }, [entities, stateOf]);
-  return states;
+  }, [entities, stateOf, round]);
+  return [states, retry];
 }
 
 // The companies as a list to open; with `stateOf`, each says where it stands.
 function CompanyStates({ entities, stateOf = null, onPick, lead = 'Set per company. Open one to change it.' }) {
-  const states = useCompanyStates(entities, stateOf);
+  const [states, retry] = useCompanyStates(entities, stateOf);
   if (entities.length === 0) return <div className="nx-set-note" style={{ borderTop: 'none' }}>No companies yet - add one under Companies first.</div>;
   return (
     <>
@@ -786,6 +796,12 @@ function CompanyStates({ entities, stateOf = null, onPick, lead = 'Set per compa
           );
         })}
       </div>
+      {stateOf && entities.some(en => states[en.id]?.failed) && (
+        <div className="nx-set-note">
+          <span style={{ color: 'hsl(var(--color-red))' }}>Some companies could not be checked.</span>
+          <button type="button" className="nx-set-inline-link" onClick={retry}>Retry</button>
+        </div>
+      )}
     </>
   );
 }
@@ -793,10 +809,11 @@ function CompanyStates({ entities, stateOf = null, onPick, lead = 'Set per compa
 // Under a layered setting's default: which companies keep their own. Says so
 // when a company could not be checked rather than guessing it follows.
 function CompanyOverrides({ entities, stateOf, onPick, lead = 'Companies with their own:' }) {
-  const states = useCompanyStates(entities, stateOf);
+  const [states, retry] = useCompanyStates(entities, stateOf);
   if (entities.length === 0 || !entities.every(en => states[en.id])) return null;
   const own = entities.filter(en => states[en.id].own);
   const failed = entities.filter(en => states[en.id].failed).length;
+  const failedNames = entities.filter(en => states[en.id].failed).map(en => en.name);
   return (
     <div className="nx-set-note" data-company-overrides="">
       <Building2 size={13} />
@@ -812,7 +829,12 @@ function CompanyOverrides({ entities, stateOf, onPick, lead = 'Companies with th
           ))}
         </>
       )}
-      {failed > 0 && <span>{`Could not check ${failed} ${failed === 1 ? 'company' : 'companies'}.`}</span>}
+      {failed > 0 && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }} title={failedNames.join(', ')}>
+          <span style={{ color: 'hsl(var(--color-red))' }}>{`Could not check ${failed === 1 ? failedNames[0] : `${failed} companies`}.`}</span>
+          <button type="button" className="nx-set-inline-link" onClick={retry}>Retry</button>
+        </span>
+      )}
     </div>
   );
 }
@@ -830,8 +852,17 @@ function ItemSettingsSection({ toast, chrome }) {
   const [typesOpen, setTypesOpen]   = useState(false);
   const [fieldsOpen, setFieldsOpen] = useState(false);
 
-  const refreshTypes = useCallback(() => { api.getItemTypes().then(setItemTypes).catch(() => {}); }, []);
-  const refreshFields = useCallback(() => { api.getItemCustomFields().then(setCustomFields).catch(() => {}); }, []);
+  // A failed load says so, with Retry, and keeps the editors shut: opening
+  // one on an empty list it failed to read would look like there is nothing.
+  const [failed, setFailed] = useState({ types: false, fields: false });
+  const refreshTypes = useCallback(() => {
+    setFailed(f => ({ ...f, types: false }));
+    api.getItemTypes().then(setItemTypes).catch(() => setFailed(f => ({ ...f, types: true })));
+  }, []);
+  const refreshFields = useCallback(() => {
+    setFailed(f => ({ ...f, fields: false }));
+    api.getItemCustomFields().then(setCustomFields).catch(() => setFailed(f => ({ ...f, fields: true })));
+  }, []);
 
   useEffect(() => {
     refreshTypes();
@@ -845,9 +876,13 @@ function ItemSettingsSection({ toast, chrome }) {
 
   return (
     <Group {...GROUP_META['item-types']} {...chrome}>
+      {(failed.types || failed.fields) && (
+        <ErrorLine text={`Could not load the ${failed.types && failed.fields ? 'item types and custom fields' : failed.types ? 'item types' : 'custom fields'}.`}
+          onRetry={() => { if (failed.types) refreshTypes(); if (failed.fields) refreshFields(); }} />
+      )}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <button className="secondary-btn" onClick={() => setTypesOpen(true)}>Manage Item Types</button>
-        <button className="secondary-btn" onClick={() => setFieldsOpen(true)}>Manage Custom Fields</button>
+        <button className="secondary-btn" onClick={() => setTypesOpen(true)} disabled={failed.types}>Manage Item Types</button>
+        <button className="secondary-btn" onClick={() => setFieldsOpen(true)} disabled={failed.fields}>Manage Custom Fields</button>
       </div>
       {typesOpen && (
         <Suspense fallback={<ModalFallback />}>
@@ -1081,32 +1116,52 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   const templateDirty = !!data && !!companyId && selectedTemplate !== data.template;
   const overridesDirty = !company && JSON.stringify(overrides) !== JSON.stringify(savedOverrides);
   const dirty = templateDirty || overridesDirty;
-  useGroupDirty(dirty);
 
+  // Only the latest company's answer lands: picking A then B quickly must
+  // never show A's templates (and save A's choice) while B is picked.
+  const previewSeq = useRef(0);
+  const [previewErr, setPreviewErr] = useState('');
   const loadPreview = useCallback((id) => {
     if (!id) return;
+    const n = ++previewSeq.current;
     setPreviewBusy(true);
+    setPreviewErr('');
     api.getEntitySignatureTemplates(id)
-      .then(d => { setData(d); setSelectedTemplate(d.template); })
-      .catch(() => {})
-      .finally(() => setPreviewBusy(false));
+      .then(d => { if (n === previewSeq.current) { setData(d); setSelectedTemplate(d.template); } })
+      .catch(e => { if (n === previewSeq.current) setPreviewErr(e?.message || 'Could not load the signature templates.'); })
+      .finally(() => { if (n === previewSeq.current) setPreviewBusy(false); });
   }, []);
 
   // Both halves load once, when the group mounts (it is always open now).
-  useEffect(() => {
+  // A failed load says so with Retry - never "No companies yet".
+  const [entitiesErr, setEntitiesErr] = useState('');
+  const loadEntities = useCallback(() => {
+    setEntitiesErr('');
+    setLoaded(false);
     api.getEntities().then(rows => {
       setEntities(rows || []);
       const first = (company && rows?.some(r => r.id === company)) ? company : rows?.[0]?.id;
       if (first) { setCompanyId(first); loadPreview(first); }
-    }).catch(() => {}).finally(() => setLoaded(true));
+    }).catch(e => setEntitiesErr(e?.message || 'Could not load the companies.')).finally(() => setLoaded(true));
+  }, [company, loadPreview]);
+  useEffect(() => {
+    loadEntities();
     if (!company) {
       api.getSignatureSenderOverrides()
         .then(d => { setOverrideTemplates(d.templates || []); setOverrides(d.senderOverrides || []); setSavedOverrides(d.senderOverrides || []); })
         .catch(() => {});
     }
-  }, [loadPreview, company]);
+  }, [loadEntities, company]);
 
-  function pickCompany(id) {
+  // Another company in the box drops an unsaved template choice: ask first.
+  async function pickCompany(id) {
+    if (id === companyId) return;
+    if (templateDirty) {
+      const name = entities.find(en => en.id === companyId)?.name || 'this company';
+      const ok = await dialog.confirm(`The template you picked for ${name} has not been saved. If you switch companies now, it will be lost.`,
+        { title: 'Discard Unsaved Changes?', confirmText: 'Discard Changes', cancelText: 'Keep Editing', danger: true });
+      if (!ok) return;
+    }
     setCompanyId(id);
     setData(null);
     loadPreview(id);
@@ -1116,12 +1171,15 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
     setOverrides(rows => rows.filter((_, i) => i !== idx));
   }
 
+  // Resolves true once everything saved (the prompt's Save and Leave).
   async function save() {
-    if (busy || !dirty) return;
+    if (busy || !dirty) return !dirty;
+    const forCompany = companyId;
     setBusy(true);
+    let ok = true;
     try {
       if (templateDirty) {
-        await api.updateEntity(companyId, { signature_template: selectedTemplate });
+        await api.updateEntity(forCompany, { signature_template: selectedTemplate });
         setData(d => (d ? { ...d, template: selectedTemplate } : d));
       }
       if (overridesDirty) {
@@ -1133,9 +1191,11 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
       toastOk(templateDirty && !overridesDirty
         ? 'Signature template saved. It applies to every employee at this company.'
         : 'Email signature settings saved.');
-    } catch (e) { toastErr(e?.message || 'Could not save.'); }
+    } catch (e) { ok = false; toastErr(e?.message || 'Could not save.'); }
     setBusy(false);
+    return ok;
   }
+  useGroupDirty(dirty, save);
   function discard() {
     if (data) setSelectedTemplate(data.template);
     setOverrides(savedOverrides);
@@ -1144,7 +1204,8 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   return (
     <Group {...GROUP_META['email-signature']} {...chrome}>
       {entities.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{loaded ? 'No companies yet. Add one under Settings > Companies first.' : 'Loading…'}</div>
+        entitiesErr ? <ErrorLine text={entitiesErr} onRetry={loadEntities} />
+          : <div style={{ fontSize: 13, color: 'var(--muted)' }}>{loaded ? 'No companies yet. Add one under Settings > Companies first.' : 'Loading…'}</div>
       ) : (
         <>
           {!company && (
@@ -1155,7 +1216,9 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
               </select>
             </div>
           )}
-          {previewBusy && !data ? (
+          {previewErr && !data ? (
+            <ErrorLine text={previewErr} onRetry={() => loadPreview(companyId)} />
+          ) : previewBusy && !data ? (
             <Spinner size="inline" />
           ) : data && (
             <>
@@ -2201,8 +2264,9 @@ export default function AdminConsole({ activeSub, onSubChange }) {
 // the front door moved. Rounding is OFF for a new tenant; PROD keeps its own
 // saved row. Per-company scoping (one rule per hr_entities company) is
 // deferred: today each rule is one tenant-wide key.
-// One pay rule (Oct 25 2026): a switch row that saves on click; its numbers
-// show under it while it is on, with a Save that appears once one changes.
+// One pay rule (Neil, 11/02/2026 - one switch behavior everywhere): its
+// switch saves on click with an Undo toast; its numbers show under it while
+// it is on and are a draft, saved by the panel's one Save row at the foot.
 function PolicyCard({ id, title, desc, enabled, onToggle, busy, foot, children }) {
   return (
     <>
@@ -2252,6 +2316,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   useEffect(() => { if (cfg && company) onOverride?.(['rounding', 'autoLunch', 'breakPolicy'].some(k => cfg[k]?.hasOverride)); }, [cfg, company, onOverride]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [switching, setSwitching] = useState('');   // which rule's switch is saving
   const [resetting, setResetting] = useState('');   // which card is going back to the default
   const load = useCallback(() => {
     setErr('');
@@ -2262,35 +2327,80 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   }, [company]);
   useEffect(() => { load(); }, [load]);
 
-  // The three cards are one form (the Settings save pattern, Oct 23): the
-  // switches and numbers are a draft until Save, which writes only the
-  // rules that changed. Use the Default drops a company's own rule at once.
-  const { draft, patch, dirty, reset } = useDraft(cfg);
-  useGroupDirty(dirty);
+  // The numbers are one draft (the Settings save pattern, Oct 23): Save
+  // writes only the rules whose numbers changed. `rebase`: a rule that saved
+  // follows the server, and a rule whose save failed - or whose switch was
+  // just flipped beside a half-typed number - keeps the person's edits.
+  const { draft, patch, dirty, reset } = useDraft(cfg, { rebase: true });
   const edit = (key, p) => patch({ [key]: { ...draft[key], ...p } });
+  // The latest saved rules and draft, for an Undo that runs after more changes landed.
+  const cfgRef = useRef(cfg);
+  const draftRef = useRef(draft);
+  useEffect(() => { cfgRef.current = cfg; draftRef.current = draft; }, [cfg, draft]);
 
+  // A switch saves on click (Neil, 11/02/2026), with an Undo toast that
+  // writes the previous value back. Only the switch is sent: the rule's
+  // saved numbers go with it, a draft number stays a draft.
+  const writeSwitch = async (key, on) => {
+    const saved = cfgRef.current?.[key];
+    if (!saved) return false;
+    const body = cleanRules({ ...cfgRef.current, [key]: { ...saved, enabled: on } })[key];
+    setSwitching(key);
+    try {
+      const out = await RULE_SETTERS[key](body, company);
+      const next = { ...cfgRef.current, [key]: out };
+      cfgRef.current = next;
+      setCfg(next);
+      return true;
+    } catch (e) {
+      toastErr?.(e?.message || `Could not save ${RULE_LABELS[key].toLowerCase()}.`);
+      return false;
+    } finally {
+      setSwitching('');
+    }
+  };
+  const setSwitch = (key, on) => patch({ [key]: { ...(draftRef.current?.[key] || {}), enabled: on } });
+  const toggle = async (key, on) => {
+    const was = !!cfgRef.current?.[key]?.enabled;
+    setSwitch(key, on);
+    if (await writeSwitch(key, on)) {
+      dialog.undo(`${RULE_LABELS[key]} turned ${on ? 'on' : 'off'}${company ? ' for this company' : ''}.`, async () => {
+        setSwitch(key, was);
+        if (await writeSwitch(key, was)) toastOk?.(`${RULE_LABELS[key]} is back ${was ? 'on' : 'off'}.`);
+        else setSwitch(key, on);
+      });
+    } else {
+      setSwitch(key, was);   // roll the switch back
+    }
+  };
+
+  // Resolves true once every changed rule saved (the prompt's Save and Leave).
   const save = async () => {
-    if (!dirty || busy) return;
+    if (!dirty || busy) return !dirty;
     const next = cleanRules(draft), was = cleanRules(cfg);
     const changed = Object.keys(next).filter(k => JSON.stringify(next[k]) !== JSON.stringify(was[k]));
-    if (!changed.length) { reset(); return; }
+    if (!changed.length) { reset(); return true; }
     setBusy(true);
     const out = { ...cfg };
+    let ok = true;
     try {
       for (const k of changed) out[k] = await RULE_SETTERS[k](next[k], company);
-      setCfg(out);
       toastOk?.(company ? 'Pay rules saved for this company.' : 'Pay rules saved.');
     } catch (e) {
+      ok = false;
       toastErr?.(e?.message || 'Could not save the pay rules.');
-      setCfg(out);   // what did save, saved; the rest stays a draft
     }
+    setCfg(out);   // what did save, saved; the rest stays a draft (rebase)
     setBusy(false);
+    return ok;
   };
+  useGroupDirty(dirty, save);
   const backToDefault = async (key) => {
     setResetting(key);
     try {
       const saved = await RULE_SETTERS[key]({ reset: true }, company);
       setCfg(c => ({ ...c, [key]: saved }));
+      patch({ [key]: saved });
       toastOk?.(`${RULE_LABELS[key]}: back to the default.`);
     } catch (e) { toastErr?.(e?.message || `Could not reset ${RULE_LABELS[key].toLowerCase()}.`); }
     setResetting('');
@@ -2308,28 +2418,29 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   if (err) return <ErrorLine text={err} onRetry={load} />;
   if (!cfg || !draft) return <SkeletonBlocks count={3} height={64} borderRadius={12} />;
   const { rounding, autoLunch, breakPolicy } = draft;
+  const held = (key) => resetting === key || switching === key;
   return (
     <div>
-      <PolicyCard id="rounding" title="Punch Rounding" busy={resetting === 'rounding'} enabled={rounding.enabled} foot={foot('rounding', cfg.rounding)}
+      <PolicyCard id="rounding" title="Punch Rounding" busy={held('rounding')} enabled={rounding.enabled} foot={foot('rounding', cfg.rounding)}
         desc={`Round every clock-in and clock-out to the nearest ${rounding.nearestMin || 5} minutes before computing hours (SwipeClock's model; the raw times stay on record and can be shown on the time sheet). Off by default - turn it on only if the company has a rounding policy.`}
-        onToggle={on => edit('rounding', { enabled: on })}>
+        onToggle={on => toggle('rounding', on)}>
         <PolicyNumber label="Nearest" min={1} max={30} value={rounding.nearestMin} onChange={v => edit('rounding', { nearestMin: v })} />
       </PolicyCard>
-      <PolicyCard id="auto-lunch" title="Auto-Lunch Deduction" busy={resetting === 'autoLunch'} enabled={autoLunch.enabled} foot={foot('autoLunch', cfg.autoLunch)}
+      <PolicyCard id="auto-lunch" title="Auto-Lunch Deduction" busy={held('autoLunch')} enabled={autoLunch.enabled} foot={foot('autoLunch', cfg.autoLunch)}
         desc={`Deduct ${autoLunch.deductMin} minutes of lunch from any shift longer than ${Math.round((autoLunch.afterMin || 0) / 60 * 10) / 10} hours that has no recorded break (the person forgot to clock lunch).`}
-        onToggle={on => edit('autoLunch', { enabled: on })}>
+        onToggle={on => toggle('autoLunch', on)}>
         <PolicyNumber label="Shifts over" min={0} max={1440} value={autoLunch.afterMin} onChange={v => edit('autoLunch', { afterMin: v })} />
         <PolicyNumber label="Deduct" min={0} max={240} value={autoLunch.deductMin} onChange={v => edit('autoLunch', { deductMin: v })} />
       </PolicyCard>
-      <PolicyCard id="ca-breaks" title="California Paid Rest Breaks" busy={resetting === 'breakPolicy'} enabled={breakPolicy.enabled} foot={foot('breakPolicy', cfg.breakPolicy)}
+      <PolicyCard id="ca-breaks" title="California Paid Rest Breaks" busy={held('breakPolicy')} enabled={breakPolicy.enabled} foot={foot('breakPolicy', cfg.breakPolicy)}
         desc={`Pay the first ${breakPolicy.paidBreakMin} minutes of each short break (up to ${breakPolicy.restMaxMin} minutes long) - one per 4 hours worked, as California requires. Meal-length breaks stay unpaid. Only employees on the California overtime rule; the long-break flags are always on.`}
-        onToggle={on => edit('breakPolicy', { enabled: on })}>
+        onToggle={on => toggle('breakPolicy', on)}>
         <PolicyNumber label="Paid per break" min={0} max={60} value={breakPolicy.paidBreakMin} onChange={v => edit('breakPolicy', { paidBreakMin: v })} />
         <PolicyNumber label="Rest break up to" min={1} max={120} value={breakPolicy.restMaxMin} onChange={v => edit('breakPolicy', { restMaxMin: v })} />
         <PolicyNumber label="Flag breaks over" min={15} max={600} value={breakPolicy.longBreakMin} onChange={v => edit('breakPolicy', { longBreakMin: v })} />
       </PolicyCard>
       <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} style={{ margin: 0, padding: '12px 18px' }}
-        note={company ? 'A rule saved here is this company\'s own.' : 'Saved rules shape every time sheet from then on.'} />
+        note={`Switches save as you click them; Save writes the minutes${company ? ' as this company\'s own' : ''}.`} />
     </div>
   );
 }

@@ -1,15 +1,18 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, within, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within, waitFor, act } from '@testing-library/react';
 
 // Settings (AdminConsole, one tab since Oct 23 2026): a rail of subjects, a
 // scope picker (Every company / one company), every group open, old links
 // still landing somewhere sensible, and the filter searching every subject.
 
 // Every api call resolves empty, except the companies the scope picker lists.
+// `apiOverrides` lets a test answer one call its own way (reset after each).
 const COMPANIES = [{ id: 'c1', name: 'Greens Global' }, { id: 'c2', name: 'Greens India' }];
+const apiOverrides = {};
 vi.mock('../api', () => ({
   api: new Proxy({}, { get: (_, k) => (
-    k === 'getEntities' ? () => Promise.resolve(COMPANIES)
+    k in apiOverrides ? apiOverrides[k]
+    : k === 'getEntities' ? () => Promise.resolve(COMPANIES)
       : k === 'getEntitySignatureTemplates' ? () => Promise.resolve({ templates: [], template: 'classic' })
         : vi.fn(() => Promise.resolve([]))) }),
 }));
@@ -105,7 +108,10 @@ vi.mock('../components/EmployeeCustomFieldsSettings', () => ({ default: ({ compa
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); asRole('administrator'); dirtyState.weather = false; });
+afterEach(() => {
+  cleanup(); vi.restoreAllMocks(); asRole('administrator'); dirtyState.weather = false;
+  for (const k of Object.keys(apiOverrides)) delete apiOverrides[k];
+});
 
 const rail = () => screen.getByRole('navigation', { name: 'Settings subjects' });
 // Lazy panels on a slow machine: give a find a little longer than the default second.
@@ -327,6 +333,115 @@ describe('AdminConsole', () => {
     fireEvent.click(within(ask).getByRole('button', { name: 'Discard Changes' }));
     expect(onSubChange).toHaveBeenCalledWith('companies');
     expect(await screen.findByLabelText('Weather note')).toHaveValue('');
+  });
+
+  // Pay Rules (Neil, 11/02/2026): a switch saves on click with an Undo toast
+  // that writes the previous value back; the minutes are one draft, and a
+  // save that fails for one rule keeps that rule's edits.
+  function payRules({ rounding = {}, autoLunch = {} } = {}) {
+    const rules = {
+      rounding: { enabled: false, nearestMin: 5, ...rounding },
+      autoLunch: { enabled: true, afterMin: 360, deductMin: 30, ...autoLunch },
+      breakPolicy: { enabled: false, paidBreakMin: 10, restMaxMin: 20, longBreakMin: 75 },
+    };
+    apiOverrides.timeRoundingGet = () => Promise.resolve(rules.rounding);
+    apiOverrides.timeAutoLunchGet = () => Promise.resolve(rules.autoLunch);
+    apiOverrides.timeBreakPolicyGet = () => Promise.resolve(rules.breakPolicy);
+    apiOverrides.timeRoundingSet = vi.fn((body) => Promise.resolve({ ...body }));
+    apiOverrides.timeAutoLunchSet = vi.fn((body) => Promise.resolve({ ...body }));
+    apiOverrides.timeBreakPolicySet = vi.fn((body) => Promise.resolve({ ...body }));
+    return rules;
+  }
+
+  it('Pay Rules: a switch saves on click, with an Undo that writes the old value back', async () => {
+    payRules();
+    const { dialog } = await import('../ui/dialog');
+    const undo = vi.spyOn(dialog, 'undo').mockImplementation(() => {});
+    render(<AdminConsole activeSub="pay:timeclock-policy" onSubChange={() => {}} />);
+    const sw = await screen.findByRole('switch', { name: 'Punch Rounding' }, { timeout: 5000 });
+    fireEvent.click(sw);
+    await waitFor(() => expect(apiOverrides.timeRoundingSet).toHaveBeenCalledWith({ enabled: true, nearestMin: 5 }, ''));
+    await waitFor(() => expect(undo).toHaveBeenCalled());
+    expect(undo.mock.calls[0][0]).toBe('Punch rounding turned on.');
+    const region = screen.getByRole('region', { name: 'Pay Rules' });
+    expect(within(region).getByRole('button', { name: /^Save$/ })).toBeDisabled();   // nothing waits for Save
+    await undo.mock.calls[0][1]();
+    expect(apiOverrides.timeRoundingSet).toHaveBeenLastCalledWith({ enabled: false, nearestMin: 5 }, '');
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Punch Rounding' })).not.toBeChecked());
+  });
+
+  it('Pay Rules: a failed switch rolls back; a partly failed Save keeps the failed rule\'s edits', async () => {
+    payRules({ rounding: { enabled: true } });
+    apiOverrides.timeAutoLunchSet = vi.fn(() => Promise.reject(new Error('Auto-lunch is locked.')));
+    render(<AdminConsole activeSub="pay:timeclock-policy" onSubChange={() => {}} />);
+    const lunch = await screen.findByRole('switch', { name: 'Auto-Lunch Deduction' }, { timeout: 5000 });
+    fireEvent.click(lunch);
+    await waitFor(() => expect(apiOverrides.timeAutoLunchSet).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Auto-Lunch Deduction' })).toBeChecked());
+    fireEvent.change(screen.getByLabelText('Nearest'), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText('Deduct'), { target: { value: '45' } });
+    const region = screen.getByRole('region', { name: 'Pay Rules' });
+    fireEvent.click(within(region).getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(apiOverrides.timeRoundingSet).toHaveBeenCalledWith({ enabled: true, nearestMin: 10 }, ''));
+    await waitFor(() => expect(within(region).getByText('Unsaved changes')).toBeInTheDocument());
+    expect(screen.getByLabelText('Nearest')).toHaveValue(10);   // saved
+    expect(screen.getByLabelText('Deduct')).toHaveValue(45);    // failed, still the draft
+  });
+
+  it('Email Signature: a slow answer for an earlier company never lands over the one picked; a dirty pick asks', async () => {
+    const waiting = {};
+    apiOverrides.getEntitySignatureTemplates = (id) => new Promise((resolve) => { waiting[id] = resolve; });
+    const tpl = (id, label) => ({ id, label, html: '' });
+    const { dialog } = await import('../ui/dialog');
+    const confirm = vi.spyOn(dialog, 'confirm').mockResolvedValue(false);
+    render(<AdminConsole activeSub="branding:email-signature" onSubChange={() => {}} />);
+    const region = screen.getByRole('region', { name: 'Email Signature' });
+    const box = await within(region).findByRole('combobox');
+    await waitFor(() => expect(waiting.c1).toBeTypeOf('function'));
+    fireEvent.change(box, { target: { value: 'c2' } });
+    await waitFor(() => expect(waiting.c2).toBeTypeOf('function'));
+    await act(async () => { waiting.c2({ templates: [tpl('modern', 'Modern B'), tpl('bold', 'Bold B')], template: 'modern' }); });
+    await act(async () => { waiting.c1({ templates: [tpl('classic', 'Classic A')], template: 'classic' }); });
+    expect(within(region).getByText('Modern B')).toBeInTheDocument();
+    expect(within(region).queryByText('Classic A')).not.toBeInTheDocument();
+    // A template picked and not saved: switching companies asks; Keep Editing stays.
+    fireEvent.click(within(region).getByText('Bold B'));
+    fireEvent.change(box, { target: { value: 'c1' } });
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(confirm.mock.calls[0][0]).toMatch(/Greens India has not been saved/);
+    expect(box).toHaveValue('c2');
+    expect(within(region).getByText('Bold B')).toBeInTheDocument();
+  });
+
+  it('Item Types: a failed load says so with Retry and keeps the editors shut', async () => {
+    apiOverrides.getItemTypes = () => Promise.reject(new Error('down'));
+    render(<AdminConsole activeSub="items" onSubChange={() => {}} />);
+    expect(await screen.findByText('Could not load the item types.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Manage Item Types' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Manage Custom Fields' })).not.toBeDisabled();
+    apiOverrides.getItemTypes = () => Promise.resolve(['Laptop']);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByText('Could not load the item types.')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Manage Item Types' })).not.toBeDisabled();
+  });
+
+  it('a company whose answer never comes does not hide who keeps their own: it times out with Retry', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      payRules();
+      apiOverrides.timeRoundingGet = (cid) => (cid === 'c2' ? new Promise(() => {}) : Promise.resolve({ enabled: false, nearestMin: 5, hasOverride: cid === 'c1' }));
+      render(<AdminConsole activeSub="pay:timeclock-policy" onSubChange={() => {}} />);
+      const region = screen.getByRole('region', { name: 'Pay Rules' });
+      await within(region).findByRole('switch', { name: 'Punch Rounding' }, { timeout: 5000 });
+      expect(region.querySelector('[data-company-overrides]')).toBeNull();
+      await act(async () => { vi.advanceTimersByTime(16000); });
+      const line = await waitFor(() => { const el = region.querySelector('[data-company-overrides]'); expect(el).not.toBeNull(); return el; });
+      expect(within(line).getByRole('button', { name: 'Greens Global' })).toBeInTheDocument();
+      expect(within(line).getByText('Could not check Greens India.')).toBeInTheDocument();
+      expect(within(line).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('has Shifts & Scheduling with the settings, shift types, groups and weather, all open (Charmi, 09/30)', async () => {
