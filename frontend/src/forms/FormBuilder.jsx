@@ -13,17 +13,13 @@ import { api } from '../api';
 import DefineMergeFieldModal from '../components/DefineMergeFieldModal';
 import { Switch } from '../components/settings/SettingsUI';
 import { StatusWord } from '../components/DocumentSidePanel';
-import { Spinner } from '../components/AsyncState';
-import { Modal } from '../tasks/components';
+import { ModalLoading, Spinner } from '../components/AsyncState';
 import { templateStatus } from '../lib/documentLibrary';
 import { AUDIENCES, FORM_CATEGORIES, groupBySection, isForm, sectionsOf, showIfSummary, typeLabel } from './formsModel';
 
-// The fill screen (forms/FillForm.jsx) ships with Task 4. Looked up with a
-// glob so this file builds without it: the glob is empty until the file
-// exists and a lazy loader once it does.
-const fillModules = import.meta.glob('./FillForm.jsx');
-const loadFill = fillModules['./FillForm.jsx'];
-const FillForm = loadFill ? lazy(loadFill) : null;
+// The real fill screen, loaded when Preview opens. It is its own sheet, so
+// Preview renders it directly - no wrapper Modal around it.
+const FillForm = lazy(() => import('./FillForm'));
 
 /** The form as GET /forms/{tid} hands it to the fill screen, from the template row. */
 export const fillPayloadOf = (t, workSites = []) => ({
@@ -31,21 +27,12 @@ export const fillPayloadOf = (t, workSites = []) => ({
   fieldDefs: t.fieldDefs || [], sections: sectionsOf(t.fieldDefs || []), workSites,
 });
 
-/** Preview opens the real fill screen in preview mode - a sheet from the right. */
+/** Preview opens the real fill screen in preview mode - a sheet from the right, nothing sent. */
 export function FormPreview({ template, workSites = [], onClose }) {
   return (
-    <Modal title={`Preview - ${template.name}`} onClose={onClose} zIndex={4100}>
-      {FillForm ? (
-        <Suspense fallback={<div style={{ padding: 30, textAlign: 'center' }}><Spinner size="section" /></div>}>
-          <FillForm template={fillPayloadOf(template, workSites)} preview onClose={onClose} />
-        </Suspense>
-      ) : (
-        <div className="nx-dl-empty nx-fill">
-          <p>Preview is coming with the fill screen.</p>
-          <p className="nx-dl-muted">The form's fields are listed under Build; the phone screen that fills them is on its way.</p>
-        </div>
-      )}
-    </Modal>
+    <Suspense fallback={<ModalLoading zIndex={4100} />}>
+      <FillForm template={fillPayloadOf(template, workSites)} preview onClose={onClose} zIndex={4100} />
+    </Suspense>
   );
 }
 

@@ -87,13 +87,13 @@ describe('Form builder', () => {
     fireEvent.change(within(dialog).getByLabelText('Section'), { target: { value: 'Tires' } });
     fireEvent.change(within(dialog).getByLabelText('Repeat Group'), { target: { value: 'tires' } });
     fireEvent.change(within(dialog).getByLabelText('Repeat up to'), { target: { value: '6' } });
-    fireEvent.change(within(dialog).getByLabelText('Formula'), { target: { value: 'field("odometer") / 1000' } });
+    fireEvent.change(within(dialog).getByLabelText('Formula'), { target: { value: '{Odometer} / 1000' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Tires' })).toBeTruthy());
     saveForm();
     await waitFor(() => expect(updateDocTemplate).toHaveBeenCalled());
     const added = lastPatch().fieldDefs.find((f) => f.token === 'tire_psi');
-    expect(added).toMatchObject({ section: 'Tires', repeat: { group: 'tires', max: 6 }, formula: 'field("odometer") / 1000' });
+    expect(added).toMatchObject({ section: 'Tires', repeat: { group: 'tires', max: 6 }, formula: '{Odometer} / 1000' });
   });
 
   it('moves and removes fields; the order is what is saved', async () => {
@@ -143,7 +143,9 @@ describe('Form builder', () => {
     open();
     await screen.findByText('Odometer');
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
-    expect(await screen.findByTestId('fill-preview')).toBeTruthy();
+    // FillForm is its own sheet, rendered directly in preview mode (no wrapper, no "coming soon").
+    expect(await screen.findByTestId('fill-preview')).toHaveTextContent('preview');
+    expect(screen.queryByText(/Preview is coming/)).toBeNull();
   });
 
   it('refuses a template that is not a form', async () => {
