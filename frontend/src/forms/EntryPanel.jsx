@@ -175,10 +175,12 @@ export default function EntryPanel({ entry: given, onClose, onChanged, toastOk, 
   }, [given.id]);
   useEffect(() => {
     let live = true;
+    // The fields the entry was filled with (its pinned version, from the fresh read); the template's as a fallback.
+    if (Array.isArray(entry.fieldDefs)) { setDefs(entry.fieldDefs); return undefined; }
     if (!entry.templateId) { setDefs([]); return undefined; }
     api.getDocTemplate(entry.templateId).then((t) => { if (live) setDefs(t?.fieldDefs || []); }).catch(() => { if (live) setDefs([]); });
     return () => { live = false; };
-  }, [entry.templateId]);
+  }, [entry.templateId, entry.fieldDefs]);
 
   const fieldDefs = useMemo(() => defs || [], [defs]);
   const answers = entry.answers || {};

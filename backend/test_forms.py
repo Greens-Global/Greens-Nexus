@@ -529,6 +529,50 @@ class FormsTests(unittest.TestCase):
         self.assertEqual(r.status_code, 400, r.text)
         self.assertIn("Overtime", r.json()["detail"])
 
+    def test_an_entry_keeps_the_labels_of_the_version_it_was_filled_on(self):
+        fields = [{"token": "odometer", "label": "Odometer", "type": "number", "section": "Vehicle"},
+                  {"token": "fuel", "label": "Fuel", "type": "text", "section": "Vehicle"}]
+        tpl = self._template("Truck Check", fields=fields)
+        v1 = self._submit(tpl["id"], REP, {"odometer": 100, "fuel": "Full"}, workSiteId=SITE_A)
+        self.assertEqual(v1["templateVersion"], tpl["publishedVersion"])
+        # v2 renames Odometer to Mileage and drops Fuel - fields only, no content edit.
+        self._as(ADMIN)
+        renamed = [{"token": "odometer", "label": "Mileage", "type": "number", "section": "Truck"}]
+        r = self.client.patch(f"/documents/templates/{tpl['id']}", json={"fieldDefs": renamed})
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self.client.post(f"/documents/templates/{tpl['id']}/publish", json={"note": "v2"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertGreater(r.json()["publishedVersion"], tpl["publishedVersion"])   # a new number, never the same one
+        v2 = self._submit(tpl["id"], REP, {"odometer": 200}, workSiteId=SITE_A)
+        self.assertEqual(v2["templateVersion"], r.json()["publishedVersion"])
+
+        self._as(MGR)
+        old = self.client.get(f"/forms/entries/{v1['id']}").json()
+        self.assertEqual([(d["token"], d["label"]) for d in old["fieldDefs"]], [("odometer", "Odometer"), ("fuel", "Fuel")])
+        self.assertEqual(old["fieldDefs"][0]["section"], "Vehicle")
+        new = self.client.get(f"/forms/entries/{v2['id']}").json()
+        self.assertEqual([(d["token"], d["label"]) for d in new["fieldDefs"]], [("odometer", "Mileage")])
+        self.assertTrue(self.client.get(f"/forms/entries/{v1['id']}/pdf").content.startswith(b"%PDF"))
+        # The CSV keeps a column for the field only v1 had.
+        rows = list(csv.reader(io.StringIO(self.client.get(f"/forms/templates/{tpl['id']}/export.csv").text)))
+        header = [h.lstrip("\ufeff") for h in rows[0]]
+        self.assertIn("fuel", header)
+        by_id = {row[header.index("entryId")]: row for row in rows[1:]}
+        self.assertEqual(by_id[v1["id"]][header.index("fuel")], "Full")
+        self.assertEqual(by_id[v2["id"]][header.index("odometer")], "200")
+        # A version published before versions kept their fields reads the released ones.
+        db = database.SessionLocal()
+        try:
+            (db.query(models.DocTemplateVersion)
+               .filter(models.DocTemplateVersion.template_id == tpl["id"],
+                       models.DocTemplateVersion.version_no == v1["templateVersion"])
+               .update({"field_defs": None}))
+            db.commit()
+        finally:
+            db.close()
+        old = self.client.get(f"/forms/entries/{v1['id']}").json()
+        self.assertEqual([d["label"] for d in old["fieldDefs"]], ["Mileage"])
+
     # ── Reach (Review Focus 5) ───────────────────────────────────────────────
 
     def test_manager_reach_reports_anywhere_and_team_sites_not_strangers_elsewhere(self):

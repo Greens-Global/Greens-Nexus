@@ -52,7 +52,7 @@ import form_rules
 import workflows
 from auth import get_current_user
 from database import get_db
-from models import DocFormEntry, DocTemplate, HrWorkSite, NexusEmployee, NexusNotification
+from models import DocFormEntry, DocTemplate, DocTemplateVersion, HrWorkSite, NexusEmployee, NexusNotification
 from routers.documents import _content_disposition, _released, _require_template_manager
 from routers.hr import company_sites
 from routers.items import _validate_photo_url
@@ -140,6 +140,19 @@ def _defs(db: Session, tpl: DocTemplate) -> tuple:
     """(released field defs, released version)."""
     released = _released(db, tpl)
     return list(released.get("fieldDefs") or []), int(released.get("version") or tpl.version or 1)
+
+
+def _entry_defs(db: Session, tpl: DocTemplate, version: int) -> list:
+    """The field defs an entry was filled against: its pinned version's, as
+    that version was published (DocTemplateVersion.field_defs), else - a
+    version published before versions kept their fields - the released
+    ones."""
+    if version:
+        v = (db.query(DocTemplateVersion)
+             .filter(DocTemplateVersion.template_id == tpl.id, DocTemplateVersion.version_no == int(version)).first())
+        if v is not None and isinstance(v.field_defs, list):
+            return list(v.field_defs)
+    return _defs(db, tpl)[0]
 
 
 def _ser_form(tpl: DocTemplate, version: int) -> dict:
@@ -324,7 +337,11 @@ def list_entries(template: str = "", site: str = "", status: str = "", from_: st
 def get_entry(eid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     reach = form_audience.viewer_reach(db, user)
     row = _get_entry(db, eid, reach)
-    return _serialize_many(db, [row], reach)[0]
+    out = _serialize_many(db, [row], reach)[0]
+    # The labels and sections the entry was filled with (its pinned version).
+    tpl = db.query(DocTemplate).filter(DocTemplate.id == row.template_id).first()
+    out["fieldDefs"] = _entry_defs(db, tpl, row.template_version or 0) if tpl is not None else []
+    return out
 
 
 class ReviewIn(BaseModel):
@@ -463,7 +480,7 @@ def entry_pdf(eid: str, user: dict = Depends(get_current_user), db: Session = De
     tpl = db.query(DocTemplate).filter(DocTemplate.id == row.template_id).first()
     if tpl is None:
         raise HTTPException(404, "Form not found")
-    defs, _version = _defs(db, tpl)
+    defs = _entry_defs(db, tpl, row.template_version or 0)
     pdf = form_entry_pdf.render(db, row, tpl, defs)
     name = f"{row.title or tpl.name} {form_entry_pdf.us_date(row.submitted_at).replace('/', '-')}"
     return Response(content=pdf, media_type="application/pdf",
@@ -513,16 +530,19 @@ def _csv_value(d: dict, v):
     return csv_safe(text)
 
 
-def _csv_rows(defs: list, entries: list) -> list:
+def _csv_rows(defs: list, entries: list, defs_by_version: dict | None = None) -> list:
     """Header + one row per entry: the meta columns, then one column per
     token in form order. A repeat group's token holds its rows' values
     joined with ' | '; photo URLs are joined with spaces. Every text cell
-    goes through csv_safe."""
+    goes through csv_safe. `defs_by_version` ({version: defs}) reads each
+    entry's answers with the fields of the version it was filled on."""
     tokens = [d["token"] for d in defs if d.get("token")]
-    by_token = {d["token"]: d for d in defs if d.get("token")}
+    columns = {d["token"]: d for d in defs if d.get("token")}
     rows = [list(META_COLUMNS) + tokens]
     for e in entries:
         answers = e["answers"]
+        pinned = (defs_by_version or {}).get(e["templateVersion"]) or []
+        by_token = {**columns, **{d["token"]: d for d in pinned if d.get("token") in columns}}
         meta = [e["id"], e["title"], e["templateVersion"], e["submittedBy"], e["submittedByName"],
                 form_entry_pdf.us_datetime(e["submittedAt"]), e["workSiteId"], e["workSiteName"], e["shiftId"],
                 e["source"], form_entry_pdf.STATUS_WORDS.get(e["status"], e["status"]), e["reviewerEmail"],
@@ -587,9 +607,18 @@ def export_csv(tid: str, from_: str = Query("", alias="from"), to: str = "", sta
         q = q.filter(DocFormEntry.submitted_at < hi)
     rows = [r for r in q.order_by(DocFormEntry.submitted_at.asc()).all() if reach(r)]
     entries = _serialize_many(db, rows, reach)
+    # Each entry reads with its pinned version's fields; a token only an
+    # older version had still gets its column, after the current ones.
+    by_version = {v: _entry_defs(db, tpl, v) for v in sorted({e["templateVersion"] for e in entries}, reverse=True)}
+    have = {d.get("token") for d in defs}
+    for vdefs in by_version.values():
+        for d in vdefs:
+            if d.get("token") and d["token"] not in have:
+                defs = defs + [d]
+                have.add(d["token"])
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\r\n")
-    for line in _csv_rows(defs, entries):
+    for line in _csv_rows(defs, entries, by_version):
         writer.writerow(["" if v is None else v for v in line])
     name = f"{tpl.name} entries {date.today().strftime('%m-%d-%Y')}"
     return Response(content=buf.getvalue().encode("utf-8-sig"), media_type="text/csv; charset=utf-8",

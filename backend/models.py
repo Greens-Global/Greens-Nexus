@@ -2309,6 +2309,11 @@ class DocTemplateVersion(Base):
     edited_by   = Column(String, default="")
     edited_at   = Column(String, default="")
     note        = Column(String, default="")
+    # The field list this version was PUBLISHED with (Forms, 11/02/2026): a
+    # form entry pins `template_version` and is read against these, so a later
+    # publish that renames a field never relabels an old entry. None = not
+    # stored (published before this column, or never published).
+    field_defs  = Column(JSON, nullable=True)
 
 
 # ── Time tracking (SwipeClock replacement) ────────────────────────────────────

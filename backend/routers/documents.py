@@ -1587,7 +1587,16 @@ def _publish(db: Session, tpl: DocTemplate, by: str, note: str = "") -> int:
     publishing existed have none): tpl.content IS version tpl.version, because
     update_template is the only writer of template content and it bumps
     version on every write. The caller flushes pending rows first
-    (autoflush is off) and commits."""
+    (autoflush is off) and commits.
+
+    The version row keeps the field list it was published with
+    (`field_defs`), and a FORM whose fields changed since its last publish
+    with no content edit gets a new version number here - its entries pin
+    the number (routers/forms.py), so one number never means two field
+    lists."""
+    if ((tpl.doc_type or "") == "form" and tpl.published_version and tpl.version == tpl.published_version
+            and (tpl.field_defs or []) != (tpl.published_meta or {}).get("fieldDefs", [])):
+        tpl.version = (tpl.version or 1) + 1
     v = (db.query(DocTemplateVersion)
            .filter(DocTemplateVersion.template_id == tpl.id,
                    DocTemplateVersion.version_no == tpl.version).first())
@@ -1597,6 +1606,7 @@ def _publish(db: Session, tpl: DocTemplate, by: str, note: str = "") -> int:
                                edited_at=_now_iso(), note="")
         db.add(v)
     v.note = ((v.note or "") + " (published)" + (f" - {note}" if note else "")).strip()
+    v.field_defs = copy.deepcopy(tpl.field_defs or [])
     tpl.published_version = tpl.version
     tpl.published_meta = _publish_meta(tpl)
     tpl.published_by, tpl.published_at = by, _now_iso()
