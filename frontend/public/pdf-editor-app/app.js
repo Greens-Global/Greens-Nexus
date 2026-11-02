@@ -1021,7 +1021,9 @@
     async function _openOrMergeFile(file) {
         const hasDoc = !!(state.pdfDoc && state.pdfBytes);
         if (hasDoc) {
-            const choice = await _choiceModal('Open PDF', 'A document is already open. What would you like to do?', [
+            const choice = await _choiceModal('Open PDF', (_isDirty
+                ? 'A document with unsaved changes is open. Opening a new PDF discards them. What would you like to do?'
+                : 'A document is already open. What would you like to do?'), [
                 { key: 'new',   label: 'Open as new PDF' },
                 { key: 'merge', label: 'Merge into current PDF' },
             ]);
@@ -1054,17 +1056,96 @@
         }
     }
 
+    // ── Encrypted files ──
+    // pdf-lib cannot decrypt, so saving an encrypted file through it writes new
+    // objects next to still-encrypted ones: a file that opens to nothing. The editor
+    // therefore works on a DECRYPTED copy (made by the bundled pdf-lib fork, then
+    // compared with what pdf.js shows from the original) and encrypts again on the
+    // way out with the same password and permissions. If the copy cannot be trusted
+    // the document stays viewable and every save refuses, with state.saveBlocked as
+    // the reason.
+    function _permissionsFrom(P) {
+        const on = (bit) => (P & bit) !== 0;
+        return {
+            printing: on(4) ? (on(2048) ? 'highResolution' : 'lowResolution') : false,
+            modifying: on(8), copying: on(16), annotating: on(32),
+            fillingForms: on(256), contentAccessibility: on(512), documentAssembly: on(1024),
+        };
+    }
+    async function _pagesMatch(a, b) {
+        if (a.numPages !== b.numPages) return false;
+        const text = async (doc, n) => (await (await doc.getPage(n)).getTextContent()).items.map(i => i.str).join('');
+        const pixels = async (doc, n) => {
+            const pg = await doc.getPage(n);
+            const vp = pg.getViewport({ scale: 0.4 });
+            const c = document.createElement('canvas');
+            c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
+            const g = c.getContext('2d');
+            g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
+            await pg.render({ canvasContext: g, viewport: vp }).promise;
+            return g.getImageData(0, 0, c.width, c.height).data;
+        };
+        for (let n = 1; n <= Math.min(3, a.numPages); n++) {
+            if (await text(a, n) !== await text(b, n)) return false;
+            const pa = await pixels(a, n), pb = await pixels(b, n);
+            if (pa.length !== pb.length) return false;
+            let differ = 0;
+            for (let i = 0; i < pa.length; i += 4) {
+                if (Math.abs(pa[i] - pb[i]) + Math.abs(pa[i + 1] - pb[i + 1]) + Math.abs(pa[i + 2] - pb[i + 2]) > 60) differ++;
+            }
+            if (differ > (pa.length / 4) * 0.02) return false;
+        }
+        return true;
+    }
+    async function _workingCopy(arrayBuffer, pdf, password) {
+        const asIs = { pdf, bytes: arrayBuffer.slice(0), encryption: null, saveBlocked: null };
+        let probe;
+        try { probe = await PDFLib.PDFDocument.load(new Uint8Array(arrayBuffer.slice(0)), { ignoreEncryption: true, updateMetadata: false }); }
+        catch (_) { return asIs; }   // the lock probe below reports what pdf-lib cannot read
+        if (!probe.isEncrypted) return asIs;
+        let P = -4;
+        try {
+            const dict = probe.context.lookup(probe.context.trailerInfo.Encrypt);
+            const value = dict.lookup(PDFLib.PDFName.of('P'));
+            if (value) P = value.asNumber();
+        } catch (_) { /* no flags to read: nothing restricted */ }
+        let check = null;
+        try {
+            const L = await encLib();
+            const dec = await L.PDFDocument.load(new Uint8Array(arrayBuffer.slice(0)), { password: password || '' });
+            const plain = await dec.save();
+            check = await pdfjsLib.getDocument({ data: plain.slice(), fontExtraProperties: true }).promise;
+            if (!(await _pagesMatch(pdf, check))) throw new Error('the decrypted copy does not match the original');
+            try { await pdf.destroy(); } catch (_) {}
+            return {
+                pdf: check,
+                bytes: plain.slice().buffer,
+                saveBlocked: null,
+                encryption: {
+                    userPassword: password || '',
+                    // A password that was typed stays in charge; an owner-only file
+                    // gets a new owner password, since nobody gave us the old one.
+                    ownerPassword: password || _randomPassword(),
+                    permissions: _permissionsFrom(P),
+                },
+            };
+        } catch (e) {
+            console.warn('Could not decrypt for editing:', e);
+            if (check) { try { await check.destroy(); } catch (_) {} }
+            return { ...asIs, saveBlocked: 'This protected PDF could not be decrypted for editing, so changes to it cannot be saved. Nothing was written.' };
+        }
+    }
+
+    // Resolves true when the document opened, false when it did not (cancelled,
+    // wrong password, damaged); in that case the open document is untouched.
     async function loadPDF(file) {
         setStatus('Loading PDF...');
-        // Snapshot the currently-open document so a failed open doesn't leave
-        // state.pdfBytes (new, bad) disagreeing with state.pdfDoc (old) - which
-        // would make a later save/merge use the wrong bytes.
+        // Nothing about the open document changes until the new one has really
+        // opened: a cancelled password prompt or a bad file leaves it as it was.
         const _prevBytes = state.pdfBytes, _prevName = state.fileName;
-        state.fileName = file.name;
 
         try {
             const arrayBuffer = await file.arrayBuffer();
-            state.pdfBytes = arrayBuffer.slice(0); // keep a copy
 
             let pdf;
             let pdfPassword = null;
@@ -1077,27 +1158,36 @@
                     break;
                 } catch (err) {
                     // Locked PDF → ASK for the password instead of erroring out
-                    if (err && err.name === 'PasswordException' && attempt < 3) {
+                    if (err && err.name === 'PasswordException') {
+                        if (attempt >= 3) {
+                            setStatus('Open cancelled - incorrect password');
+                            showToast('Incorrect password - the PDF was not opened');
+                            return false;
+                        }
                         pdfPassword = await customPrompt(
                             attempt === 0 ? 'This PDF is password-protected. Enter the password:'
                                           : 'Wrong password — try again:', 'Password');
-                        if (!pdfPassword) { setStatus('Open cancelled — password required'); return; }
+                        if (!pdfPassword) { setStatus('Open cancelled — password required'); return false; }
                         continue;
                     }
                     throw err;
                 }
             }
-            // Remember the password that unlocked this file (if any). state.pdfBytes
-            // still holds the ENCRYPTED original, so any tool that re-loads it with
-            // pdf-lib (Unlock, save, merge...) needs this to actually decrypt.
+            const copy = await _workingCopy(arrayBuffer, pdf, pdfPassword);
+            pdf = copy.pdf;
+            state.fileName = file.name;
+            state.pdfBytes = copy.bytes;
             state.pdfPassword = pdfPassword || null;
-            // Probe whether pdf-lib can actually operate on this file. A
-            // permissions-locked PDF opens for VIEWING in pdf.js but its content
+            state.encryption = copy.encryption;
+            state.saveBlocked = copy.saveBlocked;
+            // Probe whether pdf-lib can actually operate on this file. A file that
+            // could not be decrypted opens for VIEWING in pdf.js but its content
             // streams stay encrypted, so any structural op (rotate/add/merge/
-            // watermark/...) throws "No password given" at save time. Detect it
-            // once here and gate the whole Organize ribbon behind a banner instead
-            // of letting the user collect a different library error per button.
-            state.organizeLocked = await _probeStructuralLock(arrayBuffer, pdfPassword);
+            // watermark/...) would write garbage. Detect it once here and gate the
+            // whole Organize ribbon behind a banner.
+            state.organizeLocked = !!copy.saveBlocked || await _probeStructuralLock(copy.bytes, null);
+            _canvasPage = null;   // the old document's canvas is gone with it
+            _renderGen++;
             if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
             // Tear down any continuous view from a previous document so the new
             // one builds fresh (it's now kept hidden between edits, not destroyed).
@@ -1114,6 +1204,7 @@
             state.activeLayer = 1;
             state.nextLayerId = 2;
             _docUndoStack.length = 0; // C1: never undo across documents
+            _undoOrder.length = 0; _redoOrder.length = 0;
             markDirty(false);
             if (window.renderLayersPanel) window.renderLayersPanel();
             if (COMMENTS_ENABLED) importPdfComments(); // comment feature parked
@@ -1175,9 +1266,11 @@
             generateThumbnails();
 
             setStatus('PDF loaded successfully');
+            if (state.saveBlocked) { setStatus(state.saveBlocked); showToast(state.saveBlocked); }
             // Tell the Nexus shell a document is open, so it can hide the top bar
             // for full-bleed editing (the landing screen keeps the bar).
-            try { window.parent && window.parent.postMessage({ type: 'pdf-editor:doc-state', hasDoc: true }, '*'); } catch (_) {}
+            _emitEngineState();
+            return true;
         } catch (err) {
             console.error(err);
             // A malformed/damaged PDF: try to REPAIR it with pdf-lib (which is
@@ -1187,6 +1280,8 @@
                 const repaired = await PDFLib.PDFDocument.load(
                     file ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array(state.pdfBytes),
                     { ignoreEncryption: true, throwOnInvalidObject: false });
+                // "Repairing" an encrypted file would write garbage.
+                if (repaired.isEncrypted) throw new Error('encrypted');
                 const fixed = await repaired.save();
                 showToast('PDF was damaged — opened a repaired copy');
                 setStatus('Opened a repaired copy of a damaged PDF');
@@ -1198,6 +1293,7 @@
                 state.fileName = _prevName;
                 setStatus('Error loading PDF: ' + err.message);
                 showToast('This PDF could not be opened (damaged beyond repair)');
+                return false;
             }
         }
     }
@@ -5050,6 +5146,7 @@
             const l = layerById(id); if (!l) return;
             l.visible = !!vis;
             applyLayerVisibility();
+            markDirty();   // it changes what the saved file holds
         },
         setActive: (id) => {
             const l = layerById(id); if (!l) return;
@@ -5955,6 +6052,27 @@
     }
 
     // ── Merge PDF ──
+    // An encrypted source has to be decrypted first: its pages would otherwise be
+    // copied with their streams still encrypted, and show up as garbage.
+    async function _loadMergeSource(fileBytes, fileName) {
+        const src = await PDFLib.PDFDocument.load(fileBytes, { ignoreEncryption: true });
+        if (!src.isEncrypted) return src;
+        const L = await encLib();
+        let password = '';
+        for (let attempt = 0; attempt < 4; attempt++) {
+            try {
+                const dec = await L.PDFDocument.load(new Uint8Array(fileBytes), { password });
+                return await PDFLib.PDFDocument.load(await dec.save());
+            } catch (_) {
+                password = await customPrompt(attempt === 0
+                    ? fileName + ' is password-protected. Enter the password:'
+                    : 'Wrong password - try again:', 'Password');
+                if (!password) break;
+            }
+        }
+        throw new Error(fileName + ' was not merged: it needs its password');
+    }
+
     async function handleMergeSelect(e) {
         await _exitScrollForOp();
         const files = Array.from(e.target.files);
@@ -6010,7 +6128,7 @@
             let cursor = insertAt;
             for (const file of files) {
                 const fileBytes = await file.arrayBuffer();
-                const srcDoc = await PDFLib.PDFDocument.load(fileBytes, { ignoreEncryption: true });
+                const srcDoc = await _loadMergeSource(fileBytes, file.name);
                 const pageIndices = srcDoc.getPageIndices();
                 const copiedPages = await mainDoc.copyPages(srcDoc, pageIndices);
                 copiedPages.forEach((page) => {
@@ -9380,6 +9498,7 @@
         }
     }
     async function _reloadFromBytes(newBytes, msg, opts) {
+        if (state.saveBlocked) throw new Error(state.saveBlocked);
         const o = opts === true ? { skipSave: true } : (opts || {});
         // TRANSACTIONAL: validate the NEW bytes fully (parse + a real page render)
         // BEFORE we destroy or swap the current document. A structural op that
@@ -10146,7 +10265,11 @@
                 if (!v) { setStatus('Ready'); return; }
                 if (!v.noPrint && !v.noCopy && !v.noModify) { showToast('Pick at least one restriction'); return; }
                 setStatus('Locking...');
-                const doc = await L.PDFDocument.load(new Uint8Array(buf), { ignoreEncryption: true });
+                // Restricting a file that is already encrypted would stack new
+                // encryption over old: decrypt it, or say why not.
+                let doc;
+                try { doc = await L.PDFDocument.load(new Uint8Array(buf), { password: '' }); }
+                catch (_) { showToast('This PDF has an open password - unlock it first'); setStatus('Ready'); return; }
                 // Owner password is internal-only (never shown) - it just backs the
                 // permission flags. No userPassword => the file opens freely.
                 doc.encrypt({
@@ -12900,9 +13023,29 @@ Replacement:`;
         };
     }
 
+    // ── The engine, for the Nexus side ──
+    window.__pdfEngine = {
+        openBytes: async (bytes, name) => {
+            const opened = await loadPDF(new File([bytes], name || 'document.pdf', { type: 'application/pdf' }));
+            if (!opened) throw new Error('The PDF could not be opened');
+        },
+        // The one pipeline, with markups and redactions applied, and already
+        // re-opened and checked: the same bytes the Save button would offer.
+        buildOutput: async () => {
+            const out = await _produceOutput();
+            return { bytes: out.bytes, name: out.name };
+        },
+        isDirty: () => !!_isDirty,
+        markSaved: () => markDirty(false),
+        info: () => {
+            saveCurrentAnnotations();
+            return { hasDoc: !!state.pdfDoc, name: state.fileName || '', pages: state.totalPages || 0, redacted: _hasRedactions() };
+        },
+    };
+
     // ── Start ──
     init();
     // Announce the landing state to the Nexus shell so it shows the top bar on
     // the welcome screen (a document open later posts hasDoc:true).
-    try { window.parent && window.parent.postMessage({ type: 'pdf-editor:doc-state', hasDoc: false }, '*'); } catch (_) {}
+    _emitEngineState();
 })();
