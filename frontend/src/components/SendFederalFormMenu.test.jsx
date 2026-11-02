@@ -70,4 +70,12 @@ describe('SendFederalFormMenu', () => {
     render(<SendFederalFormMenu employee={{ ...ANA, employmentType: 'contractor' }} />);
     expect(screen.queryByRole('button', { name: 'Send Federal Form' })).toBeNull();
   });
+  it("shows for the person's company HR contact, whatever their grant, and only for that company", () => {
+    role.current = { ...MANAGER, hrContactFor: ['co-us'] };
+    const { unmount } = render(<SendFederalFormMenu employee={{ ...ANA, company: 'co-us' }} />);
+    expect(screen.getByRole('button', { name: 'Send Federal Form' })).toBeTruthy();
+    unmount();
+    render(<SendFederalFormMenu employee={{ ...ANA, company: 'co-other' }} />);
+    expect(screen.queryByRole('button', { name: 'Send Federal Form' })).toBeNull();
+  });
 });

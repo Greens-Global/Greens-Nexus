@@ -672,6 +672,17 @@ class RefusedSendStoresNothingTests(FederalPacketCase):
         self.assertTrue(esign._storage_remove(esign._DOC_BUCKET, "esign/never-stored/w4.pdf").is_success)
 
 
+class RolesMeHrContactTests(FederalPacketCase):
+    def test_roles_me_names_the_companies_the_caller_is_hr_contact_of(self):
+        r = self.client.get("/roles/me")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["hr_contact_for"], sorted([CO, CO_IN]))   # Charmi: both companies' HR contact
+        self._as(MGR)
+        cache.module_grants.invalidate()
+        auth._role_cache.clear()
+        self.assertEqual(self.client.get("/roles/me").json()["hr_contact_for"], [])
+
+
 class FormatsOneSourceTests(unittest.TestCase):
     def test_esign_formats_is_the_federal_forms_module(self):
         import esign_formats
