@@ -389,6 +389,35 @@ keep the diff minimal.
   labor line is `GET /timeclock/schedule/labor` (hours from
   `shift_attendance._paid_minutes`, rates from the payroll history by day,
   fixed pay counted not priced, managers never see pay).
+- **Federal forms (Neil, 11/02/2026, `backend/federal_forms/`,
+  `docs/Federal-Forms.md`):** Form W-4, Form I-9 (Section 2 by HR) and the
+  Direct Deposit Authorization are filled and signed in Nexus Sign - from
+  the hiring packet (`HrPacketSetting.federal_forms`, US employees only)
+  or one at a time from the person's Documents tab (HR++). ONE package:
+  the official PDFs are bundled with their SHA-256, fields come from each
+  PDF's own widgets (`maps/*.json`, `prepare()`), editions are pinned
+  (`editions.py`: a lapsed edition REFUSES to send, HR is belled 60 days
+  ahead), answers are checked by `formats.py` / `rules.py`. SSN, routing
+  and account numbers are `sensitive` fields: encrypted at rest
+  (`enc:` via `secret_box`), masked to every other party, never in a bell,
+  email, log or on the person record, printed only into the sealed PDF,
+  which is restricted (`prints_pay`, Pay & Benefits only, never an email
+  attachment, every open a `viewed_final` event). This deliberately
+  reverses the old "W-4 / I-9 / direct deposit live outside Nexus" notes.
+  Never add E-Verify, remote examination, state forms or a second
+  template path without Neil.
+- **Homebase lifts (Neil, 11/02/2026):** an early punch is NEVER blocked -
+  it is recorded and the manager gets one grouped bell per team and day
+  (`early_punch.py`, setting `earlyPunchAlertMin`, 0 = off); the weekly
+  labor budget (`laborBudgetHours` / `laborBudgetAmount`) is visible on
+  the planner to HR++ only (`hr_access.is_hr_for_company`) - managers get
+  neither the figure nor the flag; a time-off request carries a
+  RECOMMENDATION (`timeoff_recommend.py`: "Recommended: Approve" / "Check
+  First" with reasons) and nothing ever approves or rejects by code; an
+  announcement may target a work site (`work_site_id`; a person with an
+  empty `work_site_ids` is NOT a site member) and its reads route lists
+  who has not acknowledged; the planner's live strip (In / On Break /
+  Late / Off) reads Late from `shift_expect` like everything else.
 - Timesheets are approved through review + Nexus Sign (`timesheet_review.py`;
   ONLY THE EMPLOYEE SIGNS - Neil, Oct 16 2026). After the period's last day
   the manager (else the company's HR contact; nobody at all = the Global
