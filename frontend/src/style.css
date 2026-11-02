@@ -509,26 +509,27 @@ h1,h2,h3,h4,h5,h6,
 .sbfx--out .sbfx-star { fill: #eab308; }
 .sbfx--out .sbfx-star:nth-of-type(even) { fill: #f59e0b; }
 /* The sidebar's tooltips (components/NavTip.jsx, Neil Oct 14 2026: "large
-   and obvious"). A dark panel in a layer on the page, placed and flipped by
-   the component, so the folded rail cannot clip it. The control's name is
-   the big line (15px, semibold); a quieter second line only says why a
-   button cannot be pressed, or gives the clock's numbers. `data-tone` draws a
-   thin colored rule down its left edge - green Punch In, amber Break, red
-   Punch Out - color as a rule, never a chip. The arrow points at the control
-   wherever the clamp to the window moved the panel (--navtip-arrow). */
+   and obvious"; the flyout look since 11/01/2026). A light card in a layer
+   on the page, placed and flipped by the component, so the folded rail
+   cannot clip it. The control's name is the big line (15px, semibold); a
+   quieter second line only says why a button cannot be pressed, or gives
+   the clock's numbers. `data-tone` draws a thin colored rule down its left
+   edge - green Punch In, amber Break, red Punch Out - color as a rule,
+   never a chip. With rail motion on it slides out from the control (the
+   spring, 180ms); off, it fades in as before. */
 .navtip {
-  --navtip-bg: #111827; --navtip-fg: #fff; --navtip-dim: rgba(255, 255, 255, .74);
+  --navtip-bg: var(--card, #fff); --navtip-fg: var(--ink, #111827); --navtip-dim: var(--muted, #6b7280);
   position: fixed; left: 0; top: 0; z-index: 10050; pointer-events: none;
   display: flex; flex-direction: column; gap: 3px;
   width: max-content; max-width: 300px; padding: 9px 14px;
   border-radius: 8px; background: var(--navtip-bg); color: var(--navtip-fg);
+  border: 1px solid var(--line);
   font-family: var(--wk-font, 'Inter', system-ui, sans-serif); text-align: left;
-  box-shadow: 0 12px 32px rgba(17, 24, 39, .28), 0 2px 6px rgba(17, 24, 39, .18);
-  animation: navtip-in .16s cubic-bezier(.16, 1, .3, 1) both;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .10), 0 1px 2px rgba(0, 0, 0, .06);
+  animation: navtip-in var(--dur-sm, 150ms) var(--ease-out) both;
 }
 [data-theme="dark"] .navtip {
-  --navtip-bg: #f9fafb; --navtip-fg: #111827; --navtip-dim: rgba(17, 24, 39, .68);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .08);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .06);
 }
 .navtip-label { font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -.005em; white-space: nowrap; }
 .navtip-detail { font-size: 12.5px; font-weight: 500; line-height: 1.4; color: var(--navtip-dim); }
@@ -540,11 +541,14 @@ h1,h2,h3,h4,h5,h6,
 .navtip[data-tone="in"] { --navtip-tone: hsl(var(--color-green)); }
 .navtip[data-tone="break"] { --navtip-tone: #f59e0b; }
 .navtip[data-tone="out"] { --navtip-tone: #ef4444; }
-.navtip::after { content: ''; position: absolute; border: 6px solid transparent; }
-.navtip[data-side="right"]::after { right: 100%; top: var(--navtip-arrow, 50%); margin-top: -6px; border-right-color: var(--navtip-bg); }
-.navtip[data-side="left"]::after { left: 100%; top: var(--navtip-arrow, 50%); margin-top: -6px; border-left-color: var(--navtip-bg); }
-.navtip[data-side="top"]::after { top: 100%; left: var(--navtip-arrow, 50%); margin-left: -6px; border-top-color: var(--navtip-bg); }
-.navtip[data-side="bottom"]::after { bottom: 100%; left: var(--navtip-arrow, 50%); margin-left: -6px; border-bottom-color: var(--navtip-bg); }
+/* The flyout (rail motion on): the card slides out from the control's edge
+   and settles with one soft overshoot - the same `navtip-in` keyframes, a
+   starting transform per side and the spring curve. Off, the plain fade. */
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip { animation: navtip-in 180ms var(--ease-spring) both; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="right"] { --navtip-from: translateX(-6px) scale(.98); transform-origin: left center; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="left"] { --navtip-from: translateX(6px) scale(.98); transform-origin: right center; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="top"] { --navtip-from: translateY(6px) scale(.98); transform-origin: center bottom; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="bottom"] { --navtip-from: translateY(-6px) scale(.98); transform-origin: center top; }
 /* It slides the last few pixels out from the control it names. */
 .navtip[data-side="right"] { --navtip-from: translateX(-6px); }
 .navtip[data-side="left"] { --navtip-from: translateX(6px); }

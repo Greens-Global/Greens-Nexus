@@ -115,4 +115,15 @@ describe('the clock buttons', () => {
     expect(tip().querySelector('.navtip-detail').textContent).toBe('Punch in first');
     expect(screen.getByRole('button', { name: 'Start Break' }).getAttribute('aria-describedby')).toBe(tip().id);
   });
+
+  it('is the flyout card: a tooltip placed on the side it was asked for, label big, detail quieter', () => {
+    render(<NavTip label="Tickets" detail="3 waiting on you" side="right"><button>t</button></NavTip>);
+    hover(screen.getByRole('button')); wait(300);
+    const t = tip();
+    expect(t.className).toBe('navtip');
+    expect(t.dataset.side).toBe('right');
+    expect(t.querySelector('.navtip-label').textContent).toBe('Tickets');
+    expect(t.querySelector('.navtip-detail').textContent).toBe('3 waiting on you');
+    expect(t.style.getPropertyValue('--navtip-arrow')).toBe('');   // no arrow on the card
+  });
 });
