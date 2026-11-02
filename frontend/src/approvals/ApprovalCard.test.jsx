@@ -13,7 +13,7 @@ vi.mock('../contexts/RoleContext', async (importOriginal) => ({
 }));
 
 const { default: ApprovalCard } = await import('./ApprovalCard');
-const { needsNote, noteRequired } = await import('./shared');
+const { needsNote } = await import('./shared');
 
 const iso = (hoursAgo) => new Date(Date.now() - hoursAgo * 3600e3).toISOString();
 const A = (key, label, tone = 'plain', note = 'none') => ({ key, label, tone, note });
@@ -69,16 +69,13 @@ describe('ApprovalCard', () => {
     expect(screen.queryByRole('button', { name: /^Review:/ })).toBeNull();
   });
 
-  it('knows which actions need a note before they can fire', () => {
-    // The row's own flag (approvals_inbox sets note=required on these) ...
-    expect(needsNote({ kind: 'time_off' }, A('reject', 'Reject', 'plain', 'optional'))).toBe(true);
-    expect(noteRequired({ kind: 'time_off' }, A('reject', 'Reject', 'plain', 'optional'))).toBe(false);
-    expect(needsNote({ kind: 'time_off' }, A('approve', 'Approve', 'primary'))).toBe(false);
-    // ... and the backends that refuse without one, even if a row arrived without the flag.
-    [['reimbursement', 'send_back'], ['reimbursement', 'reject'], ['hr_letter', 'decline'], ['salary_advance', 'decline'],
-      ['shift_request', 'decline'], ['probation', 'decline']].forEach(([kind, key]) => {
-      expect(noteRequired({ kind }, A(key, key))).toBe(true);
-    });
-    expect(noteRequired({ kind: 'reimbursement' }, A('approve', 'Approve', 'primary'))).toBe(false);
+  it('asks for a note only when the server marks the action required', () => {
+    // approvals_inbox.py is the one source: `note` on the action itself.
+    expect(needsNote(A('reject', 'Reject', 'plain', 'required'))).toBe(true);
+    expect(needsNote(A('send_back', 'Send Back', 'plain', 'required'))).toBe(true);
+    expect(needsNote(A('reject', 'Reject', 'plain', 'optional'))).toBe(false);
+    expect(needsNote(A('decline', 'Decline', 'plain', 'optional'))).toBe(false);   // a shift request's decline
+    expect(needsNote(A('approve', 'Approve', 'primary'))).toBe(false);
+    expect(needsNote(undefined)).toBe(false);
   });
 });

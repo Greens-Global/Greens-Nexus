@@ -81,7 +81,7 @@ export default function ApprovalsPhone({
   };
   const act = (row, action) => {
     if (action.key === 'open' || !runsInline(row, action.key)) { onAct(row, action); return; }
-    if (needsNote(row, action)) { setAsking({ row, action }); return; }
+    if (needsNote(action)) { setAsking({ row, action }); return; }
     fire(row, action, '');
   };
   const review = (row) => setReviewing(row);

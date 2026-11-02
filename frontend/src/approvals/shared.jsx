@@ -1,7 +1,7 @@
 // What the desktop list (ApprovalsCenter.jsx) and the phone surface
 // (ApprovalsPhone.jsx) share: the name helpers, the waiting-days math, the
 // person mark, how the list is sectioned, which action keys are a "no", and
-// which actions need a note before they can fire.
+// which actions need a note before they can fire (the server says, per action).
 // Presentation helpers only - every decision still goes through
 // ApprovalsCenter's `decide` and lib/approvalActions.js.
 import { Users } from 'lucide-react';
@@ -50,21 +50,15 @@ export function sectionize(rows, by, groupLabels) {
   return [...m.entries()].map(([k, rs]) => ({ key: k, label: labelOfKey(k), rows: rs, oldest: Math.max(0, ...rs.map(daysWaiting)) }));
 }
 
-// The backends that refuse a no without a note (routers/reimbursements.py
-// decide, hr_letters decline, salary_advances decide, shift_requests decide,
-// hr_probation decline). The row's own `note: 'required'` flag from
-// approvals_inbox.py says the same; this is the belt to that suspenders, so
-// the phone never fires one of these without the note. Time off's reject
-// stays optional (the row says `note: 'optional'`).
-const NOTE_REQUIRED = {
-  reimbursement: new Set(['send_back', 'reject']),
-  hr_letter: new Set(['decline']),
-  salary_advance: new Set(['decline']),
-  shift_request: new Set(['decline']),
-  probation: new Set(['decline']),
-};
-export const noteRequired = (row, action) => action?.note === 'required' || !!NOTE_REQUIRED[row?.kind]?.has(action?.key);
-export const needsNote = (row, action) => noteRequired(row, action) || !!(action?.note && action.note !== 'none');
+// Whether an action asks for a note is the server's word, on the action
+// itself: backend/approvals_inbox.py gives every action `note` - 'required'
+// (the module refuses it without one: reimbursement send back / reject, an
+// HR letter's decline, Hiring's votes...), 'optional' or 'none'. Never a
+// second table here - a kind the module made optional (a shift request's
+// decline) would be held up by a stale one.
+// The phone asks first only when the note is required; an optional one
+// fires at once, a one-tap decision like the rest of the card.
+export const needsNote = (action) => action?.note === 'required';
 
 /** The row's actions laid out for the phone card: the yes, the no, the rest (behind Review), and the step that opens its module. */
 export function layout(row) {

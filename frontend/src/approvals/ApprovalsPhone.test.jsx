@@ -13,6 +13,7 @@ const timeOffDecide = vi.fn();
 const decideReimbursement = vi.fn();
 const hrLetterDecline = vi.fn();
 const acceptAssignment = vi.fn();
+const shiftRequestDecide = vi.fn();
 vi.mock('../api', () => ({
   api: {
     approvalsInbox: (...a) => approvalsInbox(...a),
@@ -22,6 +23,7 @@ vi.mock('../api', () => ({
     decideReimbursement: (...a) => decideReimbursement(...a),
     hrLetterDecline: (...a) => hrLetterDecline(...a),
     acceptAssignment: (...a) => acceptAssignment(...a),
+    shiftRequestDecide: (...a) => shiftRequestDecide(...a),
     declineAssignment: vi.fn(() => Promise.resolve({})),
     getPeopleDirectory: () => Promise.resolve([{ email: 'priya.s@greensglobal.com', photoUrl: '' }]),
     getTaskTablePrefs: () => Promise.resolve({ prefs: {} }),
@@ -77,7 +79,7 @@ const INBOX = {
   total: 8,
 };
 
-beforeEach(() => { [approvalsInbox, timeOffDecide, decideReimbursement, hrLetterDecline, acceptAssignment, prompt].forEach((f) => f.mockReset()); });
+beforeEach(() => { [approvalsInbox, timeOffDecide, decideReimbursement, hrLetterDecline, acceptAssignment, shiftRequestDecide, prompt].forEach((f) => f.mockReset()); });
 afterEach(() => { vi.useRealTimers(); setMotionEnabled(false); });
 
 const cards = () => [...document.querySelectorAll('.apv-ph-card')];
@@ -149,14 +151,16 @@ describe('Approvals on a phone', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     fireEvent.click(btn(/^Reject: Reimbursement/));
     const dlg = sheet();
-    expect(within(dlg).getByRole('textbox', { name: 'Note' })).toBeTruthy();
-    expect(within(dlg).getByRole('textbox', { name: 'Note' }).style.fontSize).toBe('16px');
+    // The visible "Why?" label names the box; a required reason never says optional.
+    const box = within(dlg).getByRole('textbox', { name: 'Why?' });
+    expect(box.style.fontSize).toBe('16px');
+    expect(box.getAttribute('placeholder')).toBe('Reason');
     expect(screen.getByText(MONEY, { selector: '.apv-ph-ttl' })).toBeTruthy();   // still in the list
     const send = within(dlg).getByRole('button', { name: 'Reject' });
     expect(send.disabled).toBe(true);
     fireEvent.click(send);
     expect(screen.getByText(MONEY, { selector: '.apv-ph-ttl' })).toBeTruthy();
-    fireEvent.change(within(dlg).getByRole('textbox', { name: 'Note' }), { target: { value: '  No receipt attached ' } });
+    fireEvent.change(box, { target: { value: '  No receipt attached ' } });
     expect(send.disabled).toBe(false);
     fireEvent.click(send);
     expect(screen.queryByText(MONEY, { selector: '.apv-ph-ttl' })).toBeNull();
@@ -172,19 +176,30 @@ describe('Approvals on a phone', () => {
     expect(hrLetterDecline).not.toHaveBeenCalled();
   });
 
-  it("time off's Reject keeps the note optional", async () => {
-    approvalsInbox.mockResolvedValue(INBOX);
+  // The server's `note` on the action is the one rule: optional fires at
+  // once (a one-tap decision, no sheet), required always asks.
+  it("an optional note never holds a decision up: time off's Reject and a shift request's Decline fire at once", async () => {
+    const SHIFT = 'Shift Swap - 11/04/2026 9:00 AM';
+    approvalsInbox.mockResolvedValue({ ...INBOX, rows: [...INBOX.rows,
+      { key: 'shift_request:s1', kind: 'shift_request', id: 's1', group: 'shifts', source: 'shift_request', count: 1, department: 'Admin',
+        person: { email: 'nina.r@greensglobal.com', name: 'Nina Rao' }, title: SHIFT, detail: '', createdAt: iso(3),
+        actions: [A('approve', 'Approve', 'primary'), A('decline', 'Decline', 'plain', 'optional')], link: { view: 'shifts', sub: 'requests' }, priority: 'medium' }] });
     timeOffDecide.mockResolvedValue({});
+    shiftRequestDecide.mockResolvedValue({});
     render(<Approvals activeSub="" onSubChange={() => {}} />);
     await screen.findByText(TIME_OFF);
     vi.useFakeTimers({ shouldAdvanceTime: true });
     fireEvent.click(btn(/^Reject: Time Off/));
-    const send = within(sheet()).getByRole('button', { name: 'Reject' });
-    expect(send.disabled).toBe(false);
-    fireEvent.click(send);
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.queryByText(TIME_OFF, { selector: '.apv-ph-ttl' })).toBeNull();
     await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
     expect(timeOffDecide).toHaveBeenCalledWith('t1', { status: 'rejected', note: '' });
+    fireEvent.click(btn(/^Decline: Shift Swap/));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByText(SHIFT, { selector: '.apv-ph-ttl' })).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
+    expect(shiftRequestDecide).toHaveBeenCalledWith('s1', { approve: false, note: '' });
+    expect(prompt).not.toHaveBeenCalled();
   });
 
   // Review Focus 3: grouping keeps a sticky label per section and the chip
