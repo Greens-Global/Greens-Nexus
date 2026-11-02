@@ -11,12 +11,16 @@ const getDocTemplate = vi.fn();
 const updateDocTemplate = vi.fn();
 const publishDocTemplate = vi.fn();
 const getWorkSites = vi.fn();
+const getPeopleDirectory = vi.fn();
+const getCompanyDepartments = vi.fn();
 vi.mock('../api', () => ({
   api: {
     getDocTemplate: (...a) => getDocTemplate(...a),
     updateDocTemplate: (...a) => updateDocTemplate(...a),
     publishDocTemplate: (...a) => publishDocTemplate(...a),
     getWorkSites: (...a) => getWorkSites(...a),
+    getPeopleDirectory: (...a) => getPeopleDirectory(...a),
+    getCompanyDepartments: (...a) => getCompanyDepartments(...a),
   },
 }));
 const confirm = vi.fn();
@@ -40,6 +44,8 @@ beforeEach(() => {
   publishDocTemplate.mockReset().mockResolvedValue({ ...FORM, state: 'published', publishedVersion: 1 });
   getWorkSites.mockReset().mockResolvedValue([{ id: 's1', name: 'Austin' }, { id: 's2', name: 'Temecula' }]);
   confirm.mockReset().mockResolvedValue(false);
+  getPeopleDirectory.mockReset().mockResolvedValue([{ email: 'neil@greensglobal.com', company: 'co-1' }, { email: 'sam@greensglobal.com', company: 'co-2' }]);
+  getCompanyDepartments.mockReset().mockResolvedValue([{ id: 'd1', name: 'Construction' }, { id: 'd2', name: 'Operations' }]);
 });
 
 const open = () => render(<FormBuilder templateId="f1" onClose={() => {}} toastOk={() => {}} toastErr={() => {}} />);
@@ -131,6 +137,28 @@ describe('Form builder', () => {
     fireEvent.change(await screen.findByLabelText('Department'), { target: { value: 'Construction' } });
     saveForm();
     await waitFor(() => expect(lastPatch()).toMatchObject({ audience: 'department', department: 'Construction' }));
+  });
+
+  it("audience: one department is picked from the signed-in person's company's list", async () => {
+    open();
+    await screen.findByText('Odometer');
+    fireEvent.change(screen.getByLabelText('Who fills it'), { target: { value: 'department' } });
+    const box = await screen.findByLabelText('Department');
+    await waitFor(() => expect(box.tagName).toBe('SELECT'));
+    expect(getCompanyDepartments).toHaveBeenCalledWith('co-1');
+    expect(within(screen.getByLabelText('Department')).getByRole('option', { name: 'Operations' })).toBeTruthy();
+  });
+
+  it('audience: with no department list the department is typed', async () => {
+    getCompanyDepartments.mockRejectedValue(Object.assign(new Error('403'), { status: 403 }));
+    open();
+    await screen.findByText('Odometer');
+    fireEvent.change(screen.getByLabelText('Who fills it'), { target: { value: 'department' } });
+    const box = await screen.findByLabelText('Department');
+    expect(box.tagName).toBe('INPUT');
+    fireEvent.change(box, { target: { value: 'Yard' } });
+    saveForm();
+    await waitFor(() => expect(lastPatch()).toMatchObject({ audience: 'department', department: 'Yard' }));
   });
 
   it('Publish releases the form through the template publish', async () => {

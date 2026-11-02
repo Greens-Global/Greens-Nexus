@@ -16,6 +16,7 @@ import { StatusWord } from '../components/DocumentSidePanel';
 import { ModalLoading, Spinner } from '../components/AsyncState';
 import { templateStatus } from '../lib/documentLibrary';
 import { dialog } from '../ui/dialog';
+import { useRole } from '../contexts/RoleContext';
 import { AUDIENCES, FORM_CATEGORIES, groupBySection, isForm, sectionsOf, showIfSummary, typeLabel } from './formsModel';
 
 // The real fill screen, loaded when Preview opens. It is its own sheet, so
@@ -56,6 +57,8 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState('');
   const [dragToken, setDragToken] = useState('');
+  const { myEmail } = useRole();
+  const [departments, setDepartments] = useState([]);   // the signed-in person's company's departments
 
   const take = (t) => { setTemplate(t); const d = pick(t); setDraft(d); setSaved(d); };
   useEffect(() => {
@@ -64,6 +67,22 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
     api.getWorkSites().then((r) => { if (live) setSites(Array.isArray(r) ? r : []); }).catch(() => {});
     return () => { live = false; };
   }, [templateId]);
+  // One Department picks from the company's managed list (Settings > Companies >
+  // Departments) - the company being the signed-in person's own, read from the
+  // curated People list. No list (none set up, or not allowed to read it) =
+  // the typed box.
+  useEffect(() => {
+    let live = true;
+    const me = String(myEmail || '').toLowerCase();
+    api.getPeopleDirectory()
+      .then((rows) => {
+        const company = (rows || []).find((p) => String(p.email || '').toLowerCase() === me)?.company;
+        return company ? api.getCompanyDepartments(company) : [];
+      })
+      .then((rows) => { if (live) setDepartments([...new Set((Array.isArray(rows) ? rows : []).map((d) => d?.name).filter(Boolean))]); })
+      .catch(() => { if (live) setDepartments([]); });
+    return () => { live = false; };
+  }, [myEmail]);
 
   const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(saved);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
@@ -177,7 +196,16 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
         {draft.audience === 'department' && (
           <div>
             <label style={label} htmlFor="form-department">Department</label>
-            <input id="form-department" className="form-input" style={{ width: '100%' }} value={draft.department} placeholder="e.g. Construction" onChange={(e) => set('department', e.target.value)} />
+            {departments.length ? (
+              <select id="form-department" className="form-input" style={{ width: '100%' }} value={draft.department} onChange={(e) => set('department', e.target.value)}>
+                <option value="">- Pick a department -</option>
+                {/* A department saved before the list (or renamed since) stays pickable. */}
+                {draft.department && !departments.includes(draft.department) && <option value={draft.department}>{draft.department}</option>}
+                {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            ) : (
+              <input id="form-department" className="form-input" style={{ width: '100%' }} value={draft.department} placeholder="e.g. Construction" onChange={(e) => set('department', e.target.value)} />
+            )}
             <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>Its people fill the form and its managers maintain it.</p>
           </div>
         )}
