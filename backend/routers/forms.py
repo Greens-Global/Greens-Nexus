@@ -107,6 +107,7 @@ def _ser_entry(e: DocFormEntry, *, names: dict, sites: dict, reach: form_audienc
         "submittedAt": e.submitted_at or "", "source": e.source or "web",
         "status": e.status or "submitted",
         "reviewerEmail": e.reviewer_email or "", "reviewedAt": e.reviewed_at or "",
+        "reviewerName": names.get(_norm(e.reviewer_email), e.reviewer_email or "") if e.reviewer_email else "",
         "reviewNote": e.review_note or "",
         "linkedTicketId": e.linked_ticket_id or "", "linkedTaskId": e.linked_task_id or "",
         "linkedAssetId": e.linked_asset_id or "",
@@ -115,7 +116,7 @@ def _ser_entry(e: DocFormEntry, *, names: dict, sites: dict, reach: form_audienc
 
 
 def _serialize_many(db: Session, rows: list, reach: form_audience.Reach) -> list:
-    names = _names(db, {r.submitted_by for r in rows})
+    names = _names(db, {r.submitted_by for r in rows} | {r.reviewer_email for r in rows if r.reviewer_email})
     sites = _site_names(db, {r.work_site_id for r in rows})
     return [_ser_entry(r, names=names, sites=sites, reach=reach) for r in rows]
 

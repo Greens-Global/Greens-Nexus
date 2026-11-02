@@ -396,6 +396,7 @@ class FormsTests(unittest.TestCase):
         out = r.json()
         self.assertEqual(out["status"], "reviewed")
         self.assertEqual(out["reviewerEmail"], MGR)
+        self.assertEqual(out["reviewerName"], "Mgr Forms")   # the panel shows who, by name
         self.assertEqual(out["reviewNote"], "Looks good")
         self.assertTrue(out["reviewedAt"])
         r = self.client.post(f"/forms/entries/{e['id']}/review", json={"status": "follow_up", "note": "Check tire 2"})

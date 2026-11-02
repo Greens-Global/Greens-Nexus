@@ -114,6 +114,15 @@ function Answers({ defs, answers, onOpen }) {
   ));
 }
 
+// The review as the submitter and the reviewer both read it: the note, who
+// set the state and when.
+function ReviewNote({ entry }) {
+  return (
+    <div className="nx-dl-step"><i className={`nx-dl-dot nx-dl-${entryState(entry.status).tone}`} aria-hidden="true" />
+      <div>{entry.reviewNote}<small>{entry.reviewerName || entry.reviewerEmail}{entry.reviewedAt ? ` - ${formatDateTime(entry.reviewedAt)}` : ''}</small></div></div>
+  );
+}
+
 function Review({ entry, onSaved, toastOk, toastErr }) {
   const [status, setStatus] = useState('');
   const [note, setNote] = useState('');
@@ -123,7 +132,7 @@ function Review({ entry, onSaved, toastOk, toastErr }) {
     setBusy(true);
     try {
       const next = await api.reviewFormEntry(entry.id, { status, note: note.trim() });
-      toastOk?.(`${entryState(status).label} - ${entry.submittedByName || entry.submittedBy || 'the submitter'} is told`);
+      toastOk?.(`Marked ${entryState(status).label} - ${entry.submittedByName || entry.submittedBy || 'the submitter'} has been notified`);
       setStatus(''); setNote('');
       await onSaved(next);
     } catch (e) { toastErr?.(e?.message || 'Could not save the review.'); }
@@ -147,10 +156,7 @@ function Review({ entry, onSaved, toastOk, toastErr }) {
           </div>
         </>
       )}
-      {entry.reviewNote && !status && (
-        <div className="nx-dl-step"><i className={`nx-dl-dot nx-dl-${entryState(entry.status).tone}`} aria-hidden="true" />
-          <div>{entry.reviewNote}<small>{entry.reviewerEmail}{entry.reviewedAt ? ` - ${formatDateTime(entry.reviewedAt)}` : ''}</small></div></div>
-      )}
+      {entry.reviewNote && !status && <ReviewNote entry={entry} />}
     </section>
   );
 }
@@ -227,9 +233,9 @@ export default function EntryPanel({ entry: given, onClose, onChanged, toastOk, 
     ['Submitted', formatDateTime(entry.submittedAt)],
     ['Site', entry.workSiteName],
     ['Company', entry.company],
-    ['Form', entry.templateVersion ? `Version ${entry.templateVersion}` : ''],
-    ['From', entry.source === 'phone' ? 'A phone' : entry.source === 'web' ? 'The web' : ''],
-    ['Reviewed', entry.reviewedAt ? `${formatDateTime(entry.reviewedAt)}${entry.reviewerEmail ? ` by ${entry.reviewerEmail}` : ''}` : ''],
+    ['Form Version', entry.templateVersion ? String(entry.templateVersion) : ''],
+    ['Sent From', entry.source === 'phone' ? 'Phone' : entry.source === 'web' ? 'Web' : ''],
+    ['Reviewed', entry.reviewedAt ? `${formatDateTime(entry.reviewedAt)}${entry.reviewerEmail ? ` by ${entry.reviewerName || entry.reviewerEmail}` : ''}` : ''],
   ].filter(([, v]) => v);
 
   return (
@@ -258,7 +264,7 @@ export default function EntryPanel({ entry: given, onClose, onChanged, toastOk, 
 
       {entry.canReview && <Review entry={entry} onSaved={refresh} toastOk={toastOk} toastErr={toastErr} />}
       {!entry.canReview && entry.reviewNote && (
-        <section className="nx-dl-section"><h4>Review</h4><div>{entry.reviewNote}</div></section>
+        <section className="nx-dl-section"><h4>Review</h4><ReviewNote entry={entry} /></section>
       )}
 
       {viewing && <AttachmentViewer att={viewing} onClose={() => setViewing(null)} />}

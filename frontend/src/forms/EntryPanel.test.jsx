@@ -92,7 +92,9 @@ describe('Entry panel', () => {
     expect(within(panel).getByText('4 of 5')).toBeTruthy();
     expect(within(panel).getByRole('img', { name: 'Driver Signature' })).toBeTruthy();
     expect(within(panel).getByText('Sam Rivera')).toBeTruthy();
-    expect(within(panel).getByText('Version 3')).toBeTruthy();
+    const fact = (k) => within(panel).getByText(k, { selector: 'dt' }).nextElementSibling.textContent;
+    expect(fact('Form Version')).toBe('3');
+    expect(fact('Sent From')).toBe('Phone');
   });
 
   it('a photo opens the viewer', async () => {
@@ -112,8 +114,16 @@ describe('Entry panel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save Review' }));
     await waitFor(() => expect(reviewFormEntry).toHaveBeenCalledWith('e1', { status: 'follow_up', note: 'Fix the latch' }));
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
-    expect(toastOk).toHaveBeenCalled();
+    expect(toastOk).toHaveBeenCalledWith('Marked Needs Follow-Up - Sam Rivera has been notified');
     expect(await screen.findByText('Needs Follow-Up', { selector: '.nx-label-text' })).toBeTruthy();
+  });
+
+  it("the submitter sees the review note with who reviewed it and when", async () => {
+    open({ canReview: false, status: 'follow_up', reviewNote: 'Fix the latch', reviewerEmail: 'pat@greensglobal.com', reviewerName: 'Pat Lee', reviewedAt: '2026-11-03T16:05:00Z' });
+    expect(await screen.findByText('Fix the latch')).toBeTruthy();
+    const step = screen.getByText('Fix the latch').closest('.nx-dl-step');
+    expect(step).toHaveTextContent('Pat Lee');
+    expect(step.querySelector('small').textContent).toMatch(/^Pat Lee - 11\/03\/2026,? \d{1,2}:\d{2} [AP]M/);
   });
 
   it('no review controls for someone who may only read it', async () => {
