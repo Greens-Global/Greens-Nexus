@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { isBypassing } from '../../lib/dialogGuard'
 import { useExit } from '../../lib/motion'
+import { useIsMobile } from '../../lib/useIsMobile'
+import { useSheetStack } from '../../lib/sheetStack'
 import { X } from 'lucide-react'
 import { C, FONT, alpha } from '../theme'
 
@@ -21,12 +23,18 @@ const MAX_W = {
 // `isDirty` + `onSave`: an unintentional exit (overlay click, Escape, the X
 // button) used to silently discard an in-progress form. When isDirty is set,
 // those three now ask first instead of closing straight away.
-export default function Modal({ title, onClose, children, width, isDirty = false, onSave }) {
+// `placement` (Neil, 11/01/2026): a desktop popup is a SHEET from the right
+// edge by default (style.css "Sheets"); a question passes placement="center".
+export default function Modal({ title, onClose, children, width, isDirty = false, onSave, placement = 'sheet' }) {
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
+  const isMobile = useIsMobile()
+  const sheet = !isMobile && placement === 'sheet'
+  const panelRef = useRef(null)
   // Exit motion (lib/motion.js): a close the Modal performs itself plays the exit first.
   const [closing, exit] = useExit(onClose)
   const requestClose = () => { if (isDirty && !isBypassing()) setConfirming(true); else exit() }
+  useSheetStack(panelRef, sheet, closing)
   useEffect(() => {
     function onKeyDown(e) {
       if (e.key === 'Escape') requestClose()
@@ -53,21 +61,25 @@ export default function Modal({ title, onClose, children, width, isDirty = false
         inset: 0,
         zIndex: 50,
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        alignItems: sheet ? 'stretch' : 'center',
+        justifyContent: sheet ? 'flex-end' : 'center',
         background: alpha(C.black, 0.3),
-        padding: 16,
+        padding: sheet ? 0 : 16,
         fontFamily: FONT,
       }}
       onClick={requestClose}
     >
       <div
-        className="nx-panel nx-popup"
+        ref={panelRef}
+        className={sheet ? 'nx-sheet-right nx-popup' : 'nx-panel nx-popup'}
         style={{
           ...(tokenWidth > 900 ? { width: `max(60vw, min(${tokenWidth}px, 100%))` } : null),
+          // The sheet runs the full height against the right edge, rounded
+          // only where it meets the page (.nx-popup's 85vh cap is overridden).
+          ...(sheet ? { height: '100%', maxHeight: '100%', minHeight: 0 } : null),
           display: 'flex',
           flexDirection: 'column',
-          borderRadius: 16,
+          borderRadius: sheet ? '16px 0 0 16px' : 16,
           background: C.white,
           boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
         }}
@@ -84,7 +96,7 @@ export default function Modal({ title, onClose, children, width, isDirty = false
             top: 0,
             background: C.white,
             borderTopLeftRadius: 16,
-            borderTopRightRadius: 16,
+            borderTopRightRadius: sheet ? 0 : 16,
           }}
         >
           <h2 style={{ fontSize: 15, fontWeight: 600, color: C.gray900, margin: 0 }}>{title}</h2>
@@ -108,7 +120,7 @@ export default function Modal({ title, onClose, children, width, isDirty = false
             <X size={16} />
           </button>
         </div>
-        <div style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>{children}</div>
+        <div className={sheet ? 'nx-cascade' : undefined} style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>{children}</div>
       </div>
       {confirming && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: alpha(C.black, 0.2) }}

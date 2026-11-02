@@ -17,7 +17,9 @@ export default function UnsavedChangesPrompt({ onKeepEditing, onDiscard, onSave,
       style={{ zIndex: 6000 }}
       onClick={(e) => { if (e.target === e.currentTarget) onKeepEditing(); }}
     >
-      <div className="modal-content nx-popup" style={{ display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+      {/* A question stays a centered card: nx-center keeps it out of the
+          right-edge sheet geometry (style.css "Sheets", Neil 11/01/2026). */}
+      <div className="modal-content nx-popup nx-center" style={{ display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: '20px 22px 4px' }}>
           <div id="nx-unsaved-title" style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>{title}</div>
           <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
