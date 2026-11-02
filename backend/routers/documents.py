@@ -20,6 +20,7 @@ Design notes:
 """
 import base64
 import copy
+import math
 import re
 import uuid
 from datetime import datetime, timezone
@@ -2033,6 +2034,20 @@ def _clean_field_defs(defs: list, *, form: bool = False) -> list:
         if ftype in ("dropdown", "radio"):
             clean["options"] = [str(o)[:200] for o in (d.get("options") or []) if str(o).strip()][:50]
         if form:
+            # A form checks min / max at every submit: they are numbers or
+            # nothing, so a stored "ten" can never 500 a crew's entry.
+            for key in ("min", "max"):
+                raw = clean["validation"].get(key)
+                if raw in (None, ""):
+                    clean["validation"].pop(key, None)
+                    continue
+                try:
+                    num = float(raw)
+                    if isinstance(raw, bool) or not math.isfinite(num):
+                        raise ValueError
+                except (TypeError, ValueError):
+                    raise HTTPException(400, f'"{clean["label"]}" {key} must be a number')
+                clean["validation"][key] = int(num) if num.is_integer() else num
             section = str(d.get("section") or "").strip()[:120]
             if section:
                 clean["section"] = section

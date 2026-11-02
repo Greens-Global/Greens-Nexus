@@ -351,6 +351,48 @@ class FormsTests(unittest.TestCase):
         e3 = self._submit(tpl["id"], REP, _answers(not_a_field="x"))
         self.assertNotIn("not_a_field", e3["answers"])
 
+    def test_formulas_that_overflow_are_blank_never_a_500(self):
+        fields = [
+            {"token": "d", "label": "D", "type": "date"},
+            {"token": "n", "label": "N", "type": "number"},
+            {"token": "shifted", "label": "Shifted", "type": "date", "formula": "{D} + {N}"},
+            {"token": "start", "label": "Start", "type": "date"},
+            {"token": "end", "label": "End", "type": "date"},
+            {"token": "wd", "label": "Workdays", "type": "number", "formula": "WORKDAYS({Start}, {End})"},
+            {"token": "near", "label": "Near", "type": "date", "formula": "{D} + 30"},
+        ]
+        tpl = self._template("Overflow", fields=fields)
+        e = self._submit(tpl["id"], REP, {"d": "2026-11-02", "n": 1e15, "start": "0001-01-01", "end": "9999-12-31"})
+        self.assertIsNone(e["answers"]["shifted"])               # past year 9999: blank, not a 500
+        self.assertEqual(e["answers"]["wd"], 2608615)            # 9999 years, worked out not walked
+        self.assertEqual(e["answers"]["near"], "2026-12-02")
+        e = self._submit(tpl["id"], REP, {"d": "2026-11-02", "n": 40000})
+        self.assertIsNone(e["answers"]["shifted"])               # over the 36,500-day clamp
+
+    def test_a_non_numeric_min_is_refused_at_save_and_a_stored_one_never_500s(self):
+        self._as(ADMIN)
+        bad = [{"token": "n", "label": "Count", "type": "number", "validation": {"min": "ten"}}]
+        r = self.client.post("/documents/templates", json={"name": "Bad Min", "docType": "form",
+                                                             "category": "vehicle", "fieldDefs": bad})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("Count", r.text)
+        ok = [{"token": "n", "label": "Count", "type": "number", "validation": {"min": "2", "max": 9}}]
+        tpl = self._template("Good Min", fields=ok)
+        self.assertEqual(tpl["fieldDefs"][0]["validation"], {"min": 2, "max": 9})
+        # A limit stored before the check (straight into the row) is no limit.
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.DocTemplate).filter(models.DocTemplate.id == tpl["id"]).first()
+            stale = [{"token": "n", "label": "Count", "type": "number", "required": True,
+                      "validation": {"min": "ten", "max": ["x"], "maxLength": "long"}}]
+            row.field_defs = stale
+            row.published_meta = {**(row.published_meta or {}), "fieldDefs": stale}
+            db.commit()
+        finally:
+            db.close()
+        e = self._submit(tpl["id"], REP, {"n": 1})
+        self.assertEqual(e["answers"]["n"], 1)
+
     # ── Reach (Review Focus 5) ───────────────────────────────────────────────
 
     def test_manager_reach_reports_anywhere_and_team_sites_not_strangers_elsewhere(self):
