@@ -9162,7 +9162,23 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
 
 class JobsiteIn(BaseModel):
     name: str
-    address: str
+    address: str = ""
+    # From a pasted Google Maps link (11/02/2026): the exact point, never
+    # looked up again from the address.
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+class JobsiteLinkIn(BaseModel):
+    link: str
+
+
+@router.post("/jobsites/resolve-link")
+def resolve_jobsite_link(body: JobsiteLinkIn, user: dict = Depends(require_schedule_write)):
+    """'+ New Jobsite' placed from a Google Maps link (11/02/2026): the work
+    site reader (routers/hr.py), for whoever may write the schedule."""
+    from routers.hr import MapLinkIn, resolve_work_site_link
+    return resolve_work_site_link(MapLinkIn(link=body.link), user)
 
 
 @router.post("/jobsites", status_code=201)
@@ -9173,7 +9189,8 @@ def create_jobsite(body: JobsiteIn, user: dict = Depends(require_schedule_write)
     there instead of a second one. Answers the picker's row for it."""
     import jobsites
     try:
-        p = jobsites.create_project(db, (user.get("email") or "").lower(), body.name, body.address)
+        p = jobsites.create_project(db, (user.get("email") or "").lower(), body.name, body.address,
+                                    body.latitude, body.longitude)
     except ValueError as e:
         raise HTTPException(400, str(e))
     db.commit()

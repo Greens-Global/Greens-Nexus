@@ -274,6 +274,40 @@ class JobsiteTests(unittest.TestCase):
         self.assertIn(new["id"], [o["id"] for o in sched["jobsites"]])
         self.assertEqual({s["id"]: s["jobsite"] for s in sched["scheduled"]}[f"s-{ANN}"], RED)
 
+    def test_a_jobsite_from_its_google_maps_link_keeps_that_exact_point(self):
+        """Pranshu, 11/02/2026: a project is placed like a work site - the
+        link's point is where its weather is read, never looked up again."""
+        import site_address
+        self._as(BOSS)
+        where = {"address": "41715 Enterprise Cir N, Temecula, CA 92590", "placeName": "GS Temecula"}
+        with mock.patch.object(site_address, "address_for", return_value=where):
+            for path in ("/timeclock/jobsites/resolve-link", "/construction/resolve-link"):
+                r = self.client.post(path, json={"link": "33.517652, -117.155831"})
+                self.assertEqual(r.status_code, 200, (path, r.text))
+                self.assertEqual((r.json()["lat"], r.json()["lng"], r.json()["address"]), (33.517652, -117.155831, where["address"]))
+        with mock.patch.object(construction_weather, "geocode") as geo:
+            r = self.client.post("/timeclock/jobsites", json={"name": "GS Temecula", "address": where["address"],
+                                                              "latitude": 33.517652, "longitude": -117.155831})
+            self.assertEqual(r.status_code, 201, r.text)
+            self.assertTrue(r.json()["located"])
+            r2 = self.client.post("/construction/projects", json={"name": "GS Murrieta", "address": "Murrieta, CA",
+                                                                   "latitude": 33.553914, "longitude": -117.213923})
+            self.assertEqual(r2.status_code, 201, r2.text)
+        geo.assert_not_called()
+        P = models.ConstructionProject
+        self.db.expire_all()
+        got = {p.name: (p.latitude, p.longitude) for p in self.db.query(P).filter(P.name.in_(["GS Temecula", "GS Murrieta"]))}
+        self.assertEqual(got, {"GS Temecula": (33.517652, -117.155831), "GS Murrieta": (33.553914, -117.213923)})
+        # ...and the weather is asked for at exactly that point.
+        p = self.db.query(P).filter(P.name == "GS Temecula").first()
+        with mock.patch("routers.weather.forecast_for", return_value={}) as fc:
+            construction_weather.site_weather(p)
+        fc.assert_called_once_with(33.517652, -117.155831, "imperial")
+        # Someone who may not schedule or run projects cannot use the readers.
+        self._as(CAL)
+        for path in ("/timeclock/jobsites/resolve-link", "/construction/resolve-link"):
+            self.assertEqual(self.client.post(path, json={"link": "33.5, -117.1"}).status_code, 403, path)
+
     def test_the_evening_jobsite_notice_reaches_the_people_scheduled_there(self):
         red = self.db.query(models.ConstructionProject).filter(models.ConstructionProject.id == "red").first()
         self.assertEqual(construction_weather._scheduled(self.db, red, DAY), {ANN, BOB})

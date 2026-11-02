@@ -29,6 +29,7 @@ vi.mock('../api', () => ({ api: {
   getConstructionMedia: vi.fn(),
   startConstructionLog: vi.fn(),
   createConstructionProject: vi.fn(),
+  resolveProjectLink: vi.fn(),
   getConstructionWeather: vi.fn(),
   weather: vi.fn(),
   reviewConstructionLog: vi.fn(),
@@ -54,6 +55,9 @@ vi.mock('./lib/upload', () => ({
   MAX_BYTES: { photo: 1, video: 1, audio: 1 },
   ALLOWED_MIME: { photo: [], video: [], audio: [] },
 }));
+
+// Leaflet needs a real layout; the New Project map is covered in WorkSiteAddressMap.test.jsx.
+vi.mock('../components/WorkSiteAddressMap', () => ({ default: () => null }));
 
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true }) }));
 
@@ -133,6 +137,24 @@ describe('ConstructionDashboard', () => {
     // The project's own card: its sky, its week, the full forecast a click away.
     expect(await screen.findByLabelText('Site weather')).toBeTruthy();
     await waitFor(() => expect(api.weather).toHaveBeenCalledWith(33.49, -117.15, 'imperial'));
+  });
+
+  it('places a new project from its Google Maps link, so its weather is read at that exact point (Pranshu, 11/02/2026)', async () => {
+    api.getConstructionOverview.mockResolvedValue({ totals: {}, projects: [] });
+    api.getConstructionWeather.mockResolvedValue({ sites: [] });
+    api.resolveProjectLink.mockResolvedValue({ lat: 33.517652, lng: -117.155831, precision: 'place', address: '41715 Enterprise Cir N, Temecula, CA 92590', placeName: 'GS Temecula' });
+    api.createConstructionProject.mockResolvedValue({ id: 'p9', name: 'GS Temecula' });
+    render(<ConstructionDashboard />);
+    fireEvent.click((await screen.findAllByRole('button', { name: /New Project/ }))[0]);
+    fireEvent.change(screen.getByLabelText('Google Maps link or coordinates'), { target: { value: 'https://maps.app.goo.gl/abc' } });
+    fireEvent.click(screen.getByRole('button', { name: /Use Link/ }));
+    await waitFor(() => expect(screen.getByLabelText('Address').value).toBe('41715 Enterprise Cir N, Temecula, CA 92590'));
+    expect(screen.getByLabelText('Address').readOnly).toBe(true);
+    expect(document.querySelector('[data-project-place]').textContent).toContain('The weather is read at this exact point.');
+    fireEvent.click(screen.getByRole('button', { name: 'Create Project' }));
+    await waitFor(() => expect(api.createConstructionProject).toHaveBeenCalled());
+    expect(api.createConstructionProject).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'GS Temecula', address: '41715 Enterprise Cir N, Temecula, CA 92590', latitude: 33.517652, longitude: -117.155831 }));
   });
 
   it('renders the overview once loaded', async () => {

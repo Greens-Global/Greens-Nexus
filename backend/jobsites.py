@@ -97,26 +97,29 @@ def normalize(db: Session, value) -> str:
     return v
 
 
-def create_project(db: Session, actor: str, name: str, address: str):
+def create_project(db: Session, actor: str, name: str, address: str, latitude=None, longitude=None):
     """'+ New Jobsite': a construction project from a name and an address,
-    with the creator as its manager, its address looked up for a map point.
+    with the creator as its manager - at the point its Google Maps link gave
+    (`latitude` / `longitude`), else its address looked up for a map point.
     An active project at the same address (or with the same name) is
     returned instead of a second one. The caller commits."""
     import construction_weather
     name, address = (name or "").strip()[:120], (address or "").strip()[:300]
     if not name:
         raise ValueError("Give the jobsite a name.")
-    if not address:
-        raise ValueError("Give the jobsite an address, so its weather can be found.")
+    lat, lon = _num(latitude), _num(longitude)
+    if not address and (lat is None or lon is None):
+        raise ValueError("Paste the jobsite's Google Maps link, so its weather is read at the right spot.")
     P = models.ConstructionProject
     for p in db.query(P).filter(P.deleted_at == "", P.archived == False).all():   # noqa: E712 - SQLAlchemy expression
-        if (p.address or "").strip().lower() == address.lower() or (p.name or "").strip().lower() == name.lower():
+        if (address and (p.address or "").strip().lower() == address.lower()) or (p.name or "").strip().lower() == name.lower():
             return p
     now = datetime.now(timezone.utc).isoformat()
     p = P(id=str(uuid.uuid4()), name=name, address=address, status="active", manager_emails=[actor],
-          worker_emails=[], executive_emails=[], latitude=0.0, longitude=0.0, created_by=actor,
+          worker_emails=[], executive_emails=[], latitude=lat or 0.0, longitude=lon or 0.0, created_by=actor,
           created_at=now, modified_at=now)
-    construction_weather.geocode(p)
+    if lat is None or lon is None:
+        construction_weather.geocode(p)
     db.add(p)
     db.add(models.ConstructionActivity(id=str(uuid.uuid4()), project_id=p.id, entity_kind="project", entity_id=p.id,
                                        type="created", actor_email=actor, at=now,
