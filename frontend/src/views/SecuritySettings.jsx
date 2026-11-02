@@ -3,7 +3,7 @@
 // Backed by backend/security_config.py + routers/security_settings.py. Each
 // value is: saved here > the server's env var > the built-in default, inside
 // hard bounds the server enforces (the ranges shown here are informational;
-// the server is the boundary). Administrators can read; only a Global Admin
+// the server is the boundary). Administrators can read; only a Super Administrator
 // (owner) can save. A switch the server config forces on is locked.
 //
 // The "Re-Authentication for Sensitive Actions" group (step-up sign-in
@@ -166,7 +166,7 @@ export default function SecuritySettings({ toastOk, toastErr }) {
       {!canEdit && (
         <div role="note" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--paper)', fontSize: 12.5, color: 'var(--muted)', marginBottom: 16 }}>
           <Lock size={14} style={{ marginTop: 2, flexShrink: 0 }} />
-          <span>You can view these settings. Only a Global Admin can change them.</span>
+          <span>You can view these settings. Only a Super Administrator can change them.</span>
         </div>
       )}
 

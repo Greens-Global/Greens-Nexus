@@ -3,7 +3,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 
 // Settings > Workflows: the switches save on click, the typed fields go
 // through one Save row that shows only once something changed, Pause All
-// is the Global Admin's and says who paused and when, a company's face
+// is the Super Administrator's and says who paused and when, a company's face
 // drops the org-only rows and offers Use the Default when it overrides.
 
 const wfSettings = vi.fn();
@@ -40,7 +40,7 @@ beforeEach(() => {
 });
 
 describe('WorkflowsSettings', () => {
-  it('draws every org row for a Global Admin and saves a switch on click', async () => {
+  it('draws every org row for a Super Administrator and saves a switch on click', async () => {
     const toastOk = vi.fn();
     render(<WorkflowsSettings company="" toastOk={toastOk} />);
     expect(await screen.findByRole('switch', { name: 'Workflows On' })).toBeTruthy();
@@ -104,12 +104,12 @@ describe('WorkflowsSettings', () => {
     expect(wfPauseAll).not.toHaveBeenCalled();
   });
 
-  it('locks the org face for someone who is not a Global Admin', async () => {
+  it('locks the org face for someone who is not a Super Administrator', async () => {
     roleState.myRole = 'administrator';
     render(<WorkflowsSettings company="" />);
     expect((await screen.findByRole('switch', { name: 'Workflows On' })).disabled).toBe(true);
     expect(screen.getByRole('switch', { name: 'Pause All Workflows' }).disabled).toBe(true);
-    expect(screen.getByText(/changed by a Global Admin/)).toBeTruthy();
+    expect(screen.getByText(/changed by a Super Administrator/)).toBeTruthy();
   });
 
   it('shows a company\'s face without the org-only rows, reports its override and resets to the default', async () => {

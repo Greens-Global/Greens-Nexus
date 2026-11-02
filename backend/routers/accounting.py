@@ -174,13 +174,29 @@ ACCOUNTING_SCOPE_MODULE = "accounting"
 ACCOUNTING_SCOPE_TYPE = "ledger"
 
 
+def allowed_entities(user: dict, db: Session):
+    """The entity codes `user` ({email, level}) may read; None = every one.
+
+    Tiers (Neil, 11/02/2026): only a Super Administrator (level 5, or a
+    member of a group flagged is_global_admin) reads every entity by role.
+    An Administrator is walled to their companies - and Nexus companies do
+    not map to Intacct entities - so they read exactly the entities assigned
+    to them on Accounting > Access, and nothing until some are (fail
+    closed). Everyone else as before: their rows, none = every entity."""
+    import auth
+    if auth.is_global_admin(user, db):
+        return None
+    rows = scoped_ids(user["email"], ACCOUNTING_SCOPE_MODULE, db)
+    if int(user.get("level", 0) or 0) >= _LEVELS["administrator"]:
+        return rows if rows is not None else set()
+    return rows
+
+
 def entity_scope(user: dict = Depends(require_module_grant("accounting", "viewer")), db: Session = Depends(get_db)) -> dict:
     """The caller and the entity codes they are limited to (None = no limit).
     A sync dependency on purpose: FastAPI runs it in the threadpool, so the
     lookup never sits on the event loop."""
-    if user["level"] >= _LEVELS["administrator"]:
-        return {"user": user, "allowed": None}
-    return {"user": user, "allowed": scoped_ids(user["email"], ACCOUNTING_SCOPE_MODULE, db)}
+    return {"user": user, "allowed": allowed_entities(user, db)}
 
 
 def require_unlimited(scope: dict = Depends(entity_scope)) -> dict:
@@ -688,7 +704,7 @@ async def launch_accounting(next: str | None = None, user: dict = Depends(requir
     signs them in there. The URL is single-use and short-lived; the browser
     must open it immediately. Refused for anyone limited to certain entities:
     the accounting app shows every entity to everyone it lets in."""
-    if user["level"] < _LEVELS["administrator"] and scoped_ids(user["email"], ACCOUNTING_SCOPE_MODULE, db) is not None:
+    if allowed_entities(user, db) is not None:
         raise HTTPException(status_code=403, detail="Your accounting access is limited to certain entities, and the accounting app shows all of them. Use Reports in Nexus.")
     if not _ACCT_BASE or not _ACCT_KEY:
         raise HTTPException(status_code=503, detail="Accounting service is not configured (ACCOUNTING_BASE_URL / ACCOUNTING_INTERNAL_KEY)")

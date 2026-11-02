@@ -44,8 +44,8 @@ _assert_isolated()
 CO, CO_IN, CO_OTHER = "co-rec", "co-rec-in", "co-rec-other"
 HR = "hr.rec@greensglobal.com"            # the HR contact of both companies (People Editor grant)
 HR_USER = {"email": HR, "level": 2}
-ADMIN = "admin.rec@greensglobal.com"      # a Global Admin
-ADMIN_USER = {"email": ADMIN, "level": 4}
+ADMIN = "admin.rec@greensglobal.com"      # a Super Administrator (Global Admin)
+ADMIN_USER = {"email": ADMIN, "level": 5}
 FULL = "full.rec@greensglobal.com"        # a Full People grant, unscoped
 FULL_USER = {"email": FULL, "level": 2}
 OUT = "out.rec@greensglobal.com"          # a Full People grant scoped to another company
@@ -109,7 +109,7 @@ class AddTimeFromRecordTests(unittest.TestCase):
             self.db.add(models.NexusEmployee(id=f"e-rec-{i}", first_name=first, last_name="Test", work_email=em,
                                              company=co, country="IN" if co == CO_IN else "US", status="active",
                                              deleted_at="", **extra))
-        self.db.add(models.NexusRole(email=ADMIN, role="administrator"))
+        self.db.add(models.NexusRole(email=ADMIN, role="owner"))
         # The HR contact holds People Editor for their company (how they open a card at all).
         self.db.add(models.NexusGroup(id="g-rec-hr", name="HR Editors", allowed_modules="hr:editor"))
         self.db.add(models.NexusGroupMember(group_id="g-rec-hr", email=HR))

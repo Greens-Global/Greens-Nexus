@@ -182,7 +182,7 @@ class _ApiTests(unittest.TestCase):
         email = os.environ.get("NEXUS_DEV_EMAIL", "dev@localhost").lower()
         with SessionLocal() as db:
             if not db.query(models.NexusRole).filter(models.NexusRole.email == email).first():
-                db.add(models.NexusRole(email=email, role="administrator", assigned_by="test"))
+                db.add(models.NexusRole(email=email, role="owner", assigned_by="test"))   # Super Administrator
             # One signing template to migrate, so the migration test has
             # something real to move rather than depending on whatever happens
             # to be in the developer's own database.
@@ -308,6 +308,7 @@ class TemplateVersionLinkTests(_ApiTests):
         bumped = self.client.patch(f"/documents/templates/{tpl['id']}", json={
             "content": {"pages": [{"id": "p1", "json": {"type": "doc", "content": []}}]}}).json()
         self.assertGreater(bumped["version"], tpl["version"])
+        self.client.post(f"/documents/templates/{tpl['id']}/publish", json={})
         second = self.client.post("/documents", json={"title": "new", "templateId": tpl["id"]}).json()
         # Old document unchanged, new one on the new version.
         self.assertEqual(self.client.get(f"/documents/{first['id']}").json()["templateVersion"], tpl["version"])

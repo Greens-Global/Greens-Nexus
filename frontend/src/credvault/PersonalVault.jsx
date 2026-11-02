@@ -4,9 +4,9 @@
 // Personal Vault unlock time); it locks itself when that window ends or on
 // Lock Now. Passwords stay readable while unlocked - no per-row timer.
 import { useCallback, useEffect, useState } from "react";
-import { Lock, Unlock, Plus, Eye, EyeOff, Copy, Check, Pencil, Trash2, KeyRound, ShieldCheck, ExternalLink } from "lucide-react";
+import { Lock, Unlock, Plus, Eye, EyeOff, Copy, Check, Pencil, KeyRound, ShieldCheck, ExternalLink } from "lucide-react";
 import { api } from "../api";
-import { dialog } from "../ui/dialog";
+import HoldButton from "../ui/HoldButton";
 import { formatTime } from "../lib/datetime";
 import { Modal } from "../tasks/components";
 import { PersonalLockGate, Field, PasswordField, TYPES, MsLogo } from "./vaultShared";
@@ -92,10 +92,11 @@ export default function PersonalVault({ myEmail, flash, active = true }) {
     await load();
     flash(form?.row ? "Personal credential updated." : "Saved to your Personal Vault.");
   }
+  // Held on the row (Neil, Oct 30 2026 - hold to confirm): one record, no
+  // dialog. A refusal throws so the button rewinds with the reason.
   async function remove(r) {
-    const ok = await dialog.confirm(`Delete ${r.name} from your Personal Vault? There is no trash for personal credentials.`, { title: "Delete Personal Credential", confirmText: "Delete", danger: true });
-    if (!ok) return;
-    try { await api.cvPersonalDelete(r.id); await load(); flash("Deleted."); } catch (e) { flash(e?.message || "Could not delete.", "info"); }
+    try { await api.cvPersonalDelete(r.id); } catch (e) { throw new Error(e?.message || "Could not delete.", { cause: e }); }
+    await load(); flash("Deleted.");
   }
 
   if (!unlocked) {
@@ -145,7 +146,8 @@ export default function PersonalVault({ myEmail, flash, active = true }) {
                   <button type="button" className="cv-iconbtn" title="Copy Password" aria-label="Copy Password" disabled={!secret} onClick={() => copy(secret, r.id)}>{copied === r.id ? <Check size={14} style={{ color: "var(--cv-ok)" }} /> : <Copy size={14} />}</button>
                   {r.url && <button type="button" className="cv-iconbtn" title="Copy the password and open the site" aria-label={`Open ${r.name}`} onClick={() => openSite(r)}><ExternalLink size={14} /></button>}
                   <button type="button" className="cv-iconbtn" title="Edit" aria-label="Edit" onClick={() => setForm({ row: r })}><Pencil size={14} /></button>
-                  <button type="button" className="cv-iconbtn is-danger" title="Delete" aria-label="Delete" onClick={() => remove(r)}><Trash2 size={14} /></button>
+                  <HoldButton size="sm" label="Delete" doneLabel="Deleted" ariaLabel={`Delete ${r.name}`} onConfirm={() => remove(r)}
+                    fallbackMessage={`Delete ${r.name} from your Personal Vault? There is no trash for personal credentials.`} />
                 </div>
               </div>
             );

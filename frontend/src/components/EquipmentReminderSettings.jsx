@@ -7,7 +7,7 @@ import { api } from '../api';
 import ReminderSettingsPanel, { beforeLabel } from './ReminderSettingsPanel';
 
 const WARN = { field: 'daysBefore', label: 'Warn before the date', min: 0, format: beforeLabel };
-const MANAGER = 'Goes to the asset manager set on the property, vehicle or equipment. If nobody is set, it goes to the IT Admins.';
+const MANAGER = 'Goes to the asset manager set on the property, vehicle or equipment. If nobody is set, it goes to the Administrators.';
 
 const ROWS = [
   { key: 'overdue', title: 'Overdue Checkouts',
@@ -34,6 +34,6 @@ export default function EquipmentReminderSettings() {
   return (
     <ReminderSettingsPanel load={api.getEquipmentReminderSettings} save={api.updateEquipmentReminderSettings} rows={ROWS}
       intro="Nexus checks every morning and sends these to the notification bell. Each person gets at most one reminder a day per item. A warning is sent once for each day you pick; if a date is added late, the warning goes out at the next check."
-      lockedNote="You can see these settings. Only an IT Admin, a Global Admin or someone with Full access to Item Management can change them." />
+      lockedNote="You can see these settings. Only an Administrator, a Super Administrator or someone with Full access to Item Management can change them." />
   );
 }

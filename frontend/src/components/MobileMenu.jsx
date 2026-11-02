@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { X, ChevronRight, ChevronLeft, LogOut, Moon, Sun, CircleHelp, Scale } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { BFF_MODE, bffLogout } from '../bffAuth';
-import { useRole, ROLES, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
+import { useRole, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
+import TierMark from './TierMark';
 import { usePersonPhoto } from '../lib/peoplePhotos';
 import { NAV } from './Sidebar';
 import { orderNav } from './navOrder';
@@ -43,7 +44,7 @@ export const SUBMENUS = {
   shifts: {
     manager: [
       { sub: 'shifts', label: 'Shifts' },
-      { sub: 'schedule', label: 'Schedule' },
+      { sub: 'schedule', label: 'Shift Planner' },
       { sub: 'requests', label: 'Requests' },
       { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
       { sub: 'contact', label: 'Directory' },
@@ -68,10 +69,6 @@ export const SUBMENUS = {
       { sub: 'myitems', label: 'My Items' },
     ],
   },
-  it: [
-    { sub: 'network',     label: 'Network Dashboard' },
-    { sub: 'it-websites', label: 'Website Management' },
-  ],
   ops: [
     { sub: 'construction-dashboard', label: 'Project Dashboard' },
     { sub: 'construction-activity',  label: 'Site Activity' },
@@ -127,7 +124,7 @@ export const SUBMENUS = {
 export default function MobileMenu({ open, onClose, onNavigate, activeView, theme, onThemeToggle }) {
   const { instance, accounts } = useMsal();
   const role = useRole();
-  const { myRole, can, myGrantedModules, isExternal } = role;
+  const { can, myGrantedModules, isExternal, myTier, myTitle } = role;
   const counts = useActionCounts();
   const account  = accounts[0];
   const name     = account?.name ?? 'User';
@@ -137,8 +134,11 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   // while it loads and for anyone HR hasn't given a photo; initials remain
   // the fallback.
   const photo    = usePersonPhoto(account?.username ?? '');
-  // External guests read "External", never a tier name (Visesh, Aug 18).
-  const roleMeta = isExternal ? EXTERNAL_ROLE_META : (ROLES[myRole] ?? ROLES.employee);
+  // Under the name: the person's JOB TITLE, never the Nexus tier (Neil,
+  // 11/02/2026 - "it should not say global admin here under my name"); no
+  // title = nothing there. External guests with no title still read
+  // "External" (Visesh, Aug 18). The tier is the small mark after the name.
+  const subtitle = myTitle || (isExternal ? EXTERNAL_ROLE_META.label : '');
 
   const [subPanel,   setSubPanel]   = useState(null); // { view, label }
   const [subClosing, setSubClosing] = useState(false);
@@ -200,8 +200,8 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
             : initials}
         </div>
         <div style={{ minWidth: 0 }}>
-          <div className="mobile-menu-name">{name}</div>
-          <div className="mobile-menu-role">{roleMeta.label}</div>
+          <div className="mobile-menu-name">{name}<TierMark tier={myTier} /></div>
+          {subtitle && <div className="mobile-menu-role">{subtitle}</div>}
         </div>
       </div>
       <div className="mobile-menu-rows">

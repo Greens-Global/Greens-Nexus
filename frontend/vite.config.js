@@ -28,6 +28,41 @@ const FRONTEND_ROOT = fileURLToPath(new URL('.', import.meta.url));
 // bump again - but if it ever does, increment nx2 -> nx3.
 const CACHE_NS = 'nx2';
 
+// The whiteboard engine ships 60 translations as separate dynamic imports
+// (`import("./locales/xx-YY-<hash>.js")`). Nexus is English only and the
+// engine's English strings are built in, so every one of those imports is
+// pointed at one empty module here - otherwise rolldown emits sixty ~70 KB
+// chunks (about 4 MB) that no one would ever download but the bundle budget
+// still counts (Notes boards, Neil 11/02/2026).
+//
+// The same plugin stubs `@excalidraw/mermaid-to-excalidraw`: the engine
+// reaches it only from its text-to-diagram dialog (off: aiEnabled={false})
+// and from pasting Mermaid source, and it drags the whole Mermaid renderer
+// in (about 2.5 MB more, landing in vendor-react and tripling first paint).
+// The stub rejects, so a pasted Mermaid snippet lands as plain text.
+const EXCALIDRAW_LOCALE_STUB = '\0excalidraw-locale-stub';
+const EXCALIDRAW_MERMAID_STUB = '\0excalidraw-mermaid-stub';
+function excalidrawLocaleStub() {
+  return {
+    name: 'nexus-excalidraw-locale-stub',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (!importer || !importer.includes('@excalidraw/excalidraw/dist/')) return null;
+      if (/^\.\/locales\/.+\.js$/.test(source)) return EXCALIDRAW_LOCALE_STUB;
+      if (source === '@excalidraw/mermaid-to-excalidraw') return EXCALIDRAW_MERMAID_STUB;
+      return null;
+    },
+    load(id) {
+      if (id === EXCALIDRAW_LOCALE_STUB) return 'export default {};';
+      if (id === EXCALIDRAW_MERMAID_STUB) {
+        return 'export async function parseMermaidToExcalidraw() { throw new Error("Diagrams from text are not available in Nexus."); }\nexport default { parseMermaidToExcalidraw };';
+      }
+      return null;
+    },
+  };
+}
+
+
 // Build identity. Every deploy path supplies a commit sha somewhere:
 //   - the wrangler workflows pass VITE_BUILD_ID explicitly,
 //   - Cloudflare Pages' own Git builds (how dev deploys) set CF_PAGES_COMMIT_SHA,
@@ -129,7 +164,7 @@ export default defineConfig(({ command }) => ({
     ...((NX_SRC || command === 'serve') && !process.env.VITEST
       // Dev serve stamps every element - size is irrelevant locally.
       ? [nxSrcVitePlugin({ root: FRONTEND_ROOT, only: command === 'serve' || process.env.VITE_NX_SRC === 'all' ? undefined : process.env.VITE_NX_SRC === 'interactive' ? 'interactive' : 'handlers' })] : []),
-    react(), versionManifest(), stampUnhashedAssets(),
+    react(), versionManifest(), stampUnhashedAssets(), excalidrawLocaleStub(),
   ],
   base: '/',
   // Build Mode's local preview / e2e runs share the main checkout's node_modules
@@ -158,6 +193,27 @@ export default defineConfig(({ command }) => ({
         // Split vendors into separate cached chunks — same approach as Amazon, Netflix, etc.
         // Each chunk loads in parallel and is cached independently by the browser.
         manualChunks(id) {
+          // The whiteboard engine (Notes boards, Neil 11/02/2026) has NO manual
+          // chunk on purpose. It is reached only by the import() in
+          // notes/board/engine/index.js (the adapter, engine/excalidraw.jsx,
+          // is the one file that imports the package), and left alone rolldown
+          // splits that import into its own lazy chunk (excalidraw-nx2-*, about
+          // 540 KB plus the shared pieces in their usual chunks). A manual
+          // 'vendor-excalidraw' chunk did the opposite: on rolldown a manual
+          // chunk takes a module's whole static tree with it
+          // (advancedChunks.includeDependenciesRecursively, default true), so it
+          // swallowed react/jsx-runtime, @radix-ui/*, tslib, lodash.* and 50
+          // other shared modules, every chunk that needed them imported the
+          // 3 MB chunk statically, and the engine shipped on FIRST PAINT for
+          // everyone. Measured 11/02/2026: entry static graph 5,448 KB with the
+          // manual chunk, 2,628 KB without. check-bundle-size.mjs now guards
+          // the first-paint graph (FIRST_PAINT_KB). Do not add one back.
+          if (id.includes(EXCALIDRAW_LOCALE_STUB) || id.includes(EXCALIDRAW_MERMAID_STUB) || id.includes('node_modules/@excalidraw/')) return undefined;
+          // ...and the libraries only the engine uses stay out of the catch-all
+          // below too, so they ride its lazy chunk instead of vendor-react
+          // (first paint). Measured 11/02/2026 with the CI's Supabase values:
+          // vendor-react 1,192 KB with them in the catch-all.
+          if (/node_modules\/(roughjs|points-on-curve|path-data-parser|hachure-fill|perfect-freehand|jotai|jotai-scope|tunnel-rat|fractional-indexing|es6-promise-pool|browser-fs-access|image-blob-reduce|pica|multimath|glur|png-chunk-text|png-chunks-encode|png-chunks-extract|crc-32|open-color|fuzzy|@braintree\/sanitize-url|canvas-roundrect-polyfill|@radix-ui|zustand|@excalidraw|laser-pointer|pwacompat|sliced|lodash\.throttle|lodash\.debounce)\//.test(id)) return undefined;
           if (id.includes('@azure/msal-browser') || id.includes('@azure/msal-react')) return 'vendor-msal';
           if (id.includes('@supabase/supabase-js'))  return 'vendor-supabase';
           if (id.includes('lucide-react'))            return 'vendor-icons';
@@ -172,6 +228,11 @@ export default defineConfig(({ command }) => ({
           if (id.includes('mammoth'))                 return 'vendor-docx';
           if (id.includes('leaflet'))                 return 'vendor-maps';
           if (id.includes('qrcode'))                  return 'vendor-qr';
+          // jsqr (Forms & Checklists, Neil 11/02/2026): the QR fallback for a
+          // browser with no BarcodeDetector, reached only by FillForm's
+          // ScanField `await import()`. In the catch-all it added ~130 KB to
+          // vendor-react on first paint for everyone.
+          if (id.includes('node_modules/jsqr'))       return 'vendor-jsqr';
           // heic2any bundles libheif (~1.4MB of wasm-ish decoder). It is only
           // reached from construction/lib/upload.js's `await import()`, and only
           // when a worker actually uploads an iPhone HEIC - which most uploads

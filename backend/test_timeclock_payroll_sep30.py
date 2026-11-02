@@ -83,9 +83,11 @@ class FormulaTests(unittest.TestCase):
         self.assertEqual(_weekend_pay(daily, 0, 8, "USD"), 0.0)
 
     def test_attendance_bands(self):
-        self.assertEqual(_attendance_bands(8), (7 * 60, 4 * 60))
-        self.assertEqual(_attendance_bands(9), (8 * 60, 4 * 60))
-        self.assertEqual(_attendance_bands(4), (3 * 60, 3 * 60))   # half never above full
+        # Oct 31 2026: a salaried weekday is full from 4 h, half from 2.5 h,
+        # whatever the full-day hours (they only ever shorten the bands).
+        self.assertEqual(_attendance_bands(8), (4 * 60, 150))
+        self.assertEqual(_attendance_bands(9), (4 * 60, 150))
+        self.assertEqual(_attendance_bands(2), (2 * 60, 2 * 60))   # half never above full
 
 
 class FixedCardTests(unittest.TestCase):
@@ -101,16 +103,16 @@ class FixedCardTests(unittest.TestCase):
             db.add(models.PayrollRate(employee_email=FIXED, pay_type="fixed", currency="INR",
                                       monthly_salary=self.SALARY, full_day_hours=8, overtime_rule="none",
                                       weekend_ot_amount=1000))   # typed amount must be IGNORED
-            _punch(db, FIXED, "2026-09-01", 7.25)   # Tue: 7h15 >= 7h -> full day
-            _punch(db, FIXED, "2026-09-02", 6.5)    # Wed: 6h30 -> half day
-            _punch(db, FIXED, "2026-09-03", 3.5)    # Thu: 3h30 -> absent
+            _punch(db, FIXED, "2026-09-01", 7.25)   # Tue: 7h15 >= 4h -> full day
+            _punch(db, FIXED, "2026-09-02", 3)      # Wed: 3h (2h30 up to 4h) -> half day
+            _punch(db, FIXED, "2026-09-03", 2)      # Thu: 2h (under 2h30) -> absent
             _punch(db, FIXED, "2026-09-05", 4)      # Sat: 4h weekend
             _punch(db, FIXED, "2026-09-06", 1)      # Sun: 1h weekend -> floor
             # Leave entered on their behalf (Pranshu, Oct 12): every pay type.
             _punch(db, FIXED, "2026-09-08", 8, category="Vacation")    # Tue: a vacation day - deducted
             _punch(db, FIXED, "2026-09-09", 0.05, category="Sick Day")  # Wed: 3 minutes of leave - still a day deducted
             _punch(db, FIXED, "2026-09-10", 2, category="Personal")     # Thu: 2h personal...
-            _punch(db, FIXED, "2026-09-10", 5, start_h=8, i=1)          # ...and 5h worked -> half a day back
+            _punch(db, FIXED, "2026-09-10", 3, start_h=8, i=1)          # ...and 3h worked -> half a day back
             _punch(db, FIXED, "2026-09-13", 8, category="Vacation")     # Sun: leave on a weekend earns nothing
             db.commit()
         finally:
@@ -188,7 +190,7 @@ class FixedCardTests(unittest.TestCase):
         daily = self.SALARY * 12 / 261
         self.assertEqual(card["workingDaysInYear"], 261)
         self.assertAlmostEqual(card["dailyRate"], round(daily, 2), places=2)
-        self.assertEqual(card["bands"], {"fullMin": 420, "halfMin": 240})
+        self.assertEqual(card["bands"], {"fullMin": 240, "halfMin": 150})
         self.assertEqual(card["weekendFloor"], 500.0)
         self.assertEqual(card["weekendMultiplier"], 1.35)
         self.assertNotIn("weekendOtAmount", card)

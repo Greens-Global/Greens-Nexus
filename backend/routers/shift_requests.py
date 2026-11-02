@@ -163,7 +163,22 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # California meal reminder (Charmi + Neil, Oct 20 2026,
              # meal_watch.py): one bell once the day's work reaches this many
              # minutes with no 30-minute meal yet; 270 = 4.5 hours, 0 = off.
-             "mealReminderMin": 270}
+             "mealReminderMin": 270,
+             # Early punch alert (Neil, 11/02/2026, early_punch.py): a clock-in
+             # more than this many minutes before the expected start tells
+             # the manager. The punch is always recorded; 0 = off.
+             "earlyPunchAlertMin": 0,
+             # Weekly labor budget (Neil, 11/02/2026): hours and amount per
+             # week, shown on the shift planner to HR++ only (hr_access.py -
+             # the company's HR contact, administrators, a Full People grant;
+             # never the manager tier). 0 = no budget. The amount is in the
+             # company's pay currency.
+             "laborBudgetHours": 0, "laborBudgetAmount": 0,
+             # Time-off recommendation (Neil, 11/02/2026, timeoff_recommend.py):
+             # a request is "Recommended: Approve" only when it starts at
+             # least this many days ahead and spans at most this many
+             # working days - a hint for the decider, never a decision.
+             "timeOffNoticeDays": 7, "timeOffShortDays": 3}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
@@ -172,7 +187,9 @@ _INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftE
                  "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100),
                  "otAlertDailyLeadMin": (0, 240), "otAlertWeeklyLeadMin": (0, 480),
                  "timesheetEscalateDays": (0, 30), "breakNudgeMin": (0, 240),
-                 "mealReminderMin": (0, 295)}
+                 "mealReminderMin": (0, 295), "earlyPunchAlertMin": (0, 240),
+                 "laborBudgetHours": (0, 100000), "laborBudgetAmount": (0, 10000000),
+                 "timeOffNoticeDays": (0, 90), "timeOffShortDays": (1, 30)}
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers", "release": "releaseShifts"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -374,6 +391,11 @@ class SettingsIn(BaseModel):
     locationTrailOn: Optional[bool] = None      # web location trail while clocked in (Oct 20; off by default)
     breakNudgeMin: Optional[int] = None         # 0-240; minutes on an open break before "Still on Break?"; manager at 2x; 0 = off
     mealReminderMin: Optional[int] = None       # 0-295; minutes of work before the California meal reminder; 0 = off
+    earlyPunchAlertMin: Optional[int] = None    # 0-240; minutes before the expected start a clock-in alerts the manager; 0 = off
+    laborBudgetHours: Optional[int] = None      # 0-100000; scheduled hours budget per week, HR++ see it on the planner; 0 = none
+    laborBudgetAmount: Optional[int] = None     # 0-10000000; scheduled labor cost budget per week; 0 = none
+    timeOffNoticeDays: Optional[int] = None     # 0-90; days ahead a time-off request should be asked (recommendation only)
+    timeOffShortDays: Optional[int] = None      # 1-30; working days a request may span and still be "Recommended: Approve"
 
 
 @router.get("/settings")
@@ -863,6 +885,12 @@ def _decidable(db: Session, r: models.ShiftRequest, scope, me: str, cache: dict 
         return True
     deciders = _claim_deciders(db, r, cache) if r.kind == "open" and r.status in PENDING else []
     if deciders:
+        # An Administrator - walled to their companies (Neil, 11/02/2026) -
+        # still decides a cross-team claim inside them, as an unscoped
+        # scheduler does everywhere.
+        import auth
+        if auth.level_for(me, db) >= auth._LEVELS["administrator"] and _in_scope(r, scope):
+            return True
         return me in deciders
     return _in_scope(r, scope)
 

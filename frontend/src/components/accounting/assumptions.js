@@ -12,7 +12,6 @@
 // indirect expenses" and "RDI" is read as that same split. Direct = cost of
 // sales (labor charged to properties / jobs), Indirect = operating and other
 // expense (overhead) - the sections are backend COMP_DIRECT_SECTIONS.
-export const COMP_SHOW_DIRECT_INDIRECT = true;
 export const COMP_DIRECT_LABEL = 'Direct';
 export const COMP_INDIRECT_LABEL = 'Indirect';
 

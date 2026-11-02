@@ -5,7 +5,7 @@
 // actions Pause / Resume / Duplicate / Archive / Delete, and a click opens the
 // builder (wf:<id>).
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, Copy, Pause, Play, Plus, Search, Trash2, Workflow as WorkflowIcon } from 'lucide-react';
+import { Archive, Copy, Pause, Play, Plus, Search, Workflow as WorkflowIcon } from 'lucide-react';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
@@ -13,6 +13,7 @@ import { useRole } from '../contexts/RoleContext';
 import { formatDateTime } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { dialog } from '../ui/dialog';
+import HoldButton from '../ui/HoldButton';
 import { EmptyState } from '../tasks/components';
 import { wfStatusMeta } from './lib/status';
 import { buildSub } from './lib/sub';
@@ -20,6 +21,7 @@ import { describeTrigger } from './lib/text';
 import { useCatalog } from './lib/useCatalog';
 import { Card, Chip, FONT, Muted } from './ui';
 import { errorText } from './lib/errors';
+import { ShapeStrip } from './canvas/Thumbnail';
 
 const SCOPES = [
   { key: 'mine', label: 'Mine' },
@@ -89,11 +91,18 @@ export default function WorkflowList({ go }) {
     if (!ok) return;
     act(w, () => api.wfStatus(w.id, { status: 'archived', reason: '' }), () => setRows((rs) => (rs || []).filter((r) => r.id !== w.id)));
   };
+  // Delete is held on the row (Hold to confirm, Neil, Oct 30 2026): one
+  // workflow, so no dialog; a refusal rewinds the button with the reason and
+  // the row leaves once the check has shown (onDone).
   const remove = async (w) => {
-    const ok = await dialog.confirm(`Delete "${w.name}" for good? It stops running and cannot be brought back. Runs still waiting are cancelled; its past runs stay in Runs.`, { title: 'Delete Workflow', confirmText: 'Delete', danger: true });
-    if (!ok) return;
-    act(w, () => api.wfDelete(w.id), () => setRows((rs) => (rs || []).filter((r) => r.id !== w.id)));
+    setNotice('');
+    try {
+      await api.wfDelete(w.id);
+    } catch (e) {
+      throw new Error(errorText(e), { cause: e });
+    }
   };
+  const removed = (w) => setRows((rs) => (rs || []).filter((r) => r.id !== w.id));
   const create = () => act({ id: 'new' }, () => api.wfCreate({ name: 'Untitled Workflow', companyId: '' }), (res) => { if (res?.id) go(buildSub('builder', res.id)); });
 
   const triggerText = (w) => w.triggerText || describeTrigger(w.trigger, catalog);
@@ -129,7 +138,7 @@ export default function WorkflowList({ go }) {
           {/* Between the phone cards and a wide desktop the table scrolls
               sideways inside the card instead of clipping its last columns. */}
           <div style={isMobile ? undefined : { overflowX: 'auto' }}>
-            <div style={isMobile ? undefined : { minWidth: 980 }}>
+            <div style={isMobile ? undefined : { minWidth: 1076 }}>
               {!isMobile && (
                 <div role="row" style={{ ...GRID, padding: '8px 16px', fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
                   <span>Name</span><span>Trigger</span><span>Scope</span><span>Owner</span><span>Status</span><span style={{ textAlign: 'right' }}>Runs 7d</span><span>Last Run</span><span />
@@ -138,12 +147,13 @@ export default function WorkflowList({ go }) {
               {shown.map((w) => {
                 const m = wfStatusMeta(w.status);
                 const actions = (
-                  <div style={{ display: 'flex', gap: isMobile ? 6 : 4, justifyContent: isMobile ? 'flex-start' : 'flex-end', flexWrap: isMobile ? 'wrap' : 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                  <div style={{ display: 'flex', gap: isMobile ? 6 : 4, justifyContent: isMobile ? 'flex-start' : 'flex-end', flexWrap: isMobile ? 'wrap' : 'nowrap' }} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                     {w.status === 'active' && <IconBtn label="Pause" Icon={Pause} onClick={() => pause(w)} disabled={busy === w.id} />}
                     {(w.status === 'paused' || w.status === 'needs_attention') && <IconBtn label="Resume" Icon={Play} onClick={() => resume(w)} disabled={busy === w.id} />}
                     <IconBtn label="Duplicate" Icon={Copy} onClick={() => duplicate(w)} disabled={busy === w.id} />
                     {w.status !== 'archived' && <IconBtn label="Archive" Icon={Archive} onClick={() => archive(w)} disabled={busy === w.id} />}
-                    <IconBtn label="Delete" Icon={Trash2} onClick={() => remove(w)} disabled={busy === w.id} />
+                    <HoldButton size="sm" label="Delete" doneLabel="Deleted" onConfirm={() => remove(w)} onDone={() => removed(w)} disabled={busy === w.id}
+                      fallbackMessage={`Delete "${w.name}" for good? It stops running and cannot be brought back. Runs still waiting are cancelled; its past runs stay in Runs.`} />
                   </div>
                 );
                 const open = () => go(buildSub('builder', w.id));
@@ -155,6 +165,7 @@ export default function WorkflowList({ go }) {
                         <span style={{ flex: 1, fontSize: 14, fontWeight: 700, minWidth: 0, overflowWrap: 'anywhere' }}>{w.name}</span>
                         <StatusLabel label={m.label} color={m.color} size="sm" />
                       </div>
+                      <ShapeStrip shape={w.shape} title={`${w.name} shape`} />
                       <Muted>{triggerText(w)}</Muted>
                       <Muted>{w.companyName || 'Every Company'} - {w.ownerName || w.ownerEmail || '-'} - {w.runs7d ?? 0} runs in 7 days{w.lastRunAt ? ` - last ${formatDateTime(w.lastRunAt)}` : ''}</Muted>
                       {w.pausedReason && <Muted style={{ color: 'hsl(var(--color-orange))' }}>Paused: {w.pausedReason}</Muted>}
@@ -166,7 +177,10 @@ export default function WorkflowList({ go }) {
                 return (
                   <div key={w.id} role="row" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}
                     style={{ ...GRID, padding: '10px 16px', borderTop: '1px solid var(--line)', alignItems: 'center', cursor: 'pointer', fontSize: 13.5 }}>
-                    <span style={{ fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.description || ''}>{w.name}</span>
+                    <span style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
+                      <span style={{ fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.description || ''}>{w.name}</span>
+                      <ShapeStrip shape={w.shape} title={`${w.name} shape`} />
+                    </span>
                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--muted)' }} title={triggerText(w)}>{triggerText(w)}</span>
                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.companyName || 'Every Company'}</span>
                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.ownerEmail || ''}>{w.ownerName || w.ownerEmail || '-'}</span>
@@ -191,7 +205,7 @@ export default function WorkflowList({ go }) {
   );
 }
 
-const GRID = { display: 'grid', gridTemplateColumns: 'minmax(160px, 1.4fr) minmax(160px, 2fr) minmax(110px, 1fr) minmax(120px, 1fr) 112px 64px 140px 132px', gap: 12 };   // the last: four 30px row actions and their gaps, the same on every row
+const GRID = { display: 'grid', gridTemplateColumns: 'minmax(160px, 1.4fr) minmax(160px, 2fr) minmax(110px, 1fr) minmax(120px, 1fr) 112px 64px 140px 160px', gap: 12 };   // the last: Duplicate, Archive and the held Delete button (it says "Delete" since the 10/30 hold rollout; 132px clipped it)
 
 // The company has workflows switched off in Settings > Workflows: the server
 // says so with companyEnabled: false (a row without the flag says nothing).

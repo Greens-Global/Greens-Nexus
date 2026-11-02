@@ -678,9 +678,12 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   };
 
   /** Delete Forever: the asset and everything under it, here as on the server. */
+  const PURGE_COLLECTIONS = ['warranties', 'inspections', 'documents', 'ahj', 'utilities', 'vendors', 'vservice', 'odometer', 'vdocs', 'maintenance'];
+  // What Delete Forever's ask names (Neil, Oct 30 2026 - hold to confirm).
+  const recordsOf = (id) => PURGE_COLLECTIONS.reduce((n, coll) => n + (store[coll] || []).filter((r) => r.propertyId === id).length, 0);
   const purgeAsset = (id) => setStore((s) => {
     const next = { ...s, properties: s.properties.filter((p) => p.id !== id), logs: (s.logs || []).filter((l) => l.propertyId !== id) };
-    for (const coll of ['warranties', 'inspections', 'documents', 'ahj', 'utilities', 'vendors', 'vservice', 'odometer', 'vdocs', 'maintenance']) {
+    for (const coll of PURGE_COLLECTIONS) {
       next[coll] = (s[coll] || []).filter((r) => r.propertyId !== id);
     }
     return next;
@@ -947,7 +950,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         </div>
       )}
       {view === 'portfolio' && !active && panel === 'trash' && (
-        <TrashPanel deleted={deletedProperties} onRecover={recoverAsset} onPurge={purgeAsset} onClose={() => setPanel(null)} />
+        <TrashPanel deleted={deletedProperties} onRecover={recoverAsset} onPurge={purgeAsset} recordsOf={recordsOf} onClose={() => setPanel(null)} />
       )}
       {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} metrics={metrics} />}
 

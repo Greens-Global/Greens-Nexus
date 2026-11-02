@@ -3,14 +3,6 @@ the old start.greensglobal.com launchpad, which is company-wide, unstyled, and
 department-scoped only by a raw dropdown). This owns models.ExternalLink end
 to end.
 
-NOTE for whoever touches backend/routers/assets.py next: that file still has a
-leftover stub /external-links GET/POST/click trio from before this module was
-built out. This router is the real implementation (full CRUD, department
-scoping, ordering, audit trail) and registers its own routes - do not restore
-the assets.py stub, and remove it there next time that file is touched (it is
-Ankush's file, not this module's, so it's left alone here rather than edited
-in place).
-
 Read is baseline for every employee (App.jsx treats external-links as a
 baseline module like sop). Managing entries (create/edit/delete/reorder)
 requires manager+ globally OR an Access Group grant of "external-links" at

@@ -10,7 +10,7 @@ import { Avatar, AvatarName } from '../tasks/components';
 // the claims waiting on a decision, oldest first, and the last 60 days of
 // decisions. Approve (all or fewer of the hours) or decline with a reason -
 // the time sheet cannot be approved while a claim of its month is pending.
-// The server decides who may decide (HR, the HR contact, a Global Admin -
+// The server decides who may decide (HR, the HR contact, a Super Administrator -
 // never on their own claim).
 export default function ExtraTimeQueue({ toastOk, toastErr, onOpenTimecard, onChanged }) {
   const [data, setData] = useState(null);

@@ -6,7 +6,7 @@
 // Budgets are set ~15% above the Aug 2026 baseline. If you hit one honestly
 // (a genuinely needed dependency), raise it deliberately in this file in the
 // same PR - the point is that growth is a decision, not an accident.
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -325,7 +325,25 @@ const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE
 // so the second to merge does not conflict. App code only, no new
 // dependency. Pranshu asked for the raise on 10/30 (needs Neil's OK with
 // the release, as every raise here has).
-const TOTAL_KB     = 16200 + (NX_SRC_ON ? 350 : 0);
+// Nov 2, 2026: 16200 -> 19200. The Notes whiteboard (Boards) brings the
+// Excalidraw engine (@excalidraw/excalidraw 0.18.1, MIT): about 2.7 MB of
+// JavaScript in ONE lazy chunk, vendor-excalidraw, imported only when a board
+// opens - first paint is unchanged - plus its own CSS. This cap sums every
+// shipped file, so a lazy chunk still counts; the raise is the engine's real
+// size and nothing else. Its 60 locale files and its Mermaid text-to-diagram
+// dependency (2.5 MB more, which would have landed in vendor-react) are
+// stubbed at build time (vite.config.js excalidrawLocaleStub), so only
+// English ships. Measured 11/02/2026 with a board reachable: vendor-excalidraw
+// 2,961 KB, vendor-react unchanged at 827 KB, total 18,742 KB. Neil chose the
+// engine over tldraw (paid license) and over a homegrown canvas, and chose
+// this raise over hosting the engine as a separate iframe app, on 11/02/2026.
+// Nov 2, 2026 (later): 19200 -> 19600. Forms & Checklists (Neil, 11/02/2026):
+// the fill screen (FillForm, lazy, ~25 KB), the Documents > Forms tab (lazy)
+// and jsqr (vendor-jsqr, 130 KB, loaded ONLY when someone scans a QR code on
+// a phone without BarcodeDetector - iPhone Safari). Every byte is lazy: first
+// paint is unchanged (2,806 KB, FIRST_PAINT_KB below guards it). Measured with
+// the CI's build values: 19,292 KB. Raised with Neil's "merge all" OK.
+const TOTAL_KB     = 19600 + (NX_SRC_ON ? 350 : 0);
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a
@@ -337,10 +355,34 @@ const CHUNK_EXEMPT = {
   // Aug 4, 2026 - if this grows, prefer converting HEIC server-side (pillow +
   // pillow-heif) over raising this number again.
   'vendor-heic': 1400,
+  // vendor-react is the catch-all for every node_modules file no other rule
+  // names (vite.config.js). 11/02/2026: the whiteboard engine's shared
+  // dependencies (@radix-ui, @floating-ui, zustand, jotai, tslib...) landed
+  // here once the engine lost its manual chunk. The engine-ONLY libraries are
+  // now kept out of the catch-all (vite.config.js) and ride its lazy chunk;
+  // what remains is what the engine shares with the app (@floating-ui,
+  // tslib, clsx...). Measured 11/02/2026 with the CI's Supabase values:
+  // 1,034 KB (1,192 KB before the engine-only list). Accepted for the 2.6 MB
+  // first-paint win the change made.
+  'vendor-react': 1100,
+  // The whiteboard engine (Notes boards) has no manual chunk since 11/02/2026
+  // (see vite.config.js); rolldown's own split is excalidraw-nx2-* at about
+  // 540 KB, under the ordinary cap, and the first-paint guard below is what
+  // keeps it off the entry.
 };
-const capFor = (file) => {
+// Exemptions by CONTENT, for chunks rolldown names by hash. The whiteboard
+// engine's font subsetting payload (a harfbuzz build plus woff2 tables as
+// base64, about 1.8 MB) is reached only from the engine's own export code,
+// two dynamic imports deep, never on first paint (the guard below proves it).
+const CONTENT_EXEMPT = [
+  { why: 'whiteboard engine font subsetting (harfbuzz + woff2)', cap: 2000,
+    test: (src) => /harfbuzz/.test(src) && /woff2/.test(src) },
+];
+const capFor = (file, src = '') => {
   const hit = Object.keys(CHUNK_EXEMPT).find((k) => file.startsWith(k));
-  return hit ? CHUNK_EXEMPT[hit] : PER_CHUNK_KB;
+  if (hit) return CHUNK_EXEMPT[hit];
+  const byContent = CONTENT_EXEMPT.find((e) => e.test(src));
+  return byContent ? byContent.cap : PER_CHUNK_KB;
 };
 
 let total = 0;
@@ -349,11 +391,37 @@ for (const f of readdirSync(DIST)) {
   if (!f.endsWith('.js')) continue;
   const kb = statSync(join(DIST, f)).size / 1024;
   total += kb;
-  const cap = capFor(f);
+  const cap = capFor(f, kb > PER_CHUNK_KB ? readFileSync(join(DIST, f), 'utf8') : '');
   if (kb > cap) offenders.push(`${f}: ${Math.round(kb)} KB (budget ${cap} KB)`);
 }
 
 if (total > TOTAL_KB) offenders.push(`TOTAL JS: ${Math.round(total)} KB (budget ${TOTAL_KB} KB)`);
+
+// First-paint budget (11/02/2026): everything the entry imports STATICALLY,
+// followed through every chunk it reaches the same way, is what every person
+// downloads before Nexus draws anything. A lazy chunk that gets pulled into
+// that graph by a shared dependency ships on first paint even though its
+// size looks fine above - the whiteboard engine did exactly that (5,448 KB
+// first paint with its manual chunk, 2,628 KB without). `from "./x.js"` and
+// `import "./x.js"` are static; an import() or a preload list is not.
+const FIRST_PAINT_KB = 3000;
+const jsFiles = readdirSync(DIST).filter((f) => f.endsWith('.js'));
+const srcOf = Object.fromEntries(jsFiles.map((f) => [f, readFileSync(join(DIST, f), 'utf8')]));
+const staticImports = (f) => {
+  const out = new Set(); const re = /(?:from|import)\s*["']\.\/([^"']+\.js)["']/g; let m;
+  while ((m = re.exec(srcOf[f]))) out.add(m[1]);
+  return [...out];
+};
+const entry = jsFiles.find((f) => /^index-.*\.js$/.test(f));
+if (entry) {
+  const seen = new Set([entry]); const queue = [entry];
+  while (queue.length) { const f = queue.pop(); for (const d of staticImports(f)) if (srcOf[d] && !seen.has(d)) { seen.add(d); queue.push(d); } }
+  const firstPaint = [...seen].reduce((a, f) => a + statSync(join(DIST, f)).size / 1024, 0);
+  const engine = [...seen].find((f) => /excalidraw/.test(f));
+  if (engine) offenders.push(`FIRST PAINT pulls the whiteboard engine in statically (${engine}) - see vite.config.js`);
+  if (firstPaint > FIRST_PAINT_KB) offenders.push(`FIRST PAINT JS: ${Math.round(firstPaint)} KB over ${seen.size} chunks (budget ${FIRST_PAINT_KB} KB)`);
+  console.log(`first paint: ${Math.round(firstPaint)} KB over ${seen.size} chunks (cap ${FIRST_PAINT_KB} KB)`);
+}
 
 if (offenders.length) {
   console.error('\nBundle budget exceeded:');

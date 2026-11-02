@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { generateJSON } from '@tiptap/core';
-import { Search, Loader2, FilePlus2, Copy, Archive, RotateCcw, Trash2, FileText, Folder, FolderPlus, Tag, X, Pencil, PenTool, Upload, Cloud, Download } from 'lucide-react';
+import { Search, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -11,34 +11,33 @@ import { uploadToSupabase } from '../lib/docBuilderUpload';
 import AsyncSection, { SkeletonBlocks } from './AsyncState';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import TypedFieldInput from './TypedFieldInput';
+import DocumentSidePanel, { StatusWord } from './DocumentSidePanel';
+import { PersonSelect } from '../tasks/components';
+import { takePendingOpen } from '../lib/pendingOpen';
+import { useIsMobile } from '../lib/useIsMobile';
+import { VIEWS, folderKey, mergeRows, rowFor, rowStatus, rowsInView, searchRows, sortRows, startView } from '../lib/documentLibrary';
 import { validateFieldValue, formatFieldValue, RESERVED_TYPES, isAutoToken } from '../lib/mergeFieldTypes';
 
-// ── My Documents (Phase 1 browse/organize, Phase 2 adds the editor) ─────────
-// Folder browse + search/status filter + draft/library list. "Edit" opens
-// DocumentBuilder in place - same "replace the tab content" convention
-// ESign.jsx uses for SignModal/SendWizard (a plain early return, not a portal).
-const DOC_STATUS = {
-  draft:    { label: 'Draft',    fg: 'hsl(var(--color-blue))',   bg: 'hsla(var(--color-blue),0.12)' },
-  final:    { label: 'Final',    fg: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)' },
-  archived: { label: 'Archived', fg: 'var(--muted)',             bg: 'var(--mist)' },
-};
-// Mirrors ESign.jsx's REQ_STATUS color convention (Phase 5) - duplicated
-// locally per the module's established pattern of not reaching into ESign.jsx.
-const SIGN_STATUS = {
-  pending:   { label: 'Awaiting signatures', fg: 'hsl(var(--color-orange))', bg: 'hsla(var(--color-orange),0.12)' },
-  completed: { label: 'Signed',              fg: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)' },
-  declined:  { label: 'Declined',            fg: 'hsl(var(--color-red))',    bg: 'hsla(var(--color-red),0.12)' },
-  voided:    { label: 'Voided',              fg: 'var(--muted)',             bg: 'var(--mist)' },
-  expired:   { label: 'Expired',             fg: 'var(--muted)',             bg: 'var(--mist)' },
-};
+// ── The library (Neil, 10/31/2026) ───────────────────────────────────────────
+// One list of every document and envelope the caller may see, with who it is
+// for and where it stands (lib/documentLibrary.js); a row opens beside the list
+// (DocumentSidePanel.jsx). Editing opens DocumentBuilder in place - same "replace
+// the tab content" convention ESign.jsx uses (a plain early return, not a portal).
+// Nexus Sign stays its own tab, as Neil decided; this list reads its status.
 
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const cardStyle = { background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)' };
 
-function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
+// Use Template on the Templates tab opens this too, with the template picked.
+export function CreateDocModal({ folders = [], employees = [], entities = [], initialTemplateId = '', onClose, onCreated, toastErr }) {
   const [title, setTitle] = useState('');
+  const [titleTyped, setTitleTyped] = useState(false);
   const [folderId, setFolderId] = useState('');
-  const [templateId, setTemplateId] = useState('');
+  const [templateId, setTemplateId] = useState(initialTemplateId);
+  // Who the document is about and for which company: what tells two letters with
+  // the same title apart, and what its merge fields fill in from.
+  const [personEmail, setPersonEmail] = useState(null);
+  const [entityId, setEntityId] = useState('');
   const [templates, setTemplates] = useState([]);
   const [importFile, setImportFile] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -55,6 +54,25 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
 
   useEffect(() => { api.getDocTemplates({ status: 'active' }).then(setTemplates).catch(() => setTemplates([])); }, []);
 
+  const people = useMemo(() => {
+    const seen = new Set();
+    return employees.map(e => {
+      let email = (e.workEmail || '').toLowerCase();
+      if (!email || seen.has(email)) email = `id:${e.id}`.toLowerCase();
+      seen.add(email);
+      return { id: e.id, email, company: e.company || '', name: `${e.firstName || ''} ${e.lastName || ''}`.trim() || e.workEmail || e.id };
+    });
+  }, [employees]);
+  const person = people.find(p => p.email === personEmail) || null;
+  const template = templates.find(t => t.id === templateId) || null;
+  const suggestedTitle = template ? (person ? `${template.name} - ${person.name}` : template.name) : '';
+  const shownTitle = titleTyped ? title : (suggestedTitle || title);
+  const pickPerson = (email) => {
+    setPersonEmail(email);
+    const company = people.find(p => p.email === email)?.company;
+    if (company && entities.some(x => x.id === company)) setEntityId(company);
+  };
+
   useEffect(() => {
     setFillValues({}); setFillErrors({});
     if (!templateId) { setFieldDefs([]); return; }
@@ -64,7 +82,7 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
     // is exactly the manual work this module exists to remove, and a
     // hand-typed one can be wrong.
     api.getDocTemplate(templateId)
-      .then(t => setFieldDefs((t.fieldDefs || []).filter(fd => !isAutoToken(fd.token))))
+      .then(t => setFieldDefs((t.releasedFieldDefs || t.fieldDefs || []).filter(fd => !isAutoToken(fd.token))))
       .catch(() => setFieldDefs([]));
   }, [templateId]);
 
@@ -82,7 +100,7 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
     setImportFile(file);
     setTemplateId('');
     setFieldDefs([]); setFillValues({}); setFillErrors({});
-    if (!title.trim()) setTitle(file.name.replace(/\.[^.]+$/, ''));
+    if (!shownTitle.trim()) { setTitle(file.name.replace(/\.[^.]+$/, '')); setTitleTyped(true); }
   };
 
   const onPickImportFile = (e) => {
@@ -97,7 +115,7 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
   };
 
   const create = async () => {
-    if (!title.trim()) return;
+    if (!shownTitle.trim()) return;
     // Required-field guard mirrors the server's own check (documents.py
     // create_document) - client-side so the user sees it inline instead of
     // a rejected request, not a substitute for it.
@@ -118,7 +136,9 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
           .map(fd => [fd.token, formatFieldValue(fd, fillValues[fd.token])])
       );
       created = await api.createDocument({
-        title: title.trim(), folderId, templateId: importFile ? '' : templateId,
+        title: shownTitle.trim(), folderId, templateId: importFile ? '' : templateId,
+        ...(person ? { employeeId: person.id } : {}),
+        ...(entityId ? { entityId } : {}),
         ...(Object.keys(fillPayload).length ? { fillValues: fillPayload } : {}),
       });
       if (importFile) {
@@ -152,8 +172,8 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Title</label>
-            <input className="form-input" style={{ width: '100%' }} autoFocus value={title}
-              onChange={e => setTitle(e.target.value)} placeholder="e.g. Q3 Vendor Agreement"
+            <input className="form-input" style={{ width: '100%' }} autoFocus value={shownTitle}
+              onChange={e => { setTitle(e.target.value); setTitleTyped(true); }} placeholder="e.g. Q3 Vendor Agreement"
               onKeyDown={e => e.key === 'Enter' && create()} />
           </div>
           <div>
@@ -171,6 +191,27 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
               {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
+
+          {(people.length > 0 || entities.length > 0) && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+              {people.length > 0 && (
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>For (optional)</label>
+                  <PersonSelect value={personEmail} onChange={pickPerson} people={people} placeholder="Nobody in particular" noneLabel="Nobody in particular" ariaLabel="Who this document is for"
+                    style={{ height: 36, padding: '0 13px', borderRadius: 10, fontSize: 12.5, fontWeight: 400 }} />
+                </div>
+              )}
+              {entities.length > 0 && (
+                <div>
+                  <label htmlFor="new-doc-company" style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Company (optional)</label>
+                  <select id="new-doc-company" className="form-input" style={{ width: '100%' }} value={entityId} onChange={e => setEntityId(e.target.value)}>
+                    <option value="">None</option>
+                    {entities.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
 
           {fieldDefs.length > 0 && !importFile && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, border: '1px solid var(--line)', borderRadius: 10, padding: 12 }}>
@@ -213,13 +254,13 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
             <input ref={importInputRef} type="file" accept=".docx,.doc,.pdf,.txt" onChange={onPickImportFile} style={{ display: 'none' }} />
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-            Opens straight into the editor once created.
+            {templateId && !importFile ? 'Made from the published wording. It opens beside the list, ready to send.' : 'Opens straight into the editor once created.'}
           </div>
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-          <button className="primary-btn" disabled={!title.trim() || busy} onClick={create} style={{ opacity: (!title.trim() || busy) ? 0.6 : 1 }}>
-            {busy ? (importFile ? 'Importing…' : 'Creating…') : 'Create Draft'}
+          <button className="primary-btn" disabled={!shownTitle.trim() || busy} onClick={create} style={{ opacity: (!shownTitle.trim() || busy) ? 0.6 : 1 }}>
+            {busy ? (importFile ? 'Importing…' : 'Creating…') : (templateId && !importFile ? 'Make Document' : 'Create Draft')}
           </button>
         </div>
       </div>
@@ -339,14 +380,17 @@ function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
   );
 }
 
-export default function DocumentsBrowser({ openCreateSignal, employees = [], entities = [], toastOk, toastErr }) {
+export default function DocumentsBrowser({ openCreateSignal, initialView = '', employees = [], entities = [], toastOk, toastErr }) {
+  const isMobile = useIsMobile();
   const [folders, setFolders] = useState([]);
-  const [docs, setDocs] = useState(null);
-  const [folderId, setFolderId] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [rows, setRows] = useState(null);
+  const [loadError, setLoadError] = useState('');
+  const [hrAccess, setHrAccess] = useState(false);
+  const [view, setView] = useState(initialView);
+  const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
+  const [sort, setSort] = useState({ key: 'updatedAt', dir: 'desc' });
   const [createOpen, setCreateOpen] = useState(false);
-  const [busyId, setBusyId] = useState('');
   const [editingDoc, setEditingDoc] = useState(null);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [organizeDoc, setOrganizeDoc] = useState(null);
@@ -356,39 +400,48 @@ export default function DocumentsBrowser({ openCreateSignal, employees = [], ent
   const { can } = useRole();
   const canAddFolder = can('administrator');
 
-  const load = () => {
-    api.getDocuments({ ...(folderId ? { folder_id: folderId } : {}), ...(statusFilter !== 'all' ? { status: statusFilter } : {}), ...(search.trim() ? { q: search.trim() } : {}) })
-      .then(setDocs).catch(() => setDocs([]));
+  const load = async () => {
+    // HR Records answers only for whoever may read People; the server is the gate.
+    // Form entries (Neil, 11/02/2026): the viewer's reach, first page - the
+    // whole list with its filters is Documents > Forms > Entries.
+    const [library, hr, forms] = await Promise.all([
+      api.getDocumentLibrary().then((r) => { setLoadError(''); return r; })
+        .catch((e) => { setLoadError(e?.message || 'Could not load documents.'); return []; }),
+      api.listPacketDocuments({}).then((r) => { setHrAccess(true); return r; })
+        .catch(() => { setHrAccess(false); return []; }),
+      Promise.resolve().then(() => api.getFormEntries({ page: 1 })).then((r) => (Array.isArray(r?.items) ? r.items : [])).catch(() => []),
+    ]);
+    const merged = mergeRows(library, hr, forms);
+    setRows(merged);
+    setView((v) => v || startView(merged));
+    // A document just made from a template lands here, open beside the list.
+    const opened = takePendingOpen('document');
+    if (opened) { setView('all'); setSelectedId(opened); }
   };
 
+  useEffect(() => { load(); }, []);
   useEffect(() => { api.getDocFolders().then(setFolders).catch(() => setFolders([])); }, []);
-  useEffect(() => { load(); }, [folderId, statusFilter, search]);
   useEffect(() => { if (openCreateSignal) setCreateOpen(true); }, [openCreateSignal]);
 
-  // The sealed PDF of an executed envelope, fetched through the authenticated
-  // client and saved. Party-scoped on the server: it is the same file everyone
-  // on the envelope was emailed when it completed.
-  const downloadSigned = async (d) => {
-    setBusyId(d.id);
-    try {
-      const { blob, filename } = await api.mySignFinal(d.partyId);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename || `${d.title.replace(/[^\w .-]/g, '')}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } catch (e) {
-      toastErr?.(e.message || 'Could not download that copy.');
-    }
-    setBusyId('');
-  };
+  const all = useMemo(() => rows || [], [rows]);
+  const visible = useMemo(() => sortRows(searchRows(rowsInView(all, view), search, folders), sort.key, sort.dir),
+    [all, view, search, folders, sort]);
+  const selected = selectedId ? all.find((r) => r.id === selectedId) : null;
+  const views = VIEWS.filter((v) => (!v.hrOnly || hrAccess) && (!v.formsOnly || all.some((r) => r.kind === 'form_entry')));
+  const countOf = (key) => rowsInView(all, key).length;
+  const viewEmpty = VIEWS.find((v) => v.key === view)?.empty || 'This folder is empty.';
 
-  const act = (id, fn, okMsg) => {
-    setBusyId(id);
-    fn(id).then(() => { toastOk?.(okMsg); load(); }).catch(e => toastErr?.(e.message || 'Action failed')).finally(() => setBusyId(''));
+  const pickView = (key) => { setView(key); setSelectedId(''); };
+  const sortBy = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'updatedAt' ? 'desc' : 'asc' }));
+
+  // Arrow keys step the list, Enter opens, Escape closes - the Tickets desk's habit.
+  const onRowKey = (e, row) => {
+    if (e.key === 'Enter') { e.preventDefault(); setSelectedId(row.id); return; }
+    if (e.key === 'Escape') { setSelectedId(''); return; }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const next = e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
+    if (next) { next.focus(); if (selectedId) setSelectedId(next.dataset.row); }
   };
 
   if (editingDoc) return (
@@ -396,127 +449,116 @@ export default function DocumentsBrowser({ openCreateSignal, employees = [], ent
       onClose={() => { setEditingDoc(null); load(); }} />
   );
 
+  const columns = [['title', 'Name'], ['for', 'For'], ['status', 'Status'], ['company', 'Company'], ['updatedAt', 'Updated']];
+
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: '0 1 200px', minWidth: 150 }}>
-          <Folder size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
-          <select className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30, fontWeight: 600 }}
-            value={folderId} onChange={e => setFolderId(e.target.value)}>
-            <option value="">All Folders</option>
-            {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-          </select>
-        </div>
+    <div className={`nx-dl${selected ? ' nx-dl-open' : ''}`}>
+      <nav className="nx-dl-rail" aria-label="Document views">
+        {views.map((v) => (
+          <button key={v.key} type="button" className={view === v.key ? 'on' : ''} aria-current={view === v.key ? 'true' : undefined} onClick={() => pickView(v.key)}>
+            <span>{v.label}</span><span className="nx-dl-count">{countOf(v.key)}</span>
+          </button>
+        ))}
+        {(folders.length > 0 || canAddFolder) && <div className="nx-dl-rail-head">Folders</div>}
+        {folders.filter((f) => f.name !== 'Archived' || countOf(folderKey(f.id)) > 0).map((f) => (
+          <button key={f.id} type="button" className={view === folderKey(f.id) ? 'on' : ''} aria-current={view === folderKey(f.id) ? 'true' : undefined} onClick={() => pickView(folderKey(f.id))}>
+            <span>{f.name}</span><span className="nx-dl-count">{countOf(folderKey(f.id))}</span>
+          </button>
+        ))}
         {canAddFolder && (
-          <button title="New Folder" onClick={() => setNewFolderOpen(true)}
-            style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', flexShrink: 0 }}>
-            <FolderPlus size={14} /> New Folder
+          <button type="button" className="nx-dl-rail-add" title="New Folder" onClick={() => setNewFolderOpen(true)}>
+            <FolderPlus size={14} /> <span>New Folder</span>
           </button>
         )}
-        <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
-          {[['all', 'All'], ['draft', 'Drafts'], ['final', 'Final'], ['archived', 'Archived']].map(([v, l]) => (
-            <button key={v} onClick={() => setStatusFilter(v)}
-              style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', cursor: 'pointer', whiteSpace: 'nowrap', border: '1px solid var(--line)', background: statusFilter === v ? 'var(--ink)' : 'transparent', color: statusFilter === v ? 'var(--card)' : 'var(--muted)' }}>
-              {l}
-            </button>
-          ))}
+      </nav>
+
+      <div className="nx-dl-main">
+        <div className="nx-dl-tools">
+          <div className="nx-dl-search">
+            <Search size={14} aria-hidden="true" />
+            <input className="form-input" placeholder="Search by title, person, signer or tag" aria-label="Search documents"
+              value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+          <button type="button" className="secondary-btn" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-send' } }))}>
+            Send For Signature
+          </button>
+          <button type="button" className="primary-btn" data-tour="documents-new-document" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <FilePlus2 size={14} /> New Document
+          </button>
         </div>
-        <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320, marginLeft: 'auto' }}>
-          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-          <input className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }}
-            placeholder="Search title…" value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
-        <button className="primary-btn" data-tour="documents-new-document" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
-          <FilePlus2 size={13} /> New Document
-        </button>
+
+        <AsyncSection
+          loading={!rows}
+          error={!!loadError && !all.length}
+          errorMessage={loadError}
+          isEmpty={!!rows && visible.length === 0}
+          skeleton={<SkeletonBlocks count={6} height={44} />}
+          emptyContent={
+            <div className="nx-dl-empty">
+              <FileText size={32} aria-hidden="true" />
+              <p>{search.trim() ? 'Nothing matches that search.' : viewEmpty}</p>
+              {!search.trim() && view !== 'needs' && view !== 'hr' && (
+                <button type="button" className="primary-btn" onClick={() => setCreateOpen(true)}>New Document</button>
+              )}
+            </div>
+          }
+        >
+          {isMobile ? (
+            <div className="nx-dl-cards">
+              {visible.slice(0, 500).map((r) => (
+                <button key={r.id} type="button" className="nx-dl-card" onClick={() => setSelectedId(r.id)}>
+                  <strong>{r.title}</strong>
+                  {rowFor(r) && <span className="nx-dl-muted">{rowFor(r)}</span>}
+                  <span className="nx-dl-card-foot"><StatusWord status={rowStatus(r)} /><span className="nx-dl-muted">{formatDate(r.updatedAt)}</span></span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="nx-dl-table">
+              <table>
+                <thead>
+                  <tr>
+                    {columns.map(([key, label]) => (
+                      <th key={key} className={key === 'company' ? 'nx-dl-co' : undefined} aria-sort={sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}>
+                        <button type="button" onClick={() => sortBy(key)}>
+                          {label}{sort.key === key && (sort.dir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
+                        </button>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.slice(0, 500).map((r) => (
+                    <tr key={r.id} data-row={r.id} tabIndex={0} className={selectedId === r.id ? 'sel' : ''} aria-selected={selectedId === r.id}
+                      onClick={() => setSelectedId(r.id)} onKeyDown={(e) => onRowKey(e, r)}>
+                      <td className="nx-dl-name">{r.title}</td>
+                      <td className="nx-dl-for">{rowFor(r) || '-'}</td>
+                      <td><StatusWord status={rowStatus(r)} /></td>
+                      <td className="nx-dl-co">{r.company || '-'}</td>
+                      <td className="nx-dl-date">{formatDate(r.updatedAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {visible.length > 500 && <p className="nx-dl-muted" style={{ marginTop: 10 }}>Showing the newest 500. Search to find the rest.</p>}
+        </AsyncSection>
       </div>
 
-      <AsyncSection
-        loading={!docs}
-        isEmpty={!!docs && docs.length === 0}
-        skeleton={<div style={{ padding: '4px 0' }}><SkeletonBlocks count={6} height={56} /></div>}
-        emptyContent={
-          <div style={{ textAlign: 'center', padding: '52px 20px', color: 'var(--muted)' }}>
-            <FileText size={36} style={{ opacity: 0.3, marginBottom: 12 }} />
-            <p style={{ fontSize: 13.5, margin: '0 0 16px' }}>No documents match here yet.</p>
-            <button className="primary-btn" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FilePlus2 size={13} /> Create one</button>
-          </div>
-        }
-      >
-        {(docs || []).slice(0, 500).map(d => {
-        // An executed envelope, not an authored document: it has no versions
-        // to edit and no folder - the only thing to do with it is keep a copy
-        // (Sagar, Sep 22 2026).
-        const signedCopy = d.kind === 'signed';
-        const st = DOC_STATUS[d.status] || DOC_STATUS.draft;
-        const signSt = d.signRequestId ? SIGN_STATUS[d.signStatus] : null;
-        const folder = folders.find(f => f.id === d.folderId);
-        return (
-          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 16px', border: '1px solid var(--line)', borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
-            <FileText size={17} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-            <div style={{ flex: '1 1 160px', minWidth: 0 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                {signedCopy
-                  ? `Signed on Nexus Sign · ${formatDate(d.updatedAt)}`
-                  : `${folder ? folder.name : 'No folder'} · v${d.currentVersion} · updated ${formatDate(d.updatedAt)}`}
-              </div>
-              {(d.tags || []).length > 0 && (
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-                  {(d.tags || []).slice(0, 6).map(t => (
-                    <span key={t} style={{ padding: '1px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: 'var(--mist)', color: 'var(--muted)' }}>{t}</span>
-                  ))}
-                  {(d.tags || []).length > 6 && (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)' }}>+{d.tags.length - 6}</span>
-                  )}
-                </div>
-              )}
-            </div>
-            <span style={{ padding: '2px 9px', borderRadius: 12, fontSize: 10.5, fontWeight: 800, color: st.fg, background: st.bg, whiteSpace: 'nowrap' }}>{st.label}</span>
-            {signSt && (
-              <button title="View in Nexus Sign"
-                onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-requests' } }))}
-                style={{ padding: '2px 9px', borderRadius: 12, fontSize: 10.5, fontWeight: 800, color: signSt.fg, background: signSt.bg, whiteSpace: 'nowrap', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <PenTool size={10} /> {signSt.label}
-              </button>
-            )}
-            <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexShrink: 0 }}>
-              {signedCopy && (
-                <button title="Download the signed copy, with its Certificate of Completion"
-                  disabled={busyId === d.id} onClick={() => downloadSigned(d)}
-                  className="secondary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px' }}>
-                  <Download size={13} /> Download
-                </button>
-              )}
-              {!signedCopy && (<>
-              <button title="Edit" onClick={() => setEditingDoc(d.id)}
-                style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Pencil size={14} /></button>
-              <button title="Folder & Tags" onClick={() => setOrganizeDoc(d)}
-                style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Tag size={14} /></button>
-              <button title="Duplicate" disabled={busyId === d.id} onClick={() => act(d.id, api.duplicateDocument, 'Duplicated')}
-                style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Copy size={14} /></button>
-              {d.status === 'archived' ? (
-                <button title="Restore" disabled={busyId === d.id} onClick={() => act(d.id, api.restoreDocument, 'Restored')}
-                  style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><RotateCcw size={14} /></button>
-              ) : (
-                <button title="Archive" disabled={busyId === d.id} onClick={() => act(d.id, api.archiveDocument, 'Archived')}
-                  style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Archive size={14} /></button>
-              )}
-              {d.status === 'draft' && (
-                <button title="Delete" disabled={busyId === d.id} onClick={() => { if (window.confirm(`Delete "${d.title}"? This can't be undone.`)) act(d.id, api.deleteDocument, 'Deleted'); }}
-                  style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex', color: 'hsl(var(--color-red))' }}><Trash2 size={14} /></button>
-              )}
-              </>)}
-            </div>
-          </div>
-        );
-      })}
-      </AsyncSection>
+      {selected && (
+        <DocumentSidePanel key={selected.id} row={selected} folders={folders} toastOk={toastOk} toastErr={toastErr}
+          onClose={() => setSelectedId('')} onEdit={setEditingDoc} onOrganize={setOrganizeDoc} onChanged={load} />
+      )}
 
       {createOpen && (
-        <CreateDocModal folders={folders} toastErr={toastErr}
+        <CreateDocModal folders={folders} employees={employees} entities={entities} toastErr={toastErr}
           onClose={() => setCreateOpen(false)}
-          onCreated={(doc) => { toastOk?.('Draft created'); setEditingDoc(doc.id); }} />
+          onCreated={(doc) => {
+            toastOk?.(doc.status === 'final' ? 'Document made' : 'Draft created');
+            if (doc.status === 'final') { setView('all'); setSelectedId(doc.id); load(); }
+            else setEditingDoc(doc.id);
+          }} />
       )}
 
       {newFolderOpen && (

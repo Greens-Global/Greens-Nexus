@@ -156,7 +156,9 @@ class LayerFactTests(unittest.TestCase):
 # â”€â”€ The unit card: tenant, lease and tickets (Oct 20 2026) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 FAC = "fac_ESC"
-ADMIN = {"email": "neil@greensglobal.com", "role": "administrator", "level": 4}
+# A Super Administrator (Neil, 11/02/2026: an Administrator is company-walled;
+# only a Super Administrator passes the walls).
+ADMIN = {"email": "neil@greensglobal.com", "role": "owner", "level": 5}
 PLAIN = {"email": "darshana@greensglobal.com", "role": "employee", "level": 1}
 OPS = {"email": "ops@greensglobal.com", "role": "employee", "level": 1}
 PII = ("555-0100", "pat@example.com", "12 Elm St", "phone", "email", "address", "Elm")
@@ -251,7 +253,7 @@ class UnitCardEndpointTests(unittest.TestCase):
         for u in (ADMIN, PLAIN, OPS):
             self.db.add(models.NexusEmployee(id=u["email"], first_name=u["email"].split("@")[0], work_email=u["email"],
                                              status="active", identity_type="internal"))
-        self.db.add(models.NexusRole(email=ADMIN["email"], role="administrator"))
+        self.db.add(models.NexusRole(email=ADMIN["email"], role="owner"))
         self.db.add(models.NexusGroup(id="g-ops", name="Ops", allowed_modules="operations:viewer"))
         self.db.add(models.NexusGroupMember(group_id="g-ops", email=OPS["email"]))
         self.db.add(models.PropertyAsset(id="esc", name="Greens Storage Escondido", asset_type="Self-Storage", payload={"kind": "property"}))

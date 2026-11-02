@@ -9,7 +9,7 @@
 // "of what?" for it (see routers/dashboards.py DRILLABLE).
 import {
   CheckSquare, Clock, Ticket, BookOpen, Package, FileText, Monitor, HardHat,
-  Building2, Users, KeyRound, Landmark, Gauge,
+  Building2, Users, KeyRound, Landmark, Gauge, ClipboardList,
 } from 'lucide-react';
 
 export const TONE_COLOR = { critical: 'red', warning: 'orange', good: 'green', neutral: 'blue' };
@@ -26,6 +26,7 @@ export const MODULE_META = {
   knowledge_base:   { Icon: BookOpen,    color: 'purple' },
   operations:       { Icon: Package,     color: 'orange' },
   documents:        { Icon: FileText,    color: 'blue' },
+  forms:            { Icon: ClipboardList, color: 'blue' },
   it:               { Icon: Monitor,     color: 'blue' },
   construction:     { Icon: HardHat,     color: 'orange' },
   asset_management: { Icon: Building2,   color: 'green' },
@@ -64,11 +65,8 @@ const ACTIONS = {
     needs_attention: ['documents', 'documents-esign', 'Open Nexus Sign'],
     signed_7d: ['documents', 'documents-esign', 'Open Nexus Sign'],
   },
+  forms: { '*': ['documents', 'documents-forms', 'Open Forms'] },
   credential_vault: { pending_shares: ['credvault', 'approvals', 'Review Share Requests'] },
-  it: {
-    sites_down: ['it', 'it-websites', 'Open Websites'],
-    ssl_expiring: ['it', 'it-websites', 'Open Websites'],
-  },
   construction: { '*': ['ops', 'construction-dashboard', 'Open Construction'] },
   asset_management: { '*': ['property-asset', 'asset-portfolio', 'Open the Portfolio'] },
 };

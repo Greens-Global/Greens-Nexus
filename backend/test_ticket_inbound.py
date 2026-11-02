@@ -57,14 +57,15 @@ TASKS_BOX = "tasks@greensglobal.com"
 REQ = "req@greensglobal.com"
 RELAY = "req@greensg.onmicrosoft.com"
 AGENT = "agent@greensglobal.com"
-ADMIN = "admin@greensglobal.com"
+ADMIN = "admin@greensglobal.com"            # an Administrator: company-walled to co1 (11/02/2026)
+SUPER = "super@greensglobal.com"            # a Super Administrator: every company, the switch and the mailbox
 COLLEAGUE = "colleague@greensglobal.com"
 OTHER = "other@greensglobal.com"
 LEFT = "left@greensglobal.com"
 GUEST = "guest@partner.example"
 INDIA = "india@greensglobal.com"
 
-USERS = {REQ: 1, AGENT: 1, ADMIN: 4, COLLEAGUE: 1, OTHER: 1, LEFT: 1, GUEST: 1, INDIA: 1}
+USERS = {REQ: 1, AGENT: 1, ADMIN: 4, SUPER: 5, COLLEAGUE: 1, OTHER: 1, LEFT: 1, GUEST: 1, INDIA: 1}
 
 
 def _msg(**kw):
@@ -120,6 +121,7 @@ class _Base(unittest.TestCase):
         self.db.add(models.HrEntity(id="co2", name="Greens India"))
         for email, co, status, kind in ((REQ, "co1", "active", "internal"), (AGENT, "co1", "active", "internal"),
                                         (ADMIN, "co1", "active", "internal"),
+                                        (SUPER, "co1", "active", "internal"),
                                         (COLLEAGUE, "co1", "active", "internal"),
                                         (OTHER, "co1", "active", "internal"),
                                         (LEFT, "co1", "offboarded", "internal"),
@@ -128,6 +130,7 @@ class _Base(unittest.TestCase):
             self.db.add(models.NexusEmployee(id=gen_id(), work_email=email, first_name=email.split("@")[0].title(),
                                              last_name="Person", company=co, status=status, identity_type=kind))
         self.db.add(models.NexusRole(email=ADMIN, role="administrator"))
+        self.db.add(models.NexusRole(email=SUPER, role="owner"))
         self.db.add(models.NexusGroup(id="desk", name="Service Desk", allowed_modules="tickets:editor"))
         self.db.add(models.NexusGroupMember(group_id="desk", email=AGENT))
         self.db.add(models.HrDepartment(id="dIT", company_id="co1", name="IT"))
@@ -709,22 +712,32 @@ class OutboundAndSettingsTests(_Base):
     def test_the_tasks_mailbox_is_refused_on_save(self):
         for box in (TASKS_BOX, "Tasks+anything@greensglobal.com"):
             with self.subTest(box=box):
-                r = self.as_(ADMIN).put("/task-tickets/notify/settings", json={"inboundMailbox": box})
+                r = self.as_(SUPER).put("/task-tickets/notify/settings", json={"inboundMailbox": box})
                 self.assertEqual(r.status_code, 400, r.text)
                 self.assertIn("Tasks", r.json()["detail"])
         self.assertEqual(ticket_notify.get_settings(self.db)["inboundMailbox"], SUPPORT)
-        ok = self.as_(ADMIN).put("/task-tickets/notify/settings", json={"inboundMailbox": "Help@GreensGlobal.com"})
+        # An Administrator (level 4, walls off) may not move the mailbox - it
+        # is every company's (Neil, 11/02/2026); the Super Administrator may.
+        no = self.as_(ADMIN).put("/task-tickets/notify/settings", json={"inboundMailbox": "Help@GreensGlobal.com"})
+        self.assertEqual(no.status_code, 403, no.text)
+        self.assertEqual(ticket_notify.get_settings(self.db)["inboundMailbox"], SUPPORT)
+        ok = self.as_(SUPER).put("/task-tickets/notify/settings", json={"inboundMailbox": "Help@GreensGlobal.com"})
         self.assertEqual(ok.status_code, 200, ok.text)
         self.assertEqual(ok.json()["inboundMailbox"], "help@greensglobal.com")
 
     def test_a_default_department_must_be_that_companys(self):
-        bad = self.as_(ADMIN).put("/task-tickets/notify/settings",
+        bad = self.as_(SUPER).put("/task-tickets/notify/settings",
                                   json={"inboundDefaultDepartment": {"co1": "dIT2"}})
         self.assertEqual(bad.status_code, 400, bad.text)
-        ok = self.as_(ADMIN).put("/task-tickets/notify/settings",
+        ok = self.as_(SUPER).put("/task-tickets/notify/settings",
                                  json={"inboundDefaultDepartment": {"co1": "dIT", "co2": "dIT2", "co3": ""}})
         self.assertEqual(ok.status_code, 200, ok.text)
         self.assertEqual(ok.json()["inboundDefaultDepartment"], {"co1": "dIT", "co2": "dIT2"})
+        # The co1 Administrator (walls off) sets only co1's; co2's stays as it was.
+        mine = self.as_(ADMIN).put("/task-tickets/notify/settings",
+                                   json={"inboundDefaultDepartment": {"co1": "", "co2": ""}})
+        self.assertEqual(mine.status_code, 200, mine.text)
+        self.assertEqual(ticket_notify.get_settings(self.db)["inboundDefaultDepartment"], {"co2": "dIT2"})
 
     def test_a_department_deleted_since_does_not_block_the_save(self):
         self.db.query(models.HrDepartment).filter_by(id="dIT").delete()
@@ -779,19 +792,27 @@ class OutboundAndSettingsTests(_Base):
 
     def test_switching_on_needs_a_mailbox(self):
         ticket_notify.save_settings(self.db, {"inboundEnabled": False, "inboundMailbox": ""}, "test")
-        r = self.as_(ADMIN).put("/task-tickets/notify/settings", json={"inboundEnabled": True})
+        r = self.as_(SUPER).put("/task-tickets/notify/settings", json={"inboundEnabled": True})
         self.assertEqual(r.status_code, 400, r.text)
+        r = self.as_(ADMIN).put("/task-tickets/notify/settings", json={"inboundEnabled": True})
+        self.assertEqual(r.status_code, 403, "an Administrator never switches it, walls off or on")
 
     def test_the_log_is_for_supervisors(self):
         self.ingest(_msg())
         self.ingest(_msg(sender="stranger@evil.example"))
-        r = self.as_(ADMIN).get("/task-tickets/inbound/log")
+        r = self.as_(SUPER).get("/task-tickets/inbound/log")
         self.assertEqual(r.status_code, 200, r.text)
         body = r.json()
         self.assertEqual(body["total"], 2)
         created = next(x for x in body["rows"] if x["outcome"] == "created")
         self.assertTrue(created["ticketCode"])
-        self.assertEqual(self.as_(ADMIN).get("/task-tickets/inbound/log?outcome=refused").json()["total"], 1)
+        self.assertEqual(self.as_(SUPER).get("/task-tickets/inbound/log?outcome=refused").json()["total"], 1)
+        # The co1 Administrator (walls off) reads co1's rows - the unknown
+        # sender's refused row is a Super Administrator's only.
+        mine = self.as_(ADMIN).get("/task-tickets/inbound/log")
+        self.assertEqual(mine.status_code, 200, mine.text)
+        self.assertEqual(mine.json()["total"], 1)
+        self.assertEqual(self.as_(ADMIN).get("/task-tickets/inbound/log?outcome=refused").json()["total"], 0)
         self.assertIn(self.as_(REQ).get("/task-tickets/inbound/log").status_code, (401, 403))
 
 

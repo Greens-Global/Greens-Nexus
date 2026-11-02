@@ -252,7 +252,7 @@ class AnnouncementsTests(unittest.TestCase):
         self._as(ADMIN)
         r = self.client.get(f"/announcements/{a['id']}/reads")
         self.assertEqual(r.status_code, 200, r.text)
-        rows = r.json()
+        rows = r.json()["reads"]      # 11/02/2026: the route also returns notAcknowledged
         self.assertEqual([x["email"] for x in rows], [FIN, OPS])     # acknowledged first
         self.assertEqual(rows[0]["name"], "Fiona Fin")
         self.assertTrue(rows[0]["acknowledged_at"])

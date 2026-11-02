@@ -63,9 +63,12 @@ class TicketPropertyLinkTests(unittest.TestCase):
                   models.PropertyAsset, models.PropertyRecord, models.HrDepartment, models.NexusSetting,
                   models.CubbyFacility, models.CubbyUnit, models.SiteModelMarkup, models.NexusCounter):
             self.db.query(m).execution_options(include_deleted=True).delete()
+        # Everyone is in company c1 (the departments' company), so the tickets
+        # they file land there and the Administrator - company-walled since
+        # 11/02/2026 (Neil) - reaches them.
         for u in (ADMIN, PLAIN, SUPER, OPS):
             self.db.add(models.NexusEmployee(id=gen_id(), first_name=u["email"].split("@")[0], work_email=u["email"],
-                                             status="active", identity_type="internal"))
+                                             status="active", identity_type="internal", company="c1"))
         self.db.add(models.NexusRole(email=ADMIN["email"], role="administrator"))
         self.db.add(models.NexusGroup(id="g-ops", name="Ops", allowed_modules="operations:viewer"))
         self.db.add(models.NexusGroupMember(group_id="g-ops", email=OPS["email"]))

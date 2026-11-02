@@ -21,6 +21,7 @@ from typing import Optional
 
 import models
 from workflows import catalog, validate
+from workflows.shape import shape_of
 
 STATUSES = ("draft", "active", "paused", "needs_attention", "archived")
 RUN_STATUSES = ("running", "waiting", "succeeded", "failed", "skipped", "cancelled", "test")
@@ -504,6 +505,9 @@ def serialize(db, wf: models.Workflow, *, full: bool = False) -> dict:
         "createdAt": wf.created_at or "", "createdBy": wf.created_by or "",
         "hasDraft": isinstance(wf.draft, dict),
         "companyEnabled": _company_enabled(db, wf.company_id or ""),
+        # the canvas silhouette for the list's thumbnails (workflows/shape.py);
+        # shape_of reads only `steps`, so no normalize_definition deep copy here
+        "shape": shape_of(wf.draft if isinstance(wf.draft, dict) else {"steps": wf.steps}),
     }
     if full:
         out["definition"] = definition_of(wf)
@@ -539,12 +543,28 @@ def run_steps(db, run: models.WorkflowRun) -> list:
             .order_by(models.WorkflowRunStep.started_at, models.WorkflowRunStep.id).all())
 
 
-def _viewer_payload(db, viewer, ent, payload: dict) -> dict:
+# What a run's `extra` keeps for a viewer who may not see its record: the
+# form's title and a review's decision - never the answers (a form entry's
+# `extra` is its answers FLAT, routers/forms.py).
+_EXTRA_WITHOUT_SIGHT = ("form", "decision")
+
+
+def _viewer_payload(db, viewer, ent, payload: dict, row=None) -> dict:
     """The event payload as `viewer` may see it: a registered field hidden
     from them (hr / comp) is dropped from "subject" and "changes" - the
     outbox keeps only public fields already (emit.payload_for), this is the
-    second guard on the way out. No viewer = the public fields only."""
+    second guard on the way out. No viewer = the public fields only.
+    When the entity keeps its records to their people (`visible_to`) and
+    `viewer` may not see this one (`row`, None = gone), `extra` keeps only
+    `_EXTRA_WITHOUT_SIGHT` - the same row check the event picker makes."""
     out = dict(payload or {})
+    if ent is not None and ent.visible_to is not None and isinstance(out.get("extra"), dict):
+        try:
+            sees = row is not None and ent.can_see(db, viewer, row)
+        except Exception:   # noqa: BLE001 - a check that cannot run is no sight
+            sees = False
+        if not sees:
+            out["extra"] = {k: v for k, v in out["extra"].items() if k in _EXTRA_WITHOUT_SIGHT}
     for part in ("subject", "changes"):
         src = out.get(part)
         if not isinstance(src, dict):
@@ -574,6 +594,7 @@ def _viewer_trace(db, viewer, ent, trace: list) -> list:
 def serialize_run(db, run: models.WorkflowRun, *, steps: bool = False, viewer: Optional[dict] = None) -> dict:
     ent = catalog.ENTITIES.get(run.entity or "")
     link = {}
+    row = None
     if ent is not None and run.subject_id:
         try:
             row = ent.load_row(db, run.subject_id)
@@ -597,6 +618,7 @@ def serialize_run(db, run: models.WorkflowRun, *, steps: bool = False, viewer: O
         out["steps"] = [_step_out(r) for r in rows if r.kind != "conditions"]
         ev = db.get(models.WorkflowEvent, run.event_id) if run.event_id else None
         out["event"] = ({"id": ev.id, "key": ev.key, "at": ev.at, "actor": ev.actor,
-                         "payload": _viewer_payload(db, viewer, ent, ev.payload if isinstance(ev.payload, dict) else {})}
+                         "payload": _viewer_payload(db, viewer, ent, ev.payload if isinstance(ev.payload, dict) else {},
+                                                    row=row)}
                         if ev else None)
     return out

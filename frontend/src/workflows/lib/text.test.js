@@ -181,7 +181,7 @@ describe('describeWorkflow', () => {
       '  If Approve',
       '    Stop',
       '  If nobody answers',
-      "    Send Notification to the Global Admins: 'No answer'",
+      "    Send Notification to the Super Administrators: 'No answer'",
       'For each of Direct Reports',
       '  Stop',
       'If a step fails',

@@ -66,7 +66,12 @@ describe('Reimbursements', () => {
     expect(screen.getByRole('button', { name: 'New Reimbursement' }).textContent.trim()).toBe('New');
     expect(screen.queryByRole('button', { name: /Manage/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /New Reimbursement/ }));
-    expect(screen.getByRole('dialog', { name: 'Reimbursements' }).style.width).toBe('85vw');   // the Workday popups' 85% (CLAUDE.md)
+    const panel = screen.getByRole('dialog', { name: 'Reimbursements' });
+    expect(panel.style.width).toBe('85vw');   // the Workday popups' 85% (CLAUDE.md)
+    // ...as a sheet from the right (Neil, 11/01/2026): full height, rounded where it meets the page.
+    expect(panel.className).toContain('nx-sheet-right');
+    expect(panel.style.height).toBe('100%');
+    expect(panel.style.borderRadius).toBe('16px 0 0 16px');
     const send = screen.getByRole('button', { name: 'Send for Approval' });
     expect(screen.queryByLabelText('Amount Paid')).toBeNull();          // the kind of expense comes first
     // The fields are worded for the kind: a meal is a Meal at a Restaurant.

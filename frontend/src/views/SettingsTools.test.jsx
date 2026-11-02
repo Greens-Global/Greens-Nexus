@@ -46,7 +46,7 @@ describe('SettingsTools', () => {
     expect(screen.getByText('No tools here for your access.')).toBeInTheDocument();
   });
 
-  it('gives an IT Admin the directory sync, unless their People access is company-limited', () => {
+  it('gives an Administrator the directory sync, unless their People access is company-limited', () => {
     roleState.value = makeRole('administrator');
     render(<SettingsTools />);
     expect(screen.getByRole('button', { name: /Sync Now/ })).toBeEnabled();

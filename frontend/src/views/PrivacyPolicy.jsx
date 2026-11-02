@@ -15,7 +15,7 @@ export const PRIVACY_SECTIONS = [
     'Work records you or others enter: HR records (attendance, leave, time sheets, documents), task and project data (including data previously imported from Asana), item and asset checkouts/assignments, uploaded photos and documents, tickets, and similar operational records tied to your account.',
   ], list: [
     'Time-clock and monitoring data - see Section 3, this is limited and disclosed separately at sign-in.',
-    'Technical data: IP address, browser/user-agent, and timestamps, recorded for security and audit purposes (e.g. login events, e-signature audit trails, policy acknowledgments).',
+    'Technical data: IP address, approximate location derived from the IP address, browser/user-agent, and timestamps, recorded for security and audit purposes (e.g. login events and the notice you get when a new device signs in to your account, e-signature audit trails, policy acknowledgments).',
     'Content you upload: photos and documents you attach to checkouts, assignments, or HR records, stored in Supabase storage.',
   ]},
   { h: '3. Employee monitoring while clocked in', p: [

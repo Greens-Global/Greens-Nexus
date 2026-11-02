@@ -11,6 +11,9 @@
 // Voice Note and Add Video keep a player in the note; Dictate types what you
 // say. On a phone the formatting moves to a bar that rides on top of the
 // keyboard - lists, indent and the microphone first, the rest behind Aa.
+// On the web they sit, named, at the right of the toolbar, which never
+// scrolls them out of sight - the formatting wraps instead - and the "/" menu
+// offers them too (Neil, Oct 31 2026: "i can't seem to find them").
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -19,11 +22,13 @@ import {
   Undo2, Redo2, Bold, Italic, Underline, Strikethrough, Highlighter, Code, Heading1, Heading2, Heading3,
   List, ListOrdered, ListChecks, IndentIncrease, IndentDecrease, Quote, SquareCode, AlignLeft, AlignCenter,
   AlignRight, Link2, Table as TableIcon, Minus, CalendarDays, Pilcrow, ListPlus, Rows3, Columns3, Trash2, Check, X,
-  Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff,
+  Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff, PenTool,
 } from 'lucide-react';
 import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
+import { useKeyboardInset, keyboardUp } from '../lib/useVisualViewport';
+import BoardPicker from './board/BoardPicker';
 import {
   EDITED, mediaKind, checkMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
   canRecord, canDictate, clock,
@@ -58,6 +63,17 @@ function Btn({ icon: Icon, label, active, disabled, onClick }) {
   );
 }
 const Sep = () => <span className="nt-tb-sep" aria-hidden="true" />;
+// The toolbar's capture buttons carry their name beside the icon (the name
+// folds away when the toolbar is narrow - notes.css).
+function TBtn({ icon: Icon, label, text, active, disabled, danger, keep, onClick }) {
+  return (
+    <button type="button" className={`nt-tb-text${active ? ' is-on' : ''}${danger ? ' is-danger' : ''}${keep ? ' is-key' : ''}`} title={label} aria-label={label}
+      aria-pressed={active === undefined ? undefined : String(!!active)} disabled={disabled} tabIndex={-1}
+      onMouseDown={(e) => { e.preventDefault(); if (!disabled) onClick(); }}>
+      <Icon size={15} strokeWidth={1.9} aria-hidden="true" /><span className="nt-tb-word">{text}</span>
+    </button>
+  );
+}
 
 // The phone bar's buttons: 44px, an action on click (the mousedown is
 // cancelled so the editor keeps its selection and the keyboard stays up).
@@ -69,22 +85,6 @@ function PBtn({ icon: Icon, label, active, disabled, danger, onClick, children }
       <Icon size={19} strokeWidth={1.9} aria-hidden="true" />{children}
     </button>
   );
-}
-
-// How far the on-screen keyboard pushes up from the bottom (iOS does not
-// shrink the page for it, so a fixed bar would sit behind it).
-function useKeyboardInset(active) {
-  const [inset, setInset] = useState(0);
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!active || !vv) { setInset(0); return undefined; }
-    const on = () => setInset(Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)));
-    on();
-    vv.addEventListener('resize', on);
-    vv.addEventListener('scroll', on);
-    return () => { vv.removeEventListener('resize', on); vv.removeEventListener('scroll', on); };
-  }, [active]);
-  return inset;
 }
 
 // Recording, listening, saving a clip or a problem with one: one line.
@@ -138,6 +138,7 @@ export default function NoteEditor({
 }) {
   const [menu, setMenu] = useState(null);   // { kind: 'slash'|'mention', query, from, index }
   const [link, setLink] = useState(null);   // { href } while the link bar is open
+  const [boardPick, setBoardPick] = useState(false);   // Insert Board picker (board/BoardPicker.jsx)
   const changeRef = useRef(onChange);
   const collabRef = useRef(collab);
   const remoteRef = useRef(onRemoteChange);
@@ -157,6 +158,7 @@ export default function NoteEditor({
   const [more, setMore] = useState(false);      // the phone bar's Aa row
   const videoInput = useRef(null);
   const mediaRef = useRef(() => {});
+  const actRef = useRef({});
 
   const editor = useEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -278,6 +280,9 @@ export default function NoteEditor({
   const toggleVoice = () => { clearErr(); if (voice.recording) voice.stop(); else voice.start(); };
   const toggleDictate = () => { clearErr(); if (dictation.listening) dictation.stop(); else dictation.start(); };
   const pickVideo = () => { clearErr(); videoInput.current?.click(); };
+  const openBoardPick = () => { if (!readOnly) setBoardPick(true); };
+  const insertBoard = (attrs) => { setBoardPick(false); if (!editor) return; touched.current = true; editor.chain().focus().setMeta(EDITED, true).insertBoard(attrs).run(); };
+  useEffect(() => { actRef.current = { dictate: toggleDictate, voice: toggleVoice, video: pickVideo, board: openBoardPick }; });
   const showPhoneBar = phone && toolbar && !readOnly && (focused || live || !!busy || !!err);
   const inset = useKeyboardInset(showPhoneBar);
 
@@ -304,8 +309,15 @@ export default function NoteEditor({
     if (!menu) return [];
     if (menu.kind === 'mention') return matchPeople(people || [], menu.query, { limit: 6 });
     const q = menu.query.toLowerCase();
-    return SLASH.filter((s) => !q || s.label.toLowerCase().includes(q) || (s.keys || '').includes(q)).slice(0, 12);
-  }, [menu, people]);
+    // Dictate, Voice Note and Video from the "/" menu too, where the browser can.
+    const capture = [
+      dictateOk && { key: 'dictate', label: 'Dictate', hint: 'Type what you say', icon: Mic, keys: 'voice speech talk speak mic', act: 'dictate' },
+      recordOk && { key: 'voice', label: 'Voice Note', hint: 'Record a clip that stays in the note', icon: AudioLines, keys: 'audio record recording mic', act: 'voice' },
+      { key: 'video', label: 'Video', hint: 'Add a clip from this computer', icon: Clapperboard, keys: 'movie clip film', act: 'video' },
+      { key: 'board', label: 'Board', hint: 'Insert one of your boards', icon: PenTool, keys: 'whiteboard drawing sketch markup', act: 'board' },
+    ].filter(Boolean);
+    return [...SLASH, ...(live ? [] : capture)].filter((s) => !q || s.label.toLowerCase().includes(q) || (s.keys || '').includes(q)).slice(0, 12);
+  }, [menu, people, dictateOk, recordOk, live]);
 
   useEffect(() => {
     scanRef.current = (ed) => {
@@ -336,6 +348,9 @@ export default function NoteEditor({
         { type: 'text', marks: [{ type: 'link', attrs: { href: `mailto:${item.email}` } }], text: `@${item.name}` },
         { type: 'text', text: ' ' },
       ]).unsetMark('link').run();
+    } else if (item.act) {
+      editor.chain().focus().deleteRange(range).run();
+      actRef.current[item.act]?.();
     } else {
       item.run(editor.chain().focus().deleteRange(range)).run();
     }
@@ -396,6 +411,7 @@ export default function NoteEditor({
     <div className={`nt-editor${compact ? ' is-compact' : ''}${readOnly ? ' is-readonly' : ''}`}>
       {toolbar && !readOnly && !phone && (
         <div className="nt-toolbar" role="toolbar" aria-label="Formatting">
+          <div className="nt-tb-fmt">
           <Btn icon={Undo2} label="Undo (Ctrl+Z)" disabled={!e?.can().undo()} onClick={run((c) => c.undo())} />
           <Btn icon={Redo2} label="Redo (Ctrl+Y)" disabled={!e?.can().redo()} onClick={run((c) => c.redo())} />
           <Sep />
@@ -420,28 +436,27 @@ export default function NoteEditor({
           <Sep />
           <Btn icon={Quote} label="Quote" active={on('blockquote')} onClick={run((c) => c.toggleBlockquote())} />
           <Btn icon={SquareCode} label="Code Block" active={on('codeBlock')} onClick={run((c) => c.toggleCodeBlock())} />
+          <Btn icon={Minus} label="Divider" onClick={run((c) => c.setHorizontalRule())} />
           <Btn icon={Link2} label="Link (Ctrl+K)" active={on('link')} onClick={openLink} />
           <Btn icon={TableIcon} label="Insert Table" onClick={run((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
           <Sep />
           <Btn icon={AlignLeft} label="Align Left" active={on({ textAlign: 'left' })} onClick={run((c) => c.setTextAlign('left'))} />
           <Btn icon={AlignCenter} label="Align Center" active={on({ textAlign: 'center' })} onClick={run((c) => c.setTextAlign('center'))} />
           <Btn icon={AlignRight} label="Align Right" active={on({ textAlign: 'right' })} onClick={run((c) => c.setTextAlign('right'))} />
-          <Sep />
-          {dictateOk && <Btn icon={Mic} label={dictation.listening ? 'Stop Dictating' : 'Dictate - type what you say'} active={dictation.listening}
-            disabled={voice.recording} onClick={toggleDictate} />}
-          {recordOk && <Btn icon={AudioLines} label={voice.recording ? 'Stop and Save the Voice Note' : 'Record a Voice Note'} active={voice.recording}
-            disabled={dictation.listening} onClick={toggleVoice} />}
-          <Btn icon={Clapperboard} label="Add a Video" disabled={live} onClick={pickVideo} />
-          {onMakeTask && (<>
-            <Sep />
-            <button type="button" className="nt-tb-text" tabIndex={-1} title="Make a task from the selection or the current line"
-              onMouseDown={(ev) => { ev.preventDefault(); makeTask(); }}>
-              <ListPlus size={15} strokeWidth={1.9} aria-hidden="true" /> Make a Task
-            </button>
-          </>)}
+          </div>
+          <div className="nt-tb-capture">
+          {dictateOk && <TBtn icon={Mic} text={dictation.listening ? 'Stop' : 'Dictate'} label={dictation.listening ? 'Stop Dictating' : 'Dictate - type what you say'}
+            active={dictation.listening} danger={dictation.listening} keep disabled={voice.recording} onClick={toggleDictate} />}
+          {recordOk && <TBtn icon={AudioLines} text={voice.recording ? 'Stop and Save' : 'Voice Note'} label={voice.recording ? 'Stop and Save the Voice Note' : 'Record a Voice Note'}
+            active={voice.recording} danger={voice.recording} disabled={dictation.listening} onClick={toggleVoice} />}
+          <TBtn icon={Clapperboard} text="Video" label="Add a Video" disabled={live} onClick={pickVideo} />
+          <TBtn icon={PenTool} text="Board" label="Insert Board - one of your boards, as a picture that opens it" active={boardPick} onClick={openBoardPick} />
+          {onMakeTask && <TBtn icon={ListPlus} text="Make a Task" label="Make a Task - from the selection or the current line" onClick={makeTask} />}
+          </div>
         </div>
       )}
       {!readOnly && !phone && <MediaStatus voice={voice} dictation={dictation} busy={busy} error={err} onDismiss={clearErr} />}
+      {boardPick && <BoardPicker phone={phone} onClose={() => setBoardPick(false)} onPick={insertBoard} />}
       {!readOnly && inTable && (
         <div className="nt-subbar" role="toolbar" aria-label="Table">
           <span className="nt-subbar-label">Table</span>
@@ -468,7 +483,7 @@ export default function NoteEditor({
           onChange={(ev) => { const f = ev.target.files?.[0]; ev.target.value = ''; if (f) addMedia(f); }} />
       )}
       {showPhoneBar && e && createPortal(
-        <div className="nt-pb" role="toolbar" aria-label="Formatting" style={{ bottom: inset }}>
+        <div className="nt-pb" role="toolbar" aria-label="Formatting" style={{ bottom: inset, ...(inset && keyboardUp() ? { paddingBottom: 0 } : null) }}>
           <MediaStatus voice={voice} dictation={dictation} busy={busy} error={err} onDismiss={clearErr} />
           {more && (
             <div className="nt-pb-row is-more">
@@ -483,6 +498,7 @@ export default function NoteEditor({
               <PBtn icon={Link2} label="Link" active={on('link')} onClick={openLink} />
               <PBtn icon={TableIcon} label="Insert Table" onClick={run((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
               <PBtn icon={Minus} label="Divider" onClick={run((c) => c.setHorizontalRule())} />
+              <PBtn icon={PenTool} label="Insert Board" active={boardPick} onClick={() => { setMore(false); openBoardPick(); }} />
               {onMakeTask && <PBtn icon={ListPlus} label="Make a Task" onClick={makeTask} />}
               <PBtn icon={Undo2} label="Undo" disabled={!e.can().undo()} onClick={run((c) => c.undo())} />
               <PBtn icon={Redo2} label="Redo" disabled={!e.can().redo()} onClick={run((c) => c.redo())} />

@@ -45,6 +45,15 @@ def _get_role(email: str, db: Session) -> str:
     return row.role if row else "employee"
 
 
+def _job_title(db: Session, email: str) -> str:
+    """The person's job title from People, '' when none."""
+    from sqlalchemy import func
+    from models import NexusEmployee
+    row = (db.query(NexusEmployee.job_title)
+           .filter(func.lower(NexusEmployee.work_email) == (email or "").lower()).first())
+    return (row.job_title or "").strip() if row else ""
+
+
 class RoleAssignment(BaseModel):
     role:         str
     assigned_by:  str   # email of the person making the change
@@ -85,6 +94,7 @@ def get_my_role(
     # that cap here rather than any stray nexus_roles row.
     if user.get("external"):
         return {"email": user["email"], "role": "employee", "is_external": True,
+                "level": 1, "title": _job_title(db, user["email"]),
                 "date_format": _date_format(db, user["email"])}
     # hr_scope: the caller's own company-scoped People access (Neil, Aug 25) -
     # a list of HrEntity ids, or null when unrestricted. The frontend hides
@@ -97,11 +107,34 @@ def get_my_role(
     # widget is placed or offered - rather than after /timeclock/status.
     from routers.timeclock import is_time_tracking_exempt
     scope = hr_scope(user, db)
+    # level / title (Neil, 11/02/2026): the tier as a number for the marks
+    # (TierMark) and the person's job title for the line under their name -
+    # the menus show the title, never the tier word.
     return {"email": user["email"], "role": role, "is_external": False,
+            "level": ROLE_LEVEL.get(role, 1),
+            "title": _job_title(db, user["email"]),
             "hr_scope": sorted(scope) if scope is not None else None,
             "hr_team": is_team_scope(scope),
             "time_tracking_exempt": is_time_tracking_exempt(db, user["email"]),
-            "date_format": _date_format(db, user["email"])}
+            "date_format": _date_format(db, user["email"]),
+            # hr_contact_for (11/02/2026): the companies whose HR contact the
+            # caller is (People > Companies) - HR for them whatever their
+            # grant says (hr_access.is_hr_for_company), so a screen can show
+            # an HR action the server would allow (Send Federal Form).
+            "hr_contact_for": _hr_contact_for(db, user["email"])}
+
+
+def _hr_contact_for(db: Session, email: str) -> list:
+    from models import HrEntity
+    me = (email or "").strip().lower()
+    if not me:
+        return []
+    out = []
+    for ent in db.query(HrEntity.id, HrEntity.hr_contact_email).all():
+        raw = (ent.hr_contact_email or "")
+        if me in [e.strip().lower() for e in raw.split(",") if e.strip()]:
+            out.append(ent.id)
+    return sorted(out)
 
 
 class DateFormatIn(BaseModel):
@@ -130,8 +163,16 @@ def get_all_roles(
     user: dict = Depends(require_administrator),
     db:   Session = Depends(get_db),
 ):
-    """Return all role assignments. Requires administrator or above."""
+    """Return all role assignments. Requires administrator or above. A walled
+    caller - an Administrator, always (Neil, 11/02/2026) - gets only the
+    people inside their companies (and those with no company)."""
+    import auth
     rows = db.query(NexusRole).all()
+    scope = auth.company_scope(user, db)
+    if scope is not None:
+        emp_co = auth.company_of_email_map(db)
+        rows = [r for r in rows
+                if auth.company_ok(emp_co.get((r.email or "").lower(), ""), scope, shared_when_blank=True)]
     return [{"email": r.email, "role": r.role, "display_name": r.display_name or "",
              "assigned_by": r.assigned_by, "tier_pinned": bool(getattr(r, "tier_pinned", False))} for r in rows]
 
@@ -195,7 +236,10 @@ def assign_role(
     target_level    = ROLE_LEVEL.get(new_role, 1)
 
     if requester_level < ROLE_LEVEL["administrator"]:
-        raise HTTPException(status_code=403, detail="Need IT Admin or Global Admin role to manage roles")
+        raise HTTPException(status_code=403, detail="Need Administrator or Super Administrator role to manage roles")
+    # Someone outside the caller's companies: 404, as if not there.
+    import auth
+    auth.assert_person_in_scope(target_email, user, db)
 
     # IT Admins can delegate access, but only "down" - strictly below their own
     # level - and may not create, edit, or demote peer/other admins. Creating
@@ -206,7 +250,7 @@ def assign_role(
             raise HTTPException(status_code=403, detail="You can only grant access up to one level below your own role")
         existing_role = _get_role(target_email, db)
         if ROLE_LEVEL.get(existing_role, 1) >= ROLE_LEVEL["administrator"]:
-            raise HTTPException(status_code=403, detail="Only a Global Admin can change another admin's access")
+            raise HTTPException(status_code=403, detail="Only a Super Administrator can change another admin's access")
 
     display_name = (body.display_name or "").strip()
 

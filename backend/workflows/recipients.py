@@ -161,7 +161,7 @@ def describe(spec) -> str:
         if kind == "person":
             words.append(value)
         elif kind == "role":
-            words.append("the HR contact" if value == "hr_contact" else "the Global Admins")
+            words.append("the HR contact" if value == "hr_contact" else "the Super Administrators")
         elif kind == "department":
             words.append(f"the {value} department")
         elif kind == "team":
@@ -169,7 +169,7 @@ def describe(spec) -> str:
         elif kind == "company":
             words.append("everyone in the company")
         elif kind == "global_admins":
-            words.append("the Global Admins")
+            words.append("the Super Administrators")
         elif kind == "self":
             words.append("the person")
         elif kind:

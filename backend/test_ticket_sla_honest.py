@@ -62,6 +62,10 @@ class HonestSlaTests(unittest.TestCase):
         # The agent is on the desk by their stored role too (the backfill
         # judges comment authors by address, not by a signed-in user).
         self.db.add(models.NexusRole(email=AGENT["email"], role="administrator"))
+        # An Administrator is company-walled (Neil, 11/02/2026): the agent is a
+        # person in c1, the tickets' company.
+        self.db.add(models.NexusEmployee(id="e0", work_email=AGENT["email"], first_name="Ana",
+                                         last_name="T", status="active", company="c1"))
         import auth
         auth.invalidate_role_cache()
         self.db.add(models.HrDepartment(id="d1", company_id="c1", name="Facilities", lead_email=LEAD))
@@ -239,9 +243,9 @@ class HonestSlaTests(unittest.TestCase):
         self.assertFalse(S.response_breached(t, datetime.now(timezone.utc) + h(100)))
 
     def _people(self):
-        for i, (email, first) in enumerate(((AGENT["email"], "Ana"), (REQUESTER["email"], "Rex"))):
-            self.db.add(models.NexusEmployee(id=f"e{i}", work_email=email, first_name=first,
-                                             last_name="T", status="active"))
+        # The agent is already on the list (setUp); the requester joins them.
+        self.db.add(models.NexusEmployee(id="e1", work_email=REQUESTER["email"], first_name="Rex",
+                                         last_name="T", status="active", company="c1"))
         self.db.commit()
 
     def test_a_ticket_born_assigned_still_needs_a_reply(self):

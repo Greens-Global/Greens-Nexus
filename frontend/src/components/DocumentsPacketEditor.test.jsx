@@ -141,3 +141,32 @@ describe('DocumentsPacketEditor - place first', () => {
   });
 });
 
+
+// Federal forms (Neil, 11/02/2026): a US employee packet can carry the W-4,
+// the I-9 and the Direct Deposit Authorization - one edition of each built
+// into Nexus, never a template - and nothing else sees the block.
+describe('DocumentsPacketEditor - federal forms', () => {
+  it('a US employee packet offers the three forms and saves the ticked ones in form order', async () => {
+    save.mockClear();
+    const us = { ...packet, id: 's-us', name: 'CA Employee', country: 'US', region: 'CA', workerType: 'employee', federalForms: ['i9'] };
+    render(<DocumentsPacketEditor {...props} packet={us} />);
+    fireEvent.click(screen.getByRole('tab', { name: /Documents/ }));
+    expect(screen.getByText('Federal Forms')).toBeTruthy();
+    const w4 = screen.getByLabelText(/Form W-4 \(2026\)/);
+    const i9 = screen.getByLabelText(/Form I-9 \(01\/20\/25\)/);
+    const dd = screen.getByLabelText(/Direct Deposit Authorization/);
+    expect(i9.checked).toBe(true);
+    expect(w4.checked).toBe(false);
+    fireEvent.click(dd);
+    fireEvent.click(w4);
+    fireEvent.click(screen.getByText('Save Packet'));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0][0].federal_forms).toEqual(['w4', 'i9', 'direct_deposit']);
+  });
+  it('an India contractor packet has no federal forms block', async () => {
+    render(<DocumentsPacketEditor {...props} packet={packet} />);
+    fireEvent.click(screen.getByRole('tab', { name: /Documents/ }));
+    expect(screen.getByText('Which documents go out?')).toBeTruthy();
+    expect(screen.queryByText('Federal Forms')).toBeNull();
+  });
+});

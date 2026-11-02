@@ -45,8 +45,8 @@ def _drop():
 PRANSHU = "pranshu@example.com"   # reports to Visesh
 VISESH = "visesh@example.com"     # manager
 SAGAR = "sagar@example.com"       # a manager, but not Pranshu's
-NEIL = "neil@example.com"         # Global Admin (role 'owner')
-ITADMIN = "it@example.com"        # IT Admin (role 'administrator') - not a Global Admin
+NEIL = "neil@example.com"         # Super Administrator (role 'owner')
+ITADMIN = "it@example.com"        # Administrator (role 'administrator') - not a Super Administrator
 ORPHAN = "orphan@example.com"     # no manager on file
 SAGARS_REPORT = "report@example.com"
 

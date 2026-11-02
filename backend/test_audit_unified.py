@@ -36,6 +36,7 @@ main._run_migrations()
 OWNER = "auditprobe.owner@greensglobal.com"
 ADMIN = "auditprobe.admin@greensglobal.com"
 EMP = "auditprobe.emp@greensglobal.com"
+CO = "auditprobe-co"   # the Administrator's company (Neil, 11/02/2026: an Administrator is company-walled)
 
 
 def _changes_for(table, record_id):
@@ -63,6 +64,10 @@ class _Roles(unittest.TestCase):
             db.add(models.NexusRole(email=OWNER, role="owner", assigned_by="test"))
             db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
             db.add(models.NexusRole(email=EMP, role="employee", assigned_by="test"))
+            db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == ADMIN).delete(
+                synchronize_session=False)
+            db.add(models.NexusEmployee(id="auditprobe-admin", first_name="Ada", last_name="Probe",
+                                        work_email=ADMIN, company=CO, status="active"))
             db.commit()
         finally:
             db.close()
@@ -299,7 +304,7 @@ class ActAsCommentTests(_Roles):
         tid = "t-" + uuid.uuid4().hex[:10]
         sid = "s-" + uuid.uuid4().hex[:10]
         db = database.SessionLocal()
-        db.add(models.Task(id=tid, code="AUD-1", title="Q3 close", created_at="2026-10-20T00:00:00Z"))
+        db.add(models.Task(id=tid, code="AUD-1", title="Q3 close", created_at="2026-10-20T00:00:00Z", company_id=CO))
         future = (datetime.now(timezone.utc) + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
         db.add(models.ActAsSession(id=sid, real_email=OWNER, target_email=ADMIN,
                                    started_at="2026-10-20T00:00:00Z", expires_at=future))

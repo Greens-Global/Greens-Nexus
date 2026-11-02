@@ -14,6 +14,7 @@ A key that no longer exists is dropped by the client at read time, which is
 what lets a retired column disappear without a migration here.
 """
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -32,6 +33,8 @@ router = APIRouter(prefix="/task-prefs", tags=["Task Prefs"], dependencies=[Depe
 MAX_TABLES = 40
 MAX_COLS = 200
 MAX_KEY = 64
+# motion / layout: one lowercase word, letters, digits, - and _ (<= MAX_KEY).
+_WORD = re.compile(r"[a-z0-9_-]{1,%d}" % 32)
 MIN_WIDTH, MAX_WIDTH = 40, 2000
 # `data` is an opaque document the client owns (custom charts, the Home
 # widget layout, per-project view choices - Oct 2026). Capped by serialized
@@ -87,6 +90,12 @@ class TablePrefIn(BaseModel):
     board:     dict | None = None
     # {"board": bool, "timeline": bool} - Show Subtasks (Oct 22 2026).
     showSubtasks: dict | None = None
+    # Single short words a screen remembers per person (Nov 1 2026): the left
+    # navigation's motion strength (table "nav") and the Tickets desk's
+    # layout, modal or pane (table "tickets-v3"). Opaque to the server, same
+    # rules as `view` / `group`.
+    motion:    str | None = None
+    layout:    str | None = None
 
 
 def _clean_board(raw: dict) -> dict:
@@ -165,11 +174,11 @@ def _clean(body: TablePrefIn) -> dict:
     # The view/group/sort a person left the screen on. Short opaque strings -
     # the client owns both vocabularies, and an unknown value simply falls back
     # to that screen's default at read time.
-    for name, val in (("view", body.view), ("group", body.group)):
+    for name, val in (("view", body.view), ("group", body.group), ("motion", body.motion), ("layout", body.layout)):
         if val is None:
             continue
         v = (val or "").strip()
-        if v and len(v) <= MAX_KEY:
+        if v and len(v) <= MAX_KEY and (name in ("view", "group") or _WORD.fullmatch(v)):
             out[name] = v
     if body.sort is not None:
         key = str(body.sort.get("key", "")).strip()

@@ -180,12 +180,13 @@ describe('Modal on a phone', () => {
     expect(screen.getByText('Done')).toBeInTheDocument();
   });
 
-  it('desktop keeps the 86vh card and the full-window overlay', () => {
+  it('desktop keeps the full-height sheet and the full-window overlay', () => {
     setViewport(false);
     fakeVisualViewport(800, 0, 1400);
     render(<Modal title="Ticket" onClose={() => {}}><p>body</p></Modal>);
     const overlay = document.querySelector('.nx-tasks-portal');
-    expect(screen.getByRole('dialog').style.maxHeight).toBe('86vh');
+    // A right-edge sheet (Neil, 11/01/2026): the viewport's height, not an 86vh card.
+    expect(screen.getByRole('dialog').style.maxHeight).toBe('100%');
     expect(overlay.style.height).toBe('');
     expect(scrollLockCount()).toBe(0);
   });
@@ -573,15 +574,18 @@ describe('focus and landscape touch screens', () => {
     expect(document.activeElement).not.toBe(search);
   });
 
-  it('Modal on a landscape phone with the keyboard up: no vh padding, card fits the visible strip', () => {
+  it('Modal on a landscape phone with the keyboard up: the sheet fits the visible strip', () => {
     setViewport(false, { coarse: true });
     const vv = fakeVisualViewport(700, 0, 900);
     render(<Modal title="Ticket" onClose={() => {}} footer={<button>Done</button>}><input /></Modal>);
     const overlay = document.querySelector('.nx-tasks-portal');
-    expect(overlay.style.padding).toBe('24px 16px');
+    // Wider than a phone, so the right-edge sheet (Neil, 11/01/2026): no
+    // padding at any height, and the overlay follows the visual viewport so
+    // the footer stays above the keyboard.
+    expect(overlay.style.padding).toBe('0px');
     act(() => { vv.height = 140; vv.fire('resize'); });
     expect(overlay.style.height).toBe('140px');
-    expect(overlay.style.padding).toBe('0px 16px');
+    expect(overlay.style.padding).toBe('0px');
     expect(screen.getByRole('dialog').style.maxHeight).toBe('100%');
   });
 });

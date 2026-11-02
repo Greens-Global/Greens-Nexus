@@ -1,11 +1,12 @@
 // Task Module - shared UI atoms (inline-styled to match the export's light theme).
 import { useEffect, useLayoutEffect, useState, useRef, useId } from 'react';
 import { isBypassing, confirmDiscard } from '../lib/dialogGuard';
-import { useExit } from '../lib/motion';
+import { useExit, MOTION } from '../lib/motion';
+import { useSheetStack, useSheetEntering, SHEET_SHADOW, SHEET_EDGE } from '../lib/sheetStack';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
   ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus, Repeat,
-  LayoutGrid, List, FileText, Sheet, AudioLines } from 'lucide-react';
+  LayoutGrid, List, FileText, Sheet, AudioLines, PenTool } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, btn, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds, isAudioAttachment } from './lib';
@@ -24,6 +25,7 @@ import { useScrollLock } from '../lib/useScrollLock';
 import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
 import { useBackToClose } from '../lib/useBackToClose';
 import { toDownloadUrl } from '../lib/storageView';
+import { canMarkUp, isPdfSource, markupSource, openMarkup } from '../lib/markup';
 import { frequentRows } from './frequentPeople';
 import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
@@ -148,7 +150,19 @@ export function useEscapeLayer(onEscape, active = true) {
 // the edit away (Aug 18 - "when we click outside... it should ask us for
 // 'Do you want to save'"). With isDirty unset (the default) a modal behaves
 // exactly as before.
-export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave }) {
+//
+// `placement` (Neil, 11/01/2026): on a desktop a popup is a SHEET by default -
+// docked to the right edge, full height, the width it already had (the 60%
+// rule's max(60vw, width)), left corners rounded, sliding in from the edge
+// (style.css "Sheets"). A QUESTION - a confirm, an alert, "Delete this?" -
+// passes placement="center" and keeps the centered card. Phones ignore it
+// and keep the full-screen bottom sheet.
+// `zIndex` (default 4000) is the overlay's, and the sheet's place in
+// lib/sheetStack.js: a sheet recedes only sheets at or below its own z.
+// `footer` may be a function `(close) => node`: `close(...args)` plays the
+// same exit the X does, then calls onClose(...args) - for a footer button
+// (Done, Cancel, a submit) that should leave the way the X leaves.
+export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000 }) {
   // Phones get a full-screen sheet, the shape the task drawer already uses
   // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
   // is the LARGE viewport (browser chrome hidden), so 7vh of padding plus an
@@ -158,6 +172,7 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   // can't access the action buttons"). Landscape hid the bug because Safari's
   // chrome is thin there, so large and visible viewport nearly agree.
   const isMobile = useIsMobile();
+  const sheet = !isMobile && placement === 'sheet';
   // A touch screen wider than the phone breakpoint (a phone in landscape, a
   // tablet) keeps the centered card, but sized to what is visible: the
   // keyboard and the browser bars come out of the visual viewport, not `vh`.
@@ -175,10 +190,15 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   // (lib/dialogGuard.js) is replaying this close - do not ask twice.
   // Exit motion (lib/motion.js): every close the Modal itself performs plays
   // the exit first; a caller that closes from its own Save button is instant.
-  const [closing, exit] = useExit(onClose);
+  // A sheet slides out over --dur-md (220ms); a centered card pops out in 150.
+  const [closing, exit] = useExit(onClose, sheet ? MOTION.md : MOTION.exit);
   const requestClose = () => { if (isDirty && !isBypassing()) setConfirmClose(true); else exit(); };
   useEscapeLayer(() => requestClose());
   useDialogFocus(panelRef);
+  // A sheet over a sheet: the one beneath recedes until this one leaves.
+  useSheetStack(panelRef, sheet, closing, zIndex);
+  // The body's cascade plays only while the sheet arrives.
+  const entering = useSheetEntering(sheet);
   // The phone's Back button closes this sheet, not the screen behind it -
   // asking the same unsaved-work questions the X button asks.
   useBackToClose(followViewport, () => {
@@ -203,22 +223,26 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   };
   return createPortal(
     <div ref={overlayRef} className={`nx-tasks-portal nx-overlay${closing ? ' is-closing' : ''}`} onClick={requestClose} style={{
-      position: 'fixed', background: 'rgba(17,24,39,0.45)', zIndex: 4000,
+      position: 'fixed', background: 'rgba(17,24,39,0.45)', zIndex,
       ...(vv ? { left: 0, right: 0, top: vv.top, height: vv.height } : { inset: 0 }),
-      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      // A sheet sits against the right edge and runs the full height; a
+      // centered card keeps the old top-aligned padding.
+      display: 'flex', alignItems: sheet ? 'stretch' : 'flex-start', justifyContent: sheet ? 'flex-end' : 'center',
       // Following the visual viewport (a landscape phone, a tablet) the
       // vertical padding comes out of what is visible, not 7 large-viewport
       // vh: with the keyboard up a landscape phone shows ~120-150px, and 7vh
       // a side would leave the card too short for its header and footer.
-      padding: isMobile ? 0 : vv ? `${vv.height < 300 ? 0 : Math.round(Math.min(0.07 * vv.height, 24))}px 16px` : '7vh 16px',
+      padding: isMobile || sheet ? 0 : vv ? `${vv.height < 300 ? 0 : Math.round(Math.min(0.07 * vv.height, 24))}px 16px` : '7vh 16px',
       fontFamily: FONT,
     }}>
       {/* role="dialog" sits on the panel. The phone bottom-sheet rules in
           style.css skip it via .nx-sheet - this one is shaped here. */}
       <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={dialogKeyDown}
-        onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : 'nx-sheet nx-panel'} style={{
+        onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : sheet ? `nx-sheet nx-sheet-right${entering ? ' is-entering' : ''}` : 'nx-sheet nx-panel'} style={{
         background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
+        // A sheet casts its shadow to the left, the side it meets the page on
+        // (the same value as the Sheets block in style.css).
+        boxShadow: sheet ? SHEET_SHADOW : '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
         // The sheet's height comes from .nx-modal-sheet, not from here: it needs
         // `height:100vh` followed by `height:100dvh`, and one inline style object
         // cannot hold the same property twice. dvh is the part of the page
@@ -227,7 +251,12 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
         // Where the visual viewport is known it wins: dvh does not shrink for
         // the keyboard, the visual viewport does.
         ...(isMobile
-          ? { width: '100%', maxWidth: '100%', borderRadius: 0, border: 'none', ...(vv ? { height: vv.height } : null) }
+          ? { width: '100%', maxWidth: '100%', borderRadius: 0, border: 'none', ...(vv ? { height: vv.height - (vv.clear || 0) } : null) }
+          // The sheet: the 60% rule's width against the right edge, the whole
+          // height, rounded only where it meets the page. No minHeight - the
+          // height is the viewport's.
+          : sheet
+          ? { width: `max(60vw, ${typeof width === 'number' ? `${width}px` : width})`, minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '100%', maxHeight: '100%', borderRadius: '16px 0 0 16px', border: 'none', borderLeft: SHEET_EDGE }
           // Never under 60vw (CLAUDE.md popup rule), whatever width a caller passes.
           // 100% of the overlay's padded box. On a desktop that is the same
           // 86vh as before; pinned to the visual viewport it is what fits.
@@ -240,13 +269,13 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
         {/* flex:1 + minHeight:0 is what makes THIS the part that scrolls; without
             it a tall body pushes the footer past the panel's clipped edge.
             overscrollBehavior: a swipe past its end stays in the sheet. */}
-        <div className="nx-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...(followViewport ? { overscrollBehavior: 'contain' } : null) }}>{children}</div>
+        <div className={sheet ? 'nx-scroll nx-cascade' : 'nx-scroll'} style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...(followViewport ? { overscrollBehavior: 'contain' } : null) }}>{children}</div>
         {/* The action row never scrolls away, and clears the home indicator. */}
         {footer && <div style={{
           padding: isMobile ? '12px 16px calc(12px + env(safe-area-inset-bottom))' : '12px 20px',
           borderTop: `1px solid ${NX.border2}`, background: NX.surface2, flexShrink: 0,
           display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-        }}>{footer}</div>}
+        }}>{typeof footer === 'function' ? footer(exit) : footer}</div>}
       </div>
       {confirmClose && (
         <div onClick={(e) => e.stopPropagation()} style={{
@@ -397,7 +426,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
     // window's size still counts the area the keyboard covers. Opening upward
     // pins the bottom edge with translateY(-100%) rather than a `bottom`
     // measured from a layout-viewport height iOS reports inconsistently.
-    const vBottom = vv.top + vv.height;
+    const vBottom = vv.top + vv.height - (vv.clear || 0);   // above iOS's keyboard strip
     left = Math.max(vv.left + 8, Math.min(anchorRect.left, vv.left + vv.width - W * z - 8)) / z;
     if (anchorRect.bottom + 6 + H * z <= vBottom - 8) vpos = { top: (anchorRect.bottom + 6) / z };
     else if (anchorRect.top - 6 - H * z >= vv.top + 8) vpos = { top: (anchorRect.top - 6) / z, transform: 'translateY(-100%)' };
@@ -1034,7 +1063,7 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
       const GAP = 4, EDGE = 8, MAX = 280;
       const v = isMobile ? readVisualViewport() : null;
       if (v) {
-        const vBottom = v.top + v.height;
+        const vBottom = v.top + v.height - (v.clear || 0);   // above iOS's keyboard strip
         const below = vBottom - a.bottom - GAP - EDGE;
         const above = a.top - v.top - GAP - EDGE;
         const up = below < above && below < MAX * z;
@@ -1662,7 +1691,14 @@ export function TaskCountBadges({ t, store, size = 12 }) {
 // captured so it closes the viewer without also closing the drawer underneath.
 // Older rows only carry kind image/doc, so the renderer also sniffs the file
 // extension to give videos and PDFs their proper treatment.
-export function AttachmentViewer({ att, onClose }) {
+// `markupSource` (Mark Up Anything, 11/02/2026): where this attachment lives -
+// { kind: 'task' | 'ticket', id, label, url } - so a board made from it can
+// be attached back. Without one the board remembers the file by name only.
+export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
+  const [marking, setMarking] = useState('');     // '' | 'busy' | 'pages'
+  const [pages, setPages] = useState(0);
+  const [pagesCapped, setPagesCapped] = useState(false);
+  const [markErr, setMarkErr] = useState('');
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
     window.addEventListener('keydown', onKey, true);
@@ -1671,6 +1707,25 @@ export function AttachmentViewer({ att, onClose }) {
   if (!att) return null;
   const probe = `${att.name || ''} ${att.url || ''}`;
   const isPdf = /\.pdf($|\?)/i.test(probe);
+  const mime = att.mimeType || att.type || (isPdf ? 'application/pdf' : '');
+  const markable = !!att.url && canMarkUp(mime, probe);
+  // Mark Up: a picture goes straight to a new board; a PDF asks which page
+  // when it has more than one (board/pdfPage.js renders it to a picture).
+  const markUp = async (page = 1) => {
+    setMarkErr(''); setMarking('busy');
+    try {
+      if (page === 1 && isPdfSource(mime, probe)) {
+        const { pdfPageCount, PDF_PAGES_MAX } = await import('../notes/board/pdfPage');
+        const n = await pdfPageCount(att.url);
+        if (n > 1) { setPages(Math.min(n, PDF_PAGES_MAX)); setPagesCapped(n > PDF_PAGES_MAX); setMarking('pages'); return; }
+      }
+      await openMarkup({ imageUrl: att.url, mimeType: mime, name: att.name || '', page, source: markupSource(given, att) });
+      onClose();
+    } catch (e) {
+      setMarkErr(e?.message || 'Could not start the markup.');
+      setMarking('');
+    }
+  };
   // A voice note first: a recorded .webm is audio, not a black video box.
   const isAudio = isAudioAttachment(att);
   const isVideo = !isAudio && (att.kind === 'video' || /\.(mp4|webm|mov|m4v)($|\?)/i.test(probe));
@@ -1703,9 +1758,31 @@ export function AttachmentViewer({ att, onClose }) {
         <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
         <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
         <span style={{ flex: 1 }} />
+        {markable && (
+          <button type="button" onClick={() => markUp(1)} disabled={marking === 'busy'} title="Mark Up - draw on a copy of this on a board"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', borderRadius: 8, padding: '5px 10px', fontFamily: FONT, fontSize: 12.5, fontWeight: 600, cursor: marking === 'busy' ? 'wait' : 'pointer' }}>
+            <PenTool size={14} /> {marking === 'busy' ? 'Opening…' : 'Mark Up'}
+          </button>
+        )}
         {att.url && <a href={toDownloadUrl(att.url)} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
         <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
       </div>
+      {markErr && <div role="alert" onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 52, left: '50%', transform: 'translateX(-50%)', background: '#fff', color: NX.red || '#b91c1c', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 600 }}>{markErr}</div>}
+      {marking === 'pages' && (
+        <div role="dialog" aria-label="Which page?" onClick={(e) => e.stopPropagation()}
+          style={{ position: 'absolute', top: 52, left: '50%', transform: 'translateX(-50%)', background: NX.surface, color: NX.ink, borderRadius: 12, padding: '12px 14px', boxShadow: '0 12px 40px rgba(0,0,0,0.35)', maxWidth: 'min(520px, 92vw)' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Which page should go on the board?</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
+            {Array.from({ length: pages }, (_, i) => i + 1).map((n) => (
+              <button key={n} type="button" onClick={() => markUp(n)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12.5 }}>Page {n}</button>
+            ))}
+          </div>
+          {pagesCapped && <div style={{ fontSize: 12, color: NX.dim, marginTop: 8 }}>Showing the first {pages} pages.</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+            <button type="button" onClick={() => setMarking('')} style={{ ...btn('ghost'), fontSize: 12.5 }}>Cancel</button>
+          </div>
+        </div>
+      )}
       <div onClick={(e) => e.stopPropagation()}>{body}</div>
     </div>
   );

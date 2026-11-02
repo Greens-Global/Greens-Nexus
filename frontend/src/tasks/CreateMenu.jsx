@@ -8,7 +8,9 @@
 //   variant="inline" - the labeled "+ Create" in the module bar, next to
 //                      Manage. It carries the WHOLE menu, so anything in the
 //                      module can be started from any screen.
-//   variant="fab"    - the floating "+", bottom-right. Given `create` it is a
+//   variant="fab"    - the floating "+", bottom-right, PHONES ONLY since
+//                      11/02/2026 (Neil: goofy on a computer, where the bar's
+//                      "+ Create" is the control). Given `create` it is a
 //                      single action - what THIS page is a list of: Project on
 //                      Projects, Portfolio on Portfolios, Team on Teams,
 //                      Template on Templates, Task everywhere else (Sagar,

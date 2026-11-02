@@ -7,7 +7,7 @@
 // Each card is gated the same way its backend route is, and hidden (not
 // disabled) when the person can't use it:
 //   - Microsoft 365 sync: require_hr_write + _require_unrestricted in
-//     routers/hr.py, i.e. IT Admin+ or a People Editor grant, and no
+//     routers/hr.py, i.e. Administrator+ or a People Editor grant, and no
 //     company-limited People access.
 import { useSyncExternalStore } from 'react';
 import { RefreshCw, Wrench } from 'lucide-react';

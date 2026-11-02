@@ -90,7 +90,7 @@ from routers.accounting import _limit, entity_scope
 from routers.stepup import require_stepup
 
 SCOPED_REFUSED = ("Your Accounting access is limited to certain entities, and Compensation lists wages for every "
-                  "company's people, so it is not available to you. Ask a Global Admin to remove the entity limit "
+                  "company's people, so it is not available to you. Ask a Super Administrator to remove the entity limit "
                   "on Accounting > Access if you should see the whole payroll.")
 
 

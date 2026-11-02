@@ -278,7 +278,19 @@ def _visible_emails(db: Session, user: dict):
         base = _visible_emails(db, {k: v for k, v in user.items() if k != "_sched_extra"})
         return None if base is None else base | set(extra)
     if user.get("level", 0) >= 4:
-        return None
+        # An Administrator sees their companies' people (plus their own
+        # directs); only an unrestricted caller - a Super Administrator -
+        # sees everyone (Neil, 11/02/2026: walled, the switch on or off).
+        # People with no company are shared (auth.AdminScope), as in People.
+        from auth import company_scope, admits_blank
+        cscope = company_scope(user, db)
+        if cscope is None:
+            return None
+        import backup_manager
+        mine = backup_manager.managed_directly(db, user["email"]) | {(user["email"] or "").lower()}
+        blank = admits_blank(cscope)
+        return mine | {(e.work_email or "").lower() for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all()
+                       if e.work_email and ((e.company or "") in cscope or (blank and not (e.company or "")))}
     # Direct reports, plus anyone the caller is Backup Manager for - the
     # backup has the manager's rights over them (Neil, Oct 13).
     import backup_manager
@@ -1244,6 +1256,7 @@ def punch(body: PunchIn, request: Request,
                     ip=ip, user_agent=ua, source="web",
                     created_by=email, created_at=now, **geo)
     db.add(row)
+    _early_punch_alert(db, row, email)
     # Soft-gate escalation (Charmi / Visesh, Sep 25): an out-of-fence punch IN
     # or OUT goes to the employee's manager as a bell notification AND an email
     # ("email manager when punches out of the geofence").
@@ -1442,9 +1455,26 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
                     note=body.note.strip()[:300], source="offline",
                     created_by=email, created_at=now)
     db.add(row)
+    _early_punch_alert(db, row, email)
     _notify_offline_punch(db, row)
     db.commit()
     return _serialize(row)
+
+
+def _early_punch_alert(db: Session, row, email: str) -> None:
+    """Early punch alert (Neil, 11/02/2026, early_punch.py): a clock-in well
+    before the expected start tells the manager. Called by every punch
+    writer right after the row is added; the punch is ALWAYS recorded -
+    nothing here may raise out of the route."""
+    if (getattr(row, "kind", "") or "") != "in":
+        return
+    try:
+        import early_punch
+        db.flush()
+        emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == (email or "").lower()).first()
+        early_punch.check(db, row, emp)
+    except Exception as e:   # noqa: BLE001 - an alert never blocks a punch
+        print(f"[early_punch] alert skipped for {email}: {e}")
 
 
 def _notify_offline_punch(db: Session, row) -> None:
@@ -2428,7 +2458,7 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(get_current_user)
     import timesheet_review as _tsr
     email = body.email.strip().lower()
     if not _tsr.is_hr(db, user["email"], email):
-        raise HTTPException(403, "Only HR or a Global Admin can unlock a finalized time sheet.")
+        raise HTTPException(403, "Only HR or a Super Administrator can unlock a finalized time sheet.")
     reason = (body.reason or "").strip()
     if len(reason) < 5:
         raise HTTPException(422, "Give a reason of at least 5 characters - it is logged on the time sheet.")
@@ -6029,14 +6059,16 @@ def track_clock(body: TrackClockIn, request: Request, dev: AgentDevice = Depends
     geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
            if (body.lat or "").strip() else
            {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0})
-    db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
+    _row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
                      local_date=_local_date(now, body.tz_offset_min or 0),
                      tz_offset_min=body.tz_offset_min or 0,
                      lat=(body.lat or "").strip()[:24], lng=(body.lng or "").strip()[:24],
                      accuracy_m=max(0, int(body.accuracy_m or 0)),
                      # Phone punches carried no IP, so the hover showed none (Oct 18 2026).
                      ip=_client_meta(request)[0], user_agent=_client_meta(request)[1],
-                     source="mobile", created_by=email, created_at=now, **geo))
+                     source="mobile", created_by=email, created_at=now, **geo)
+    db.add(_row)
+    _early_punch_alert(db, _row, email)
     if body.kind == "in":
         if _live_consent(db, email) is not None:
             _open_session(db, email) or _new_session(db, dev)  # start tracking on clock-in
@@ -7157,6 +7189,9 @@ def _sched_dict(row: ScheduledShift, presets: dict, effective: bool = False, tea
             "label": pend.get("label", row.label), "note": pend.get("note", row.note),
             "published": bool(row.published) and not pend and not removing,
             "hasChanges": bool(pend), "pendingDelete": removing,
+            # What the team sees now, for an edit not shared yet - the Shift
+            # Planner's block says "was 8:00a - 4:30p" (Oct 30 2026).
+            "was": {"start": row.start_hhmm, "end": row.end_hhmm, "label": row.label or ""} if pend else None,
             "openSlots": int(pend.get("openSlots", getattr(row, "open_slots", 0)) or 0),
             "weatherStatus": weather_status,
             "weatherDecisionId": getattr(row, "weather_decision_id", "") or "",
@@ -7575,6 +7610,12 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
                 s["weatherBand"], s["weatherChance"], s["weatherInches"] = w["band"], w["chance"], w["inches"]
 
     last = _last_publish(db) if can_write else {}
+    # Where the unshared changes are, per day (Oct 30 2026): the team line
+    # says "32 across all teams (29 next week)" without a second call.
+    unshared_by_date: dict = {}
+    if can_write:
+        for (d,) in _unshared_query(db, user).with_entities(ScheduledShift.work_date).all():
+            unshared_by_date[d] = unshared_by_date.get(d, 0) + 1
     return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
             "groups": groups, "scheduled": scheduled, "openShifts": open_shifts,
             "timeoff": timeoff, "holidays": holidays, "weather": weather, "jobsites": jobsite_list,
@@ -7585,7 +7626,8 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
             # Teams "last shared" + the unshared count across the WHOLE
             # schedule, not just these dates (Oct 2, B4-31).
             "lastPublishedAt": (last.get("at") or "") if can_write else "",
-            "unsharedCount": _unshared_query(db, user).count() if can_write else 0,
+            "unsharedCount": sum(unshared_by_date.values()),
+            "unsharedByDate": unshared_by_date,
             # Shift settings and groups are company-wide switches
             # (_require_unscoped_team): offered only to those who can save them.
             # write_scope, not scope - every manager now READS everyone.
@@ -7639,15 +7681,138 @@ def _unshared_query(db: Session, user: dict, d0: str = "", d1: str = "", group_i
 
 
 @router.get("/schedule/unshared")
-def unshared_changes(start: str = "", end: str = "", user: dict = Depends(require_schedule_write),
+def unshared_changes(start: str = "", end: str = "", group_id: str = "", user: dict = Depends(require_schedule_write),
                      db: Session = Depends(get_db)):
     """How many changes are waiting to be shared - everything, or inside a
-    range - and the dates they span (the Share dialog, Oct 2)."""
+    range, optionally one team (Save & Share's "next week too", Oct 30
+    2026) - and the dates they span (the Share dialog, Oct 2)."""
     d0 = _parse_day(start, "start date").isoformat() if start else ""
     d1 = _parse_day(end, "end date").isoformat() if end else ""
-    rows = _unshared_query(db, user, d0, d1).with_entities(ScheduledShift.work_date).all()
+    rows = _unshared_query(db, user, d0, d1, group_id).with_entities(ScheduledShift.work_date).all()
     dates = sorted(d for (d,) in rows)
     return {"count": len(dates), "firstDate": dates[0] if dates else "", "lastDate": dates[-1] if dates else ""}
+
+
+@router.get("/schedule/labor")
+def schedule_labor(start: str, end: str, user: dict = Depends(require_schedule_write),
+                   db: Session = Depends(get_db)):
+    """Scheduled labor for the planner's header (Frontline Reach, Neil
+    11/02/2026): the hours and cost of the live shifts in [start, end] for
+    the people this scheduler manages. Hours are a shift's length less its
+    unpaid break (shift_attendance._paid_minutes - the planner's own paidMin
+    rule), priced at the person's rate IN EFFECT THAT DAY (_rate_on, the
+    payroll history), so a raise mid-week applies from its date. Fixed pay is
+    counted in `fixedPayPeople` and adds hours but no cost; a person with no
+    rate counts in `peopleWithoutRate`. Published and draft shifts are split
+    as well as summed. Cancelled (weather) days, shifts being removed and
+    open shifts (nobody to price) are left out. The manager tier never sees
+    pay (_pay_hidden): they get hours only, `payHidden: true`. People paid in
+    more than one currency: `cost` is null, `currency` '', `costs` per
+    currency (a sum across currencies is not a number)."""
+    d0 = _parse_day(start, "start date")
+    d1 = _parse_day(end, "end date")
+    if d1 < d0:
+        raise HTTPException(400, "The end date is before the start date.")
+    if (d1 - d0).days > 92:
+        raise HTTPException(400, "Three months at most.")
+    scope = _visible_emails(db, user)
+    pay_hidden = _pay_hidden(db, user)
+    people = _active_people(db)
+    q = (db.query(ScheduledShift)
+         .filter(ScheduledShift.work_date >= d0.isoformat(), ScheduledShift.work_date <= d1.isoformat(),
+                 ScheduledShift.employee_email != ""))
+    if scope is not None:
+        q = q.filter(ScheduledShift.employee_email.in_(list(scope)))
+    rows = [r for r in q.all()
+            if not (getattr(r, "pending_delete", 0) or 0) and (r.employee_email or "").lower() in people]
+    from shift_attendance import _paid_minutes
+    hist, current = {}, {}
+
+    def _pay_on(em: str, day: str) -> dict:
+        if em not in hist:
+            hist[em] = _rate_history(db, em)
+            current[em] = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+        return _rate_on(db, em, day, hist=hist[em], rate_row=current[em])
+
+    days: dict = {}
+    buckets = {"published": {"min": 0, "cost": 0.0}, "draft": {"min": 0, "cost": 0.0}}
+    fixed, no_rate, currencies = set(), set(), {}
+    for r in rows:
+        mins = _paid_minutes(r)
+        if mins <= 0:
+            continue
+        em = (r.employee_email or "").lower()
+        pay = _pay_on(em, r.work_date)
+        cost = 0.0
+        if (pay.get("payType") or "hourly") == "fixed":
+            fixed.add(em)
+        elif float(pay.get("hourlyRate") or 0) > 0:
+            cost = round(mins / 60.0 * float(pay["hourlyRate"]), 2)
+            cur = pay.get("currency") or "USD"
+            currencies[cur] = currencies.get(cur, 0.0) + cost
+        else:
+            no_rate.add(em)
+        day = days.setdefault(r.work_date, {"min": 0, "cost": 0.0})
+        day["min"] += mins
+        day["cost"] += cost
+        b = buckets["published" if int(getattr(r, "published", 1) or 0) else "draft"]
+        b["min"] += mins
+        b["cost"] += cost
+    hours = lambda m: round(m / 60.0, 2)   # noqa: E731
+    total_min = sum(d["min"] for d in days.values())
+    total_cost = round(sum(d["cost"] for d in days.values()), 2)
+    # One currency: the total is priced in it. Several: there is no honest
+    # single number ($ and Rs do not add), so `cost` is null and `costs` holds
+    # each; the planner prints the parts.
+    mixed = len(currencies) > 1
+    currency = "" if mixed else (next(iter(currencies)) if currencies else "USD")
+    if mixed:
+        total_cost = None
+    out = {
+        "start": d0.isoformat(), "end": d1.isoformat(),
+        "hours": hours(total_min), "payHidden": pay_hidden,
+        "days": [{"day": d, "hours": hours(v["min"]), **({} if pay_hidden else {"cost": round(v["cost"], 2)})}
+                 for d, v in sorted(days.items())],
+        "published": {"hours": hours(buckets["published"]["min"]), "cost": None if pay_hidden else round(buckets["published"]["cost"], 2)},
+        "draft": {"hours": hours(buckets["draft"]["min"]), "cost": None if pay_hidden else round(buckets["draft"]["cost"], 2)},
+    }
+    if pay_hidden:
+        out.update({"cost": None, "currency": currency, "costs": {}, "peopleWithoutRate": None, "fixedPayPeople": None})
+    else:
+        out.update({"cost": total_cost, "currency": currency,
+                    "costs": {k: round(v, 2) for k, v in currencies.items()},
+                    "peopleWithoutRate": len(no_rate), "fixedPayPeople": len(fixed)})
+    # Weekly labor budget (Neil, 11/02/2026): HR++ ONLY - hr_access is the
+    # rule (the company's HR contact, administrators, a Full People grant in
+    # scope; the manager tier is never HR). Everyone else gets NEITHER key:
+    # the flag and the values are absent, not null, so a payload never says
+    # there is a budget to someone who may not see it.
+    budget_company = _budget_company(db, user, rows, people)
+    import hr_access
+    if hr_access.is_hr_for_company(db, user, budget_company):
+        from routers.shift_requests import get_settings as _shift_settings
+        cfg = _shift_settings(db, budget_company)
+        days = (d1 - d0).days + 1
+        scale = lambda v: (int(round(int(v) * days / 7.0)) if int(v or 0) > 0 else None)   # noqa: E731
+        out["budgetVisible"] = True
+        out["budget"] = {"hours": scale(cfg.get("laborBudgetHours", 0)),
+                         "amount": scale(cfg.get("laborBudgetAmount", 0)),
+                         "currency": currency or "USD"}
+    return out
+
+
+def _budget_company(db: Session, user: dict, rows: list, people: dict) -> str:
+    """Whose weekly budget the planner shows: the one company of the people
+    scheduled in the range; several companies (or nobody scheduled) = the
+    caller's own company (auth.company_of)."""
+    companies = set()
+    for r in rows:
+        p = people.get((r.employee_email or "").lower())
+        companies.add((p.company if p is not None else "") or "")
+    if len(companies) == 1:
+        return next(iter(companies))
+    from auth import company_of
+    return company_of(user, db)
 
 
 @router.get("/schedule/check")
@@ -7734,18 +7899,30 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
     (Miranda, Oct 21: see at a glance who is on a break). The same people as
     /my-schedule; status words and the punch time only - never a location,
     note or screenshot. Someone with no punch on their current workday is
-    absent, and so is anyone exempt from time tracking."""
+    absent, and so is anyone exempt from time tracking.
+
+    The live team strip (Homebase lifts, Neil 11/02/2026) adds `late` - the
+    members expected to have started by now (shift_expect.expected_starts +
+    late_now, the ONE expected-start rule) with no clock-in yet - and
+    `counts` {in, break, late, off} over every member listed. A punch whose
+    job category classes as leave (_leave_class: Sick / PTO / Personal) is
+    NOT a clock-in, exactly as shift_attendance reads it: the person is on
+    leave, never In and never Late, so they are not in `people` either."""
     email = (user.get("email") or "").lower()
     from routers.shift_requests import settings_for as _sr_settings_for
+    import shift_expect
     cfg = _sr_settings_for(db, email)
     _, _, group_ids = _visible_shift_groups(db, user, email, cfg, can_manage_shifts(user))
     now = datetime.now(timezone.utc)
     people = {}
+    late = []
+    members = []
     if group_ids:
         exempt = time_tracking_exempt_emails(db)
         members = sorted({(m.employee_email or "").lower() for m in db.query(ShiftGroupMember)
                           .filter(ShiftGroupMember.group_id.in_(group_ids)).all()} - exempt - {""})
         last = {}
+        last_in = {}
         if members:
             # Two days covers any live shift (16h stale guard) and today's clock-out.
             since = (now - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S")
@@ -7753,7 +7930,11 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
                       .filter(func.lower(TimePunch.employee_email).in_(members),
                               TimePunch.voided == 0, TimePunch.at >= since)
                       .order_by(TimePunch.at.asc()).all()):
-                last[(p.employee_email or "").lower()] = p   # ascending -> the latest wins
+                em = (p.employee_email or "").lower()
+                last[em] = p   # ascending -> the latest wins
+                if p.kind == "in":
+                    last_in[em] = p
+        on_leave = set()
         for em, p in last.items():
             state = _LIVE_STATE.get(p.kind)
             if not state or _stale_open_shift(p):
@@ -7761,10 +7942,26 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
             off = p.tz_offset_min or 0
             if state == "out" and _local_date(p.at, off) != _local_date(now.isoformat(), off):
                 continue   # clocked out on an earlier day - nothing live to show
+            opened = last_in.get(em)
+            if opened is not None and _leave_class(getattr(opened, "category", "") or ""):
+                on_leave.add(em)   # a Sick / PTO / Personal punch: on leave, not on the clock
+                continue
             # Stored `at` is naive UTC; the Z keeps browsers from reading it as local time.
             at = p.at if p.at.endswith("Z") or "+" in p.at[10:] else p.at + "Z"
             people[em] = {"state": state, "label": _LIVE_LABEL[state], "since": at}
-    return {"people": people, "asOf": now.isoformat()}
+        # Late: no clock-in today and the expected start + grace has passed on
+        # the shift's own clock. "Today" is the planner's day - the caller's
+        # team zone; a weather-cancelled day or no shift at all is never late.
+        candidates = [em for em in members if em not in people and em not in on_leave]
+        if candidates:
+            team_day = now.astimezone(shift_expect.zone(cfg.get("timeZone") or _DEFAULT_TEAM_TZ)).date()
+            expected = shift_expect.expected_starts(db, candidates, team_day)
+            late = [em for em in candidates if shift_expect.late_now(team_day, expected.get(em), now)]
+    n_in = sum(1 for p in people.values() if p["state"] == "working")
+    n_break = sum(1 for p in people.values() if p["state"] == "break")
+    counts = {"in": n_in, "break": n_break, "late": len(late),
+              "off": max(0, len(members) - n_in - n_break - len(late))}
+    return {"people": people, "late": late, "counts": counts, "asOf": now.isoformat()}
 
 
 @router.get("/my-schedule")
@@ -7857,6 +8054,8 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
                         key=lambda g: (g.id not in member_set, (g.name or "").lower())):
             ems = sorted(set(members_by_group.get(g.id, [])), key=lambda em: (em != email, names.get(em, em)))
             teams.append({"id": g.id, "name": g.name, "isMember": g.id in member_set,
+                          # Forms (11/02/2026): a site-scoped form shows on the shift card of this team's site.
+                          "workSiteId": g.work_site_id or "",
                           "members": [{"email": em, "name": names.get(em, em), "isMe": em == email,
                                        "photoUrl": photos.get(em, ""),
                                        "shift": defaults.get(em), "scheduled": placed.get(em, []),
@@ -8055,7 +8254,23 @@ class BulkScheduleIn(BaseModel):
     weekdays:   Optional[List[int]] = None  # 0=Mon..6=Sun; empty/None = every day
     break_min:  Optional[int] = None        # unpaid break; None = the preset's
     skip_timeoff: bool = True               # don't schedule over approved/pending time off
+    skip_holidays: bool = True              # leave each person's company holidays empty
     overwrite:  bool = False                # replace an existing shift that day, else skip it
+
+
+def _holiday_days(db: Session, emails, lo: str, hi: str) -> set:
+    """(email, date) pairs a fill or a copy leaves empty: each person's own
+    company holidays (their company's calendar, country rule), optional ones
+    excepted - the same days the no-show scan and the Workforce Scorecard
+    excuse (`shift_attendance._holiday_dates`), so a manager never has to
+    clear Thanksgiving by hand after Fill Automatically (Neil, Oct 30 2026)."""
+    emails = sorted({(e or "").lower() for e in emails if e})
+    if not emails:
+        return set()
+    import shift_attendance
+    people = {(e.work_email or "").lower(): e for e in
+              db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email).in_(emails)).all()}
+    return set(shift_attendance._holiday_dates(db, people, lo, hi))
 
 
 @router.post("/schedule/bulk")
@@ -8065,8 +8280,9 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
     RANGE in one action, instead of adding it per person per day (Visesh, Aug 26).
     Applies a preset (or explicit start/end) to every selected person on every
     date in [start_date, end_date] that matches `weekdays`, skipping dates a
-    person has time off (unless turned off) and existing shifts (unless
-    overwrite). Team-scoped: only people the caller can already see are touched."""
+    person has time off or a company holiday (unless turned off) and existing
+    shifts (unless overwrite). Team-scoped: only people the caller can already
+    see are touched."""
     scope = _visible_emails(db, user)
     named = _check_people(db, body.emails)   # a named person must be ACTIVE in People (Oct 2)
     emails = set(named)
@@ -8134,13 +8350,17 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
 
     def _is_off(em, ds):
         return any(s <= ds <= e for (s, e) in off.get(em, []))
+    holidays = _holiday_days(db, emails, dates[0], dates[-1]) if body.skip_holidays else set()
 
-    created = replaced = skipped = timeoff_skipped = 0
+    created = replaced = skipped = timeoff_skipped = holiday_skipped = 0
     now = _now_iso()
     for em in sorted(emails):
         for ds in dates:
             if body.skip_timeoff and _is_off(em, ds):
                 timeoff_skipped += 1
+                continue
+            if (em, ds) in holidays:
+                holiday_skipped += 1
                 continue
             have = existing.get((em, ds))
             if have:
@@ -8167,7 +8387,8 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
             created += 1
     db.commit()
     return {"created": created, "replaced": replaced, "skipped": skipped,
-            "timeoffSkipped": timeoff_skipped, "people": len(emails), "dates": len(dates)}
+            "timeoffSkipped": timeoff_skipped, "holidaySkipped": holiday_skipped,
+            "people": len(emails), "dates": len(dates)}
 
 
 # ── Copy / clear a range (Sep 28, Teams "Copy schedule" / "Clear") ────────────
@@ -8222,6 +8443,7 @@ class CopyScheduleIn(BaseModel):
     include_notes: bool = True
     include_activities: bool = True         # Teams "Include shift activities when copying shifts"
     skip_timeoff: bool = True               # don't copy onto approved/pending time off
+    skip_holidays: bool = True              # nor onto a person's company holiday
     overwrite: bool = False                 # replace a person's shifts on a target day, else skip it
     include_timeoff: bool = False           # also copy APPROVED time off - as new PENDING requests
 
@@ -8288,7 +8510,8 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
     four - instead of rebuilding it cell by cell (Teams "Copy schedule"). The
     copies are DRAFTS until published, carry their times, preset, label and
     unpaid break (and notes when asked), and follow bulk fill's rules: time
-    off is skipped unless turned off, and a person's existing shifts on a
+    off and company holidays are skipped unless turned off (last week's
+    Thursday never lands on Thanksgiving), and a person's existing shifts on a
     target day are kept unless `overwrite` - in which case a PUBLISHED one is
     only marked for removal, so staff keep it until the copy is published."""
     s0, s1 = _parse_day(body.source_start, "start date"), _parse_day(body.source_end, "end date")
@@ -8333,8 +8556,9 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
                           TimeOffRequest.status == "approved",
                           TimeOffRequest.start_date <= hi, TimeOffRequest.end_date >= lo).all()):
             off.setdefault((t.employee_email or "").lower(), []).append((t.start_date, t.end_date))
+    holidays = _holiday_days(db, people, lo, hi) if body.skip_holidays else set()
 
-    created = replaced = skipped = timeoff_skipped = 0
+    created = replaced = skipped = timeoff_skipped = holiday_skipped = 0
     cleared = set()     # target days already overwritten this run
     now = _now_iso()
     for k in range(repeats):
@@ -8344,6 +8568,9 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
             em = src["email"]
             if em and body.skip_timeoff and any(a <= day <= b for a, b in off.get(em, [])):
                 timeoff_skipped += 1
+                continue
+            if em and (em, day) in holidays:
+                holiday_skipped += 1
                 continue
             key = (em, day) if em else ("", day, src["start"], src["end"])
             have = existing.get(key)
@@ -8378,7 +8605,7 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
     timeoff_copied = _copy_timeoff(db, user, body, s0, s1, span, repeats) if body.include_timeoff else 0
     db.commit()
     return {"created": created, "replaced": replaced, "skipped": skipped, "timeoffSkipped": timeoff_skipped,
-            "timeoffCopied": timeoff_copied, "targetStart": lo, "targetEnd": hi}
+            "holidaySkipped": holiday_skipped, "timeoffCopied": timeoff_copied, "targetStart": lo, "targetEnd": hi}
 
 
 class ClearScheduleIn(BaseModel):
@@ -9357,7 +9584,8 @@ def _company_holidays_for_employee(db: Session, em: str, start: str, end: str) -
     # Eve): ONE answer - the stronger type, both names - whichever row was
     # saved last (holiday_policies.merge_day, Oct 29 2026 review).
     import holiday_policies
-    return holiday_policies.holidays_by_date(rows, emp.country)
+    country = holiday_policies.person_country(emp, holiday_policies.company_countries(db, [emp.company]).get(emp.company, ""))
+    return holiday_policies.holidays_by_date(rows, country)
 
 
 def _company_holidays_for_many(db: Session, people: dict, start: str, end: str) -> dict:
@@ -9374,12 +9602,14 @@ def _company_holidays_for_many(db: Session, people: dict, start: str, end: str) 
                       HrCompanyHoliday.date >= start, HrCompanyHoliday.date <= end).all()):
         by_company.setdefault(r.company_id, []).append(r)
     import holiday_policies
+    home = holiday_policies.company_countries(db, by_company.keys())
     out = {}
     for em, e in people.items():
         rows = by_company.get(e.company) if e is not None and e.company else None
         if not rows:
             continue
-        h = holiday_policies.holidays_by_date(rows, e.country)   # one answer per date (merge_day)
+        # One answer per date (merge_day), for their own country else the company's.
+        h = holiday_policies.holidays_by_date(rows, holiday_policies.person_country(e, home.get(e.company, "")))
         if h:
             out[em] = h
     return out
@@ -9410,12 +9640,20 @@ def _weekend_pay(daily: float, worked_min: int, full_hours: float, currency: str
     return round(max(floor, _WEEKEND_MULT * daily * hours / full_hours), 2)
 
 
+SALARIED_FULL_MIN = 4 * 60        # a salaried weekday is a full day from 4 h worked
+SALARIED_HALF_MIN = 150           # a half day from 2.5 h; absent below that
+
+
 def _attendance_bands(full_hours: float) -> tuple:
-    """(FULL_MIN, HALF_MIN) in minutes: a full day is worked >= full_day_hours
-    minus 60 min (an hour short is not pinged), a half day is >= 4 h and
-    under that, absent below 4 h (Charmi, Sep 30)."""
-    full_min = max(0, int(round(float(full_hours or 8) * 60)) - 60)
-    return full_min, min(4 * 60, full_min)
+    """(FULL_MIN, HALF_MIN) in minutes for a FIXED-salary employee's weekday:
+    a full day is worked >= 4 h, a half day >= 2.5 h and under that, absent
+    below 2.5 h (Neil / Charmi via Sagar, Oct 31 2026 - replaces the Sep 30
+    rule of full-day hours minus an hour / 4 h; the Time Sheet no longer
+    prints the bands). Only guarded by a shorter full day, so the half band
+    never sits above the full one. India contractors never read this: their
+    8 h / 4 h credits are india_contractor_pay's."""
+    full_min = min(SALARIED_FULL_MIN, max(0, int(round(float(full_hours or 8) * 60))))
+    return full_min, min(SALARIED_HALF_MIN, full_min)
 
 
 def _fixed_card(db: Session, em: str, anchor: str) -> dict:
@@ -12092,6 +12330,16 @@ class _TimeoffPrivacy:
         self._stand_ins = {}
         self._any_deleg = None
         self._hr = {}
+        self._recommend_memo = None
+
+    def recommend_memo(self):
+        """One timeoff_recommend.Memo for every row this viewer is shown -
+        the settings per company, the policies and each person's balances
+        are read once per list, not once per pending row (11/02/2026)."""
+        if self._recommend_memo is None:
+            import timeoff_recommend
+            self._recommend_memo = timeoff_recommend.Memo(self.db, emp_lookup=self._emp)
+        return self._recommend_memo
 
     def _emp(self, email: str):
         if self._emps is None:
@@ -12218,6 +12466,14 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" 
            "firstNote": getattr(r, "first_note", "") or ""}
     if priv is not None:
         out["canDecide"] = priv.can_decide(r)
+        if out["canDecide"] and r.status == "pending":
+            # Time-off recommendation (Neil, 11/02/2026): "Recommended:
+            # Approve" / "Check First" with reasons, for the DECIDER only -
+            # a hint beside the buttons, never a decision (timeoff_recommend).
+            import timeoff_recommend
+            rec = timeoff_recommend.for_decider(priv.db, r, priv.recommend_memo())
+            if rec:
+                out["recommendation"] = rec
         # Who decides it, whenever the viewer cannot: a confidential request,
         # or the viewer's own (nobody approves their own time off - Visesh,
         # 09/30: "no approval or decline for me"; the approvers are named).
@@ -14220,7 +14476,18 @@ def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "
                 # another shift is shown and tagged but never demands a reason
                 # (hardening pass, Oct 15): `soft`.
                 warnings.append({**base, "text": text, "kind": "conflict", "soft": _soft_conflict(text)})
-        for w in shift_rules.publish_warnings(db, emails_on, d0, d1, [r.id for _, r in shared], presets=presets):
+        rule_rows = shift_rules.publish_warnings(db, emails_on, d0, d1, [r.id for _, r in shared], presets=presets)
+        # Scoped to the share (Neil, Oct 30 2026): a warning on a shift outside
+        # [d0, d1] counts only when that shift is one the team already sees as
+        # it is (published, no edit or removal waiting) - the share is what
+        # puts the warning on it. An unshared draft or edit on another date is
+        # not part of this share; its warning waits for the share that sends it.
+        outside = {w["shiftId"] for w in rule_rows if w.get("shiftId") and not (d0 <= (w.get("date") or "") <= d1)}
+        settled = {o.id for o in db.query(ScheduledShift).filter(ScheduledShift.id.in_(list(outside))).all()
+                   if o.published and not o.pending_delete and not _pending(o)} if outside else set()
+        for w in rule_rows:
+            if not (d0 <= (w.get("date") or "") <= d1) and w.get("shiftId") not in settled:
+                continue
             base = {"email": w["email"], "name": names.get(w["email"], w["email"]), "date": w["date"], "shiftId": w["shiftId"]}
             for text in w["texts"]:
                 warnings.append({**base, "text": text, "kind": "rule", "soft": False})

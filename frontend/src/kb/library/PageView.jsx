@@ -296,6 +296,7 @@ export default function PageView({ id, me }) {
                   <dt>Owner</dt><dd>{page.owner_name || '-'}</dd>
                   {page.reviewer_email && <><dt>Reviewer</dt><dd>{page.reviewer_name || page.reviewer_email}</dd></>}
                   <dt>Collection</dt><dd>{page.collection?.map((c) => c.name).join(' / ') || 'None'}</dd>
+                  {page.departments?.length > 0 && <><dt>Applies to</dt><dd>{page.departments.join(', ')}</dd></>}
                   {page.published_at && <><dt>Published</dt><dd>{fmtDate(page.published_at)}</dd></>}
                   {page.review?.next_review && <><dt>Review due</dt><dd style={{ color: page.review.stale ? '#dc2626' : 'inherit' }}>{fmtDate(page.review.next_review)}</dd></>}
                   {page.tags.length > 0 && <><dt>Tags</dt><dd>{page.tags.join(', ')}</dd></>}
@@ -316,6 +317,19 @@ export default function PageView({ id, me }) {
                     {page.versions.slice(0, 6).map((v) => (
                       <div key={v.id}><a href="#v" onClick={(e) => { e.preventDefault(); api.kbPageVersion(page.id, v.id).then(setVersionView).catch((er) => toast(errText(er), 'err')); }}><b>{v.version}</b></a> <span className="kb-meta">{fmtDate(v.published_at)} · {v.author_name}</span>
                         {v.change_note && <div className="kb-meta">{v.change_note}</div>}</div>
+                    ))}
+                  </div>
+                </section>
+              )}
+              {page.around?.length > 0 && (
+                <section className="kb-card">
+                  <h3 className="kb-h3" style={{ marginBottom: 8 }}>Around This Page</h3>
+                  <div className="kb-meta" style={{ marginBottom: 8 }}>Linked, embedded, taught together or for the same department - found from the links, not picked by hand.</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {page.around.map((r) => (
+                      <a key={r.id} href="#around" onClick={(e) => { e.preventDefault(); goKb('page', r.id); }} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13.5, color: 'var(--kb-ink)', fontWeight: 500 }}>
+                        <TypeChip type={r.page_type} /><span><span>{r.title}</span><div className="kb-meta" style={{ fontWeight: 400 }}>{r.why}</div></span>
+                      </a>
                     ))}
                   </div>
                 </section>

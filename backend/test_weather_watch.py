@@ -77,7 +77,9 @@ class WatchTests(unittest.TestCase):
                                              status="active", deleted_at="", company=ENT,
                                              department="Construction" if em == EMP else ""))
         self.db.add(models.HrDepartment(id="d-ww-con", company_id=ENT, name="Construction"))   # starts on
-        self.db.add(models.NexusRole(email=BOSS, role="administrator", assigned_by="test"))
+        # Company-wide: a Super Administrator (Neil, 11/02/2026 - an
+        # Administrator is walled to their own company, the switch on or off).
+        self.db.add(models.NexusRole(email=BOSS, role="owner", assigned_by="test"))
         self.db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
         self.db.add(models.HrEntity(id=ENT, name="Greens", manager_email=BOSS, manager_emails=[BOSS]))
         self.db.add(models.HrWorkSite(id=SITE, name="Harbor View", latitude="33.12", longitude="-117.32"))

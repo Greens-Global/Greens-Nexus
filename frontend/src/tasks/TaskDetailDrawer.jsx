@@ -10,7 +10,7 @@ import {
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma, MoveRight,
-  History, Upload, HardDrive, Image as ImageIcon, AudioLines,
+  History, Upload, HardDrive, Image as ImageIcon, AudioLines, Warehouse,
 } from 'lucide-react';
 import MoveTaskModal from './MoveTaskModal';
 import MyDayToggle from './MyDayToggle';
@@ -25,6 +25,7 @@ import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInPro
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
 import { Avatar, Modal, PersonMultiSelect, ChipMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, MenuCaption, PersonDot, useEscapeLayer } from './components';
+import PersonActions from '../components/PersonActions';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
 import { useFrequentCollaborators, frequentRows } from './frequentPeople';
@@ -39,6 +40,8 @@ import { IMAGE_MODE, isCoverCandidate } from './boardLayout';
 import CommentThread from './CommentThread';
 import { draftKey, getDraft, hasWords, useTaskDraft, useTaskDrafts, clearDraftsFor, clearDraft } from './taskDrafts';
 import { isBypassing } from '../lib/dialogGuard';
+import { useExit, MOTION } from '../lib/motion';
+import { useSheetStack } from '../lib/sheetStack';
 import TimeTracking from './TimeTracking';
 import { toDownloadUrl } from '../lib/storageView';
 import { openNotificationTarget } from '../lib/openTarget';
@@ -277,13 +280,21 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const visitedIds = [...new Set([taskId, ...trail, activeId])];
   const unsent = useTaskDrafts(visitedIds);
   const [asking, setAsking] = useState(false);
+  // The drawer is a sheet from the right (Neil, 11/01/2026): it slides out
+  // through the shared exit (lib/motion.js) before the parent unmounts it:
+  // the slide-out is --dur-md (220ms) on a desktop, the phone's sheet 150.
+  // On a phone the drawer is always full-bleed: there's no room for a 60%
+  // drawer, so the expand/collapse toggle and the drag-to-resize handle are
+  // both dropped and the saved width is ignored.
+  const isMobile = useIsMobile();
+  const [closing, exitNow] = useExit(onClose, isMobile ? MOTION.exit : MOTION.md);
   const requestClose = () => {
     const el = document.activeElement;
     if (el && asideRef.current?.contains(el) && typeof el.blur === 'function') el.blur();
     // A Discard the app-wide guard already confirmed (lib/dialogGuard.js).
-    if (isBypassing()) { clearDraftsFor(visitedIds); onClose(); return; }
+    if (isBypassing()) { clearDraftsFor(visitedIds); exitNow(); return; }
     if (unsent.length) { setAsking(true); return; }
-    onClose();
+    exitNow();
   };
   // Keep Editing lands on the tab that holds the first unsent box.
   const keepEditing = () => {
@@ -341,10 +352,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const expanded = width >= maxW - 2;
   const toggleExpand = () => setWidth(expanded ? Math.round(maxW * 0.6) : maxW);
 
-  // On a phone the drawer is always full-bleed: there's no room for a 60%
-  // drawer, so the expand/collapse toggle and the drag-to-resize handle are
-  // both dropped and the saved width is ignored.
-  const isMobile = useIsMobile();
+  // A sheet over this one (Create Ticket, a picker) recedes it a little.
+  // Only the real drawer joins: the loading placeholder below is no sheet,
+  // and `zIndex` places it among the others (3500 sits under a Modal).
+  useSheetStack(asideRef, !isMobile && !!task, closing, zIndex);
 
   // Derive relations from the live task list (robust against optimistic updates).
   // In display order: due date then priority, or the order they were dragged
@@ -365,10 +376,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     // missing task still renders nothing, exactly as before.
     if (!store.loading) return null;
     return createPortal(
-      <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
+      <div className={`nx-tasks-portal${closing ? ' is-closing' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) exitNow(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
         <aside role="status" aria-live="polite" aria-busy="true" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 14px', borderBottom: `1px solid ${NX.border}` }}>
-            <button onClick={onClose} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><X size={16} /></button>
+            <button onClick={exitNow} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><X size={16} /></button>
           </div>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
             <Spinner size="section" />
@@ -489,8 +500,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const draftTabs = new Set(unsent.filter((d) => d.taskId === activeId).map((d) => (DRAFT_TAB[d.kind] === 'checklist' ? 'overview' : DRAFT_TAB[d.kind])));
 
   return createPortal(
-    <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
-      <aside ref={asideRef} style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
+    <div className={`nx-tasks-portal${closing ? ' is-closing' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
+      <aside ref={asideRef} className="nx-sheet-right" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
         {/* drag handle */}
         {!isMobile && (
           <div onMouseDown={() => { dragging.current = true; document.body.style.userSelect = 'none'; }} title="Drag to resize" style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: 6, cursor: 'ew-resize', zIndex: 5 }} />
@@ -647,8 +658,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
         </FieldHistoryContext.Provider>
         {asking && unsent.length > 0 && (
           <UnsentPrompt drafts={unsent} taskById={taskById} activeId={activeId}
-            onKeep={keepEditing} onDiscard={() => { clearDraftsFor(visitedIds); setAsking(false); onClose(); }}
-            onSent={() => { setAsking(false); onClose(); }} />
+            onKeep={keepEditing} onDiscard={() => { clearDraftsFor(visitedIds); setAsking(false); exitNow(); }}
+            onSent={() => { setAsking(false); exitNow(); }} />
         )}
         {moving && <MoveTaskModal taskId={moving} onClose={() => setMoving(null)} />}
         {savingTemplate && <SaveTemplateModal task={task} subtasks={subtasks} onClose={() => setSavingTemplate(false)} />}
@@ -1165,6 +1176,43 @@ function SourceTicketLink({ ticketId, onOpen }) {
   );
 }
 
+/** The From Cubby row: the facility and unit, who Cubby has it assigned to,
+ *  whether a Cubby automation raised it, and where Cubby stands with it.
+ *  Fetched when the drawer opens - the task carries only the Cubby id. */
+function CubbyLink({ taskId }) {
+  const [info, setInfo] = useState(null);   // the link | 'denied'
+  useEffect(() => {
+    let alive = true;
+    setInfo(null);
+    api.getCubbyTaskLink(taskId).then((r) => { if (alive) setInfo(r); }).catch(() => { if (alive) setInfo('denied'); });
+    return () => { alive = false; };
+  }, [taskId]);
+  if (info === 'denied') return <span style={{ fontSize: 13, color: NX.faint, paddingTop: 5 }}>Cubby&apos;s copy could not be read</span>;
+  if (!info) return <span className="skel" style={{ display: 'block', width: 180, height: 14, marginTop: 8 }} />;
+  const where = [info.facilityName, info.unitName ? `unit ${info.unitName}` : ''].filter(Boolean).join(' · ');
+  const people = (info.assignedNames || []).length ? `Assigned in Cubby to ${info.assignedNames.join(', ')}`
+    : (info.groupNames || []).length ? `Assigned in Cubby to the ${info.groupNames.join(', ')} group` : '';
+  const cubbyState = info.pushStatus ? `Waiting to be ${info.pushStatus === 'COMPLETED' ? 'completed' : 'reopened'} in Cubby`
+    : info.status === 'COMPLETED' ? 'Completed in Cubby' : info.status === 'ARCHIVED' ? 'Archived in Cubby' : 'Open in Cubby';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 5, fontSize: 13, minWidth: 0 }} data-testid="task-cubby-link">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <Warehouse size={14} style={{ flexShrink: 0, color: NX.faint }} />
+        <span style={{ fontWeight: 600 }}>{where || 'Cubby'}</span>
+        {info.automated && <Chip color={NX.teal} tint="rgba(13,148,136,0.15)">Automated</Chip>}
+        <Chip color={info.status === 'OPEN' && !info.pushStatus ? NX.dim : NX.amber}
+          tint={info.status === 'OPEN' && !info.pushStatus ? 'rgba(128,128,128,0.14)' : 'rgba(217,119,6,0.14)'}>{cubbyState}</Chip>
+      </div>
+      {(people || info.createdBy) && (
+        <span style={{ color: NX.faint }}>
+          {people}{people && info.createdBy ? ' · ' : ''}{info.createdBy ? `Created in Cubby by ${info.createdBy}` : ''}
+        </span>
+      )}
+      {info.pushError && <span style={{ color: NX.red }}>Cubby refused the last try: {info.pushError}</span>}
+    </div>
+  );
+}
+
 // ── Recurrence ──────────────────────────────────────────────────────────────
 /** The Recurrence row: the Repeat menu (RecurrenceMenu.jsx) under a button
  *  naming the rule, with Ends beside it once the task has a schedule of its
@@ -1337,6 +1385,10 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {task.sourceTicketId && (
         <Row label="From Ticket"><SourceTicketLink ticketId={task.sourceTicketId} onOpen={onOpenTicket} /></Row>
       )}
+      {/* The Cubby task it mirrors (Neil, Oct 30 2026, backend/cubby_tasks.py). */}
+      {task.cubbyTaskId && (
+        <Row label="From Cubby"><CubbyLink taskId={task.id} /></Row>
+      )}
       {/* Same column and gap as the tab body, so locking moves nothing. */}
       <FieldsLock readOnly={readOnly} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <Row label="Assignee" history="assigneeIds" historyLabel="Assignees">
@@ -1345,6 +1397,26 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
               completes it for all (one row, one flag). */}
           <PersonMultiSelect value={taskAssignees(task)} people={people} addTitle="Add assignee"
             onChange={(list) => patch({ assigneeIds: list })} placeholder="Unassigned" />
+          {/* Message / Call each assignee on Teams (Frontline Reach, 11/02/2026):
+              the first name before each pair, so three assignees are not six
+              identical icons; only people in Nexus People, never yourself. */}
+          {(() => {
+            const rows = taskAssignees(task).map((e) => {
+              const p = people?.find((x) => (x.email || '').toLowerCase() === (e || '').toLowerCase());
+              return { e, p, show: !!p && !p.external && !!e && e.toLowerCase() !== (myEmail || '').toLowerCase() };
+            }).filter((r) => r.show);
+            if (!rows.length) return null;
+            return (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 6 }}>
+                {rows.map(({ e }) => (
+                  <span key={e} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--muted)' }}>
+                    <span>{(nameOf(e) || e).split(' ')[0]}</span>
+                    <PersonActions email={e} name={nameOf(e)} myEmail={myEmail} size="sm" />
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </Row>
 
@@ -2380,7 +2452,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
               })}
             </div>
           )}
-      {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
+      {view && <AttachmentViewer att={view} onClose={() => setView(null)} markupSource={{ kind: 'task', id: task.id, label: task.title || 'Task', url: `/tasks?task=${encodeURIComponent(task.id)}` }} />}
     </div>
     {/* Outside the panel: its paste / drop handlers must not see the dialogs' events. */}
       {versionsOf && (

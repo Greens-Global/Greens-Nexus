@@ -5,6 +5,14 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { msalInstance } from './msalInstance'
 import { queryClient } from './lib/queryClient'
 import { setCacheBridge } from './api'
+// The Notes board engine (@excalidraw/excalidraw, its own lazy chunk)
+// builds its font URL list the moment its chunk evaluates, from
+// window.EXCALIDRAW_ASSET_PATH - so the path must exist before any chunk
+// loads, not in Board.jsx (which runs after the engine it imports). Without
+// it the engine asked esm.sh for every font and the CSP blocked them all
+// (dev walk-through, 11/02/2026). The fonts are copied to
+// public/excalidraw-assets/ by scripts/copy-excalidraw-assets.mjs.
+if (typeof window !== 'undefined' && !window.EXCALIDRAW_ASSET_PATH) window.EXCALIDRAW_ASSET_PATH = '/excalidraw-assets/';
 // ProseMirror's own stylesheets. Every rich-text surface in Nexus is built on
 // ProseMirror (TipTap), and these are not optional decoration - they carry
 // behavior the editor assumes:
@@ -29,6 +37,7 @@ import { Spinner } from './components/AsyncState'
 import DialogGuard from './components/DialogGuard'
 import { DialogHost } from './ui/dialog'
 import { installErrorReporter } from './lib/errorReporter'
+import { registerServiceWorker } from './lib/pwa'
 import { BFF_MODE, bffBootstrap } from './bffAuth'
 
 installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
@@ -101,6 +110,13 @@ let _booted = false;
 function renderConnecting(waitedMs = 0) { if (!_booted) _root.render(<BootConnecting waitedMs={waitedMs} />); }
 
 function renderApp() {
+  // Installable app + push (lib/pwa.js): the worker registers with the app
+  // shell - never on a public page (an e-sign link, the careers form, a
+  // policy page), where the visitor has no account to push to. It only
+  // handles push. BFF mode reaches here only once the session is confirmed;
+  // MSAL mode registers at first render and the worker simply has nothing to
+  // show until the person signs in and turns push on.
+  if (!isPublicPath) registerServiceWorker();
   _root.render(
     <StrictMode>
       <RootErrorBoundary>

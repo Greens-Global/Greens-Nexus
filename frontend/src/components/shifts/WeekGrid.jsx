@@ -172,7 +172,7 @@ export function DayHeader({ d, stats, isToday, isHol, note, weather = null, onWe
           {compact ? d.getDate() : dayShort(d)}
           {month && !compact && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)' }}>{month}</span>}
         </button>
-        {isHol && !compact && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', ...ELLIPSIS }}>Holiday</span>}
+        {isHol && !compact && <span title={typeof isHol === 'string' ? isHol : 'Holiday'} style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', ...ELLIPSIS }}>{typeof isHol === 'string' ? isHol : 'Holiday'}</span>}
         <span style={{ flex: 1 }} />
         <WeatherChip w={weather} compact={compact} onClick={onWeather} />
         {noteIcon}
@@ -277,14 +277,14 @@ export function CoverageChip({ c, compact = false, onShort }) {
 }
 
 export default function WeekGrid({ days, compact = false, sections, byCell, openCells, offOn, holOn = () => null, availOn = () => null, usualOf = () => null,
-  notes = {}, weather = {}, holidayDates = new Set(), me = '', prefs = {}, teamZone = '', canManage = false,
+  notes = {}, weather = {}, holidayDates = new Set(), holidayNames = {}, me = '', prefs = {}, teamZone = '', canManage = false,
   rowEditable = () => false, empWeekMin, dayStats, weekMin, overWeeks = () => [], copied = null, dropKey = '', dragId = '',
   isCollapsed = () => false, on = null, dragProps = () => ({}), personDragProps = null, dropProps = () => ({}), dropStyle = () => ({}),
   hoverCell = () => ({}), hoverShift = () => ({}), clickable = (fn) => fn, onNowOf = () => false, blockChildren = null, selected = null,
   ariaRole = 'grid', ariaLabel = 'Schedule', notesRow = false, maxHeight = 'calc(100vh - 150px)',
   single = false, emptyNote = null, cornerTools = null, ghostOf = () => null, blockClass = () => '', motion = true, glowToday = false,
-  personFill = null, usualCan = () => false, coverageOf = null, onCoverage = null, pulseCells = null, conflictCount = 0, onConflicts = null,
-  conflictWord = 'conflict', actualOf = null, adherence = null, confirmOf = null, nameExtra = null,
+  personFill = null, usualCan = () => false, coverageOf = null, onCoverage = null, pulseCells = null,
+  actualOf = null, adherence = null, confirmOf = null, nameExtra = null,
   // Hours are a manager's number (Pranshu, Oct 21 2026): someone reading their
   // team's schedule sees names, status and usual hours, never "0 Hrs" lines.
   showHours = canManage }) {
@@ -376,14 +376,6 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
       <div style={{ gridRow: hr, gridColumn: 1, position: 'sticky', top: 0, left: 0, zIndex: 4, background: 'var(--card)', borderRight: LINE, borderBottom: LINE,
         padding: '9px 14px', display: 'flex', alignItems: 'flex-end', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
         <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {conflictCount > 0 && (
-            <button type="button" data-conflict-link="" onClick={onConflicts || undefined} disabled={!onConflicts} title="Go to the first one"
-              style={{ alignSelf: 'flex-start', border: 'none', background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', borderRadius: 999, padding: '1px 8px',
-                fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: onConflicts ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'hsl(var(--color-orange))' }} />
-              {conflictCount} {conflictWord}{conflictCount === 1 ? '' : 's'}
-            </button>
-          )}
           {showHours && <span title="Paid hours of the people shown. Open shifts are counted on their own row.">Week · {fmtHrs(weekMin)}</span>}
           {headCover && <span style={{ fontSize: 10.5, fontWeight: 600 }} title="Expected = usual hours on that weekday, minus anyone off. On = anyone with a shift.">Coverage</span>}
         </span>
@@ -392,7 +384,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
       {days.map((d, i) => {
         const ds = isoDate(d);
         return (
-          <DayHeader key={ds} data-today={ds === today ? '' : undefined} d={d} stats={{ ...dayStats(d), first: i === 0, ...(showHours ? null : { min: undefined }) }} isToday={ds === today} isHol={holidayDates.has(ds)} note={notes[ds]} weather={weather[ds]} onWeather={on?.weather && weather[ds] ? () => on.weather(ds) : null}
+          <DayHeader key={ds} data-today={ds === today ? '' : undefined} d={d} stats={{ ...dayStats(d), first: i === 0, ...(showHours ? null : { min: undefined }) }} isToday={ds === today} isHol={holidayDates.has(ds) ? (holidayNames[ds] || 'Holiday') : ''} note={notes[ds]} weather={weather[ds]} onWeather={on?.weather && weather[ds] ? () => on.weather(ds) : null}
             canManage={canManage} compact={compact} coarse={coarse} onOpen={on ? () => on.openDay(ds) : undefined} onNote={on ? () => on.noteEdit(ds) : undefined}
             coverage={headCover ? <CoverageChip c={headCover[i]} compact={compact} onShort={onCoverage} /> : null}
             style={{ gridRow: hr, gridColumn: i + 2, position: 'sticky', top: 0, zIndex: 3, background: solid(colBg(d, today)) }} />

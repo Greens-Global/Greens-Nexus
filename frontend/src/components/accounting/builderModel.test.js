@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest';
 import {
   BUILDER_KIND, BUILDER_VERSION, defaultBuilder, exportConfig, includedAccounts, isBuilderConfig, isPublished, layoutBuilder, resolveBuilder, runBuilder, storableBuilder,
 } from './builderModel';
@@ -9,6 +9,12 @@ import { csvRows, resolveConfig } from './reportModel';
 // Schedule C herself; no Schedule C lines live in code).
 
 const NOW = new Date(2026, 9, 23);
+
+// runBuilder and storableBuilder re-resolve the config with the real clock (a
+// named period moves with the calendar), so the clock must agree with NOW -
+// the t12m test broke when October rolled into November.
+beforeAll(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW); });
+afterAll(() => { vi.useRealTimers(); });
 const cols1 = [{ key: 'cur', label: '01/01/2026 - 10/23/2026' }];
 const acct = (code, title, v, section = 'expense') => ({ code, title, section, values: Array.isArray(v) ? v : [v] });
 const ACCOUNTS = [

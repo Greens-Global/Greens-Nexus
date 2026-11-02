@@ -23,6 +23,8 @@ import VoiceNoteButton from '../components/VoiceNoteButton';
 import { STOP_VOICE_FIRST } from '../lib/voice';
 import SayIt from './SayIt';
 import LabelsEditor from './LabelsEditor';
+import AddSeveralModal from './AddSeveralModal';
+import { pastedTaskList } from './batchPaste';
 import { labelsInUse } from './labels';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
@@ -82,7 +84,9 @@ function buildRecurrence(form) {
   return r;
 }
 
-export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '' }) {
+// `onCreated(task)` runs after a successful create (Forms' Make a Task, 11/02/2026);
+// `defaults.description` seeds the description (HTML, one <p> per line).
+export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '', onCreated = null }) {
   const store = useTasks();
   const { createTask, updateTask, deleteTask, tasks, projects, teams, myEmail, customFields = [] } = store;
   const people = usePeople(true);   // assignee/collaborators - see TaskDetailDrawer
@@ -92,7 +96,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const isEdit = !!editing;
 
   const [form, setForm] = useState(() => ({
-    title: editing?.title ?? defaults.title ?? '', description: editing?.description ?? '',
+    title: editing?.title ?? defaults.title ?? '', description: editing?.description ?? defaults.description ?? '',
     // New tasks default assignee AND owner to the creator; editing keeps whatever
     // the task has (an unassigned / unowned task must stay that way).
     // A task can be assigned to several people; whoever finishes it finishes
@@ -143,6 +147,9 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const [attachments, setAttachments] = useState(() => (editing ? [] : defaults.files || []));
   const [busy, setBusy] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
+  // Add Several (Oct 31 2026): a pasted list in the Title, or the button
+  // beside it, hands the form's shared fields and the lines to AddSeveralModal.
+  const [several, setSeveral] = useState(null);   // { text, source }
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   // Frozen on first render (not re-derived from `editing`/`defaults`, which can
   // change identity across re-renders) so later edits always compare against
@@ -268,13 +275,14 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     };
     try {
       let parentId = taskId;
+      let created = null;
       if (isEdit) {
         await updateTask(taskId, core);
         const kept = subtasks.filter((s) => s.id).map((s) => s.id);
         for (const t of tasks.filter((t) => t.parentTaskId === taskId)) if (!kept.includes(t.id)) await deleteTask(t.id).catch(() => {});
         for (const s of subtasks) if (s.id) { if (store.taskById[s.id]?.title !== s.title) await updateTask(s.id, { title: s.title }).catch(() => {}); }
       } else {
-        const created = await createTask(core);
+        created = await createTask(core);
         parentId = created.id;
       }
       for (const s of subtasks.filter((s) => !s.id)) await createTask({ title: s.title, parentTaskId: parentId, projectId: form.projectId || '', teamId: form.teamId || '', followerIds: form.followerIds, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
@@ -288,6 +296,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
       // The task itself saved, so the form closes either way - but a file
       // that did not attach is named, never dropped without a word.
       if (notAttached.length) dialog.alert(notAttachedText(notAttached, isEdit ? 'saved' : 'created'), { title: 'Some Files Did Not Attach' });
+      if (created) onCreated?.(created);
       onClose(true);
     } catch (e) { alert(`Could not save task: ${e.message || e}`); setBusy(false); }
   };
@@ -338,11 +347,24 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     }>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={field}>
-          <label style={label}>Title <span style={{ color: NX.red }}>*</span></label>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+            <label style={label}>Title <span style={{ color: NX.red }}>*</span></label>
+            {!isEdit && (
+              <button type="button" onClick={() => setSeveral({ text: form.title, source: 'typed' })} title="Add several tasks at once, one per line"
+                style={{ ...btn('ghost'), padding: '0 2px', fontSize: 12, fontWeight: 600, color: NX.blue, marginBottom: 5 }}><ListChecks size={13} /> Add Several</button>
+            )}
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <input ref={titleRef} autoFocus value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="What needs to be done?"
               aria-label="Title" style={{ ...input, flex: 1, minWidth: 0 }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} />
+              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
+              // A list on the clipboard (two or more lines) is many tasks: Add Several takes it.
+              onPaste={(e) => {
+                if (isEdit) return;
+                const list = pastedTaskList(e);
+                // Text already typed in the box stays, as the first line.
+                if (list) { e.preventDefault(); setSeveral({ text: form.title.trim() ? `${form.title.trim()}\n${list}` : list, source: 'paste' }); }
+              }} />
             <DictateButton target={titleRef} title="Dictate the Title" />
           </div>
           {/* Say It fills a NEW task from one sentence; an edit keeps its fields. */}
@@ -643,6 +665,16 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
 
       {/* Inline "create a project" - the new project is auto-selected for this task. */}
       {creatingProject && <ProjectCreateModal onClose={() => setCreatingProject(false)} onCreated={(p) => set('projectId', p.id)} />}
+      {/* Add Several: the form's shared fields travel with the lines; when the
+          list is added this form closes too - the tasks are made. */}
+      {several && (
+        <AddSeveralModal
+          defaults={{ text: several.text, source: several.source, fromForm: true,
+            projectId: lockedProjectId || form.projectId || '', lockedProjectId, assigneeIds: form.assigneeIds,
+            dueOn: form.dueOn || '', startOn: form.startOn || '', priority: form.priority, status: form.recurFreq !== 'none' ? '' : form.status,
+            tags: form.labels, teamId: form.teamId || '', customFieldValues: form.customFieldValues }}
+          onClose={(added) => { setSeveral(null); if (added) onClose(true); }} />
+      )}
     </Modal>
   );
 }

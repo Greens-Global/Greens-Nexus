@@ -932,12 +932,12 @@ def test_pin_on_another_developers_file_is_held_and_rings_the_owner():
     body = _owner_bodies()[0]
     assert ("pinned inventory (frontend/src/views/InventoryManagement.jsx). It waits for you - "
             "release it to Claude Code or handle it yourself.") in body
-    assert "Ask a Global Admin for the Build Mode grant if the link does not open." in body   # Visesh has no grant
+    assert "Ask a Super Administrator for the Build Mode grant if the link does not open." in body   # Visesh has no grant
     GRANTS[VISESH["email"]] = {"build-mode": 1}
     try:
         _held_pin()
         bodies = _owner_bodies()
-        assert len(bodies) == 2 and sum("Ask a Global Admin" in b for b in bodies) == 1
+        assert len(bodies) == 2 and sum("Ask a Super Administrator" in b for b in bodies) == 1
     finally:
         GRANTS.pop(VISESH["email"], None)
     # no source file: no owner

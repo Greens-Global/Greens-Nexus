@@ -12,6 +12,7 @@ export default function SearchResults({ query, me }) {
   const asking = query.startsWith('?');
   const q = asking ? query.slice(1) : query;
   const [type, setType] = useState('');
+  const [department, setDepartment] = useState('');   // Applies To filter (Neil, 11/02/2026)
   const [res, setRes] = useState(null);
   const [err, setErr] = useState('');
   const [answer, setAnswer] = useState(null);
@@ -23,9 +24,9 @@ export default function SearchResults({ query, me }) {
   useEffect(() => {
     let live = true;
     setRes(null); setErr('');
-    api.kbSearch(q, { type }).then((r) => { if (live) setRes(r); }).catch((e) => { if (live) setErr(e.message || 'Search failed'); });
+    api.kbSearch(q, { type, department }).then((r) => { if (live) setRes(r); }).catch((e) => { if (live) setErr(e.message || 'Search failed'); });
     return () => { live = false; };
-  }, [q, type]);
+  }, [q, type, department]);
   useEffect(() => { api.kbCollections().then(setCollections).catch(() => {}); }, []);
   useEffect(() => {
     if (!asking) { setAnswer(null); return undefined; }
@@ -36,6 +37,7 @@ export default function SearchResults({ query, me }) {
   }, [asking, q]);
 
   const results = res?.results || [];
+  const departments = [...new Set(collections.map((c) => c.department).filter(Boolean))].sort();
   return (
     <div className="kb-page">
       <div style={{ maxWidth: 860 }}>
@@ -46,6 +48,12 @@ export default function SearchResults({ query, me }) {
           <button type="button" className={`kb-pill${type === '' ? ' on' : ''}`} onClick={() => setType('')}>All</button>
           {Object.values(PAGE_TYPES).map((t) => <button key={t.key} type="button" className={`kb-pill${type === t.key ? ' on' : ''}`} onClick={() => setType(t.key)}>{t.label}</button>)}
         </div>
+        {departments.length > 0 && (
+          <select className="kb-select" value={department} onChange={(e) => setDepartment(e.target.value)} aria-label="Department" style={{ width: 'auto', minHeight: 32, padding: '4px 28px 4px 10px', fontSize: 13 }}>
+            <option value="">Every department</option>
+            {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        )}
         {res && <span className="kb-meta" style={{ marginLeft: 'auto' }}>{res.total} result{res.total === 1 ? '' : 's'} for "{q}"</span>}
       </div>
       {res?.also_matched?.length > 0 && <div className="kb-meta">Also matched: {res.also_matched.join(', ')}</div>}
@@ -61,7 +69,7 @@ export default function SearchResults({ query, me }) {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 12 }}>
                 <span className="kb-meta">Sources:</span>
                 {answer.sources.map((s, i) => (
-                  <button key={s.id} type="button" className="kb-btn sm" onClick={() => goKb('page', s.id)} title={s.verified_at ? `Verified ${fmtDate(s.verified_at)}` : ''}>
+                  <button key={s.id} type="button" className="kb-btn sm" onClick={() => goKb('page', s.id)} title={[s.verified_at ? `Verified ${fmtDate(s.verified_at)}` : '', s.why].filter(Boolean).join(' · ')}>
                     [{i + 1}] {s.verified_at && <ShieldCheck size={13} style={{ color: 'var(--kb-green)' }} />}{s.code || s.title}
                   </button>
                 ))}
@@ -76,6 +84,14 @@ export default function SearchResults({ query, me }) {
           {!askBusy && answer && !answer.answer && (
             <div className="kb-meta">{answer.offline ? (answer.error || 'Nexus is not available right now. The search results below still work.') : 'The published pages do not answer this.'}
               {' '}<a href="#req" onClick={(e) => { e.preventDefault(); setRequest(true); }}>Request a page for it</a>.</div>
+          )}
+          {!askBusy && answer && !answer.answer && answer.sources?.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 10 }}>
+              <span className="kb-meta">Start with:</span>
+              {answer.sources.map((s) => (
+                <button key={s.id} type="button" className="kb-btn sm" onClick={() => goKb('page', s.id)} title={s.why || ''}>{s.code || s.title}{s.why ? <span className="kb-meta" style={{ fontWeight: 400 }}> · {s.why}</span> : null}</button>
+              ))}
+            </div>
           )}
         </section>
       )}
@@ -95,6 +111,13 @@ export default function SearchResults({ query, me }) {
           {results.map((p) => <PageRow key={p.id} page={p} snippet={p.snippet} />)}
         </section>
       </AsyncSection>
+      {res?.linked?.length > 0 && (
+        <section className="kb-card">
+          <div className="kb-title" style={{ fontSize: 14, marginBottom: 2 }}>Linked to These Results</div>
+          <div className="kb-meta" style={{ marginBottom: 8 }}>Pages the best matches point to, embed, are taught with or share a department with. They did not match your words.</div>
+          {res.linked.map((p) => <PageRow key={p.id} page={p} compact right={<span className="kb-meta" style={{ fontSize: 12, maxWidth: 260, textAlign: 'right' }}>{p.why}</span>} />)}
+        </section>
+      )}
       {res && results.length > 0 && (
         <div className="kb-meta">Not what you needed? <a href="#req" onClick={(e) => { e.preventDefault(); setRequest(true); }}>Request a page</a>.</div>
       )}

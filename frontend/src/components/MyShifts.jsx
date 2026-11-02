@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, CalendarDays, Info, StickyNote, ArrowLeftRight, CloudRain, Check, CalendarCheck, Copy, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, useCallback, lazy, Suspense } from 'react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, CalendarDays, Info, StickyNote, ArrowLeftRight, CloudRain, Check, CalendarCheck, Copy, RefreshCw, ClipboardList } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { zoneClock, formatHHMM, formatMonthDay, formatDate } from '../lib/datetime';
@@ -16,6 +16,11 @@ import DateBlock from './shifts/DateBlock';
 import { isoDate, parseIso, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, todayIso, dayShort, shortTime, shiftShortText, actualFor } from './shifts/shiftLib';
 import { useShiftRequests } from './useShiftRequests';
 import MyAvailability from './MyAvailability';
+import { formsForShift } from '../forms/formRules';
+import { ModalLoading } from './AsyncState';
+// Fill a Form (Forms & Checklists, Neil 11/02/2026): a shift card's "Fill
+// <title>" opens the fill sheet with the shift - loaded on first use.
+const FillForm = lazy(() => import('../forms/FillForm'));
 
 // Shifts > My Shifts (Sep 29; rebuilt Oct 2026; decluttered 10/02). A
 // read-only week of the signed-in person's own SHARED shifts, with time off
@@ -49,6 +54,8 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   const [availOpen, setAvailOpen] = useState(false);
   const nameOf = useNameResolver();
   const phone = useIsMobile();
+  // The small Fill / Request buttons under a shift, big enough for a thumb on a phone.
+  const smallTap = phone ? { minHeight: 28, padding: '4px 9px' } : null;
   const [weekStart, setWeekStartPref] = useState('monday');
   const [cursor, setCursor] = useState(() => new Date());
   const [data, setData] = useState(null);
@@ -59,6 +66,16 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   const first = useMemo(() => weekStartOf(cursor, weekStart), [cursor, weekStart]);
   const start = isoDate(first), end = isoDate(addDays(first, 6));
   const [reload, setReload] = useState(0);
+  // The forms with Show On Shift Cards this person may fill (GET /forms/mine);
+  // which ones a card offers is formsForShift. A failed load is no buttons.
+  const [shiftForms, setShiftForms] = useState([]);
+  const [fillForm, setFillForm] = useState(null);   // { form, shift }
+  useEffect(() => {
+    if (!mine || typeof api.formsMine !== 'function') return undefined;
+    let live = true;
+    api.formsMine().then((r) => { if (live) setShiftForms((Array.isArray(r) ? r : r?.forms || []).filter((f) => f.showOnShifts)); }).catch(() => {});
+    return () => { live = false; };
+  }, [mine]);
   useEffect(() => {
     let live = true;
     setData(null); setError(null);
@@ -269,6 +286,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   // minute while the tab is in view. A failed call keeps the last map, and
   // the schedule never waits on it.
   const [liveMap, setLiveMap] = useState(null);
+  const [liveLate, setLiveLate] = useState([]);   // who the server says is late right now (the strip)
   const hasTeam = !!team;
   useEffect(() => {
     if (mine || !thisWeek || !hasTeam) return undefined;
@@ -276,7 +294,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
     const pull = () => {
       if (document.visibilityState === 'hidden') return;
       Promise.resolve().then(() => api.timeMyScheduleLive())
-        .then((r) => { if (alive && r?.people && typeof r.people === 'object') setLiveMap(r.people); })
+        .then((r) => { if (alive && r?.people && typeof r.people === 'object') { setLiveMap(r.people); setLiveLate(Array.isArray(r.late) ? r.late : []); } })
         .catch(() => {});
     };
     pull();
@@ -399,11 +417,18 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
                 return (
                   <ShiftBlock key={s.id} shift={s} teamZone={teamZone} style={{ marginBottom: 0 }} actual={actualOf(s, d.shifts.length === 1)} tapActual>
                     {s.note && <div style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.note}</div>}
+                    {formsForShift(shiftForms, s, data?.teams).map((f) => (
+                      <button key={f.id} type="button" onClick={() => setFillForm({ form: f, shift: s })} aria-label={`Fill ${f.title}`}
+                        style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
+                          border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit', maxWidth: '100%', ...smallTap }}>
+                        <ClipboardList size={10} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Fill {f.title}</span>
+                      </button>
+                    ))}
                     {pendingIds.has(s.id) ? <div style={{ fontSize: 10.5, color: 'hsl(var(--color-orange))', fontWeight: 600, marginTop: 2 }}>Request Pending</div>
                       : askable && (
                         <button type="button" onClick={() => setAsk({ shift: s })} aria-label={`Request a swap${canRelease ? ', offer or release' : ' or offer'} for ${formatHHMM(s.start)} - ${formatHHMM(s.end)}`}
                           style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
-                            border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' }}>
+                            border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit', ...smallTap }}>
                           <ArrowLeftRight size={10} /> Request
                         </button>
                       )}
@@ -422,6 +447,12 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       )}
 
       {flash && <div role="status" style={{ marginTop: 12, fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>{flash}</div>}
+      {fillForm && (
+        <Suspense fallback={<ModalLoading zIndex={4100} />}>
+          <FillForm templateId={fillForm.form.id} shiftId={fillForm.shift.id} workSiteId={fillForm.form.workSiteId || ''} onClose={() => setFillForm(null)}
+            onSent={(entry) => setFlash(`${entry?.title || fillForm.form.title} sent`)} />
+        </Suspense>
+      )}
       {ask && reqs && (
         <ShiftRequestDialog reqs={reqs} myShifts={(data?.scheduled || []).filter((s) => s.date >= todayKey)} shift={ask.shift} kind={cfg.swaps === true ? 'swap' : cfg.offers === true ? 'offer' : 'release'}
           nameOf={nameOf} onClose={() => setAsk(null)} onDone={done} />
@@ -429,7 +460,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
 
       {mine ? null : data && team ? (
         <TeamShiftGrid teams={teams} team={team} allTeam={allTeam} onPickTeam={setTeamId} days={days} rows={teamRows} onNow={onNow}
-          openShifts={openList} onRequestOpen={requestOpen} busyOpenId={busyOpen} thisWeek={thisWeek} live={thisWeek ? liveMap : null}
+          openShifts={openList} onRequestOpen={requestOpen} busyOpenId={busyOpen} thisWeek={thisWeek} live={thisWeek ? liveMap : null} late={thisWeek ? liveLate : []}
           timeZoneLabel={teamZoneLabel} teamZone={teamZone} />
       ) : data && teamZoneLabel ? (
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>

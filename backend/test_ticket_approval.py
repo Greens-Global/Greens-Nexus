@@ -88,8 +88,10 @@ class _Case(unittest.TestCase):
                                          company="co", status="active"))
         # The approver and the agent are people on the Nexus People list - an
         # approver must be (request_approval), and so must an intake assignee
-        # (create_ticket, Oct 18 2026 review).
-        for email, first in ((APPROVER, "Neil"), (AGENT, "Agent"), (OTHER_ADMIN, "Other")):
+        # (create_ticket, Oct 18 2026 review). The IT Admins are in the same
+        # company as the tickets: an Administrator is company-walled (Neil,
+        # 11/02/2026).
+        for email, first in ((APPROVER, "Neil"), (AGENT, "Agent"), (ADMIN, "Admin"), (OTHER_ADMIN, "Other")):
             self.db.add(models.NexusEmployee(id=str(uuid.uuid4()), first_name=first, work_email=email,
                                              company="co", status="active"))
         self.db.commit()
