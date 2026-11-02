@@ -513,7 +513,7 @@ function DeleteTemplateModal({ template, onClose, onConfirm }) {
   };
   return (
     <Modal
-      title={`Delete "${template.name}"?`} onClose={busy ? () => {} : onClose}
+      title={`Delete "${template.name}"?`} placement="center" onClose={busy ? () => {} : onClose}
       footer={<>
         <button style={btn('outline')} onClick={onClose} disabled={busy}>Cancel</button>
         <button style={{ ...btn('primary'), background: NX.red, borderColor: NX.red, opacity: busy ? 0.6 : 1 }}

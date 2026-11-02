@@ -1,7 +1,8 @@
 // Task Module - shared UI atoms (inline-styled to match the export's light theme).
 import { useEffect, useLayoutEffect, useState, useRef, useId } from 'react';
 import { isBypassing, confirmDiscard } from '../lib/dialogGuard';
-import { useExit } from '../lib/motion';
+import { useExit, MOTION } from '../lib/motion';
+import { useSheetStack, useSheetEntering, SHEET_SHADOW, SHEET_EDGE } from '../lib/sheetStack';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
   ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus, Repeat,
@@ -148,7 +149,16 @@ export function useEscapeLayer(onEscape, active = true) {
 // the edit away (Aug 18 - "when we click outside... it should ask us for
 // 'Do you want to save'"). With isDirty unset (the default) a modal behaves
 // exactly as before.
-export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave }) {
+//
+// `placement` (Neil, 11/01/2026): on a desktop a popup is a SHEET by default -
+// docked to the right edge, full height, the width it already had (the 60%
+// rule's max(60vw, width)), left corners rounded, sliding in from the edge
+// (style.css "Sheets"). A QUESTION - a confirm, an alert, "Delete this?" -
+// passes placement="center" and keeps the centered card. Phones ignore it
+// and keep the full-screen bottom sheet.
+// `zIndex` (default 4000) is the overlay's, and the sheet's place in
+// lib/sheetStack.js: a sheet recedes only sheets at or below its own z.
+export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000 }) {
   // Phones get a full-screen sheet, the shape the task drawer already uses
   // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
   // is the LARGE viewport (browser chrome hidden), so 7vh of padding plus an
@@ -158,6 +168,7 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   // can't access the action buttons"). Landscape hid the bug because Safari's
   // chrome is thin there, so large and visible viewport nearly agree.
   const isMobile = useIsMobile();
+  const sheet = !isMobile && placement === 'sheet';
   // A touch screen wider than the phone breakpoint (a phone in landscape, a
   // tablet) keeps the centered card, but sized to what is visible: the
   // keyboard and the browser bars come out of the visual viewport, not `vh`.
@@ -175,10 +186,15 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   // (lib/dialogGuard.js) is replaying this close - do not ask twice.
   // Exit motion (lib/motion.js): every close the Modal itself performs plays
   // the exit first; a caller that closes from its own Save button is instant.
-  const [closing, exit] = useExit(onClose);
+  // A sheet slides out over --dur-md (220ms); a centered card pops out in 150.
+  const [closing, exit] = useExit(onClose, sheet ? MOTION.md : MOTION.exit);
   const requestClose = () => { if (isDirty && !isBypassing()) setConfirmClose(true); else exit(); };
   useEscapeLayer(() => requestClose());
   useDialogFocus(panelRef);
+  // A sheet over a sheet: the one beneath recedes until this one leaves.
+  useSheetStack(panelRef, sheet, closing, zIndex);
+  // The body's cascade plays only while the sheet arrives.
+  const entering = useSheetEntering(sheet);
   // The phone's Back button closes this sheet, not the screen behind it -
   // asking the same unsaved-work questions the X button asks.
   useBackToClose(followViewport, () => {
@@ -203,22 +219,26 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   };
   return createPortal(
     <div ref={overlayRef} className={`nx-tasks-portal nx-overlay${closing ? ' is-closing' : ''}`} onClick={requestClose} style={{
-      position: 'fixed', background: 'rgba(17,24,39,0.45)', zIndex: 4000,
+      position: 'fixed', background: 'rgba(17,24,39,0.45)', zIndex,
       ...(vv ? { left: 0, right: 0, top: vv.top, height: vv.height } : { inset: 0 }),
-      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      // A sheet sits against the right edge and runs the full height; a
+      // centered card keeps the old top-aligned padding.
+      display: 'flex', alignItems: sheet ? 'stretch' : 'flex-start', justifyContent: sheet ? 'flex-end' : 'center',
       // Following the visual viewport (a landscape phone, a tablet) the
       // vertical padding comes out of what is visible, not 7 large-viewport
       // vh: with the keyboard up a landscape phone shows ~120-150px, and 7vh
       // a side would leave the card too short for its header and footer.
-      padding: isMobile ? 0 : vv ? `${vv.height < 300 ? 0 : Math.round(Math.min(0.07 * vv.height, 24))}px 16px` : '7vh 16px',
+      padding: isMobile || sheet ? 0 : vv ? `${vv.height < 300 ? 0 : Math.round(Math.min(0.07 * vv.height, 24))}px 16px` : '7vh 16px',
       fontFamily: FONT,
     }}>
       {/* role="dialog" sits on the panel. The phone bottom-sheet rules in
           style.css skip it via .nx-sheet - this one is shaped here. */}
       <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={dialogKeyDown}
-        onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : 'nx-sheet nx-panel'} style={{
+        onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : sheet ? `nx-sheet nx-sheet-right${entering ? ' is-entering' : ''}` : 'nx-sheet nx-panel'} style={{
         background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
+        // A sheet casts its shadow to the left, the side it meets the page on
+        // (the same value as the Sheets block in style.css).
+        boxShadow: sheet ? SHEET_SHADOW : '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
         // The sheet's height comes from .nx-modal-sheet, not from here: it needs
         // `height:100vh` followed by `height:100dvh`, and one inline style object
         // cannot hold the same property twice. dvh is the part of the page
@@ -228,6 +248,11 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
         // the keyboard, the visual viewport does.
         ...(isMobile
           ? { width: '100%', maxWidth: '100%', borderRadius: 0, border: 'none', ...(vv ? { height: vv.height - (vv.clear || 0) } : null) }
+          // The sheet: the 60% rule's width against the right edge, the whole
+          // height, rounded only where it meets the page. No minHeight - the
+          // height is the viewport's.
+          : sheet
+          ? { width: `max(60vw, ${typeof width === 'number' ? `${width}px` : width})`, minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '100%', maxHeight: '100%', borderRadius: '16px 0 0 16px', border: 'none', borderLeft: SHEET_EDGE }
           // Never under 60vw (CLAUDE.md popup rule), whatever width a caller passes.
           // 100% of the overlay's padded box. On a desktop that is the same
           // 86vh as before; pinned to the visual viewport it is what fits.
@@ -240,7 +265,7 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
         {/* flex:1 + minHeight:0 is what makes THIS the part that scrolls; without
             it a tall body pushes the footer past the panel's clipped edge.
             overscrollBehavior: a swipe past its end stays in the sheet. */}
-        <div className="nx-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...(followViewport ? { overscrollBehavior: 'contain' } : null) }}>{children}</div>
+        <div className={sheet ? 'nx-scroll nx-cascade' : 'nx-scroll'} style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...(followViewport ? { overscrollBehavior: 'contain' } : null) }}>{children}</div>
         {/* The action row never scrolls away, and clears the home indicator. */}
         {footer && <div style={{
           padding: isMobile ? '12px 16px calc(12px + env(safe-area-inset-bottom))' : '12px 20px',

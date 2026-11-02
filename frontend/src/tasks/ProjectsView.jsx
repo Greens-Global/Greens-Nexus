@@ -635,6 +635,7 @@ export function DeleteProjectModal({ state, onConfirm, onClose }) {
   return (
     <Modal
       title={`Delete "${project.name}"?`}
+      placement="center"
       onClose={onClose}
       footer={(
         <>

@@ -170,27 +170,43 @@ keep the diff minimal.
 - Cross-view navigation uses the `nexus:navigate` window event
   (`window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }))`).
 - Tab strips use the `.scroll-tabs` class (hidden scrollbars, mobile swipe).
-- **Popups cover 60% of the screen** (Pranshu, Oct 15 2026): every modal /
-  dialog / popup panel is `width: 60vw` and `min-height: 60vh` (at least
-  ~420px wide, never wider than the viewport, `max-height: 85vh` with its
-  body scrolling). Never a small fixed-width box that floats mid-page with
-  empty space around it. Phones keep the full-screen sheet. The shared
-  `Modal` in `tasks/components.jsx` is already 60vw wide; match it in any
-  hand-rolled overlay. **The 60% is for content, not blank space** (Pranshu,
-  Oct 21 2026): the popup body is a flex column and the one part that should
-  take the remaining height - the notes textarea's wrapper, the list, the
-  table, the preview - carries `className="nx-fill"` (style.css) so it grows
-  into the space; never leave a short form floating over an empty bottom
-  half.
+- **Popups are sheets from the right** (Neil, 11/01/2026): on a desktop,
+  every popup that is a record, a form or a workspace is a SHEET - docked to
+  the right edge, the full height, rounded only where it meets the page -
+  that slides in from off screen (`nx-slide-in`, 320ms, `--ease-out`) while
+  the scrim fades, its body's first rows cascading in a beat behind the
+  frame (`.nx-cascade`, only while the shell carries `is-entering`, the
+  first 500ms), and slides out in 220ms with the scrim (the exit waits
+  `MOTION.md`; a centered card `MOTION.exit`). The SIZE is still
+  Pranshu's 60% rule (Oct 15 2026): `width: max(60vw, <caller's width>)`,
+  at least ~420px, never wider than the viewport, and **the 60% is for
+  content, not blank space** (Pranshu, Oct 21 2026) - the popup body is a
+  flex column and the one part that should take the remaining height (the
+  notes textarea's wrapper, the list, the table, the preview) carries
+  `className="nx-fill"` so it grows into the space. The shared `Modal` in
+  `tasks/components.jsx` does all of this by default (`placement="sheet"`);
+  so do `marketing/shared/Modal.jsx`, the task drawer, and every
+  class-styled `.modal-overlay > .modal-content.nx-popup` / credvault
+  `.cv-modal.nx-popup` through style.css's "Sheets" block. A QUESTION - a
+  confirm, an alert, a prompt, "Save your changes?", "Delete this?" - stays
+  the centered card: `placement="center"` on the shared Modal, the class
+  `nx-center` on a generic `.modal-content`, `center` on the credvault
+  Modal, and `ui/dialog.jsx` (DialogHost) as it is. A sheet opened over a
+  sheet slides in on top and the one beneath recedes and goes `inert`
+  (`lib/sheetStack.js`, `data-nx-under`) until the top one leaves; the top
+  is what paints on top - highest z-index, then later in the document - so
+  every sheet passes its own z (a drawer under a Modal never recedes it).
+  Phones keep the full-screen bottom sheet; nothing here applies under 641px.
+  Never a small fixed-width box floating mid-page with empty space around it.
   **Exception - the Workday panels are 85%** (Sagar, Oct 27 2026): Ask HR
   (`views/MyHR.jsx`), Reimbursements (`components/Reimbursements.jsx`) and
   Purchase Requests (`PurchaseRequestsPanel` in
   `components/PurchaseRequests.jsx`) are whole workspaces, not single forms -
-  `width: 85vw`, `height: 85vh` (fixed, body scrolling), same 420px floor
-  and phone sheet. Do not "fix" them back to 60%; the forms they open on top
-  (e.g. New Purchase Request) stay on the 60% rule. A click outside these
-  three never closes them - it nudges the popup and lights up its close
-  button (`lib/usePopupNudge.js`); Close, Cancel and Escape close.
+  `width: 85vw`, now also sheets from the right (the full height), same
+  420px floor and phone sheet. Do not "fix" them back to 60%; the forms they
+  open on top (e.g. New Purchase Request) stay on the 60% rule. A click
+  outside these three never closes them - it nudges the popup and lights up
+  its close button (`lib/usePopupNudge.js`); Close, Cancel and Escape close.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 - **Every amount on every Accounting report drills down to its ledger lines
@@ -219,6 +235,20 @@ keep the diff minimal.
   (`lib/groupDirty.js`), so the Settings shell asks before the subject, the
   scope, the top tab, the module or the browser tab changes; the hook is a
   no-op wherever else the panel renders.
+- **The left navigation moves one way (Neil, 11/01/2026):** the strength
+  is a setting - the company default under Settings > Branding > Brand Color
+  (`navMotion` on the branding config), a person's own under My Profile >
+  Appearance (profile prefs `nav.motion`) - resolved by `lib/railMotion.js`
+  (reduced motion is always Off) and written to `<html data-rail-motion>` +
+  `--rail-lift`. `Sidebar.jsx` owns only the two pills (translateY) and the
+  `is-opening` / `is-pop` beats; every visual is the "Rail motion" block in
+  style.css: transform and opacity only, `--ease-spring` on the icon lift
+  (on the way up only - it settles back ease-out) and the one-time pop (on
+  the glyph inside `.nav-ico`, so it composes with the lift) alone - the
+  pills, the flyout, the count bump, the cascade and the chevron ease out -
+  Bold capped at 1.26, cascade 14ms a row,
+  nothing loops, nothing on touch, the phone drawer untouched, the folded
+  rail never peeks. The sidebar tooltip (`NavTip`) is the light flyout card.
 - **Hold to confirm (Neil, Oct 30 2026, plan
   https://claude.ai/artifact/MU1RMFQ9nHYxSB31XjDwQ1, PRs #883-#884):** an
   action that cannot be taken back (delete forever, void, offboard, end

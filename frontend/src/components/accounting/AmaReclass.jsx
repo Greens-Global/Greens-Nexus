@@ -289,7 +289,7 @@ export function PushBatchDialog({ rows, limit, live, onClose, onDone }) {
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= limit ? p : [...p, id]));
   const body = (
     <div className="modal-overlay" role="presentation" {...backdrop}>
-      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Push Reclasses" style={{ width: 'max(60vw, 420px)', maxWidth: '100vw', minHeight: '60vh', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Push Reclasses" style={{ width: 'max(60vw, 420px)', maxWidth: '100vw', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Push Reclasses To Intacct</h3>
@@ -402,7 +402,7 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, reclassM
 
   const body = (
     <div className="modal-overlay" role="presentation" {...backdrop}>
-      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="GL Reclass" style={{ width: 'max(60vw, 420px)', maxWidth: '100vw', minHeight: '60vh', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="GL Reclass" style={{ width: 'max(60vw, 420px)', maxWidth: '100vw', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>GL Reclass {status && <Chip tone={RECLASS_TONE[status] || 'muted'}>{reclassLabel(rv)}</Chip>}</h3>
