@@ -60,7 +60,7 @@ if (!globalThis.crypto?.subtle) vi.stubGlobal('crypto', webcrypto);
 import NotesPage from './NotesPage';
 import NotesWidget from './NotesWidget';
 import QuickNotePanel from './QuickNotePanel';
-import { noteTitle, isBoard } from './notesModel';
+import { noteTitle, isBoard, writeDraft } from './notesModel';
 import { CREATE_ITEMS } from '../lib/quickCreate';
 
 beforeEach(() => {
@@ -176,10 +176,14 @@ describe('An open board', () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it('a 409 on a board takes the server rev and saves the scene drawn here again', async () => {
+  it('a 409 on a board takes the server rev and saves both sides\' shapes, never this copy whole over theirs', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
-      const theirs = board({ rev: 7, updatedBy: 'bob@greensglobal.com' });
+      // Tab A saved three shapes meanwhile; tab B (here) drew one.
+      const theirScene = JSON.stringify({ type: 'nexus-board', version: 1, look: 'sketch', appState: {},
+        elements: [{ id: 'a', type: 'rectangle', version: 1 }, { id: 'c1', type: 'diamond', version: 1 }, { id: 'c2', type: 'line', version: 1 }, { id: 'c3', type: 'arrow', version: 1 }],
+        files: { f9: { id: 'f9', mimeType: 'image/png', url: 'https://api.test/files/view?u=f9.png', created: 1 } } });
+      const theirs = board({ rev: 7, updatedBy: 'bob@greensglobal.com', scene: theirScene });
       apiMock.noteUpdate.mockRejectedValueOnce(Object.assign(new Error('changed'), { status: 409, detail: { note: theirs } }));
       apiMock.noteUpdate.mockResolvedValueOnce(board({ rev: 8 }));
       render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
@@ -187,8 +191,38 @@ describe('An open board', () => {
       fireEvent.click(screen.getByRole('button', { name: 'stub-draw' }));
       await act(async () => { vi.advanceTimersByTime(900); });
       await waitFor(() => expect(apiMock.noteUpdate).toHaveBeenCalledTimes(2));
-      expect(apiMock.noteUpdate.mock.calls[1][1]).toEqual(expect.objectContaining({ rev: 7, scene: expect.stringContaining('"ellipse"') }));
+      const second = apiMock.noteUpdate.mock.calls[1][1];
+      expect(second.rev).toBe(7);
+      expect(second).not.toHaveProperty('body');
+      const saved = JSON.parse(second.scene);
+      expect(saved.elements.map((e) => e.id).sort()).toEqual(['a', 'c1', 'c2', 'c3', 'z']);
+      expect(Object.keys(saved.files)).toEqual(['f9']);
       expect(screen.queryByRole('button', { name: 'Keep Mine' })).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a board drawn here at rev 3 and reopened at rev 7 reconciles the draft into the server copy', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      // The draft: the old copy of `a` plus a new shape `d`, never saved.
+      writeDraft('board_1', { rev: 3, title: 'Yard Layout', baseTitle: 'Yard Layout', body: '',
+        scene: JSON.stringify({ type: 'nexus-board', version: 1, look: 'sketch', appState: {}, files: {},
+          elements: [{ id: 'a', type: 'rectangle', version: 1, x: 0 }, { id: 'd', type: 'diamond', version: 1 }] }) });
+      // The server moved on: Bob moved `a` (version 5) and drew `s`.
+      const serverScene = JSON.stringify({ type: 'nexus-board', version: 1, look: 'sketch', appState: {}, files: {},
+        elements: [{ id: 'a', type: 'rectangle', version: 5, x: 99 }, { id: 's', type: 'line', version: 1 }] });
+      apiMock.noteGet.mockResolvedValue(board({ rev: 7, scene: serverScene, updatedBy: 'bob@greensglobal.com' }));
+      apiMock.noteUpdate.mockResolvedValue(board({ rev: 8 }));
+      render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+      await screen.findByTestId('board-stub');
+      await act(async () => { vi.advanceTimersByTime(900); });
+      await waitFor(() => expect(apiMock.noteUpdate).toHaveBeenCalledTimes(1));
+      const sent = apiMock.noteUpdate.mock.calls[0][1];
+      expect(sent.rev).toBe(7);
+      expect(sent).not.toHaveProperty('body');
+      const saved = JSON.parse(sent.scene);
+      expect(saved.elements.map((e) => e.id).sort()).toEqual(['a', 'd', 's']);
+      expect(saved.elements.find((e) => e.id === 'a')).toMatchObject({ version: 5, x: 99 });
     } finally { vi.useRealTimers(); }
   });
 
