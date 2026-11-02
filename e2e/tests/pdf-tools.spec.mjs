@@ -1275,6 +1275,13 @@ test.describe('8. every markup type', () => {
     await arm('mcount', '#ff8800');
     await clickAt(0.1, 0.2);
     await clickAt(0.2, 0.2);
+    // Lengths need a scale; a count does not. Calibrate the real way: two clicks and a length.
+    await arm('mcalibrate', '#0000ff');
+    await clickAt(0.1, 0.9);
+    await clickAt(0.5, 0.9);
+    await page.locator('.modal-overlay input:visible').fill('10 ft');
+    await clickOk(page);
+    await settle(page, 200);
     await arm('mpolylen', '#0000ff');
     await clickAt(0.4, 0.2);
     await clickAt(0.5, 0.3);
@@ -1299,7 +1306,7 @@ test.describe('8. every markup type', () => {
     expect(count.n, 'count dots').toBeGreaterThan(50);
     expect(count.x0, 'first dot').toBeLessThan(0.1);
     expect(count.x1, 'second dot').toBeGreaterThan(0.2);
-    expect((await fillOf(v, buf, 1, near('#ff8800'), [0.09, 0.19, 0.11, 0.21], { scale: 2 })), 'dot sits at its click').toBeGreaterThan(0.5);
+    expect((await fillOf(v, buf, 1, near('#ff8800'), [0.097, 0.197, 0.103, 0.203], { scale: 2 })), 'dot sits at its click').toBeGreaterThan(0.8);
     const poly = await colorBox(v, buf, 1, near('#0000ff'), { scale: 2 });
     expect(poly.n, 'polyline').toBeGreaterThan(50);
     expect(poly.x0).toBeCloseTo(0.4, 1);
@@ -1599,7 +1606,7 @@ test.describe('11. forms', () => {
     const page = await openEngine(browser, await formPdf(), 'form.pdf', { query: HOOKS });
     await group(page, 'Fill & Sign');
     await page.click('#formsBtn');
-    await expect(page.locator('.modal-overlay .modal-body')).toContainText('5 field(s) found');
+    await expect(page.getByText('5 field(s) found')).toBeVisible();
     await inField(page, 0).fill('Jane Tester');
     await inField(page, 1).check();
     await inField(page, 2).selectOption('Blue');
