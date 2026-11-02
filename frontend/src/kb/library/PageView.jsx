@@ -232,11 +232,16 @@ export default function PageView({ id, me }) {
                   </div>
                 </AnchoredMenu>
                 <button type="button" className={`kb-btn${page.pinned ? ' on' : ''}`} onClick={() => act(async () => { const r = await api.kbPinPage(page.id); setPage((p) => ({ ...p, pinned: r.pinned })); }, null)}><Pin style={page.pinned ? { fill: 'currentColor', color: 'var(--kb-green)' } : {}} />{page.pinned ? 'Pinned' : 'Pin'}</button>
-                {(page.translations?.length > 0 || page.can_edit) && (
+                {/* A language that exists is a switch; one that does not is a
+                    "Translate to" action for an editor, and translating is AI -
+                    off unless the server carries the switch (me.ai). With AI off
+                    the missing languages are not offered at all (11/02/2026:
+                    they answered with the AI refusal on prod). */}
+                {(page.translations?.length > 0 || (page.can_edit && me?.ai)) && (
                   <div className="kb-seg" style={{ padding: 3 }}>
                     {Object.entries(LANGS).map(([k, l]) => {
                       const has = k === 'en' || page.translations?.some((t) => t.lang === k);
-                      if (!has && !page.can_edit) return null;
+                      if (!has && !(page.can_edit && me?.ai)) return null;
                       return <button key={k} type="button" className={lang === k ? 'on' : ''} style={!has ? { borderBottom: '1px dashed var(--kb-dim)' } : {}}
                         onClick={() => (has ? switchLang(k) : act(async () => { await api.kbTranslate(page.id, k); toast(`Translating to ${l}. It takes a minute or two.`); }, null))}
                         title={!has ? `Translate to ${l}` : ''}>{l}</button>;
