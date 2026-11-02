@@ -679,6 +679,22 @@ keep the diff minimal.
   Every Nexus write goes through `routers.tasks._create_task` / `update_task`
   as the facility project's owner - never a second write path.
 
+- **Knowledge Base filing and links (Neil, 11/02/2026):** a page APPLIES TO
+  many departments (`kb_documents.departments`, the original comma column,
+  read through `kb_core.departments_of`; default = its collection's
+  department) - it is shelved in ONE collection and shows under "Also
+  Applies Here" in every other department's collection and in the
+  department filter on search and `/kb/pages`. An import is filed by RULES
+  with no AI (`kb_filer.py`: type from the shape of the text, departments
+  and collection from names in it, tags already in use, each with a reason
+  the import screen shows); with AI on, Nexus's picks win where it gave one.
+  The link graph (`kb_graph.py`: See Also both ways, embeds, pages taught in
+  the same course, same collection, shared departments and tags) is walked
+  at read time inside the reader's wall - search's "Linked to These
+  Results", Ask Nexus's extra sources (the answer step stays behind the AI
+  switch) and the page rail's "Around This Page" - never a second index or
+  a model-built graph. `test_kb_filing_graph.py` pins it.
+
 ## Asana — removed (Sep 2026)
 
 The Asana workspace is gone and the two-way sync, import, OAuth, webhook and
