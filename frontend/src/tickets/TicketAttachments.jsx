@@ -68,7 +68,8 @@ function AttachmentViewer({ att, onClose }) {
 const ATT_CARD_W = 138;
 const ATT_THUMB_H = 84;
 
-function TicketAttachments({ ticketId, ticketType, canDelete = false }) {
+// `markupSource` (11/02/2026): the ticket as the place a markup board goes back to.
+function TicketAttachments({ ticketId, ticketType, canDelete = false, markupSource = null }) {
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState(null);   // attachment open in the in-app viewer
@@ -193,7 +194,7 @@ function TicketAttachments({ ticketId, ticketType, canDelete = false }) {
           })}
         </div>
       )}
-      {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
+      {view && <AttachmentViewer att={view} onClose={() => setView(null)} markupSource={markupSource || { kind: 'ticket', id: ticketId, label: 'Ticket', url: `/tickets?ticket=${encodeURIComponent(ticketId)}` }} />}
     </div>
   );
 }

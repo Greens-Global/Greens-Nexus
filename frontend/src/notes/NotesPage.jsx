@@ -33,6 +33,8 @@ import { diffNotes } from './notesMerge';
 import { safeHtml } from './noteSafeHtml';
 import { createTaskFrom, openTask } from './notesTasks';
 import { parseScene } from './board/scene';
+import TemplatePicker from './board/TemplatePicker';
+import { templateScene } from './board/templates';
 import { exportPng, exportSvg, copyPng, downloadScene } from './board/exportBoard';
 import { storeTaskFile } from '../tasks/lib';
 import { BOARD_THUMB_FOLDER } from './newBoard';
@@ -748,8 +750,14 @@ export default function NotesPage({ activeSub, onSubChange }) {
       return n;
     } catch (e) { toast(e.message || (extra.kind === 'board' ? 'Could not start a board' : 'Could not create a note')); return null; }
   };
-  // A Board (Neil, 11/02/2026): a whiteboard note; its scene starts empty.
-  const newBoard = () => newNote({ kind: 'board', scene: '' });
+  // A Board (Neil, 11/02/2026): a whiteboard note. New Board asks what to
+  // start from (board/TemplatePicker.jsx); the picked template is the scene.
+  const [pickingTemplate, setPickingTemplate] = useState(false);
+  const newBoard = () => setPickingTemplate(true);
+  const startBoard = async (templateKey) => {
+    setPickingTemplate(false);
+    await newNote({ kind: 'board', scene: templateScene(templateKey), templateKey });
+  };
 
   const importFile = async (file) => {
     if (!file) return;
@@ -895,6 +903,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
         )}
       </div>
       {toastNode}
+      {pickingTemplate && <TemplatePicker onPick={startBoard} onClose={() => setPickingTemplate(false)} />}
     </div>
   );
 }

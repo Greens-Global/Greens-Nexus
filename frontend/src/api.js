@@ -3223,6 +3223,16 @@ export const api = {
   // kept - canonical or the viewer's. The engine wants a data URL in memory;
   // the scene never stores one.
   viewerBlob: (u) => reqBlob(`/files/view?u=${encodeURIComponent(fromViewUrl(u))}`),
+  // Mark Up (11/02/2026): a finished board goes back to the task or ticket it
+  // was made from as an ordinary image attachment - the EXISTING attachment
+  // endpoints, no new path. `source` is the board's { kind, id }; anything
+  // but a task or a ticket is refused here so a caller can hide the action.
+  attachMarkup: (source, { url, name, size = "" }) => {
+    const data = { name, size, kind: "image", url };
+    if (source?.kind === "task") return api.addTaskAttachment(source.id, data);
+    if (source?.kind === "ticket") return api.addTicketAttachment(source.id, data);
+    return Promise.reject(new Error("Only a task or a ticket can take a markup back."));
+  },
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

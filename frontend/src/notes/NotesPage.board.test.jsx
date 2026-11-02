@@ -82,14 +82,36 @@ beforeEach(() => {
 });
 
 describe('Boards in the Notes list and bar', () => {
-  it('New Board creates a board note and opens it', async () => {
+  it('New Board asks what to start from, then creates the board from the template and opens it', async () => {
     apiMock.noteCreate.mockResolvedValue(board({ id: 'board_2', title: '', scene: '', thumbUrl: '' }));
     const onSubChange = vi.fn();
     render(<NotesPage activeSub="notes" onSubChange={onSubChange} />);
     await screen.findByText('Budget Review');
     fireEvent.click(screen.getByRole('button', { name: /New Board/ }));
-    await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'board', scene: '', day: TODAY })));
+    expect(apiMock.noteCreate).not.toHaveBeenCalled();
+    const picker = await screen.findByRole('dialog', { name: 'New Board' });
+    expect(within(picker).getAllByRole('listitem').map((b) => b.textContent)).toEqual(expect.arrayContaining([expect.stringContaining('Blank'), expect.stringContaining('Kanban'), expect.stringContaining('Floor Plan')]));
+    fireEvent.click(within(picker).getByRole('listitem', { name: /^Kanban/ }));
+    await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledTimes(1));
+    const body = apiMock.noteCreate.mock.calls[0][0];
+    expect(body).toMatchObject({ kind: 'board', day: TODAY, templateKey: 'kanban' });
+    const scene = JSON.parse(body.scene);
+    expect(scene.type).toBe('nexus-board');
+    expect(scene.elements.filter((e) => e.type === 'frame').map((e) => e.name)).toEqual(['To Do', 'Doing', 'Done']);
     await waitFor(() => expect(onSubChange).toHaveBeenLastCalledWith('notes:board_2'));
+    expect(screen.queryByRole('dialog', { name: 'New Board' })).toBeNull();
+  });
+
+  it('Blank starts an empty Clean board', async () => {
+    apiMock.noteCreate.mockResolvedValue(board({ id: 'board_3', title: '', scene: '', thumbUrl: '' }));
+    render(<NotesPage activeSub="notes" onSubChange={vi.fn()} />);
+    await screen.findByText('Budget Review');
+    fireEvent.click(screen.getByRole('button', { name: /New Board/ }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'New Board' })).getByRole('listitem', { name: /^Blank/ }));
+    await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledTimes(1));
+    const scene = JSON.parse(apiMock.noteCreate.mock.calls[0][0].scene);
+    expect(scene.elements).toEqual([]);
+    expect(scene.look).toBe('clean');
   });
 
   it('a board row shows its picture and says Board; a note row keeps its words', async () => {
@@ -281,5 +303,25 @@ describe('A shared board draws together', () => {
     render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
     await screen.findByTestId('board-stub');
     expect(boardCollabMock.useBoardCollab.mock.calls.at(-1)[0].enabled).toBe(false);
+  });
+});
+
+describe('Insert Board in the note editor', () => {
+  it('lists the person\'s boards and inserts the picked one as a boardEmbed', async () => {
+    const { default: NoteEditor } = await import('./NoteEditor');
+    apiMock.notesList.mockResolvedValue({ notes: [note(), board({ id: 'note_b7', title: 'Yard Layout' }), board({ id: 'note_b8', title: 'Trashed', trashedAt: '2026-11-01' })], counts: {}, tags: [] });
+    const onChange = vi.fn();
+    render(<NoteEditor value="<p>Hello</p>" onChange={onChange} people={[]} />);
+    fireEvent.mouseDown(screen.getByRole('button', { name: /Insert Board/ }));
+    const picker = await screen.findByRole('dialog', { name: 'Insert Board' });
+    expect(await within(picker).findByText('Yard Layout')).toBeTruthy();
+    expect(within(picker).queryByText('Trashed')).toBeNull();
+    expect(within(picker).queryByText('Budget Review')).toBeNull();
+    fireEvent.click(within(picker).getByText('Yard Layout'));
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const html = onChange.mock.calls.at(-1)[0];
+    expect(html).toContain('data-type="boardEmbed"');
+    expect(html).toContain('data-note="note_b7"');
+    expect(screen.queryByRole('dialog', { name: 'Insert Board' })).toBeNull();
   });
 });

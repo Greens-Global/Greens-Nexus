@@ -129,7 +129,10 @@ _EMAIL = re.compile(r"^[^@\s<>\"]+@[^@\s<>\"]+$")
 # src is our own storage - rebuilt here with fixed attributes, children and
 # anything else dropped; one pointing anywhere else is removed.
 _NOTE_ATTRS = {
-    "a": ("href", "title"),
+    # a: a link, or a board embedded in the note (Mark Up / Insert Board,
+    # 11/02/2026 - notes/board/BoardEmbed.jsx): <a data-type="boardEmbed"
+    # data-note="note_..." data-thumb="<our storage>" title="...">Title</a>.
+    "a": ("href", "title", "data-type", "data-note", "data-thumb"),
     "img": ("src", "alt", "title"),
     "ul": ("data-type",),
     "li": ("data-type", "data-checked"),
@@ -138,7 +141,8 @@ _NOTE_ATTRS = {
     "td": ("colspan", "rowspan"), "th": ("colspan", "rowspan"),
 }
 _ALIGN = re.compile(r"^text-align:\s*(left|center|right|justify);?$", re.I)
-_DATA_TYPES = {"taskList", "taskItem", "mention"}
+_DATA_TYPES = {"taskList", "taskItem", "mention", "boardEmbed"}
+_NOTE_REF = re.compile(r"^note_[A-Za-z0-9]{1,64}$")
 
 
 _MEDIA = {"audio": ' controls preload="metadata"', "video": ' controls playsinline preload="metadata"'}
@@ -170,6 +174,10 @@ class _NoteSanitizer(_RichSanitizer):
             elif k in ("colspan", "rowspan") and not v.isdigit():
                 continue
             elif k == "data-id" and not _EMAIL.match(v):
+                continue
+            elif k == "data-note" and not _NOTE_REF.match(v):
+                continue
+            elif k == "data-thumb" and not _own_image(v):
                 continue
             kept.append(f' {k}="{escape(v[:200], quote=True)}"')
         return "".join(kept)

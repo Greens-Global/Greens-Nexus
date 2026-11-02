@@ -10,13 +10,14 @@
 // (vendor-excalidraw) is fetched only when a board opens.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Excalidraw, MainMenu, THEME, CaptureUpdateAction } from '@excalidraw/excalidraw';
-import { Download, Image as ImageIcon, Copy, FileJson, Maximize2 } from 'lucide-react';
+import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Paperclip } from 'lucide-react';
 import '@excalidraw/excalidraw/index.css';
 import './board.css';
 import { parseScene, serializeScene, applyLook, lookDefaults, emptyScene, LOOKS } from './scene';
 import { uploadBoardFile, loadBoardFiles } from './files';
 import { exportPng, exportSvg, exportThumb, copyPng, downloadBlob, downloadScene } from './exportBoard';
-import { dataUrlToFile } from '../../tasks/lib';
+import { dataUrlToFile, storeTaskFile } from '../../tasks/lib';
+import { api as nexusApi } from '../../api';
 import { useKeyboardInset } from '../../lib/useVisualViewport';
 
 // The engine fetches its fonts from here (copied from the package by
@@ -206,6 +207,25 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   const doExportSvg = useCallback(async () => { if (!api) return; downloadBlob(new Blob([await exportSvg(api)], { type: 'image/svg+xml' }), `${note?.title || 'Untitled Board'}.svg`); }, [api, note?.title]);
   const doCopy = useCallback(async () => { if (!api) return; try { await copyPng(api); toast('Copied as an image'); } catch { toast('Could not copy - try Export PNG'); } }, [api, toast]);
   const doDownload = useCallback(() => { downloadScene({ ...note, filesMeta: filesMeta.current }, api, lookRef.current); }, [api, note]);
+  // Mark Up Anything (11/02/2026): a board made from a task's or a ticket's
+  // picture goes back there as a PNG attachment - the ordinary attachment
+  // path (api.attachMarkup), the picture stored like every board image.
+  const attachable = ['task', 'ticket'].includes(note?.source?.kind);
+  const doAttach = useCallback(async () => {
+    const source = note?.source;
+    if (!api || !source) return;
+    try {
+      const blob = await exportPng(api);
+      const name = `${(note?.title || 'Mark Up').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80)}.png`;
+      const file = new File([blob], name, { type: 'image/png' });
+      const url = await storeTaskFile(file, undefined, `notes/boards/${note?.id}`);
+      if (!url) throw new Error('the picture could not be stored');
+      await nexusApi.attachMarkup(source, { url, name, size: `${Math.max(1, Math.round(blob.size / 1024))} KB` });
+      toast(`Attached to ${source.label}`);
+    } catch (e) {
+      toast(`Could not attach: ${e?.message || 'try again'}`);
+    }
+  }, [api, note, toast]);
 
   const uiOptions = useMemo(() => ({
     canvasActions: {
@@ -260,6 +280,8 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
             <MainMenu.Item icon={<Download size={14} />} onSelect={doExportSvg}>Export SVG</MainMenu.Item>
             <MainMenu.Item icon={<Copy size={14} />} onSelect={doCopy}>Copy as Image</MainMenu.Item>
             <MainMenu.Item icon={<FileJson size={14} />} onSelect={doDownload}>Download Board File</MainMenu.Item>
+            {attachable && <MainMenu.Separator />}
+            {attachable && <MainMenu.Item icon={<Paperclip size={14} />} onSelect={doAttach}>{`Attach to ${note.source.label}`}</MainMenu.Item>}
             {canEdit && <MainMenu.Separator />}
             {canEdit && <MainMenu.DefaultItems.ChangeCanvasBackground />}
             {canEdit && <MainMenu.DefaultItems.ClearCanvas />}
