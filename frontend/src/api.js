@@ -3196,6 +3196,10 @@ export const api = {
   // brings the server copy back in err.detail.note.
   notesList: (params = {}) => req(`/notes?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")).toString()}`),
   noteGet: (id) => req(`/notes/${encodeURIComponent(id)}`),
+  // Boards (Neil, 11/02/2026): a whiteboard is a note of kind 'board'. noteCreate
+  // takes { kind: 'board', title, scene, source, templateKey }; noteUpdate takes
+  // { rev, scene, thumbUrl, source } beside the note fields (scene is the
+  // board JSON string, 2 MB at most; thumbUrl our storage; source {} clears).
   noteCreate: (data) => req("/notes", { method: "POST", body: JSON.stringify(data) }),
   noteUpdate: (id, data) => req(`/notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
   noteDaily: (day) => req(`/notes/daily?day=${encodeURIComponent(day)}`),
