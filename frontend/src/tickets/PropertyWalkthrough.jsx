@@ -25,11 +25,10 @@
 // the property is optional and any team can take the batch. Opened as the
 // second tab of Submit a Ticket (`onSingle` switches back to one ticket).
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, ImagePlus, Plus, Trash2, Copy, X, CheckCircle2, ChevronDown, ChevronUp, RotateCcw, AudioLines, Video, Loader2, PenTool } from 'lucide-react';
+import { Camera, ImagePlus, Plus, Trash2, Copy, X, CheckCircle2, ChevronDown, ChevronUp, RotateCcw, AudioLines, Video, Loader2 } from 'lucide-react';
 import { api } from '../api';
 import { filesFromPaste } from '../tasks/lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
-import { openMarkup } from '../lib/markup';
 import { PriorityMark } from '../components/StatusLabel';
 import { Modal } from '../tasks/components';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -533,12 +532,6 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
                     {p.status === 'failed' && (
                       <button type="button" title="Retry upload" aria-label="Retry upload" onClick={() => retryPhoto(l.key, p)}
                         style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.35)', border: 'none', color: '#fff', cursor: 'pointer' }}><RotateCcw size={16} /></button>
-                    )}
-                    {p.status === 'done' && p.url && (
-                      // Mark Up (11/02/2026): draw on a copy of the photo on a board that remembers this walkthrough line.
-                      <button type="button" title="Mark Up this photo on a board" aria-label="Mark up photo"
-                        onClick={() => openMarkup({ imageUrl: p.url, mimeType: 'image/jpeg', name: p.name || 'Photo', source: { kind: 'walkthrough', id: p.id, label: `Walkthrough: ${l.subject.trim() || 'photo'}`, url: '' } }).catch((e) => alert(e?.message || 'Could not start the markup.'))}
-                        style={{ position: 'absolute', bottom: 2, right: 2, width: 18, height: 18, borderRadius: 9, border: 'none', background: 'rgba(0,0,0,.55)', color: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 0 }}><PenTool size={10} /></button>
                     )}
                     <button type="button" title="Remove photo" aria-label="Remove photo" onClick={() => patch(l.key, { photos: l.photos.filter((x) => x.id !== p.id) })}
                       style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, borderRadius: 9, border: 'none', background: 'rgba(0,0,0,.55)', color: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 0 }}><X size={11} /></button>
