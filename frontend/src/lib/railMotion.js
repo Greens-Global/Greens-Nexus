@@ -40,6 +40,15 @@ export function resolveStrength({ personal, company, reduced } = {}) {
   return DEFAULT_STRENGTH;
 }
 
+/** Takes the strength off <html> - the last useRailMotion on screen calls it
+ *  when it unmounts, so nothing keyed on it outlives the sidebar. */
+export function clearRailMotion() {
+  const root = typeof document !== 'undefined' ? document.documentElement : null;
+  if (!root) return;
+  delete root.dataset.railMotion;
+  root.style.removeProperty('--rail-lift');
+}
+
 export function applyRailMotion(effective) {
   const root = typeof document !== 'undefined' ? document.documentElement : null;
   if (!root) return;
@@ -52,13 +61,28 @@ export function applyRailMotion(effective) {
 // The company default, read once per app load from the branding config
 // (api.js caches that GET) and refreshed by the `nexus:rail-motion` event a
 // Settings save fires - so an open sidebar follows without a reload.
+// Each answer is mirrored to localStorage, and the first render reads that
+// copy, so a company on Subtle or Off never flashes Lively while the config
+// is on its way. (The personal choice needs no copy of its own: the profile
+// prefs cache in tasks/tableCols.jsx is already read synchronously.)
+export const COMPANY_KEY = 'nexus.navMotion';
+function storedCompany() {
+  try {
+    const v = localStorage.getItem(COMPANY_KEY);
+    return isStrength(v) ? v : null;
+  } catch { return null; }
+}
 let companyValue = DEFAULT_STRENGTH;
+let companyKnown = false;   // the config (or a Settings save) has answered
 let companyLoaded = null;
 const listeners = new Set();
 function setCompany(v) {
   companyValue = isStrength(v) ? v : DEFAULT_STRENGTH;
+  companyKnown = true;
+  try { localStorage.setItem(COMPANY_KEY, companyValue); } catch { /* private mode */ }
   listeners.forEach((fn) => fn(companyValue));
 }
+const initialCompany = () => (companyKnown ? companyValue : storedCompany() || companyValue);
 function loadCompany() {
   if (companyLoaded) return companyLoaded;
   companyLoaded = Promise.resolve()
@@ -67,8 +91,10 @@ function loadCompany() {
     .catch(() => { /* keep the default; the stylesheet already knows it */ });
   return companyLoaded;
 }
+// How many useRailMotion hooks are on screen; the last one out clears <html>.
+let mounted = 0;
 // Tests reset the module-level cache between cases.
-export function __resetRailMotion() { companyValue = DEFAULT_STRENGTH; companyLoaded = null; }
+export function __resetRailMotion() { companyValue = DEFAULT_STRENGTH; companyKnown = false; companyLoaded = null; mounted = 0; }
 
 if (typeof window !== 'undefined') {
   window.addEventListener(EVENT, (e) => setCompany(e?.detail?.navMotion));
@@ -76,11 +102,16 @@ if (typeof window !== 'undefined') {
 
 export function useRailMotion() {
   const [personal, setPersonalPref] = useTableValue('nav', 'motion', FOLLOW_COMPANY);
-  const [company, setCompanyState] = useState(companyValue);
+  const [company, setCompanyState] = useState(initialCompany);
   const reduced = useReducedMotion();
   useEffect(() => {
+    mounted += 1;
+    return () => { mounted = Math.max(0, mounted - 1); if (mounted === 0) clearRailMotion(); };
+  }, []);
+  useEffect(() => {
     listeners.add(setCompanyState);
-    loadCompany().then(() => setCompanyState(companyValue));
+    // A failed load keeps what the first render seeded (the stored copy).
+    loadCompany().then(() => { if (companyKnown) setCompanyState(companyValue); });
     return () => listeners.delete(setCompanyState);
   }, []);
   const effective = resolveStrength({ personal: personal === FOLLOW_COMPANY ? null : personal, company, reduced });

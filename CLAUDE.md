@@ -175,7 +175,9 @@ keep the diff minimal.
   the right edge, the full height, rounded only where it meets the page -
   that slides in from off screen (`nx-slide-in`, 320ms, `--ease-out`) while
   the scrim fades, its body's first rows cascading in a beat behind the
-  frame (`.nx-cascade`), and slides out in 220ms. The SIZE is still
+  frame (`.nx-cascade`, only while the shell carries `is-entering`, the
+  first 500ms), and slides out in 220ms with the scrim (the exit waits
+  `MOTION.md`; a centered card `MOTION.exit`). The SIZE is still
   Pranshu's 60% rule (Oct 15 2026): `width: max(60vw, <caller's width>)`,
   at least ~420px, never wider than the viewport, and **the 60% is for
   content, not blank space** (Pranshu, Oct 21 2026) - the popup body is a
@@ -188,9 +190,12 @@ keep the diff minimal.
   `.cv-modal.nx-popup` through style.css's "Sheets" block. A QUESTION - a
   confirm, an alert, a prompt, "Save your changes?", "Delete this?" - stays
   the centered card: `placement="center"` on the shared Modal, the class
-  `nx-center` on a generic `.modal-content`, and `ui/dialog.jsx` (DialogHost)
-  as it is. A sheet opened over a sheet slides in on top and the one beneath
-  recedes (`lib/sheetStack.js`, `data-nx-under`) until the top one leaves.
+  `nx-center` on a generic `.modal-content`, `center` on the credvault
+  Modal, and `ui/dialog.jsx` (DialogHost) as it is. A sheet opened over a
+  sheet slides in on top and the one beneath recedes and goes `inert`
+  (`lib/sheetStack.js`, `data-nx-under`) until the top one leaves; the top
+  is what paints on top - highest z-index, then later in the document - so
+  every sheet passes its own z (a drawer under a Modal never recedes it).
   Phones keep the full-screen bottom sheet; nothing here applies under 641px.
   Never a small fixed-width box floating mid-page with empty space around it.
   **Exception - the Workday panels are 85%** (Sagar, Oct 27 2026): Ask HR
@@ -238,7 +243,10 @@ keep the diff minimal.
   `--rail-lift`. `Sidebar.jsx` owns only the two pills (translateY) and the
   `is-opening` / `is-pop` beats; every visual is the "Rail motion" block in
   style.css: transform and opacity only, `--ease-spring` on the icon lift
-  and the one-time pop alone, Bold capped at 1.26, cascade 14ms a row,
+  (on the way up only - it settles back ease-out) and the one-time pop (on
+  the glyph inside `.nav-ico`, so it composes with the lift) alone - the
+  pills, the flyout, the count bump, the cascade and the chevron ease out -
+  Bold capped at 1.26, cascade 14ms a row,
   nothing loops, nothing on touch, the phone drawer untouched, the folded
   rail never peeks. The sidebar tooltip (`NavTip`) is the light flyout card.
 - **Hold to confirm (Neil, Oct 30 2026, plan

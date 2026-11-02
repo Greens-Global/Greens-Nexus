@@ -244,6 +244,24 @@ export const NAV = [
 ];
 
 
+// Desk rail group labels - purely presentational; one per divider slot,
+// mirroring the NAV grouping (my desk / work / modules / system).
+const KICKERS = ['My desk', 'Work', 'Modules', 'System'];
+
+// How many labels the unfolded rail numbers for its cascade (`--i`): the
+// "Nexus" name (0), a kicker at the top and after each divider that has one,
+// and every module label - the same walk the list below makes.
+function cascadeCount(visible) {
+  let n = 1;   // the company name
+  let group = 0;
+  if (visible.length && !visible[0].divider) n += 1;
+  for (const item of visible) {
+    if (item.divider) { group += 1; if (KICKERS[group]) n += 1; }
+    else n += 1;
+  }
+  return n;
+}
+
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
   const { can, myGrantedModules, isExternal } = useRole();
   const counts = useActionCounts();
@@ -266,23 +284,38 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   const hoverPill = useRef(null);
   const activePill = useRef(null);
   const setRowEl = (view) => (el) => { if (el) rowEls.current.set(view, el); else rowEls.current.delete(view); };
+  // The row under the pointer, so the active-pill effect below can stand the
+  // hover pill down when a click makes that very row the active one.
+  const hoveredView = useRef(null);
+  const hoverOff = () => { hoveredView.current = null; hoverPill.current?.classList.remove('is-on'); };
   const onRowEnter = (view) => (e) => {
     if (!motionOn || e.pointerType === 'touch') return;
     const el = rowEls.current.get(view), p = hoverPill.current;
     if (!el || !p) return;
+    hoveredView.current = view;
     // The active row already has its tint; a second pill under the pointer
     // would read as a darker stripe, so the hover pill stands down there.
     if (view === activeView) { p.classList.remove('is-on'); return; }
+    // Glide only from row to row. A pill that was off (the pointer just came
+    // into the list, or off the active row, a kicker or a divider) snaps to
+    // its row and fades in there, instead of sweeping in from wherever it
+    // was last.
+    const wasOff = !p.classList.contains('is-on');
+    if (wasOff) p.style.transition = 'none';
     p.style.height = `${el.offsetHeight}px`;
     p.style.transform = `translateY(${el.offsetTop}px)`;
+    if (wasOff) { void p.offsetHeight; p.style.transition = ''; }
     p.classList.add('is-on');
   };
-  const onListLeave = () => { hoverPill.current?.classList.remove('is-on'); };
+  const onListLeave = hoverOff;
   // The active pill: placed before paint; a glide on a module change, a snap
   // (no transition) on mount and whenever the rail folds or unfolds, because
   // the rows' geometry changes under it then.
   const snapRef = useRef({ first: true, collapsed });
   useLayoutEffect(() => {
+    // The hovered row just became the active one (it was clicked): its tint
+    // is the active pill now, so the hover pill stands down.
+    if (hoveredView.current && hoveredView.current === activeView) hoverPill.current?.classList.remove('is-on');
     const p = activePill.current;
     if (!p) return;
     const el = rowEls.current.get(activeView);
@@ -309,11 +342,17 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   const [prevCollapsed, setPrevCollapsed] = useState(collapsed);
   const [opening, setOpening] = useState(false);
   if (prevCollapsed !== collapsed) { setPrevCollapsed(collapsed); setOpening(!collapsed && motionOn); }
+  // The rows on the rail, worked out once for the cascade's length and the
+  // list below. `cascadeRows` is how many labels get an `--i` (the "Nexus"
+  // name at 0, then every kicker and module label): the beat lasts as long
+  // as the last one's delay plus its 260ms slide, capped at 1.2s.
+  const visibleNav = orderNav(NAV).filter(item => !item.menuOnly && isNavItemVisible(item, { isExternal, can, myGrantedModules }));
+  const cascadeRows = cascadeCount(visibleNav);
   useEffect(() => {
     if (!opening) return undefined;
-    const t = setTimeout(() => setOpening(false), 700);
+    const t = setTimeout(() => setOpening(false), Math.min(1200, 260 + 14 * cascadeRows));
     return () => clearTimeout(t);
-  }, [opening]);
+  }, [opening, cascadeRows]);
 
   // A busy module scrolled out of the rail gets a "3 waiting below" pill
   // (components/NavMore.jsx).
@@ -439,26 +478,26 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
                 Group grants them. IT Admin / Global Admin (administrator+) still
                 see everything so they can manage access. (Jun 17) */}
             {(() => {
-              // Desk rail group labels - purely presentational; one per divider
-              // slot, mirroring the NAV grouping (my desk / work / modules / system).
-              const KICKERS = ['My desk', 'Work', 'Modules', 'System'];
               let group = 0;
-              // External (B2B guest) accounts: ONLY explicitly granted modules -
-              // no baseline screens (Dashboard/Time Clock/My HR are internal-only).
-              // Mirrors the server's path allowlist in auth.apply_external_policy.
-              // `grants` (a list) = any one of them opens the item; else the single grant/view key.
-              const visible = orderNav(NAV).filter(item => !item.menuOnly && isNavItemVisible(item, { isExternal, can, myGrantedModules }));
+              // `visibleNav` (above): external (B2B guest) accounts get ONLY
+              // explicitly granted modules - no baseline screens (Dashboard /
+              // Time Clock / My HR are internal-only), mirroring the server's
+              // path allowlist in auth.apply_external_policy; `grants` (a list)
+              // = any one of them opens the item, else the single grant/view key.
+              const visible = visibleNav;
               const out = [];
               // `ord` is each label's place in the cascade (--i), top to bottom.
               let ord = 1;
               if (!collapsed && visible.length && !visible[0].divider) {
-                out.push(<li key="k0" className="nav-kicker" role="presentation" style={{ '--i': ord++ }}>{KICKERS[0]}</li>);
+                out.push(<li key="k0" className="nav-kicker" role="presentation" onPointerEnter={hoverOff} style={{ '--i': ord++ }}>{KICKERS[0]}</li>);
               }
               visible.forEach((item, i) => {
                 if (item.divider) {
                   group += 1;
-                  out.push(<li key={`d${i}`} className="nav-divider" role="separator" />);
-                  if (!collapsed && KICKERS[group]) out.push(<li key={`k${group}`} className="nav-kicker" role="presentation" style={{ '--i': ord++ }}>{KICKERS[group]}</li>);
+                  // Between groups the pill stands down: it would otherwise
+                  // sit on the last row while the pointer is on a heading.
+                  out.push(<li key={`d${i}`} className="nav-divider" role="separator" onPointerEnter={hoverOff} />);
+                  if (!collapsed && KICKERS[group]) out.push(<li key={`k${group}`} className="nav-kicker" role="presentation" onPointerEnter={hoverOff} style={{ '--i': ord++ }}>{KICKERS[group]}</li>);
                   return;
                 }
                 out.push(renderItem(item, i, ord++));

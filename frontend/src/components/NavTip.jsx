@@ -9,7 +9,9 @@ import { createPortal } from 'react-dom';
 // else gets one: an action's tooltip is its name.
 //
 // Since 11/01/2026 it is the flyout: a light card that slides out from the
-// control (style.css `.navtip`), the same words and timing as before.
+// control (style.css `.navtip`), the same words and timing as before. It
+// eases out and never springs - the rail's spring curve is for the icon lift
+// and the one-time pop only.
 // It replaces the browser's own `title` tooltip (small, slow, unstyled) and the
 // CSS-only one the clock had, which the folded sidebar's overflow clipped - so
 // on the rail the clock fell back to `title`. This one is drawn in a layer on

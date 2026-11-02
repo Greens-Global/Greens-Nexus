@@ -515,8 +515,8 @@ h1,h2,h3,h4,h5,h6,
    quieter second line only says why a button cannot be pressed, or gives
    the clock's numbers. `data-tone` draws a thin colored rule down its left
    edge - green Punch In, amber Break, red Punch Out - color as a rule,
-   never a chip. With rail motion on it slides out from the control (the
-   spring, 180ms); off, it fades in as before. */
+   never a chip. With rail motion on it slides out from the control (180ms,
+   ease-out); off, it fades in as before. No fill mode: there is no delay. */
 .navtip {
   --navtip-bg: var(--card, #fff); --navtip-fg: var(--ink, #111827); --navtip-dim: var(--muted, #6b7280);
   position: fixed; left: 0; top: 0; z-index: 10050; pointer-events: none;
@@ -526,7 +526,7 @@ h1,h2,h3,h4,h5,h6,
   border: 1px solid var(--line);
   font-family: var(--wk-font, 'Inter', system-ui, sans-serif); text-align: left;
   box-shadow: 0 8px 24px rgba(0, 0, 0, .10), 0 1px 2px rgba(0, 0, 0, .06);
-  animation: navtip-in var(--dur-sm, 150ms) var(--ease-out) both;
+  animation: navtip-in var(--dur-sm, 150ms) var(--ease-out);
 }
 [data-theme="dark"] .navtip {
   box-shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .06);
@@ -542,9 +542,10 @@ h1,h2,h3,h4,h5,h6,
 .navtip[data-tone="break"] { --navtip-tone: #f59e0b; }
 .navtip[data-tone="out"] { --navtip-tone: #ef4444; }
 /* The flyout (rail motion on): the card slides out from the control's edge
-   and settles with one soft overshoot - the same `navtip-in` keyframes, a
-   starting transform per side and the spring curve. Off, the plain fade. */
-:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip { animation: navtip-in 180ms var(--ease-spring) both; }
+   and settles - the same `navtip-in` keyframes, a starting transform per side
+   and the ease-out curve (the spring is the icon's alone). Off, the plain
+   fade. */
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip { animation: navtip-in 180ms var(--ease-out); }
 :root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="right"] { --navtip-from: translateX(-6px) scale(.98); transform-origin: left center; }
 :root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="left"] { --navtip-from: translateX(6px) scale(.98); transform-origin: right center; }
 :root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="top"] { --navtip-from: translateY(6px) scale(.98); transform-origin: center bottom; }
@@ -8424,8 +8425,9 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    the strength, and the aside's own `data-motion` (present only while motion
    is on and the sidebar is a desktop rail, never the phone drawer). Every
    rule here is transform or opacity. The spring curve (one overshoot) is for
-   the icon lift and the one-time pop alone; pills, cascade and the chevron
-   ease out. Under reduced motion lib/railMotion.js resolves to Off, and the
+   the icon lift on the way up and the one-time pop alone; the icon settling
+   back, the pills, the flyout, the cascade, the count bump and the chevron
+   all ease out. Under reduced motion lib/railMotion.js resolves to Off, and the
    media query below stops anything mid-flight. */
 .sidebar[data-motion] .nav-list { position: relative; }
 .sidebar[data-motion] .nav-item { position: relative; z-index: 1; }
@@ -8448,28 +8450,34 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 [data-theme="dark"] .nav-pill--hover { background: var(--sidebar-hover-bg); }
 [data-theme="dark"] .nav-pill--active { background: rgba(43, 69, 225, .22); }
 /* The lift: the icon only, never the row, so neighbors stay put and text
-   never reflows. Hover-capable pointers only - a finger has no hover. */
+   never reflows. Hover-capable pointers only - a finger has no hover. The
+   spring only on the way up (260ms); it settles back in 200ms, ease-out. */
+.sidebar[data-motion] .nav-ico { transition: transform 200ms var(--ease-out); }
 @media (hover: hover) {
-  .sidebar[data-motion] .nav-ico { transition: transform 260ms var(--ease-spring); }
-  .sidebar[data-motion] .nav-item:hover .nav-ico { transform: scale(var(--rail-lift, 1.18)); }
-  .sidebar[data-motion] .nav-item:active .nav-ico { transform: scale(.96); transition-duration: var(--dur-xs); }
+  .sidebar[data-motion] .nav-item:hover .nav-ico { transform: scale(var(--rail-lift, 1.18)); transition-duration: 260ms; transition-timing-function: var(--ease-spring); }
+  .sidebar[data-motion] .nav-item:active .nav-ico { transform: scale(.96); transition-duration: var(--dur-xs); transition-timing-function: var(--ease-out); }
 }
-.sidebar[data-motion] .nav-ico.is-pop { animation: nav-pop 320ms var(--ease-spring); }
-@keyframes nav-pop { 0% { transform: scale(1); } 45% { transform: scale(1.16); } 100% { transform: scale(1); } }
-/* Unfold: the words arrive top to bottom, 14ms apart; folding is instant. */
+/* The one-time pop on the newly active icon plays on the glyph inside, so it
+   composes with the lift on .nav-ico instead of replacing it: one keyframe,
+   the spring supplies the single overshoot. */
+.sidebar[data-motion] .nav-ico.is-pop > svg { animation: nav-pop 320ms var(--ease-spring); }
+@keyframes nav-pop { from { transform: scale(.9); } }
+/* Unfold: the words arrive top to bottom, 14ms apart; folding is instant.
+   `backwards` holds the start state through each delay only. */
 .sidebar.is-opening .nav-label, .sidebar.is-opening .nav-kicker, .sidebar.is-opening .company-name,
 .sidebar.is-opening .nav-count:not(.is-corner) {
-  animation: nav-slidein 260ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 14ms);
+  animation: nav-slidein 260ms var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 14ms);
 }
 @keyframes nav-slidein { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
-/* The edge tab's chevron turns with the rail instead of swapping glyphs. */
-.sidebar-collapse-btn svg { transition: transform var(--dur-lg) var(--ease-out); }
+/* The edge tab's chevron turns with the rail instead of swapping glyphs;
+   the turn is animated only with rail motion on. */
+.sidebar[data-motion] .sidebar-collapse-btn svg { transition: transform var(--dur-lg) var(--ease-out); }
 .sidebar.collapsed .sidebar-collapse-btn svg { transform: rotate(180deg); }
 /* A waiting count that changed bumps once - still the quiet gray number. */
-.sidebar[data-motion] .nav-count.is-bump { animation: nav-bump 320ms var(--ease-spring); }
+.sidebar[data-motion] .nav-count.is-bump { animation: nav-bump 320ms var(--ease-out); }
 @keyframes nav-bump { 0% { transform: scale(.7); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) {
-  .nav-pill, .sidebar .nav-ico, .sidebar-collapse-btn svg { transition: none !important; animation: none !important; }
+  .nav-pill, .sidebar .nav-ico, .sidebar .nav-ico > svg, .sidebar-collapse-btn svg { transition: none !important; animation: none !important; }
   .sidebar.is-opening .nav-label, .sidebar.is-opening .nav-kicker, .sidebar.is-opening .company-name, .sidebar.is-opening .nav-count,
   .sidebar .nav-count.is-bump { animation: none !important; }
 }

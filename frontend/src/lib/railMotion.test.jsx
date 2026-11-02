@@ -25,7 +25,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); window.matchMedia = realMatchMedia; REDUCED = false; mqListeners.clear(); delete document.documentElement.dataset.railMotion; document.documentElement.style.removeProperty('--rail-lift'); });
 
-const { resolveStrength, applyRailMotion, useRailMotion, __resetRailMotion, LIFT, EVENT } = await import('./railMotion');
+const { resolveStrength, applyRailMotion, useRailMotion, __resetRailMotion, LIFT, EVENT, COMPANY_KEY } = await import('./railMotion');
 const { __setTablePrefsCache } = await import('../tasks/tableCols');
 
 describe('resolveStrength', () => {
@@ -58,7 +58,7 @@ function Probe() {
 }
 
 describe('useRailMotion', () => {
-  beforeEach(() => { __resetRailMotion(); __setTablePrefsCache({}); mockApi.getBrandingConfig.mockClear(); });
+  beforeEach(() => { __resetRailMotion(); __setTablePrefsCache({}); mockApi.getBrandingConfig.mockClear(); localStorage.removeItem(COMPANY_KEY); });
 
   it('follows the company default until the person chooses, then their choice', async () => {
     const { getByTestId } = render(<Probe />);
@@ -87,5 +87,43 @@ describe('useRailMotion', () => {
     act(() => { mqListeners.forEach((fn) => fn()); });
     await waitFor(() => expect(getByTestId('p').dataset.eff).toBe('off'));
     expect(document.documentElement.dataset.railMotion).toBe('off');
+  });
+
+  it('the company value is mirrored to localStorage and seeds the first render (no flash of Lively)', async () => {
+    const first = render(<Probe />);
+    await waitFor(() => expect(first.getByTestId('p').dataset.eff).toBe('subtle'));
+    expect(localStorage.getItem(COMPANY_KEY)).toBe('subtle');
+    first.unmount();
+    // A fresh page load: the module has not heard from the server yet.
+    __resetRailMotion();
+    let resolve;
+    mockApi.getBrandingConfig.mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
+    const { getByTestId } = render(<Probe />);
+    expect(getByTestId('p').dataset.company).toBe('subtle');
+    expect(getByTestId('p').dataset.eff).toBe('subtle');
+    await waitFor(() => expect(typeof resolve).toBe('function'));
+    await act(async () => { resolve({ navMotion: 'off' }); });
+    await waitFor(() => expect(getByTestId('p').dataset.eff).toBe('off'));
+    expect(localStorage.getItem(COMPANY_KEY)).toBe('off');
+  });
+
+  it('a failed config load keeps the stored copy', async () => {
+    localStorage.setItem(COMPANY_KEY, 'bold');
+    mockApi.getBrandingConfig.mockImplementationOnce(() => Promise.reject(new Error('offline')));
+    const { getByTestId } = render(<Probe />);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(getByTestId('p').dataset.eff).toBe('bold');
+  });
+
+  it('the last hook on screen to unmount takes the strength off <html>', async () => {
+    const a = render(<Probe />);
+    const b = render(<Probe />);
+    await waitFor(() => expect(document.documentElement.dataset.railMotion).toBe('subtle'));
+    expect(document.documentElement.style.getPropertyValue('--rail-lift')).toBe(String(LIFT.subtle));
+    a.unmount();
+    expect(document.documentElement.dataset.railMotion).toBe('subtle');
+    b.unmount();
+    expect(document.documentElement.dataset.railMotion).toBeUndefined();
+    expect(document.documentElement.style.getPropertyValue('--rail-lift')).toBe('');
   });
 });

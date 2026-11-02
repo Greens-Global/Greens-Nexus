@@ -58,9 +58,21 @@ const row = (name) => screen.getByRole('link', { name });
 const aside = () => document.querySelector('.sidebar');
 const pill = (kind) => document.querySelector(`.nav-pill--${kind}`);
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
+// Every inline style a node passes through: a snap is a `transition: none`
+// written, the layout forced, then the transition given back.
+const watchStyle = (el) => {
+  const mo = new MutationObserver(() => {});
+  mo.observe(el, { attributes: true, attributeFilter: ['style'], attributeOldValue: true });
+  return () => {
+    const states = mo.takeRecords().map((r) => r.oldValue || '');
+    mo.disconnect();
+    return [...states, el.getAttribute('style') || ''];
+  };
+};
+const snapped = (states) => states.some((st) => /transition:\s*none/.test(st));
 
 describe('Sidebar motion', () => {
-  beforeEach(() => { __resetRailMotion(); __setTablePrefsCache({}); vi.useFakeTimers({ shouldAdvanceTime: true }); });
+  beforeEach(() => { __resetRailMotion(); __setTablePrefsCache({}); localStorage.removeItem('nexus.navMotion'); vi.useFakeTimers({ shouldAdvanceTime: true }); });
   afterEach(() => { vi.useRealTimers(); });
 
   it('marks the rail with the strength and draws the two pills, the active one under the active module', async () => {
@@ -151,5 +163,90 @@ describe('Sidebar motion', () => {
     await flush();
     expect(aside().dataset.motion).toBeUndefined();
     expect(pill('hover')).toBeNull();
+  });
+
+  it('the hover pill snaps to its row when it turns on, and glides only from row to row', async () => {
+    mount();
+    await flush();
+    const p = pill('hover');
+    let done = watchStyle(p);
+    fireEvent.pointerEnter(row('Tasks'), { pointerType: 'mouse' });
+    let states = done();
+    expect(snapped(states)).toBe(true);
+    expect(p.style.transition).toBe('');
+    expect(p.style.transform).toBe(`translateY(${row('Tasks').offsetTop}px)`);
+    expect(p.classList.contains('is-on')).toBe(true);
+    // Already on: the next row is a glide, no snap.
+    done = watchStyle(p);
+    fireEvent.pointerEnter(row('Tickets'), { pointerType: 'mouse' });
+    states = done();
+    expect(snapped(states)).toBe(false);
+    expect(p.style.transform).toBe(`translateY(${row('Tickets').offsetTop}px)`);
+    // Off the list, then back in: a snap again.
+    fireEvent.pointerLeave(document.querySelector('.nav-list'));
+    done = watchStyle(p);
+    fireEvent.pointerEnter(row('Tasks'), { pointerType: 'mouse' });
+    expect(snapped(done())).toBe(true);
+  });
+
+  it('the hover pill stands down when the hovered row becomes the active one', async () => {
+    const { rerender } = mount();
+    await flush();
+    fireEvent.pointerEnter(row('Tasks'), { pointerType: 'mouse' });
+    expect(pill('hover').classList.contains('is-on')).toBe(true);
+    rerender({ activeView: 'tasks' });
+    expect(pill('hover').classList.contains('is-on')).toBe(false);
+    expect(pill('active').style.transform).toBe(`translateY(${row('Tasks').offsetTop}px)`);
+  });
+
+  it('the hover pill stands down on a kicker or a divider', async () => {
+    mount();
+    await flush();
+    fireEvent.pointerEnter(row('Tasks'), { pointerType: 'mouse' });
+    expect(pill('hover').classList.contains('is-on')).toBe(true);
+    fireEvent.pointerEnter(document.querySelector('.nav-kicker'), { pointerType: 'mouse' });
+    expect(pill('hover').classList.contains('is-on')).toBe(false);
+    fireEvent.pointerEnter(row('Tasks'), { pointerType: 'mouse' });
+    fireEvent.pointerEnter(document.querySelector('.nav-divider'), { pointerType: 'mouse' });
+    expect(pill('hover').classList.contains('is-on')).toBe(false);
+  });
+
+  it("the folded rail's hover reaches the pill through NavTip's wrapper, at the row's offsetTop", async () => {
+    mount({ collapsed: true });
+    await flush();
+    const tasks = row('Tasks');
+    expect(tasks.classList.contains('nav-item--icon')).toBe(true);
+    fireEvent.pointerEnter(tasks, { pointerType: 'mouse' });
+    expect(pill('hover').classList.contains('is-on')).toBe(true);
+    expect(pill('hover').style.transform).toBe(`translateY(${tasks.offsetTop}px)`);
+  });
+
+  it('folding and unfolding snap the active pill to the row in its new place', async () => {
+    const { rerender } = mount();
+    await flush();
+    const before = row('Dashboard').offsetTop;
+    const p = pill('active');
+    let done = watchStyle(p);
+    rerender({ collapsed: true });
+    expect(snapped(done())).toBe(true);
+    expect(p.style.transition).toBe('');
+    const folded = row('Dashboard').offsetTop;
+    expect(folded).not.toBe(before);   // the kickers are gone, the row moved up
+    expect(p.style.transform).toBe(`translateY(${folded}px)`);
+    done = watchStyle(p);
+    rerender({ collapsed: false });
+    expect(snapped(done())).toBe(true);
+    expect(p.style.transform).toBe(`translateY(${row('Dashboard').offsetTop}px)`);
+  });
+
+  it('the company setting reaches the sidebar: Off from Settings draws no pills', async () => {
+    mockApi.getBrandingConfig.mockImplementationOnce(() => Promise.resolve({ accent: 'green', navMotion: 'off' }));
+    mount();
+    await flush();
+    await flush();
+    expect(aside().dataset.motion).toBeUndefined();
+    expect(pill('active')).toBeNull();
+    expect(pill('hover')).toBeNull();
+    expect(document.documentElement.dataset.railMotion).toBe('off');
   });
 });
