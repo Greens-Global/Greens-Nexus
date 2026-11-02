@@ -339,6 +339,69 @@ class FormsTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_a_retry_after_archiving_returns_the_first_entry_and_a_key_is_never_anothers(self):
+        tpl = self._template()
+        self._as(REP)
+        key = str(uuid.uuid4())
+        first = self.client.post(f"/forms/{tpl['id']}/entries",
+                                 json={"entryKey": key, "answers": _answers(), "source": "phone"})
+        self.assertEqual(first.status_code, 200, first.text)
+        db = database.SessionLocal()
+        try:
+            db.query(models.DocTemplate).filter(models.DocTemplate.id == tpl["id"]).update({"status": "archived"})
+            db.commit()
+        finally:
+            db.close()
+        again = self.client.post(f"/forms/{tpl['id']}/entries",
+                                 json={"entryKey": key, "answers": _answers(), "source": "phone"})
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertEqual(again.json()["id"], first.json()["id"])
+        # A new key on the archived form is refused as before.
+        self._submit(tpl["id"], REP, status=404)
+        # Someone else sending the same key gets a 409, never REP's entry.
+        self._as(STR)
+        r = self.client.post(f"/forms/{tpl['id']}/entries",
+                             json={"entryKey": key, "answers": _answers(), "source": "phone"})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertNotIn(first.json()["id"], r.text)
+
+    def test_a_raced_insert_applies_the_same_owner_check(self):
+        from unittest import mock
+
+        import form_rules
+        tpl = self._template()
+        real_compute = form_rules.compute
+
+        def racing(owner):
+            def compute(defs, answers, **kw):
+                # Another request files the same key between the check and the insert.
+                db = database.SessionLocal()
+                try:
+                    db.add(models.DocFormEntry(id=f"raced-{owner}", template_id=tpl["id"], template_version=1,
+                                               title="Vehicle Check", entry_key=key, answers={}, company=CO_A,
+                                               work_site_id="", shift_id="", submitted_by=owner,
+                                               submitted_at="2026-11-02T10:00:00+00:00", source="phone",
+                                               status="submitted", deleted_at=""))
+                    db.commit()
+                finally:
+                    db.close()
+                return real_compute(defs, answers, **kw)
+            return compute
+
+        self._as(REP)
+        key = str(uuid.uuid4())
+        with mock.patch.object(form_rules, "compute", racing(REP)):
+            r = self.client.post(f"/forms/{tpl['id']}/entries",
+                                 json={"entryKey": key, "answers": _answers(), "source": "phone"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["id"], f"raced-{REP}")      # the first one's row is the entry
+        key = str(uuid.uuid4())
+        with mock.patch.object(form_rules, "compute", racing(STR)):
+            r = self.client.post(f"/forms/{tpl['id']}/entries",
+                                 json={"entryKey": key, "answers": _answers(), "source": "phone"})
+        self.assertEqual(r.status_code, 409, r.text)           # another person's key: never their entry
+        self.assertNotIn(f"raced-{STR}", r.text)
+
     def test_submit_validates_formats_photos_and_runs_formulas(self):
         tpl = self._template()
         e = self._submit(tpl["id"], REP, _answers(

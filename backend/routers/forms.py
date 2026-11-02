@@ -201,6 +201,18 @@ def _check_file_urls(defs: list, answers: dict) -> None:
             check(d, answers[d["token"]])
 
 
+def _same_key(db: Session, key: str, tid: str, me: str):
+    """The entry already filed under `key`, or None. 409 when the key is
+    another person's or another form's - a key never opens someone else's
+    entry."""
+    row = db.query(DocFormEntry).filter(DocFormEntry.entry_key == key).first()
+    if row is None:
+        return None
+    if _norm(row.submitted_by) != me or row.template_id != tid:
+        raise HTTPException(409, "That entry key belongs to another entry")
+    return row
+
+
 @router.post("/{tid}/entries")
 def submit_entry(tid: str, body: EntryIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """File one entry. The same entryKey a second time (a retry after a
@@ -208,13 +220,14 @@ def submit_entry(tid: str, body: EntryIn, user: dict = Depends(get_current_user)
     key = (body.entryKey or "").strip()[:80]
     if not key:
         raise HTTPException(400, "entryKey is required")
-    tpl = _fillable(db, tid, user)
     me = _norm(user["email"])
-    existing = db.query(DocFormEntry).filter(DocFormEntry.entry_key == key).first()
+    # Before the fill check: a retry of an entry already filed returns it even
+    # when the form was archived (or the person moved out of its audience)
+    # since the first send.
+    existing = _same_key(db, key, tid, me)
     if existing is not None:
-        if _norm(existing.submitted_by) != me or existing.template_id != tpl.id:
-            raise HTTPException(409, "That entry key belongs to another entry")
         return _serialize_many(db, [existing], form_audience.viewer_reach(db, user))[0]
+    tpl = _fillable(db, tid, user)
 
     defs, version = _defs(db, tpl)
     source = (body.source or "web").strip().lower()
@@ -252,9 +265,10 @@ def submit_entry(tid: str, body: EntryIn, user: dict = Depends(get_current_user)
     try:
         db.commit()
     except IntegrityError:
-        # Two retries raced: the first one's row is the entry.
+        # Two retries raced: the first one's row is the entry - when it is
+        # this person's, on this form (the same check as before the insert).
         db.rollback()
-        row = db.query(DocFormEntry).filter(DocFormEntry.entry_key == key).first()
+        row = _same_key(db, key, tpl.id, me)
         if row is None:
             raise HTTPException(409, "Could not file the entry - try again")
     db.refresh(row)
