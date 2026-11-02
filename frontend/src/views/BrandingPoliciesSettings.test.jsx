@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 
 // Settings > Branding & Email (and Security, which holds the Sign-In Policy
 // since Oct 23): the subjects render for administrators only, each panel
@@ -86,6 +86,21 @@ describe('BrandColorPanel', () => {
     await waitFor(() => expect(setBrandAccent).toHaveBeenCalled());
   });
 
+  it('carries the Navigation Motion default (Neil, 11/01/2026): Lively until changed, saved with the color, and told to the open sidebar', async () => {
+    const heard = vi.fn();
+    window.addEventListener('nexus:rail-motion', heard);
+    render(<BrandColorPanel toastOk={() => {}} toastErr={() => {}} />);
+    const group = await screen.findByRole('radiogroup', { name: 'Navigation Motion' });
+    expect(within(group).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Off', 'Subtle', 'Lively', 'Bold']);
+    expect(within(group).getByRole('radio', { name: 'Lively' }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(within(group).getByRole('radio', { name: 'Subtle' }));
+    fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+    await waitFor(() => expect(mockApi.updateBrandingConfig).toHaveBeenCalledWith(expect.objectContaining({ navMotion: 'subtle' })));
+    await waitFor(() => expect(heard).toHaveBeenCalled());
+    expect(heard.mock.calls.at(-1)[0].detail).toEqual({ navMotion: 'subtle' });
+    window.removeEventListener('nexus:rail-motion', heard);
+  });
+
   it('custom shows the wheel, hex and opacity, previews live and warns on low contrast', async () => {
     render(<BrandColorPanel toastOk={() => {}} toastErr={() => {}} />);
     fireEvent.click(await screen.findByRole('radio', { name: /Custom/ }));
@@ -110,7 +125,7 @@ describe('BrandColorPanel', () => {
     expect(screen.getByRole('status')).toBeInTheDocument();
     fireEvent.change(opacity, { target: { value: '100' } });
     fireEvent.click(screen.getByRole('button', { name: /Save/ }));
-    await waitFor(() => expect(mockApi.updateBrandingConfig).toHaveBeenCalledWith({ accent: 'custom', customHex: '#1d4ed8', opacity: 100 }));
+    await waitFor(() => expect(mockApi.updateBrandingConfig).toHaveBeenCalledWith({ accent: 'custom', customHex: '#1d4ed8', opacity: 100, navMotion: 'lively' }));
   });
 });
 

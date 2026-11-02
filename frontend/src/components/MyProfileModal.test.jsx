@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 
 // Profile (Oct 28 2026): who you are on top, four sections on the left -
 // Appearance first; a task email's "Email Settings" link opens Task Emails.
+const apiSpies = vi.hoisted(() => ({}));
 vi.mock('../api', () => ({
-  api: new Proxy({}, { get: () => () => Promise.resolve({}) }),
+  api: new Proxy({}, { get: (_, k) => (apiSpies[k] ||= vi.fn(() => Promise.resolve({}))) }),
 }));
 vi.mock('../tasks/MyEmailSettings', () => ({ default: () => <div>Email settings form</div> }));
 
@@ -36,5 +37,17 @@ describe('Profile - Date Format (Oct 20 2026)', () => {
     expect(labels.map((l) => l.split(' - ')[0])).toEqual(['MM/DD/YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD', 'DD MMM YYYY']);
     expect(labels[2]).toMatch(/^YYYY-MM-DD - \d{4}-\d{2}-\d{2}$/);
     expect(labels[0]).toMatch(/\(Default\)$/);   // the US format is marked as everyone's default
+  });
+});
+
+describe('Profile - Navigation Motion (Neil, 11/01/2026)', () => {
+  it('offers Company Default, Off, Subtle, Lively and Bold under Appearance, and a pick saves at once', async () => {
+    render(<MyProfileModal onClose={() => {}} theme="light" onThemeToggle={() => {}} wkTheme="cobalt" setWkTheme={() => {}} />);
+    const group = screen.getByRole('radiogroup', { name: 'Navigation Motion' });
+    expect(within(group).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Company Default', 'Off', 'Subtle', 'Lively', 'Bold']);
+    expect(within(group).getByRole('radio', { name: 'Company Default' }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(within(group).getByRole('radio', { name: 'Subtle' }));
+    await waitFor(() => expect(apiSpies.saveTaskTablePrefs).toHaveBeenCalledWith('nav', { motion: 'subtle' }));
+    expect(within(group).getByRole('radio', { name: 'Subtle' }).getAttribute('aria-checked')).toBe('true');
   });
 });

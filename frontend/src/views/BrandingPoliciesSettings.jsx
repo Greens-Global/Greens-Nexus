@@ -45,6 +45,10 @@ function SaveButton({ busy, onClick, children = 'Save', icon = <Check size={14} 
 // mostly page background and its white label stops being readable.
 const ColorWheel = lazy(() => import('../components/ColorWheel'));
 const ACCENTS = [['green', 'Green'], ['blue', 'Blue'], ['custom', 'Custom']];
+// The company's default for the left navigation's motion (Neil, 11/01/2026;
+// lib/railMotion.js) - saved with the color, a person may override it under
+// My Profile > Appearance.
+const MOTIONS = [['off', 'Off'], ['subtle', 'Subtle'], ['lively', 'Lively'], ['bold', 'Bold']];
 
 // WCAG relative luminance of a hex color laid over white at `alpha`.
 function luminance(hex, alpha = 1) {
@@ -63,7 +67,7 @@ export function BrandColorPanel({ toastOk, toastErr }) {
   const [busy, setBusy] = useState(false);
   useGroupDirty(!!saved && !!cfg && JSON.stringify(cfg) !== JSON.stringify(saved));
   useEffect(() => {
-    const def = { accent: 'green', customHex: '', opacity: 100 };
+    const def = { accent: 'green', customHex: '', opacity: 100, navMotion: 'lively' };
     api.getBrandingConfig()
       .then(r => { const c = { ...def, ...r }; setSaved(c); setCfg(c); })
       .catch(() => { setSaved(def); setCfg(def); });
@@ -75,6 +79,8 @@ export function BrandColorPanel({ toastOk, toastErr }) {
       const r = await api.updateBrandingConfig(cfg);
       setSaved(r); setCfg(r);
       setBrandAccent(r);
+      // An open sidebar follows the new default at once (lib/railMotion.js).
+      window.dispatchEvent(new CustomEvent('nexus:rail-motion', { detail: { navMotion: r.navMotion } }));
       toastOk('Brand color saved. Everyone sees it the next time Nexus loads.');
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
     setBusy(false);
@@ -124,6 +130,20 @@ export function BrandColorPanel({ toastOk, toastErr }) {
       )}
       {custom && !hexOk && <div style={{ ...HINT, color: 'hsl(var(--color-red))', marginBottom: 10 }}>Enter a hex color such as #1d4ed8.</div>}
       {lowContrast && <div role="status" style={{ ...HINT, color: 'hsl(var(--color-red))', marginBottom: 10 }}>White button text on this color is hard to read (below the 4.5:1 contrast accessibility guidelines ask for). Try a darker color or a higher opacity.</div>}
+
+      <label style={LABEL}>Navigation Motion</label>
+      <div role="radiogroup" aria-label="Navigation Motion" style={{ ...ROW, marginBottom: 4 }}>
+        {MOTIONS.map(([id, label]) => {
+          const on = id === (cfg.navMotion || 'lively');
+          return (
+            <button key={id} type="button" role="radio" aria-checked={on} onClick={() => set('navMotion', id)}
+              style={{ padding: '7px 12px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: 'var(--ink)', background: 'var(--card)', border: on ? '2px solid var(--ink)' : '1px solid var(--line)' }}>
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ ...HINT, marginBottom: 14 }}>How the left navigation moves when people hover and click - the default for everyone; a person can choose their own under My Profile &gt; Appearance.</div>
 
       <label style={LABEL}>Preview</label>
       <div style={{ ...ROW, padding: 12, border: '1px solid var(--line)', borderRadius: 10, marginBottom: 14 }}>

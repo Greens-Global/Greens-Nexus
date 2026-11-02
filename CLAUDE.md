@@ -219,6 +219,17 @@ keep the diff minimal.
   (`lib/groupDirty.js`), so the Settings shell asks before the subject, the
   scope, the top tab, the module or the browser tab changes; the hook is a
   no-op wherever else the panel renders.
+- **The left navigation moves one way (Neil, 11/01/2026):** the strength
+  is a setting - the company default under Settings > Branding > Brand Color
+  (`navMotion` on the branding config), a person's own under My Profile >
+  Appearance (profile prefs `nav.motion`) - resolved by `lib/railMotion.js`
+  (reduced motion is always Off) and written to `<html data-rail-motion>` +
+  `--rail-lift`. `Sidebar.jsx` owns only the two pills (translateY) and the
+  `is-opening` / `is-pop` beats; every visual is the "Rail motion" block in
+  style.css: transform and opacity only, `--ease-spring` on the icon lift
+  and the one-time pop alone, Bold capped at 1.26, cascade 14ms a row,
+  nothing loops, nothing on touch, the phone drawer untouched, the folded
+  rail never peeks. The sidebar tooltip (`NavTip`) is the light flyout card.
 - **Hold to confirm (Neil, Oct 30 2026, plan
   https://claude.ai/artifact/MU1RMFQ9nHYxSB31XjDwQ1, PRs #883-#884):** an
   action that cannot be taken back (delete forever, void, offboard, end
