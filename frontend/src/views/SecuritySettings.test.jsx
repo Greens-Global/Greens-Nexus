@@ -189,6 +189,27 @@ describe('SecuritySettings', () => {
     confirm.mockRestore();
   });
 
+  // A leave prompt's Save and Leave (in Settings or DialogGuard's) calls the
+  // group's save; lowering the idle limit then asks through dialog.confirm,
+  // which stacks over the prompt. Either answer settles the save - Keep
+  // Editing resolves false (the prompt stays), Lower the Limit saves.
+  it('Save and Leave settles either way when the idle-limit question is asked', async () => {
+    const { GroupDirtyContext, makeGroupReporter } = await import('../lib/groupDirty');
+    let saves = [];
+    const reporter = makeGroupReporter((d, s) => { saves = d ? s : []; });
+    getSecuritySettings.mockResolvedValue(payload(true, { webSessionIdleDays: int(14, 1, 30, 'days', 'saved') }));
+    render(<GroupDirtyContext.Provider value={reporter}><SecuritySettings /></GroupDirtyContext.Provider>);
+    fireEvent.change(await screen.findByLabelText('Web Session Idle Limit'), { target: { value: '7' } });
+    await waitFor(() => expect(saves.length).toBe(1));
+    const confirm = vi.spyOn(dialog, 'confirm').mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await expect(saves[0]()).resolves.toBe(false);
+    expect(updateSecuritySettings).not.toHaveBeenCalled();
+    await expect(saves[0]()).resolves.toBe(true);
+    expect(updateSecuritySettings).toHaveBeenCalledWith({ webSessionIdleDays: 7 }, false);
+    expect(confirm).toHaveBeenCalledTimes(2);
+    confirm.mockRestore();
+  });
+
   it('shows a retry instead of a blank screen when loading fails', async () => {
     getSecuritySettings.mockRejectedValue(new Error('Insufficient permissions'));
     render(<SecuritySettings />);

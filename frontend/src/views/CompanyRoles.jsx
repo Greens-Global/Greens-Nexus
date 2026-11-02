@@ -128,7 +128,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
         <div style={{ flex: 1, minWidth: 220 }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Roles at {entity.name}</h4>
           <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>
-            Only people at {entity.name} can hold these roles. What each role can reach is set in its bundle; extra groups are managed in People &amp; Access with the scope on Every company.
+            Only people at {entity.name} can hold these roles. What each role can reach is set in its bundle; extra groups are managed in People &amp; Access with Applies To on Every Company.
           </p>
         </div>
         <button className="primary-btn" onClick={() => setEditing({})} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>

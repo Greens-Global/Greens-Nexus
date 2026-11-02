@@ -7791,8 +7791,11 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .nx-set-group-body.is-flush > div:not(.nx-set-note) { gap: 0 !important; }
 /* Settings text that passes AA (11/02/2026): the muted grey on the light
    paper/canvas was 4.36:1 and green text on white 4.4:1. Scoped to the
-   Settings page, light theme only - dark already passes. */
-:root:not([data-theme="dark"]) .nx-settings { --muted: #5d6a7e; --color-green: 142, 62%, 28%; }
+   Settings page, light theme only - dark already passes. On body while
+   Settings shows, so the sheets and popups it opens (portaled to body)
+   read the same. */
+:root:not([data-theme="dark"]) .nx-settings,
+:root:not([data-theme="dark"]) body:has(.nx-settings) { --muted: #5d6a7e; --color-green: 142, 62%, 28%; }
 /* The house label above a control (DESIGN.md: 12px, normal case). */
 .nx-set-label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
 /* Search results: the subject over its matches, and the words found. */

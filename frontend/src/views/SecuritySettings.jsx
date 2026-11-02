@@ -249,13 +249,15 @@ export default function SecuritySettings({ toastOk, toastErr, groups = GROUPS })
               <div key={f.key} style={{ borderTop: '1px solid var(--line)' }}>
                 <SettingRow htmlFor={inputId} title={f.label} desc={f.desc}
                   control={s.type === 'bool' ? (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                    // The switch sits right in the control slot, so the phone
+                    // rule that keeps a switch at the row's right finds it.
+                    <>
                       {switching?.key === f.key && <Spinner size={12} />}
                       <input id={inputId} type="checkbox" role="switch" className="nx-switch"
                         checked={switching?.key === f.key ? switching.on : !!s.value} disabled={disabled}
                         aria-label={f.label} aria-describedby={`${inputId}-desc`}
                         onChange={e => toggle(f.key, f.label, e.target.checked)} />
-                    </span>
+                    </>
                   ) : (
                     <>
                       <input id={inputId} className="form-input" type="number" inputMode="numeric"

@@ -160,8 +160,10 @@ const SWITCHES = [
   ['teamShiftDetails', "Staff Can See The Notes, Activities And Breaks On Teammates' Shifts"],
   ['teamTimeOffReasons', 'Staff Can See Why a Teammate Is Off, and Their Note'],
 ];
-// Time off itself (reasons, leave policies, approval) is its own Settings subject (11/02/2026).
-const openLeaveSettings = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'leave' } }));
+// Time off itself (reasons, leave policies, approval) is its own Settings
+// subject (11/02/2026). The way there is the Settings shell's `onOpenLeave`,
+// given only when a Time Off & Leave group opens for this person, so the
+// button never lands them on some other subject.
 // Settings shows the shift settings as several groups (Oct 25: one long card
 // was hard to scan) - `part` picks one; left out, every part shows under its
 // own heading (the panel on its own). The keys say which settings a part
@@ -192,7 +194,7 @@ function loadShiftSettings(company) {
 const SAVED_EVENT = 'shifts:settings-saved';   // detail: { company, from, saved | reload }
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
-export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverride, part }) {
+export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverride, part, onOpenLeave }) {
   const [company, setCompany] = useSettingsCompany(scoped);
   // The labor budget is HR++'s alone (Neil, 11/02/2026): administrators and
   // a Full People grant that is not team-limited see the block; a manager
@@ -370,7 +372,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                           hint="A request of at most this many working days earns 'Recommended: Approve'." />
                         <div className="nx-set-note" data-leave-link="">
                           Time off reasons, leave policies and approval are under Settings &gt; Time Off &amp; Leave.
-                          <button type="button" className="nx-set-inline-link" onClick={openLeaveSettings}>Open Time Off &amp; Leave</button>
+                          {onOpenLeave && <button type="button" className="nx-set-inline-link" onClick={onOpenLeave}>Open Time Off &amp; Leave</button>}
                         </div>
                       </>
                     )}

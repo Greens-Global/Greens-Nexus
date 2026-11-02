@@ -111,6 +111,17 @@ describe('Shift Settings', () => {
     expect(toastOk).toHaveBeenCalledWith('Shift settings saved.');
   });
 
+  it('links to Time Off & Leave only when the Settings shell says a leave group opens', async () => {
+    const { unmount } = render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} part="requests" />);
+    expect(await screen.findByText(/are under Settings > Time Off & Leave/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Open Time Off & Leave' })).toBeNull();
+    unmount();
+    const onOpenLeave = vi.fn();
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} part="requests" onOpenLeave={onOpenLeave} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Time Off & Leave' }));
+    expect(onOpenLeave).toHaveBeenCalled();
+  });
+
   it('keeps the time-off reasons as a panel of their own', async () => {
     render(<TimeOffReasons toastOk={toastOk} toastErr={toastErr} />);
     expect(await screen.findByText('Jury Duty')).toBeTruthy();

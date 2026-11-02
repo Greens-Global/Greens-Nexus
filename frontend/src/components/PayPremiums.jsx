@@ -206,11 +206,11 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
                         value={r.amount} onChange={(e) => setRule(i, { amount: e.target.value })} style={{ fontSize: 12.5 }} />
                     </label>
                     <label style={lbl}>From
-                      <TimeField ariaLabel="Window start" value={r.start} step={15}
+                      <TimeField ariaLabel="Window start" value={r.start} step={15} emptyLabel="No Window"
                         onChange={(v) => setRule(i, { start: v })} style={{ fontSize: 12.5 }} />
                     </label>
                     <label style={lbl}>To
-                      <TimeField ariaLabel="Window end" value={r.end} step={15}
+                      <TimeField ariaLabel="Window end" value={r.end} step={15} emptyLabel="No Window"
                         onChange={(v) => setRule(i, { end: v })} style={{ fontSize: 12.5 }} />
                     </label>
                   </div>

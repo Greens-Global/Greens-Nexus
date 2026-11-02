@@ -63,6 +63,20 @@ describe('PayPremiums', () => {
     await waitFor(() => expect(toastOk).toHaveBeenCalledWith('Shift differentials saved.'));
   });
 
+  it('a differential window can be cleared again (both times or neither)', async () => {
+    render(<PayPremiums />);
+    fireEvent.click(await screen.findByLabelText('Pay Shift Differentials and Call-Back Pay'));
+    await waitFor(() => expect(apiMock.timePremiumsSet).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: /Add Differential/ }));
+    const start = screen.getByLabelText('Window start');
+    fireEvent.change(start, { target: { value: '22:00' } });
+    expect(start.value).toBe('22:00');
+    // The blank choice stays after a time is picked, so the window can be emptied.
+    expect([...start.options].map(o => o.textContent)[0]).toBe('No Window');
+    fireEvent.change(start, { target: { value: '' } });
+    expect(start.value).toBe('');
+  });
+
   it('a switch that fails to save goes back', async () => {
     const toastErr = vi.fn();
     apiMock.timePremiumsSet.mockReset().mockRejectedValue(new Error('No'));

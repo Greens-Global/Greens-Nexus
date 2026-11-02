@@ -353,7 +353,7 @@ const GROUPS = [
   { id: 'email-appearance', subject: 'branding', face: 'org', scope: 'org', icon: Mail, title: 'Email Appearance',
     needs: { role: 'administrator' },
     sub: 'One logo, accent color and footer for every email Nexus sends: tasks, tickets, Nexus Sign, invitations and welcome emails.',
-    keywords: 'email template logo header footer accent color address preview notifications' },
+    keywords: 'mail email template logo header footer accent color address preview notifications' },
   { id: 'letterheads', subject: 'branding', face: 'org', scope: 'org', icon: FileText, title: 'Letterheads',
     needs: { role: 'administrator' },
     sub: 'The letterheads documents and letters print on, and which one is the default.',
@@ -361,36 +361,36 @@ const GROUPS = [
   { id: 'email-signature', subject: 'branding', face: 'both', scope: 'company', icon: Signature, title: 'Email Signature',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in Profile.',
-    keywords: 'template sign-off logo sender override shared inbox branding' },
+    keywords: 'mail template sign-off logo sender override shared inbox branding' },
   // Emails & Reminders
   { id: 'task-notifications', subject: 'emails', face: 'org', scope: 'org', icon: Bell, title: 'Task Notifications',
     needs: { role: 'manager' },
     sub: 'The mailbox task emails come from, due-date reminders, how updates are batched into one email, and how email replies are posted.',
-    keywords: 'email mailbox reminders overdue batch replies delivery log tasks notifications' },
+    keywords: 'mail email mailbox reminders overdue batch replies delivery log tasks notifications' },
   { id: 'daily-briefing', subject: 'emails', face: 'org', scope: 'org', icon: Mail, title: 'Daily Briefing',
     needs: { role: 'administrator' },
     sub: 'A daily summary email for each employee. Send it to everyone, or to a few test recipients first.',
-    keywords: 'digest summary email morning test recipients' },
+    keywords: 'mail digest summary email morning test recipients' },
   { id: 'weekly-digest', subject: 'emails', face: 'org', scope: 'org', icon: Mail, title: 'Weekly Digest',
     needs: { role: 'administrator' },
     sub: "A Monday email listing each employee's overdue tasks with their due dates, sent before their shift. Send it to everyone, or to a few test recipients first.",
-    keywords: 'weekly digest summary email overdue tasks due dates extend monday shift test recipients' },
+    keywords: 'mail weekly digest summary email overdue tasks due dates extend monday shift test recipients' },
   { id: 'workforce-scorecard', subject: 'emails', face: 'org', scope: 'org', icon: Mail, title: 'Workforce Scorecard',
     needs: { role: 'administrator' },
     sub: 'A weekly email to managers scoring each hourly person\'s punched hours against their expected hours (US 8h, India 9h, or their shift) - who worked, who was short, who was absent.',
-    keywords: 'workforce analytics scorecard attendance hours expected worked absent late weekly manager email shift standard day india hourly test recipients' },
+    keywords: 'mail workforce analytics scorecard attendance hours expected worked absent late weekly manager email shift standard day india hourly test recipients' },
   { id: 'hr-reminders', subject: 'emails', face: 'org', scope: 'org', icon: CalendarClock, title: 'HR & Compliance Reminders',
     needs: { role: 'administrator', grant: ['hr', 'full'] },
     sub: 'Choose how many days ahead HR is warned about visa and right-to-work expiry, contract ends, new starters, expiring documents and unsigned signature requests.',
-    keywords: 'hr people visa right to work immigration expiry expiring contract end new starter onboarding document compliance e-sign signature chase nudge reminder days before alerts timing bell' },
+    keywords: 'mail hr people visa right to work immigration expiry expiring contract end new starter onboarding document compliance e-sign signature chase nudge reminder days before alerts timing bell' },
   { id: 'equipment-reminders', subject: 'emails', face: 'org', scope: 'org', icon: CalendarClock, title: 'Equipment Reminders',
     needs: { role: 'administrator', grant: ['inventory', 'full'] },
     sub: 'Chase items that are checked out past their due date, and choose how early asset managers are warned about warranties, inspections, registration, insurance and service.',
-    keywords: 'items inventory checkout overdue return late borrower asset property vehicle equipment warranty inspection registration insurance service manager reminder days before alerts timing bell' },
+    keywords: 'mail items inventory checkout overdue return late borrower asset property vehicle equipment warranty inspection registration insurance service manager reminder days before alerts timing bell' },
   { id: 'kb-reminders', subject: 'emails', face: 'org', scope: 'org', icon: CalendarClock, title: 'Training Reminders',
     needs: { role: 'administrator', grant: ['sop', 'full'] },
     sub: 'Turn the Knowledge Base training reminders, policy-signing reminders and Monday digests on or off, or keep them in the notification bell without an email.',
-    keywords: 'knowledge base kb sop training course policy sign acknowledge overdue due reminder digest manager owner email bell off' },
+    keywords: 'mail knowledge base kb sop training course policy sign acknowledge overdue due reminder digest manager owner email bell off' },
   // Tickets - one group, seven tabs (Pranshu, Sep 26: routing, ticket email
   // and SLAs are one subject to an admin).
   { id: 'service-desk', subject: 'tickets', face: 'both', scope: 'org', icon: Headset, title: 'Ticket Manager',
@@ -1696,7 +1696,8 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
   const who = useRole();
   const narrow = useIsMobile('(max-width: 900px)');
   const [query, setQuery] = useState('');
-  const needle = query.trim().toLowerCase();
+  // A hyphen typed is a space ("time-off" finds Time Off); word starts still match "no-show".
+  const needle = query.trim().toLowerCase().replace(/-+/g, ' ').trim();
   // What this person may open (mayOpen, from each group's `needs`): a
   // subject is in the rail when one of its groups opens somewhere; the groups
   // on the page are the ones that open at this scope - a company-only group
@@ -1879,9 +1880,13 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
     const footer = g.scope === 'layered' && !company && COMPANY_STATE[id]
       ? <CompanyOverrides entities={entities} stateOf={COMPANY_STATE[id]} onPick={pickFor} lead={OWN_LINE[id]} /> : null;
     const layered = { report, footer };
-    // The shift settings, one slice per group.
+    // The shift settings, one slice per group. Requests links to Time Off &
+    // Leave only for someone a leave group opens for (mayOpen, via `subjects`).
     if (g.part) {
-      return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} part={g.part} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      const onOpenLeave = g.part === 'requests' && subjects.some(s => s.key === 'leave')
+        ? () => nav({ subject: 'leave', group: '', company })
+        : undefined;
+      return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} part={g.part} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} onOpenLeave={onOpenLeave} />;
     }
     // A company-only group at "Every company": pick the company first.
     if (g.face === 'company' && !company) {
@@ -2057,8 +2062,9 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
               <div style={{ marginBottom: 12 }}>No settings match "{query.trim()}"{company ? ` for ${companyName}` : ''}.</div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
                 {/* With a company picked only its own settings are searched;
-                    the rest are one click away, the words kept. */}
-                {company && (
+                    the rest are one click away, the words kept - except for
+                    someone walled to some companies, who sees fewer there. */}
+                {company && !Array.isArray(who.hrScope) && (
                   <button className="primary-btn" onClick={() => nav({ subject: activeSubject?.key || 'companies', group: '', company: '', keepQuery: true })}>
                     Search Every Company
                   </button>

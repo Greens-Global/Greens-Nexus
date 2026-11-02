@@ -55,7 +55,10 @@ vi.mock('./BrandingPoliciesSettings', () => ({
   SignInPolicyPanel: () => <div>Sign-in policy panel</div>,
 }));
 vi.mock('../components/shifts/ShiftSettingsSections', () => ({
-  ShiftSettingsPanel: ({ company, part }) => <div>Shift settings panel{part ? ` ${part}` : ''}{company ? ` ${company}` : ''}</div>,
+  ShiftSettingsPanel: ({ company, part, onOpenLeave }) => (
+    <div>Shift settings panel{part ? ` ${part}` : ''}{company ? ` ${company}` : ''}
+      {onOpenLeave && <button onClick={onOpenLeave}>Open Time Off & Leave</button>}</div>
+  ),
   ShiftTypesPanel: () => <div>Shift types panel</div>,
   ShiftGroupsPanel: () => <div>Groups panel</div>,
   TimeOffReasons: () => <div>Time-off reasons panel</div>,
@@ -793,6 +796,38 @@ describe('AdminConsole', () => {
     rerender(<AdminConsole activeSub="leave" onSubChange={onSubChange} />);
     expect(screen.getByLabelText('Filter settings')).toHaveValue('leave policies');
     expect(screen.getByRole('region', { name: 'Leave Policies' })).toBeInTheDocument();
+  });
+
+  it('offers no Search Every Company to someone walled to some companies (they see fewer there)', async () => {
+    asRole('supervisor', { grants: { hr: 'editor' }, hrScope: ['c1'] });
+    render(<AdminConsole activeSub="leave@c1" onSubChange={() => {}} />);
+    await waitFor(() => expect(screen.getByLabelText('Applies To')).toHaveValue('c1'));
+    fireEvent.change(screen.getByLabelText('Filter settings'), { target: { value: 'nothing like this' } });
+    expect(screen.getByText(/No settings match "nothing like this" for Greens Global/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Search Every Company' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear Filter' })).toBeInTheDocument();
+  });
+
+  it('reads a typed hyphen as a space, and "mail" finds the email groups', () => {
+    render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
+    const box = screen.getByLabelText('Filter settings');
+    fireEvent.change(box, { target: { value: 'time-off' } });
+    for (const t of ['Time Off Reasons', 'Time Off Approval']) expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: 'no-show' } });
+    expect(screen.getByRole('region', { name: 'Attendance' })).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: 'mail' } });
+    for (const t of ['Email Appearance', 'Task Notifications', 'Daily Briefing', 'Weekly Digest', 'HR & Compliance Reminders']) {
+      expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
+    }
+  });
+
+  it('links Requests & Visibility to Time Off & Leave through the shell, keeping the company', async () => {
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="shifts@c1" onSubChange={onSubChange} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Time Off & Leave' }, { timeout: 5000 }));
+    expect(onSubChange).toHaveBeenLastCalledWith('leave@c1');
+    // Only the Requests slice carries it.
+    expect(screen.getAllByRole('button', { name: 'Open Time Off & Leave' })).toHaveLength(1);
   });
 
   it('opens on a list of the subjects on phones, and a subject has a way back', async () => {
