@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 
+vi.mock('./FillForm.jsx', () => ({ default: ({ preview }) => <div data-testid="fill-preview">{preview ? 'preview' : 'live'}</div> }));
 // Documents > Forms > Build (Neil, 11/02/2026): a form is a template with
 // docType 'form'; this is its field list - sections, the form-only types and
 // keys through the one field editor, order, audience, Preview, Publish.
@@ -138,11 +139,11 @@ describe('Form builder', () => {
     expect(toastOk).toHaveBeenCalledWith('Published');
   });
 
-  it('Preview falls back to a note until the fill screen ships', async () => {
+  it('Preview opens the fill screen in preview mode', async () => {
     open();
     await screen.findByText('Odometer');
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
-    expect(await screen.findByText('Preview is coming with the fill screen.')).toBeTruthy();
+    expect(await screen.findByTestId('fill-preview')).toBeTruthy();
   });
 
   it('refuses a template that is not a form', async () => {
