@@ -62,7 +62,7 @@ Admin > Notifications (Ticket Email Notifications), Settings tab:
    the sender's company (from their People record) and that company's
    department. A company with none set has its new emails refused with "no
    default department" - Nexus never guesses one.
-   Only a Global Admin can turn Email to Ticket on or off or change the
+   Only a Super Administrator can turn Email to Ticket on or off or change the
    mailbox; a company's supervisors set their own company's default
    department.
 4. **Save Settings**, then **Check Mailbox Now** (deployed API only) to run one pass immediately.

@@ -3779,8 +3779,76 @@ def _ensure_schema() -> str:
     return outcome
 
 
+_TIER_SEED_LOCK_KEY = 794221   # stable advisory-lock id (schema_guard holds 794220)
+
+
+def _tier_seeds():
+    """Tiers (Neil, 11/02/2026): the five Super Administrators set once and
+    the old tier words cleared from job roles / job titles once
+    (super_admins_seed). Run on EVERY boot, outside the once-per-deploy
+    schema gate: a deploy whose fingerprint was already stored would
+    otherwise never run a pass added after it. Each pass is guarded by its
+    nexus_settings mark (one primary-key read once done). On Postgres one
+    worker at a time - pg_try_advisory_lock on a connection of its own; a
+    worker that finds it held skips, the holder does the work. Prints only
+    the emails that changed."""
+    try:
+        import super_admins_seed
+        from database import SessionLocal
+    except Exception as e:
+        print(f"[startup] tier seeds skipped: {e}")
+        return
+    lock = None
+    try:
+        if not DATABASE_URL.startswith("sqlite"):
+            # Detached from the pool: an advisory lock belongs to the session,
+            # so close() must really end it (same reasoning as schema_guard).
+            lock = engine.connect()
+            lock.detach()
+            if not lock.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": _TIER_SEED_LOCK_KEY}).scalar():
+                lock.close()
+                lock = None
+                print("[startup] tier seeds: another worker is running them, skipped")
+                return
+        db = SessionLocal()
+        try:
+            res = super_admins_seed.apply_once(db)
+            if res:
+                print(f"[startup] super administrators set - promoted: {', '.join(res['super_admins']) or 'none'}; "
+                      f"demoted to administrator: {', '.join(res['demoted']) or 'none'}")
+                if res["skipped"]:
+                    print(f"[startup] super administrators: no People record, no owner row made for "
+                          f"{', '.join(res['skipped'])}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] super administrator set skipped: {e}")
+        try:
+            res = super_admins_seed.clear_tier_words_once(db)
+            if res:
+                print(f"[startup] tier words cleared - job roles renamed: {', '.join(res['renamed']) or 'none'}; "
+                      f"job titles cleared: {', '.join(res['cleared']) or 'none'}; "
+                      f"job title set: {', '.join(res['titled']) or 'none'}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] tier words pass skipped: {e}")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] tier seeds skipped: {e}")
+    finally:
+        if lock is not None:
+            try:
+                lock.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _TIER_SEED_LOCK_KEY})
+                lock.commit()
+            except Exception as e:  # noqa: BLE001 - close() below ends the session and the lock
+                print(f"[startup] tier seeds: unlock failed, closing instead: {e}")
+            finally:
+                lock.close()
+
+
 def _startup_prepare():
     _ensure_schema()
+    _tier_seeds()
     try:
         from auth import _fetch_jwks, SKIP_AUTH
         if not SKIP_AUTH:
@@ -4086,21 +4154,8 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] probation seeds skipped: {e}")
-    # Tiers (Neil, 11/02/2026): the five Super Administrators (`owner`) set
-    # ONCE, every other owner row becoming an Administrator; a nexus_settings
-    # mark keeps it from ever re-applying (super_admins_seed).
-    try:
-        import super_admins_seed
-        db = SessionLocal()
-        try:
-            res = super_admins_seed.apply_once(db)
-            if res:
-                print(f"[startup] super administrators set: {len(res['super_admins'])}, "
-                      f"{len(res['demoted'])} other owner(s) now administrators")
-        finally:
-            db.close()
-    except Exception as e:
-        print(f"[startup] super administrator set skipped: {e}")
+    # Tiers (Neil, 11/02/2026): the Super Administrators set and the tier
+    # words cleared run from _tier_seeds on EVERY boot, not here.
     # Presidents' Day (Neil, Oct 29 2026: "it's not showing Presidents' Day").
     # Calendars filled from the old Nager list say "Washington's Birthday" -
     # in hr_company_holidays.name and inside hr_holiday_policies.holidays.

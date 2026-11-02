@@ -114,7 +114,7 @@ Saturday 5 h claimed and approved; Sunday 3 h not claimed.
 - Statuses: Pending, Approved (the approver may approve fewer hours than claimed), Declined
   (a reason is required).
 - **Approver**: the company's HR contact; when there is none, or the HR contact is the
-  claimant, the Global Admins (the time sheet review's fallback). HR may also decide - the one
+  claimant, the Super Administrators (the time sheet review's fallback). HR may also decide - the one
   HR rule (the HR contact, an administrator or owner, a Full HR grant) within the contractor's
   company: an administrator or a Full grant only where their People scope and the company
   walls reach (`extra_time.hr_for`). Nobody decides their own claim - enforced on the server.

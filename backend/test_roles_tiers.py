@@ -341,6 +341,9 @@ class SeedTests(_Base):
             db.add(models.NexusRole(email="sagar.shoundik@greensglobal.com", role="owner"))
             db.add(models.NexusRole(email="viral@greensglobal.com", role="owner"))     # another owner -> administrator
             db.add(models.NexusRole(email=AEMP, role="employee"))
+            # No role row: the seed makes one only for someone with a People record.
+            for em in ("visesh.lodha@greensglobal.com", "pranshu.pandey@greensglobal.com"):
+                db.add(models.NexusEmployee(id=f"e-{em}", first_name="Seed", work_email=em, status="active"))
             db.commit()
         finally:
             db.close()
@@ -379,6 +382,9 @@ class SeedTests(_Base):
         db = self._db()
         try:
             self.assertEqual(auth._role_for("sagar.shoundik@greensglobal.com", db), ("employee", 1))
+            db.add(models.NexusEmployee(id="e-sagar", first_name="Sagar", work_email="sagar.shoundik@greensglobal.com",
+                                        status="active"))
+            db.commit()
             super_admins_seed.apply_once(db)
             self.assertEqual(auth._role_for("sagar.shoundik@greensglobal.com", db), ("owner", 5))
         finally:

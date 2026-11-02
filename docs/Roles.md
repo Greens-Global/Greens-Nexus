@@ -13,12 +13,23 @@ Neil, 11/02/2026. Code keys in parentheses; the words are what people see.
 Access Group grants (`require_module_grant`) open single modules on top of
 any tier; an Administrator passes every grant inside their company.
 
+An Administrator whose own People record has no company sees only shared
+rows (records that belong to no company) - the walls fail closed, they never
+open every company.
+
 ## Who is a Super Administrator
 
 Set once on 11/02/2026 (`backend/super_admins_seed.py`): Neil Kadakia,
 Visesh Lodha, Charmi, Pranshu Pandey, Sagar Shoundik. Every other person who
 held the old top tier became an Administrator. Change it later in Settings >
 People & Access; the seed never runs again.
+
+The same startup file clears the old tier words out of the data once (mark
+`roles.tier_words_cleared_2026_11_02`): job roles named "Global Admin" /
+"IT Admin" became "Super Administrators" / "Administrators", every job title
+that was a tier word was cleared (a tier word is never a job title), and Neil's
+job title became "Managing Principal". Both passes run on every boot, guarded
+by their marks.
 
 ## What people see
 
@@ -30,3 +41,15 @@ People & Access; the seed never runs again.
   the Act As list.
 - Settings > People & Access still shows the tier as a chip - that screen is
   where tiers are managed.
+
+## Decisions owed (Neil)
+
+1. **Organization-scope settings.** Should the settings that apply to the
+   whole organization - branding, the email theme, publishing a policy, the
+   weekly digest, the daily briefing, the Workforce Scorecard configuration -
+   be Super Administrator only, since an Administrator otherwise changes
+   them for every company?
+2. **Now Super Administrator only.** Microsoft 365 sync, creating and
+   deleting a company, and naming a group's managers now require a Super
+   Administrator. Sam, Pankaj and Viral (Administrators since 11/02/2026)
+   lose them - confirm that is intended, or name who keeps them.
