@@ -949,6 +949,23 @@
     // so a drop never silently discards unsaved edits.
     async function _openOrMergeFile(file) {
         const hasDoc = !!(state.pdfDoc && state.pdfBytes);
+        const name = (file.name || '').toLowerCase();
+        const isPdf = file.type === 'application/pdf' || name.endsWith('.pdf');
+        if (!isPdf) {
+            const isWord = name.endsWith('.docx');
+            const isImage = /^image\/(png|jpe?g)$/i.test(file.type) || /\.(png|jpe?g)$/.test(name);
+            if (name.endsWith('.doc')) { showToast('Old .doc files cannot be converted here. Save it as .docx in Word first.'); return; }
+            if (!isWord && !isImage) { showToast('Choose a PDF, a Word (.docx) file or a PNG or JPG image'); return; }
+            if (hasDoc) {
+                const go = await _choiceModal('Open File', 'A document is already open. Convert this file to a PDF and open it instead?', [
+                    { key: 'open', label: 'Convert and Open' },
+                ]);
+                if (!go) return;
+            }
+            if (isWord) await convertWordToPdf(file);
+            else await convertImagesToPdf([file]);
+            return;
+        }
         if (hasDoc) {
             const choice = await _choiceModal('Open PDF', 'A document is already open. What would you like to do?', [
                 { key: 'new',   label: 'Open as new PDF' },
@@ -971,7 +988,7 @@
         e.stopPropagation();
         dom.dropZone.classList.remove('drag-over');
         const file = e.dataTransfer.files[0];
-        if (file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
+        if (file && (file.type === 'application/pdf' || /\.(pdf|docx?)$/i.test(file.name))) {
             _openOrMergeFile(file);   // same open-as-new / merge prompt as the Open button
         } else if (file && (file.type.startsWith('image/') || /\.(png|jpe?g)$/i.test(file.name))) {
             // The drop zone promises image->PDF; honor it (was rejecting images).
@@ -979,7 +996,7 @@
             if (typeof convertImagesToPdf === 'function') convertImagesToPdf(imgs);
             else showToast('Could not convert that image');
         } else if (file) {
-            showToast('Drop a PDF, or a PNG/JPG image to convert into a PDF');
+            showToast('Drop a PDF, a Word (.docx) file or a PNG or JPG image');
         }
     }
 
@@ -1072,12 +1089,6 @@
             // structural tools would be switched back on right after we gate them.
             _applyOrganizeLock();   // gate structural tools if the PDF is locked
             dom.searchToggle.disabled = false;
-            // Show the search bar by default so users can search without knowing
-            // Ctrl+F (Pranshu). It stays docked top-right; the x still closes it.
-            if (dom.searchBar) {
-                dom.searchBar.style.display = 'flex';
-                if (dom.searchInfo) dom.searchInfo.textContent = '0/0';
-            }
             dom.totalPages.textContent = state.totalPages;
             dom.pageInput.max = state.totalPages;
             dom.fileInfo.textContent = `${state.fileName} | ${state.totalPages} page(s)`;
@@ -1881,6 +1892,11 @@
         _prevSizeTool = tool;
     }
 
+    const _PAINT_OVER_NOTES = {
+        edittext: 'Edit Text paints over the original. The old text stays in the file and can still be found or copied. To remove it for good, use Redact under Optimize.',
+        eraser: 'The Eraser removes your markups. Whiteout only paints over the page: the old text stays in the file. To remove it for good, use Redact under Optimize.',
+    };
+
     // ── Tool Management ──
     function setActiveTool(tool) {
         state.activeTool = tool;
@@ -1935,9 +1951,22 @@
         dom.paintBar.classList.toggle('visible', isPaintTool);
         // Close any open tool dropdown once a tool is armed, so it can't hang open
         // over the paint bar and occlude the color/size controls (A1). Deferred so
-        // it runs AFTER the tool button's own menu-toggle on the same click.
-        if (isPaintTool) setTimeout(() => document.querySelectorAll('.dropdown-menu.open').forEach(m => m.classList.remove('open')), 0);
+        // it runs AFTER the tool button's own menu-toggle on the same click. The tool
+        // just armed keeps its own menu: closing that too is why a menu only ever
+        // opened on the second click, the one that also disarmed the tool.
+        if (isPaintTool) setTimeout(() => {
+            const own = { draw: 'drawMenu', highlight: 'highlightMenu', shape: 'shapeMenu' }[state.activeTool];
+            document.querySelectorAll('.dropdown-menu.open').forEach(m => { if (m.id !== own) m.classList.remove('open'); });
+        }, 0);
         dom.mainContainer.classList.toggle('with-paint-bar', isPaintTool);
+
+        // Edit Text and the Eraser only paint over the page: say so while they are armed.
+        const toolNote = document.getElementById('toolNote');
+        if (toolNote) {
+            const note = _PAINT_OVER_NOTES[state.activeTool] || '';
+            toolNote.textContent = note;
+            toolNote.style.display = note ? 'block' : 'none';
+        }
 
         // Show the Whiteout toggle only while the eraser is active
         const eraserOptions = document.getElementById('eraserOptions');
@@ -2118,6 +2147,14 @@
 
     // ── Text Tool ──
     function handleCanvasClick(opt) {
+        // Image tool still armed (the picker was cancelled): a click on the page
+        // picks the image again and places it there.
+        if (state.activeTool === 'image' && !opt.target) {
+            _imageInsertAt = fabricCanvas.getPointer(opt.e);
+            dom.imageInput.value = '';
+            dom.imageInput.click();
+            return;
+        }
         if (state.activeTool !== 'text') return;
 
         const pointer = fabricCanvas.getPointer(opt.e);
@@ -5625,6 +5662,19 @@
     }
 
     // ── Image Tool ──
+    // Where a new image goes: the clicked point, else the middle of what is on
+    // screen (the page's top-left corner may be scrolled out of sight).
+    let _imageInsertAt = null;
+    function _visiblePageCenter() {
+        const wrap = dom.canvasScrollWrapper.getBoundingClientRect();
+        const c = fabricCanvas.upperCanvasEl.getBoundingClientRect();
+        const toCanvas = (fabricCanvas.getWidth() / (c.width || 1)) / (fabricCanvas.getZoom() || 1);
+        return {
+            x: ((Math.max(wrap.left, c.left) + Math.min(wrap.right, c.right)) / 2 - c.left) * toCanvas,
+            y: ((Math.max(wrap.top, c.top) + Math.min(wrap.bottom, c.bottom)) / 2 - c.top) * toCanvas,
+        };
+    }
+
     function handleImageSelect(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -5637,9 +5687,13 @@
                 const maxHeight = fabricCanvas.height * 0.5;
                 const scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
                 img.scale(scale);
+                const at = _imageInsertAt || _visiblePageCenter();
+                _imageInsertAt = null;
+                const pageW = fabricCanvas.getWidth() / (fabricCanvas.getZoom() || 1);
+                const pageH = fabricCanvas.getHeight() / (fabricCanvas.getZoom() || 1);
                 img.set({
-                    left: 50,
-                    top: 50,
+                    left: Math.max(0, Math.min(at.x - img.getScaledWidth() / 2, pageW - img.getScaledWidth())),
+                    top: Math.max(0, Math.min(at.y - img.getScaledHeight() / 2, pageH - img.getScaledHeight())),
                     cornerStyle: 'circle',
                     transparentCorners: false,
                 });
@@ -8316,11 +8370,37 @@
         if (!state.pdfDoc) return;
         dom.splitTotal.textContent = state.totalPages;
         dom.splitRange.value = '';
+        _showSplitError('');
         dom.splitModal.style.display = 'flex';
     }
 
     function closeSplitModal() {
         dom.splitModal.style.display = 'none';
+    }
+
+    function _showSplitError(msg) {
+        const box = document.getElementById('splitError');
+        if (!box) return;
+        box.textContent = msg;
+        box.style.display = msg ? 'block' : 'none';
+    }
+
+    // What is wrong with a typed page range, in words; '' when it is good.
+    // parsePageRange quietly drops anything it cannot use, so "2-99" would hand
+    // back a shorter file than the person asked for.
+    function _pageRangeProblem(rangeStr, totalPages) {
+        const pageWord = totalPages === 1 ? 'page' : 'pages';
+        const parts = rangeStr.split(',').map((s) => s.trim()).filter(Boolean);
+        if (!parts.length) return 'Enter the pages to extract, for example 1-3, 5.';
+        for (const part of parts) {
+            const m = /^(\d+)(?:\s*-\s*(\d+))?$/.exec(part);
+            if (!m) return '"' + part + '" is not a page or a range. Use numbers, for example 1-3, 5.';
+            const from = +m[1], to = m[2] ? +m[2] : from;
+            if (from < 1 || to < 1) return 'Page numbers start at 1.';
+            if (from > to) return '"' + part + '" runs backward. Put the lower page first.';
+            if (to > totalPages) return 'This PDF has ' + totalPages + ' ' + pageWord + ', so "' + part + '" is out of range.';
+        }
+        return '';
     }
 
     function parsePageRange(rangeStr, totalPages) {
@@ -8349,10 +8429,9 @@
     async function splitPDF() {
         _exitScrollForOp();
         const rangeStr = dom.splitRange.value.trim();
-        if (!rangeStr) {
-            showToast('Please enter a page range');
-            return;
-        }
+        const rangeProblem = _pageRangeProblem(rangeStr, state.totalPages);
+        _showSplitError(rangeProblem);
+        if (rangeProblem) return;
 
         const pageNumbers = parsePageRange(rangeStr, state.totalPages);
         if (pageNumbers.length === 0) {
@@ -9190,17 +9269,26 @@
     }
 
     // ── Compress ──
+    function _fileSize(bytes) {
+        return bytes < 1048576 ? Math.max(1, Math.round(bytes / 1024)) + ' KB' : (bytes / 1048576).toFixed(1) + ' MB';
+    }
     async function compressPdfTool() {
         if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
-        const beforeMB = ((state.pdfBytes.byteLength || state.pdfBytes.length) / 1048576).toFixed(1);
+        const beforeBytes = state.pdfBytes.byteLength || state.pdfBytes.length;
+        const beforeSize = _fileSize(beforeBytes);
         const v = await _toolModal('Compress PDF', `
-            <p class="modal-hint" style="margin:0 0 10px;">Current size: <b>${beforeMB} MB</b>. Save your markups first — compression works on the saved document content.</p>
-            <label class="modal-label">Compression level:</label>
+            <p class="modal-hint" style="margin:0 0 10px;">Current size: <b>${beforeSize}</b>. Save your markups first - compression works on the saved document content.</p>
+            <label class="modal-label">Compression Level:</label>
             <select class="modal-input" data-k="level">
-                <option value="light">Light — keeps text selectable (small gain)</option>
-                <option value="strong" selected>Strong — pages become images (big gain)</option>
-                <option value="extreme">Extreme — smallest file, lower quality</option>
-            </select>`, 'Compress & Save');
+                <option value="light" selected>Light - keeps text selectable (small gain)</option>
+                <option value="strong">Strong - turns pages into images (big gain)</option>
+                <option value="extreme">Extreme - turns pages into images, lower quality</option>
+            </select>
+            <p class="modal-hint" data-image-warning role="alert" style="display:none;margin:10px 0 0;color:var(--danger);">This level turns every page into a picture. Text can no longer be selected, searched or copied, links and form fields stop working, and a small or text-only file can get larger.</p>`, 'Compress', (overlay) => {
+            const level = overlay.querySelector('[data-k="level"]');
+            const warning = overlay.querySelector('[data-image-warning]');
+            level.addEventListener('change', () => { warning.style.display = level.value === 'light' ? 'none' : 'block'; });
+        });
         if (!v) return;
         setStatus('Compressing...');
         try {
@@ -9230,11 +9318,22 @@
                 }
                 outBytes = await out.save();
             }
-            const afterMB = (outBytes.length / 1048576).toFixed(1);
-            // Apply in the editor (like the other tools) so the user can review
-            // the result and Save when ready, instead of a forced download.
-            await _reloadFromBytes(outBytes, 'Compressed ' + beforeMB + ' MB -> ' + afterMB + ' MB - Save when ready');
-            showToast('Compressed ' + beforeMB + ' MB -> ' + afterMB + ' MB');
+            // A result that is not smaller is no result: keep the original and say so.
+            const afterSize = _fileSize(outBytes.length);
+            if (outBytes.length >= beforeBytes) {
+                const kept = 'This PDF did not get smaller (' + beforeSize + ' to ' + afterSize + '), so the original was kept';
+                setStatus(kept);
+                showToast(kept);
+                return;
+            }
+            // Apply in the editor (like the other tools), then show the result and
+            // offer the download.
+            const percent = Math.max(1, Math.round((1 - outBytes.length / beforeBytes) * 100));
+            await _reloadFromBytes(outBytes, 'Compressed ' + beforeSize + ' to ' + afterSize + ' - Save when ready');
+            const result = await _toolModal('Compression Result', '<p style="margin:0;font-size:13.5px;line-height:1.5;">' + beforeSize + ' to ' + afterSize + ', ' + percent + '% smaller.</p>', 'Download', (overlay) => {
+                overlay.querySelector('[data-act="cancel"]').textContent = 'Keep Editing';
+            });
+            if (result) await downloadPDF();
         } catch (err) { console.error(err); showToast('Compression failed'); }
     }
 
@@ -9637,6 +9736,8 @@
     async function sanitizePdfTool() {
         _exitScrollForOp();
         if (!state.pdfBytes) return;
+        const go = await _toolModal('Sanitize PDF', '<p class="modal-hint" style="margin:0;">This removes attachments, scripts and link actions from the PDF, so links stop working. It does not repair a damaged file.</p>', 'Sanitize');
+        if (!go) return;
         setStatus('Sanitizing...');
         try {
             const { PDFName, PDFDict } = PDFLib;
@@ -9677,8 +9778,8 @@
                 } catch (_) {}
             }
             const bytes = await doc.save();
-            await _reloadFromBytes(bytes, 'Sanitized — removed ' + removed + ' script/attachment item(s)');
-            showToast(removed ? 'Removed ' + removed + ' embedded script/attachment item(s)' : 'No embedded scripts or attachments found');
+            await _reloadFromBytes(bytes, 'Sanitized - removed ' + removed + ' item(s)');
+            showToast(removed ? 'Removed ' + removed + ' attachment, script or link action item(s)' : 'No attachments, scripts or link actions found');
         } catch (err) { console.error(err); showToast('Sanitize failed'); }
     }
     window.sanitizePdfTool = sanitizePdfTool;

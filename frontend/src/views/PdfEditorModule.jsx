@@ -87,7 +87,7 @@ export default function PdfEditorModule() {
           </span>
           <div>
             <h1>PDF Tools</h1>
-            <p>Edit, convert, sign and organize PDFs without leaving Nexus.</p>
+            <p>Edit, convert and organize PDFs without leaving Nexus.</p>
           </div>
         </header>
       )}

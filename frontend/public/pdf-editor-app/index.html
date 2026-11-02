@@ -183,7 +183,7 @@
                 <span>Compare</span>
             </button>
             <!-- Sanitize -->
-            <button id="sanitizeBtn" class="tool-btn" title="Remove embedded JavaScript & attachments" disabled>
+            <button id="sanitizeBtn" class="tool-btn" title="Removes attachments, scripts and link actions" disabled>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
                 <span>Sanitize</span>
             </button>
@@ -213,9 +213,9 @@
                 <span>OCR</span>
             </button>
             <!-- Signature -->
-            <button id="signatureBtn" class="tool-btn" title="Add Signature" disabled>
+            <button id="signatureBtn" class="tool-btn" title="Places a picture of a signature, with no identity or audit trail. For a real signature use Nexus Sign." disabled>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c2.5 0 3-6 5-6s1.5 4 3 4 2-8 4-8 1.5 6 3 6"/><path d="M3 21h18"/></svg>
-                <span>Sign</span>
+                <span>Add Signature Image</span>
             </button>
             <!-- Search -->
             <button id="searchToggle" class="tool-btn" title="Search Text (Ctrl+F)" disabled>
@@ -460,6 +460,7 @@
             </div>
 
             <!-- Canvas Scroll Wrapper -->
+            <div class="tool-note" id="toolNote" role="status" style="display:none;"></div>
             <div class="canvas-scroll-wrapper" id="canvasScrollWrapper" style="display:none;">
                 <div class="canvas-wrapper" id="canvasWrapper">
                     <canvas id="pdfCanvas"></canvas>
@@ -557,6 +558,7 @@
                 <label>Page range (e.g. 1-3, 5, 8-10):</label>
                 <input type="text" id="splitRange" placeholder="1-3" class="modal-input">
                 <p class="modal-hint">Total pages: <span id="splitTotal">0</span></p>
+                <p class="modal-hint" id="splitError" role="alert" style="display:none;color:var(--danger);"></p>
             </div>
             <div class="modal-footer">
                 <button id="splitExtract" class="crop-btn apply">Extract & Download</button>
@@ -566,15 +568,16 @@
     </div>
 
     <!-- Signature Modal -->
-    <div class="modal-overlay" id="signatureModal" role="dialog" aria-modal="true" aria-label="Signature" style="display:none;">
+    <div class="modal-overlay" id="signatureModal" role="dialog" aria-modal="true" aria-label="Add Signature Image" style="display:none;">
         <div class="modal signature-modal">
             <div class="modal-header">
-                <span>Add Signature</span>
+                <span>Add Signature Image</span>
                 <button id="signatureClose" class="icon-btn">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
             </div>
             <div class="modal-body">
+                <p class="modal-hint" style="margin:0 0 10px;">This places a picture of a signature, with no identity or audit trail. For a real signature use Nexus Sign.</p>
                 <label>Type your name:</label>
                 <input type="text" id="signatureName" placeholder="Your Name" class="modal-input" maxlength="40" autocomplete="off">
 
@@ -589,7 +592,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button id="signatureInsert" class="crop-btn apply">Insert Signature</button>
+                <button id="signatureInsert" class="crop-btn apply">Insert Image</button>
                 <button id="signatureCancelBtn" class="crop-btn cancel">Cancel</button>
             </div>
         </div>
@@ -614,7 +617,7 @@
     </div>
 
     <!-- Hidden file inputs -->
-    <input type="file" id="fileInput" accept=".pdf" style="display:none">
+    <input type="file" id="fileInput" accept=".pdf,.docx,.png,.jpg,.jpeg,application/pdf" style="display:none">
     <input type="file" id="mergeInput" accept=".pdf" multiple style="display:none">
     <input type="file" id="imageInput" accept="image/*" style="display:none">
 
