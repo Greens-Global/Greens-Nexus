@@ -471,6 +471,20 @@ class FormsTests(unittest.TestCase):
         e = self._submit(tpl["id"], REP, {"d": "2026-11-02", "n": 40000})
         self.assertIsNone(e["answers"]["shifted"])               # over the 36,500-day clamp
 
+    def test_a_location_keeps_when_and_which_site(self):
+        tpl = self._template()
+        spot = {"lat": 33.1, "lng": -117.1, "accuracyM": 8, "siteName": "North Yard", "siteId": SITE_A,
+                "at": "2026-11-02T21:14:00.000Z", "junk": "x"}
+        e = self._submit(tpl["id"], REP, _answers(location=spot), gps=spot)
+        for where in (e["answers"]["location"], e["answers"]["_location"]):
+            self.assertEqual(where["at"], "2026-11-02T21:14:00.000Z")
+            self.assertEqual(where["siteId"], SITE_A)
+            self.assertEqual(where["siteName"], "North Yard")
+            self.assertEqual((where["lat"], where["lng"], where["accuracyM"]), (33.1, -117.1, 8))
+            self.assertNotIn("junk", where)
+        e = self._submit(tpl["id"], REP, _answers(location={"lat": 1, "lng": 2, "at": "yesterday-ish"}))
+        self.assertNotIn("at", e["answers"]["location"])          # not an ISO moment: dropped
+
     def test_a_formula_field_hidden_by_show_if_is_not_worked_out(self):
         fields = [
             {"token": "fuel", "label": "Fuel", "type": "yesno"},

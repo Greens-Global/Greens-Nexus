@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import task_formula
 from task_formula import FormulaError
@@ -227,11 +227,29 @@ def _coerce(d: dict, v):
                     out[k] = n
             if v.get("siteName"):
                 out["siteName"] = str(v["siteName"])[:200]
+            if v.get("siteId"):
+                out["siteId"] = str(v["siteId"])[:80]
+            at = _iso_moment(v.get("at"))
+            if at:
+                out["at"] = at
             return out
         return v
     if isinstance(v, str):
         return v[:MAX_TEXT]
     return v
+
+
+def _iso_moment(v) -> str:
+    """When a location was taken, as the ISO text the browser sent, or ''
+    when it is not an ISO moment."""
+    if not isinstance(v, str) or not v.strip() or len(v) > 40:
+        return ""
+    text = v.strip()
+    try:
+        datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    return text
 
 
 # ── Validate ──────────────────────────────────────────────────────────────
