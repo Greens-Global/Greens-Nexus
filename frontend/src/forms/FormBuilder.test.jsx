@@ -19,6 +19,8 @@ vi.mock('../api', () => ({
     getWorkSites: (...a) => getWorkSites(...a),
   },
 }));
+const confirm = vi.fn();
+vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirm(...a) } }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, myEmail: 'neil@greensglobal.com' }) }));
 
 const FormBuilder = (await import('./FormBuilder')).default;
@@ -37,6 +39,7 @@ beforeEach(() => {
   updateDocTemplate.mockReset().mockImplementation((id, patch) => Promise.resolve({ ...FORM, ...patch }));
   publishDocTemplate.mockReset().mockResolvedValue({ ...FORM, state: 'published', publishedVersion: 1 });
   getWorkSites.mockReset().mockResolvedValue([{ id: 's1', name: 'Austin' }, { id: 's2', name: 'Temecula' }]);
+  confirm.mockReset().mockResolvedValue(false);
 });
 
 const open = () => render(<FormBuilder templateId="f1" onClose={() => {}} toastOk={() => {}} toastErr={() => {}} />);
@@ -146,6 +149,31 @@ describe('Form builder', () => {
     // FillForm is its own sheet, rendered directly in preview mode (no wrapper, no "coming soon").
     expect(await screen.findByTestId('fill-preview')).toHaveTextContent('preview');
     expect(screen.queryByText(/Preview is coming/)).toBeNull();
+  });
+
+  it('Back To Forms leaves at once when nothing changed', async () => {
+    const onClose = vi.fn();
+    render(<FormBuilder templateId="f1" onClose={onClose} toastOk={() => {}} toastErr={() => {}} />);
+    await screen.findByText('Odometer');
+    fireEvent.click(screen.getByRole('button', { name: /Back To Forms/ }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('Back To Forms with unsaved edits asks first, and the browser tab asks too', async () => {
+    const onClose = vi.fn();
+    render(<FormBuilder templateId="f1" onClose={onClose} toastOk={() => {}} toastErr={() => {}} />);
+    await screen.findByText('Odometer');
+    fireEvent.change(screen.getByLabelText('Form name'), { target: { value: 'Truck Check' } });
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /Back To Forms/ }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith('Leave without saving this form?', { confirmText: 'Discard Changes' }));
+    expect(onClose).not.toHaveBeenCalled();
+    confirm.mockResolvedValue(true);
+    fireEvent.click(screen.getByRole('button', { name: /Back To Forms/ }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
   it('refuses a template that is not a form', async () => {

@@ -15,6 +15,7 @@ import { Switch } from '../components/settings/SettingsUI';
 import { StatusWord } from '../components/DocumentSidePanel';
 import { ModalLoading, Spinner } from '../components/AsyncState';
 import { templateStatus } from '../lib/documentLibrary';
+import { dialog } from '../ui/dialog';
 import { AUDIENCES, FORM_CATEGORIES, groupBySection, isForm, sectionsOf, showIfSummary, typeLabel } from './formsModel';
 
 // The real fill screen, loaded when Preview opens. It is its own sheet, so
@@ -68,6 +69,18 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const setDefs = (fn) => setDraft((d) => ({ ...d, fieldDefs: fn(d.fieldDefs) }));
   const sections = useMemo(() => groupBySection(draft?.fieldDefs || []), [draft]);
+  // Unsaved edits are never lost by a stray click: Back To Forms asks, and
+  // closing or reloading the browser tab gets the browser's own question.
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const onUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
+  }, [dirty]);
+  const leave = async () => {
+    if (dirty && !(await dialog.confirm('Leave without saving this form?', { confirmText: 'Discard Changes' }))) return;
+    onClose();
+  };
 
   const save = async () => {
     if (!draft) return null;
@@ -136,7 +149,7 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
   return (
     <div className="nx-form-build" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <button type="button" className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ArrowLeft size={14} /> Back To Forms</button>
+        <button type="button" className="secondary-btn" onClick={leave} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ArrowLeft size={14} /> Back To Forms</button>
         <input className="form-input" aria-label="Form name" value={draft.name} onChange={(e) => set('name', e.target.value)}
           style={{ flex: '1 1 240px', fontSize: 15, fontWeight: 700 }} placeholder="Form name" />
         <StatusWord status={state} />
