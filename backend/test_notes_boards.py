@@ -13,7 +13,8 @@
   - List rows carry kind, thumbUrl and source but never the scene; the single
     GET carries the scene. The words inside text elements are indexed for
     search and the preview.
-  - Versions keep the scene and restore puts it back; GET /collab for a board
+  - Versions keep the scene and restore puts it back; the list carries
+    shapes / words only, GET /versions/{id} one copy in full. GET /collab for a board
     carries the scene so the first editor can seed the live state from it.
   - Notes and the daily scratchpad are unchanged.
 
@@ -251,14 +252,16 @@ class BoardsTest(unittest.TestCase):
         n = self.patch(n, scene=scene("One", "Two")).json()
         vs = self.client.get(f"/notes/{n['id']}/versions").json()
         self.assertEqual(len(vs), 1)
-        self.assertEqual(json.loads(vs[0]["scene"])["elements"][0]["text"], "One")
-        self.assertEqual(vs[0]["words"], 1)
+        self.assertNotIn("scene", vs[0])     # the list is light; one version carries the drawing
+        full = self.client.get(f"/notes/{n['id']}/versions/{vs[0]['id']}").json()
+        self.assertEqual(json.loads(full["scene"])["elements"][0]["text"], "One")
+        self.assertEqual((vs[0]["words"], vs[0]["shapes"]), (1, 1))
         old = (datetime.now(timezone.utc) - timedelta(minutes=11)).isoformat()
         self.db.query(models.NexusNoteVersion).update({"created_at": old})
         self.db.commit()
         n = self.patch(n, scene=scene("Three")).json()
         vs = self.client.get(f"/notes/{n['id']}/versions").json()
-        self.assertEqual([len(json.loads(v["scene"])["elements"]) for v in vs], [2, 1])
+        self.assertEqual([v["shapes"] for v in vs], [2, 1])
         r = self.client.post(f"/notes/{n['id']}/versions/{vs[1]['id']}/restore")
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["preview"], "One")
@@ -296,6 +299,152 @@ class BoardsTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertIn('data-type="taskItem"', r.json()["body"])
         self.assertEqual(r.json()["kind"], "daily")
+
+    # ── review fix pass (11/02/2026) ───────────────────────────────────────
+    def row(self, note_id):
+        r = self.db.query(models.NexusNote).filter_by(id=note_id).first()
+        self.db.refresh(r)
+        return r
+
+    def test_an_empty_body_on_a_board_is_a_no_op(self):
+        n = self.board(scene=scene("One"))
+        r = self.patch(n, body="", scene=scene("One", "Two"))
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["body"], "")
+        self.assertEqual(r.json()["preview"], "One\nTwo")
+        r = self.patch(r.json(), body="")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["rev"], 2)          # nothing said: the rev stays
+        self.assertEqual(self.patch(r.json(), body="<p>words</p>").status_code, 400)
+
+    def test_a_thumbnail_or_a_source_alone_never_moves_the_rev(self):
+        n = self.board(scene=scene("One"))
+        self.client.put(f"/notes/{n['id']}/share", json={"email": BOB, "can": "edit"})
+        n = self.client.get(f"/notes/{n['id']}").json()
+        before = self.row(n["id"])
+        rev, at, by = before.rev, before.updated_at, before.updated_by
+        self.as_(BOB)
+        r = self.patch(n, thumbUrl=OWN)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["rev"], rev)
+        r = self.patch(n, source={"kind": "task", "id": "t1", "label": "Photo", "url": "/tasks?task=t1"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["rev"], rev)
+        after = self.row(n["id"])
+        self.assertEqual((after.rev, after.updated_at, after.updated_by), (rev, at, by))
+        self.assertEqual(after.thumb_url, OWN)
+        # Amy's save from the same rev is not refused for Bob's picture.
+        self.as_(AMY)
+        self.assertEqual(self.patch(n, scene=scene("One", "Two")).status_code, 200)
+
+    def test_moving_the_view_is_stored_but_is_never_content(self):
+        n = self.board(scene=scene("One"))
+        self.db.query(models.NexusNote).update({"ydoc": "AAEC", "yepoch": "epoch-000001"})
+        self.db.commit()
+        self.client.put(f"/notes/{n['id']}/share", json={"email": BOB, "can": "edit"})
+        n = self.client.get(f"/notes/{n['id']}").json()
+        rev = n["rev"]
+        self.as_(BOB)
+        moved = json.loads(scene("One"))
+        moved["appState"].update({"scrollX": 400, "scrollY": -120, "zoom": {"value": 2}})
+        r = self.patch(n, scene=json.dumps(moved))
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["rev"], rev)
+        self.assertEqual(json.loads(r.json()["scene"])["appState"]["scrollX"], 400)   # still stored
+        row = self.row(n["id"])
+        self.assertEqual((row.ydoc, row.yepoch), ("AAEC", "epoch-000001"))     # live state kept
+        self.assertEqual(self.db.query(models.NexusNoteVersion).count(), 0)    # no snapshot
+        self.as_(AMY)
+        self.assertFalse(self.client.get("/notes").json()["notes"][0]["unseen"])   # no Updated dot
+        # A new shape, a new picture or a new look is content.
+        self.as_(BOB)
+        n = r.json()
+        n = self.patch(n, scene=scene("One", "Two")).json()
+        self.assertEqual(n["rev"], rev + 1)
+        pic = json.loads(n["scene"])
+        pic["files"] = {"f1": {"id": "f1", "mimeType": "image/png", "url": OWN, "created": 1}}
+        n2 = self.patch(n, scene=json.dumps(pic)).json()
+        self.assertEqual(n2["rev"], rev + 2)
+        pic["look"] = "sketch"
+        self.assertEqual(self.patch(n2, scene=json.dumps(pic)).json()["rev"], rev + 3)
+        self.as_(AMY)
+        self.assertTrue(self.client.get("/notes").json()["notes"][0]["unseen"])
+
+    def test_a_source_link_is_a_nexus_page_never_another_site(self):
+        ok = ("/tickets?ticket=tk_1", "/tasks/t1", "/notes", "/dashboard#notes", "/support?x=1")
+        bad = ("//evil.com", "//evil.com/x", "/\\evil.com", "/%2F%2Fevil.com", "/tickets/%2f%2fevil.com",
+               "/tickets%5Cx", "/elsewhere", "/ticketsx", "https://evil.com/")
+        for url in ok:
+            r = self.client.post("/notes", json={"kind": "board", "source": {"kind": "task", "id": "1", "label": "x", "url": url}})
+            self.assertEqual(r.status_code, 201, url)
+        for url in bad:
+            r = self.client.post("/notes", json={"kind": "board", "source": {"kind": "task", "id": "1", "label": "x", "url": url}})
+            self.assertEqual(r.status_code, 400, url)
+
+    def test_a_kept_version_list_carries_counts_and_one_version_carries_the_scene(self):
+        n = self.board(scene=scene("One", "Two"))
+        n = self.patch(n, scene=scene("Three")).json()
+        vs = self.client.get(f"/notes/{n['id']}/versions").json()
+        self.assertEqual(len(vs), 1)
+        self.assertNotIn("scene", vs[0])
+        self.assertEqual((vs[0]["shapes"], vs[0]["words"]), (2, 2))
+        r = self.client.get(f"/notes/{n['id']}/versions/{vs[0]['id']}")
+        self.assertEqual(r.status_code, 200, r.text)
+        one = r.json()
+        self.assertEqual(one["id"], vs[0]["id"])
+        self.assertEqual(one["shapes"], 2)
+        self.assertEqual([e["text"] for e in json.loads(one["scene"])["elements"]], ["One", "Two"])
+        self.assertEqual(self.client.get(f"/notes/{n['id']}/versions/nv_missing").status_code, 404)
+        # The list's access rule: a Can View share reads it, a stranger gets 404.
+        self.client.put(f"/notes/{n['id']}/share", json={"email": CAT, "can": "read"})
+        self.as_(CAT)
+        self.assertEqual(self.client.get(f"/notes/{n['id']}/versions/{vs[0]['id']}").status_code, 200)
+        self.as_("stranger@greensglobal.com")
+        self.assertEqual(self.client.get(f"/notes/{n['id']}/versions/{vs[0]['id']}").status_code, 404)
+        # A version of another note is not found through this one.
+        self.as_(AMY)
+        other = self.board(scene=scene("X"))
+        self.assertEqual(self.client.get(f"/notes/{other['id']}/versions/{vs[0]['id']}").status_code, 404)
+        # A plain note's version carries no board fields.
+        p = self.client.post("/notes", json={"title": "Plan", "body": "<p>Hello</p>", "day": TODAY}).json()
+        self.patch(p, body="<p>Hello again</p>")
+        pv = self.client.get(f"/notes/{p['id']}/versions").json()[0]
+        self.assertNotIn("shapes", pv)
+        self.assertNotIn("scene", self.client.get(f"/notes/{p['id']}/versions/{pv['id']}").json())
+
+    def test_an_empty_scene_resets_the_board(self):
+        n = self.board(scene=scene("One", look="sketch"))
+        r = self.patch(n, scene="")
+        self.assertEqual(r.status_code, 200, r.text)
+        s = json.loads(r.json()["scene"])
+        self.assertEqual((s["type"], s["elements"], s["look"]), ("nexus-board", [], "clean"))
+        self.assertEqual(r.json()["preview"], "")
+
+    def test_a_thumbnail_is_a_board_s_alone(self):
+        p = self.client.post("/notes", json={"title": "Plan", "body": "<p>Hello</p>", "day": TODAY}).json()
+        r = self.patch(p, thumbUrl=OWN)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("board", r.json()["detail"].lower())
+
+    def test_a_picture_stored_inline_is_refused(self):
+        n = self.board(scene=scene("One"))
+        for f in ({"id": "f1", "mimeType": "image/png", "url": "data:image/png;base64,AAAA"},
+                  {"id": "f1", "mimeType": "image/png", "url": " DATA:image/png;base64,AAAA"},
+                  {"id": "f1", "mimeType": "image/png", "url": OWN, "dataURL": "data:image/png;base64,AAAA"}):
+            raw = scene("One", extra={"files": {"f1": f}})
+            r = self.patch(n, scene=raw)
+            self.assertEqual(r.status_code, 400, f)
+            self.assertEqual(r.json()["detail"], "Pictures on a board must be stored files")
+            self.assertEqual(self.client.post("/notes", json={"kind": "board", "scene": raw}).status_code, 400)
+        ok = self.patch(n, scene=scene("One", extra={"files": {"f1": {"id": "f1", "mimeType": "image/png", "url": OWN}}}))
+        self.assertEqual(ok.status_code, 200, ok.text)
+
+    def test_the_scene_is_parsed_once_per_save(self):
+        n = self.board(scene=scene("One"))
+        real = notes._parse_scene
+        with mock.patch.object(notes, "_parse_scene", side_effect=real) as spy:
+            self.assertEqual(self.patch(n, scene=scene("One", "Two")).status_code, 200)
+        self.assertEqual(spy.call_count, 1)
 
 
 if __name__ == "__main__":

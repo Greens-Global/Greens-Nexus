@@ -58,6 +58,16 @@ class BoardEmbedSanitizerTest(unittest.TestCase):
         self.assertNotIn("data-type", out)
         self.assertIn('href="https://nexus.example/x"', out)
 
+    def test_a_board_embed_never_carries_a_link(self):
+        # A Can Edit collaborator could plant an href on a card styled as a board.
+        out = sanitize_note(EMBED.replace("<a ", '<a href="https://evil.example/phish" '))
+        self.assertIn('data-type="boardEmbed"', out)
+        self.assertIn('data-note="note_abc123"', out)
+        self.assertNotIn("href", out)
+        self.assertNotIn("evil.example", out)
+        # An ordinary link keeps its href.
+        self.assertIn('href="https://nexus.example/x"', sanitize_note('<p><a href="https://nexus.example/x">x</a></p>'))
+
 
 if __name__ == "__main__":
     unittest.main()
