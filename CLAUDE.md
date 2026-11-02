@@ -329,6 +329,29 @@ keep the diff minimal.
   Previous / Next step the queue) is a per-person layout stored with the
   list's columns (`useTableValue('tickets-v3', 'layout')`), desktop List
   view only; phones, the Board, Reports and Support keep the popup drawer.
+- **Boards are notes** (Neil, 11/02/2026): a whiteboard is a `nexus_notes`
+  row with `kind='board'`, its drawing JSON in `scene` (2 MB cap, type
+  `nexus-board`, never through the HTML sanitizer), a PNG `thumb_url`, and an
+  optional `source` (the task / ticket / walkthrough / file it marks up).
+  Images are files in the private `task-files` bucket under
+  `notes/boards/<noteId>/`, never data URLs in the scene. The engine is the
+  self-hosted Excalidraw package in `frontend/src/notes/board/Board.jsx`,
+  lazy in the one `vendor-excalidraw` chunk (the single bundle-budget
+  exception, `scripts/check-bundle-size.mjs`); its fonts are copied by
+  `scripts/copy-excalidraw-assets.mjs` on build, English only, nothing from a
+  CDN (the CSP is self only). Clean look by default, Sketch per board
+  (`scene.js` `applyLook`). Live drawing rides the Notes encrypted transport
+  (`notes/collabTransport.js`; elements in `Y.Map('elements')`, our
+  `boardSync.reconcile` = newest version wins); viewers follow saves because
+  `GET /collab` is editors only. "Mark Up" on any image or PDF goes through
+  `lib/markup.js` (`openMarkup` -> a new board with the picture placed and
+  `source` set; "Attach to <source>" posts a PNG back through the existing
+  task / ticket attachment calls). A board in a note is the `boardEmbed`
+  node (anchor with `data-type="boardEmbed"`, allowed by `_NoteSanitizer`).
+  Never add a second drawing engine, a second markup path, or a Whiteboards
+  module - boards live in Notes. jsdom cannot load the engine: tests get the
+  global mock in `frontend/vitest.setup.js`. Users never see the word
+  Excalidraw.
 - Timesheets are approved through review + Nexus Sign (`timesheet_review.py`;
   ONLY THE EMPLOYEE SIGNS - Neil, Oct 16 2026). After the period's last day
   the manager (else the company's HR contact; nobody at all = the Global
