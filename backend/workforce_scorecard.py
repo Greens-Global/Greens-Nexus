@@ -218,22 +218,28 @@ def validate(patch: dict) -> dict:
 
 
 def save_settings(db: Session, patch: dict, actor_email: str) -> dict:
-    merged = get_settings(db)
+    """Merge a PATCH into what is stored now, under the row lock
+    (scoped_settings.merge_save) - two saves at once keep both changes."""
+    import scoped_settings
     patch = dict(patch)
-    if "standards" in patch:
-        # The patch is the whole map, but the built-in rows (US, IN, default)
-        # always exist - an admin changes them, never loses them.
-        merged["standards"] = {**json.loads(json.dumps(_DEFAULT_SETTINGS["standards"])), **patch.pop("standards")}
-    merged.update(patch)
-    if "onTrackPct" in merged and "belowPct" in merged and merged["belowPct"] >= merged["onTrackPct"]:
-        raise ValueError("The Below Expected threshold must be lower than the On Track threshold.")
-    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
-    if not row:
-        row = models.NexusSetting(key=_SETTINGS_KEY)
-        db.add(row)
-    row.value = json.dumps(merged)
-    row.updated_by = actor_email
-    row.updated_at = datetime.now(timezone.utc).isoformat()
+    standards = patch.pop("standards", None)
+
+    def build(stored: dict) -> dict:
+        merged = json.loads(json.dumps(_DEFAULT_SETTINGS))
+        stored = dict(stored)
+        std = stored.pop("standards", None)
+        merged.update(stored)
+        if isinstance(std, dict):
+            merged["standards"].update({k: v for k, v in std.items() if isinstance(v, dict)})
+        if standards is not None:
+            # The patch is the whole map, but the built-in rows (US, IN, default)
+            # always exist - an admin changes them, never loses them.
+            merged["standards"] = {**json.loads(json.dumps(_DEFAULT_SETTINGS["standards"])), **standards}
+        merged.update(patch)
+        if "onTrackPct" in merged and "belowPct" in merged and merged["belowPct"] >= merged["onTrackPct"]:
+            raise ValueError("The Below Expected threshold must be lower than the On Track threshold.")
+        return merged
+    merged = scoped_settings.merge_save(db, _SETTINGS_KEY, build, actor_email)
     db.commit()
     return merged
 

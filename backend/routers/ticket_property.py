@@ -63,6 +63,10 @@ def put_rules(body: dict, user: dict = Depends(get_current_user), db: Session = 
     from auth import _LEVELS
     if not (user.get("level", 0) >= _LEVELS["administrator"] or ticket_roles.can_manage_desk(user, db)):
         raise HTTPException(403, "Only a ticket supervisor or an administrator can change this.")
+    # One set of rules every company shares (Neil, 11/02/2026): a Super
+    # Administrator's alone - desk supervisors and Administrators read them.
+    import settings_walls
+    settings_walls.require_super_admin_for_org(db, user, "Changing the property rules")
     return L.save_rules(db, body, user.get("email") or "")
 
 

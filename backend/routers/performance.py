@@ -1053,7 +1053,24 @@ def save_settings(body: SettingsIn, user: dict = Depends(get_current_user), db: 
     if body.reset and cid:
         scoped_settings.reset(db, perf.SETTINGS_KEY, cid)
     else:
-        merged = {**perf.settings_for_company(db, cid), **(body.settings or {})}
-        scoped_settings.save(db, perf.SETTINGS_KEY, cid, perf.clean_settings(merged), me)
+        # Merged into what is stored now, under the row lock; a company keeps
+        # only what DIFFERS from the default for every company (11/02/2026),
+        # so a later change to the default still reaches it.
+        key = scoped_settings.key_for(perf.SETTINGS_KEY, cid)
+        scoped_settings.lock_row(db, key)
+        inherited = perf.settings_for_company(db, "") if cid else None
+        sent = {k: v for k, v in perf.clean_settings({**perf.settings_for_company(db, cid), **(body.settings or {})}).items()
+                if k in (body.settings or {})}
+
+        def build(stored: dict) -> dict:
+            own = {k: v for k, v in stored.items() if k in perf.DEFAULTS}
+            own.update(sent)
+            if inherited is None:
+                return perf.clean_settings(own)
+            return scoped_settings.sparse(own, inherited)
+        if inherited is not None and not build(scoped_settings.saved(db, perf.SETTINGS_KEY, cid, perf.DEFAULTS)):
+            scoped_settings.reset(db, perf.SETTINGS_KEY, cid)
+        else:
+            scoped_settings.merge_save(db, key, build, me)
     db.commit()
     return _settings_payload(db, user, cid)

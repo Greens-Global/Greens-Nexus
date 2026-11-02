@@ -252,7 +252,7 @@ def get_settings(company_id: str = "", user: dict = Depends(require_hr_read), db
 
 class SettingsIn(BaseModel):
     types:        Optional[dict] = None     # {key: {on, templateId}}
-    letterhead_id: Optional[str] = ""
+    letterhead_id: Optional[str] = None     # left out = keep (or inherit) the letterhead
     reset:        Optional[bool] = False     # a company: back to the default for every company
 
 
@@ -267,7 +267,11 @@ def put_settings(body: SettingsIn, company_id: str = "", user: dict = Depends(re
             sc.reset(db, hl.SETTINGS_BASE, company_id)
             db.commit()
         return _settings_out(db, company_id)
-    cfg = {**(body.types or {}), "letterheadId": body.letterhead_id or ""}
+    # Only what was sent (11/02/2026): a type or the letterhead left out keeps
+    # what is stored - or, for a company, follows the organization's.
+    cfg = dict(body.types or {})
+    if body.letterhead_id is not None:
+        cfg["letterheadId"] = body.letterhead_id
     try:
         hl.save_settings(db, company_id, cfg, user["email"])
     except hl.LetterError as e:

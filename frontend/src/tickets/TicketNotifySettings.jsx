@@ -75,7 +75,11 @@ function Field({ label, hint, children }) {
 }
 
 export default function TicketNotifySettings() {
-  const { myLevel } = useRole();
+  const { myLevel, isGlobalAdmin } = useRole();
+  // The sending mailbox, Default CC and reply-to apply to every company
+  // (Neil, 11/02/2026): a Super Administrator's to change - the server
+  // refuses a change from anyone else.
+  const locked = !isGlobalAdmin;
   const [tab, setTab] = useState('settings');   // settings | log | inbound
   const [cfg, setCfg] = useState(null);          // what the server holds
   const [saving, setSaving] = useState(false);
@@ -96,7 +100,8 @@ export default function TicketNotifySettings() {
     // Only what changed: agentEmails (the Routing tab's) and every switch stay
     // as the server has them.
     const body = {};
-    for (const k of TYPED) if (draft[k] !== savedTyped[k]) body[k] = wire(k, draft[k]);
+    // The mail plumbing is a Super Administrator's alone (11/02/2026): never sent by anyone else.
+    for (const k of TYPED) if (draft[k] !== savedTyped[k] && !(locked && ['fromMailbox', 'defaultCc', 'replyTo'].includes(k))) body[k] = wire(k, draft[k]);
     setSaving(true); setErr('');
     try {
       setCfg(await api.updateTicketNotifySettings(body));
@@ -169,8 +174,13 @@ export default function TicketNotifySettings() {
               controls, not one flow that reads top-to-bottom. */}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 480px) minmax(320px, 420px)', gap: 16, alignItems: 'start' }}>
             <div style={{ ...card, padding: 18 }}>
+              {locked && (
+                <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 12 }}>
+                  The sending mailbox, Default CC and reply-to address apply to every company - only a Super Administrator can change them.
+                </div>
+              )}
               <Field label="Shared Mailbox (Sender)" hint="Leave blank to send from the default Nexus mailbox.">
-                <input value={draft.fromMailbox} onChange={(e) => set('fromMailbox', e.target.value)}
+                <input value={draft.fromMailbox} onChange={(e) => set('fromMailbox', e.target.value)} readOnly={locked}
                   placeholder="support@companydomain.com" style={inputStyle} />
               </Field>
               <Field label="Ticket Administrator" hint="Last resort, emailed only when no agent is available to notify.">
@@ -178,10 +188,10 @@ export default function TicketNotifySettings() {
                   placeholder="ticket-admin@companydomain.com" style={inputStyle} />
               </Field>
               <Field label="Default CC" hint="Comma-separated. Applied to every ticket notification.">
-                <input value={draft.defaultCc} onChange={(e) => set('defaultCc', e.target.value)} placeholder="ops@companydomain.com, qa@companydomain.com" style={inputStyle} />
+                <input value={draft.defaultCc} onChange={(e) => set('defaultCc', e.target.value)} readOnly={locked} placeholder="ops@companydomain.com, qa@companydomain.com" style={inputStyle} />
               </Field>
               <Field label="Reply-To Address" hint={cfg.inboundEnabled ? 'While Email to Ticket is on, ticket emails reply to the support mailbox below instead.' : undefined}>
-                <input value={draft.replyTo} onChange={(e) => set('replyTo', e.target.value)} placeholder="support@companydomain.com" style={inputStyle} />
+                <input value={draft.replyTo} onChange={(e) => set('replyTo', e.target.value)} readOnly={locked} placeholder="support@companydomain.com" style={inputStyle} />
               </Field>
               <Field label="Company Logo URL" hint="Shown in the email header. Blank uses the default Nexus branding.">
                 <input value={draft.logoUrl} onChange={(e) => set('logoUrl', e.target.value)} placeholder="https://…/logo.png" style={inputStyle} />

@@ -80,29 +80,53 @@ def save(db, company_id: str, cfg: dict, actor: str, *, secrets: dict | None = N
     """Store the organization row (company '') or a company's override;
     `secrets` is {host: plaintext} for the secrets typed now - stored
     encrypted alongside the ones already kept (a blank drops that host's).
-    The caller commits."""
+    The caller commits.
+
+    11/02/2026: every save merges into what is stored NOW, under the row
+    lock (scoped_settings.merge_save), and the organization form never
+    carries the pause-all switch - only pause_all moves it, so a form opened
+    before a pause can never resume everything. A company's override keeps
+    only the keys that DIFFER from the organization's value, so a later
+    change there still reaches it (an empty one is removed)."""
+    key = scoped_settings.key_for(BASE, company_id)
     if company_id:
+        sent = {k: v for k, v in (cfg or {}).items() if k in COMPANY_KEYS}
+        scoped_settings.lock_row(db, key)
+        org = get(db, "")
         current = scoped_settings.saved(db, BASE, company_id, COMPANY_KEYS)
-        new = _clean({k: v for k, v in (cfg or {}).items() if k in COMPANY_KEYS}, current)
-        new = {k: v for k, v in new.items() if k in COMPANY_KEYS}
-        scoped_settings.save(db, BASE, company_id, new, actor)
-        return new
-    current = scoped_settings.saved(db, BASE, "", DEFAULTS)
-    new = _clean(cfg or {}, {**DEFAULTS, **current})
-    kept = dict(current.get("webhookSecrets") or {})
+        new = _clean(sent, current)
+        new = scoped_settings.sparse({k: v for k, v in new.items() if k in COMPANY_KEYS},
+                                     {k: org.get(k) for k in COMPANY_KEYS})
+        if not new:
+            reset(db, company_id)
+            return new
+
+        def build_company(stored: dict) -> dict:
+            mine = _clean(sent, {k: v for k, v in stored.items() if k in COMPANY_KEYS})
+            return scoped_settings.sparse({k: v for k, v in mine.items() if k in COMPANY_KEYS},
+                                          {k: org.get(k) for k in COMPANY_KEYS})
+        return scoped_settings.merge_save(db, key, build_company, actor)
+    sent = {k: v for k, v in (cfg or {}).items() if k not in ("pausedAll", "pausedBy", "pausedAt")}
+    encrypted = {}
     if secrets:
         import secret_box
         for host, plain in secrets.items():
             h = str(host or "").strip().lower()
-            if not h:
-                continue
-            if plain in (None, ""):
+            if h:
+                encrypted[h] = None if plain in (None, "") else secret_box.encrypt(str(plain))
+
+    def build_org(stored: dict) -> dict:
+        current = {k: v for k, v in stored.items() if k in DEFAULTS}
+        new = _clean(sent, {**DEFAULTS, **current})
+        kept = dict(current.get("webhookSecrets") or {})
+        for h, enc in encrypted.items():
+            if enc is None:
                 kept.pop(h, None)
             else:
-                kept[h] = secret_box.encrypt(str(plain))
-    new["webhookSecrets"] = {h: v for h, v in kept.items() if h in new["webhookHosts"]}
-    scoped_settings.save(db, BASE, "", new, actor)
-    return new
+                kept[h] = enc
+        new["webhookSecrets"] = {h: v for h, v in kept.items() if h in new["webhookHosts"]}
+        return new
+    return scoped_settings.merge_save(db, key, build_org, actor)
 
 
 def reset(db, company_id: str) -> bool:
@@ -110,13 +134,16 @@ def reset(db, company_id: str) -> bool:
 
 
 def pause_all(db, paused: bool, actor: str) -> dict:
-    current = scoped_settings.saved(db, BASE, "", DEFAULTS)
-    new = {**DEFAULTS, **current}
-    new["pausedAll"] = bool(paused)
-    new["pausedBy"] = (actor or "").lower() if paused else ""
-    new["pausedAt"] = _now() if paused else ""
-    scoped_settings.save(db, BASE, "", new, actor)
-    return new
+    """Pause or resume every workflow - merged into the organization row as
+    stored now, under the row lock (a settings save at the same moment keeps
+    its keys, and this keeps its switch)."""
+    def build(stored: dict) -> dict:
+        new = {**DEFAULTS, **{k: v for k, v in stored.items() if k in DEFAULTS}}
+        new["pausedAll"] = bool(paused)
+        new["pausedBy"] = (actor or "").lower() if paused else ""
+        new["pausedAt"] = _now() if paused else ""
+        return new
+    return scoped_settings.merge_save(db, BASE, build, actor)
 
 
 class SecretUnreadable(RuntimeError):

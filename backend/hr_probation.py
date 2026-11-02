@@ -288,9 +288,21 @@ def save_settings(db: Session, company_id: str, cfg: dict, actor: str, reset: bo
         if lid and not db.query(DocLetterhead.id).filter(DocLetterhead.id == lid).first():
             raise ProbationError("That letterhead is not in Documents any more - pick another.")
         clean["letterheadId"] = lid
-    base = scoped_settings.saved(db, SETTING_KEY, company_id, DEFAULTS)
-    base.update(clean)
-    scoped_settings.save(db, SETTING_KEY, company_id, base, actor)
+    # Merged into what is stored now, under the row lock; a company keeps
+    # only what DIFFERS from the organization's value (11/02/2026), so a later
+    # change there still reaches it - a form sent back whole pins nothing.
+    inherited = settings(db, "") if company_id else None
+
+    def build(stored: dict) -> dict:
+        base = {k: v for k, v in stored.items() if k in DEFAULTS}
+        base.update(clean)
+        return scoped_settings.sparse(base, inherited) if inherited is not None else base
+    key = scoped_settings.key_for(SETTING_KEY, company_id)
+    scoped_settings.lock_row(db, key)
+    if inherited is not None and not build(scoped_settings.saved(db, SETTING_KEY, company_id, DEFAULTS)):
+        scoped_settings.reset(db, SETTING_KEY, company_id)
+    else:
+        scoped_settings.merge_save(db, key, build, actor)
     db.commit()
     return settings(db, company_id)
 

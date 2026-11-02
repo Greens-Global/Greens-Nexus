@@ -10,6 +10,7 @@ import { formatDate, formatDateTime } from '../lib/datetime';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { Spinner } from './AsyncState';
+import { useRole } from '../contexts/RoleContext';
 
 // AI-assisted interviews: Teams invite → live questionnaire → transcript
 // auto-fill → calibrated scores → role leaderboard → final-round invite.
@@ -132,6 +133,10 @@ export const GROUPS = [['character', 'Character', 'Who they are - honesty, attit
 const byGroup = (questions) => Object.fromEntries(GROUPS.map(([g]) => [g, (questions || []).filter(q => (q.group || 'competence') === g).map(q => q.q).join('\n')]));
 
 export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
+  // One library every company shares (Neil, 11/02/2026): a Super
+  // Administrator's to change - everyone else reads it.
+  const { isGlobalAdmin } = useRole() || {};
+  const locked = !isGlobalAdmin;
   const [tpls, setTpls] = useState(null);
   const [editing, setEditing] = useState(null);   // {id?, name, text, roleIds, isGeneral}
   const [busy, setBusy] = useState(false);
@@ -216,20 +221,24 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
                       {(t.roleIds || []).length ? (t.roleIds || []).map(roleName).join(', ') : t.isGeneral ? '' : 'Not linked to a role yet'}
                     </div>
                   </div>
-                  <button className="secondary-btn" style={{ fontSize: 12, padding: '4px 12px' }}
-                    onClick={() => setEditing({ id: t.id, name: t.name, text: byGroup(t.questions), roleIds: t.roleIds || [], isGeneral: !!t.isGeneral })}>Edit</button>
-                  <button onClick={async () => {
+                  {!locked && <button className="secondary-btn" style={{ fontSize: 12, padding: '4px 12px' }}
+                    onClick={() => setEditing({ id: t.id, name: t.name, text: byGroup(t.questions), roleIds: t.roleIds || [], isGeneral: !!t.isGeneral })}>Edit</button>}
+                  {!locked && <button onClick={async () => {
                       if (!await dialog.confirm(`Delete "${t.name}"?`, { title: 'Delete template', confirmText: 'Delete', danger: true })) return;
                       try { await api.ivTemplateDelete(t.id); setTpls(ts => ts.filter(x => x.id !== t.id)); toastOk?.('Template deleted.'); }
                       catch (e) { toastErr?.(e?.message || 'Could not delete the template.'); }
                     }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 }}><Trash2 size={14} /></button>
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 }}><Trash2 size={14} /></button>}
                 </div>
               ))}
-            <button className="primary-btn" style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
-              onClick={() => setEditing({ name: '', text: {}, roleIds: [], isGeneral: false })}>
-              <Plus size={14} /> New Questionnaire
-            </button>
+            {locked
+              ? <div style={{ marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>Only a Super Administrator can change this.</div>
+              : (
+                <button className="primary-btn" style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
+                  onClick={() => setEditing({ name: '', text: {}, roleIds: [], isGeneral: false })}>
+                  <Plus size={14} /> New Questionnaire
+                </button>
+              )}
           </>
         )}
       </div>

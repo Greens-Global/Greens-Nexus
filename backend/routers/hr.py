@@ -2983,9 +2983,12 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
     # (company=='') employee on that domain into this company - a re-tag escape
     # that would pull people the scoped admin must not see into their scope. Only
     # a company-wide admin may touch domains, and only their edits run the
-    # domain-based auto-assignment.
+    # domain-based auto-assignment. The form may send its copy back: only a
+    # CHANGE is refused (11/02/2026), and the unchanged value is not re-saved.
     if scope is not None and body.domains is not None:
-        raise HTTPException(403, "Only a company-wide admin can change a company's email domains")
+        if set(_norm_domains(body.domains).split(",")) - {""} != set(_norm_domains(row.domains or "").split(",")) - {""}:
+            raise HTTPException(403, "Only a company-wide admin can change a company's email domains")
+        body.domains = None
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
     if body.signature_template is not None:
@@ -3233,10 +3236,20 @@ class SenderOverridesIn(BaseModel):
     overrides: list
 
 
+def _sender_overrides_wide(db: Session, user: dict) -> bool:
+    """May this caller read and change the sender overrides - company-wide
+    People access (no company wall, no company-limited or team People grant)?"""
+    from auth import company_scope
+    return company_scope(user, db) is None and hr_scope(user, db) is None
+
+
 @router.get("/signature-sender-overrides")
 def get_signature_sender_overrides(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     from routers.myhr import get_sender_overrides, _render_override_signature, SIGNATURE_TEMPLATES
-    overrides = get_sender_overrides(db)
+    # The overrides apply in every company and name addresses from any of
+    # them (11/02/2026): a caller whose People reach is walled or limited
+    # to some companies sees none; only a Super Administrator changes them.
+    overrides = get_sender_overrides(db) if _sender_overrides_wide(db, user) else []
     return {
         "templates": [{"id": tid, "label": label} for tid, (label, _) in SIGNATURE_TEMPLATES.items()],
         # previewHtml is the SAVED state, re-rendered on every load - not live
@@ -3250,6 +3263,10 @@ def get_signature_sender_overrides(user: dict = Depends(require_hr_read), db: Se
 def save_signature_sender_overrides(body: SenderOverridesIn,
                                     user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     from routers.myhr import SIGNATURE_TEMPLATES, _OVERRIDE_FIELD_KEYS, SENDER_OVERRIDES_SETTING_KEY
+    # Every company shares them (Neil, 11/02/2026): a Super Administrator's
+    # to change; company-wide HR reads them (read only on the screen).
+    import settings_walls
+    settings_walls.require_super_admin_for_org(db, user, "Changing the sender template overrides")
     cleaned = []
     for grp in body.overrides:
         if not isinstance(grp, dict):
@@ -3326,6 +3343,8 @@ def upload_sender_override_logo(file: UploadFile = File(...),
     on the section's whole-list Save), so there's no row here to attach the
     URL to; the frontend puts the returned URL straight into the in-progress
     override's fields.logoUrl."""
+    import settings_walls
+    settings_walls.require_super_admin_for_org(db, user, "Uploading a sender override logo")
     ext = _IMAGE_TYPES.get(file.content_type or "")
     if not ext:
         raise HTTPException(400, "Logo must be JPEG, PNG, WebP, or GIF")
