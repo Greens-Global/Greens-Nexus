@@ -367,9 +367,12 @@ keep the diff minimal.
   `lib/teamsLinks.js` and the two buttons are `components/PersonActions.jsx`
   (hidden for externals and yourself). Announcements publish from
   `announcements_publish.py`'s loop (claimed once with a conditional
-  UPDATE), fan out per the post's `notify` (Quiet / Push and Teams / Email),
-  hide scheduled posts from staff, and keep images and files in the private
-  `task-files` bucket under `announcements/<id>/`. The planner's scheduled
+  UPDATE), fan out per the post's `notify` (Bell / Bell and Teams / Bell and
+  Email - the bell is the push in every mode, never a second push), hide
+  scheduled posts from staff, and keep images and files in the private
+  `task-files` bucket (a new post uploads under `announcements/new/`, an
+  edit under `announcements/<id>/`). Existing posts are stamped published by
+  the migration (`notified_at = created_at`) so a release never re-bells them. The planner's scheduled
   labor line is `GET /timeclock/schedule/labor` (hours from
   `shift_attendance._paid_minutes`, rates from the payroll history by day,
   fixed pay counted not priced, managers never see pay).
