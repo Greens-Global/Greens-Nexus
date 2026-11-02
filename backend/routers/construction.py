@@ -264,6 +264,21 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user),
     return project_to_dict(p, with_cost=True)
 
 
+class MapLinkIn(BaseModel):
+    link: str
+
+
+@router.post("/resolve-link")
+def resolve_project_link(body: MapLinkIn, user: dict = Depends(get_current_user)):
+    """A jobsite placed from its Google Maps link (Pranshu, 11/02/2026), the
+    same way as a work site: the exact point the weather is read at, and the
+    address the link names. The work-site reader, behind New Project's gate."""
+    if _level(user) < 3:
+        raise HTTPException(403, "Only a manager can create a construction project.")
+    from routers.hr import MapLinkIn as HrLink, resolve_work_site_link
+    return resolve_work_site_link(HrLink(link=body.link), user)
+
+
 @router.patch("/projects/{project_id}")
 def update_project(project_id: str, body: ProjectBody,
                    user: dict = Depends(get_current_user), db: Session = Depends(get_db)):

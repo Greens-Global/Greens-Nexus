@@ -3444,3 +3444,7 @@ api.mySessions = () => req('/me/sessions');
 api.mySignIns = () => req('/me/sign-ins');
 api.signOutSession = (id) => req(`/me/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
 api.signOutOtherSessions = () => req('/me/sessions/others', { method: 'POST' });
+// A jobsite placed from its Google Maps link (11/02/2026), like a work site:
+// the exact point its weather is read at, and the address the link names.
+api.resolveProjectLink = (link) => req('/construction/resolve-link', { method: 'POST', body: JSON.stringify({ link }) });
+api.resolveJobsiteLink = (link) => req('/timeclock/jobsites/resolve-link', { method: 'POST', body: JSON.stringify({ link }) });

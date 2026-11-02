@@ -10,7 +10,7 @@
 // KPI - somebody eventually puts it in a board deck.
 import { useCallback, useEffect, useState } from 'react';
 import { useRole } from '../contexts/RoleContext';
-import { Folder, MapPin, Users, Calendar, ChevronRight, ArrowLeft, Plus, ClipboardList } from 'lucide-react';
+import { Folder, MapPin, Users, Calendar, ChevronRight, ArrowLeft, Plus, ClipboardList, ExternalLink } from 'lucide-react';
 import { api } from '../api';
 // Shared rather than local copies: AsyncState is the codebase's one loading /
 // error idiom, and a fourth hand-rolled banner is a fourth thing to restyle.
@@ -25,6 +25,9 @@ import ReviewQueue from './ReviewQueue';
 import Registers from './Registers';
 import { SiteWeatherStrip, SiteWeatherCard } from './SiteWeather';
 import { formatDate } from '../lib/datetime';
+import WorkSiteLinkPanel from '../components/WorkSiteLinkPanel';
+import WorkSiteAddressMap from '../components/WorkSiteAddressMap';
+import { googleMapsUrl } from '../lib/addressSearch';
 
 function Stat({ label, value, helper }) {
   return (
@@ -109,25 +112,39 @@ function ProjectDetail({ project, onBack }) {
 }
 
 // ── New project modal ───────────────────────────────────────────────────────
+// The jobsite is placed the way a work site is (Pranshu, 11/02/2026): its
+// Google Maps link gives the exact point - the one the weather is read at -
+// and the address, shown on the map where the pin can be fine-tuned. A typed
+// address with no link is still looked up on the server, less exactly.
+const GEOFENCE_M = 500;   // a new project's default (routers/construction.py)
+
 function NewProjectModal({ onClose, onCreated }) {
   const [form, setForm] = useState({ name: '', address: '', phase: '', general_contractor: '' });
+  const [loc, setLoc] = useState({ lat: '', lng: '', point: null, link: '', manual: false, adjusted: false });
+  const [focus, setFocus] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const hasPoint = loc.lat !== '' && loc.lng !== '';
 
   const save = async (e) => {
     e.preventDefault();
     if (!form.name.trim() || saving) return;
     setSaving(true); setError('');
     try {
-      onCreated(await api.createConstructionProject(form));
+      onCreated(await api.createConstructionProject({ ...form,
+        ...(hasPoint ? { latitude: Number(loc.lat), longitude: Number(loc.lng) } : {}) }));
     } catch (err) {
       setSaving(false);
       setError(err.message || 'Could not create the project.');
     }
   };
 
-  const dirty = !!(form.name.trim() || form.address.trim() || form.phase.trim() || form.general_contractor.trim());
+  const dirty = !!(form.name.trim() || form.address.trim() || form.phase.trim() || form.general_contractor.trim() || hasPoint);
   const guard = useUnsavedGuard(dirty, onClose, form.name.trim() ? () => save({ preventDefault() {} }) : undefined);
+  const status = hasPoint
+    ? `${loc.adjusted ? 'Pin fine-tuned on the map.' : 'Placed from the Google Maps link.'} The weather is read at this exact point.`
+    : form.address.trim() ? 'No exact point yet - Nexus will look this address up for its weather. A Google Maps link is exact.'
+    : 'Not placed yet. Paste the Google Maps link of the jobsite.';
 
   return (
     <div className="modal-overlay" onClick={guard.requestClose}>
@@ -140,23 +157,55 @@ function NewProjectModal({ onClose, onCreated }) {
             A jobsite. You are added as its manager so you can review logs straight away.
           </p>
           {error && <ErrorBanner message={error} onRetry={() => setError('')} />}
-          <label className="form-label">Project Name</label>
-          <input className="form-input" autoFocus value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Valley Center Phase 2" />
-          <label className="form-label" style={{ marginTop: 14 }}>Address</label>
-          <input className="form-input" value={form.address}
-            onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Jobsite address" />
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: 6 }}>Nexus finds the jobsite on the map from this address, for its weather.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
-            <div>
-              <label className="form-label">Phase</label>
-              <input className="form-input" value={form.phase}
-                onChange={(e) => setForm({ ...form, phase: e.target.value })} placeholder="Foundation" />
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            {/* Left: the inputs, in the order they are filled in. */}
+            <div style={{ flex: '1 1 340px', minWidth: 0 }}>
+              <label className="form-label">Project Name</label>
+              <input className="form-input" autoFocus value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Valley Center Phase 2" />
+              <label className="form-label" style={{ marginTop: 14 }}>Google Maps Link</label>
+              <WorkSiteLinkPanel link={loc.link} point={loc.point} resolve={api.resolveProjectLink} what="jobsite"
+                onResolved={({ link, point }) => {
+                  setLoc({ lat: point.lat.toFixed(6), lng: point.lng.toFixed(6), point, link, manual: !point.address, adjusted: false });
+                  setForm((f) => ({ ...f, address: point.address || f.address, name: f.name.trim() ? f.name : (point.placeName || '') }));
+                  setFocus({ lat: point.lat, lng: point.lng, key: Date.now() });
+                }} />
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginTop: 6 }}>
+                <label className="form-label" htmlFor="project-address">Address</label>
+                <button type="button" onClick={() => setLoc((l) => ({ ...l, manual: !l.manual }))}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>
+                  {loc.manual ? 'Done' : 'Enter Manually'}
+                </button>
+              </div>
+              <input id="project-address" className="form-input" value={form.address} readOnly={!loc.manual}
+                onChange={(e) => setForm({ ...form, address: e.target.value })}
+                placeholder={loc.manual ? 'e.g. 25260 N Centre City Pkwy, Escondido, CA 92026' : 'Filled in from the Google Maps link'}
+                style={loc.manual ? undefined : { background: 'var(--mist)' }} />
+              <div data-project-place="" style={{ fontSize: 11.5, marginTop: 6, lineHeight: 1.45, color: hasPoint ? 'hsl(var(--color-green))' : '#b45309' }}>
+                {status}
+                {hasPoint && (
+                  <> <a href={/^https?:/i.test(loc.link) ? loc.link : googleMapsUrl(loc.lat, loc.lng)} target="_blank" rel="noreferrer"
+                    style={{ color: 'var(--wk-brand, #2b45e1)', fontWeight: 600, whiteSpace: 'nowrap' }}>Open in Google Maps <ExternalLink size={10} /></a></>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
+                <div>
+                  <label className="form-label">Phase</label>
+                  <input className="form-input" value={form.phase}
+                    onChange={(e) => setForm({ ...form, phase: e.target.value })} placeholder="Foundation" />
+                </div>
+                <div>
+                  <label className="form-label">General Contractor</label>
+                  <input className="form-input" value={form.general_contractor}
+                    onChange={(e) => setForm({ ...form, general_contractor: e.target.value })} placeholder="Optional" />
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="form-label">General Contractor</label>
-              <input className="form-input" value={form.general_contractor}
-                onChange={(e) => setForm({ ...form, general_contractor: e.target.value })} placeholder="Optional" />
+            {/* Right: the map, satellite by default, the pin draggable once placed. */}
+            <div style={{ flex: '1 1 340px', minWidth: 280 }}>
+              <WorkSiteAddressMap lat={loc.lat} lng={loc.lng} radiusM={GEOFENCE_M} showSearch={false} focus={focus}
+                anchorLabel="the Google Maps point" adjustable={hasPoint}
+                onAdjust={({ lat, lng }) => setLoc((l) => ({ ...l, lat: lat.toFixed(6), lng: lng.toFixed(6), adjusted: true }))} />
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24 }}>

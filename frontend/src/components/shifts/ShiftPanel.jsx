@@ -11,6 +11,7 @@ import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../UnsavedChangesPrompt';
 import { TIMEOFF_LABELS, timeOffLabel } from '../shiftScheduleLib';
 import { Spinner } from '../AsyncState';
+import WorkSiteLinkPanel from '../WorkSiteLinkPanel';
 import { SHIFT_COLORS, DEFAULT_SHIFT_COLOR, alpha, durMin, sameTime, fmtHrs, minutesText, shiftTimeText } from './shiftLib';
 
 const SAME_TIME_MSG = "Start and end can't be the same time.";
@@ -109,21 +110,22 @@ function ColorPick({ value, presetColor, onChange }) {
 // from a name and an address without leaving the schedule. A jobsite with
 // no address on file uses the team site's weather, and says so.
 const NEW_JOBSITE = '__new';
-function JobsitePick({ value, onChange, sites, onAdded, teamSite }) {
+function JobsitePick({ value, onChange, sites, onAdded }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  const [point, setPoint] = useState(null);   // from the pasted Google Maps link
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const picked = sites.find((o) => o.id === value);
   const projects = sites.filter((o) => o.kind === 'project'), places = sites.filter((o) => o.kind !== 'project');
   const label = (o) => `${o.name}${o.located ? '' : ' (no address yet)'}`;
   async function add() {
-    if (!name.trim() || !address.trim()) { setErr('Give the jobsite a name and an address.'); return; }
+    if (!name.trim() || (!point && !address.trim())) { setErr("Give the jobsite a name and paste its Google Maps link."); return; }
     setSaving(true); setErr('');
     try {
-      const row = await api.createJobsite({ name: name.trim(), address: address.trim() });
-      onAdded(row); onChange(row.id); setAdding(false); setName(''); setAddress('');
+      const row = await api.createJobsite({ name: name.trim(), address: address.trim(), ...(point ? { latitude: point.lat, longitude: point.lng } : {}) });
+      onAdded(row); onChange(row.id); setAdding(false); setName(''); setAddress(''); setPoint(null);
     } catch (e) { setErr(e?.message || 'Could not add the jobsite.'); }
     setSaving(false);
   }
@@ -132,9 +134,9 @@ function JobsitePick({ value, onChange, sites, onAdded, teamSite }) {
       <label><div style={LBL}>Jobsite (optional)</div>
         <select className="form-input" aria-label="Jobsite" value={adding ? NEW_JOBSITE : value}
           onChange={(e) => { if (e.target.value === NEW_JOBSITE) setAdding(true); else { setAdding(false); onChange(e.target.value); } }} style={INPUT}>
-          <option value="">{teamSite ? `The team's site (${teamSite})` : "The team's site"}</option>
+          <option value="">None</option>
           {projects.length > 0 && <optgroup label="Construction Projects">{projects.map((o) => <option key={o.id} value={o.id}>{label(o)}</option>)}</optgroup>}
-          {places.length > 0 && <optgroup label="Company Sites">{places.map((o) => <option key={o.id} value={o.id}>{label(o)}</option>)}</optgroup>}
+          {places.length > 0 && <optgroup label="Company Locations">{places.map((o) => <option key={o.id} value={o.id}>{label(o)}</option>)}</optgroup>}
           <option value={NEW_JOBSITE}>+ New Jobsite</option>
         </select>
       </label>
@@ -149,9 +151,11 @@ function JobsitePick({ value, onChange, sites, onAdded, teamSite }) {
       {adding && (
         <div role="group" aria-label="New Jobsite" style={{ marginTop: 8, padding: 10, border: '1px solid var(--line)', borderRadius: 10, display: 'grid', gap: 8 }}>
           <input className="form-input" aria-label="Jobsite name" placeholder="Name, e.g. Fresno Warehouse" maxLength={120} value={name} onChange={(e) => setName(e.target.value)} style={INPUT} />
-          <input className="form-input" aria-label="Jobsite address" placeholder="Street, city, state and ZIP" maxLength={300} value={address} onChange={(e) => setAddress(e.target.value)}
+          <WorkSiteLinkPanel point={point} resolve={api.resolveJobsiteLink} what="jobsite"
+            onResolved={({ point: pt }) => { setPoint(pt); if (pt.address) setAddress(pt.address); if (!name.trim() && pt.placeName) setName(pt.placeName); setErr(''); }} />
+          <input className="form-input" aria-label="Jobsite address" placeholder="Filled in from the Google Maps link, or type it" maxLength={300} value={address} onChange={(e) => setAddress(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} style={INPUT} />
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>It becomes a Construction project, and its address gives the shift its own weather.</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>It becomes a Construction project, and its Google Maps point gives the shift its own weather.</div>
           {err && <div role="alert" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>{err}</div>}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button type="button" className="secondary-btn" onClick={() => { setAdding(false); setErr(''); }} disabled={saving} style={{ fontSize: 12 }}>Cancel</button>
