@@ -154,6 +154,7 @@ _WATCHED = {
     "HrDocument":       (dashboard_insights,),
     "VaultCredential":  (dashboard_insights,),
     "VaultShareRequest": (dashboard_insights,),
+    "DocFormEntry":     (dashboard_insights,),
 }
 
 
