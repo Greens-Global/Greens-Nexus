@@ -521,14 +521,15 @@ class VaultHardeningTests(unittest.TestCase):
         self._arm_walls()
         self.assertEqual([c["name"] for c in self._as(OWNER).get("/credvault/credentials").json()], ["Near"])
         self.assertEqual([c["name"] for c in self._as(FAR).get("/credvault/credentials").json()], ["Far"])
-        self.assertEqual({c["name"] for c in self._as(ADMIN).get("/credvault/credentials").json()}, {"Near", "Far"})
+        # Neil, 11/02/2026: an Administrator is company-walled; only a Super Administrator passes the walls.
+        self.assertEqual({c["name"] for c in self._as(ADMIN).get("/credvault/credentials").json()}, {"Near"})
         self._otp(OWNER)
         self.assertEqual(self._as(OWNER).post(f"/credvault/credentials/{far}/reveal").status_code, 404)
         self.assertEqual(self._as(OWNER).post(f"/credvault/credentials/{near}/reveal").status_code, 200)
         # The log follows the credential: Fay's "Created" row is not Olive's to see.
         self.assertNotIn("Far", [e["cred"] for e in self._logs(OWNER)])
         self.assertIn("Far", [e["cred"] for e in self._logs(FAR)])
-        self.assertIn("Far", [e["cred"] for e in self._logs(ADMIN)])
+        self.assertNotIn("Far", [e["cred"] for e in self._logs(ADMIN)])   # Company A's Administrator
 
     def test_no_grant_no_vault(self):
         self.assertEqual(self._as(NOGRANT).get("/credvault/credentials").status_code, 403)

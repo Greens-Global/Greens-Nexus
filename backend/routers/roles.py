@@ -45,6 +45,15 @@ def _get_role(email: str, db: Session) -> str:
     return row.role if row else "employee"
 
 
+def _job_title(db: Session, email: str) -> str:
+    """The person's job title from People, '' when none."""
+    from sqlalchemy import func
+    from models import NexusEmployee
+    row = (db.query(NexusEmployee.job_title)
+           .filter(func.lower(NexusEmployee.work_email) == (email or "").lower()).first())
+    return (row.job_title or "").strip() if row else ""
+
+
 class RoleAssignment(BaseModel):
     role:         str
     assigned_by:  str   # email of the person making the change
@@ -85,6 +94,7 @@ def get_my_role(
     # that cap here rather than any stray nexus_roles row.
     if user.get("external"):
         return {"email": user["email"], "role": "employee", "is_external": True,
+                "level": 1, "title": _job_title(db, user["email"]),
                 "date_format": _date_format(db, user["email"])}
     # hr_scope: the caller's own company-scoped People access (Neil, Aug 25) -
     # a list of HrEntity ids, or null when unrestricted. The frontend hides
@@ -97,7 +107,12 @@ def get_my_role(
     # widget is placed or offered - rather than after /timeclock/status.
     from routers.timeclock import is_time_tracking_exempt
     scope = hr_scope(user, db)
+    # level / title (Neil, 11/02/2026): the tier as a number for the marks
+    # (TierMark) and the person's job title for the line under their name -
+    # the menus show the title, never the tier word.
     return {"email": user["email"], "role": role, "is_external": False,
+            "level": ROLE_LEVEL.get(role, 1),
+            "title": _job_title(db, user["email"]),
             "hr_scope": sorted(scope) if scope is not None else None,
             "hr_team": is_team_scope(scope),
             "time_tracking_exempt": is_time_tracking_exempt(db, user["email"]),

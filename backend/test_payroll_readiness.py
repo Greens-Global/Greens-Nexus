@@ -146,7 +146,7 @@ class DbCase(unittest.TestCase):
             self.db.add(models.NexusEmployee(id=f"id-{first}", work_email=email, first_name=first, last_name="Pr",
                                              company=company, manager_email=mgr, status="active", country="US",
                                              employment_type="full_time", start_date="2025-01-01"))
-        self.db.add_all([models.NexusRole(email=ADMIN, role="administrator", assigned_by="t"),
+        self.db.add_all([models.NexusRole(email=ADMIN, role="owner", assigned_by="t"),
                          models.NexusRole(email=MGR, role="manager", assigned_by="t")])
         self.db.add_all([models.PayrollRate(employee_email=EMP, pay_type="hourly", hourly_rate=20, overtime_rule="ca"),
                          models.PayrollRate(employee_email=OTHER, pay_type="hourly", hourly_rate=25, overtime_rule="ca"),

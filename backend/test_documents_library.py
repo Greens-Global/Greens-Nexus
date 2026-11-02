@@ -47,7 +47,7 @@ class _Base(unittest.TestCase):
         for m in (models.Document, models.DocumentVersion, models.DocTemplate, models.DocTemplateVersion,
                   models.HrSignRequest, models.HrSignParty, models.NexusEmployee, models.NexusRole, models.HrEntity):
             db.query(m).delete()
-        db.add(models.NexusRole(email=ADMIN, role="administrator"))
+        db.add(models.NexusRole(email=ADMIN, role="owner"))   # Super Administrator (Neil, 11/02/2026)
         db.add(models.HrEntity(id="ent-1", name="Greens Global"))
         db.add(models.NexusEmployee(id="emp-1", first_name="Jordan", last_name="Lee", work_email=OTHER))
         db.commit()

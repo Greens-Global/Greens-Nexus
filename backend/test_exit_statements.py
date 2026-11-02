@@ -29,7 +29,7 @@ import models  # noqa: E402
 from routers import exit_statements as api, hr as hr_router  # noqa: E402
 
 OWNER = {"email": "owner.exit@greensglobal.com", "level": 5}       # sees pay
-ADMIN = {"email": "admin.exit@greensglobal.com", "level": 4}       # People, no pay grant
+ADMIN = {"email": "admin.exit@greensglobal.com", "level": 4}       # People in their company, no pay grant
 MANAGER = {"email": MGR, "level": 3}                               # team view of People
 
 
@@ -45,6 +45,9 @@ class ExitCase(ReviewCase):
         emp.country, emp.employment_type, emp.job_title = "US", "full_time", "Site Lead"
         emp.start_date = (date.today() - timedelta(days=800)).isoformat()
         self.emp_id = emp.id
+        # An Administrator is company-walled (Neil, 11/02/2026): place them in the leaver's company.
+        self.db.add(models.NexusEmployee(id="id-admin-exit", work_email=ADMIN["email"], first_name="Ada",
+                                         last_name="Exit", company=ENTITY, status="active"))
         self.db.add(models.PayrollRate(employee_email=EMP, hourly_rate=20.0, overtime_rule="ca", pay_type="hourly",
                                        currency="USD"))
         self.last_day = self.end

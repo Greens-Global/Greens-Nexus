@@ -32,7 +32,9 @@ def _seed():
     db = database.SessionLocal()
     try:
         if not db.query(models.NexusRole).filter(models.NexusRole.email == ME).first():
-            db.add(models.NexusRole(email=ME, role="administrator", assigned_by="test"))
+            # A Super Administrator: reaches every project and portfolio (Neil,
+            # 11/02/2026: an Administrator is company-walled).
+            db.add(models.NexusRole(email=ME, role="owner", assigned_by="test"))
             db.commit()
     finally:
         db.close()

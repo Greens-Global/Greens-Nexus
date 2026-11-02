@@ -48,7 +48,7 @@ COA, COB = "co-a", "co-b"
 AMGR = {"email": "amgr@greensglobal.com", "level": 3}    # company A manager (not a Global Admin)
 AEMP = {"email": "aemp@greensglobal.com", "level": 1}
 BEMP = {"email": "bemp@greensglobal.com", "level": 1}
-GA = {"email": "ga@greensglobal.com", "level": 4}        # bootstrap Global Admin (no GA group)
+GA = {"email": "ga@greensglobal.com", "level": 5}        # Super Administrator (level 5): passes the walls
 
 _CLEAR = (models.Task, models.TaskProject, models.TaskPortfolio, models.TaskTeam, models.TaskMemberRequest,
           models.TaskAutomationRule, models.TaskAutomationRun, models.TaskTemplate, models.TaskCustomField,
