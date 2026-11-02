@@ -14,6 +14,7 @@ import {
   ChevronLeft, ChevronRight, Search, X, Plus, Upload, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
   Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, Link as LinkIcon, Palette,
   RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote, PenTool, Image as ImageIcon, FileCode2, Copy, FileJson,
+  Paperclip, ExternalLink,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -22,6 +23,8 @@ import { formatDate, formatDateTime } from '../lib/datetime';
 import { Modal, DateField, usePeople, Avatar, useEscapeLayer } from '../tasks/components';
 import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
 import { useScrollLock } from '../lib/useScrollLock';
+import { useBackToClose } from '../lib/useBackToClose';
+import { isAppPath } from '../lib/markup';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { matchPeople } from '../lib/peopleSearch';
 import HoldButton from '../ui/HoldButton';
@@ -37,7 +40,7 @@ import TemplatePicker from './board/TemplatePicker';
 import { templateScene } from './board/templates';
 import { exportPng, exportSvg, copyPng, downloadScene } from './board/exportBoard';
 import { storeTaskFile } from '../tasks/lib';
-import { BOARD_THUMB_FOLDER } from './newBoard';
+import { BOARD_THUMB_FOLDER, NEW_BOARD_SUB } from './newBoard';
 import {
   NOTE_COLORS, colorCss, localDay, monthOf, shiftMonth, monthLabel, dayHeading, groupByDay, noteTitle, isBoard, htmlToText,
   countWords, editedLabel, htmlToMarkdown, markdownToHtml, exportFileName, downloadText, printNote, rememberLastNote, quickNoteKeys,
@@ -59,6 +62,22 @@ const LIST_W_KEY = 'nx-notes-list-width';
 const readNum = (k, d) => { try { const v = Number(window.localStorage.getItem(k)); return v > 0 ? v : d; } catch { return d; } };
 const store = (k, v) => { try { window.localStorage.setItem(k, String(v)); } catch { /* storage unavailable */ } };
 
+// A short fingerprint of a picture's bytes (SHA-256 where WebCrypto is, else
+// the size and a sample), to tell a new thumbnail from the last one.
+async function blobHash(blob) {
+  try {
+    const buf = typeof blob.arrayBuffer === 'function' ? await blob.arrayBuffer() : await new Response(blob).arrayBuffer();
+    if (globalThis.crypto?.subtle) {
+      const d = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', buf));
+      return Array.from(d.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
+    }
+    const u = new Uint8Array(buf);
+    let h = u.length;
+    for (let i = 0; i < u.length; i += Math.max(1, Math.floor(u.length / 4096))) h = (h * 31 + u[i]) >>> 0;
+    return `${u.length}:${h}`;
+  } catch { return ''; }
+}
+
 
 function useToast() {
   const [toast, setToast] = useState(null);
@@ -78,12 +97,13 @@ function useToast() {
   return [show, node];
 }
 
-function StatusLine({ status, note, merged, nameOf }) {
+function StatusLine({ status, note, merged, nameOf, problem = '' }) {
   const [, tick] = useState(0);
   useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 30000); return () => clearInterval(t); }, []);
   if (status === 'saving') return <span className="nt-status"><Loader2 size={13} className="spin" aria-hidden="true" /> Saving…</span>;
   if (status === 'dirty') return <span className="nt-status">Unsaved changes</span>;
-  if (status === 'error') return <span className="nt-status is-bad"><CloudOff size={13} aria-hidden="true" /> Not saved yet - kept on this device, retrying when you type</span>;
+  // `problem`: the server's own words for a save it refused (a 413 / 400 - too large, not a board), else the retry line.
+  if (status === 'error') return <span className="nt-status is-bad"><CloudOff size={13} aria-hidden="true" /> {problem || 'Not saved yet - kept on this device, retrying when you type'}</span>;
   if (status === 'conflict') return <span className="nt-status is-warn">Changed somewhere else</span>;
   if (merged && status === 'saved') return <span className="nt-status"><Check size={13} aria-hidden="true" /> Saved · merged with {nameOf ? nameOf(merged) : merged}'s changes</span>;
   return <span className="nt-status"><Check size={13} aria-hidden="true" /> Saved{note?.updatedAt ? ` · ${editedLabel(note.updatedAt)}` : ''}</span>;
@@ -266,6 +286,7 @@ function ShareDialog({ note, onClose, onChanged }) {
 }
 
 function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
+  const board = isBoard(note);
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
   const [pick, setPick] = useState(null);
@@ -273,7 +294,7 @@ function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
   const [show, setShow] = useState('changes');   // changes | version | now
   // A copy is the note as its author left it; its changes are against the copy before it.
   const shown = useMemo(() => {
-    if (!pick || !rows) return null;
+    if (!pick || !rows || board) return null;
     if (show === 'version') return null;
     const i = rows.findIndex((r) => r.id === pick.id);
     // The note now may be words typed live (never through the server's
@@ -281,7 +302,7 @@ function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
     if (show === 'now') return diffNotes(safeHtml(pick.body), safeHtml(note.body || ''));
     const older = rows[i + 1];
     return older ? diffNotes(older.body, pick.body) : null;
-  }, [pick, rows, show, note.body]);
+  }, [pick, rows, show, note.body, board]);
   useEffect(() => {
     let alive = true;
     api.noteVersions(note.id).then((r) => { if (alive) { setRows(r || []); setPick((r || [])[0] || null); } })
@@ -290,7 +311,16 @@ function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
   }, [note.id]);
   const restore = async () => {
     setBusy(true);
-    try { onRestored(await api.noteRestoreVersion(note.id, pick.id)); onClose(); } catch (e) { setError(e.message || 'Could not restore'); setBusy(false); }
+    try {
+      // A board's list rows carry no drawing (it can be 2 MB): the one
+      // version is read only now, and a copy that is not a board is refused
+      // here so the board keeps its last good scene.
+      if (board) {
+        const full = await api.noteVersionGet(note.id, pick.id);
+        if (full && typeof full.scene === 'string' && full.scene && !parseScene(full.scene)) throw new Error('This version could not be read as a board');
+      }
+      onRestored(await api.noteRestoreVersion(note.id, pick.id)); onClose();
+    } catch (e) { setError(e.message || 'Could not restore'); setBusy(false); }
   };
   return (
     <Modal title="Version History" onClose={onClose}
@@ -309,12 +339,21 @@ function HistoryDialog({ note, canRestore, onClose, onRestored, nameOf }) {
                 <button key={v.id} type="button" role="option" aria-selected={pick?.id === v.id}
                   className={`nt-hist-row${pick?.id === v.id ? ' is-on' : ''}`} onClick={() => setPick(v)}>
                   {formatDateTime(v.createdAt)}
-                  <small>{nameOf ? nameOf(v.savedBy) : v.savedBy} · {v.words} words</small>
+                  <small>{nameOf ? nameOf(v.savedBy) : v.savedBy} · {board
+                    ? `${v.shapes ?? 0} ${v.shapes === 1 ? 'shape' : 'shapes'}`
+                    : `${v.words} words`}</small>
                 </button>
               ))}
             </div>
             <div className="nt-hist-view">
-              {pick && (<>
+              {pick && board && (<>
+                <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{pick.title || noteTitle(note)}</div>
+                <div className="nt-hist-who">
+                  {`Saved by ${nameOf ? nameOf(pick.savedBy) : pick.savedBy} on ${formatDateTime(pick.createdAt)} · ${pick.shapes ?? 0} ${pick.shapes === 1 ? 'shape' : 'shapes'}.`}
+                </div>
+                <div className="nt-empty" style={{ marginTop: 12 }}>A board version keeps the drawing; restore it to see it.</div>
+              </>)}
+              {pick && !board && (<>
                 <div className="nt-qn-switch" role="tablist" aria-label="What to show" style={{ padding: '0 0 0', marginBottom: 10 }}>
                   {[['changes', 'Changes'], ['version', 'This Version'], ['now', 'Compare With Now']].map(([k, label]) => (
                     <button key={k} type="button" role="tab" aria-selected={show === k} className={`nt-view${show === k ? ' is-on' : ''}`} onClick={() => setShow(k)}>{label}</button>
@@ -362,6 +401,19 @@ function PhoneSheet({ title, sub, color, actions, foot, onClose, children }) {
   useEscapeLayer(onClose);
   useDialogFocus(ref);
   useScrollLock(true);
+  // The phone's Back closes the sheet (lib/useBackToClose: the sheet's own
+  // history entry). The sheet is also the address (notes:<id>), so the close
+  // REPLACES that entry with the list's address before the sub changes -
+  // App then has nothing to push, and the next Back leaves Notes instead of
+  // landing on the note again.
+  useBackToClose(true, () => {
+    try {
+      const { pathname, search, hash } = window.location;
+      const list = pathname.replace(/\/notes:[^/]*$/, '/notes');
+      if (list !== pathname) window.history.replaceState(window.history.state, '', `${list}${search}${hash}`);
+    } catch { /* the address stays; onClose still closes */ }
+    onClose();
+  });
   return createPortal(
     <>
       <div className="nt-qn-overlay is-page" onClick={onClose} aria-hidden="true" />
@@ -373,7 +425,7 @@ function PhoneSheet({ title, sub, color, actions, foot, onClose, children }) {
             {sub && <div className="nt-qn-sub">{sub}</div>}
           </div>
           {actions}
-          <button type="button" className="nt-icon-btn" aria-label="Close Note" onClick={onClose}><X size={18} /></button>
+          <button type="button" className="nt-icon-btn" aria-label={`Close ${title}`} onClick={onClose}><X size={18} /></button>
         </div>
         <div className="nt-qn-body">{children}</div>
         {foot && <div className="nt-qn-foot" aria-live="polite">{foot}</div>}
@@ -421,6 +473,10 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   const [boardApi, setBoardApi] = useState(null);
   const [lookPick, setLookPick] = useState(null);
   const thumbBusy = useRef(false);
+  const lastThumb = useRef('');       // the hash of the last thumbnail PNG sent
+  const [attaching, setAttaching] = useState(false);
+  // A board's scene, parsed once per change of it (it can be 2 MB).
+  const scene = useMemo(() => (isBoard(note) ? parseScene(note?.scene) : null), [note?.scene, note?.kind]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (id) rememberLastNote(id); }, [id]);
   useEffect(() => { setMenu(''); }, [id]);
@@ -470,7 +526,6 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   const words = countWords(text);
   const mine = note.mine;
   const board = isBoard(note);
-  const scene = board ? parseScene(note.scene) : null;
   const look = lookPick || scene?.look || 'clean';
   const shapes = scene ? scene.elements.filter((el) => !el.isDeleted).length : 0;
 
@@ -519,13 +574,38 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   // The list row's picture: the engine hands a PNG a few seconds after the
   // last change; it goes to the private task-files bucket under this board
   // and the note keeps the URL (any editor may write it).
+  // Only a picture that differs from the last one sent is uploaded (a pan,
+  // a selection or a remote echo draws the same PNG).
   const onThumb = async (blob) => {
     if (!blob || readOnly || thumbBusy.current) return;
     thumbBusy.current = true;
     try {
+      const hash = await blobHash(blob);
+      if (hash && hash === lastThumb.current) return;
       const url = await storeTaskFile(new File([blob], 'thumb.png', { type: 'image/png' }), undefined, BOARD_THUMB_FOLDER(note.id));
-      if (url) sync.setFields({ thumbUrl: url });
+      if (url) { lastThumb.current = hash; sync.setFields({ thumbUrl: url }); }
     } catch { /* the next change makes another */ } finally { thumbBusy.current = false; }
+  };
+  // Mark Up Anything (11/02/2026): a board made from a task's or a ticket's
+  // picture goes back there as a PNG attachment (api.attachMarkup), and any
+  // source with a Nexus link opens it.
+  const source = board ? note.source : null;
+  const attachable = !trashed && ['task', 'ticket'].includes(source?.kind) && !!source?.id;
+  const openHref = source && isAppPath(source.url) ? source.url : '';
+  const attachBack = async () => {
+    if (!boardApi || attaching) { if (!boardApi) toast('The board is still loading'); return; }
+    setAttaching(true);
+    try {
+      const blob = await exportPng(boardApi, { scale: 2, background: true });
+      if (!blob) throw new Error('the board is still loading');
+      const name = exportFileName({ ...note, title: note.title || 'Mark Up' }, 'png');
+      const url = await storeTaskFile(new File([blob], name, { type: 'image/png' }), undefined, BOARD_THUMB_FOLDER(note.id));
+      if (!url) throw new Error('the picture could not be stored');
+      await api.attachMarkup(source, { url, name, size: `${Math.max(1, Math.round(blob.size / 1024))} KB` });
+      toast(`Attached to ${source.label}`);
+    } catch (e) {
+      toast(`Could not attach: ${e?.message || 'try again'}`);
+    } finally { setAttaching(false); }
   };
   const copyLink = async () => {
     setMenu('');
@@ -542,6 +622,17 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
 
   const actions = (
             <div className="nt-actions">
+              {attachable && (
+                <button type="button" className="nt-text-btn is-primary nt-source-btn" onClick={attachBack} disabled={attaching}
+                  aria-label={`Attach to ${source.label}`} title={`Attach this board to ${source.label} as a picture`}>
+                  <Paperclip size={14} aria-hidden="true" /> <span className="nt-source-label">{attaching ? 'Attaching…' : `Attach to ${source.label}`}</span>
+                </button>
+              )}
+              {openHref && (
+                <a className="nt-text-btn nt-source-btn" href={openHref} aria-label={`Open ${source.label}`} title={`Open ${source.label}`}>
+                  <ExternalLink size={14} aria-hidden="true" /> <span className="nt-source-label">{`Open ${source.label}`}</span>
+                </a>
+              )}
               {mine && !trashed && (
                 <button type="button" className={`nt-icon-btn${note.pinned ? ' is-on' : ''}`} aria-pressed={note.pinned}
                   aria-label={note.pinned ? 'Unpin' : 'Pin'} title={note.pinned ? 'Unpin' : 'Pin to the top and the dashboard'}
@@ -622,7 +713,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
               <span>Edited by {nameOf(note.editedBy)} {editedLabel(note.updatedAt).replace(/^edited /i, '')}</span>
             )}
             <PresenceLine people={sync.people} peers={board ? boardCollab.peers : collab.peers} live={board ? boardCollab.live : collab.live} nameOf={nameOf} />
-            {!readOnly && !isPhone && <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} />}
+            {!readOnly && !isPhone && <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} problem={sync.problem} />}
           </div>
 
           <TagEditor tags={note.tags || []} disabled={!mine || trashed} onChange={(tags) => sync.setMeta({ tags })} />
@@ -678,7 +769,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     return (
       <PhoneSheet title={note.kind === 'daily' ? 'Daily Scratchpad' : board ? 'Board' : 'Note'} onClose={onBack} actions={actions} color={note.color ? colorCss(note.color) : ''}
         sub={[note.day ? formatDate(note.day) : '', !mine ? `Shared by ${note.owner}` : ''].filter(Boolean).join(' · ')}
-        foot={readOnly ? <span>{trashed ? 'In the Trash' : 'Read Only'}</span> : <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} />}>
+        foot={readOnly ? <span>{trashed ? 'In the Trash' : 'Read Only'}</span> : <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} problem={sync.problem} />}>
         {doc}
         {dialogs}
       </PhoneSheet>
@@ -713,7 +804,8 @@ export default function NotesPage({ activeSub, onSubChange }) {
   const searchRef = useRef(null);
   const fileRef = useRef(null);
 
-  const selectedId = (activeSub || '').startsWith('notes:') ? activeSub.slice(6) : '';
+  const askNewBoard = activeSub === NEW_BOARD_SUB;
+  const selectedId = (activeSub || '').startsWith('notes:') && !askNewBoard ? activeSub.slice(6) : '';
   // Opening a note is looking at it: its Updated dot goes (the server marks it seen too).
   useEffect(() => {
     if (selectedId) setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === selectedId && x.unseen ? { ...x, unseen: false } : x)) } : d));
@@ -754,6 +846,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
   // start from (board/TemplatePicker.jsx); the picked template is the scene.
   const [pickingTemplate, setPickingTemplate] = useState(false);
   const newBoard = () => setPickingTemplate(true);
+  // New Board from anywhere else (the + menu, Quick Note, the Dashboard tile)
+  // lands here as notes:new-board, so every New Board asks the same question.
+  useEffect(() => {
+    if (!askNewBoard) return;
+    setPickingTemplate(true);
+    onSubChange?.('notes');
+  }, [askNewBoard, onSubChange]);
   const startBoard = async (templateKey) => {
     setPickingTemplate(false);
     await newNote({ kind: 'board', scene: templateScene(templateKey), templateKey });
@@ -839,7 +938,9 @@ export default function NotesPage({ activeSub, onSubChange }) {
             <button type="button" className="nt-icon-btn" aria-label="Import a Markdown or text file" title="Import (.md, .txt)" onClick={() => fileRef.current?.click()}><Upload size={17} /></button>
             <input ref={fileRef} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden
               onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ''; }} />
-            <button type="button" className="nt-text-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>
+            {isPhone
+              ? <button type="button" className="nt-icon-btn" aria-label="New Board" title="New Board" onClick={newBoard}><PenTool size={17} /></button>
+              : <button type="button" className="nt-text-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>}
             <button type="button" className="nt-text-btn is-primary" onClick={() => newNote()}><Plus size={15} /> New Note</button>
           </div>
         </div>

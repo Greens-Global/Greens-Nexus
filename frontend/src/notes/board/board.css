@@ -37,8 +37,10 @@
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--nx-kb-inset, 0px));
 }
 .nx-board.is-phone .excalidraw .App-toolbar-container { padding-bottom: env(safe-area-inset-bottom, 0px); }
-/* The canvas never scrolls the page under it on touch (pinch is the engine's). */
-.nx-board .excalidraw canvas { touch-action: none; }
+/* The stage never scrolls or zooms the page under it on touch (pinch is the
+   engine's): the whole engine surface, not just the canvas - its islands and
+   the gaps between them sit over the page too. */
+.nx-board .excalidraw, .nx-board .excalidraw canvas { touch-action: none; }
 /* Our top-right menu rows (Look, Export) live inside the engine's menu. */
 .nx-board .nx-board-menu-kicker { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8b958f); padding: 8px 10px 2px; }
 .nx-board .nx-board-look { display: flex; gap: 4px; padding: 4px 8px 6px; }

@@ -20,7 +20,8 @@ const board = (over = {}) => note({ id: 'board_1', kind: 'board', title: 'Yard L
 const apiMock = vi.hoisted(() => ({
   notesList: vi.fn(), noteGet: vi.fn(), noteCreate: vi.fn(), noteUpdate: vi.fn(), noteDaily: vi.fn(),
   noteDailyAppend: vi.fn(), noteTrash: vi.fn(), noteRestore: vi.fn(), noteDeleteForever: vi.fn(),
-  noteShare: vi.fn(), noteUnshare: vi.fn(), noteVersions: vi.fn(), noteRestoreVersion: vi.fn(),
+  noteShare: vi.fn(), noteUnshare: vi.fn(), noteVersions: vi.fn(), noteRestoreVersion: vi.fn(), noteVersionGet: vi.fn(),
+  attachMarkup: vi.fn(),
   getPeopleDirectory: vi.fn(async () => []),
 }));
 const storeTaskFile = vi.hoisted(() => vi.fn(async () => 'https://api.test/files/view?u=new-thumb.png'));
@@ -90,8 +91,9 @@ describe('Boards in the Notes list and bar', () => {
     fireEvent.click(screen.getByRole('button', { name: /New Board/ }));
     expect(apiMock.noteCreate).not.toHaveBeenCalled();
     const picker = await screen.findByRole('dialog', { name: 'New Board' });
-    expect(within(picker).getAllByRole('listitem').map((b) => b.textContent)).toEqual(expect.arrayContaining([expect.stringContaining('Blank'), expect.stringContaining('Kanban'), expect.stringContaining('Floor Plan')]));
-    fireEvent.click(within(picker).getByRole('listitem', { name: /^Kanban/ }));
+    expect(within(picker).queryAllByRole('listitem')).toEqual([]);
+    expect(within(picker).getAllByRole('button').map((b) => b.textContent)).toEqual(expect.arrayContaining([expect.stringContaining('Blank'), expect.stringContaining('Kanban'), expect.stringContaining('Floor Plan')]));
+    fireEvent.click(within(picker).getByRole('button', { name: /^Kanban/ }));
     await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledTimes(1));
     const body = apiMock.noteCreate.mock.calls[0][0];
     expect(body).toMatchObject({ kind: 'board', day: TODAY, templateKey: 'kanban' });
@@ -107,7 +109,7 @@ describe('Boards in the Notes list and bar', () => {
     render(<NotesPage activeSub="notes" onSubChange={vi.fn()} />);
     await screen.findByText('Budget Review');
     fireEvent.click(screen.getByRole('button', { name: /New Board/ }));
-    fireEvent.click(within(await screen.findByRole('dialog', { name: 'New Board' })).getByRole('listitem', { name: /^Blank/ }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'New Board' })).getByRole('button', { name: /^Blank/ }));
     await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledTimes(1));
     const scene = JSON.parse(apiMock.noteCreate.mock.calls[0][0].scene);
     expect(scene.elements).toEqual([]);
@@ -277,30 +279,52 @@ describe('A board on a phone', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Board' });
     const stub = await within(sheet).findByTestId('board-stub');
     expect(stub.getAttribute('data-phone')).toBe('true');
-    expect(within(sheet).getByRole('button', { name: 'Close Note' })).toBeTruthy();
+    expect(within(sheet).getByRole('button', { name: 'Close Board' })).toBeTruthy();
+  });
+
+  it('the phone bar offers New Board as an icon button beside Import', async () => {
+    window.matchMedia = (q) => ({ matches: q === '(max-width: 768px)', media: q, addEventListener() {}, removeEventListener() {} });
+    render(<NotesPage activeSub="notes" onSubChange={vi.fn()} />);
+    await screen.findByText('Budget Review');
+    const btn = screen.getByRole('button', { name: 'New Board' });
+    expect(btn.className).toContain('nt-icon-btn');
+    expect(btn.textContent).toBe('');
+    fireEvent.click(btn);
+    expect(await screen.findByRole('dialog', { name: 'New Board' })).toBeTruthy();
+  });
+
+  it('Back closes the sheet and puts the list\'s address in place of the note\'s (no loop back into the note)', async () => {
+    window.matchMedia = (q) => ({ matches: q === '(max-width: 768px)', media: q, addEventListener() {}, removeEventListener() {} });
+    window.history.replaceState({ depth: 1 }, '', '/dashboard/notes:board_1');
+    const onSubChange = vi.fn();
+    render(<NotesPage activeSub="notes:board_1" onSubChange={onSubChange} />);
+    await screen.findByRole('dialog', { name: 'Board' });
+    // the sheet pushed its own entry; Back pops it
+    expect(window.history.state?.nxSheet).toBeTruthy();
+    await act(async () => { window.history.back(); await new Promise((r) => setTimeout(r, 20)); });
+    expect(onSubChange).toHaveBeenLastCalledWith('notes');
+    expect(window.location.pathname).toBe('/dashboard/notes');
   });
 });
 
-describe('New Board elsewhere', () => {
-  it('Quick Note starts a board and opens it on Notes', async () => {
+describe('New Board elsewhere asks the same question', () => {
+  it('Quick Note opens Notes with the template question, making nothing yet', async () => {
     apiMock.noteDaily.mockResolvedValue({ note: null });
-    apiMock.noteCreate.mockResolvedValue(board({ id: 'board_9', title: '', scene: '' }));
     const onClose = vi.fn();
     const nav = vi.fn();
     window.addEventListener('nexus:navigate', nav);
     try {
       render(<QuickNotePanel onClose={onClose} />);
       fireEvent.click(await screen.findByRole('button', { name: /New Board/ }));
-      await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'board' })));
       await waitFor(() => expect(nav).toHaveBeenCalled());
-      expect(nav.mock.calls[0][0].detail).toEqual({ view: 'dashboard', sub: 'notes:board_9' });
+      expect(nav.mock.calls[0][0].detail).toEqual({ view: 'dashboard', sub: 'notes:new-board' });
+      expect(apiMock.noteCreate).not.toHaveBeenCalled();
       expect(onClose).toHaveBeenCalled();
     } finally { window.removeEventListener('nexus:navigate', nav); }
   });
 
-  it('the Dashboard tile offers New Board and shows a board with its picture', async () => {
+  it('the Dashboard tile offers New Board (to the question) and shows a board with its picture', async () => {
     apiMock.notesList.mockResolvedValue({ notes: [board()], counts: { all: 1 }, tags: [] });
-    apiMock.noteCreate.mockResolvedValue(board({ id: 'board_3', title: '', scene: '' }));
     const nav = vi.fn();
     window.addEventListener('nexus:navigate', nav);
     try {
@@ -308,10 +332,127 @@ describe('New Board elsewhere', () => {
       expect(await screen.findByText('Yard Layout')).toBeTruthy();
       expect(document.querySelector('img.nt-row-thumb')).toBeTruthy();
       fireEvent.click(screen.getByRole('button', { name: /New Board/ }));
-      await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'board' })));
       await waitFor(() => expect(nav).toHaveBeenCalled());
-      expect(nav.mock.calls[0][0].detail).toEqual({ view: 'dashboard', sub: 'notes:board_3' });
+      expect(nav.mock.calls[0][0].detail).toEqual({ view: 'dashboard', sub: 'notes:new-board' });
+      expect(apiMock.noteCreate).not.toHaveBeenCalled();
     } finally { window.removeEventListener('nexus:navigate', nav); }
+  });
+
+  it('the + menu\'s New Board goes to the same question', async () => {
+    const nav = vi.fn();
+    window.addEventListener('nexus:navigate', nav);
+    try {
+      await CREATE_ITEMS.find((it) => it.key === 'board').run();
+      expect(nav.mock.calls[0][0].detail).toEqual({ view: 'dashboard', sub: 'notes:new-board' });
+      expect(apiMock.noteCreate).not.toHaveBeenCalled();
+    } finally { window.removeEventListener('nexus:navigate', nav); }
+  });
+
+  it('Notes opened at notes:new-board shows the template picker and settles on the list', async () => {
+    const onSubChange = vi.fn();
+    render(<NotesPage activeSub="notes:new-board" onSubChange={onSubChange} />);
+    expect(await screen.findByRole('dialog', { name: 'New Board' })).toBeTruthy();
+    expect(onSubChange).toHaveBeenCalledWith('notes');
+    expect(apiMock.noteGet).not.toHaveBeenCalledWith('new-board');
+  });
+});
+
+describe('A markup board\'s way back', () => {
+  const SRC = { kind: 'ticket', id: 't_1', label: 'Ticket #4 Leak', url: '/tickets?ticket=t_1' };
+  it('Attach to <ticket> and Open <ticket> sit in the header beside More, and Attach posts a PNG back', async () => {
+    apiMock.noteGet.mockResolvedValue(board({ source: SRC }));
+    apiMock.attachMarkup.mockResolvedValue({ id: 'att_1' });
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    fireEvent.click(screen.getByRole('button', { name: 'stub-api' }));
+    const open = screen.getByRole('link', { name: 'Open Ticket #4 Leak' });
+    expect(open.getAttribute('href')).toBe('/tickets?ticket=t_1');
+    const attach = screen.getByRole('button', { name: 'Attach to Ticket #4 Leak' });
+    expect(attach.className).toContain('is-primary');
+    await act(async () => { fireEvent.click(attach); });
+    await waitFor(() => expect(apiMock.attachMarkup).toHaveBeenCalledTimes(1));
+    expect(exportMock.exportPng).toHaveBeenCalledWith({ fake: true }, { scale: 2, background: true });
+    expect(storeTaskFile.mock.calls.at(-1)[2]).toBe('notes/boards/board_1');
+    expect(apiMock.attachMarkup).toHaveBeenCalledWith(SRC, expect.objectContaining({ name: 'Yard Layout.png' }));
+    expect(await screen.findByText('Attached to Ticket #4 Leak')).toBeTruthy();
+  });
+
+  it('a walkthrough or file source has no Attach; a link that is not ours has no Open', async () => {
+    apiMock.noteGet.mockResolvedValue(board({ source: { kind: 'walkthrough', id: 'p1', label: 'Walkthrough: lobby', url: '//evil.example/tickets' } }));
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    expect(screen.queryByRole('button', { name: /^Attach to/ })).toBeNull();
+    expect(screen.queryByRole('link', { name: /^Open / })).toBeNull();
+  });
+
+  it('a file source with a Nexus link offers Open only', async () => {
+    apiMock.noteGet.mockResolvedValue(board({ source: { kind: 'file', id: 'f1', label: 'floor.png', url: '/tasks?task=k1' } }));
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    expect(screen.getByRole('link', { name: 'Open floor.png' }).getAttribute('href')).toBe('/tasks?task=k1');
+    expect(screen.queryByRole('button', { name: /^Attach to/ })).toBeNull();
+  });
+});
+
+describe('Board saves the server refused, thumbnails, history', () => {
+  it('a 413 shows the server\'s own sentence', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      apiMock.noteUpdate.mockRejectedValue(Object.assign(new Error('The board is too large to save (2 MB at most).'), { status: 413, detail: 'The board is too large to save (2 MB at most).' }));
+      render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+      await screen.findByTestId('board-stub');
+      fireEvent.click(screen.getByRole('button', { name: 'stub-draw' }));
+      await act(async () => { vi.advanceTimersByTime(900); });
+      expect(await screen.findByText(/The board is too large to save \(2 MB at most\)\./)).toBeTruthy();
+      expect(screen.queryByText(/retrying when you type/)).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('the same thumbnail picture twice is uploaded once', async () => {
+    apiMock.noteUpdate.mockResolvedValue(board({ rev: 4 }));
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    fireEvent.click(screen.getByRole('button', { name: 'stub-thumb' }));
+    await waitFor(() => expect(storeTaskFile).toHaveBeenCalledTimes(1));
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    fireEvent.click(screen.getByRole('button', { name: 'stub-thumb' }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    expect(storeTaskFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('a board\'s Version History lists shapes and dates, says the drawing comes back on Restore, and reads the one version only then', async () => {
+    apiMock.noteVersions.mockResolvedValue([
+      { id: 'v2', title: 'Yard Layout', body: '', rev: 5, savedBy: 'bob@greensglobal.com', createdAt: '2026-10-30T15:00:00Z', words: 0, shapes: 4 },
+      { id: 'v1', title: 'Yard Layout', body: '', rev: 2, savedBy: 'neil@greensglobal.com', createdAt: '2026-10-29T15:00:00Z', words: 0, shapes: 1 },
+    ]);
+    apiMock.noteVersionGet.mockResolvedValue({ id: 'v2', scene: SCENE, shapes: 4 });
+    apiMock.noteRestoreVersion.mockResolvedValue(board({ rev: 9 }));
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Version History/ }));
+    const dlg = await screen.findByRole('dialog', { name: 'Version History' });
+    expect((await within(dlg).findAllByText(/4 shapes/)).length).toBeGreaterThan(0);
+    expect(within(dlg).getByText(/· 1 shape$/)).toBeTruthy();
+    expect(within(dlg).getByText('A board version keeps the drawing; restore it to see it.')).toBeTruthy();
+    expect(within(dlg).queryByText(/words/)).toBeNull();
+    expect(apiMock.noteVersionGet).not.toHaveBeenCalled();
+    fireEvent.click(within(dlg).getByRole('button', { name: /Restore This Version/ }));
+    await waitFor(() => expect(apiMock.noteRestoreVersion).toHaveBeenCalledWith('board_1', 'v2'));
+    expect(apiMock.noteVersionGet).toHaveBeenCalledWith('board_1', 'v2');
+  });
+
+  it('a version that is not a board is refused before restoring', async () => {
+    apiMock.noteVersions.mockResolvedValue([{ id: 'v1', title: 'x', body: '', rev: 2, savedBy: 'neil@greensglobal.com', createdAt: '2026-10-29T15:00:00Z', words: 0, shapes: 1 }]);
+    apiMock.noteVersionGet.mockResolvedValue({ id: 'v1', scene: '{"type":"something-else"}' });
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Version History/ }));
+    const dlg = await screen.findByRole('dialog', { name: 'Version History' });
+    fireEvent.click(await within(dlg).findByRole('button', { name: /Restore This Version/ }));
+    expect(await within(dlg).findByText(/could not be read as a board/)).toBeTruthy();
+    expect(apiMock.noteRestoreVersion).not.toHaveBeenCalled();
   });
 });
 
