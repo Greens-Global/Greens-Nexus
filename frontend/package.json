@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/copy-excalidraw-assets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-excalidraw-assets.mjs",
     "build": "vite build",
     "lint": "eslint src && node scripts/check-dates.mjs",
     "preview": "vite preview",

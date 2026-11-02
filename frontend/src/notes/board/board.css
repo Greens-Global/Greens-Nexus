@@ -1,0 +1,60 @@
+/* Notes boards - the whiteboard engine dressed as Nexus (Neil, 11/02/2026).
+   The engine draws itself from CSS variables; these map them to the app's
+   tokens so a board reads as a Nexus screen, light and dark, with the brand
+   color on the active tool and the selection. Our own menu rows reuse the
+   engine's dropdown item classes so they match its typography. */
+.nx-board { position: relative; width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.nx-board > .nx-board-stage { position: relative; flex: 1; min-height: 0; }
+.nx-board .excalidraw {
+  --ui-font: var(--wk-font, 'Figtree', 'Inter', sans-serif);
+  --color-primary: var(--wk-brand, #15803d);
+  --color-primary-darker: var(--wk-brand-hov, #166534);
+  --color-primary-darkest: var(--wk-brand-hov, #14532d);
+  --color-primary-light: var(--wk-brand-tint, #e3f3e8);
+  --color-primary-light-darker: var(--wk-brand-tint, #cfe9d8);
+  --color-primary-hover: var(--wk-brand-hov, #166534);
+  --island-bg-color: var(--card, #ffffff);
+  --default-bg-color: var(--card, #ffffff);
+  --sidebar-bg-color: var(--card, #ffffff);
+  --text-primary-color: var(--ink, #1c2420);
+  --button-hover-bg: var(--wk-hover, #f1f4f1);
+  font-family: var(--ui-font);
+}
+/* Islands and the tool strip: Nexus's hairline instead of the engine's heavy shadow. */
+.nx-board .excalidraw .Island { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--line, rgba(0, 0, 0, 0.08)); border-radius: 12px; }
+[data-theme="dark"] .nx-board .excalidraw .Island { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--line, rgba(255, 255, 255, 0.09)); }
+/* The engine's own branding and hosted-service entry points never show. */
+.nx-board .excalidraw .welcome-screen-center,
+.nx-board .excalidraw .layer-ui__wrapper__footer-center .encrypted-icon,
+.nx-board .excalidraw .ExcBtn--hosted,
+.nx-board .excalidraw .help-icon { display: none !important; }
+/* A viewer sees the canvas and the zoom, nothing else to touch. */
+.nx-board.is-view .excalidraw .App-toolbar-container,
+.nx-board.is-view .excalidraw .App-bottom-bar .App-toolbar { display: none !important; }
+/* Phones: the bottom strip clears the home indicator and, while the keyboard
+   is up, iOS's floating ^ v Done strip (--nx-kb-inset from useKeyboardInset). */
+.nx-board.is-phone .excalidraw .App-bottom-bar {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--nx-kb-inset, 0px));
+}
+.nx-board.is-phone .excalidraw .App-toolbar-container { padding-bottom: env(safe-area-inset-bottom, 0px); }
+/* The canvas never scrolls the page under it on touch (pinch is the engine's). */
+.nx-board .excalidraw canvas { touch-action: none; }
+/* Our top-right menu rows (Look, Export) live inside the engine's menu. */
+.nx-board .nx-board-menu-kicker { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8b958f); padding: 8px 10px 2px; }
+.nx-board .nx-board-look { display: flex; gap: 4px; padding: 4px 8px 6px; }
+.nx-board .nx-board-look button {
+  flex: 1; border: 1px solid var(--line, rgba(0, 0, 0, .08)); background: transparent; color: var(--ink, #1c2420);
+  font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 8px; border-radius: 8px; cursor: pointer;
+}
+.nx-board .nx-board-look button[aria-pressed="true"] { background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); border-color: transparent; }
+.nx-board .nx-board-look button:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
+/* The uploading / failed image notice, top center under the tool strip. */
+.nx-board .nx-board-note {
+  position: absolute; left: 50%; top: 68px; transform: translateX(-50%); z-index: 5;
+  background: var(--card, #fff); color: var(--ink, #1c2420); border: 1px solid var(--line, rgba(0, 0, 0, .08));
+  border-radius: 999px; padding: 6px 12px; font-size: 12.5px; box-shadow: 0 6px 20px rgba(0, 0, 0, .08); pointer-events: none;
+}
+.nx-board .nx-board-note.is-error { color: var(--wk-red, #b91c1c); }
+@media (prefers-reduced-motion: reduce) { .nx-board * { transition-duration: 1ms !important; animation-duration: 1ms !important; } }
+/* No library panel (it links to the engine's public hub, which the CSP blocks anyway). */
+.nx-board .excalidraw .default-sidebar-trigger, .nx-board .excalidraw .sidebar-trigger { display: none !important; }
