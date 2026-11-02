@@ -195,9 +195,9 @@ export function MyRequestsDialog({ onClose, onOpenEntry, nameOf }) {
           {error && <div role="alert" style={{ marginTop: 6, fontSize: 12, color: NX.red }}>{error}</div>}
         </div>
       ) : (
-        <div className="nx-fill">
+        <div className="nx-fill" style={{ ...card, padding: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <h3 style={{ ...label11, margin: 0, flex: 1 }}>My Requests{count ? ` (${count})` : ''}</h3>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0, margin: 0 }}><ListChecks size={14} />My Requests{count ? ` (${count})` : ''}</h3>
             <button type="button" onClick={() => setView('new')} style={{ ...btn('outline'), fontSize: 12.5, padding: '5px 10px' }}>
               <ArrowLeft size={14} />New Request
             </button>

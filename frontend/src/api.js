@@ -2816,8 +2816,8 @@ export const api = {
   kbMe: () => req("/kb/me"),
   kbHome: () => req("/kb/home"),
   // log: false = do not record a missed search (the header bar's type-ahead).
-  kbSearch: (q, { type = "", collection = "", limit = 30, log = true } = {}) =>
-    req(`/kb/search?q=${encodeURIComponent(q || "")}&type=${encodeURIComponent(type)}&collection=${encodeURIComponent(collection)}&limit=${limit}${log ? "" : "&log=false"}`),
+  kbSearch: (q, { type = "", collection = "", department = "", limit = 30, log = true } = {}) =>
+    req(`/kb/search?q=${encodeURIComponent(q || "")}&type=${encodeURIComponent(type)}&collection=${encodeURIComponent(collection)}&department=${encodeURIComponent(department)}&limit=${limit}${log ? "" : "&log=false"}`),
   kbAsk: (question) => req("/kb/ask", { method: "POST", body: JSON.stringify({ question }), timeoutMs: AI_TIMEOUT_MS }),
   kbCollections: () => req("/kb/collections"),
   kbCollection: (id) => req(`/kb/collections/${id}`),

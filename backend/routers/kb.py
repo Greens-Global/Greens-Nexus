@@ -24,6 +24,8 @@ import kb_ai
 import kb_audience
 import kb_blocks
 import kb_core
+import kb_filer
+import kb_graph
 import kb_media
 import kb_search
 import models
@@ -56,6 +58,7 @@ class PageCreate(BaseModel):
     blocks: Optional[dict] = None
     tags: Optional[list] = None
     reviewer_email: str = ""
+    departments: Optional[list] = None   # Applies To (Neil, 11/02/2026): many departments; None = the collection's
     template: str = ""          # blank | how_to | sop | policy | reference
     original_content: str = ""  # the raw import text, kept forever
     original_title: str = ""
@@ -71,6 +74,7 @@ class PageUpdate(BaseModel):
     page_type: Optional[str] = None
     collection_id: Optional[str] = None
     tags: Optional[list] = None
+    departments: Optional[list] = None   # Applies To: [] = only its collection's department
     owner_email: Optional[str] = None
     reviewer_email: Optional[str] = None
     review_every_months: Optional[int] = None
@@ -205,6 +209,30 @@ def _collection(db: Session, cid: str):
     return db.query(models.KbCollection).filter(models.KbCollection.id == cid).first() if cid else None
 
 
+def _collection_department(db: Session, cid: str) -> str:
+    """The department of a collection, walking up to its top (a sub-collection
+    carries none of its own)."""
+    c = _collection(db, cid) if cid else None
+    while c and not c.department and c.parent_id:
+        c = _collection(db, c.parent_id)
+    return (c.department or "") if c else ""
+
+
+def _my_department(db: Session, email: str) -> str:
+    e = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == (email or "").lower()).first()
+    return (e.department or "").strip() if e else ""
+
+
+def _filer_lists(db: Session) -> tuple[list[dict], list[str], list[str]]:
+    """What kb_filer needs: collections with their department, the tag
+    names, the department names People uses."""
+    cols = [{"id": c.id, "name": c.name, "department": c.department or "", "parent_id": c.parent_id or ""}
+            for c in db.query(models.KbCollection).filter(models.KbCollection.active.is_(True)).all()]
+    tags = [t.name for t in db.query(models.KbTag).all()]
+    depts = list(kb_audience.options(db).get("departments") or [])
+    return cols, tags, depts
+
+
 def _collection_path(db: Session, cid: str) -> list[dict]:
     out = []
     c = _collection(db, cid)
@@ -232,7 +260,7 @@ def _page_card(db: Session, d: models.KbDocument, user: dict, pins: set | None =
         "owner_name": d.owner_name or _name(db, d.owner_email), "reviewer_email": (d.reviewer_email or "").lower(),
         "reviewer_name": (d.reviewer_name or _name(db, d.reviewer_email)) if d.reviewer_email else "",
         "verified_by_name": _name(db, d.verified_by) if d.verified_by else "",
-        "tags": _tags(d), "verified_at": d.verified_at or "", "verified_by": d.verified_by or "",
+        "tags": _tags(d), "departments": kb_core.departments_of(d), "verified_at": d.verified_at or "", "verified_by": d.verified_by or "",
         "updated_at": d.updated_at or "", "published_at": d.published_at or "", "views": int(d.views or 0),
         "require_ack": bool(d.require_ack), "stale": rs["stale"], "next_review": rs["next_review"],
         "pinned": (pins is not None and d.id in pins), "pending_revision": rev.status if rev else "",
@@ -292,7 +320,13 @@ def _page_full(db: Session, d: models.KbDocument, user: dict) -> dict:
         e = db.query(models.KbDocument).filter(models.KbDocument.id == eid).first()
         if e and e.status == "approved" and kb_access.readable([e], user, db):
             embeds[eid] = {"id": e.id, "title": e.title, "code": e.doc_code or "", "summary": e.summary or ""}
+    around = []
+    if d.status == "approved":
+        pool = _published(db, user)
+        manual = {r["id"] for r in related}
+        around = [n for n in kb_graph.neighbors(db, [d], pool, limit=8) if n["id"] not in manual][:5]
     card.update({
+        "around": around,   # kb_graph: linked, embedded, taught with, same department - not picked by hand
         "blocks": blocks, "headings": kb_blocks.headings(blocks), "legacy_only": legacy_only,
         "effective_date": d.effective_date or "", "review_every_months": kb_core.review_months(db, d),
         "live_from": d.live_from or "", "is_live": kb_core.is_live(d),
@@ -452,7 +486,7 @@ def _review_queue(db: Session, user: dict) -> list[dict]:
 # ----------------------------------------------------------------- search / ask
 
 @router.get("/search")
-def search(q: str = "", type: str = "", collection: str = "", limit: int = 30, log: bool = True,
+def search(q: str = "", type: str = "", collection: str = "", department: str = "", limit: int = 30, log: bool = True,
            user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     # log=false: the header search bar asks on every pause while typing, so its
     # half-typed words ("pr", "pra") must not land on Health as misses (Oct 29 2026).
@@ -463,9 +497,13 @@ def search(q: str = "", type: str = "", collection: str = "", limit: int = 30, l
         pub = [d for d in pub if d.collection_id in ids]
     if type and type in PAGE_TYPES:
         pub = [d for d in pub if (d.page_type or "how_to") == type]
+    if department:
+        # Applies To: the page names the department, or its collection is that department's
+        dl = department.strip().lower()
+        pub = [d for d in pub if dl in {x.lower() for x in kb_core.departments_of(d)} or _collection_department(db, d.collection_id).lower() == dl]
     if not q:
         pub.sort(key=lambda d: d.published_at or "", reverse=True)
-        return {"results": [_page_card(db, d, user) for d in pub[:limit]], "also_matched": [], "did_you_mean": "", "total": len(pub)}
+        return {"results": [_page_card(db, d, user) for d in pub[:limit]], "also_matched": [], "did_you_mean": "", "total": len(pub), "linked": []}
     cands = kb_search.pg_candidates(db, q)
     if cands is not None and cands:
         cset = set(cands)
@@ -483,7 +521,12 @@ def search(q: str = "", type: str = "", collection: str = "", limit: int = 30, l
     if log:
         kb_search.log_miss(db, q, len(results), user["email"].lower())
     db.commit()
-    return {"results": results, "also_matched": res["also_matched"], "did_you_mean": res["did_you_mean"], "total": len(results)}
+    # one hop out from the best matches: the pages they link to, embed, are
+    # taught with or sit beside (kb_graph) - shown as "Linked to these results"
+    seeds = [by_id[r["id"]] for r in results[:3] if r["id"] in by_id]
+    hit_ids = {r["id"] for r in results}
+    linked = [n for n in kb_graph.neighbors(db, seeds, pub, limit=8) if n["id"] not in hit_ids][:5]
+    return {"results": results, "also_matched": res["also_matched"], "did_you_mean": res["did_you_mean"], "total": len(results), "linked": linked}
 
 
 @router.post("/ask")
@@ -495,17 +538,29 @@ def ask(body: AskIn, user: dict = Depends(get_current_user), db: Session = Depen
     res = kb_search.search(db, pub, q, limit=5)
     by_id = {d.id: d for d in pub}
     pages = []
+
+    def _src(d: models.KbDocument, why: str = "") -> dict:
+        return {"id": d.id, "code": d.doc_code or "", "title": d.title, "version": d.version or "", "verified_at": d.verified_at or "",
+                "text": d.content_text or kb_blocks.plain_text(kb_blocks.loads(d.blocks)), "why": why}
     for r in res["results"][:5]:
-        d = by_id[r["id"]]
-        pages.append({"id": d.id, "code": d.doc_code or "", "title": d.title, "version": d.version or "", "verified_at": d.verified_at or "",
-                      "text": d.content_text or kb_blocks.plain_text(kb_blocks.loads(d.blocks))})
-    sources = [{"id": p["id"], "code": p["code"], "title": p["title"], "version": p["version"], "verified_at": p["verified_at"]} for p in pages]
+        pages.append(_src(by_id[r["id"]]))
+    # Graph step (kb_graph): the pages the matches link to, embed, are taught
+    # with or share a department with join the context, up to three, each
+    # saying why - so an answer that spans a policy and its SOPs sees both.
+    seeds = [by_id[p["id"]] for p in pages[:3]]
+    for n in kb_graph.neighbors(db, seeds, pub, limit=3):
+        if n["id"] in by_id and all(p["id"] != n["id"] for p in pages):
+            pages.append(_src(by_id[n["id"]], n["why"]))
+    sources = [{"id": p["id"], "code": p["code"], "title": p["title"], "version": p["version"], "verified_at": p["verified_at"], "why": p.get("why", "")} for p in pages]
+    # with no answer, the reader gets the three best matches and the pages
+    # they link to - the graph step is what makes "start with" worth reading
+    start_with = (sources[:3] + [x for x in sources[3:] if x["why"]])[:6]
     if not kb_ai.available():
-        return {"answer": "", "sources": sources[:3], "grounded": False, "offline": True}
+        return {"answer": "", "sources": start_with, "grounded": False, "offline": True}
     try:
         out = kb_ai.answer(q, pages)
     except kb_ai.AiError as e:
-        return {"answer": "", "sources": sources[:3], "grounded": False, "offline": True, "error": str(e)}
+        return {"answer": "", "sources": start_with, "grounded": False, "offline": True, "error": str(e)}
     used = [s for s in sources if s["id"] in out["sources"]] or sources[:3]
     return {"answer": out["answer"], "sources": used, "grounded": out["grounded"], "offline": False}
 
@@ -547,6 +602,12 @@ def get_collection(cid: str, user: dict = Depends(get_current_user), db: Session
         "pages": [_page_card(db, d, user, pins) for d in pages],
         "drafts": [_page_card(db, d, user, pins) for d in drafts],
         "child_pages": sum(1 for d in pub if d.collection_id in child_ids),
+        # Applies To (Neil, 11/02/2026): pages shelved elsewhere that name
+        # this collection's department - one SOP, many departments.
+        "also_applies": [_page_card(db, d, user, pins) for d in sorted(
+            (d for d in pub if d.collection_id != cid and d.collection_id not in child_ids and c.department
+             and c.department.lower() in {x.lower() for x in kb_core.departments_of(d)}),
+            key=lambda d: (d.title or "").lower())],
     }
 
 
@@ -627,7 +688,7 @@ def create_tag(body: TagIn, user: dict = Depends(require_author), db: Session = 
 # ----------------------------------------------------------------- pages
 
 @router.get("/pages")
-def list_pages(status: str = "", type: str = "", collection: str = "", mine: bool = False, q: str = "",
+def list_pages(status: str = "", type: str = "", collection: str = "", department: str = "", mine: bool = False, q: str = "",
                user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = db.query(models.KbDocument).all()
     rows = kb_access.visible_pages(rows, user, db)
@@ -638,6 +699,9 @@ def list_pages(status: str = "", type: str = "", collection: str = "", mine: boo
         rows = [d for d in rows if (d.page_type or "how_to") == type]
     if collection:
         rows = [d for d in rows if d.collection_id == collection]
+    if department:
+        dl = department.strip().lower()
+        rows = [d for d in rows if dl in {x.lower() for x in kb_core.departments_of(d)} or _collection_department(db, d.collection_id).lower() == dl]
     if mine:
         rows = [d for d in rows if (d.owner_email or "").lower() == me_]
     if q:
@@ -722,6 +786,11 @@ def create_page(body: PageCreate, user: dict = Depends(require_author), db: Sess
                           summary=(body.summary or "")[:300], major=0, minor=1, published_at="", audience="", signing="in_page",
                           translations="", migrated_at=kb_core.now())
     kb_core.set_content(d, blocks)
+    # Applies To: what the author sent, else the collection's own department
+    if body.departments is not None:
+        kb_core.set_departments(d, body.departments)
+    else:
+        kb_core.set_departments(d, [x for x in [_collection_department(db, d.collection_id)] if x])
     db.add(d)
     kb_core.event(db, kind="created", actor=me_, doc_id=d.id, version="0.1", actor_name=d.owner_name)
     db.commit()
@@ -751,6 +820,8 @@ def update_page(doc_id: str, body: PageUpdate, user: dict = Depends(get_current_
         d.collection_id = body.collection_id
     if body.tags is not None:
         d.tags = ",".join(dict.fromkeys(str(t).strip().lower() for t in body.tags if str(t).strip()))[:500]
+    if body.departments is not None:
+        kb_core.set_departments(d, body.departments)
     if body.owner_email is not None and (kb_access.is_manage(user, db) or kb_access.owns_collection(user, db, d.collection_id) or (d.owner_email or "").lower() == me_):
         d.owner_email = body.owner_email.lower()
         d.owner_name = _name(db, d.owner_email) if d.owner_email else ""
@@ -1413,8 +1484,8 @@ def _run_import(job_id: str) -> None:
         if not j:
             return
         inp = json.loads(j.input or "{}")
-        collections = [{"id": c.id, "name": c.name} for c in db.query(models.KbCollection).filter(models.KbCollection.active.is_(True)).all()]
-        tags = [t.name for t in db.query(models.KbTag).all()]
+        collections, tags, dept_names = _filer_lists(db)
+        my_dept = _my_department(db, j.created_by or "")
         pages = [(d.id, d.title, d.doc_code) for d in db.query(models.KbDocument).filter(models.KbDocument.status != "archived").all()]
     finally:
         db.close()
@@ -1481,10 +1552,15 @@ def _run_import(job_id: str) -> None:
         if u and u not in placed:
             content.append(kb_blocks.image(u, f"Image {k}"))
     docd = kb_blocks.sanitize(docd, image_ok=kb_media.is_storage_url)
-    meta = {}
+    # Filing: the rules filer always runs (type from the shape, departments
+    # and collection from names in the text); with AI on, its picks win
+    # where it gave one, the rules fill the rest.
+    meta = kb_filer.suggest(title=inp.get("title") or "", text=text, blocks=docd, collections=collections,
+                            departments=dept_names, tags=tags, my_department=my_dept)
     try:
         if kb_ai.available():
-            meta = kb_ai.suggest_meta(text, collections=collections, tags=tags)
+            ai_meta = kb_ai.suggest_meta(text, collections=collections, tags=tags)
+            meta = {**meta, **{k: v for k, v in (ai_meta or {}).items() if v}, "by": "nexus"}
     except kb_ai.AiError as e:
         warnings.append(f"Filing suggestions: {e}")
     # a possible existing page with the same title
@@ -1508,7 +1584,7 @@ class ConvertIn(BaseModel):
 
 
 @router.post("/import/convert")
-def convert_import(body: ConvertIn, user: dict = Depends(require_author)):
+def convert_import(body: ConvertIn, user: dict = Depends(require_author), db: Session = Depends(get_db)):
     """Import As Is (Oct 29 2026): a Word or PDF file becomes page blocks with
     no AI. The browser reads the file (lib/docxToTiptap.js for Word, the PDF
     text reader for PDF) and uploads its pictures to kb-media; this turns
@@ -1534,8 +1610,13 @@ def convert_import(body: ConvertIn, user: dict = Depends(require_author)):
         content.append(kb_blocks.file_block(url, str(o.get("name") or "Original file")[:200], int(o.get("size") or 0), str(o.get("mime") or "")[:100]))
     out = kb_blocks.sanitize(kb_blocks.doc(content or None), image_ok=kb_media.is_storage_url)
     words = kb_blocks.word_count(out)
+    # Filing by rules (kb_filer): type, departments, collection and tags
+    # prefilled from the text, each with its reason; the author adjusts.
+    collections, tags, dept_names = _filer_lists(db)
+    suggested = kb_filer.suggest(title=title, text=kb_blocks.plain_text(out), blocks=out, collections=collections,
+                                 departments=dept_names, tags=tags, my_department=_my_department(db, user["email"]))
     return {"blocks": out, "title": title[:300], "words": words, "images": len(kb_blocks.image_urls(out)),
-            "tables": sum(1 for n in out.get("content") or [] if n.get("type") == "table")}
+            "tables": sum(1 for n in out.get("content") or [] if n.get("type") == "table"), "suggested": suggested}
 
 
 @router.post("/import", status_code=202)
