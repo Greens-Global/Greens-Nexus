@@ -19,7 +19,7 @@
         base-uri 'self';
         form-action 'none';">
     <title>PDF Tools</title>
-    <link rel="stylesheet" href="style.css?v=20260829d">
+    <link rel="stylesheet" href="style.css">
     <!-- PDF.js 6 (pdfjs-dist legacy build) for rendering PDFs. An ES module that sets
          window.pdfjsLib; modules and defer scripts run in document order, so it is
          there before the guard and app.js. libs/pdf.worker.min.js is a module too. -->
@@ -530,7 +530,7 @@
         <span id="statusText"></span>
         <button id="scaleChip" class="scale-chip" style="display:none;" title="Click to set the drawing scale"></button>
         <span id="fileInfo"></span>
-        <span id="buildStamp" title="Editor bundle version - if this is stale, hard-reload" style="margin-left:auto;opacity:0.5;font-size:10px;">build 20260829d</span>
+        <span id="buildStamp" title="Editor bundle version - if this is stale, hard-reload" style="margin-left:auto;opacity:0.5;font-size:10px;">build</span>
     </footer>
 
     <!-- Search Bar -->
@@ -633,8 +633,11 @@
 
     </div><!-- end .page-wrapper -->
 
-    <script defer src="app.js?v=20260829d"></script>
-    <script defer src="adobe-ui.js?v=20260829d"></script>
+    <!-- No ?v= by hand: the build stamps every script and stylesheet here
+         (frontend/scripts/stamp-assets.mjs) and app.js passes that stamp on to
+         the worker and the libraries it loads later. -->
+    <script defer src="app.js"></script>
+    <script defer src="adobe-ui.js"></script>
     <script defer src="nexus-bridge.js"></script>
 </body>
 </html>
