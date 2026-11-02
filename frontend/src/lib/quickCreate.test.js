@@ -7,6 +7,6 @@ describe('CREATE_ITEMS', () => {
   it('offers Fill a Form landing on Workday form:pick', () => {
     const row = CREATE_ITEMS.find((it) => it.key === 'form');
     expect(row).toMatchObject({ group: 'Requests', label: 'Fill a Form', module: 'myhr', go: ['timeclock', 'form:pick'] });
-    expect(groupCreates(CREATE_ITEMS).map((g) => g.label)).toContain('Workday');
+    expect(groupCreates(CREATE_ITEMS).map((g) => g.label)).toEqual(['Work', 'Requests', 'Outlook']);   // no new group
   });
 });
