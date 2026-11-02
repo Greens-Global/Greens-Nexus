@@ -77,19 +77,36 @@ const SHORTCUTS = [
 ];
 
 
-// "Scheduled 312 h · $7,840 · 2 people without a rate · 1 on fixed pay" - the
-// trailing parts only when they are not zero; hours alone when pay is hidden.
+// "Scheduled 1,312 h · $7,840 · 2 people without a rate · 1 person on fixed
+// pay" - the trailing parts only when they are not zero; hours alone when pay
+// is hidden. A scope that spans currencies (a US and an India team) gets no
+// single total from the server (`cost` null, `costs` per currency): the parts
+// are printed each in their own currency - "$7,840 and ₹52,000".
+const money = (amount, currency) => {
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD', maximumFractionDigits: Number.isInteger(amount) ? 0 : 2 }).format(amount);
+  } catch { return `${amount} ${currency || ''}`.trim(); }
+};
+const peopleCount = (n, what) => `${n} ${n === 1 ? 'person' : 'people'} ${what}`;
 export function laborText(l) {
   if (!l || !(l.hours > 0)) return '';
-  const parts = [`Scheduled ${l.hours % 1 === 0 ? l.hours : l.hours.toFixed(2).replace(/0$/, '')} h`];
-  if (!l.payHidden && l.cost != null) {
-    const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: l.currency || 'USD', maximumFractionDigits: Number.isInteger(l.cost) ? 0 : 2 });
-    parts.push(money.format(l.cost));
-    if (l.peopleWithoutRate) parts.push(`${l.peopleWithoutRate} ${l.peopleWithoutRate === 1 ? 'person' : 'people'} without a rate`);
-    if (l.fixedPayPeople) parts.push(`${l.fixedPayPeople} on fixed pay`);
+  const h = l.hours % 1 === 0 ? l.hours : Number(l.hours.toFixed(2));
+  const parts = [`Scheduled ${h.toLocaleString('en-US', { maximumFractionDigits: 2 })} h`];
+  if (!l.payHidden) {
+    const perCurrency = Object.entries(l.costs || {}).filter(([, v]) => v != null);
+    if (l.cost != null) parts.push(money(l.cost, l.currency));
+    else if (perCurrency.length > 1) parts.push(perCurrency.map(([c, v]) => money(v, c)).join(' and '));
+    if (l.cost != null || perCurrency.length > 1) {
+      if (l.peopleWithoutRate) parts.push(peopleCount(l.peopleWithoutRate, 'without a rate'));
+      if (l.fixedPayPeople) parts.push(peopleCount(l.fixedPayPeople, 'on fixed pay'));
+    }
   }
   return parts.join(' · ');
 }
+// What the labor line counts, in words a manager uses (the manager tier sees hours only).
+export const laborHelp = (payHidden) => (payHidden
+  ? 'Scheduled hours for your team, published and draft shifts together, not counting unpaid breaks.'
+  : 'Scheduled hours for your team, published and draft shifts together, not counting unpaid breaks, at each person\'s hourly rate for that day. People on fixed pay are counted in the hours, not the cost.');
 
 export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   const { myEmail } = useRole() || {};
@@ -1209,8 +1226,14 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   // scheduled and worked, where the unshared changes are, who confirmed -
   // in words, no chips. On a phone the facts move under the list.
   const laborLine = laborText(labor);
+  // A title is unreachable on a phone: there the explanation is a visible line.
   const teamFacts = [
-    laborLine ? <span data-labor-line="" title="Hours net of unpaid breaks, priced at each person's rate on that day; fixed pay is counted, not priced.">{laborLine}</span> : null,
+    laborLine ? (
+      <span data-labor-line="" title={phone ? undefined : laborHelp(!!labor?.payHidden)} style={phone ? { display: 'grid', gap: 2 } : undefined}>
+        {laborLine}
+        {phone && <span data-labor-help="" style={{ fontSize: 11.5, color: 'var(--muted)' }}>{laborHelp(!!labor?.payHidden)}</span>}
+      </span>
+    ) : null,
     adherence ? <AdherenceLine text={adherence} style={{ marginBottom: 0, minWidth: 0, whiteSpace: phone ? 'normal' : undefined }} /> : null,
     unsharedLine ? <span data-unshared-line="" title="Changes the team has not seen yet. Save & Share sends them.">{unsharedLine}</span> : null,
     managing && confirmations && confirmations.total > 0 ? <ConfirmChip c={confirmations} onNudge={nudge} compact={phone} /> : null,
