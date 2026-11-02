@@ -209,6 +209,11 @@ export default defineConfig(({ command }) => ({
           // manual chunk, 2,628 KB without. check-bundle-size.mjs now guards
           // the first-paint graph (FIRST_PAINT_KB). Do not add one back.
           if (id.includes(EXCALIDRAW_LOCALE_STUB) || id.includes(EXCALIDRAW_MERMAID_STUB) || id.includes('node_modules/@excalidraw/')) return undefined;
+          // ...and the libraries only the engine uses stay out of the catch-all
+          // below too, so they ride its lazy chunk instead of vendor-react
+          // (first paint). Measured 11/02/2026 with the CI's Supabase values:
+          // vendor-react 1,192 KB with them in the catch-all.
+          if (/node_modules\/(roughjs|points-on-curve|path-data-parser|hachure-fill|perfect-freehand|jotai|jotai-scope|tunnel-rat|fractional-indexing|es6-promise-pool|browser-fs-access|image-blob-reduce|pica|multimath|glur|png-chunk-text|png-chunks-encode|png-chunks-extract|crc-32|open-color|fuzzy|@braintree\/sanitize-url|canvas-roundrect-polyfill|@radix-ui|zustand|@excalidraw|laser-pointer|pwacompat|sliced|lodash\.throttle|lodash\.debounce)\//.test(id)) return undefined;
           if (id.includes('@azure/msal-browser') || id.includes('@azure/msal-react')) return 'vendor-msal';
           if (id.includes('@supabase/supabase-js'))  return 'vendor-supabase';
           if (id.includes('lucide-react'))            return 'vendor-icons';

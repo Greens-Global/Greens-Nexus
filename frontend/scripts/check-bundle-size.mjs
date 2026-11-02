@@ -352,10 +352,12 @@ const CHUNK_EXEMPT = {
   // vendor-react is the catch-all for every node_modules file no other rule
   // names (vite.config.js). 11/02/2026: the whiteboard engine's shared
   // dependencies (@radix-ui, @floating-ui, zustand, jotai, tslib...) landed
-  // here once the engine lost its manual chunk - 875 -> 1,005 KB, all on
-  // first paint. Accepted for the 2.7 MB first-paint win that change made;
-  // the follow-up is a home for those engine-only libraries that does not
-  // pull the engine's static tree with it (see the vite.config.js note).
+  // here once the engine lost its manual chunk. The engine-ONLY libraries are
+  // now kept out of the catch-all (vite.config.js) and ride its lazy chunk;
+  // what remains is what the engine shares with the app (@floating-ui,
+  // tslib, clsx...). Measured 11/02/2026 with the CI's Supabase values:
+  // 1,034 KB (1,192 KB before the engine-only list). Accepted for the 2.6 MB
+  // first-paint win the change made.
   'vendor-react': 1100,
   // The whiteboard engine (Notes boards) has no manual chunk since 11/02/2026
   // (see vite.config.js); rolldown's own split is excalidraw-nx2-* at about
