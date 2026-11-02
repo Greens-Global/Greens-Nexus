@@ -62,20 +62,33 @@ const LIST_W_KEY = 'nx-notes-list-width';
 const readNum = (k, d) => { try { const v = Number(window.localStorage.getItem(k)); return v > 0 ? v : d; } catch { return d; } };
 const store = (k, v) => { try { window.localStorage.setItem(k, String(v)); } catch { /* storage unavailable */ } };
 
-// A short fingerprint of a picture's bytes (SHA-256 where WebCrypto is, else
-// the size and a sample), to tell a new thumbnail from the last one.
+// A short fingerprint of a picture's bytes, to tell a new thumbnail from the
+// last one: SHA-256 where WebCrypto takes the bytes, else a sampled sum, and
+// at the very least the size - never '' (an empty fingerprint uploaded every
+// picture twice on CI's Node 20, where the digest refused jsdom's buffer).
+async function blobBytes(blob) {
+  if (typeof blob.arrayBuffer === 'function') {
+    try { return new Uint8Array(await blob.arrayBuffer()); } catch { /* fall through */ }
+  }
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(new Uint8Array(r.result));
+    r.onerror = () => reject(r.error);
+    r.readAsArrayBuffer(blob);
+  });
+}
 async function blobHash(blob) {
+  let u;
+  try { u = await blobBytes(blob); } catch { return `size:${blob?.size ?? 0}`; }
   try {
-    const buf = typeof blob.arrayBuffer === 'function' ? await blob.arrayBuffer() : await new Response(blob).arrayBuffer();
     if (globalThis.crypto?.subtle) {
-      const d = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', buf));
+      const d = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(u)));
       return Array.from(d.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
     }
-    const u = new Uint8Array(buf);
-    let h = u.length;
-    for (let i = 0; i < u.length; i += Math.max(1, Math.floor(u.length / 4096))) h = (h * 31 + u[i]) >>> 0;
-    return `${u.length}:${h}`;
-  } catch { return ''; }
+  } catch { /* sampled sum below */ }
+  let h = u.length;
+  for (let i = 0; i < u.length; i += Math.max(1, Math.floor(u.length / 4096))) h = (h * 31 + u[i]) >>> 0;
+  return `${u.length}:${h}`;
 }
 
 
