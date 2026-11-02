@@ -91,8 +91,9 @@ afterEach(() => { vi.useRealTimers(); setMotionEnabled(false); });
 
 const cards = () => [...document.querySelectorAll('.apv-ph-card')];
 const titles = () => cards().map((c) => c.querySelector('.apv-ph-ttl').textContent);
-const strip = () => screen.getByRole('tablist', { name: 'Approval kinds' });
-const chip = (name) => within(strip()).getAllByRole('tab').find((t) => t.textContent.startsWith(name));
+const strip = () => screen.getByRole('group', { name: 'Approval kinds' });
+const kindChips = () => within(strip()).getAllByRole('button').filter((b) => b.hasAttribute('aria-pressed'));
+const chip = (name) => kindChips().find((t) => t.textContent.startsWith(name));
 const chipCount = (name) => Number(chip(name).querySelector('b').textContent);
 const cardCountSum = () => cards().filter((c) => !c.closest('.apv-ph-own')).reduce((t, c) => t + Number(c.getAttribute('data-count') || 1), 0);
 const btn = (name) => screen.getByRole('button', { name });
@@ -115,7 +116,12 @@ describe('Approvals on a phone', () => {
     expect(chipCount('All')).toBe(7);
     expect(chipCount('All')).toBe(cardCountSum());
     expect(chipCount('Time Sheets')).toBe(4);
-    expect(within(strip()).getAllByRole('tab').map((t) => t.textContent)).not.toContain('Hiring0');
+    expect(kindChips().map((t) => t.textContent)).not.toContain('Hiring0');
+    // A group of toggle chips: the one on is pressed; Filter is a plain button.
+    expect(chip('All').getAttribute('aria-pressed')).toBe('true');
+    expect(chip('Money').getAttribute('aria-pressed')).toBe('false');
+    expect(within(strip()).getByRole('button', { name: /^Filter/ }).hasAttribute('aria-pressed')).toBe(false);
+    expect(within(strip()).queryAllByRole('tab')).toHaveLength(0);
     expect(document.querySelector('.apv-ph-own .apv-ph-sec-h').textContent).toBe('Yours To Do · 1');
     // No desktop leftovers: the rail, the tiles, the tools row and the shortcuts button are gone.
     expect(document.querySelector('.apv-rail, .apv-tiles, .apv-tools, .apv-row')).toBeNull();
@@ -453,6 +459,21 @@ describe('Approvals on a phone', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear Filters' }));
     expect(titles()).toEqual([LETTER, TIME_OFF, MONEY, SHEETS, ITEM]);
     expect(strip().querySelector('.apv-ph-dot')).toBeNull();
+  });
+
+  it('the kind chips count what they would show under every other filter', async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    render(<Approvals activeSub="" onSubChange={() => {}} />);
+    await screen.findByText(TIME_OFF);
+    openFilters();
+    fireEvent.click(group('Priority').getByRole('button', { name: 'Urgent' }));
+    fireEvent.click(within(sheet()).getByRole('button', { name: 'Done' }));
+    // Only Ankit's reimbursement is urgent: All 1, Money 1, and no chip for kinds with nothing urgent.
+    expect(chipCount('All')).toBe(1);
+    expect(chipCount('Money')).toBe(1);
+    expect(chip('Time Off')).toBeUndefined();
+    expect(chip('Time Sheets')).toBeUndefined();
+    expect(chipCount('All')).toBe(cardCountSum());
   });
 
   it('the chips filter by kind through the Dashboard sub, and History is still a tap away', async () => {

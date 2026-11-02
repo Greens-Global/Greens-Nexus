@@ -39,7 +39,7 @@ describe('ApprovalCard', () => {
     expect(screen.queryByRole('button', { name: /Send Back/ })).toBeNull();
     fireEvent.click(yes);
     expect(onAct).toHaveBeenCalledWith(row, row.actions[0]);
-    fireEvent.click(screen.getByRole('button', { name: 'More: Reimbursement - $20' }));
+    fireEvent.click(screen.getByRole('button', { name: 'More: Reimbursement - $20 (Priya Sharma)' }));
     expect(onReview).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Priya Sharma')).toBeTruthy();
     expect(screen.getByText('Cab')).toBeTruthy();

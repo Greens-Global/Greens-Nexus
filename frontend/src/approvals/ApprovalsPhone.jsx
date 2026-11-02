@@ -46,7 +46,7 @@ const GHOST_MS = MOTION.xs + MOTION.exit;
 const LOCK_MS = Math.max(MOTION.md + 150, 350);
 
 export default function ApprovalsPhone({
-  tab, setTab, rows, ownRows, hiddenKeys, groupLabels, counts, kind, setKind,
+  tab, setTab, rows, ownRows, hiddenKeys, groupLabels, counts, chipCounts = counts, kind, setKind,
   filters, setFilters, clearFilters, filtering, groupBy, setGroupBy, sortKey, setSortKey,
   deptCounts, companyCounts, seesAll, onAct, DetailView, loading, error, onRetry, errors = [], onReload, canApprove, history,
 }) {
@@ -149,10 +149,12 @@ export default function ApprovalsPhone({
   return (
     <div className="apv-phone">
       {head}
-      <div className="apv-ph-chips scroll-tabs" role="tablist" aria-label="Approval kinds">
-        <button type="button" role="tab" aria-selected={kind === 'all'} className={`apv-ph-chip${kind === 'all' ? ' is-on' : ''}`} onClick={() => setKind('all')}>All <b>{counts.all}</b></button>
-        {groupLabels.filter((g) => counts[g.key] || g.key === kind).map((g) => (
-          <button key={g.key} type="button" role="tab" aria-selected={kind === g.key} className={`apv-ph-chip${kind === g.key ? ' is-on' : ''}`} onClick={() => setKind(kind === g.key ? 'all' : g.key)}>{g.label} <b>{counts[g.key] || 0}</b></button>
+      {/* Toggle chips, not tabs: each one is pressed or not, and the counts are
+          what that chip would show under every other filter (chipCounts). */}
+      <div className="apv-ph-chips scroll-tabs" role="group" aria-label="Approval kinds">
+        <button type="button" aria-pressed={kind === 'all'} className={`apv-ph-chip${kind === 'all' ? ' is-on' : ''}`} onClick={() => setKind('all')}>All <b>{chipCounts.all}</b></button>
+        {groupLabels.filter((g) => chipCounts[g.key] || g.key === kind).map((g) => (
+          <button key={g.key} type="button" aria-pressed={kind === g.key} className={`apv-ph-chip${kind === g.key ? ' is-on' : ''}`} onClick={() => setKind(kind === g.key ? 'all' : g.key)}>{g.label} <b>{chipCounts[g.key] || 0}</b></button>
         ))}
         <button type="button" className={`apv-ph-chip apv-ph-filter${filtering ? ' has-dot' : ''}`} onClick={() => setFilterOpen(true)} aria-label={filtering ? 'Filter (filters on)' : 'Filter'} aria-haspopup="dialog">
           <SlidersHorizontal size={14} /> Filter{filtering && <span className="apv-ph-dot" aria-hidden="true" />}

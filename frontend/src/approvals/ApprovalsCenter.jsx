@@ -304,12 +304,12 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
   const deptCounts = useMemo(() => tally(decideRows, (r) => r.department || 'No Department'), [decideRows]);
   const companyCounts = useMemo(() => tally(decideRows, (r) => r.companyName || 'No Company'), [decideRows]);
   const q = query.trim().toLowerCase();
-  const passes = (r) => (kind === 'all' || r.group === kind)
-    && matchesPriority(r, prioFilter)
+  const passesBesidesKind = (r) => matchesPriority(r, prioFilter)
     && (!ageFilter || daysWaiting(r) >= ageFilter)
     && (!dept || (r.department || 'No Department') === dept)
     && (!company || (r.companyName || 'No Company') === company)
     && (!q || [r.person?.name, r.title, r.detail, r.forName, r.department].some((s) => (s || '').toLowerCase().includes(q)));
+  const passes = (r) => (kind === 'all' || r.group === kind) && passesBesidesKind(r);
   const shown = useMemo(() => decideRows.filter(passes).sort(SORTERS[sortKey] || SORTERS.oldest), [decideRows, kind, prioFilter, ageFilter, dept, company, q, sortKey]);   // eslint-disable-line react-hooks/exhaustive-deps
   const passesAct = (r) => matchesPriority(r, prioFilter) && (!q || [r.person?.name, r.title, r.detail].some((s) => (s || '').toLowerCase().includes(q)));
   const shownAct = useMemo(() => actRows.filter(passesAct).sort(SORTERS[sortKey] || SORTERS.oldest), [actRows, prioFilter, q, sortKey]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -317,6 +317,13 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
   // hidden, so it is handed the lists WITH the hidden rows and the keys.
   const phoneRows = useMemo(() => (phone ? (data?.rows || []).filter((r) => r.scope !== 'act' && passes(r)).sort(SORTERS[sortKey] || SORTERS.oldest) : []), [phone, data, kind, prioFilter, ageFilter, dept, company, q, sortKey]);   // eslint-disable-line react-hooks/exhaustive-deps
   const phoneOwn = useMemo(() => (phone ? (data?.rows || []).filter((r) => r.scope === 'act' && passesAct(r)).sort(SORTERS[sortKey] || SORTERS.oldest) : []), [phone, data, prioFilter, q, sortKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The phone's kind chips count what each chip would show: every filter
+  // but the kind itself (priority, waiting, search, department, company).
+  const chipCounts = useMemo(() => {
+    const c = { all: 0 };
+    if (phone) decideRows.filter(passesBesidesKind).forEach((r) => { const n = r.count || 1; c.all += n; c[r.group] = (c[r.group] || 0) + n; });
+    return c;
+  }, [phone, decideRows, prioFilter, ageFilter, dept, company, q]); // eslint-disable-line react-hooks/exhaustive-deps
   const sections = useMemo(() => sectionize(shown, effectiveGroupBy, groupLabels), [shown, effectiveGroupBy, groupLabels]);
   const filtering = prioFilter !== 'all' || !!q || !!ageFilter || !!dept || !!company;
   const clearFilters = () => { setPrioFilter('all'); setQuery(''); setAgeFilter(0); setDept(''); setCompany(''); };
@@ -377,7 +384,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
     return (
       <div className="apv-center apv-phone-root" data-group-by={effectiveGroupBy}>
         <ApprovalsPhone tab={tab} setTab={setTab}
-          rows={phoneRows} ownRows={phoneOwn} hiddenKeys={hidden} groupLabels={groupLabels} counts={counts} kind={kind} setKind={setKind}
+          rows={phoneRows} ownRows={phoneOwn} hiddenKeys={hidden} groupLabels={groupLabels} counts={counts} chipCounts={chipCounts} kind={kind} setKind={setKind}
           filters={{ query, prioFilter, ageFilter, dept, company }} setFilters={setFilter} clearFilters={clearFilters} filtering={filtering}
           groupBy={effectiveGroupBy} setGroupBy={setGroupBy} sortKey={sortKey} setSortKey={setSortKey}
           deptCounts={deptCounts} companyCounts={companyCounts} seesAll={seesAll}

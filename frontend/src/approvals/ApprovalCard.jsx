@@ -126,7 +126,7 @@ export default function ApprovalCard({ row, own = false, ghost = false, swipe = 
             {!yes && !no && open && row.link?.view && (
               <button type="button" className="apv-ph-btn apv-ph-open" aria-label={`Open: ${name}`} onClick={() => onAct(row, open)}>{openLabel} <ArrowUpRight size={15} /></button>
             )}
-            {yes && <button type="button" className="apv-ph-more" aria-label={`More: ${row.title}`} title="Review the whole request" onClick={onReview}><MoreHorizontal size={18} /></button>}
+            {yes && <button type="button" className="apv-ph-more" aria-label={`More: ${name}`} title="Review the whole request" onClick={onReview}><MoreHorizontal size={18} /></button>}
           </div>
         )}
       </article>
