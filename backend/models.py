@@ -9589,3 +9589,38 @@ class ApprovalDecision(Base):
     waited_days   = Column(Integer, default=0)                         # how long it had waited when decided
     for_email     = Column(String, default="")                         # the delegator, when decided as a stand-in
     decided_at    = Column(String, default="", index=True)
+
+
+# ── Web Push (Frontline Reach, Neil 11/02/2026) ──────────────────────────────
+# A phone or desktop that said yes to "Push to This Device" (My Profile >
+# Phone Notifications) registers its browser subscription here, one row per
+# endpoint. Every bell notice with a named recipient (nexus_notifications,
+# recipient set) is copied into the outbox by push.py's after_insert listener
+# and sent by push_loop through the browser's push service with our VAPID
+# keys. Both tables are enabled for RLS at startup (the Postgres list in
+# main.py) and must be on prod too at release.
+class NexusPushSubscription(Base):
+    __tablename__ = "nexus_push_subscriptions"
+    id          = Column(String, primary_key=True)                 # ps_ + hex
+    email       = Column(String, nullable=False, index=True)
+    endpoint    = Column(Text, nullable=False, unique=True)        # the push service URL, one device + browser
+    p256dh      = Column(String, default="")                       # the browser's public key
+    auth        = Column(String, default="")                       # the browser's auth secret
+    user_agent  = Column(String, default="")
+    created_at  = Column(String, default="")
+    last_ok_at  = Column(String, default="")
+    failures    = Column(Integer, default=0)                       # consecutive send failures; 5 disables
+    disabled    = Column(Boolean, default=False)
+
+
+class NexusPushOutbox(Base):
+    __tablename__ = "nexus_push_outbox"
+    id          = Column(String, primary_key=True)                 # po_ + hex
+    email       = Column(String, nullable=False, index=True)
+    title       = Column(String, default="")
+    body        = Column(Text, default="")
+    url         = Column(String, default="")
+    tag         = Column(String, default="")
+    created_at  = Column(String, default="", index=True)
+    sent_at     = Column(String, default="", index=True)           # '' = waiting
+    error       = Column(String, default="")
