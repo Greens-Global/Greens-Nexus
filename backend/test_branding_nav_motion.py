@@ -9,6 +9,8 @@ import json
 import os
 import unittest
 
+import _testdb  # noqa: F401,E402  - a throwaway database whatever runner imports this file
+
 from fastapi.testclient import TestClient  # noqa: E402
 
 import auth  # noqa: E402
@@ -88,10 +90,19 @@ class NavMotionTests(unittest.TestCase):
         finally:
             db.close()
 
-    def test_a_save_without_the_field_keeps_lively(self):
+    def test_a_first_save_without_the_field_reads_lively(self):
         r = self.client.put("/branding/config", json={"accent": "blue"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["navMotion"], "lively")
+
+    def test_a_save_without_the_field_keeps_the_stored_strength(self):
+        # An older client (a deploy window) or a color-only save must not
+        # reset a company's choice.
+        self.assertEqual(self.client.put("/branding/config", json={"accent": "green", "navMotion": "subtle"}).status_code, 200)
+        r = self.client.put("/branding/config", json={"accent": "blue"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["navMotion"], "subtle")
+        self.assertEqual(self.client.get("/branding/config").json()["navMotion"], "subtle")
 
     def test_refuses_an_unknown_strength(self):
         r = self.client.put("/branding/config", json={"accent": "green", "navMotion": "wild"})

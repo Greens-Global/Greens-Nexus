@@ -78,7 +78,9 @@ class BrandingIn(BaseModel):
     accent: str
     customHex: str = ""
     opacity: int = OPACITY_MAX
-    navMotion: str = _DEFAULT_MOTION
+    # None = leave the stored strength alone (an older client, or a save that
+    # only carries the color, must never reset a company's Subtle to Lively).
+    navMotion: str | None = None
 
 
 @router.get("/config")
@@ -95,9 +97,12 @@ def update_config(body: BrandingIn, user: dict = Depends(require_administrator),
         raise HTTPException(400, "Custom color must be a hex color such as #0f3d2e")
     if not OPACITY_MIN <= body.opacity <= OPACITY_MAX:
         raise HTTPException(400, f"Opacity must be between {OPACITY_MIN}% and {OPACITY_MAX}%")
-    if body.navMotion not in _VALID_MOTION:
+    if body.navMotion is not None and body.navMotion not in _VALID_MOTION:
         raise HTTPException(400, "Navigation motion must be off, subtle, lively or bold")
-    cfg = _clean_accent(body.model_dump())
+    data = body.model_dump()
+    if data.get("navMotion") is None:
+        data["navMotion"] = _get_config(db).get("navMotion")
+    cfg = _clean_accent(data)
     accent = cfg["accent"]
     row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
     if not row:
