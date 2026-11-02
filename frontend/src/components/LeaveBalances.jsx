@@ -11,6 +11,9 @@ import { CalendarClock, ChevronDown, ChevronRight, Plus, RefreshCw, Upload, X } 
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { SkeletonBlocks, Spinner } from './AsyncState';
+import SaveRow from './SaveRow';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
 
 // Which balance a leave type draws from - the same rule as the server's
 // leave_balances.bucket_of (sick and personal are one balance). Phase 1D:
@@ -528,8 +531,12 @@ function PersonDetail({ email, onChanged, toastOk, toastErr }) {
   );
 }
 
+// The policy list is one draft beside the saved list with one Save row at its
+// foot (the Settings save pattern, Oct 23 2026): every box, select and
+// checkbox here is part of a policy, written together by one Save.
 function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
-  const [list, setList] = useState(() => policies.map(p => JSON.parse(JSON.stringify(p))));
+  const { draft, setDraft: setList, dirty, reset } = useDraft(policies);
+  const list = draft || [];
   const [busy, setBusy] = useState(false);
   const upd = (i, fn) => setList(l => l.map((p, j) => (j === i ? fn(JSON.parse(JSON.stringify(p))) : p)));
 
@@ -539,10 +546,12 @@ function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
       const body = Object.fromEntries(list.map(p => { const { assigned, ...rest } = p; void assigned; return [p.id, rest]; }));
       await api.leaveSavePolicies(body);
       toastOk?.('Policies saved.');
-      onSaved?.();
-    } catch (e) { toastErr?.(e?.message || 'Could not save the policies.'); }
-    setBusy(false);
+      await onSaved?.();
+      return true;
+    } catch (e) { toastErr?.(e?.message || 'Could not save the policies.'); return false; }
+    finally { setBusy(false); }
   }
+  useGroupDirty(dirty, save);
   function addPolicy() {
     const id = `custom-${Date.now().toString(36)}`;
     setList(l => [...l, { id, name: 'New Policy', unit: 'hours', hoursPerDay: 8, eligibleTypes: ['full_time'],
@@ -615,11 +624,10 @@ function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
           )}
         </div>
       ))}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="secondary-btn" onClick={addPolicy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Policy</button>
-        <span style={{ flex: 1 }} />
-        <button className="primary-btn" onClick={save} disabled={busy} style={{ fontSize: 12.5 }}>{busy ? <Spinner size={12} /> : 'Save Policies'}</button>
-      </div>
+      <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} style={{ marginTop: 6 }}
+        note="A new or changed policy counts from the next Recalculate.">
+        <button type="button" className="secondary-btn" onClick={addPolicy} disabled={busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Policy</button>
+      </SaveRow>
     </div>
   );
 }

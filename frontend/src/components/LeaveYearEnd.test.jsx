@@ -47,18 +47,38 @@ beforeEach(() => {
 });
 
 describe('Leave Year-End settings', () => {
-  it('opens on Use It Or Lose It with the California note; a cap shows its fields; Save sends the rule', async () => {
+  // The Settings save pattern: a select saves on change; the typed cap waits
+  // for the one Save (disabled until it changed) and survives the picks
+  // saved beside it.
+  it('opens on Use It Or Lose It with the California note; a pick saves at once; the cap waits for Save', async () => {
     render(<LeaveYearEndSettings toastOk={() => {}} toastErr={() => {}} />);
     const vac = await screen.findByLabelText('Vacation at year end');
     expect(vac.value).toBe('reset');
     expect(screen.getAllByText(/California vacation does not expire/).length).toBeGreaterThan(0);
-    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
     fireEvent.change(vac, { target: { value: 'carry_cap' } });
-    fireEvent.change(screen.getByLabelText('Vacation carry-over cap'), { target: { value: '5' } });
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][0]).toMatchObject({ vacationMode: 'carry_cap', vacationCap: 0, sickMode: 'reset' });
+    fireEvent.change(await screen.findByLabelText('Vacation carry-over cap'), { target: { value: '5' } });
     fireEvent.change(screen.getByLabelText('Vacation cap unit'), { target: { value: 'days' } });
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    // The unit saved without the half-typed cap; the cap is still a draft.
+    expect(save.mock.calls[1][0]).toMatchObject({ vacationCapUnit: 'days', vacationCap: 0 });
+    await vi.waitFor(() => expect(screen.getByLabelText('Vacation cap unit')).not.toBeDisabled());
+    expect(screen.getByLabelText('Vacation carry-over cap').value).toBe('5');
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await vi.waitFor(() => expect(save).toHaveBeenCalled());
-    expect(save.mock.calls[0][0]).toMatchObject({ vacationMode: 'carry_cap', vacationCap: 5, vacationCapUnit: 'days', sickMode: 'reset' });
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(3));
+    expect(save.mock.calls[2][0]).toMatchObject({ vacationMode: 'carry_cap', vacationCap: 5, vacationCapUnit: 'days', sickMode: 'reset' });
+  });
+
+  it('a pick that fails to save goes back', async () => {
+    save.mockImplementationOnce(() => Promise.reject(new Error('No')));
+    const toastErr = vi.fn();
+    render(<LeaveYearEndSettings toastOk={() => {}} toastErr={toastErr} />);
+    const vac = await screen.findByLabelText('Vacation at year end');
+    fireEvent.change(vac, { target: { value: 'carry_all' } });
+    await vi.waitFor(() => expect(toastErr).toHaveBeenCalledWith('No'));
+    expect(screen.getByLabelText('Vacation at year end').value).toBe('reset');
   });
 
   it('Second Approval By HR saves on click', async () => {

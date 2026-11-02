@@ -25,6 +25,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { X, CalendarClock, CheckCircle2, Hourglass, LogOut, Eye, Send, Pencil, Play, MinusCircle, History } from 'lucide-react';
 import { api } from '../api';
 import { Spinner, SkeletonBlocks, ErrorBanner } from './AsyncState';
+import SaveRow from './SaveRow';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
 import { StatusLabel } from './StatusLabel';
 import { DateField, AvatarName } from '../tasks/components';
 import { formatDate, toDateInputValue } from '../lib/datetime';
@@ -517,43 +520,78 @@ const NUMBER_FIELDS = [
   ['reminderDays', 'Reminder', 'Days before the end date the manager and the company HR contact are told, once. 0 turns the reminder off.', 'days before'],
 ];
 
+// The Settings save pattern (Oct 23 2026): the letter and letterhead picks
+// save as they are made, with a toast, and go back if the save fails; the
+// two numbers are a draft with one Save row under them. A save sends only
+// the keys it changes - the server merges them into the company's own copy
+// (hr_probation.save_settings), so a company keeps inheriting the rest.
+const NUMBER_KEYS = NUMBER_FIELDS.map(([k]) => k);
+const pickNumbers = (s) => Object.fromEntries(NUMBER_KEYS.map(k => [k, s?.[k] ?? '']));
+
 export function ProbationSettings({ company: scoped, onOverride, toastOk, toastErr }) {
   const [meta, setMeta] = useState(null);
-  const [vals, setVals] = useState({});
-  const [saved, setSaved] = useState({});
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(false);          // the Save row
+  const [picking, setPicking] = useState('');       // a select saving on change
+  const [resetting, setResetting] = useState(false);
   const [loadErr, setLoadErr] = useState('');
   const company = scoped || '';
+  const savedAll = meta?.settings || null;
+  const saved = savedAll ? pickNumbers(savedAll) : null;
+  const { draft, setDraft, reset: discard } = useDraft(saved, { rebase: true });
+  const [picks, setPicks] = useState({});           // a pick on screen while it saves
   const load = useCallback(() => {
     api.probationSettings(company).then(m => {
-      const s = (m && m.settings) || {};
       setLoadErr('');
-      setMeta(m && !Array.isArray(m) ? m : { settings: {}, templates: [], letterheads: [], limits: {} });
-      setVals(s); setSaved(s);
+      setMeta(m && !Array.isArray(m) ? { ...m, settings: m.settings || {} } : { settings: {}, templates: [], letterheads: [], limits: {} });
     }).catch(x => setLoadErr(x?.message || 'Could not load the probation settings.'));
   }, [company]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (meta && company) onOverride?.(!!meta.override); }, [meta, company, onOverride]);
 
-  async function save(reset = false) {
+  const changed = saved && draft ? NUMBER_KEYS.filter(k => String(draft[k] ?? '') !== String(saved[k] ?? '')) : [];
+  const dirty = changed.length > 0;
+  const valid = changed.every(k => draft[k] !== '' && Number.isFinite(Number(draft[k])));
+  const apply = (r) => setMeta(m => ({ ...m, settings: r.settings || m.settings, override: r.override }));
+
+  async function saveNumbers() {
+    if (!dirty || !valid) return false;
     setBusy(true);
     try {
-      const r = await api.probationSaveSettings({ company, settings: vals, reset });
-      setVals(r.settings || vals); setSaved(r.settings || vals);
-      setMeta(m => ({ ...m, override: r.override }));
-      toastOk?.(reset ? 'Probation settings reset to the default.' : 'Probation settings saved.');
-    } catch (x) { toastErr?.(x?.message || 'Could not save the probation settings.'); }
-    setBusy(false);
+      apply(await api.probationSaveSettings({ company, settings: Object.fromEntries(changed.map(k => [k, Number(draft[k])])) }));
+      toastOk?.('Probation settings saved.');
+      return true;
+    } catch (x) { toastErr?.(x?.message || 'Could not save the probation settings.'); return false; }
+    finally { setBusy(false); }
   }
+  useGroupDirty(dirty, saveNumbers);
+
+  async function pickNow(k, value) {
+    setPicks(p => ({ ...p, [k]: value }));
+    setPicking(k);
+    try {
+      apply(await api.probationSaveSettings({ company, settings: { [k]: value } }));
+      toastOk?.('Probation settings saved.');
+    } catch (x) { toastErr?.(x?.message || 'Could not save the probation settings.'); }
+    setPicks(p => { const n = { ...p }; delete n[k]; return n; });
+    setPicking('');
+  }
+  async function useDefault() {
+    setResetting(true);
+    try {
+      apply(await api.probationSaveSettings({ company, settings: {}, reset: true }));
+      discard();
+      toastOk?.('Probation settings reset to the default.');
+    } catch (x) { toastErr?.(x?.message || 'Could not save the probation settings.'); }
+    setResetting(false);
+  }
+
   if (loadErr) return <ErrorBanner message={loadErr} onRetry={() => { setLoadErr(''); load(); }} />;
-  if (!meta) return <div style={{ padding: 24, textAlign: 'center' }}><Spinner size="section" /></div>;
+  if (!meta || !draft) return <div style={{ padding: 24, textAlign: 'center' }}><Spinner size="section" /></div>;
   const canEdit = !!meta.canEdit;
-  const keys = ['months', 'reminderDays', 'confirmTemplateId', 'extendTemplateId', 'letterheadId'];
-  const dirty = keys.some(k => String(vals[k] ?? '') !== String(saved[k] ?? ''));
   const templates = meta.templates || [];
   const select = (k, label, options, none) => (
-    <select className="form-input" aria-label={label} value={vals[k] ?? ''} disabled={!canEdit || busy}
-      onChange={ev => setVals(v => ({ ...v, [k]: ev.target.value }))} style={{ fontSize: 13, maxWidth: 260 }}>
+    <select className="form-input" aria-label={label} value={picks[k] ?? savedAll[k] ?? ''} disabled={!canEdit || !!picking || resetting}
+      onChange={ev => pickNow(k, ev.target.value)} style={{ fontSize: 13, maxWidth: 260 }}>
       <option value="">{none}</option>
       {options.map(o => <option key={o.id} value={o.id}>{o.name}{o.published === false ? ' (Not Published)' : ''}</option>)}
     </select>
@@ -565,31 +603,30 @@ export function ProbationSettings({ company: scoped, onOverride, toastOk, toastE
         {company ? (meta.override ? ' This company has its own probation settings.' : ' This company uses the default.') : ' Each company can keep its own.'}
       </p>
       <SettingCard>
-        {NUMBER_FIELDS.map(([k, title, desc, unit]) => {
-          const [lo, hi] = meta.limits?.[k] || [0, 90];
-          return (
-            <SettingRow key={k} title={title} desc={desc}
-              control={<NumberBox label={title} min={lo} max={hi} unit={unit} width={70} disabled={!canEdit || busy} value={vals[k] ?? ''}
-                onChange={(v) => setVals(prev => ({ ...prev, [k]: v === '' ? '' : Number(v) }))} />} />
-          );
-        })}
         <SettingRow title="Confirmation Letter" desc="The Documents template sent when HR confirms - the employee signs it, the company signatory is printed."
           control={select('confirmTemplateId', 'Confirmation letter', templates, 'No Letter')} />
         <SettingRow title="Extension Letter" desc="The Documents template sent when HR extends probation, with the new end date and the reason."
           control={select('extendTemplateId', 'Extension letter', templates, 'No Letter')} />
         <SettingRow title="Letterhead" desc="Printed on the letters when the template uses one. Blank = the template's own, else the default letterhead."
           control={select('letterheadId', 'Letterhead', meta.letterheads || [], "The Template's Own")} />
+        {NUMBER_FIELDS.map(([k, title, desc, unit]) => {
+          const [lo, hi] = meta.limits?.[k] || [0, 90];
+          return (
+            <SettingRow key={k} title={title} desc={desc}
+              control={<NumberBox label={title} min={lo} max={hi} unit={unit} width={70} disabled={!canEdit || busy} value={draft[k] ?? ''}
+                onChange={(v) => setDraft(prev => ({ ...prev, [k]: v === '' ? '' : Number(v) }))} />} />
+          );
+        })}
+        {canEdit && (
+          <SaveRow dirty={dirty} busy={busy} onSave={saveNumbers} onDiscard={discard} saveDisabled={!valid} style={{ margin: 0, padding: '12px 18px' }}
+            onUseDefault={company && meta.override ? useDefault : undefined} useDefaultBusy={resetting}
+            note="Save writes the length and the reminder. The letters and the letterhead save as you pick them." />
+        )}
       </SettingCard>
-      {!canEdit ? (
+      {!canEdit && (
         <p className="nx-set-pad" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
           {!company && (meta.companies || []).length ? 'The default for every company is changed by an administrator. Pick your company in Applies To to set its own.' : 'Only HR editors and administrators can change these.'}
         </p>
-      ) : (
-        <div className="nx-set-pad" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {dirty && <button type="button" className="primary-btn" disabled={busy} onClick={() => save(false)}>{busy ? 'Saving…' : 'Save'}</button>}
-          {dirty && <button type="button" className="secondary-btn" disabled={busy} onClick={() => setVals(saved)}>Discard Changes</button>}
-          {!!company && !!meta.override && <button type="button" className="secondary-btn" disabled={busy} onClick={() => save(true)}>Use the Default</button>}
-        </div>
       )}
     </div>
   );

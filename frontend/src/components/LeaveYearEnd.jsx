@@ -17,6 +17,9 @@ import { formatDate } from '../lib/datetime';
 import { ErrorBanner, SkeletonBlocks, Spinner } from './AsyncState';
 import { SettingCard, SettingRow, SwitchRow, NumberBox } from './settings/SettingsUI';
 import { fmtLeave } from './LeaveBalances';
+import SaveRow from './SaveRow';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
 
 const BUCKETS = [['vacation', 'Vacation'], ['sick', 'Sick / Personal']];
 const MODES = [['reset', 'Use It Or Lose It'], ['carry_all', 'Carry Everything'], ['carry_cap', 'Carry Up To a Cap']];
@@ -27,32 +30,68 @@ const modeLabel = (m) => (MODES.find(([k]) => k === m) || MODES[0])[1];
 
 // ── Settings ────────────────────────────────────────────────────────────────
 
+// The Settings save pattern (Oct 23 2026): the selects (what happens at year
+// end, the cap's unit, the leave year) save as they are picked, with a toast,
+// and go back if the save fails; the typed caps are a draft with one Save row
+// at the foot. The draft rebases, so a pick saved on change never wipes a cap
+// half typed beside it.
+const CAP_KEYS = ['vacationCap', 'sickCap'];
 export function LeaveYearEndSettings({ toastOk, toastErr, company = '', onOverride }) {
   const [cfg, setCfg] = useState(null);
-  const [draft, setDraft] = useState(null);
+  const saved = cfg ? pick(cfg) : null;
+  const { draft, patch: edit, reset: discard } = useDraft(saved, { rebase: true });
   const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(false);          // the Save row
+  const [picking, setPicking] = useState('');       // a select saving on change
+  const [resetting, setResetting] = useState(false);
   const load = useCallback(() => {
     setErr('');
-    api.leaveYearEndSettings(company).then((d) => { setCfg(d); setDraft(pick(d)); })
+    api.leaveYearEndSettings(company).then(setCfg)
       .catch((e) => setErr(e?.message || 'Could not load the year-end rule.'));
   }, [company]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (cfg && company) onOverride?.(!!cfg.hasOverride); }, [cfg, company, onOverride]);
 
-  if (err) return <div style={{ padding: 14 }}><ErrorBanner message={err} onRetry={load} /></div>;
-  if (!cfg || !draft) return <div style={{ padding: 14 }}><SkeletonBlocks count={3} height={44} borderRadius={10} /></div>;
-  const dirty = JSON.stringify(draft) !== JSON.stringify(pick(cfg));
-  const edit = (patch) => setDraft((d) => ({ ...d, ...patch }));
-  async function save(reset = false) {
+  // Only the caps wait for Save.
+  const dirty = !!saved && !!draft && CAP_KEYS.some((k) => String(draft[k] ?? '') !== String(saved[k] ?? ''));
+  async function saveCaps() {
     setBusy(true);
     try {
-      const d = await api.leaveYearEndSettingsSave(reset ? { reset: true } : draft, company);
-      setCfg(d); setDraft(pick(d));
-      toastOk?.(reset ? 'Back to the default year-end rule.' : 'Year-end rule saved.');
-    } catch (e) { toastErr?.(e?.message || 'Could not save the year-end rule.'); }
-    setBusy(false);
+      const body = { ...saved, ...Object.fromEntries(CAP_KEYS.map((k) => [k, draft[k] === '' ? saved[k] : draft[k]])) };
+      setCfg(await api.leaveYearEndSettingsSave(body, company));
+      toastOk?.('Year-end rule saved.');
+      return true;
+    } catch (e) { toastErr?.(e?.message || 'Could not save the year-end rule.'); return false; }
+    finally { setBusy(false); }
   }
+  useGroupDirty(dirty, saveCaps);
+
+  if (err) return <div style={{ padding: 14 }}><ErrorBanner message={err} onRetry={load} /></div>;
+  if (!cfg || !draft) return <div style={{ padding: 14 }}><SkeletonBlocks count={3} height={44} borderRadius={10} /></div>;
+  // A select: saved at once with the other saved values (never a half-typed cap).
+  async function pickNow(p) {
+    const [k] = Object.keys(p);
+    edit(p);
+    setPicking(k);
+    try {
+      setCfg(await api.leaveYearEndSettingsSave({ ...saved, ...p }, company));
+      toastOk?.('Year-end rule saved.');
+    } catch (e) {
+      edit({ [k]: saved[k] });
+      toastErr?.(e?.message || 'Could not save the year-end rule.');
+    }
+    setPicking('');
+  }
+  async function useDefault() {
+    setResetting(true);
+    try {
+      setCfg(await api.leaveYearEndSettingsSave({ reset: true }, company));
+      discard();
+      toastOk?.('Back to the default year-end rule.');
+    } catch (e) { toastErr?.(e?.message || 'Could not save the year-end rule.'); }
+    setResetting(false);
+  }
+  const capShown = BUCKETS.some(([b]) => draft[`${b}Mode`] === 'carry_cap');
   const legal = (cfg.legal || []).map((l) => l.note).join(' ');
   return (
     <SettingCard>
@@ -62,7 +101,7 @@ export function LeaveYearEndSettings({ toastOk, toastErr, company = '', onOverri
             ? `What happens to unused vacation when the leave year ends. ${legal}`
             : 'What happens to unused sick time when the calendar year ends. A California-style lump grant starts fresh each year either way.'}
           control={(
-            <select className="form-input" aria-label={`${label} at year end`} value={draft[`${b}Mode`]} onChange={(e) => edit({ [`${b}Mode`]: e.target.value })}
+            <select className="form-input" aria-label={`${label} at year end`} value={draft[`${b}Mode`]} disabled={!!picking} onChange={(e) => pickNow({ [`${b}Mode`]: e.target.value })}
               style={{ fontSize: 13, width: 'auto' }}>
               {MODES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
@@ -71,7 +110,7 @@ export function LeaveYearEndSettings({ toastOk, toastErr, company = '', onOverri
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Carry up to</span>
               <NumberBox label={`${label} carry-over cap`} min={0} max={2000} value={draft[`${b}Cap`]} onChange={(v) => edit({ [`${b}Cap`]: v === '' ? '' : Number(v) })} />
-              <select className="form-input" aria-label={`${label} cap unit`} value={draft[`${b}CapUnit`]} onChange={(e) => edit({ [`${b}CapUnit`]: e.target.value })}
+              <select className="form-input" aria-label={`${label} cap unit`} value={draft[`${b}CapUnit`]} disabled={!!picking} onChange={(e) => pickNow({ [`${b}CapUnit`]: e.target.value })}
                 style={{ fontSize: 13, width: 'auto' }}>
                 <option value="hours">Hours</option>
                 <option value="days">Days</option>
@@ -84,7 +123,7 @@ export function LeaveYearEndSettings({ toastOk, toastErr, company = '', onOverri
       <SettingRow title="Vacation Leave Year"
         desc="The calendar year (January 1 - December 31), or each person's work anniversary - only for vacation granted on the anniversary (India). Everyone else stays on the calendar year."
         control={(
-          <select className="form-input" aria-label="Vacation leave year" value={draft.vacationYear} onChange={(e) => edit({ vacationYear: e.target.value })}
+          <select className="form-input" aria-label="Vacation leave year" value={draft.vacationYear} disabled={!!picking} onChange={(e) => pickNow({ vacationYear: e.target.value })}
             style={{ fontSize: 13, width: 'auto' }}>
             <option value="calendar">Calendar Year</option>
             <option value="anniversary">Work Anniversary</option>
@@ -95,18 +134,11 @@ export function LeaveYearEndSettings({ toastOk, toastErr, company = '', onOverri
         <span style={{ flex: 1, minWidth: 200 }}>
           {legal || 'Some states do not allow vacation to expire.'} What expires is written to each person&apos;s leave history - nothing is deleted. HR can preview the year end under People &gt; Time &gt; Time Off.
         </span>
-        {company && cfg.hasOverride && !dirty && (
-          <button type="button" className="secondary-btn" disabled={busy} onClick={() => save(true)} style={{ fontSize: 12 }}>Use the Default</button>
-        )}
-        {dirty && (
-          <>
-            <button type="button" className="secondary-btn" disabled={busy} onClick={() => setDraft(pick(cfg))} style={{ fontSize: 12 }}>Discard</button>
-            <button type="button" className="primary-btn" disabled={busy} onClick={() => save(false)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {busy && <Spinner size={12} />} Save
-            </button>
-          </>
-        )}
+        {picking && <Spinner size={12} />}
       </div>
+      <SaveRow dirty={dirty} busy={busy} onSave={saveCaps} onDiscard={discard} saveDisabled={!!picking} style={{ margin: 0, padding: '12px 18px' }}
+        onUseDefault={company && cfg.hasOverride ? useDefault : undefined} useDefaultBusy={resetting}
+        note={capShown ? 'Save writes the carry-over caps. The choices above save as you pick them.' : 'The choices above save as you pick them.'} />
     </SettingCard>
   );
 }
