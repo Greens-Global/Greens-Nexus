@@ -36,6 +36,12 @@ told, and keeps their shift and pay; a group with nobody in such a
 department gets no call at all (routers/weather_call.py answers 403).
 Calls made before keep what they did - history is never rewritten.
 
+The weather follows the jobsite (Neil, call of 10/30/2026; decision of
+11/02/2026): a team split between places is called ONE PLACE AT A TIME.
+The day's roster, the call and its record are the team, the day and the
+place (jobsites.py - '' = the team's site), so a call made for the rainy
+jobsite can never touch the people working somewhere dry.
+
 Everything here is synchronous DB and HTTP work: the routes are plain
 `def`, the follow-up loop runs its tick in a thread.
 """
@@ -52,6 +58,7 @@ from html import escape
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
+import jobsites
 import models
 import shift_log
 import weather_scope
@@ -146,11 +153,14 @@ def _members(db: Session, group_id: str) -> list:
             db.query(models.ShiftGroupMember).filter(models.ShiftGroupMember.group_id == group_id).all()]
 
 
-def day_shifts(db: Session, g, day: str, member_emails: list, lock: bool = False) -> list:
+def day_shifts(db: Session, g, day: str, member_emails: list, lock: bool = False, place: str = None,
+               cat=None) -> list:
     """The group's published shifts that day: rows on the group, plus older
     rows with no group on its members. Open slots (no person) included.
     Only people in a weather department (weather_scope): anyone else's
-    shift is never on the roster and never changed by a call."""
+    shift is never on the roster and never changed by a call. `place`
+    (a jobsites key, '' = the team's site) keeps only the shifts worked
+    there; None keeps every place."""
     S = models.ScheduledShift
     # A row a delay moved past midnight lives on the next day now but still
     # belongs to this day's call (original_work_date).
@@ -162,7 +172,29 @@ def day_shifts(db: Session, g, day: str, member_emails: list, lock: bool = False
     if lock:
         q = q.with_for_update()   # these rows only - never the whole day's schedule
     sc = weather_scope.scope(db)
-    return [r for r in q.all() if not r.employee_email or sc.person_on(r.employee_email)]
+    rows = [r for r in q.all() if not r.employee_email or sc.person_on(r.employee_email)]
+    if place is None:
+        return rows
+    cat = cat or jobsites.Catalog(db)
+    return [r for r in rows if cat.place_of(getattr(r, "jobsite", ""), g.work_site_id) == place]
+
+
+def places_for_day(db: Session, g, day: str, cat=None) -> list:
+    """The places the team works that day, for the screen's tabs: the worst
+    weather first, then by name. [{key, name, people, band, chance}]."""
+    cat = cat or jobsites.Catalog(db)
+    site = db.query(models.HrWorkSite).filter(models.HrWorkSite.id == (getattr(g, "work_site_id", "") or "")).first()
+    by: dict = {}
+    for r in day_shifts(db, g, day, _members(db, g.id)):
+        by.setdefault(cat.place_of(getattr(r, "jobsite", ""), g.work_site_id), set()).add((r.employee_email or "").lower())
+    out = []
+    for key, emails in by.items():
+        o = _outlook(db, g.id, day, key)
+        out.append({"key": key, "name": cat.name(key) if key else (site.name if site else "Team Site"),
+                    "people": len([e for e in emails if e]), "band": o.get("band") or "quiet", "chance": o.get("chance") or 0})
+    rank = {b: i for i, b in enumerate(weather_watch.BANDS)}
+    out.sort(key=lambda p: (-rank.get(p["band"], 0), p["key"] != "", p["name"].lower()))
+    return out
 
 
 def _prefs(db: Session, emails: list) -> dict:
@@ -200,11 +232,11 @@ def _shift_dict(r) -> dict:
             "openSlots": int(getattr(r, "open_slots", 0) or 0)}
 
 
-def roster(db: Session, g, day: str, people: dict = None) -> list:
-    """Everyone on the group's day with their shifts, phone and texts
-    switch, by name. Open slots come last as one row with no email."""
+def roster(db: Session, g, day: str, people: dict = None, place: str = "") -> list:
+    """Everyone on the group's day at one place with their shifts, phone and
+    texts switch, by name. Open slots come last as one row with no email."""
     people = people if people is not None else weather_watch._people(db)
-    rows = day_shifts(db, g, day, _members(db, g.id))
+    rows = day_shifts(db, g, day, _members(db, g.id), place=place)
     emails = sorted({(r.employee_email or "").lower() for r in rows if r.employee_email})
     prefs = _prefs(db, emails)
     out = []
@@ -220,8 +252,8 @@ def roster(db: Session, g, day: str, people: dict = None) -> list:
     return out
 
 
-def _outlook(db: Session, group_id: str, day: str) -> dict:
-    r = db.query(models.WeatherOutlook).filter(models.WeatherOutlook.id == f"{group_id}:{day}").first()
+def _outlook(db: Session, group_id: str, day: str, place: str = "") -> dict:
+    r = db.query(models.WeatherOutlook).filter(models.WeatherOutlook.id == weather_watch.outlook_id(group_id, day, place)).first()
     if not r:
         return {}
     try:
@@ -236,9 +268,10 @@ def _outlook(db: Session, group_id: str, day: str) -> dict:
             "windowStart": r.window_start or "", "windowEnd": r.window_end or "", "hourly": hourly, "updatedAt": r.updated_at or ""}
 
 
-def latest_decision(db: Session, group_id: str, day: str):
+def latest_decision(db: Session, group_id: str, day: str, place: str = ""):
     return (db.query(models.WeatherDecision)
-            .filter(models.WeatherDecision.group_id == group_id, models.WeatherDecision.work_date == day)
+            .filter(models.WeatherDecision.group_id == group_id, models.WeatherDecision.work_date == day,
+                    models.WeatherDecision.place == (place or ""))
             .order_by(models.WeatherDecision.decided_at.desc()).first())
 
 
@@ -257,6 +290,7 @@ def decision_dict(db: Session, d, people: dict = None) -> dict:
     selected = [p for p in ppl if p.get("selected")]
     g = _group(db, d.group_id)
     return {"id": d.id, "groupId": d.group_id, "groupName": g.name if g else "", "date": d.work_date, "kind": d.kind,
+            "place": d.place or "", "placeName": jobsites.Catalog(db).name(d.place) if d.place else "",
             "outcome": OUTCOME.get(d.kind, ""), "newStart": d.new_start or "", "newEnd": d.new_end or "", "moveTo": d.move_to or "",
             "reason": d.reason or "", "sms": bool(d.sms), "status": d.status, "unpaid": d.kind == "cancel",
             "decidedBy": d.decided_by, "decidedByName": _name(people.get(d.decided_by)) or d.decided_by, "decidedAt": d.decided_at,
@@ -265,12 +299,14 @@ def decision_dict(db: Session, d, people: dict = None) -> dict:
             "pendingCount": sum(1 for p in selected if not p.get("ackAt")), "outlook": outlook}
 
 
-def screen(db: Session, user: dict, g, day: str) -> dict:
-    """Everything the Weather Call screen needs for one group-day."""
+def screen(db: Session, user: dict, g, day: str, place: str = "") -> dict:
+    """Everything the Weather Call screen needs for one group-day at one
+    place, plus the day's places (the tabs)."""
     people = weather_watch._people(db)
     cid = weather_watch.group_company(db, g, _members(db, g.id), people)
     deciders, told = weather_watch.deciders_for(db, g, cid)
-    d = latest_decision(db, g.id, day)
+    cat = jobsites.Catalog(db)
+    d = latest_decision(db, g.id, day, place)
     note = (db.query(models.ScheduleDayNote)
             .filter(models.ScheduleDayNote.work_date == day, models.ScheduleDayNote.group_id == g.id).first())
     site = db.query(models.HrWorkSite).filter(models.HrWorkSite.id == (getattr(g, "work_site_id", "") or "")).first()
@@ -279,9 +315,10 @@ def screen(db: Session, user: dict, g, day: str) -> dict:
     # made on it before - to read or reinstate - but takes no new one.
     off = weather_scope.why_not_watched(db, g)
     can = may_decide(db, user, g, cid)
-    head = {"group": {"id": g.id, "name": g.name, "workSiteName": site.name if site else "",
+    head = {"group": {"id": g.id, "name": g.name, "workSiteName": (cat.name(place) if place else "") or (site.name if site else ""),
                       "deciders": [{"email": e, "name": _name(people.get(e)) or e} for e in deciders]},
-            "date": day, "outlook": _outlook(db, g.id, day), "canDecide": can, "weatherOff": off,
+            "date": day, "place": place, "places": places_for_day(db, g, day, cat),
+            "outlook": _outlook(db, g.id, day, place), "canDecide": can, "weatherOff": off,
             "smsDefault": bool(cfg.get("smsDefault", True)), "dayNote": note.note if note else "", "companyId": cid}
     if not can:
         # A shift manager with no say over this group sees the forecast and
@@ -292,7 +329,7 @@ def screen(db: Session, user: dict, g, day: str) -> dict:
     def phone_of(em):
         e = people.get(em)
         return (e.phone or "").strip() if e is not None else ""
-    ros = roster(db, g, day, people)
+    ros = roster(db, g, day, people, place)
     for p in ros:
         p["phoneNumber"] = phone_of(p["email"]) if p["email"] else ""
     dec = decision_dict(db, d, people) if d else None
@@ -398,8 +435,9 @@ def headline(kind: str, new_start: str = "", new_end: str = "", move_to: str = "
             "proceed": "Going Ahead as Planned Despite the Forecast"}.get(kind, kind)
 
 
-def decide(db: Session, user: dict, g, day: str, body: dict, defer=None) -> dict:
-    """Make (or remake) the call for one group-day. `body`: kind, emails
+def decide(db: Session, user: dict, g, day: str, body: dict, defer=None, place: str = "") -> dict:
+    """Make (or remake) the call for one group-day at one place (jobsites,
+    '' = the team's site; nobody working anywhere else is on it). `body`: kind, emails
     (who it applies to), new_start / new_end / move_to as the kind needs,
     reason (required), sms (text the crew; default from settings).
     `defer` - see _run: the route hands the texts, email and Teams to a
@@ -419,9 +457,13 @@ def decide(db: Session, user: dict, g, day: str, body: dict, defer=None) -> dict
     cid = weather_watch.group_company(db, g, _members(db, g.id), people)
     cfg = weather_watch.get_config(db)
     sms = bool(body.get("sms")) if body.get("sms") is not None else bool(cfg.get("smsDefault", True))
-    rows = day_shifts(db, g, day, _members(db, g.id), lock=True)
+    cat = jobsites.Catalog(db)
+    if place and cat.get(place) is None:
+        raise ValueError("That jobsite is not on record.")
+    rows = day_shifts(db, g, day, _members(db, g.id), lock=True, place=place, cat=cat)
     if not rows:
-        raise ValueError("Nobody is scheduled for this group that day.")
+        raise ValueError("Nobody is scheduled for this group there that day." if place
+                         else "Nobody is scheduled for this group that day.")
     on_day = sorted({(r.employee_email or "").lower() for r in rows if r.employee_email})
     picked = {str(e).strip().lower() for e in (body.get("emails") or []) if str(e).strip()}
     unknown = sorted(picked - set(on_day))
@@ -439,13 +481,13 @@ def decide(db: Session, user: dict, g, day: str, body: dict, defer=None) -> dict
     # delayed under a call nobody can reinstate any more.
     for old in (db.query(models.WeatherDecision)
                 .filter(models.WeatherDecision.group_id == g.id, models.WeatherDecision.work_date == day,
-                        models.WeatherDecision.status == "active").all()):
+                        models.WeatherDecision.place == (place or ""), models.WeatherDecision.status == "active").all()):
         old.status = "superseded"
         _restore_rows(db, old.id, actor, "superseded: a later weather call replaced this one")
-    d = models.WeatherDecision(id=str(uuid.uuid4()), group_id=g.id, work_date=day, company=cid, kind=kind,
+    d = models.WeatherDecision(id=str(uuid.uuid4()), group_id=g.id, work_date=day, place=place or "", company=cid, kind=kind,
                                new_start=new_start, new_end=new_end, move_to=move_to, reason=reason, sms=1 if sms else 0,
                                status="active", decided_by=actor, decided_at=now,
-                               outlook_json=json.dumps({k: v for k, v in _outlook(db, g.id, day).items() if k != "hourly"}))
+                               outlook_json=json.dumps({k: v for k, v in _outlook(db, g.id, day, place).items() if k != "hourly"}))
     db.add(d)
     prefs = _prefs(db, on_day)
     touched, ppl = [], []
@@ -497,7 +539,8 @@ def decide(db: Session, user: dict, g, day: str, body: dict, defer=None) -> dict
         note = models.ScheduleDayNote(id=str(uuid.uuid4()), work_date=day, group_id=g.id)
         db.add(note)
     who = "everyone" if len(picked) == len(on_day) else f"{len(picked)} of {len(on_day)}"
-    note.note = f"Weather call: {headline(kind, new_start, new_end, move_to)} for {who} - {decider_name}. {reason}"[:200]
+    at = f" at {cat.name(place)}" if place else ""
+    note.note = f"Weather call{at}: {headline(kind, new_start, new_end, move_to)} for {who} - {decider_name}. {reason}"[:200]
     note.updated_by, note.updated_at = actor, now
     db.commit()
     queued = notify_decision(db, d, g, people, actor, cid, defer=defer)
@@ -727,7 +770,8 @@ def _context(db: Session, d, actor: str) -> tuple:
     g = _group(db, d.group_id)
     people = weather_watch._people(db)
     site = db.query(models.HrWorkSite).filter(models.HrWorkSite.id == (getattr(g, "work_site_id", "") or "")).first()
-    return g, people, (site.name if site else ""), _company_name(db, d.company), _name(people.get(actor)) or actor
+    where = (jobsites.Catalog(db).name(d.place) if d.place else "") or (site.name if site else "")
+    return g, people, where, _company_name(db, d.company), _name(people.get(actor)) or actor
 
 
 def _deliver_decision(db: Session, decision_id: str, actor: str) -> None:
@@ -908,7 +952,7 @@ def _escalate(db: Session, d) -> int:
         _bell(db, em, f"weather-call-silent:{d.id}",
               f"{len(silent)} {'Person Has' if len(silent) == 1 else 'People Have'} Not Acknowledged the Weather Call",
               f"{g.name}, {_day_label(d.work_date)}: {names}. Their phone numbers are on the Weather Call screen - a call may be needed.",
-              action={"view": "shifts", "sub": f"schedule:{d.work_date}:{d.group_id}"}, company=d.company, priority=1)
+              action={"view": "shifts", "sub": weather_watch._sub(d.work_date, d.group_id, d.place or "")}, company=d.company, priority=1)
     d.escalated_at = _iso()
     db.commit()
     return len(silent)

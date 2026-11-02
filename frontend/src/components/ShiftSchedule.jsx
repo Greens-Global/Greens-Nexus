@@ -66,7 +66,7 @@ const presetWeekdays = (p) => {
 const presetOnDay = (p, ds) => presetWeekdays(p).includes((parseIso(ds).getDay() + 6) % 7);
 // What it takes to put a shift back exactly as it was (Undo).
 const createPayload = (s) => ({ employee_email: s.email || '', work_date: s.date, shift_id: s.shiftId || '', start_hhmm: s.start, end_hhmm: s.end, label: s.label || '', note: s.note || '',
-  break_min: s.breakMin ?? 0, color: s.ownColor || '', activities: s.activities || [], group_id: s.groupId || '', ...(s.email ? {} : { open_slots: s.openSlots || 1 }) });
+  break_min: s.breakMin ?? 0, color: s.ownColor || '', activities: s.activities || [], group_id: s.groupId || '', jobsite: s.jobsite || '', ...(s.email ? {} : { open_slots: s.openSlots || 1 }) });
 const SHORTCUTS = [
   ['Left / Right', 'Previous or next week (outside the grid)'], ['T', 'Today'], ['1 - 9', 'Switch to that team'],
   ['Arrow keys', 'Move the selection between days'], ['Enter', 'Open the day or shift'], ['Shift + Click', 'Open the editor on an empty day'],
@@ -115,7 +115,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   // An empty cell's history (a shift that was removed): looked up when its
   // menu opens, shown as "History" only when there is some.
   const [cellHistory, setCellHistory] = useState(null);   // { email, date, entries }
-  const [weatherCall, setWeatherCall] = useState(null);   // { groupId, date } while the Weather Call is open
+  const [weatherCall, setWeatherCall] = useState(null);   // { groupId, date, place } while the Weather Call is open
   const [noteDate, setNoteDate] = useState('');
   const [addTo, setAddTo] = useState(null);
   const [undo, setUndo] = useState(null);          // { msg, fn, key } - the 5-second Undo bar
@@ -299,21 +299,23 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   };
   const setGroupFilter = (id) => pickTeam(id || ALL_TEAMS);
   // Land on the day and group a weather advisory points at (Weather Call).
-  const focusDate = focus?.date || '', focusGroup = focus?.groupId || '';
+  const focusDate = focus?.date || '', focusGroup = focus?.groupId || '', focusPlace = focus?.place || '';
   useEffect(() => {
     if (!focusDate) return;
     setCursor(parseIso(focusDate));
     if (focusGroup) {
       setTeamPick(focusGroup);
       try { localStorage.setItem(teamKey, focusGroup); } catch { /* private mode */ }
-      setWeatherCall({ groupId: focusGroup, date: focusDate });   // the advisory said "make the weather call"
+      setWeatherCall({ groupId: focusGroup, date: focusDate, place: focusPlace });   // the advisory said "make the weather call"
     }
-  }, [focusDate, focusGroup]);   // eslint-disable-line react-hooks/exhaustive-deps
-  // The Weather Call for a day: the group on screen, else the day's worst group.
+  }, [focusDate, focusGroup, focusPlace]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The Weather Call for a day: the group on screen, else the day's worst
+  // group - at its worst place (the dialog's tabs reach the others).
   const openWeatherCall = (ds) => {
     const w = weather[ds];
+    const at = w?.groupIds ? w.groupIds.indexOf(groupFilter || w.groupIds[0]) : -1;
     const gid = groupFilter || w?.groupIds?.[0] || groups.find((g) => !g.archived)?.id || '';
-    if (gid) setWeatherCall({ groupId: gid, date: ds });
+    if (gid) setWeatherCall({ groupId: gid, date: ds, place: at >= 0 ? w.places?.[at] || '' : '' });
   };
   // Back where you were in that team's list.
   useLayoutEffect(() => {
@@ -1267,7 +1269,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       {panel && (
         <ShiftPanel key={`${panel.cell.email}|${panel.cell.date}|${panel.cell.existing?.id || ''}|${panel.mode}`} cell={panel.cell} initialMode={panel.mode}
           presets={presets} quickPicks={quickPicks} groups={groups.filter((g) => !g.archived)} people={Object.values(empByEmail).filter((e) => e.canEdit !== false)} nameOf={nameOf}
-          teamZone={teamZoneLabel} busy={busy} canTimeOff={canTimeOff}
+          teamZone={teamZoneLabel} busy={busy} canTimeOff={canTimeOff} jobsites={data?.jobsites || []}
           onSave={saveCell} onAssign={assignOpen} onDelete={delCell} onDiscard={discardCell}
           onCopy={(s) => { copyShift(s); setPanel(null); }} onToOpen={(s) => moveShift(s, '', s.date, false)}
           onSaveTimeOff={saveTimeOff} onClose={() => setPanel(null)} />
@@ -1291,7 +1293,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
           onSave={saveDayNote} onClose={() => setOpen('')} />
       )}
       {weatherCall && (
-        <WeatherCallDialog key={`${weatherCall.groupId}|${weatherCall.date}`} groupId={weatherCall.groupId} date={weatherCall.date} onClose={() => setWeatherCall(null)} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+        <WeatherCallDialog key={`${weatherCall.groupId}|${weatherCall.date}|${weatherCall.place || ''}`} groupId={weatherCall.groupId} date={weatherCall.date} place={weatherCall.place || ''} onClose={() => setWeatherCall(null)} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
       )}
       {open === 'view' && (
         <ViewOptionsDialog prefs={prefs} onPrefs={setPrefs} query={query} onQuery={setQuery} groupBy={groupBy} onGroupBy={setGroupBy}

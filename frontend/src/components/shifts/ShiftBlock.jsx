@@ -17,7 +17,8 @@
 // with `tapActual` (My Shifts) - a tap on the badge or bar opens a small
 // sheet with the hover lines, since a phone has no hover.
 import { useEffect, useState } from 'react';
-import { Lock } from 'lucide-react';
+import { Lock, MapPin } from 'lucide-react';
+import WeatherChip, { weatherText } from './WeatherChip';
 import { formatDate } from '../../lib/datetime';
 import { timeOffLabel } from '../shiftScheduleLib';
 import { alpha, DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, shiftState, shiftTimeText, shiftShortText, unpaidLabel, timeOffWhen, timeOffShort, isApprovedOff, isAllDayOff, zoneDiffers, actualLabel, actualColor, actualWord, actualLetter } from './shiftLib';
@@ -63,7 +64,12 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const weather = s.weatherStatus === 'cancelled' ? 'Cancelled for weather (unpaid)' : s.weatherStatus === 'delayed' ? 'Start delayed for weather'
     : s.weatherStatus === 'shortened' ? 'Ending early for weather' : s.weatherStatus === 'moved' ? 'Moved for weather' : s.weatherStatus === 'kept' ? 'Weather call: going ahead' : '';
   const cancelled = s.weatherStatus === 'cancelled';
-  const title = [`${shiftTimeText(s)}${code ? ` · ${code}` : ''}${label ? ` · ${label}` : ''}`, actText, weather, st.title, unpaid, s.note,
+  // Where it is worked (the weather follows the jobsite, 10/30/2026), and
+  // that jobsite's own sky when it is not quiet. A jobsite with no address
+  // reads the team site's weather, which the day's chip already shows.
+  const site = s.jobsiteName ? `At ${s.jobsiteName}${s.jobsiteLocated === false ? " (no address yet - the team site's weather)" : ''}` : '';
+  const sky = s.weatherBand ? { band: s.weatherBand, chance: s.weatherChance || 0, inches: s.weatherInches || 0 } : null;
+  const title = [`${shiftTimeText(s)}${code ? ` · ${code}` : ''}${label ? ` · ${label}` : ''}`, site, sky ? weatherText(sky) : '', actText, weather, st.title, unpaid, s.note,
     ...(s.activities || []).map((a) => `${a.start && a.end ? `${shiftTimeText(a)} ` : ''}${a.label || 'Activity'}${a.paid === false ? ' (unpaid)' : ''}`),
     otherZone ? `Times in ${zoneOptionLabel(zone)}` : '', ...(s.conflicts || [])].filter(Boolean).join('\n');
   const interactive = !!onOpen;
@@ -96,6 +102,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
       <div data-shift-time="" style={{ ...LINE, display: 'flex', alignItems: 'baseline', gap: 4, fontSize: fit(share, compact ? 11 : 12), fontWeight: 700, lineHeight: 1.3, textDecoration: cancelled ? 'line-through' : undefined }}>
         <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{shiftShortText(s)}</span>
         {slots > 0 && <span style={{ fontSize: '0.75em', fontWeight: 800, background: color, color: '#fff', borderRadius: 10, padding: '0 4px', flexShrink: 0, alignSelf: 'center' }}>×{slots}</span>}
+        {sky && <WeatherChip w={sky} compact size={11} />}
         {otherZone && <span title={`Times in ${zoneOptionLabel(zone)}`} style={{ fontSize: '0.78em', fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 4, padding: '0 3px', flexShrink: 0, alignSelf: 'center' }}>{tzAbbrev(zone)}</span>}
         {letter && (
           <span data-actual-badge={act.status} aria-hidden="true" title={actText} onClick={tappable ? showSheet : undefined}
@@ -110,6 +117,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
       )}
       {sheet && act && <ActualSheet at={sheet} shift={s} actual={act} text={actText} onClose={() => setSheet(null)} />}
       {label && !compact && <div style={{ ...LINE, fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.3, textDecoration: cancelled ? 'line-through' : undefined }}>{label}</div>}
+      {s.jobsiteName && !compact && <div data-jobsite="" style={{ ...LINE, fontSize: 10, color: 'var(--muted)', lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 3 }}><MapPin size={9} style={{ flexShrink: 0 }} /><span style={LINE}>{s.jobsiteName}</span></div>}
       {cancelled && !compact && <div style={{ ...LINE, fontSize: 10, fontWeight: 700, color: 'hsl(var(--color-orange))', lineHeight: 1.3 }}>Weather - unpaid</div>}
       {children}
     </div>

@@ -9,10 +9,14 @@ the Weather Watch thresholds; a site with no point says why; a provider
 outage for one site leaves the others standing.
 """
 import os
+import tempfile
 import unittest
 from unittest import mock
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_construction_weather.db"
+# A throwaway database each run: a fixed file kept an older schema.
+_tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+_tmp_db.close()
+os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 os.environ["NEXUS_DEV_EMAIL"] = "manager@greensglobal.com"
 

@@ -1414,6 +1414,11 @@ def _run_migrations():
             "ALTER TABLE nexus_notes ADD COLUMN ydoc TEXT DEFAULT ''",
             "ALTER TABLE nexus_notes ADD COLUMN yepoch VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_notes ADD COLUMN collab_key VARCHAR DEFAULT ''",
+            # The weather follows the jobsite (Neil, 10/30/2026) - see the Postgres list.
+            "ALTER TABLE scheduled_shifts ADD COLUMN jobsite VARCHAR DEFAULT ''",
+            "ALTER TABLE weather_outlook ADD COLUMN place VARCHAR DEFAULT ''",
+            "ALTER TABLE weather_advisories ADD COLUMN place VARCHAR DEFAULT ''",
+            "ALTER TABLE weather_decisions ADD COLUMN place VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3375,6 +3380,15 @@ def _run_migrations():
         "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS yepoch VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS collab_key VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_note_presence ENABLE ROW LEVEL SECURITY",
+        # The weather follows the jobsite (Neil, call of 10/30/2026): a shift
+        # names where it is worked ('' = the team's site, 'project-<id>' a
+        # construction project, 'site-<id>' a company site - jobsites.py), and
+        # Weather Watch / Weather Call key each band, notice and call on the
+        # team, the day AND that place ('' = the team's site, as before).
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS jobsite VARCHAR DEFAULT ''",
+        "ALTER TABLE weather_outlook ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
+        "ALTER TABLE weather_advisories ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
+        "ALTER TABLE weather_decisions ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

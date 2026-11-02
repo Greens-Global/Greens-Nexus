@@ -1,8 +1,8 @@
 """The weather call's API (Weather Call, Phase 2 - Oct 2026). See
 weather_call.py for what a call does; this file is the routes.
 
-  GET  /weather-call/{group}/{date}           the screen (outlook, roster, decision, canDecide)
-  POST /weather-call/{group}/{date}           make the call
+  GET  /weather-call/{group}/{date}?place=    the screen (outlook, roster, decision, canDecide, places)
+  POST /weather-call/{group}/{date}?place=    make the call (place: a jobsite key, '' = the team's site)
   POST /weather-call/{decision}/reinstate     undo it
   POST /weather-call/{decision}/remind        a second text to the silent, by hand
   POST /weather-call/{decision}/ack           acknowledge from inside Nexus (My Shifts)
@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import jobsites
 import models
 import weather_call
 import weather_scope
@@ -130,7 +131,8 @@ def my_calls(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         if not p:
             continue
         g = db.query(models.ShiftGroup).filter(models.ShiftGroup.id == d.group_id).first()
-        out.append({"id": d.id, "groupName": g.name if g else "", "date": d.work_date, "kind": d.kind, "status": d.status,
+        at = f" at {jobsites.Catalog(db).name(d.place)}" if d.place else ""
+        out.append({"id": d.id, "groupName": (g.name if g else "") + at, "date": d.work_date, "kind": d.kind, "status": d.status,
                     "outcome": p.get("outcome"), "reason": d.reason or "", "newStart": d.new_start or "", "newEnd": d.new_end or "",
                     "moveTo": d.move_to or "", "decidedAt": d.decided_at, "ackAt": p.get("ackAt") or "",
                     "headline": weather_call.headline(d.kind, d.new_start, d.new_end, d.move_to) if d.status == "active"
@@ -178,12 +180,13 @@ def save_my_prefs(body: PrefsIn, user: dict = Depends(get_current_user), db: Ses
 # ── The call ──────────────────────────────────────────────────────────────
 
 @router.get("/{group_id}/{day}")
-def read_screen(group_id: str, day: str, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
+def read_screen(group_id: str, day: str, place: str = "", user: dict = Depends(require_shift_manage),
+                db: Session = Depends(get_db)):
     g = _group_or_404(db, group_id)
     day = _parse_day(day, "date").isoformat()
-    if weather_call.latest_decision(db, g.id, day) is None:
+    if weather_call.latest_decision(db, g.id, day, place) is None:
         _require_watched(db, g)   # a call made before still opens, to read or reinstate
-    return weather_call.screen(db, user, g, day)
+    return weather_call.screen(db, user, g, day, place)
 
 
 @router.post("/{decision_id}/reinstate")
@@ -221,8 +224,8 @@ class DecideIn(BaseModel):
 
 
 @router.post("/{group_id}/{day}")
-def make_call(group_id: str, day: str, body: DecideIn, bt: BackgroundTasks, user: dict = Depends(require_shift_manage),
-              db: Session = Depends(get_db)):
+def make_call(group_id: str, day: str, body: DecideIn, bt: BackgroundTasks, place: str = "",
+              user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     """The shifts, the record and the bells now; the texts, email and Teams
     messages in a background task after the response (Oct 12) - the answer
     says what was queued, and the roster fills in each result as it lands."""
@@ -233,7 +236,7 @@ def make_call(group_id: str, day: str, body: DecideIn, bt: BackgroundTasks, user
     _require_decider(db, user, g, cid)
     _require_watched(db, g)
     try:
-        return weather_call.decide(db, user, g, day, body.model_dump(), defer=bt.add_task)
+        return weather_call.decide(db, user, g, day, body.model_dump(), defer=bt.add_task, place=place)
     except ValueError as e:
         db.rollback()
         raise HTTPException(400, str(e))

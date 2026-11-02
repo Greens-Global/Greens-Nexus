@@ -146,3 +146,48 @@ describe('Weather Call dialog', () => {
     expect(within(dlg).queryByRole('button', { name: /Make the Call/ })).toBeNull();
   });
 });
+
+// The weather follows the jobsite (10/30/2026): a team working in two places
+// that day is called one place at a time - a tab per place, the asked-for
+// one open, and the call posted for that place only (Pranshu, 11/02/2026).
+describe('Weather Call dialog, one place at a time', () => {
+  const PLACES = [{ key: 'project-red', name: 'Redding Solar Farm', people: 2, band: 'major', chance: 85 },
+    { key: '', name: 'Irvine Yard', people: 1, band: 'quiet', chance: 0 }];
+
+  it('opens the asked-for place, switches tabs, and posts the call for the place on screen', async () => {
+    weatherCallScreen.mockImplementation((g, d, place) => Promise.resolve(place === 'project-red'
+      ? base({ place, places: PLACES, group: { ...base().group, workSiteName: 'Redding Solar Farm' }, roster: [person('ann@x.com', 'Ann X'), person('bob@x.com', 'Bob X')] })
+      : base({ place, places: PLACES, group: { ...base().group, workSiteName: 'Irvine Yard' }, outlook: {}, roster: [person('cal@x.com', 'Cal X')] })));
+    render(<WeatherCallDialog groupId="g1" date={DAY} place="project-red" onClose={vi.fn()} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />);
+    const dlg = await openDialog();
+    const tabs = within(dlg).getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Redding Solar Farm (2)', 'Irvine Yard (1)']);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(within(dlg).queryByLabelText('Apply to Cal X')).toBeNull();           // the yard is not on Redding's roster
+    fireEvent.change(within(dlg).getByLabelText('Reason'), { target: { value: 'Storm' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: /Make the Call/ }));
+    await waitFor(() => expect(weatherCallDecide).toHaveBeenCalledTimes(1));
+    expect(confirmAsk.mock.calls[0][0]).toContain('Cancel the Day for 2 of 2 at Redding Solar Farm on 10/16/2026?');
+    expect(weatherCallDecide.mock.calls[0][3]).toBe('project-red');
+    expect(weatherCallDecide.mock.calls[0][2]).toMatchObject({ emails: ['ann@x.com', 'bob@x.com'] });
+    fireEvent.click(within(dlg).getByRole('tab', { name: 'Irvine Yard (1)' }));
+    await within(dlg).findByLabelText('Apply to Cal X');
+    expect(weatherCallScreen).toHaveBeenLastCalledWith('g1', DAY, '');
+    expect(within(dlg).queryByLabelText('Apply to Ann X')).toBeNull();
+  });
+
+  it('opens the rainiest place when nobody works at the asked-for one', async () => {
+    // Everyone is out on jobsites: the team's own site is not one of the day's places.
+    const away = [PLACES[0], { key: 'project-sea', name: 'Seattle Pier', people: 1, band: 'heads_up', chance: 45 }];
+    weatherCallScreen.mockImplementation((g, d, place) => Promise.resolve(base({ place, places: away })));
+    render(<WeatherCallDialog groupId="g1" date={DAY} onClose={vi.fn()} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />);
+    await openDialog();
+    expect(weatherCallScreen).toHaveBeenLastCalledWith('g1', DAY, 'project-red');
+  });
+
+  it('shows no tabs for a team in one place', async () => {
+    render(<WeatherCallDialog groupId="g1" date={DAY} onClose={vi.fn()} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />);
+    const dlg = await openDialog();
+    expect(within(dlg).queryByRole('tablist', { name: 'Places' })).toBeNull();
+  });
+});

@@ -170,8 +170,9 @@ async def backfill_loop():
 # ── The daily update (Neil, 10/30/2026: "give everyone the update every day
 # of what the weather actually is") ──────────────────────────────────────────
 #
-# Each active jobsite's people - its managers, crew and executives - hear
-# tomorrow's weather at that site the evening before (from EVENING_HOUR, site
+# Each active jobsite's people - its managers, crew and executives, plus
+# anyone with a shift scheduled there that day (`_scheduled`; Pranshu,
+# 10/31/2026) - hear tomorrow's weather at that site the evening before (from EVENING_HOUR, site
 # time) and again early in the morning only if the forecast changed
 # (MORNING_FROM..MORNING_TO). One bell and one email per person covers every
 # site they are on; a site that would earn a flag leads. What has been sent is
@@ -309,6 +310,17 @@ def _people(p) -> set:
             if (e or "").strip()}
 
 
+def _scheduled(db: Session, p, day: str) -> set:
+    """Everyone with a published shift at the jobsite that day (the weather
+    follows the jobsite, 10/30/2026) - on the project's lists or not. A shift
+    a weather call canceled is not work there."""
+    import models
+    S = models.ScheduledShift
+    rows = (db.query(S.employee_email, S.weather_status)
+            .filter(S.jobsite == "project-" + p.id, S.work_date == day, S.published == 1, S.pending_delete == 0).all())
+    return {(em or "").strip().lower() for em, ws in rows if (em or "").strip() and (ws or "") != "cancelled"}
+
+
 def _email_html(slot: str, day: str, items: list) -> tuple:
     from html import escape
     import email_theme
@@ -400,7 +412,7 @@ def tick(db: Session, now=None) -> dict:
                     models.ConstructionProject.status == "active",
                     models.ConstructionProject.archived == False).all())   # noqa: E712 - SQLAlchemy expression
     for p in rows:
-        if not has_point(p) or not _people(p):
+        if not has_point(p):
             continue
         try:
             fc = forecast_for(p.latitude, p.longitude, "imperial")
@@ -414,7 +426,8 @@ def tick(db: Session, now=None) -> dict:
             slot, day = "morning", local.date().isoformat()
         else:
             continue
-        o = day_outlook(fc, day, cfg)
+        people = _people(p) | _scheduled(db, p, day)
+        o = day_outlook(fc, day, cfg) if people else None
         if not o:
             continue
         fp = fingerprint(o)
@@ -425,7 +438,7 @@ def tick(db: Session, now=None) -> dict:
             continue                                   # same forecast as last night: quiet
         done[slot] = fp
         touched = True
-        for em in _people(p):
+        for em in people:
             per_person.setdefault((em, slot, day), []).append({"name": p.name, "o": o})
     for (em, slot, day), items in per_person.items():
         try:

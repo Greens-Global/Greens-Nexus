@@ -2664,6 +2664,11 @@ class ScheduledShift(Base):
     # A delay that moves an overnight shift's start past midnight puts the
     # row on the next calendar day; this is the day it was on (Oct 12).
     original_work_date  = Column(String, default="")
+    # Where the shift is worked (Neil, call of 10/30/2026 - the weather
+    # follows the jobsite): '' = the team's own site, 'project-<id>' a
+    # construction project, 'site-<id>' a company site (jobsites.py).
+    # Changes in place like the team and the zone, never staged for Publish.
+    jobsite             = Column(String, default="")
     # The grid and the reminder scan read one person's days (Oct 2).
     __table_args__ = (Index("ix_scheduled_shifts_email_date", "employee_email", "work_date"),)
 
@@ -6545,6 +6550,7 @@ class WeatherOutlook(Base):
     id           = Column(String, primary_key=True)
     group_id     = Column(String, default="", index=True)
     work_date    = Column(String, default="", index=True)   # YYYY-MM-DD, site-local
+    place        = Column(String, default="", index=True)   # '' = the team's site, else a jobsite key (jobsites.py)
     band         = Column(String, default="quiet")          # quiet | heads_up | major | warning
     chance       = Column(Integer, default=0)               # highest rain chance in the scheduled hours, %
     inches       = Column(Float, default=0)                 # rain expected over the scheduled hours
@@ -6571,6 +6577,7 @@ class WeatherAdvisory(Base):
     id              = Column(String, primary_key=True)
     group_id        = Column(String, default="", index=True)
     work_date       = Column(String, default="", index=True)
+    place           = Column(String, default="", index=True)   # '' = the team's site, else a jobsite key (jobsites.py)
     band            = Column(String, default="")
     chance          = Column(Integer, default=0)
     inches          = Column(Float, default=0)
@@ -6600,6 +6607,7 @@ class WeatherDecision(Base):
     id             = Column(String, primary_key=True)
     group_id       = Column(String, default="", index=True)
     work_date      = Column(String, default="", index=True)
+    place          = Column(String, default="", index=True)   # '' = the team's site, else a jobsite key (jobsites.py)
     company        = Column(String, default="")
     kind           = Column(String, default="")
     new_start      = Column(String, default="")   # delay: the new start (HH:MM)

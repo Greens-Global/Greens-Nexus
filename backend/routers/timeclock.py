@@ -7164,6 +7164,8 @@ def _sched_dict(row: ScheduledShift, presets: dict, effective: bool = False, tea
             "paidMin": 0 if weather_status == "cancelled" else max(0, _shift_minutes(start, end) - break_min),
             "activities": acts,
             "groupId": getattr(row, "group_id", "") or "",
+            # Where it is worked: '' = the team's site (jobsites.py).
+            "jobsite": getattr(row, "jobsite", "") or "",
             "timeZone": _shift_tz(row, p, team_tz),
             "ownColor": pend.get("color", getattr(row, "color", "") or "") or "",
             # '' = no preset: the team's zone (shift settings) applies.
@@ -7554,11 +7556,28 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     # scan last wrote, never a live forecast call from here.
     import weather_watch
     weather = weather_watch.outlook_rows(db, start, end, group_ids)
+    # The places a shift may name (the weather follows the jobsite, 10/30/2026),
+    # each shift's jobsite by name, and a shift at a jobsite its own sky (the
+    # day's chip covers the team's site, as before).
+    import jobsites
+    cat = jobsites.Catalog(db)
+    jobsite_list = cat.options() if can_write or any(s.get("jobsite") for s in scheduled) else []
+    if any(s.get("jobsite") for s in scheduled):
+        site_of = {g.id: g.work_site_id or "" for g in db.query(ShiftGroup).all()}
+        bands = {(w["groupId"], w["date"], w["place"]): w for w in weather if w.get("place")}
+        for s in scheduled:
+            if not s.get("jobsite"):
+                continue
+            p = cat.get(s["jobsite"])
+            s["jobsiteName"], s["jobsiteLocated"] = (p.name, p.located) if p is not None else ("", False)
+            w = bands.get((s.get("groupId") or "", s["date"], cat.place_of(s["jobsite"], site_of.get(s.get("groupId") or "", ""))))
+            if w:
+                s["weatherBand"], s["weatherChance"], s["weatherInches"] = w["band"], w["chance"], w["inches"]
 
     last = _last_publish(db) if can_write else {}
     return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
             "groups": groups, "scheduled": scheduled, "openShifts": open_shifts,
-            "timeoff": timeoff, "holidays": holidays, "weather": weather,
+            "timeoff": timeoff, "holidays": holidays, "weather": weather, "jobsites": jobsite_list,
             "dayNotes": day_notes, "canManage": can_write, "availability": avail,
             "groupScheduler": bool(user.get("_group_scheduler")), "usual": usual,
             "me": (user.get("email") or "").lower(),
@@ -7900,6 +7919,7 @@ class ScheduledShiftIn(BaseModel):
     color: Optional[str] = None        # '#rrggbb', '' = the preset's; None = leave as is
     group_id: Optional[str] = None     # the team; None = the person's first team (an open shift needs one)
     timezone: Optional[str] = None     # IANA zone of the times; None = the preset's / the team's
+    jobsite: Optional[str] = None      # where it is worked (jobsites.py); '' = the team's site; None = leave as is
 
 
 def _check_person_in_scope(db: Session, user: dict, em: str) -> None:
@@ -7951,6 +7971,11 @@ def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_schedu
     color = _clean_color(body.color)
     team_tz = _team_tz(db)
     tz = _placement_tz(body.timezone, preset, team_tz)
+    import jobsites
+    try:
+        jobsite = jobsites.normalize(db, body.jobsite)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     _dup_check(db, em, day, start, end, group_id=gid)   # after every 400: a bad field is reported first
     brk = (_clamp_break(body.break_min) if body.break_min is not None
            else int(getattr(preset, "break_min", 0) or 0) if preset else 0)
@@ -7960,7 +7985,7 @@ def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_schedu
         label=(body.label or "")[:80], note=(body.note or "")[:200], open_slots=slots,
         break_min=_break_for(acts, brk),
         activities_json=json.dumps(acts) if acts else "",
-        color=color, group_id=gid, timezone=tz,
+        color=color, group_id=gid, timezone=tz, jobsite=jobsite,
         published=0,   # new shifts start as a DRAFT until the manager publishes
         created_by=user["email"], created_at=_now_iso())
     db.add(row)
@@ -8002,6 +8027,7 @@ def assign_open_shift(sched_id: str, body: AssignOpenIn,
         label=row.label, note=row.note, open_slots=0, break_min=int(row.break_min or 0),
         activities_json=row.activities_json or "", color=row.color or "",
         group_id=getattr(row, "group_id", "") or "", timezone=getattr(row, "timezone", "") or "",
+        jobsite=getattr(row, "jobsite", "") or "",
         published=0,   # a newly assigned shift is a draft until published
         created_by=user["email"], created_at=_now_iso())
     db.add(assigned)
@@ -8343,6 +8369,7 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
                                  if src.get("activities") and body.include_activities else ""),
                 color=src.get("ownColor") or "",
                 group_id=src.get("groupId") or "", timezone=getattr(row, "timezone", "") or "",
+                jobsite=src.get("jobsite") or "",
                 published=0, created_by=user["email"], created_at=now)
             db.add(new_row)
             shift_log.record(db, "copied", new_row, user["email"], before=shift_log.snapshot(src),
@@ -8442,6 +8469,7 @@ def move_scheduled(sched_id: str, body: MoveIn, user: dict = Depends(require_sch
         open_slots=max(1, int(eff["openSlots"] or 0)) if not target else 0, break_min=int(eff["breakMin"] or 0),
         activities_json=json.dumps(eff["activities"]) if eff["activities"] else "",
         color=eff.get("ownColor") or "", group_id=gid, timezone=getattr(row, "timezone", "") or "",
+        jobsite=getattr(row, "jobsite", "") or "",
         published=0, created_by=user["email"], created_at=_now_iso())
     db.add(new)
     pending_removal = False
@@ -8873,6 +8901,13 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
         row.group_id = _resolve_group(db, body.group_id, row.employee_email, open_shift=not row.employee_email)
     if body.timezone is not None and (body.timezone or "").strip():
         row.timezone = _placement_tz(body.timezone, None, "")
+    jobsite_was = getattr(row, "jobsite", "") or ""
+    if body.jobsite is not None:
+        import jobsites
+        try:
+            row.jobsite = jobsites.normalize(db, body.jobsite)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
     was_removing = bool(row.pending_delete)
     if row.published:
         # Staff can already see this shift: keep the published version live
@@ -8887,14 +8922,37 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
         row.break_min = new["breakMin"]
         row.activities_json = json.dumps(new["activities"]) if new["activities"] else ""
         row.color = new["color"]
-    if new != base or was_removing:
+    moved = (getattr(row, "jobsite", "") or "") != jobsite_was
+    if new != base or was_removing or moved:
         shift_log.record(db, "edited", row, user["email"],
                          before=shift_log.snapshot({**base, "date": row.work_date, "email": row.employee_email}),
                          after=shift_log.snapshot({**new, "date": row.work_date, "email": row.employee_email}),
-                         reason="Kept after all" if was_removing else "")
+                         reason="Kept after all" if was_removing else ("Jobsite changed" if moved and new == base else ""))
     db.commit()
     presets = {s.id: s for s in db.query(Shift).filter(Shift.id.in_({row.shift_id, new["shiftId"]} - {""})).all()}
     return _sched_dict(row, presets, effective=True, team_tz=_team_tz(db))
+
+
+class JobsiteIn(BaseModel):
+    name: str
+    address: str
+
+
+@router.post("/jobsites", status_code=201)
+def create_jobsite(body: JobsiteIn, user: dict = Depends(require_schedule_write), db: Session = Depends(get_db)):
+    """'+ New Jobsite' in the shift popup (Pranshu, 11/02/2026): a name and an
+    address make a Construction project in one step, its address looked up
+    for the weather. The same address or name returns the project already
+    there instead of a second one. Answers the picker's row for it."""
+    import jobsites
+    try:
+        p = jobsites.create_project(db, (user.get("email") or "").lower(), body.name, body.address)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    db.commit()
+    key = jobsites.PROJECT + p.id
+    return next(o for o in jobsites.Catalog(db).options() + [{"id": key, "kind": "project", "name": p.name,
+                "where": p.address or "", "located": False, "hint": jobsites.NO_POINT}] if o["id"] == key)
 
 
 @router.delete("/schedule/{sched_id}")

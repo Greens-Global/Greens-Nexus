@@ -2623,8 +2623,8 @@ export const api = {
   weatherWatchScan:         ()     => req('/weather-watch/scan', { method: 'POST' }),
   weatherWatchAdvisories:   (groupId = '') => req(`/weather-watch/advisories${groupId ? `?group_id=${encodeURIComponent(groupId)}` : ''}`),
   // The weather call itself: the screen, the decision, follow-up, acknowledging, a person's texts switch.
-  weatherCallScreen:    (groupId, date)       => req(`/weather-call/${encodeURIComponent(groupId)}/${date}`),
-  weatherCallDecide:    (groupId, date, data) => req(`/weather-call/${encodeURIComponent(groupId)}/${date}`, { method: 'POST', body: JSON.stringify(data) }),
+  weatherCallScreen:    (groupId, date, place = '')       => req(`/weather-call/${encodeURIComponent(groupId)}/${date}${place ? `?place=${encodeURIComponent(place)}` : ''}`),
+  weatherCallDecide:    (groupId, date, data, place = '') => req(`/weather-call/${encodeURIComponent(groupId)}/${date}${place ? `?place=${encodeURIComponent(place)}` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
   weatherCallReinstate: (id)                  => req(`/weather-call/${encodeURIComponent(id)}/reinstate`, { method: 'POST' }),
   weatherCallRemind:    (id)                  => req(`/weather-call/${encodeURIComponent(id)}/remind`, { method: 'POST' }),
   weatherCallAck:       (id)                  => req(`/weather-call/${encodeURIComponent(id)}/ack`, { method: 'POST' }),
@@ -3385,6 +3385,9 @@ export const api = {
   noteCollab: (id) => req(`/notes/${encodeURIComponent(id)}/collab`),
   noteCollabSeed: (id, data) => req(`/notes/${encodeURIComponent(id)}/collab/seed`, { method: "POST", body: JSON.stringify(data) }),
   noteCollabReset: (id) => req(`/notes/${encodeURIComponent(id)}/collab/reset`, { method: "POST" }),
+  // The weather follows the jobsite (10/30/2026): "+ New Jobsite" in the
+  // shift popup - a name and an address make a Construction project.
+  createJobsite: (data) => req("/timeclock/jobsites", { method: "POST", body: JSON.stringify(data) }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with
