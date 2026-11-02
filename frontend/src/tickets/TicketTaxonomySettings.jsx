@@ -14,9 +14,13 @@
 // Saving here calls refreshTicketConfig() (ticketConfig.js) so every
 // already-open ticket screen picks up the change immediately, the same way
 // TicketDeskSettings/TicketNotifySettings's saves take effect live.
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { ListTree, Building2, Plus, ChevronDown, ChevronUp, Save, RotateCcw } from 'lucide-react';
+import { ListTree, Building2, Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import SaveRow from '../components/SaveRow';
+import SavedCheck from '../components/SavedCheck';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
@@ -43,9 +47,9 @@ function Field({ label, hint, children }) {
   );
 }
 
-function Toggle({ on, onChange, title, label }) {
+function Toggle({ on, onChange, title, label, disabled }) {
   return (
-    <button type="button" role="switch" aria-checked={!!on} aria-label={label} onClick={onChange}
+    <button type="button" role="switch" aria-checked={!!on} aria-label={label} onClick={onChange} disabled={disabled}
       title={title || (on ? 'Enabled' : 'Disabled')} style={{
       position: 'relative', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer',
       background: on ? NX.green : NX.border, transition: 'background 0.15s', flexShrink: 0,
@@ -122,22 +126,19 @@ function FieldEditor({ typeKey, fields, onChange }) {
         </div>
       ) : (
         <button onClick={() => setAdding(true)} style={{ ...btn('ghost'), display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '6px 10px', marginTop: 8 }}>
-          <Plus size={13} /> Add question
+          <Plus size={13} /> Add Question
         </button>
       )}
     </div>
   );
 }
 
-function TypeRow({ typeKey, meta, shown, onToggleShown, handle = null, typeCfg, onChangeType }) {
+// One type. `form` is the draft half (label, hint, questions); `shown` and
+// `requiresApproval` are switches that save on click.
+function TypeRow({ typeKey, meta, shown, onToggleShown, handle = null, form, requiresApproval, onToggleApproval, onChangeForm, busy = false }) {
   const [open, setOpen] = useState(false);
   const Icon = meta.icon;
-  const label = typeCfg.label ?? meta.label;
-  const hint = typeCfg.hint ?? (meta.hint || '');
-  const fields = typeCfg.fields ?? [];
-  // The server fills the flag in for the default-gated types, so anything
-  // without it is off - no default list is repeated here.
-  const requiresApproval = typeCfg.requiresApproval === true;
+  const { label, hint, fields } = form;
 
   return (
     <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
@@ -146,15 +147,15 @@ function TypeRow({ typeKey, meta, shown, onToggleShown, handle = null, typeCfg, 
             have no order to set, so no grip. */}
         {handle || <span style={{ width: 19, flexShrink: 0 }} />}
         <Icon size={16} style={{ color: meta.color, flexShrink: 0 }} />
-        <input value={label} onChange={(e) => onChangeType({ label: e.target.value })} style={{ ...inputStyle, width: 200 }} />
-        <input value={hint} onChange={(e) => onChangeType({ hint: e.target.value })} placeholder="Hint shown under the type picker"
+        <input value={label} aria-label={`${meta.label} label`} onChange={(e) => onChangeForm({ label: e.target.value })} style={{ ...inputStyle, width: 200 }} />
+        <input value={hint} aria-label={`${meta.label} hint`} onChange={(e) => onChangeForm({ hint: e.target.value })} placeholder="Hint shown under the type picker"
           style={{ ...inputStyle, flex: 1 }} />
         <label title="Shown at intake" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: NX.dim, fontWeight: 600, whiteSpace: 'nowrap' }}>
-          <Toggle on={shown} onChange={onToggleShown} label={`Offered on Submit a Ticket: ${meta.label}`}
+          <Toggle on={shown} onChange={onToggleShown} label={`Offered on Submit a Ticket: ${meta.label}`} disabled={busy}
             title={shown ? 'On - offered on Submit a Ticket' : 'Off - not offered on Submit a Ticket'} /> Intake
         </label>
         <button onClick={() => setOpen((o) => !o)} style={{ ...btn('ghost'), display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 10px', whiteSpace: 'nowrap' }}>
-          {fields.length} question{fields.length === 1 ? '' : 's'} {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          {fields.length} {fields.length === 1 ? 'Question' : 'Questions'} {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         </button>
       </div>
       {/* Approval switch (Sep 2026) - read server-side when a ticket is
@@ -162,8 +163,8 @@ function TypeRow({ typeKey, meta, shown, onToggleShown, handle = null, typeCfg, 
           flip never moves one that already exists. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px 10px 40px', flexWrap: 'wrap' }}>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12, color: NX.ink, fontWeight: 600, whiteSpace: 'nowrap' }}>
-          <Toggle on={requiresApproval} onChange={() => onChangeType({ requiresApproval: !requiresApproval })}
-            label={`Requires Approval: ${label}`} title="Requires Approval" /> Requires Approval
+          <Toggle on={requiresApproval} onChange={onToggleApproval} disabled={busy}
+            label={`Requires Approval: ${meta.label}`} title="Requires Approval" /> Requires Approval
         </label>
         <span style={{ fontSize: 11.5, color: NX.faint }}>
           New tickets of this type wait for an approver's sign-off before they can be assigned. Tickets already raised keep their current state.
@@ -171,32 +172,80 @@ function TypeRow({ typeKey, meta, shown, onToggleShown, handle = null, typeCfg, 
       </div>
       {open && (
         <div style={{ borderTop: `1px solid ${NX.border}`, padding: '12px 14px', background: NX.surface2 }}>
-          <FieldEditor typeKey={typeKey} fields={fields} onChange={(next) => onChangeType({ fields: next })} />
+          <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>
+            The questions - with their Required and Retired marks - are part of the draft: they save with the Save button below.
+          </div>
+          <FieldEditor typeKey={typeKey} fields={fields} onChange={(next) => onChangeForm({ fields: next })} />
         </div>
       )}
     </div>
   );
 }
 
+const clampHours = (v) => Math.max(1, Math.round(Number(v)) || 1);
+const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const mapHours = (m) => Object.fromEntries(Object.entries(m || {}).map(([k, v]) => [k, clampHours(v)]));
+
+// The draft half of the panel, as the server holds it: the SLA boxes (as the
+// text they show) and each type's label, hint and intake questions.
+function formOf(cfg) {
+  if (!cfg) return null;
+  const fr = { ...FIRST_RESPONSE_HOURS, ...(cfg.firstResponseHours || {}) };
+  return {
+    sla: Object.fromEntries(PRIORITIES.map(([k]) => [k, String(cfg.slaTargetHours?.[k] ?? '')])),
+    fr: Object.fromEntries(PRIORITIES.map(([k]) => [k, String(fr[k] ?? '')])),
+    types: Object.fromEntries(TICKET_TYPE_KEYS.map((k) => {
+      const t = cfg.types?.[k] || {};
+      return [k, { label: t.label ?? TICKET_TYPE_META[k]?.label ?? '', hint: t.hint ?? (TICKET_TYPE_META[k]?.hint || ''), fields: t.fields ?? [] }];
+    })),
+  };
+}
+
+// One save pattern (Settings, Oct 23 2026): the switches (Intake, Requires
+// Approval, the company field and its companies) and the type order save the
+// moment they change and go back with the reason when refused; the typed
+// half - SLA hours, labels, hints and the intake questions - is a draft with
+// one Save row at the foot that sends only what changed.
 export default function TicketTaxonomySettings() {
   const { myLevel } = useRole();
-  const [cfg, setCfg] = useState(null);       // raw server config: { slaTargetHours, firstResponseHours, types, typeOrder, companyField }
-  const [order, setOrder] = useState([]);     // working copy of the shown/ordered type keys
+  const [cfg, setCfg] = useState(null);       // what the server holds: { slaTargetHours, firstResponseHours, types, typeOrder, companyField }
   const [companies, setCompanies] = useState([]);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);    // a switch is saving
+  const [saved, setSaved] = useState(false);  // a switch just saved
   const [err, setErr] = useState('');
-  // What is typed in each SLA hours box, kept as text while typing and only
-  // clamped to a whole number of at least 1 on blur / save. Clamping every
-  // keystroke turned clearing "48" to retype it into "148" (the empty box
-  // snapped to 1, then the 4 and 8 were typed after it).
-  // Keyed "<field>.<priority>" - the resolution and first-response boxes.
-  const [slaText, setSlaText] = useState({});
 
-  const load = () => api.getTicketTaxonomySettings()
-    .then((c) => { setCfg(c); setOrder(Array.isArray(c.typeOrder) ? c.typeOrder : null); })
-    .catch((e) => setErr(e.message || String(e)));
+  const load = () => api.getTicketTaxonomySettings().then(setCfg).catch((e) => setErr(e.message || String(e)));
   useEffect(() => { load(); api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([])); }, []);
+
+  const savedForm = useMemo(() => formOf(cfg), [cfg]);
+  const { draft, setDraft, dirty, reset } = useDraft(savedForm, { rebase: true });
+
+  // Typed, so it is sent clamped to a whole number of at least 1 - the box
+  // keeps what is typed meanwhile (clamping every keystroke turned clearing
+  // "48" to retype it into "148").
+  const save = async () => {
+    if (!dirty || saving) return false;
+    const body = {};
+    if (!same(draft.sla, savedForm.sla)) body.slaTargetHours = mapHours(draft.sla);
+    if (!same(draft.fr, savedForm.fr)) body.firstResponseHours = mapHours(draft.fr);
+    const types = {};
+    for (const k of TICKET_TYPE_KEYS) {
+      // A type's entry replaces wholesale on the server: its saved switches travel with it.
+      if (!same(draft.types[k], savedForm.types[k])) types[k] = { ...(cfg.types?.[k] || {}), ...draft.types[k] };
+    }
+    if (Object.keys(types).length) body.types = types;
+    setSaving(true); setErr('');
+    try {
+      setCfg(await api.updateTicketTaxonomySettings(body));
+      await refreshTicketConfig();
+      return true;
+    } catch (e) {
+      setErr(e.message || String(e));
+      return false;
+    } finally { setSaving(false); }
+  };
+  useGroupDirty(dirty, save);
 
   if (myLevel < 3) {
     return (
@@ -205,69 +254,67 @@ export default function TicketTaxonomySettings() {
       </div>
     );
   }
-  if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
+  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
+
+  // A switch: shown at once, saved at once, put back when refused.
+  const instant = async (body, shown) => {
+    const before = cfg;
+    setCfg((c) => shown(c));
+    setBusy(true); setErr(''); setSaved(false);
+    try {
+      setCfg(await api.updateTicketTaxonomySettings(body));
+      await refreshTicketConfig();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      setCfg(before);
+      setErr(`Could not save that change: ${e.message || String(e)}`);
+    } finally { setBusy(false); }
+  };
 
   // Only the five types exist (Oct 1) - each listed here, on or off. A saved
   // order naming a retired type (Service Request, Change) just drops it.
   const allKeys = [...TICKET_TYPE_KEYS];
   // null order = nothing saved yet: what intake offers today (the five, in the
   // default order) until the admin actually reorders or switches one.
+  const order = Array.isArray(cfg.typeOrder) ? cfg.typeOrder : null;
   const shownOrder = (order ?? [...TICKET_TYPE_ORDER]).filter((k, i, arr) => allKeys.includes(k) && arr.indexOf(k) === i);
   const hidden = allKeys.filter((k) => !shownOrder.includes(k));
 
-  const clampHours = (v) => Math.max(1, Math.round(Number(v)) || 1);
-  // First-response targets (Honest SLA, Oct 2026) - a config saved before
-  // they existed has none, so the defaults show until one is saved.
-  const frHours = { ...FIRST_RESPONSE_HOURS, ...(cfg.firstResponseHours || {}) };
-  const typeSla = (k, raw, field = 'slaTargetHours') => {
-    setSlaText((m) => ({ ...m, [`${field}.${k}`]: raw }));
-    // A usable number goes into the config as it is typed, so the days hint
-    // follows along; an empty or partial box waits for blur.
-    const n = Number(raw);
-    if (raw.trim() !== '' && Number.isFinite(n) && n >= 1) {
-      setCfg((c) => ({ ...c, [field]: { ...(field === 'firstResponseHours' ? frHours : c[field]), [k]: Math.round(n) } }));
-    }
-  };
-  const settleSla = (k, field = 'slaTargetHours') => {
-    const key = `${field}.${k}`;
-    if (!(key in slaText)) return;
-    const n = clampHours(slaText[key]);
-    setCfg((c) => ({ ...c, [field]: { ...(field === 'firstResponseHours' ? frHours : c[field]), [k]: n } }));
-    setSlaText((m) => { const next = { ...m }; delete next[key]; return next; });
-  };
-  const setTypeCfg = (key, patch) => setCfg((c) => ({ ...c, types: { ...c.types, [key]: { ...(c.types[key] || {}), ...patch } } }));
-  const setCompanyField = (patch) => setCfg((c) => ({ ...c, companyField: { ...c.companyField, ...patch } }));
-  const toggleCompanyId = (id) => setCompanyField({
-    companyIds: cfg.companyField.companyIds.includes(id)
-      ? cfg.companyField.companyIds.filter((c) => c !== id)
-      : [...cfg.companyField.companyIds, id],
-  });
+  const setOrder = (next) => instant({ typeOrder: next }, (c) => ({ ...c, typeOrder: next }));
   const toggleShown = (key) => {
     const cur = shownOrder;
     if (cur.includes(key) && cur.length === 1) return;   // intake always offers at least one type
     setOrder(cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]);
   };
-
-  const save = async () => {
-    setSaving(true); setErr(''); setSaved(false);
-    try {
-      // Anything still being typed is settled the same way blur would.
-      const slaTargetHours = { ...cfg.slaTargetHours };
-      const firstResponseHours = { ...frHours };
-      for (const [key, raw] of Object.entries(slaText)) {
-        const [field, k] = key.split('.');
-        (field === 'firstResponseHours' ? firstResponseHours : slaTargetHours)[k] = clampHours(raw);
-      }
-      setSlaText({});
-      const next = await api.updateTicketTaxonomySettings({ slaTargetHours, firstResponseHours, types: cfg.types, typeOrder: order ? shownOrder : null, companyField: cfg.companyField });
-      setCfg(next);
-      setOrder(Array.isArray(next.typeOrder) ? next.typeOrder : null);
-      await refreshTicketConfig();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (e) { setErr(e.message || String(e)); }
-    finally { setSaving(false); }
+  const toggleApproval = (key) => {
+    // The server fills the flag in for the default-gated types, so anything
+    // without it is off - no default list is repeated here.
+    const entry = { ...(cfg.types?.[key] || {}), requiresApproval: cfg.types?.[key]?.requiresApproval !== true };
+    instant({ types: { [key]: entry } }, (c) => ({ ...c, types: { ...c.types, [key]: entry } }));
   };
+  const setCompanyField = (p) => {
+    const next = { ...cfg.companyField, ...p };
+    instant({ companyField: next }, (c) => ({ ...c, companyField: next }));
+  };
+  const toggleCompanyId = (id) => setCompanyField({
+    companyIds: cfg.companyField.companyIds.includes(id)
+      ? cfg.companyField.companyIds.filter((c) => c !== id)
+      : [...cfg.companyField.companyIds, id],
+  });
+
+  const setHours = (field, k, raw) => setDraft((d) => ({ ...d, [field]: { ...d[field], [k]: raw } }));
+  // Leaving a box with nothing usable in it shows the number it will save
+  // (a tidy-up of the draft only - nothing is saved on blur).
+  const tidyHours = (field, k) => setDraft((d) => (String(clampHours(d[field][k])) === d[field][k] ? d : { ...d, [field]: { ...d[field], [k]: String(clampHours(d[field][k])) } }));
+  const daysHint = (raw) => { const n = Number(raw); return raw !== '' && Number.isFinite(n) && n >= 1 ? `${(Math.round(n) / 24).toFixed(1)} days` : ' '; };
+  const setTypeForm = (key, p) => setDraft((d) => ({ ...d, types: { ...d.types, [key]: { ...d.types[key], ...p } } }));
+  const rowFor = (key, shown, handle = null) => (
+    <TypeRow key={key} typeKey={key} meta={TICKET_TYPE_META[key]} shown={shown} handle={handle} busy={busy}
+      onToggleShown={() => toggleShown(key)}
+      form={draft.types[key]} requiresApproval={cfg.types?.[key]?.requiresApproval === true}
+      onToggleApproval={() => toggleApproval(key)} onChangeForm={(p) => setTypeForm(key, p)} />
+  );
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
@@ -283,15 +330,14 @@ export default function TicketTaxonomySettings() {
         <div style={{ ...card, padding: 18, flex: '1 1 380px', maxWidth: 560 }}>
           <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>SLA Target Hours</div>
           <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
-            How many hours after a ticket is raised its SLA due date lands, by priority. Changing this here takes effect
+            How many hours after a ticket is raised its SLA due date lands, by priority. Saved here, it takes effect
             immediately, server-side - no redeploy.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
             {PRIORITIES.map(([k, lab]) => (
-              <Field key={k} label={lab} hint={`${(cfg.slaTargetHours[k] / 24).toFixed(1)} days`}>
+              <Field key={k} label={lab} hint={daysHint(draft.sla[k])}>
                 <input type="number" min={1} step={1} inputMode="numeric" aria-label={`${lab} SLA hours`}
-                  value={`slaTargetHours.${k}` in slaText ? slaText[`slaTargetHours.${k}`] : String(cfg.slaTargetHours[k] ?? '')}
-                  onChange={(e) => typeSla(k, e.target.value)} onBlur={() => settleSla(k)} style={inputStyle} />
+                  value={draft.sla[k]} onChange={(e) => setHours('sla', k, e.target.value)} onBlur={() => tidyHours('sla', k)} style={inputStyle} />
               </Field>
             ))}
           </div>
@@ -302,11 +348,10 @@ export default function TicketTaxonomySettings() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
             {PRIORITIES.map(([k, lab]) => (
-              <Field key={k} label={lab} hint={`${frHours[k]} hours`}>
+              <Field key={k} label={lab} hint={draft.fr[k] ? `${draft.fr[k]} hours` : ' '}>
                 <input type="number" min={1} step={1} inputMode="numeric" aria-label={`${lab} first response hours`}
-                  value={`firstResponseHours.${k}` in slaText ? slaText[`firstResponseHours.${k}`] : String(frHours[k] ?? '')}
-                  onChange={(e) => typeSla(k, e.target.value, 'firstResponseHours')}
-                  onBlur={() => settleSla(k, 'firstResponseHours')} style={inputStyle} />
+                  value={draft.fr[k]} onChange={(e) => setHours('fr', k, e.target.value)}
+                  onBlur={() => tidyHours('fr', k)} style={inputStyle} />
               </Field>
             ))}
           </div>
@@ -319,10 +364,11 @@ export default function TicketTaxonomySettings() {
           </div>
           <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
             Off by default - a ticket is silently filed under the requester's own company (from their People record),
-            same as always. Turn this on to let them pick instead, from whichever companies you enable below.
+            same as always. Turn this on to let them pick instead, from whichever companies you enable below. Saves as you change it.
           </div>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: NX.ink, fontWeight: 600, marginBottom: cfg.companyField.enabled ? 14 : 0 }}>
-            <Toggle on={cfg.companyField.enabled} onChange={() => setCompanyField({ enabled: !cfg.companyField.enabled })} />
+            <Toggle on={cfg.companyField.enabled} disabled={busy} label="Let the requester choose the company"
+              onChange={() => setCompanyField({ enabled: !cfg.companyField.enabled })} />
             Let the requester choose the company
           </label>
           {cfg.companyField.enabled && (
@@ -334,7 +380,7 @@ export default function TicketTaxonomySettings() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {companies.map((c) => (
                     <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5, color: NX.ink, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={cfg.companyField.companyIds.includes(c.id)} onChange={() => toggleCompanyId(c.id)} />
+                      <input type="checkbox" disabled={busy} checked={cfg.companyField.companyIds.includes(c.id)} onChange={() => toggleCompanyId(c.id)} />
                       {c.name}
                     </label>
                   ))}
@@ -359,22 +405,20 @@ export default function TicketTaxonomySettings() {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <ListTree size={15} style={{ color: NX.dim }} />
-        <div style={{ fontSize: 13.5, fontWeight: 700 }}>Ticket Types & Intake Questions</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>Ticket Types & Intake Questions</div>
+        <SavedCheck show={saved} />
       </div>
       <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
         The five ticket types. Each one's label, hint, whether it is offered on Submit a Ticket, the order, whether it requires approval
         and the questions it asks are all editable. At least one stays on. A retired question stays on tickets that already answered it -
-        it just stops being asked. Icon and color aren't editable here.
+        it just stops being asked. Icon and color aren't editable here. The Intake and Requires Approval switches and the order save
+        as you change them.
       </div>
 
-      {/* Drag the grip to set the order requesters see them in (Save to keep it). */}
+      {/* Drag the grip to set the order requesters see them in (saved when dropped). */}
       <DragList items={shownOrder} getKey={(k) => k} onReorder={setOrder}
         label="ticket type" gap={10}
-        renderItem={(key, handle) => (
-          <TypeRow typeKey={key} meta={TICKET_TYPE_META[key]} shown handle={handle}
-            onToggleShown={() => toggleShown(key)}
-            typeCfg={cfg.types[key] || {}} onChangeType={(patch) => setTypeCfg(key, patch)} />
-        )} />
+        renderItem={(key, handle) => rowFor(key, true, handle)} />
 
       {hidden.length > 0 && (
         <>
@@ -382,25 +426,14 @@ export default function TicketTaxonomySettings() {
             TURNED OFF (not offered on Submit a Ticket - tickets already raised keep their type)
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {hidden.map((key) => TICKET_TYPE_META[key] && (
-              <TypeRow key={key} typeKey={key} meta={TICKET_TYPE_META[key]} shown={false}
-                onToggleShown={() => toggleShown(key)}
-                typeCfg={cfg.types[key] || {}} onChangeType={(patch) => setTypeCfg(key, patch)} />
-            ))}
+            {hidden.map((key) => TICKET_TYPE_META[key] && rowFor(key, false))}
           </div>
         </>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
-        <button onClick={save} disabled={saving} style={{ ...btn('primary'), display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-          <Save size={14} /> {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button onClick={load} disabled={saving} style={{ ...btn('ghost'), display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-          <RotateCcw size={14} /> Discard changes
-        </button>
-        {saved && <span style={{ color: NX.green, fontSize: 12.5, fontWeight: 600 }}>Saved.</span>}
-        {err && <span style={{ color: NX.red, fontSize: 12.5, fontWeight: 600 }}>{err}</span>}
-      </div>
+      {err && <div role="alert" style={{ color: NX.red, fontSize: 12.5, fontWeight: 600, marginTop: 14 }}>{err}</div>}
+      <SaveRow dirty={dirty} busy={saving} onSave={save} onDiscard={reset}
+        note="Saves the SLA hours, the type labels and hints, and the intake questions." />
     </div>
   );
 }

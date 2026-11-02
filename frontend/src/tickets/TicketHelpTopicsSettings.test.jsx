@@ -138,6 +138,9 @@ describe('TicketHelpTopicsSettings', () => {
     expect(region.textContent).toContain('Greens');
     expect(region.textContent).not.toContain('No IT Here');
     await waitFor(() => expect(region.textContent).toContain('Sam Patel'));
+    // Save waits for a change (one save pattern): a stray space, trimmed on save.
+    expect(screen.getByRole('button', { name: /^Save$/ })).toBeDisabled();
+    fireEvent.change(screen.getAllByLabelText('Topic name')[1], { target: { value: 'Printer or Scanner ' } });
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalled());
     const it_ = api.updateTicketTaxonomySettings.mock.calls[0][0].helpTopics[0];
@@ -163,6 +166,7 @@ describe('TicketHelpTopicsSettings', () => {
     api.getTicketTaxonomySettings.mockResolvedValueOnce(cfg);
     render(<Panel />);
     await screen.findAllByRole('tab');
+    fireEvent.change(screen.getAllByLabelText('Topic name')[0], { target: { value: 'Nexus ' } });
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalled());
     const it_ = api.updateTicketTaxonomySettings.mock.calls[0][0].helpTopics[0];

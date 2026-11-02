@@ -28,9 +28,16 @@
 //
 // Manager+ only, like the SLA & Ticket Types panel next to it; the backend's
 // require_manager on the save is the real boundary.
+//
+// One save pattern (Settings, Oct 23 2026): the topic lists - names, order,
+// Which One? options and default assignees together - are one draft with one
+// Save row at the foot; the shell asks before leaving it unsaved.
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Save, RotateCcw, X, Tags, ListTree, UserCheck } from 'lucide-react';
+import { Plus, X, Tags, ListTree, UserCheck } from 'lucide-react';
 import { LoadingState } from '../components/AsyncState';
+import SaveRow from '../components/SaveRow';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
@@ -76,7 +83,7 @@ function buildState(groups, depts) {
 export default function TicketHelpTopicsSettings() {
   const { myLevel } = useRole();
   const [depts, setDepts] = useState([]);
-  const [state, setState] = useState(null);     // { names, lists, orphans }
+  const [state, setState] = useState(null);     // what the server holds: { names, lists, orphans }
   const [sel, setSel] = useState('');           // normalized department name
   const [newTopic, setNewTopic] = useState('');
   const [optFor, setOptFor] = useState(null);   // id of the topic whose sub-options are open
@@ -88,8 +95,9 @@ export default function TicketHelpTopicsSettings() {
     [state, sel, companies, depts]);
   const deskAgents = useDeskAgents(asgFor ? asgCompanyIds : []);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
+  // The topic lists being edited, beside the saved ones.
+  const { draft: lists, setDraft: setLists, dirty, reset } = useDraft(state ? state.lists : null);
 
   const apply = (groups, ds) => {
     const next = buildState(groups, ds);
@@ -109,13 +117,43 @@ export default function TicketHelpTopicsSettings() {
     api.getTicketCompanies().then((rows) => setCompanies(Array.isArray(rows) ? rows : [])).catch(() => {});
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps -- once, on mount
 
-  const topics = useMemo(() => (state && sel ? state.lists[sel] || [] : []), [state, sel]);
-  const setTopics = (next) => setState((s) => ({ ...s, lists: { ...s.lists, [sel]: next } }));
+  const topics = useMemo(() => (lists && sel ? lists[sel] || [] : []), [lists, sel]);
+  const setTopics = (next) => setLists((l) => ({ ...l, [sel]: next }));
+
+  const save = async () => {
+    if (!dirty || saving || !state) return false;
+    setSaving(true); setErr('');
+    try {
+      const out = state.names
+        .map((n) => ({
+          label: n, departments: [norm(n)],
+          topics: (lists[norm(n)] || [])
+            .map((tp) => {
+              const opts = (tp.options || []).map((o) => o.name.trim())
+                .filter((o, i, arr) => o && arr.findIndex((x) => norm(x) === norm(o)) === i);
+              const asg = Object.fromEntries(Object.entries(tp.defaultAssignees || {}).filter(([c, e]) => c && e));
+              return { name: tp.name.trim(), area: tp.area || 'general', ...(opts.length ? { options: opts } : {}),
+                ...(Array.isArray(tp.questions) ? { questions: tp.questions } : {}),
+                ...(Object.keys(asg).length ? { defaultAssignees: asg } : {}) };
+            })
+            .filter((tp, i, arr) => tp.name && arr.findIndex((x) => norm(x.name) === norm(tp.name)) === i),
+        }))
+        .filter((g) => g.topics.length);
+      const next = await api.updateTicketTaxonomySettings({ helpTopics: [...out, ...state.orphans] });
+      apply(next.helpTopics || [], depts);
+      await refreshTicketConfig();
+      return true;
+    } catch (e) {
+      setErr(e.message || String(e));
+      return false;
+    } finally { setSaving(false); }
+  };
+  useGroupDirty(dirty, save);
 
   if (myLevel < 3) {
     return <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>Manager access or above is required to edit help topics.</div>;
   }
-  if (!state) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
+  if (!state || !lists) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
   const selName = state.names.find((n) => norm(n) === sel) || '';
   const dup = (name, id) => topics.some((tp) => tp.id !== id && norm(tp.name) === norm(name));
@@ -147,33 +185,6 @@ export default function TicketHelpTopicsSettings() {
     setNewOption('');
   };
 
-  const save = async () => {
-    setSaving(true); setErr(''); setSaved(false);
-    try {
-      const out = state.names
-        .map((n) => ({
-          label: n, departments: [norm(n)],
-          topics: (state.lists[norm(n)] || [])
-            .map((tp) => {
-              const opts = (tp.options || []).map((o) => o.name.trim())
-                .filter((o, i, arr) => o && arr.findIndex((x) => norm(x) === norm(o)) === i);
-              const asg = Object.fromEntries(Object.entries(tp.defaultAssignees || {}).filter(([c, e]) => c && e));
-              return { name: tp.name.trim(), area: tp.area || 'general', ...(opts.length ? { options: opts } : {}),
-                ...(Array.isArray(tp.questions) ? { questions: tp.questions } : {}),
-                ...(Object.keys(asg).length ? { defaultAssignees: asg } : {}) };
-            })
-            .filter((tp, i, arr) => tp.name && arr.findIndex((x) => norm(x.name) === norm(tp.name)) === i),
-        }))
-        .filter((g) => g.topics.length);
-      const next = await api.updateTicketTaxonomySettings({ helpTopics: [...out, ...state.orphans] });
-      apply(next.helpTopics || [], depts);
-      await refreshTicketConfig();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (e) { setErr(e.message || String(e)); }
-    finally { setSaving(false); }
-  };
-
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -194,7 +205,7 @@ export default function TicketHelpTopicsSettings() {
             {state.names.map((n) => {
               const k = norm(n);
               const on = k === sel;
-              const count = (state.lists[k] || []).filter((tp) => tp.name.trim()).length;
+              const count = (lists[k] || []).filter((tp) => tp.name.trim()).length;
               return (
                 <button key={k} type="button" role="tab" aria-selected={on} onClick={() => { setSel(k); setNewTopic(''); setOptFor(null); setAsgFor(null); }}
                   style={{
@@ -313,16 +324,9 @@ export default function TicketHelpTopicsSettings() {
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
-        <button onClick={save} disabled={saving} style={{ ...btn('primary'), display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-          <Save size={14} /> {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button onClick={() => { setState(null); load(); }} disabled={saving} style={{ ...btn('ghost'), display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-          <RotateCcw size={14} /> Discard Changes
-        </button>
-        {saved && <span style={{ color: NX.green, fontSize: 12.5, fontWeight: 600 }}>Saved.</span>}
-        {err && <span style={{ color: NX.red, fontSize: 12.5, fontWeight: 600 }}>{err}</span>}
-      </div>
+      {err && <div role="alert" style={{ color: NX.red, fontSize: 12.5, fontWeight: 600, marginTop: 14 }}>{err}</div>}
+      <SaveRow dirty={dirty} busy={saving} onSave={save} onDiscard={reset}
+        note="Saves every department's topics, their order, options and default assignees." />
     </div>
   );
 }
