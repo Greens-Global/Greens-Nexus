@@ -521,7 +521,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
             # The audit-undo endpoint writes its own canonical entries (the reverse
             # change + marking the original undone) - let it, don't double-log the
             # POST here (the generic describer would mislabel it "Added item").
-            if path == "/items/audit-undo":
+            # PDF Tools events are the same: routers/pdf_tools.py writes the one row.
+            if path in ("/items/audit-undo", "/pdf-tools/events"):
                 return response
 
             # The write (and the session / Act As lookups that feed it) is blocking
