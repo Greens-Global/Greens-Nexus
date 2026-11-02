@@ -7,6 +7,7 @@ import { X, Lock } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { setPendingOpen } from '../lib/pendingOpen';
+import { openRowInPdfTools, pdfLoadFor } from '../lib/pdfToolsHandoff';
 import { rowFor, rowStatus } from '../lib/documentLibrary';
 import { useIsMobile } from '../lib/useIsMobile';
 import HoldButton from '../ui/HoldButton';
@@ -238,6 +239,9 @@ function DocumentRowPanel({ row, folders = [], onClose, onEdit, onOrganize, onCh
           <button type="button" className="secondary-btn" disabled={busy === 'send'} onClick={send}>
             {busy === 'send' ? 'Preparing...' : 'Send For Signature'}
           </button>
+        )}
+        {pdfLoadFor(row) && (
+          <button type="button" className="secondary-btn" onClick={() => openRowInPdfTools(row)}>Open In PDF Tools</button>
         )}
         {row.signRequestId && !isHr && (
           <button type="button" className="secondary-btn" onClick={() => go(row.canManageEnvelope ? 'documents-esign-requests' : 'documents-esign')}>View In Nexus Sign</button>
