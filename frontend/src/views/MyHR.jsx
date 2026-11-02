@@ -15,6 +15,7 @@ import { canPreview } from '../egnyte/lib';
 import MyShifts from '../components/MyShifts';
 import ReimbursementsTile from '../components/Reimbursements';
 import { usePopupNudge } from '../lib/usePopupNudge';
+import { SHEET_SHADOW, SHEET_EDGE } from '../lib/sheetStack';
 import { useIsMobile } from '../lib/useIsMobile';
 import { PurchaseRequestTile } from '../components/PurchaseRequests';
 import { MyMoreDetails } from '../components/EmployeeCustomFields';
@@ -810,7 +811,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
           <div role="dialog" aria-label="Ask HR" className={`${askPopupClass}${phone ? ' nx-sheet' : ' nx-sheet-right'}`} onClick={(e) => e.stopPropagation()}
             style={phone
               ? { background: 'var(--card)', width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }
-              : { background: 'var(--card)', borderRadius: '16px 0 0 16px', width: '85vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              : { background: 'var(--card)', borderRadius: '16px 0 0 16px', width: '85vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', boxShadow: SHEET_SHADOW, borderLeft: SHEET_EDGE }}>
             <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--line)' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Ask HR</div>

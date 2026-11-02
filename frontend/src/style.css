@@ -1255,7 +1255,11 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
    max(60vw, width), the Workday panels' 85vw), corners rounded on the left.
    It slides in from off screen (320ms, ease-out) while the scrim fades, its
    body's first rows cascade in a beat behind the frame, and it slides out
-   (220ms, ease-in). Questions - DialogHost's confirm / alert / prompt, "Save
+   (220ms, ease-in) while the scrim fades out over the same 220ms - the JS
+   exit (useExit(onClose, MOTION.md)) waits exactly that long. Every sheet
+   casts its shadow to the left and has a hairline left edge
+   (lib/sheetStack.js SHEET_SHADOW / SHEET_EDGE for inline-styled ones).
+   Questions - DialogHost's confirm / alert / prompt, "Save
    your changes?", any box tagged .nx-center - keep the centered pop above.
    Phones keep their bottom sheet: everything here is desktop only.
    Who draws the class: tasks/components.jsx Modal and marketing/shared/Modal
@@ -1266,22 +1270,28 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 @keyframes nx-slide-in    { from { transform: translateX(100%); } }
 @keyframes nx-slide-out   { to   { transform: translateX(100%); } }
 @keyframes nx-cascade-in  { from { opacity: 0; transform: translateX(10px); } }
-.nx-sheet-right { animation: nx-slide-in var(--dur-lg) var(--ease-out); }
+.nx-sheet-right { animation: nx-slide-in var(--dur-lg) var(--ease-out); box-shadow: -8px 0 40px rgba(0,0,0,.18); border-left: 1px solid var(--line); }
 .is-closing > .nx-sheet-right { animation: nx-slide-out var(--dur-md) var(--ease-in) forwards; }
+/* The scrim leaves with the sheet, not 70ms ahead of it. */
+.nx-overlay.is-closing:has(> .nx-sheet-right) { animation-duration: var(--dur-md); }
 /* The body's first eight children arrive 18ms apart, 40ms after the frame
-   starts moving. `backwards` only holds the start state through the delay;
-   once an item has landed the animation is over, so no containing block. */
-.nx-sheet-right .nx-cascade > *:nth-child(-n+8) { animation: nx-cascade-in var(--dur-md) var(--ease-out) backwards; }
-.nx-sheet-right .nx-cascade > *:nth-child(1) { animation-delay: 40ms; }
-.nx-sheet-right .nx-cascade > *:nth-child(2) { animation-delay: 58ms; }
-.nx-sheet-right .nx-cascade > *:nth-child(3) { animation-delay: 76ms; }
-.nx-sheet-right .nx-cascade > *:nth-child(4) { animation-delay: 94ms; }
-.nx-sheet-right .nx-cascade > *:nth-child(5) { animation-delay: 112ms; }
-.nx-sheet-right .nx-cascade > *:nth-child(6) { animation-delay: 130ms; }
-.nx-sheet-right .nx-cascade > *:nth-child(7) { animation-delay: 148ms; }
-.nx-sheet-right .nx-cascade > *:nth-child(8) { animation-delay: 166ms; }
-/* A sheet under a newer sheet recedes (lib/sheetStack.js sets the attribute)
-   and comes back when the top one starts to leave. */
+   starts moving - only while the sheet is arriving: the shell carries
+   `is-entering` for 500ms after it opens (lib/sheetStack.js
+   useSheetEntering), so a row that mounts later (data landing, a tab
+   switch) does not slide in on its own. `backwards` only holds the start
+   state through the delay; once an item has landed the animation is over,
+   so no containing block. */
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(-n+8) { animation: nx-cascade-in var(--dur-md) var(--ease-out); animation-fill-mode: backwards; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(1) { animation-delay: 40ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(2) { animation-delay: 58ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(3) { animation-delay: 76ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(4) { animation-delay: 94ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(5) { animation-delay: 112ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(6) { animation-delay: 130ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(7) { animation-delay: 148ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(8) { animation-delay: 166ms; }
+/* A sheet under a newer sheet recedes (lib/sheetStack.js sets the attribute,
+   and `inert` with it) and comes back when the top one starts to leave. */
 .nx-sheet-right { transition: transform var(--dur-md) var(--ease-out), opacity var(--dur-md) var(--ease-out); }
 .nx-sheet-right[data-nx-under] { transform: translateX(-24px) scale(.985); opacity: .86; pointer-events: none; }
 /* The class-styled shells. `.nx-popup.nx-popup` (0,2,0) sets the 60vw card;
@@ -1292,20 +1302,26 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
     .modal-overlay > .modal-content.nx-popup:not(.nx-center):not(.folder-panel) {
       height: 100%; max-height: 100%; min-height: 0;
       border-radius: 16px 0 0 16px;
+      box-shadow: -8px 0 40px rgba(0,0,0,.18); border-left: 1px solid var(--line);
       animation: nx-slide-in var(--dur-lg) var(--ease-out);
     }
     .modal-overlay.is-closing > .modal-content.nx-popup:not(.nx-center):not(.folder-panel) { animation: nx-slide-out var(--dur-md) var(--ease-in) forwards; }
-    .cv-modal-overlay:has(> .cv-modal.nx-popup) { justify-content: flex-end; align-items: stretch; padding: 0; }
-    .cv-modal-overlay > .cv-modal.nx-popup {
+    .modal-overlay.is-closing:has(> .modal-content.nx-popup:not(.nx-center):not(.folder-panel)) { animation-duration: var(--dur-md); }
+    /* A credvault question (the OTP prompt, the personal vault password)
+       passes `center` and keeps the centered card. */
+    .cv-modal-overlay:has(> .cv-modal.nx-popup:not(.nx-center)) { justify-content: flex-end; align-items: stretch; padding: 0; }
+    .cv-modal-overlay > .cv-modal.nx-popup:not(.nx-center) {
       height: 100%; max-height: 100%; min-height: 0;
       border-radius: 16px 0 0 16px;
+      box-shadow: -8px 0 40px rgba(0,0,0,.18); border-left: 1px solid var(--line);
       animation: nx-slide-in var(--dur-lg) var(--ease-out);
     }
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .nx-sheet-right, .is-closing > .nx-sheet-right, .nx-sheet-right .nx-cascade > *,
-  .modal-overlay > .modal-content.nx-popup, .cv-modal-overlay > .cv-modal.nx-popup { animation: none !important; transition: none !important; }
+  .modal-overlay > .modal-content.nx-popup, .cv-modal-overlay > .cv-modal.nx-popup,
+  .nx-overlay.is-closing:has(> .nx-sheet-right) { animation: none !important; transition: none !important; }
   .nx-sheet-right[data-nx-under] { transform: none; opacity: 1; }
 }
 

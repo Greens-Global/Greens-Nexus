@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { isBypassing } from '../../lib/dialogGuard'
-import { useExit } from '../../lib/motion'
+import { useExit, MOTION } from '../../lib/motion'
 import { useIsMobile } from '../../lib/useIsMobile'
-import { useSheetStack } from '../../lib/sheetStack'
+import { useSheetStack, useSheetEntering, SHEET_SHADOW, SHEET_EDGE } from '../../lib/sheetStack'
 import { X } from 'lucide-react'
 import { C, FONT, alpha } from '../theme'
 
@@ -31,10 +31,14 @@ export default function Modal({ title, onClose, children, width, isDirty = false
   const isMobile = useIsMobile()
   const sheet = !isMobile && placement === 'sheet'
   const panelRef = useRef(null)
-  // Exit motion (lib/motion.js): a close the Modal performs itself plays the exit first.
-  const [closing, exit] = useExit(onClose)
+  // Exit motion (lib/motion.js): a close the Modal performs itself plays the
+  // exit first - a sheet's slide-out runs --dur-md (220ms), a card's 150.
+  const [closing, exit] = useExit(onClose, sheet ? MOTION.md : MOTION.exit)
   const requestClose = () => { if (isDirty && !isBypassing()) setConfirming(true); else exit() }
-  useSheetStack(panelRef, sheet, closing)
+  // z 50 is this overlay's own (below the app's 3500+ drawers and Modals).
+  useSheetStack(panelRef, sheet, closing, 50)
+  // The body's cascade plays only while the sheet arrives.
+  const entering = useSheetEntering(sheet)
   useEffect(() => {
     function onKeyDown(e) {
       if (e.key === 'Escape') requestClose()
@@ -71,17 +75,17 @@ export default function Modal({ title, onClose, children, width, isDirty = false
     >
       <div
         ref={panelRef}
-        className={sheet ? 'nx-sheet-right nx-popup' : 'nx-panel nx-popup'}
+        className={sheet ? `nx-sheet-right nx-popup${entering ? ' is-entering' : ''}` : 'nx-panel nx-popup'}
         style={{
           ...(tokenWidth > 900 ? { width: `max(60vw, min(${tokenWidth}px, 100%))` } : null),
           // The sheet runs the full height against the right edge, rounded
           // only where it meets the page (.nx-popup's 85vh cap is overridden).
-          ...(sheet ? { height: '100%', maxHeight: '100%', minHeight: 0 } : null),
+          ...(sheet ? { height: '100%', maxHeight: '100%', minHeight: 0, borderLeft: SHEET_EDGE } : null),
           display: 'flex',
           flexDirection: 'column',
           borderRadius: sheet ? '16px 0 0 16px' : 16,
           background: C.white,
-          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
+          boxShadow: sheet ? SHEET_SHADOW : '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
         }}
         onClick={(e) => e.stopPropagation()}
       >

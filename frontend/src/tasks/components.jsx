@@ -1,8 +1,8 @@
 // Task Module - shared UI atoms (inline-styled to match the export's light theme).
 import { useEffect, useLayoutEffect, useState, useRef, useId } from 'react';
 import { isBypassing, confirmDiscard } from '../lib/dialogGuard';
-import { useExit } from '../lib/motion';
-import { useSheetStack } from '../lib/sheetStack';
+import { useExit, MOTION } from '../lib/motion';
+import { useSheetStack, useSheetEntering, SHEET_SHADOW, SHEET_EDGE } from '../lib/sheetStack';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
   ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus, Repeat,
@@ -156,7 +156,9 @@ export function useEscapeLayer(onEscape, active = true) {
 // (style.css "Sheets"). A QUESTION - a confirm, an alert, "Delete this?" -
 // passes placement="center" and keeps the centered card. Phones ignore it
 // and keep the full-screen bottom sheet.
-export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet' }) {
+// `zIndex` (default 4000) is the overlay's, and the sheet's place in
+// lib/sheetStack.js: a sheet recedes only sheets at or below its own z.
+export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000 }) {
   // Phones get a full-screen sheet, the shape the task drawer already uses
   // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
   // is the LARGE viewport (browser chrome hidden), so 7vh of padding plus an
@@ -184,12 +186,15 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   // (lib/dialogGuard.js) is replaying this close - do not ask twice.
   // Exit motion (lib/motion.js): every close the Modal itself performs plays
   // the exit first; a caller that closes from its own Save button is instant.
-  const [closing, exit] = useExit(onClose);
+  // A sheet slides out over --dur-md (220ms); a centered card pops out in 150.
+  const [closing, exit] = useExit(onClose, sheet ? MOTION.md : MOTION.exit);
   const requestClose = () => { if (isDirty && !isBypassing()) setConfirmClose(true); else exit(); };
   useEscapeLayer(() => requestClose());
   useDialogFocus(panelRef);
   // A sheet over a sheet: the one beneath recedes until this one leaves.
-  useSheetStack(panelRef, sheet, closing);
+  useSheetStack(panelRef, sheet, closing, zIndex);
+  // The body's cascade plays only while the sheet arrives.
+  const entering = useSheetEntering(sheet);
   // The phone's Back button closes this sheet, not the screen behind it -
   // asking the same unsaved-work questions the X button asks.
   useBackToClose(followViewport, () => {
@@ -214,7 +219,7 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   };
   return createPortal(
     <div ref={overlayRef} className={`nx-tasks-portal nx-overlay${closing ? ' is-closing' : ''}`} onClick={requestClose} style={{
-      position: 'fixed', background: 'rgba(17,24,39,0.45)', zIndex: 4000,
+      position: 'fixed', background: 'rgba(17,24,39,0.45)', zIndex,
       ...(vv ? { left: 0, right: 0, top: vv.top, height: vv.height } : { inset: 0 }),
       // A sheet sits against the right edge and runs the full height; a
       // centered card keeps the old top-aligned padding.
@@ -229,9 +234,11 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
       {/* role="dialog" sits on the panel. The phone bottom-sheet rules in
           style.css skip it via .nx-sheet - this one is shaped here. */}
       <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={dialogKeyDown}
-        onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : sheet ? 'nx-sheet nx-sheet-right' : 'nx-sheet nx-panel'} style={{
+        onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : sheet ? `nx-sheet nx-sheet-right${entering ? ' is-entering' : ''}` : 'nx-sheet nx-panel'} style={{
         background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
+        // A sheet casts its shadow to the left, the side it meets the page on
+        // (the same value as the Sheets block in style.css).
+        boxShadow: sheet ? SHEET_SHADOW : '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
         // The sheet's height comes from .nx-modal-sheet, not from here: it needs
         // `height:100vh` followed by `height:100dvh`, and one inline style object
         // cannot hold the same property twice. dvh is the part of the page
@@ -245,7 +252,7 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
           // height, rounded only where it meets the page. No minHeight - the
           // height is the viewport's.
           : sheet
-          ? { width: `max(60vw, ${typeof width === 'number' ? `${width}px` : width})`, minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '100%', maxHeight: '100%', borderRadius: '16px 0 0 16px', borderRight: 'none' }
+          ? { width: `max(60vw, ${typeof width === 'number' ? `${width}px` : width})`, minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '100%', maxHeight: '100%', borderRadius: '16px 0 0 16px', border: 'none', borderLeft: SHEET_EDGE }
           // Never under 60vw (CLAUDE.md popup rule), whatever width a caller passes.
           // 100% of the overlay's padded box. On a desktop that is the same
           // 86vh as before; pinned to the visual viewport it is what fits.

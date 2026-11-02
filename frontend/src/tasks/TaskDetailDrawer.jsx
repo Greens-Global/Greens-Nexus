@@ -39,7 +39,7 @@ import { IMAGE_MODE, isCoverCandidate } from './boardLayout';
 import CommentThread from './CommentThread';
 import { draftKey, getDraft, hasWords, useTaskDraft, useTaskDrafts, clearDraftsFor, clearDraft } from './taskDrafts';
 import { isBypassing } from '../lib/dialogGuard';
-import { useExit } from '../lib/motion';
+import { useExit, MOTION } from '../lib/motion';
 import { useSheetStack } from '../lib/sheetStack';
 import TimeTracking from './TimeTracking';
 import { toDownloadUrl } from '../lib/storageView';
@@ -280,8 +280,13 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const unsent = useTaskDrafts(visitedIds);
   const [asking, setAsking] = useState(false);
   // The drawer is a sheet from the right (Neil, 11/01/2026): it slides out
-  // through the shared exit (lib/motion.js) before the parent unmounts it.
-  const [closing, exitNow] = useExit(onClose);
+  // through the shared exit (lib/motion.js) before the parent unmounts it:
+  // the slide-out is --dur-md (220ms) on a desktop, the phone's sheet 150.
+  // On a phone the drawer is always full-bleed: there's no room for a 60%
+  // drawer, so the expand/collapse toggle and the drag-to-resize handle are
+  // both dropped and the saved width is ignored.
+  const isMobile = useIsMobile();
+  const [closing, exitNow] = useExit(onClose, isMobile ? MOTION.exit : MOTION.md);
   const requestClose = () => {
     const el = document.activeElement;
     if (el && asideRef.current?.contains(el) && typeof el.blur === 'function') el.blur();
@@ -346,12 +351,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const expanded = width >= maxW - 2;
   const toggleExpand = () => setWidth(expanded ? Math.round(maxW * 0.6) : maxW);
 
-  // On a phone the drawer is always full-bleed: there's no room for a 60%
-  // drawer, so the expand/collapse toggle and the drag-to-resize handle are
-  // both dropped and the saved width is ignored.
-  const isMobile = useIsMobile();
   // A sheet over this one (Create Ticket, a picker) recedes it a little.
-  useSheetStack(asideRef, !isMobile, closing);
+  // Only the real drawer joins: the loading placeholder below is no sheet,
+  // and `zIndex` places it among the others (3500 sits under a Modal).
+  useSheetStack(asideRef, !isMobile && !!task, closing, zIndex);
 
   // Derive relations from the live task list (robust against optimistic updates).
   // In display order: due date then priority, or the order they were dragged
@@ -373,7 +376,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     if (!store.loading) return null;
     return createPortal(
       <div className={`nx-tasks-portal${closing ? ' is-closing' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) exitNow(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
-        <aside role="status" aria-live="polite" aria-busy="true" className="nx-sheet-right" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
+        <aside role="status" aria-live="polite" aria-busy="true" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 14px', borderBottom: `1px solid ${NX.border}` }}>
             <button onClick={exitNow} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><X size={16} /></button>
           </div>

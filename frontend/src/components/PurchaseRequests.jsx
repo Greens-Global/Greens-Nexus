@@ -21,6 +21,7 @@ import { formatDateLong, formatDateTime } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { Spinner } from './AsyncState';
 import { usePopupNudge } from '../lib/usePopupNudge';
+import { SHEET_SHADOW, SHEET_EDGE } from '../lib/sheetStack';
 import PurchaseRequestForm from './PurchaseRequestForm';
 import { AvatarName } from '../tasks/components';
 
@@ -103,7 +104,7 @@ function ModalShell({ title, sub, onClose, children }) {
       <div role="dialog" aria-modal="true" aria-label={title} className={`${popupClass}${phone ? ' nx-sheet' : ' nx-sheet-right'}`} onClick={(e) => e.stopPropagation()}
         style={phone
           ? { background:'var(--card)', width:'100%', height:'100%', display:'flex', flexDirection:'column' }
-          : { background:'var(--card)', borderRadius:'16px 0 0 16px', width:'60vw', minWidth:'min(420px, 100%)', maxWidth:'100%', height:'100%', maxHeight:'100%', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+          : { background:'var(--card)', borderRadius:'16px 0 0 16px', width:'60vw', minWidth:'min(420px, 100%)', maxWidth:'100%', height:'100%', maxHeight:'100%', display:'flex', flexDirection:'column', boxShadow:SHEET_SHADOW, borderLeft:SHEET_EDGE }}>
         <div style={{ padding:'16px 18px 12px', display:'flex', alignItems:'center', gap:10, borderBottom:'1px solid var(--line)' }}>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontWeight:700, fontSize:15, color:'var(--ink)' }}>{title}</div>
@@ -512,7 +513,7 @@ export function PurchaseRequestsPanel({ onClose, toast, openNewKey = 0 }) {
       <div role="dialog" aria-modal="true" aria-label="Purchase Requests" className={`${popupClass}${phone ? ' nx-sheet' : ' nx-sheet-right'}`} onClick={(e) => e.stopPropagation()}
         style={phone
           ? { background:'var(--card)', width:'100%', height:'100%', display:'flex', flexDirection:'column' }
-          : { background:'var(--card)', borderRadius:'16px 0 0 16px', width:'85vw', minWidth:'min(420px, 100%)', maxWidth:'100%', height:'100%', maxHeight:'100%', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+          : { background:'var(--card)', borderRadius:'16px 0 0 16px', width:'85vw', minWidth:'min(420px, 100%)', maxWidth:'100%', height:'100%', maxHeight:'100%', display:'flex', flexDirection:'column', boxShadow:SHEET_SHADOW, borderLeft:SHEET_EDGE }}>
         <div style={{ padding:'16px 18px 12px', display:'flex', alignItems:'center', gap:10, borderBottom:'1px solid var(--line)' }}>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontWeight:700, fontSize:15, color:'var(--ink)' }}>Purchase Requests</div>
