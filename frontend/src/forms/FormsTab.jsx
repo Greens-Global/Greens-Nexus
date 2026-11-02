@@ -40,7 +40,7 @@ function NewFormModal({ onClose, onCreated, toastErr }) {
     <Modal title="New Form" onClose={onClose} footer={
       <>
         <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button type="button" className="primary-btn" disabled={!name.trim() || busy} onClick={create}>{busy ? 'Creating...' : 'Create And Build'}</button>
+        <button type="button" className="primary-btn" disabled={!name.trim() || busy} onClick={create}>{busy ? 'Creating...' : 'Create and Build'}</button>
       </>
     }>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -86,7 +86,7 @@ function FormPanel({ template: t, onClose, onBuild, onChanged, toastOk, toastErr
       <dl className="nx-dl-facts">
         <div><dt>Category</dt><dd>{categoryLabel(t.category)}</dd></div>
         <div><dt>Who Fills It</dt><dd>{audienceWords(t)}</dd></div>
-        <div><dt>Shift Cards</dt><dd>{t.showOnShifts ? 'Shown' : 'Not shown'}</dd></div>
+        <div><dt>Shift Cards</dt><dd>{t.showOnShifts ? 'Shown' : 'Not Shown'}</dd></div>
         <div><dt>Fields</dt><dd>{fields.length ? `${fields.length} field${fields.length === 1 ? '' : 's'}` : 'None yet'}</dd></div>
         {t.publishedVersion > 0 && <div><dt>Published</dt><dd>Version {t.publishedVersion}{t.publishedAt ? ` - ${formatDate(t.publishedAt)}` : ''}</dd></div>}
         <div><dt>Updated</dt><dd>{formatDate(t.updatedAt)}</dd></div>

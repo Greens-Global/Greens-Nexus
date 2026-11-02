@@ -99,6 +99,9 @@ describe('Documents module', () => {
     render(<Documents activeSub="documents-forms" onSubChange={() => {}} />);
     expect(await screen.findByRole('button', { name: 'New Form' })).toBeTruthy();
     await waitFor(() => expect(getDocTemplates).toHaveBeenCalled());
+    screen.getAllByRole('button', { name: 'New Form' })[0].click();
+    expect(await screen.findByRole('button', { name: 'Create and Build' })).toBeTruthy();
+    screen.getByRole('button', { name: 'Cancel' }).click();
     screen.getByRole('tab', { name: 'Entries' }).click();
     await waitFor(() => expect(getFormEntries).toHaveBeenCalled());
   });

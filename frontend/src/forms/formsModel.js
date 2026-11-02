@@ -14,7 +14,7 @@ export const categoryLabel = (key) => FORM_CATEGORIES.find(([v]) => v === key)?.
 
 // Who may fill a form - the Announcements audience rule, so it is one known rule.
 export const AUDIENCES = [
-  ['company', 'Everyone At The Company'], ['department', 'One Department'], ['site', 'One Work Site'],
+  ['company', 'Everyone at the Company'], ['department', 'One Department'], ['site', 'One Work Site'],
 ];
 
 // Review states are set by a person, never by code. Soft label colors

@@ -60,6 +60,7 @@ describe('Form builder', () => {
     expect(screen.getByText('Number')).toBeTruthy();
     expect(screen.getByText('Yes / No')).toBeTruthy();
     expect(screen.getByText('Required')).toBeTruthy();
+    expect(within(screen.getByLabelText('Who fills it')).getByRole('option', { name: 'Everyone at the Company' })).toBeTruthy();
   });
 
   it('adds a photo field shown only when an earlier answer says so, through the one field editor', async () => {

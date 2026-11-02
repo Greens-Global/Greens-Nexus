@@ -51,7 +51,7 @@ const ENTRY = { id: 'e1', templateId: 't1', title: 'Vehicle Check', status: 'sub
 const UUID_RE = /^[0-9a-f-]{20,}$/i;
 
 const typeIn = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
-const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
 beforeEach(() => {
   mode.phone = false;
@@ -154,7 +154,7 @@ describe('FillForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'No' }));
     // Three taps before React repaints: the ref guard (and then the disabled
     // "Sending..." button) let exactly one request out.
-    const go = screen.getByRole('button', { name: 'Submit' });
+    const go = screen.getByRole('button', { name: 'Send' });
     fireEvent.click(go); fireEvent.click(go); fireEvent.click(go);
     expect(formSubmit).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: /Sending/ })).toBeDisabled();
@@ -235,7 +235,7 @@ describe('FillForm', () => {
     render(<FillForm template={TEMPLATE} preview onClose={() => {}} />);
     await screen.findByText('Vehicle Check');
     expect(formGet).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: 'Submit' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
     expect(screen.getByText(/Preview/)).toBeTruthy();
   });
 

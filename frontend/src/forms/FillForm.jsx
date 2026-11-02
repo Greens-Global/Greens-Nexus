@@ -471,7 +471,7 @@ export default function FillForm({ templateId, template: given = null, preview =
     <>
       <button type="button" style={btn('outline')} disabled={busy} onClick={() => onClose?.()}>Cancel</button>
       <button type="button" style={{ ...btn('primary'), opacity: busy || !tpl ? 0.6 : 1 }} disabled={busy || !tpl} onClick={submit}>
-        {busy ? <><Spinner size="inline" color="#fff" /> Sending...</> : 'Submit'}
+        {busy ? <><Spinner size="inline" color="#fff" /> Sending...</> : 'Send'}
       </button>
     </>
   );
