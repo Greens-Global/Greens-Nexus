@@ -9830,3 +9830,105 @@ class PerfScorecardKpi(Base):
     threshold    = Column(Float, default=0)
     cap          = Column(Float, default=0)
     position     = Column(Integer, default=0)
+
+
+class PerfKpiRating(Base):
+    """A manager's (or HR's) rating of a MANUAL KPI for one person and month,
+    with the written reason (perf_scores.rate). One row per person, KPI and
+    month; rating again replaces it."""
+    __tablename__ = "hr_perf_kpi_ratings"
+    id         = Column(String, primary_key=True)                  # uuid
+    company_id = Column(String, default="", index=True)
+    email      = Column(String, nullable=False, index=True)
+    kpi_key    = Column(String, nullable=False)
+    period     = Column(String, nullable=False, index=True)        # YYYY-MM
+    value      = Column(Float, default=0)
+    reason     = Column(Text, default="")
+    rated_by   = Column(String, default="")
+    rated_at   = Column(String, default="")
+
+
+class PerfBonusPlan(Base):
+    """The bonus plan of one job role (perf_bonus.py): target % of base pay,
+    cadence and the payout curve read off the monthly score. One per role,
+    edited in place - a run keeps the values it was priced with."""
+    __tablename__ = "hr_perf_bonus_plans"
+    id                  = Column(String, primary_key=True)                 # uuid
+    company_id          = Column(String, default="", index=True)
+    role_id             = Column(String, nullable=False, index=True)
+    target_pct          = Column(Float, default=0)                         # % of base pay at 100% payout
+    period              = Column(String, default="monthly")                # monthly | quarterly
+    threshold_score     = Column(Float, default=60)                        # below it: nothing
+    payout_at_threshold = Column(Float, default=50)                        # % of target at the threshold
+    max_payout          = Column(Float, default=100)                       # % of target; > 100 = stretch for over-target
+    adjust_max          = Column(Float, default=20)                        # a manager's +/- % bound
+    review_weight       = Column(Float, default=0)                         # % of the score taken from the latest review rating (0 = KPIs only)
+    active              = Column(Integer, default=1)
+    created_at          = Column(String, default="")
+    updated_by          = Column(String, default="")
+    updated_at          = Column(String, default="")
+
+
+class PerfBonusRun(Base):
+    """One bonus run: a company and a period (YYYY-MM or YYYY-Qn).
+    review -> approved -> paid, or cancelled."""
+    __tablename__ = "hr_perf_bonus_runs"
+    id           = Column(String, primary_key=True)
+    company_id   = Column(String, default="", index=True)
+    period       = Column(String, nullable=False)
+    period_start = Column(String, default="")
+    period_end   = Column(String, default="")
+    status       = Column(String, default="review", index=True)
+    line_count   = Column(Integer, default=0)
+    budget       = Column(Float, nullable=True)                            # HR's pool for the run; over it = a flag, never a block
+    notes        = Column(Text, default="")
+    created_by   = Column(String, default="")
+    created_at   = Column(String, default="")
+    approved_by  = Column(String, default="")
+    approved_at  = Column(String, default="")
+    paid_at      = Column(String, default="")
+
+
+class PerfBonusLine(Base):
+    """One person on a run, with every input the amount was priced with."""
+    __tablename__ = "hr_perf_bonus_lines"
+    id              = Column(String, primary_key=True)
+    run_id          = Column(String, nullable=False, index=True)
+    email           = Column(String, nullable=False, index=True)
+    role_id         = Column(String, default="")
+    role_name       = Column(String, default="")
+    department      = Column(String, default="")
+    manager_email   = Column(String, default="", index=True)
+    score           = Column(Float, nullable=True)                         # what the payout reads: the KPI score, or its blend with the review
+    kpi_score       = Column(Float, nullable=True)                         # period average of the monthly KPI scores
+    review_score    = Column(Float, nullable=True)                         # the latest completed review's rating as 0..100, when the plan blends it
+    reviewed_by     = Column(String, default="")                           # the manager who said the line looks right (or adjusted it)
+    reviewed_at     = Column(String, default="")
+    over_target     = Column(Float, default=0)
+    measured_weight = Column(Float, default=0)
+    months_scored   = Column(Integer, default=0)
+    payout_pct      = Column(Float, nullable=True)
+    base_pay        = Column(Float, default=0)
+    currency        = Column(String, default="USD")
+    target_pct      = Column(Float, default=0)
+    adjust_max      = Column(Float, default=20)
+    adjust_pct      = Column(Float, default=0)
+    adjust_reason   = Column(Text, default="")
+    adjusted_by     = Column(String, default="")
+    adjusted_at     = Column(String, default="")
+    excluded        = Column(Integer, default=0)
+    note            = Column(String, default="")                           # no_pay_rate | hourly_standard_month
+    computed_amount = Column(Float, default=0)
+    final_amount    = Column(Float, default=0)
+    bonus_id        = Column(String, default="")                           # the TimecardBonus once paid
+
+
+class PerfBonusPlanLog(Base):
+    """Every save of a bonus plan, as saved (perf_bonus.save_plan) - the plan
+    row is edited in place, this is its history."""
+    __tablename__ = "hr_perf_bonus_plan_log"
+    id         = Column(String, primary_key=True)
+    plan_id    = Column(String, nullable=False, index=True)
+    snapshot   = Column(JSON, default=dict)
+    changed_by = Column(String, default="")
+    changed_at = Column(String, default="")
