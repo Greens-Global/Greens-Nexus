@@ -3385,3 +3385,27 @@ api.pushConfig = () => req('/push/config');
 api.pushSubscribe = (sub) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
 api.pushUnsubscribe = (endpoint) => req('/push/subscribe', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
 api.pushSubscriptions = () => req('/push/subscriptions');
+
+// Forms (Neil, 11/02/2026; backend routers/forms.py). A form is a template with
+// docType 'form' - its build, publish, duplicate and archive are the template
+// calls above. These are the entries: what this person may fill, the fill
+// payload, a submission (idempotent on entryKey), the viewer's list, review,
+// links to a ticket / task / asset, the PDF, and one CSV per form.
+api.getFormsMine = () => req('/forms/mine');
+api.getFormFill = (tid) => req(`/forms/${encodeURIComponent(tid)}`);
+api.submitFormEntry = (tid, data) => req(`/forms/${encodeURIComponent(tid)}/entries`, { method: 'POST', body: JSON.stringify(data) });
+// params: template, site, status, from, to, person, page - empty ones left out.
+// Answers {items: [entry], total, page, pageSize}.
+api.getFormEntries = (params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null));
+  return req(`/forms/entries${q.toString() ? `?${q}` : ''}`);
+};
+api.getFormEntry = (id) => req(`/forms/entries/${encodeURIComponent(id)}`);
+api.reviewFormEntry = (id, data) => req(`/forms/entries/${encodeURIComponent(id)}/review`, { method: 'POST', body: JSON.stringify(data) });
+api.linkFormEntry = (id, data) => req(`/forms/entries/${encodeURIComponent(id)}/link`, { method: 'POST', body: JSON.stringify(data) });
+api.formEntryPdf = (id) => reqBlob(`/forms/entries/${encodeURIComponent(id)}/pdf`);
+// params: from, to, status, site - the list's filters, empty ones left out.
+api.formTemplateCsv = (tid, params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null));
+  return reqBlob(`/forms/templates/${encodeURIComponent(tid)}/export.csv${q.toString() ? `?${q}` : ''}`);
+};

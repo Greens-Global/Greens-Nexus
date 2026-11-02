@@ -11,8 +11,10 @@ const listPacketDocuments = vi.fn();
 const createDocFolder = vi.fn();
 const updateDocument = vi.fn();
 const createDocument = vi.fn();
+const getFormEntries = vi.fn();
 vi.mock('../api', () => ({
   api: {
+    getFormEntries: (...a) => getFormEntries(...a),
     getDocFolders: (...a) => getDocFolders(...a),
     getDocumentLibrary: (...a) => getDocumentLibrary(...a),
     listPacketDocuments: (...a) => listPacketDocuments(...a),
@@ -74,6 +76,7 @@ beforeEach(() => {
   createDocFolder.mockReset().mockResolvedValue({ id: 'f-new', name: 'Board Minutes', key: '', ownerEmail: '' });
   updateDocument.mockReset().mockResolvedValue(DOCS[0]);
   createDocument.mockReset().mockResolvedValue(doc({ id: 'd9', title: 'Made', status: 'final' }));
+  getFormEntries.mockReset().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50 });
 });
 
 describe('The library', () => {
@@ -168,6 +171,23 @@ describe('The library', () => {
     expect(within(panel).getByText(/Opening it needs Pay & Benefits access/)).toBeTruthy();
     expect(within(panel).queryByRole('button', { name: 'Download' })).toBeNull();
     expect(within(panel).getByRole('button', { name: 'Open Template' })).toBeTruthy();
+  });
+
+  it('Form Entries is a view only when the person has entries to see (Neil, 11/02/2026)', async () => {
+    getFormEntries.mockResolvedValue({ items: [{ id: 'e1', templateId: 'f1', title: 'Vehicle Check', status: 'follow_up', submittedBy: 'sam@greensglobal.com',
+      submittedByName: 'Sam Rivera', submittedAt: '2026-11-02T21:14:00Z', workSiteName: 'Austin', company: 'Greens Global', answers: {}, canReview: false }], total: 1, page: 1, pageSize: 50 });
+    render(<DocumentsBrowser />);
+    await screen.findByText('Lease');
+    openView('Form Entries');
+    expect(screen.getByText('Vehicle Check')).toBeTruthy();
+    expect(screen.getByText('Sam Rivera')).toBeTruthy();
+    expect(screen.getByText('Needs Follow-Up')).toBeTruthy();
+  });
+
+  it('no Form Entries view when there are none', async () => {
+    render(<DocumentsBrowser />);
+    await screen.findByText('Lease');
+    expect(within(rail()).queryByRole('button', { name: /^Form Entries/ })).toBeNull();
   });
 
   it('no HR Records view for anyone else', async () => {

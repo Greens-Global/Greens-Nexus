@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { X, Plus, Trash2 } from 'lucide-react';
 import TypedFieldInput from './TypedFieldInput';
-import { FIELD_SOURCES, FIELD_TYPES, VALIDATION_KEYS, OPTION_TYPES, slugifyToken, isValidToken } from '../lib/mergeFieldTypes';
+import { FIELD_SOURCES, FIELD_TYPES, VALIDATION_KEYS, OPTION_TYPES, slugifyToken, isValidToken,
+  FORM_TYPE_OPTIONS, FORM_ONLY_TYPES, SHOW_IF_OPS } from '../lib/mergeFieldTypes';
 
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const cardStyle = { background: 'var(--card)', borderRadius: 16, overflowY: 'auto', boxShadow: 'var(--shadow-lg)' };
@@ -14,8 +15,58 @@ const field = { marginBottom: 14 };
 // validation without moving the chip. Saving here writes ONE field_defs
 // entry; DocumentBuilder is responsible for also updating the mergeField
 // node's `token` attr for a brand-new field.
-export default function DefineMergeFieldModal({ initialLabel = '', existingDef = null, existingTokens = [], onSave, onCancel }) {
+//
+// Forms (Neil, 11/02/2026): the same editor edits a form's field - `form`
+// swaps the type list for the form one (photo, location stamp, QR scan,
+// rating, yes / no), hides the HR packet block, and adds the form-only keys
+// the server keeps only when docType is 'form': the Section the field sits
+// under, Show Only When (an earlier answer), a read-only Formula and a Repeat
+// group. `siblings` are the form's other fields (for Show Only When),
+// `sections` the headings already in use.
+const FORMULA_TYPES = ['text', 'number', 'currency'];
+const NO_DEFAULT_TYPES = [...FORM_ONLY_TYPES, 'signature', 'initials', 'image', 'file'];
+
+function ShowIfValue({ rule, other, onChange }) {
+  if (rule.op === 'empty' || rule.op === 'notEmpty') return null;
+  const common = { className: 'form-input', style: { flex: 1, minWidth: 120 }, 'aria-label': 'Show-when value' };
+  if (other?.type === 'yesno') {
+    return (
+      <select {...common} value={rule.value === true ? 'true' : rule.value === false ? 'false' : ''} onChange={(e) => onChange(e.target.value === '' ? '' : e.target.value === 'true')}>
+        <option value="">- Pick -</option><option value="true">Yes</option><option value="false">No</option>
+      </select>
+    );
+  }
+  if (other?.type === 'checkbox') {
+    return (
+      <select {...common} value={rule.value === true ? 'true' : rule.value === false ? 'false' : ''} onChange={(e) => onChange(e.target.value === '' ? '' : e.target.value === 'true')}>
+        <option value="">- Pick -</option><option value="true">Checked</option><option value="false">Not Checked</option>
+      </select>
+    );
+  }
+  if ((other?.type === 'dropdown' || other?.type === 'radio') && rule.op !== 'any' && (other.options || []).length) {
+    return (
+      <select {...common} value={rule.value ?? ''} onChange={(e) => onChange(e.target.value)}>
+        <option value="">- Pick -</option>
+        {other.options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    );
+  }
+  return <input {...common} value={Array.isArray(rule.value) ? rule.value.join(', ') : (rule.value ?? '')}
+    placeholder={rule.op === 'any' ? 'One, Two, Three' : 'Value'}
+    onChange={(e) => onChange(rule.op === 'any' ? e.target.value.split(',').map((x) => x.trim()).filter(Boolean) : e.target.value)} />;
+}
+
+export default function DefineMergeFieldModal({ initialLabel = '', existingDef = null, existingTokens = [], onSave, onCancel,
+  form = false, siblings = [], sections = [] }) {
   const isEdit = !!existingDef;
+  // Form-only keys (kept whatever the type, so switching type keeps the section).
+  const [section, setSection] = useState(existingDef?.section || '');
+  const [showIf, setShowIf] = useState(existingDef?.showIf || null);
+  const [formula, setFormula] = useState(existingDef?.formula || '');
+  const [repeatGroup, setRepeatGroup] = useState(existingDef?.repeat?.group || '');
+  const [repeatMax, setRepeatMax] = useState(existingDef?.repeat?.max ? String(existingDef.repeat.max) : '10');
+  const others = siblings.filter((d) => d.token !== (existingDef?.token || '__new__'));
+  const showIfOther = showIf?.token ? others.find((d) => d.token === showIf.token) : null;
   const [labelText, setLabelText] = useState(existingDef?.label || initialLabel);
   const [token, setToken] = useState(existingDef?.token || slugifyToken(initialLabel));
   const [tokenTouched, setTokenTouched] = useState(false);
@@ -49,21 +100,34 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
   const setV = (key, val) => setValidation((v) => ({ ...v, [key]: val }));
   const vKeys = VALIDATION_KEYS[type] || [];
 
+  const typeOptions = form ? FORM_TYPE_OPTIONS : FIELD_TYPES;
+  const title = form ? (isEdit ? 'Edit Field' : 'Add Field') : (isEdit ? 'Edit Merge Field' : 'Convert to Merge Field');
+
   const save = () => {
     if (!canSave) return;
-    onSave({
-      token, label: labelText.trim(), type, required, default: defaultValue,
+    const base = {
+      token, label: labelText.trim(), type, required, default: NO_DEFAULT_TYPES.includes(type) ? '' : defaultValue,
       options: OPTION_TYPES.includes(type) ? options : undefined,
       validation: Object.fromEntries(vKeys.map((k) => [k, validation[k]]).filter(([, v]) => v !== undefined && v !== '')),
-      source, sensitive: source === 'person' && sensitive, last4: source === 'person' && last4, pay,
-    });
+    };
+    if (form) {
+      const rule = showIf?.token ? { token: showIf.token, op: showIf.op || 'eq', ...(showIf.op === 'empty' || showIf.op === 'notEmpty' ? {} : { value: showIf.value ?? '' }) } : undefined;
+      const group = repeatGroup.trim();
+      onSave({
+        ...base, section: section.trim(), showIf: rule,
+        formula: FORMULA_TYPES.includes(type) && formula.trim() ? formula.trim() : undefined,
+        repeat: group ? { group, max: Math.max(1, Math.min(50, Number(repeatMax) || 10)) } : undefined,
+      });
+      return;
+    }
+    onSave({ ...base, source, sensitive: source === 'person' && sensitive, last4: source === 'person' && last4, pay });
   };
 
   return (
     <div style={overlayStyle} onClick={onCancel}>
-      <div className="nx-popup" style={cardStyle} onClick={(e) => e.stopPropagation()}>
+      <div className="nx-popup" style={cardStyle} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
         <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          {isEdit ? 'Edit Merge Field' : 'Convert to Merge Field'}
+          {title}
           <button onClick={onCancel} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
         </div>
         <div style={{ padding: 20 }}>
@@ -85,15 +149,65 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
             {isEdit && <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>The token can't change once the field is in use - it would break every chip already placed.</p>}
           </div>
           <div style={field}>
-            <label style={label}>Field Type</label>
-            <select className="form-input" style={{ width: '100%' }} value={type} onChange={(e) => setType(e.target.value)}>
-              {FIELD_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            <label style={label} htmlFor="merge-field-type">Field Type</label>
+            <select id="merge-field-type" className="form-input" style={{ width: '100%' }} value={type} onChange={(e) => setType(e.target.value)}>
+              {typeOptions.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>
           <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', marginBottom: 14 }}>
             <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} /> Required
           </label>
-          <div style={field}>
+
+          {form && (<>
+            <div style={field}>
+              <label style={label} htmlFor="form-field-section">Section</label>
+              <input id="form-field-section" className="form-input" style={{ width: '100%' }} list="form-field-sections" value={section}
+                placeholder="e.g. Vehicle" onChange={(e) => setSection(e.target.value)} />
+              <datalist id="form-field-sections">{sections.map((s) => <option key={s} value={s} />)}</datalist>
+              <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>The heading this field sits under on the form. Leave blank for General.</p>
+            </div>
+            <div style={field}>
+              <label style={label} htmlFor="form-field-showif">Show Only When</label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <select id="form-field-showif" className="form-input" style={{ flex: '1 1 140px' }} value={showIf?.token || ''}
+                  onChange={(e) => setShowIf(e.target.value ? { token: e.target.value, op: showIf?.op || 'eq', value: '' } : null)}>
+                  <option value="">Always shown</option>
+                  {others.map((d) => <option key={d.token} value={d.token}>{d.label || d.token}</option>)}
+                </select>
+                {showIf?.token && (
+                  <select className="form-input" style={{ flex: '0 1 130px' }} aria-label="Show-when rule" value={showIf.op || 'eq'}
+                    onChange={(e) => setShowIf({ ...showIf, op: e.target.value, value: e.target.value === 'any' ? [] : '' })}>
+                    {SHOW_IF_OPS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                  </select>
+                )}
+                {showIf?.token && <ShowIfValue rule={showIf} other={showIfOther} onChange={(value) => setShowIf({ ...showIf, value })} />}
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>A hidden field is never required and keeps no answer.</p>
+            </div>
+            {FORMULA_TYPES.includes(type) && (
+              <div style={field}>
+                <label style={label} htmlFor="form-field-formula">Formula</label>
+                <input id="form-field-formula" className="form-input" style={{ width: '100%', fontFamily: 'ui-monospace, monospace', fontSize: 12.5 }} value={formula}
+                  placeholder='e.g. field("miles_out") - field("miles_in")' onChange={(e) => setFormula(e.target.value)} />
+                <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>Worked out from the other answers while the form is filled; read-only. The Tasks formula language, with field("token").</p>
+              </div>
+            )}
+            <div style={field}>
+              <label style={label} htmlFor="form-field-repeat">Repeat Group</label>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input id="form-field-repeat" className="form-input" style={{ flex: 1 }} value={repeatGroup} placeholder="e.g. tires (blank = asked once)"
+                  onChange={(e) => setRepeatGroup(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))} />
+                <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                  up to
+                  <input type="number" min={1} max={50} className="form-input" style={{ width: 70 }} aria-label="Repeat up to" value={repeatMax}
+                    onChange={(e) => setRepeatMax(e.target.value)} />
+                </label>
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>Fields in one group are asked together, and "Add Another" repeats the set.</p>
+            </div>
+          </>)}
+
+          {!form && <div style={field}>
             <label style={label}>Who Fills It In An HR Packet</label>
             <select className="form-input" style={{ width: '100%' }} value={source} onChange={(e) => setSource(e.target.value)} aria-label="Who fills it">
               {FIELD_SOURCES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -120,7 +234,7 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
                 <input type="checkbox" checked={pay || type === 'currency'} disabled={type === 'currency'} onChange={(e) => setPay(e.target.checked)} /> This Is Pay (Pay &amp; Benefits only)
               </label>
             )}
-          </div>
+          </div>}
 
           {OPTION_TYPES.includes(type) && (
             <div style={field}>
@@ -141,7 +255,7 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
             </div>
           )}
 
-          {!OPTION_TYPES.includes(type) && (
+          {!OPTION_TYPES.includes(type) && !(form && NO_DEFAULT_TYPES.includes(type)) && (
             <div style={field}>
               <label style={label}>Default Value</label>
               <TypedFieldInput def={{ token, label: labelText, type, options, validation, required: false }}

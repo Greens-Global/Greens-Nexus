@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { FileSignature, Folder, LayoutTemplate, FileText } from 'lucide-react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { FileSignature, Folder, LayoutTemplate, FileText, ClipboardList } from 'lucide-react';
 import { api } from '../api';
 import { useEntities } from '../lib/queries';
 import ESign from '../components/ESign';
@@ -11,13 +11,20 @@ import GuidedTour from '../components/GuidedTour';
 import { useIsMobile } from '../lib/useIsMobile';
 import { buildDocumentsTourSteps } from './documentsTourSteps';
 import { registerTour } from '../lib/tours';
+import { SkeletonBlocks } from '../components/AsyncState';
+
+// Forms (Neil, 11/02/2026): the builder, the entries table and the entry
+// panel, loaded when the tab is opened.
+const FormsTab = lazy(() => import('../forms/FormsTab'));
 
 // ── Documents module ─────────────────────────────────────────────────────────
 // E-Sign was carved out of HR into its own top-level module (Jul 2026), then
 // grown into a full DMS. Four tabs (Neil, 10/31/2026): Documents is one library
 // that took in the old Dashboard, My Documents and HR Records tabs; Templates;
-// Nexus Sign stays its own tab, unchanged; PDF Tools. Backend /esign/* routes are
-// unchanged; the DMS half talks to the /documents/* router.
+// Nexus Sign stays its own tab, unchanged; PDF Tools. Forms (Neil, 11/02/2026)
+// is the fifth: field forms built as templates, their entries, review.
+// Backend /esign/* routes are unchanged; the DMS half talks to the /documents/*
+// router, Forms to /forms/*.
 //
 // Cross-module handoff: HR → Hiring "Send for signature" stashes an offer on
 // window.__esignPrefill then fires nexus:navigate here. We read it on mount
@@ -26,6 +33,7 @@ import { registerTour } from '../lib/tours';
 const TABS = [
   { key: 'documents-browse', label: 'Documents', Icon: Folder },
   { key: 'documents-templates', label: 'Templates', Icon: LayoutTemplate },
+  { key: 'documents-forms', label: 'Forms', Icon: ClipboardList },
   { key: 'documents-esign', label: 'Nexus Sign', Icon: FileSignature },
   { key: 'documents-pdf', label: 'PDF Tools', Icon: FileText },
 ];
@@ -165,6 +173,12 @@ export default function Documents({ activeSub, onSubChange }) {
 
       {sub === 'documents-templates' && (
         <DocumentTemplates employees={employees} entities={entities} toastOk={toastOk} toastErr={toastErr} />
+      )}
+
+      {sub === 'documents-forms' && (
+        <Suspense fallback={<SkeletonBlocks count={6} height={44} />}>
+          <FormsTab toastOk={toastOk} toastErr={toastErr} />
+        </Suspense>
       )}
 
       {sub === 'documents-esign' && (
