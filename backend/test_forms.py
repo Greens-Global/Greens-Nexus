@@ -668,6 +668,23 @@ class FormsTests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
 
 
+    def test_csv_export_is_404_to_an_outsider_and_checks_its_status(self):
+        tpl = self._template()
+        site_form = self._template("North Yard Walk", audience="site", workSiteId=SITE_A)
+        self._submit(tpl["id"], REP, workSiteId=SITE_A)
+
+        def export(who, t, **params):
+            self._as(who)
+            return self.client.get(f"/forms/templates/{t['id']}/export.csv", params=params)
+
+        self.assertEqual(export(OTHER, tpl).status_code, 404)          # another company, no reach
+        self.assertEqual(export(STR_B, site_form).status_code, 404)    # not in the site form's audience
+        self.assertEqual(export(REP, site_form).status_code, 200)      # may fill it: their own rows
+        self.assertEqual(export(MGR, site_form).status_code, 200)      # a manager with people
+        self.assertEqual(export(HR_A, site_form).status_code, 200)     # HR for the company
+        self.assertEqual(export(MGR, tpl, status="bogus").status_code, 400)
+        self.assertEqual(export(MGR, tpl, status="submitted").status_code, 200)
+
     def test_csv_cells_that_would_run_as_formulas_open_as_text(self):
         from routers import forms as forms_router
         self.assertEqual(forms_router.csv_safe("=1+1"), "'=1+1")

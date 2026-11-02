@@ -53,7 +53,7 @@ import workflows
 from auth import get_current_user
 from database import get_db
 from models import DocFormEntry, DocTemplate, HrWorkSite, NexusEmployee, NexusNotification
-from routers.documents import _content_disposition, _released
+from routers.documents import _content_disposition, _released, _require_template_manager
 from routers.hr import company_sites
 from routers.items import _validate_photo_url
 
@@ -545,12 +545,35 @@ def _csv_rows(defs: list, entries: list) -> list:
     return rows
 
 
+def _may_export(db: Session, tpl: DocTemplate, user: dict, reach: form_audience.Reach) -> bool:
+    """Who may pull a form's CSV at all: someone who may fill it (their own
+    rows), someone who manages the template, or someone whose reach goes
+    beyond their own entries - an administrator, a manager with people or
+    team sites, HR for the form's company or their own. Anyone else gets the
+    same 404 as for a form that does not exist."""
+    if form_audience.may_fill(db, tpl, user["email"], level=user.get("level", 0)):
+        return True
+    try:
+        _require_template_manager(db, user, tpl.department or "")
+        return True
+    except HTTPException:
+        pass
+    if reach.admin or reach.team or reach.team_sites:
+        return True
+    companies = {form_audience.template_company(db, tpl), auth.company_of(user["email"], db)}
+    return any(reach.hr_for(c) for c in companies if c)
+
+
 @router.get("/templates/{tid}/export.csv")
 def export_csv(tid: str, from_: str = Query("", alias="from"), to: str = "", status: str = "", site: str = "",
                user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Every entry of one form the caller may see, as CSV."""
     tpl = _form_template(db, tid)
     reach = form_audience.viewer_reach(db, user)
+    if not _may_export(db, tpl, user, reach):
+        raise HTTPException(404, "Form not found")
+    if status and status not in STATUSES:
+        raise HTTPException(400, f"status must be one of {', '.join(STATUSES)}")
     defs, _version = _defs(db, tpl)
     q = db.query(DocFormEntry).filter(DocFormEntry.template_id == tpl.id, DocFormEntry.deleted_at == "")
     if status:
