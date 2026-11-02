@@ -474,6 +474,11 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Shared shifts on people\'s Outlook calendars, and asking people to confirm a shared schedule.',
     keywords: 'sharing outlook calendar free busy confirm schedule share' },
+  // Weekly labor budget (Neil, 11/02/2026): HR++ only - the Full People grant, never the manager tier.
+  { id: 'shift-labor-budget', subject: 'shifts', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Labor Budget', part: 'labor', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
+    sub: 'The scheduled hours and labor cost a week should stay within, shown on the shift planner to HR and administrators only.',
+    keywords: 'labor budget weekly hours amount cost planner scheduled hr' },
   { id: 'shift-types', subject: 'shifts', face: 'both', scope: 'layered', icon: Clock, title: 'Shift Types',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The reusable shifts managers place with one click - name, code, color, times, time zone and days. A person\'s usual hours are one of these.',

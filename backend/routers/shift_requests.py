@@ -167,7 +167,13 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # Early punch alert (Neil, 11/02/2026, early_punch.py): a clock-in
              # more than this many minutes before the expected start tells
              # the manager. The punch is always recorded; 0 = off.
-             "earlyPunchAlertMin": 0}
+             "earlyPunchAlertMin": 0,
+             # Weekly labor budget (Neil, 11/02/2026): hours and amount per
+             # week, shown on the shift planner to HR++ only (hr_access.py -
+             # the company's HR contact, administrators, a Full People grant;
+             # never the manager tier). 0 = no budget. The amount is in the
+             # company's pay currency.
+             "laborBudgetHours": 0, "laborBudgetAmount": 0}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
@@ -176,7 +182,8 @@ _INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftE
                  "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100),
                  "otAlertDailyLeadMin": (0, 240), "otAlertWeeklyLeadMin": (0, 480),
                  "timesheetEscalateDays": (0, 30), "breakNudgeMin": (0, 240),
-                 "mealReminderMin": (0, 295), "earlyPunchAlertMin": (0, 240)}
+                 "mealReminderMin": (0, 295), "earlyPunchAlertMin": (0, 240),
+                 "laborBudgetHours": (0, 100000), "laborBudgetAmount": (0, 10000000)}
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers", "release": "releaseShifts"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -379,6 +386,8 @@ class SettingsIn(BaseModel):
     breakNudgeMin: Optional[int] = None         # 0-240; minutes on an open break before "Still on Break?"; manager at 2x; 0 = off
     mealReminderMin: Optional[int] = None       # 0-295; minutes of work before the California meal reminder; 0 = off
     earlyPunchAlertMin: Optional[int] = None    # 0-240; minutes before the expected start a clock-in alerts the manager; 0 = off
+    laborBudgetHours: Optional[int] = None      # 0-100000; scheduled hours budget per week, HR++ see it on the planner; 0 = none
+    laborBudgetAmount: Optional[int] = None     # 0-10000000; scheduled labor cost budget per week; 0 = none
 
 
 @router.get("/settings")

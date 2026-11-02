@@ -170,6 +170,7 @@ export const SHIFT_SETTING_PARTS = {
   rules: ['ruleMinRestHours', 'ruleMaxDaysInRow', 'ruleDailyOtHours', 'ruleWeeklyOtHours', 'ruleMaxWeekHours', 'publishReasonRequired'],
   sharing: ['outlookCalendarOn', 'outlookShowAs', 'confirmRequests'],
   trail: ['locationTrailOn'],
+  labor: ['laborBudgetHours', 'laborBudgetAmount'],
 };
 // The parts on screen at once share one request per company while it is in
 // flight, and hear each other's saves (SAVED_EVENT), so no part ever shows
@@ -189,6 +190,11 @@ const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverride, part }) {
   const [company, setCompany] = useSettingsCompany(scoped);
+  // The labor budget is HR++'s alone (Neil, 11/02/2026): administrators and
+  // a Full People grant that is not team-limited see the block; a manager
+  // never does (Settings' mayOpen hides the group too - this is the belt).
+  const role = useRole();
+  const hrPlus = !role || !!role.can?.('administrator') || (role.myGrantedModules?.get?.('hr') === 'full' && !role.hrTeam);
   const locked = scoped !== undefined;
   const show = (p) => !part || part === p;
   const [cfg, setCfg] = useState(null);
@@ -385,6 +391,16 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                   hint="Minutes before 40 hours of regular time in a payroll week (Sunday to Saturday). 0 turns it off." />
               </>
             ))}
+            {hrPlus && block('labor', 'Labor Budget', (
+              <>
+                {/* Weekly labor budget (Neil, 11/02/2026): the planner's "of ... budget", HR++ only. */}
+                <div className="nx-set-note" style={{ borderTop: 'none', borderBottom: '1px solid var(--line)' }}>Shown on the shift planner to HR and administrators only - never to managers. 0 means no budget.</div>
+                <MinutesField label="Hours Per Week" aria="Hours per week" unit="hours" max={100000} value={nums?.laborBudgetHours} fallback={0} onChange={(v) => patchNum({ laborBudgetHours: v })}
+                  hint="Scheduled hours the week's shifts should stay within. The planner scales it to the days shown." />
+                <MinutesField label="Amount Per Week" aria="Amount per week" unit="" max={10000000} value={nums?.laborBudgetAmount} fallback={0} onChange={(v) => patchNum({ laborBudgetAmount: v })}
+                  hint="Scheduled labor cost the week's shifts should stay within, in the company's pay currency." />
+              </>
+            ))}
             {block('trail', 'Location Trail', (
               // Location Trail While Clocked In (Oct 20 2026, routers/location_trail.py).
               <SwitchRow id="shift-locationTrailOn" title="Location Trail While Clocked In" checked={cfg.locationTrailOn === true} onChange={(on) => save({ locationTrailOn: on })}
@@ -488,11 +504,13 @@ const NUM_MAX = {
   defaultGraceMin: 120, noShowAlertMin: 240, leftEarlyMin: 240, earlyPunchAlertMin: 240, timesheetEscalateDays: 30, breakNudgeMin: 240, mealReminderMin: 295,
   otAlertDailyLeadMin: 240, otAlertWeeklyLeadMin: 480,
   ruleMinRestHours: 24, ruleMaxDaysInRow: 14, ruleDailyOtHours: 24, ruleWeeklyOtHours: 80, ruleMaxWeekHours: 100,
+  laborBudgetHours: 100000, laborBudgetAmount: 10000000,
 };
 const NUM_DEFAULT = {
   defaultGraceMin: 10, noShowAlertMin: 10, leftEarlyMin: 15, earlyPunchAlertMin: 0, timesheetEscalateDays: 2, breakNudgeMin: 60, mealReminderMin: 270,
   otAlertDailyLeadMin: 30, otAlertWeeklyLeadMin: 120,
   ruleMinRestHours: 0, ruleMaxDaysInRow: 0, ruleDailyOtHours: 0, ruleWeeklyOtHours: 0, ruleMaxWeekHours: 0,
+  laborBudgetHours: 0, laborBudgetAmount: 0,
 };
 const NUM_KEYS = Object.keys(NUM_MAX);
 // What the boxes show, as text: the saved value, else the default - so a

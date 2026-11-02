@@ -88,13 +88,25 @@ const money = (amount, currency) => {
   } catch { return `${amount} ${currency || ''}`.trim(); }
 };
 const peopleCount = (n, what) => `${n} ${n === 1 ? 'person' : 'people'} ${what}`;
+// The weekly labor budget (Neil, 11/02/2026) - only HR++ get it from the
+// server (`budgetVisible` + `budget`, scaled to the range; absent for
+// everyone else, so a manager's line is exactly as before).
+const budgetOf = (l) => (l?.budgetVisible && l.budget && typeof l.budget === 'object' ? l.budget : null);
+export function laborOver(l) {
+  const b = budgetOf(l);
+  if (!b) return false;
+  return (b.hours != null && l.hours > b.hours) || (b.amount != null && l.cost != null && l.cost > b.amount);
+}
 export function laborText(l) {
   if (!l || !(l.hours > 0)) return '';
   const h = l.hours % 1 === 0 ? l.hours : Number(l.hours.toFixed(2));
-  const parts = [`Scheduled ${h.toLocaleString('en-US', { maximumFractionDigits: 2 })} h`];
+  const budget = budgetOf(l);
+  const hoursBudget = budget?.hours != null ? ` of ${Number(budget.hours).toLocaleString('en-US')} h budget` : '';
+  const parts = [`Scheduled ${h.toLocaleString('en-US', { maximumFractionDigits: 2 })} h${hoursBudget}`];
   if (!l.payHidden) {
     const perCurrency = Object.entries(l.costs || {}).filter(([, v]) => v != null);
-    if (l.cost != null) parts.push(money(l.cost, l.currency));
+    const amountBudget = budget?.amount != null ? ` of ${money(budget.amount, budget.currency || l.currency)} budget` : '';
+    if (l.cost != null) parts.push(money(l.cost, l.currency) + amountBudget);
     else if (perCurrency.length > 1) parts.push(perCurrency.map(([c, v]) => money(v, c)).join(' and '));
     if (l.cost != null || perCurrency.length > 1) {
       if (l.peopleWithoutRate) parts.push(peopleCount(l.peopleWithoutRate, 'without a rate'));
@@ -1226,10 +1238,13 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   // scheduled and worked, where the unshared changes are, who confirmed -
   // in words, no chips. On a phone the facts move under the list.
   const laborLine = laborText(labor);
+  // Over the weekly budget (HR++ only see one): the line goes amber.
+  const overBudget = laborOver(labor);
   // A title is unreachable on a phone: there the explanation is a visible line.
   const teamFacts = [
     laborLine ? (
-      <span data-labor-line="" title={phone ? undefined : laborHelp(!!labor?.payHidden)} style={phone ? { display: 'grid', gap: 2 } : undefined}>
+      <span data-labor-line="" {...(overBudget ? { 'data-labor-over': '' } : {})} title={phone ? undefined : laborHelp(!!labor?.payHidden)}
+        style={{ ...(phone ? { display: 'grid', gap: 2 } : {}), ...(overBudget ? { color: 'hsl(var(--color-orange))', fontWeight: 600 } : {}) }}>
         {laborLine}
         {phone && <span data-labor-help="" style={{ fontSize: 11.5, color: 'var(--muted)' }}>{laborHelp(!!labor?.payHidden)}</span>}
       </span>

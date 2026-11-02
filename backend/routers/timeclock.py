@@ -7751,7 +7751,37 @@ def schedule_labor(start: str, end: str, user: dict = Depends(require_schedule_w
         out.update({"cost": total_cost, "currency": currency,
                     "costs": {k: round(v, 2) for k, v in currencies.items()},
                     "peopleWithoutRate": len(no_rate), "fixedPayPeople": len(fixed)})
+    # Weekly labor budget (Neil, 11/02/2026): HR++ ONLY - hr_access is the
+    # rule (the company's HR contact, administrators, a Full People grant in
+    # scope; the manager tier is never HR). Everyone else gets NEITHER key:
+    # the flag and the values are absent, not null, so a payload never says
+    # there is a budget to someone who may not see it.
+    budget_company = _budget_company(db, user, rows, people)
+    import hr_access
+    if hr_access.is_hr_for_company(db, user, budget_company):
+        from routers.shift_requests import get_settings as _shift_settings
+        cfg = _shift_settings(db, budget_company)
+        days = (d1 - d0).days + 1
+        scale = lambda v: (int(round(int(v) * days / 7.0)) if int(v or 0) > 0 else None)   # noqa: E731
+        out["budgetVisible"] = True
+        out["budget"] = {"hours": scale(cfg.get("laborBudgetHours", 0)),
+                         "amount": scale(cfg.get("laborBudgetAmount", 0)),
+                         "currency": currency or "USD"}
     return out
+
+
+def _budget_company(db: Session, user: dict, rows: list, people: dict) -> str:
+    """Whose weekly budget the planner shows: the one company of the people
+    scheduled in the range; several companies (or nobody scheduled) = the
+    caller's own company (auth.company_of)."""
+    companies = set()
+    for r in rows:
+        p = people.get((r.employee_email or "").lower())
+        companies.add((p.company if p is not None else "") or "")
+    if len(companies) == 1:
+        return next(iter(companies))
+    from auth import company_of
+    return company_of(user, db)
 
 
 @router.get("/schedule/check")

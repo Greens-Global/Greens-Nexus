@@ -728,6 +728,41 @@ describe('ShiftSettingsPanel sharing', () => {
 // Settings shows the shift settings as several groups (Oct 25): `part` is the
 // slice a group shows. The parts share one load, hear each other's saves, and
 // a company's part says whether ITS settings differ from the defaults.
+// Weekly labor budget (Neil, 11/02/2026): two typed fields of their own
+// group, saved through the one Save row; HR++ only - a manager never sees
+// the block, even on the whole panel.
+describe('ShiftSettingsPanel labor budget', () => {
+  it('saves the weekly hours and amount through the one Save row, 0 = none', async () => {
+    role.current = { can: (r) => r === 'administrator', myGrantedModules: new Map(), hrTeam: false };
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} company="" part="labor" />);
+    const hours = await screen.findByLabelText('Hours per week');
+    const amount = screen.getByLabelText('Amount per week');
+    expect(hours.value).toBe('0');
+    expect(amount.value).toBe('0');
+    expect(screen.getByText('Hours Per Week')).toBeTruthy();
+    expect(screen.getByText('Amount Per Week')).toBeTruthy();
+    expect(screen.getByText(/to HR and administrators only - never to managers/)).toBeTruthy();
+    expect(saveButton().disabled).toBe(true);
+    fireEvent.change(hours, { target: { value: '1200' } });
+    fireEvent.change(amount, { target: { value: '9000' } });
+    expect(shiftRequestSettingsSaveFor).not.toHaveBeenCalled();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith({ laborBudgetHours: 1200, laborBudgetAmount: 9000 }, ''));
+  });
+
+  it('shows the block to a Full People grant and hides it from a manager', async () => {
+    role.current = { can: () => false, myGrantedModules: new Map([['hr', 'full']]), hrTeam: false };
+    const r1 = render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    expect(await screen.findByLabelText('Hours per week')).toBeTruthy();
+    r1.unmount();
+    role.current = { can: (r) => r === 'manager', myGrantedModules: new Map(), hrTeam: true };
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByLabelText('No-show alert');
+    expect(screen.queryByLabelText('Hours per week')).toBeNull();
+    expect(screen.queryByText('Labor Budget')).toBeNull();
+  });
+});
+
 describe('ShiftSettingsPanel parts', () => {
   it('shows only its own slice, with no heading - the group card names it', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} company="" part="rules" />);
