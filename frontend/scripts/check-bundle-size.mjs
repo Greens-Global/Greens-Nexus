@@ -325,7 +325,19 @@ const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE
 // so the second to merge does not conflict. App code only, no new
 // dependency. Pranshu asked for the raise on 10/30 (needs Neil's OK with
 // the release, as every raise here has).
-const TOTAL_KB     = 16200 + (NX_SRC_ON ? 350 : 0);
+// Nov 2, 2026: 16200 -> 19200. The Notes whiteboard (Boards) brings the
+// Excalidraw engine (@excalidraw/excalidraw 0.18.1, MIT): about 2.7 MB of
+// JavaScript in ONE lazy chunk, vendor-excalidraw, imported only when a board
+// opens - first paint is unchanged - plus its own CSS. This cap sums every
+// shipped file, so a lazy chunk still counts; the raise is the engine's real
+// size and nothing else. Its 60 locale files and its Mermaid text-to-diagram
+// dependency (2.5 MB more, which would have landed in vendor-react) are
+// stubbed at build time (vite.config.js excalidrawLocaleStub), so only
+// English ships. Measured 11/02/2026 with a board reachable: vendor-excalidraw
+// 2,961 KB, vendor-react unchanged at 827 KB, total 18,742 KB. Neil chose the
+// engine over tldraw (paid license) and over a homegrown canvas, and chose
+// this raise over hosting the engine as a separate iframe app, on 11/02/2026.
+const TOTAL_KB     = 19200 + (NX_SRC_ON ? 350 : 0);
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a
@@ -337,6 +349,12 @@ const CHUNK_EXEMPT = {
   // Aug 4, 2026 - if this grows, prefer converting HEIC server-side (pillow +
   // pillow-heif) over raising this number again.
   'vendor-heic': 1400,
+  // The whiteboard engine (Notes boards, Neil 11/02/2026). Its main file is
+  // one 1.8 MB module the package does not split; it is reached only by the
+  // lazy import in notes/board/Board.jsx, never on first paint. Measured
+  // 11/02/2026: 2,961 KB (3,031 kB in the build log). If it grows past this,
+  // look for a new engine dependency leaking in before touching the number.
+  'vendor-excalidraw': 3200,
 };
 const capFor = (file) => {
   const hit = Object.keys(CHUNK_EXEMPT).find((k) => file.startsWith(k));

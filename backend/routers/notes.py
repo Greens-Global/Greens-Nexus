@@ -57,6 +57,25 @@ The body is HTML from the Notes editor, sanitized here with the rich-text
 allowlist the saved replies use (ticket_saved_replies._RichSanitizer) plus
 what the editor's checklists, mentions and alignment need. AI is off for
 Notes as for the rest of Nexus - nothing here calls a model.
+
+Boards (Neil, 11/02/2026): kind 'board' is a whiteboard - a note whose
+drawing is JSON in `scene` ({type: 'nexus-board', look, elements, appState,
+files}; SCENE_MAX characters; never the HTML sanitizer; a board has no body
+and a note or daily no scene; an empty `body` on a board is a no-op and an
+empty `scene` resets it to a blank board; pictures are stored files, never
+`data:` URLs). The words of its text elements are its `text`, so search and
+the list preview work. Only the shapes, pictures and look are content: a
+save that only moves the view (scroll, zoom) is stored without a new rev,
+version, Updated dot or live-state drop, and so is a save of only the
+thumbnail or the source. Version lists carry `shapes` / `words`; one
+version in full (its scene) is GET /notes/{id}/versions/{version_id}. `thumb_url` is a PNG in our
+storage the browser writes after a save; `source` says what a Mark Up board
+was made from. Who may save it follows the note rules exactly. Live
+co-typing is the same channel and state: the server never builds a Yjs
+document - GET /collab hands a board's scene to the first editor, whose
+browser builds the state (Y.Map 'elements' by element id, Y.Map 'files')
+and seeds it; a scene saved outside the live session drops the state like a
+body save does.
 """
 import base64
 import hashlib
@@ -82,6 +101,17 @@ router = APIRouter(prefix="/notes", tags=["Notes"])
 
 TITLE_MAX = 200
 BODY_MAX = 300_000
+SCENE_MAX = 2_000_000                 # characters of board JSON
+SCENE_TYPE = "nexus-board"
+SOURCE_KINDS = ("task", "ticket", "note", "walkthrough", "file")
+SOURCE_ID_MAX, SOURCE_LABEL_MAX = 100, 200
+# A Mark Up source link is a Nexus page: one leading slash and never two
+# (`//evil.com` is another site to a browser), no backslash, no
+# percent-encoded slash or backslash (`/%2F%2Fevil.com`), and one of the
+# pages a markup can come from.
+_SOURCE_PATH = re.compile(r"^/(?![/\\])[A-Za-z0-9_\-./?=&%:#@+]*$")
+_SOURCE_PREFIXES = ("/tickets", "/tasks", "/notes", "/dashboard", "/support")
+_ENCODED_SLASH = re.compile(r"%(2f|5c)", re.I)
 TAG_MAX, TAGS_MAX = 40, 20
 SHARES_MAX = 50
 VERSION_GAP = timedelta(minutes=10)
@@ -111,7 +141,10 @@ _EMAIL = re.compile(r"^[^@\s<>\"]+@[^@\s<>\"]+$")
 # src is our own storage - rebuilt here with fixed attributes, children and
 # anything else dropped; one pointing anywhere else is removed.
 _NOTE_ATTRS = {
-    "a": ("href", "title"),
+    # a: a link, or a board embedded in the note (Mark Up / Insert Board,
+    # 11/02/2026 - notes/board/BoardEmbed.jsx): <a data-type="boardEmbed"
+    # data-note="note_..." data-thumb="<our storage>" title="...">Title</a>.
+    "a": ("href", "title", "data-type", "data-note", "data-thumb"),
     "img": ("src", "alt", "title"),
     "ul": ("data-type",),
     "li": ("data-type", "data-checked"),
@@ -120,7 +153,8 @@ _NOTE_ATTRS = {
     "td": ("colspan", "rowspan"), "th": ("colspan", "rowspan"),
 }
 _ALIGN = re.compile(r"^text-align:\s*(left|center|right|justify);?$", re.I)
-_DATA_TYPES = {"taskList", "taskItem", "mention"}
+_DATA_TYPES = {"taskList", "taskItem", "mention", "boardEmbed"}
+_NOTE_REF = re.compile(r"^note_[A-Za-z0-9]{1,64}$")
 
 
 _MEDIA = {"audio": ' controls preload="metadata"', "video": ' controls playsinline preload="metadata"'}
@@ -133,13 +167,15 @@ class _NoteSanitizer(_RichSanitizer):
 
     def _attrs(self, tag, attrs):
         allowed = _NOTE_ATTRS.get(tag, ())
+        embed = tag == "a" and any((k or "").lower() == "data-type" and (v or "").strip() == "boardEmbed"
+                                   for k, v in attrs)
         kept = []
         for k, v in attrs:
             k, v = (k or "").lower(), (v or "").strip()
             if k not in allowed:
                 continue
-            if k == "href" and not _SAFE_HREF.match(v):
-                continue
+            if k == "href" and (embed or not _SAFE_HREF.match(v)):
+                continue        # a board card is never a link (a planted href would look like one)
             if k == "src" and not _own_image(v):
                 continue
             if k == "style":
@@ -152,6 +188,10 @@ class _NoteSanitizer(_RichSanitizer):
             elif k in ("colspan", "rowspan") and not v.isdigit():
                 continue
             elif k == "data-id" and not _EMAIL.match(v):
+                continue
+            elif k == "data-note" and not _NOTE_REF.match(v):
+                continue
+            elif k == "data-thumb" and not _own_image(v):
                 continue
             kept.append(f' {k}="{escape(v[:200], quote=True)}"')
         return "".join(kept)
@@ -310,12 +350,15 @@ def _summary(n: models.NexusNote, me: str) -> dict:
         "updatedBy": n.updated_by or "", "createdAt": n.created_at or "",
         "unseen": _unseen(n, me) if not n.trashed_at else False,
         "editedBy": _seen(n)["content"].get("by") or n.updated_by or "",
+        # Boards: the list row's picture and where a Mark Up came from; the drawing itself is _full's.
+        "thumbUrl": n.thumb_url or "", "source": _source_out(n),
     }
 
 
 def _full(n: models.NexusNote, me: str) -> dict:
     out = _summary(n, me)
     out["body"] = n.body or ""
+    out["scene"] = n.scene or ""
     out["sharedWith"] = _shares(n) if out["mine"] else [s for s in _shares(n) if s["email"] == me]
     return out
 
@@ -344,11 +387,105 @@ def _set_body(n: models.NexusNote, body: str) -> None:
     n.text = plain_text(n.body)
 
 
+def _scene_text(scene: dict) -> str:
+    """The words on a board - its text elements, top to bottom - for search and the preview."""
+    out = []
+    for el in scene.get("elements") or []:
+        if isinstance(el, dict) and el.get("type") == "text" and not el.get("isDeleted"):
+            t = re.sub(r"[ \t]+", " ", str(el.get("text") or "")).strip()
+            if t:
+                out.append(t)
+    return "\n".join(out)
+
+
+def _parse_scene(raw: str) -> dict:
+    """A board's drawing, or 400 / 413. Never the HTML sanitizer. '' (or only
+    spaces) is a fresh empty board - PATCH {scene: ''} resets the drawing."""
+    if not (raw or "").strip():
+        return _empty_scene()
+    if len(raw or "") > SCENE_MAX:
+        raise HTTPException(413, "This board is too large to save - move part of it to a second board.")
+    try:
+        obj = json.loads(raw or "")
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Not a board")
+    if not isinstance(obj, dict) or obj.get("type") != SCENE_TYPE:
+        raise HTTPException(400, "Not a board")
+    if not isinstance(obj.get("elements", []), list) or not isinstance(obj.get("appState", {}), dict) \
+            or not isinstance(obj.get("files", {}), dict):
+        raise HTTPException(400, "Not a board")
+    for f in obj.get("files", {}).values():
+        # Images live in the private bucket; the scene keeps their URL, never the bytes.
+        url = str(f.get("url") or "") if isinstance(f, dict) else ""
+        if not isinstance(f, dict) or url.strip().lower().startswith("data:") \
+                or str(f.get("dataURL") or "").strip():
+            raise HTTPException(400, "Pictures on a board must be stored files")
+    return obj
+
+
+def _stored_scene(raw: str) -> dict:
+    """A scene already saved (the row, a version): parsed, never refused."""
+    obj = _loads(raw, {})
+    return obj if obj.get("type") == SCENE_TYPE else _empty_scene()
+
+
+def _scene_content(obj: dict) -> tuple:
+    """What a board's drawing IS - its shapes, pictures and look. The view
+    (scroll, zoom, grid) is where someone was looking, never content."""
+    return (obj.get("elements") or [], obj.get("files") or {}, obj.get("look") or "clean")
+
+
+def _shape_count(obj: dict) -> int:
+    return sum(1 for e in obj.get("elements") or [] if isinstance(e, dict) and not e.get("isDeleted"))
+
+
+def _empty_scene() -> dict:
+    return {"type": SCENE_TYPE, "version": 1, "look": "clean", "elements": [], "appState": {}, "files": {}}
+
+
+def _set_scene(n: models.NexusNote, obj: dict) -> None:
+    """Store a parsed scene (_parse_scene / _stored_scene) - parsed once per request."""
+    n.scene = json.dumps(obj, separators=(",", ":"))
+    n.text = _scene_text(obj)
+    n.body = ""
+
+
+def _clean_source(src) -> str:
+    """Where a Mark Up board came from, as stored JSON; '' clears; 400 when malformed."""
+    if not isinstance(src, dict):
+        raise HTTPException(400, "Not a source")
+    if not src:
+        return ""
+    kind = str(src.get("kind") or "")
+    sid = str(src.get("id") or "").strip()
+    label = re.sub(r"\s+", " ", str(src.get("label") or "")).strip()
+    url = str(src.get("url") or "").strip()
+    if kind not in SOURCE_KINDS or not sid or len(sid) > SOURCE_ID_MAX:
+        raise HTTPException(400, "Not a source")
+    if not label or len(label) > SOURCE_LABEL_MAX:
+        raise HTTPException(400, "A source label is 1 to 200 characters")
+    if url and not (_nexus_path(url) or _own_image(url)):
+        raise HTTPException(400, "A source link must be a Nexus page or our storage")
+    return json.dumps({"kind": kind, "id": sid, "label": label, "url": url[:1000]})
+
+
+def _nexus_path(url: str) -> bool:
+    if not _SOURCE_PATH.match(url) or _ENCODED_SLASH.search(url):
+        return False
+    return any(url == p or url[len(p):len(p) + 1] in ("/", "?", "#") and url.startswith(p)
+               for p in _SOURCE_PREFIXES)
+
+
+def _source_out(n: models.NexusNote):
+    src = _loads(n.source, {})
+    return src if src.get("kind") else None
+
+
 def _snapshot(db: Session, n: models.NexusNote, me: str, force: bool = False) -> None:
     """Keep the note as it stands now, when the newest copy is old enough -
     or when `me` is not the person who wrote it last (the history then says
     whose words those were), unless that person's copy is only minutes old."""
-    if not (n.body or n.title):
+    if not (n.body or n.title or n.scene):
         return
     last = (db.query(models.NexusNoteVersion).filter(models.NexusNoteVersion.note_id == n.id)
             .order_by(models.NexusNoteVersion.created_at.desc()).first())
@@ -363,11 +500,12 @@ def _snapshot(db: Session, n: models.NexusNote, me: str, force: bool = False) ->
         new_author = _last_author(n) != me and age >= AUTHOR_GAP
         if age < VERSION_GAP and not new_author:
             return
-    if last and last.body == (n.body or "") and last.title == (n.title or ""):
+    if last and last.body == (n.body or "") and last.title == (n.title or "") \
+            and (last.scene or "") == (n.scene or ""):
         return
     db.add(models.NexusNoteVersion(id="nv_" + uuid.uuid4().hex, note_id=n.id, title=n.title or "",
-                                   body=n.body or "", rev=n.rev or 1, saved_by=_last_author(n),
-                                   created_at=_now()))
+                                   body=n.body or "", scene=n.scene or "", rev=n.rev or 1,
+                                   saved_by=_last_author(n), created_at=_now()))
     db.flush()
     _thin_versions(db, n.id)
 
@@ -534,6 +672,11 @@ class NoteIn(BaseModel):
     tags: Optional[List[str]] = None
     color: Optional[str] = ""
     pinned: Optional[bool] = False
+    # Boards: the drawing, where a Mark Up came from; templateKey is the
+    # browser's (it builds the scene from the template) and is not stored.
+    scene: Optional[str] = None
+    source: Optional[dict] = None
+    templateKey: Optional[str] = None
 
 
 class NotePatch(BaseModel):
@@ -547,12 +690,16 @@ class NotePatch(BaseModel):
     # Co-typing saves (see the header): the Yjs state and the epoch it belongs to.
     ydoc: Optional[str] = None
     yepoch: Optional[str] = None
+    # Boards: the drawing, its list thumbnail (our storage) and the source ({} clears).
+    scene: Optional[str] = None
+    thumbUrl: Optional[str] = None
+    source: Optional[dict] = None
 
 
 @router.post("", status_code=201)
 def create_note(body: NoteIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = _me(user)
-    kind = "daily" if body.kind == "daily" else "note"
+    kind = body.kind if body.kind in ("daily", "board") else "note"
     day = _check_day(body.day) or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if kind == "daily":
         existing = _daily(db, me, day)
@@ -563,7 +710,12 @@ def create_note(body: NoteIn, user: dict = Depends(get_current_user), db: Sessio
     n = _new_note(me, kind=kind, title=(body.title or "").strip()[:TITLE_MAX], day=day,
                   color=body.color or "", pinned=bool(body.pinned))
     n.tags = json.dumps(_clean_tags(body.tags))
-    _set_body(n, body.body or "")
+    if kind == "board":
+        _set_scene(n, _parse_scene(body.scene))
+        if body.source is not None:
+            n.source = _clean_source(body.source)
+    else:
+        _set_body(n, body.body or "")
     _content_changed(n, me)
     db.add(n)
     db.commit()
@@ -609,14 +761,42 @@ def update_note(note_id: str, body: NotePatch, user: dict = Depends(get_current_
     owner_only = (body.day, body.tags, body.color, body.pinned)
     if can != "owner" and any(v is not None for v in owner_only):
         raise HTTPException(403, "Only the note's owner changes its pin, color, tags or day")
+    is_board = (n.kind or "note") == "board"
+    if body.scene is not None and not is_board:
+        raise HTTPException(400, "Only a board has a drawing")
+    if is_board and body.body is not None:
+        if body.body.strip():
+            raise HTTPException(400, "A board has no text body - its drawing is the scene")
+        body.body = None        # an empty body on a board says nothing: a no-op, never a refusal
+    if body.thumbUrl is not None:
+        if not is_board:
+            raise HTTPException(400, "Only a board has a thumbnail")
+        if body.thumbUrl.strip() and not _own_image(body.thumbUrl.strip()):
+            raise HTTPException(400, "A thumbnail must be in our storage")
+    new_scene = _parse_scene(body.scene) if body.scene is not None else None
+    # `changing` = the content moved (title, words, a board's shapes /
+    # pictures / look): a version is kept, the Updated dot lights, the live
+    # state drops. A board's view (scroll, zoom) is stored but changes nothing.
     changing = (body.title is not None and body.title.strip()[:TITLE_MAX] != (n.title or "")) or \
-               (body.body is not None and sanitize_note(body.body) != (n.body or ""))
+               (body.body is not None and sanitize_note(body.body) != (n.body or "")) or \
+               (new_scene is not None and _scene_content(new_scene) != _scene_content(_stored_scene(n.scene)))
+    # The rev moves for what the note says, never for its list picture, its
+    # source or a board's view alone - those would 409 a collaborator's save
+    # in flight and say "edited by" for a picture.
+    bump = changing or any(v is not None for v in (body.title, body.body, body.day, body.tags,
+                                                   body.color, body.pinned))
     if changing:
         _snapshot(db, n, me)
     if body.title is not None:
         n.title = body.title.strip()[:TITLE_MAX]
     if body.body is not None:
         _set_body(n, body.body)
+    if new_scene is not None:
+        _set_scene(n, new_scene)
+    if body.thumbUrl is not None:
+        n.thumb_url = body.thumbUrl.strip()[:1000]
+    if body.source is not None:
+        n.source = _clean_source(body.source)
     if body.day is not None:
         n.day = _check_day(body.day) or n.day
     if body.tags is not None:
@@ -634,7 +814,8 @@ def update_note(note_id: str, body: NotePatch, user: dict = Depends(get_current_
             n.ydoc = body.ydoc or ""
     elif changing:
         _drop_collab_state(n)
-    _touch(n, me)
+    if bump:
+        _touch(n, me)
     if changing:
         _content_changed(n, me)
     db.commit()
@@ -756,9 +937,36 @@ def list_versions(note_id: str, user: dict = Depends(get_current_user), db: Sess
     n, _ = _get_or_404(db, note_id, me)
     rows = (db.query(models.NexusNoteVersion).filter(models.NexusNoteVersion.note_id == n.id)
             .order_by(models.NexusNoteVersion.created_at.desc()).all())
-    return [{"id": v.id, "title": v.title or "", "body": v.body or "", "rev": v.rev or 0,
-             "savedBy": v.saved_by or "", "createdAt": v.created_at or "",
-             "words": len(plain_text(v.body).split())} for v in rows]
+    board = (n.kind or "note") == "board"
+    return [_version_out(v, board) for v in rows]
+
+
+def _version_out(v: models.NexusNoteVersion, board: bool, scene: bool = False) -> dict:
+    """One kept copy. A board's list row says how many shapes and words it
+    had; the drawing itself (it can be 2 MB) comes only with GET one version."""
+    row = {"id": v.id, "title": v.title or "", "body": v.body or "", "rev": v.rev or 0,
+           "savedBy": v.saved_by or "", "createdAt": v.created_at or "",
+           "words": len(plain_text(v.body).split())}
+    if board:
+        obj = _stored_scene(v.scene)
+        row["words"] = len(_scene_text(obj).split())
+        row["shapes"] = _shape_count(obj)
+        if scene:
+            row["scene"] = v.scene or ""
+    return row
+
+
+@router.get("/{note_id}/versions/{version_id}")
+def get_version(note_id: str, version_id: str, user: dict = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    """One kept copy in full (a board's scene too), for preview and restore - the list's access rule."""
+    me = _me(user)
+    n, _ = _get_or_404(db, note_id, me)
+    v = db.query(models.NexusNoteVersion).filter(models.NexusNoteVersion.id == version_id,
+                                                 models.NexusNoteVersion.note_id == n.id).first()
+    if v is None:
+        raise HTTPException(404, "Version not found")
+    return _version_out(v, (n.kind or "note") == "board", scene=True)
 
 
 @router.post("/{note_id}/versions/{version_id}/restore")
@@ -776,8 +984,12 @@ def restore_version(note_id: str, version_id: str, user: dict = Depends(get_curr
     if v is None:
         raise HTTPException(404, "Version not found")
     _snapshot(db, n, me, force=True)
-    n.title, n.body = v.title or "", v.body or ""
-    n.text = plain_text(n.body)
+    n.title = v.title or ""
+    if (n.kind or "note") == "board":
+        _set_scene(n, _stored_scene(v.scene))
+    else:
+        n.body = v.body or ""
+        n.text = plain_text(n.body)
     _drop_collab_state(n)
     _touch(n, me)
     _content_changed(n, me)
@@ -870,8 +1082,11 @@ def note_collab(note_id: str, user: dict = Depends(get_current_user), db: Sessio
         if not n.collab_key:
             _rotate_key(n)
             db.commit()
-    return {"key": n.collab_key, "channel": _channel(n), "keyTag": _key_tag(n), **_collab_state(n),
-            "title": n.title or "", "body": n.body or ""}
+    out = {"key": n.collab_key, "channel": _channel(n), "keyTag": _key_tag(n), **_collab_state(n),
+           "title": n.title or "", "body": n.body or "", "kind": n.kind or "note"}
+    if (n.kind or "note") == "board":
+        out["scene"] = n.scene or ""     # the first editor builds and seeds the live state from it
+    return out
 
 
 class SeedIn(BaseModel):

@@ -6,7 +6,7 @@ import { useSheetStack, useSheetEntering, SHEET_SHADOW, SHEET_EDGE } from '../li
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
   ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus, Repeat,
-  LayoutGrid, List, FileText, Sheet, AudioLines } from 'lucide-react';
+  LayoutGrid, List, FileText, Sheet, AudioLines, PenTool } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, btn, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds, isAudioAttachment } from './lib';
@@ -25,6 +25,7 @@ import { useScrollLock } from '../lib/useScrollLock';
 import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
 import { useBackToClose } from '../lib/useBackToClose';
 import { toDownloadUrl } from '../lib/storageView';
+import { canMarkUp, isPdfSource, markupSource, openMarkup } from '../lib/markup';
 import { frequentRows } from './frequentPeople';
 import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
@@ -1687,7 +1688,14 @@ export function TaskCountBadges({ t, store, size = 12 }) {
 // captured so it closes the viewer without also closing the drawer underneath.
 // Older rows only carry kind image/doc, so the renderer also sniffs the file
 // extension to give videos and PDFs their proper treatment.
-export function AttachmentViewer({ att, onClose }) {
+// `markupSource` (Mark Up Anything, 11/02/2026): where this attachment lives -
+// { kind: 'task' | 'ticket', id, label, url } - so a board made from it can
+// be attached back. Without one the board remembers the file by name only.
+export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
+  const [marking, setMarking] = useState('');     // '' | 'busy' | 'pages'
+  const [pages, setPages] = useState(0);
+  const [pagesCapped, setPagesCapped] = useState(false);
+  const [markErr, setMarkErr] = useState('');
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
     window.addEventListener('keydown', onKey, true);
@@ -1696,6 +1704,25 @@ export function AttachmentViewer({ att, onClose }) {
   if (!att) return null;
   const probe = `${att.name || ''} ${att.url || ''}`;
   const isPdf = /\.pdf($|\?)/i.test(probe);
+  const mime = att.mimeType || att.type || (isPdf ? 'application/pdf' : '');
+  const markable = !!att.url && canMarkUp(mime, probe);
+  // Mark Up: a picture goes straight to a new board; a PDF asks which page
+  // when it has more than one (board/pdfPage.js renders it to a picture).
+  const markUp = async (page = 1) => {
+    setMarkErr(''); setMarking('busy');
+    try {
+      if (page === 1 && isPdfSource(mime, probe)) {
+        const { pdfPageCount, PDF_PAGES_MAX } = await import('../notes/board/pdfPage');
+        const n = await pdfPageCount(att.url);
+        if (n > 1) { setPages(Math.min(n, PDF_PAGES_MAX)); setPagesCapped(n > PDF_PAGES_MAX); setMarking('pages'); return; }
+      }
+      await openMarkup({ imageUrl: att.url, mimeType: mime, name: att.name || '', page, source: markupSource(given, att) });
+      onClose();
+    } catch (e) {
+      setMarkErr(e?.message || 'Could not start the markup.');
+      setMarking('');
+    }
+  };
   // A voice note first: a recorded .webm is audio, not a black video box.
   const isAudio = isAudioAttachment(att);
   const isVideo = !isAudio && (att.kind === 'video' || /\.(mp4|webm|mov|m4v)($|\?)/i.test(probe));
@@ -1728,9 +1755,31 @@ export function AttachmentViewer({ att, onClose }) {
         <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
         <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
         <span style={{ flex: 1 }} />
+        {markable && (
+          <button type="button" onClick={() => markUp(1)} disabled={marking === 'busy'} title="Mark Up - draw on a copy of this on a board"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', borderRadius: 8, padding: '5px 10px', fontFamily: FONT, fontSize: 12.5, fontWeight: 600, cursor: marking === 'busy' ? 'wait' : 'pointer' }}>
+            <PenTool size={14} /> {marking === 'busy' ? 'Opening…' : 'Mark Up'}
+          </button>
+        )}
         {att.url && <a href={toDownloadUrl(att.url)} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
         <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
       </div>
+      {markErr && <div role="alert" onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 52, left: '50%', transform: 'translateX(-50%)', background: '#fff', color: NX.red || '#b91c1c', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 600 }}>{markErr}</div>}
+      {marking === 'pages' && (
+        <div role="dialog" aria-label="Which page?" onClick={(e) => e.stopPropagation()}
+          style={{ position: 'absolute', top: 52, left: '50%', transform: 'translateX(-50%)', background: NX.surface, color: NX.ink, borderRadius: 12, padding: '12px 14px', boxShadow: '0 12px 40px rgba(0,0,0,0.35)', maxWidth: 'min(520px, 92vw)' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Which page should go on the board?</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
+            {Array.from({ length: pages }, (_, i) => i + 1).map((n) => (
+              <button key={n} type="button" onClick={() => markUp(n)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12.5 }}>Page {n}</button>
+            ))}
+          </div>
+          {pagesCapped && <div style={{ fontSize: 12, color: NX.dim, marginTop: 8 }}>Showing the first {pages} pages.</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+            <button type="button" onClick={() => setMarking('')} style={{ ...btn('ghost'), fontSize: 12.5 }}>Cancel</button>
+          </div>
+        </div>
+      )}
       <div onClick={(e) => e.stopPropagation()}>{body}</div>
     </div>
   );

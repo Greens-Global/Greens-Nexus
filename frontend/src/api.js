@@ -1,7 +1,7 @@
 import { msalInstance, msalReady } from './msalInstance';
 import { apiTokenRequest, loginRequest } from './authConfig';
 import { BFF_MODE, csrfToken, bffLogin } from './bffAuth';
-import { rewriteResponseText, restoreRequestBody } from './lib/storageView';
+import { rewriteResponseText, restoreRequestBody, fromViewUrl } from './lib/storageView';
 
 // Recover a dead session app-wide. When even a FORCE-refreshed token still 401s,
 // MSAL's silent hidden-iframe renewal is failing - modern browsers block the
@@ -3196,6 +3196,10 @@ export const api = {
   // brings the server copy back in err.detail.note.
   notesList: (params = {}) => req(`/notes?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")).toString()}`),
   noteGet: (id) => req(`/notes/${encodeURIComponent(id)}`),
+  // Boards (Neil, 11/02/2026): a whiteboard is a note of kind 'board'. noteCreate
+  // takes { kind: 'board', title, scene, source, templateKey }; noteUpdate takes
+  // { rev, scene, thumbUrl, source } beside the note fields (scene is the
+  // board JSON string, 2 MB at most; thumbUrl our storage; source {} clears).
   noteCreate: (data) => req("/notes", { method: "POST", body: JSON.stringify(data) }),
   noteUpdate: (id, data) => req(`/notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
   noteDaily: (day) => req(`/notes/daily?day=${encodeURIComponent(day)}`),
@@ -3214,6 +3218,25 @@ export const api = {
   noteCollab: (id) => req(`/notes/${encodeURIComponent(id)}/collab`),
   noteCollabSeed: (id, data) => req(`/notes/${encodeURIComponent(id)}/collab/seed`, { method: "POST", body: JSON.stringify(data) }),
   noteCollabReset: (id) => req(`/notes/${encodeURIComponent(id)}/collab/reset`, { method: "POST" }),
+  // Notes boards (11/02/2026): a protected file (an image on a board) as a
+  // Blob through the signed-in viewer, whatever form of its URL the scene
+  // kept - canonical or the viewer's. The engine wants a data URL in memory;
+  // the scene never stores one.
+  viewerBlob: (u) => reqBlob(`/files/view?u=${encodeURIComponent(fromViewUrl(u))}`),
+  // Mark Up (11/02/2026): a finished board goes back to the task or ticket it
+  // was made from as an ordinary image attachment - the EXISTING attachment
+  // endpoints, no new path. `source` is the board's { kind, id }; anything
+  // but a task or a ticket is refused here so a caller can hide the action.
+  attachMarkup: (source, { url, name, size = "" }) => {
+    const data = { name, size, kind: "image", url };
+    if (source?.kind === "task") return api.addTaskAttachment(source.id, data);
+    if (source?.kind === "ticket") return api.addTicketAttachment(source.id, data);
+    return Promise.reject(new Error("Only a task or a ticket can take a markup back."));
+  },
+  // One kept copy of a note in full (11/02/2026): noteVersions' rows are
+  // light (a board's carry shapes / words, never its scene); this one
+  // carries the board's scene for a preview or a restore.
+  noteVersionGet: (noteId, versionId) => req(`/notes/${encodeURIComponent(noteId)}/versions/${encodeURIComponent(versionId)}`),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with
