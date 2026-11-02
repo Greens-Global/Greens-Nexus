@@ -13,6 +13,7 @@ import models
 from auth import require_administrator
 from database import get_db
 import daily_briefing
+import settings_walls
 import weekly_digest
 
 router = APIRouter(prefix="/weekly-digest", tags=["Weekly Digest"])
@@ -41,15 +42,21 @@ def update_config(body: ConfigIn, user: dict = Depends(require_administrator), d
         patch = weekly_digest.validate(patch)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    # Whether everyone gets it, and who the tests go to, is the whole
+    # organization's (Neil, 11/02/2026): Super Administrators only.
+    settings_walls.refuse_change(db, user, weekly_digest.get_settings(db), patch, ("mode", "test_recipients"))
     return weekly_digest.save_settings(db, patch, user["email"])
 
 
-@router.get("/log", dependencies=[Depends(require_administrator)])
-def get_log(employee_email: str = "", limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
+@router.get("/log")
+def get_log(employee_email: str = "", limit: int = 50, offset: int = 0,
+            user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     """Every weekly scan attempt, so "why didn't X get it" is answerable: a
     blank sentAt means mode was off, nothing was overdue, or the send failed -
-    the mode and counts tell them apart (same as the daily /log)."""
-    q = db.query(models.NexusWeeklyDigestLog)
+    the mode and counts tell them apart (same as the daily /log). Only the
+    people inside the caller's company wall (11/02/2026)."""
+    q = settings_walls.scope_query(db, user, db.query(models.NexusWeeklyDigestLog),
+                                   models.NexusWeeklyDigestLog.employee_email)
     if employee_email:
         q = q.filter(models.NexusWeeklyDigestLog.employee_email == employee_email.strip().lower())
     total = q.count()
@@ -61,13 +68,13 @@ def get_log(employee_email: str = "", limit: int = 50, offset: int = 0, db: Sess
     } for r in rows]}
 
 
-@router.delete("/log/{log_id}", dependencies=[Depends(require_administrator)])
-def force_resend(log_id: str, db: Session = Depends(get_db)):
+@router.delete("/log/{log_id}")
+def force_resend(log_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     """Clears one person's dedupe row and sends their digest right now,
     whatever the day or their shift - the same build/send path as the scan,
     for this one person only (same shape as the daily force_resend)."""
     row = db.query(models.NexusWeeklyDigestLog).filter(models.NexusWeeklyDigestLog.id == log_id).first()
-    if not row:
+    if not row or not settings_walls.in_scope(db, user, row.employee_email):
         raise HTTPException(404, "Log entry not found.")
     email = row.employee_email
     db.delete(row)
@@ -101,10 +108,16 @@ def test_send(body: TestSendIn, user: dict = Depends(require_administrator), db:
     email = (body.employee_email or "").strip().lower()
     emp = (db.query(models.NexusEmployee)
            .filter(func.lower(models.NexusEmployee.work_email) == email).first()) if email else None
-    if not emp:
+    if not emp or not settings_walls.in_scope(db, user, emp.work_email):
         raise HTTPException(404, "No employee with that email.")
     cfg = weekly_digest.get_settings(db)
     to = [str(e).strip() for e in (body.to or cfg.get("test_recipients") or []) if str(e).strip()] or [user["email"]]
+    # Who a test goes to is the Super Administrators' (Neil, 11/02/2026):
+    # anyone else sends to the saved test recipients or to themselves.
+    allowed = {str(e).strip().lower() for e in (cfg.get("test_recipients") or [])} | {user["email"].lower()}
+    import auth
+    if any(e.lower() not in allowed for e in to) and not auth.is_global_admin(user, db):
+        raise HTTPException(403, "Only a Super Administrator can send a test to other addresses.")
     try:
         result = weekly_digest.send_test(db, emp, cfg, to)
     except graph_mail.GraphMailError as e:

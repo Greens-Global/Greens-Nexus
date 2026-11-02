@@ -99,20 +99,75 @@ def get_settings(db: Session) -> dict:
     return merged
 
 
+# The organization's mail plumbing (Neil, 11/02/2026): Super Administrators
+# only. inboundEnabled / inboundMailbox are refused in
+# ticket_inbound.clean_settings_patch; the sending mailbox, reply-to and
+# Always CC by the route (routers/tickets.py) - a CHANGE only.
+PLUMBING_KEYS = ("fromMailbox", "replyTo", "defaultCc", "inboundEnabled", "inboundMailbox")
+
+
+def clean(patch: dict) -> dict:
+    """A settings PATCH, checked: the known keys only (anything else is
+    dropped), each of its type and inside its bounds. ValueError with the
+    reason to show."""
+    import scoped_settings as ss
+    if not isinstance(patch, dict):
+        raise ValueError("Settings must be an object.")
+    labels = {"fromMailbox": "The sending mailbox", "replyTo": "The reply-to address",
+              "ticketAdminEmail": "The ticket admin", "inboundMailbox": "The support mailbox"}
+    out: dict = {}
+    for k, v in patch.items():
+        if k in labels:
+            out[k] = ss.clean_email(v, labels[k])
+        elif k == "defaultCc":
+            out[k] = ss.clean_email_list(v, "Always CC", limit=50)
+        elif k == "agentEmails":
+            out[k] = ss.clean_email_list(v, "The service desk", limit=500)
+        elif k == "agentEmailsByCompany":
+            if not isinstance(v or {}, dict):
+                raise ValueError("Company desks must be a company-to-people map.")
+            out[k] = {str(c).strip(): ss.clean_email_list(lst, "A company desk", limit=500)
+                      for c, lst in (v or {}).items() if str(c or "").strip()}
+        elif k == "autoCloseDays":
+            out[k] = ss.clean_int(v, "Auto-close days", 0, 365)
+        elif k == "logoUrl":
+            out[k] = ss.clean_text(v, "The logo address")
+        elif k in ("commentsTrigger", "attachmentsTrigger", "inboundEnabled"):
+            out[k] = bool(v)
+        elif k == "enabledEvents":
+            out[k] = ss.clean_bool_map(v, "Email events", _DEFAULT_SETTINGS["enabledEvents"])
+        elif k == "inboundDefaultDepartment":
+            if not isinstance(v or {}, dict):
+                raise ValueError("Default departments must be a company-to-department map.")
+            out[k] = {str(c).strip(): str(d or "").strip() for c, d in (v or {}).items()
+                      if str(c or "").strip() and str(d or "").strip()}
+    return out
+
+
+def lock(db: Session):
+    """Take the settings row lock before reading for a save (scoped_settings.lock_row)."""
+    import scoped_settings as ss
+    return ss.lock_row(db, _SETTINGS_KEY)
+
+
 def save_settings(db: Session, patch: dict, actor_email: str) -> dict:
-    merged = get_settings(db)
-    merged.update({k: v for k, v in patch.items() if k != "enabledEvents"})
-    if "enabledEvents" in patch:
-        merged["enabledEvents"] = {**merged["enabledEvents"], **(patch["enabledEvents"] or {})}
-    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
-    if not row:
-        row = models.NexusSetting(key=_SETTINGS_KEY)
-        db.add(row)
-    row.value = json.dumps(merged)
-    row.updated_by = actor_email
-    row.updated_at = datetime.now(timezone.utc).isoformat()
+    """Merge a PATCH into the stored settings under the row lock, so two
+    saves at once never lose each other's keys. ValueError on a bad value."""
+    import scoped_settings as ss
+    patch = clean(patch)
+
+    def build(stored: dict) -> dict:
+        merged = json.loads(json.dumps(_DEFAULT_SETTINGS))
+        merged.update({k: v for k, v in stored.items() if k in _DEFAULT_SETTINGS and k != "enabledEvents"})
+        merged["enabledEvents"] = {**merged["enabledEvents"], **(stored.get("enabledEvents") or {})}
+        merged.update({k: v for k, v in patch.items() if k != "enabledEvents"})
+        if "enabledEvents" in patch:
+            merged["enabledEvents"] = {**merged["enabledEvents"], **patch["enabledEvents"]}
+        return merged
+
+    ss.merge_save(db, _SETTINGS_KEY, build, actor_email)
     db.commit()
-    return merged
+    return get_settings(db)
 
 
 # ── Recipient resolution ──────────────────────────────────────────────────

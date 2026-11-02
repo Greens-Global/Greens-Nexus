@@ -18,6 +18,7 @@ import models
 from auth import get_current_user, require_administrator
 from database import get_db
 import daily_briefing
+import settings_walls
 
 router = APIRouter(prefix="/daily-briefing", tags=["Daily Briefing"])
 
@@ -87,11 +88,15 @@ def update_config(body: ConfigIn, user: dict = Depends(require_administrator), d
         patch = daily_briefing.validate_timing(patch)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    # Whether every employee gets the email, and who the tests go to, is the
+    # whole organization's (Neil, 11/02/2026): Super Administrators only.
+    settings_walls.refuse_change(db, user, daily_briefing.get_settings(db), patch, ("mode", "test_recipients"))
     return daily_briefing.save_settings(db, patch, user["email"])
 
 
-@router.get("/log", dependencies=[Depends(require_administrator)])
-def get_log(employee_email: str = "", limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
+@router.get("/log")
+def get_log(employee_email: str = "", limit: int = 50, offset: int = 0,
+            user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     """Every scan attempt logged by _send_one - the only way to actually see
     WHY a given employee did or didn't get mail, short of DB/log-stream
     access. `sent_at` is blank for three different reasons that look
@@ -101,7 +106,9 @@ def get_log(employee_email: str = "", limit: int = 50, offset: int = 0, db: Sess
     these instead of the admin having to guess (Pranshu, Sep 20 - "very
     strange and anxious issue" when mail kept not arriving with no way to
     see why)."""
-    q = db.query(models.NexusDailyBriefingLog)
+    # Only the people inside the caller's company wall (11/02/2026).
+    q = settings_walls.scope_query(db, user, db.query(models.NexusDailyBriefingLog),
+                                   models.NexusDailyBriefingLog.employee_email)
     if employee_email:
         q = q.filter(models.NexusDailyBriefingLog.employee_email == employee_email.strip().lower())
     total = q.count()
@@ -114,8 +121,8 @@ def get_log(employee_email: str = "", limit: int = 50, offset: int = 0, db: Sess
     } for r in rows]}
 
 
-@router.delete("/log/{log_id}", dependencies=[Depends(require_administrator)])
-def force_resend(log_id: str, db: Session = Depends(get_db)):
+@router.delete("/log/{log_id}")
+def force_resend(log_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     """Clears one employee's dedupe row AND immediately re-evaluates and
     sends their briefing right now - scoped to exactly this one employee,
     not a company-wide scan, and with no effect on daily_briefing_loop's own
@@ -135,7 +142,7 @@ def force_resend(log_id: str, db: Session = Depends(get_db)):
     _acquire_employee_lock still applies, so this can't race a concurrent
     automatic scan pass hitting the same employee at the same instant."""
     row = db.query(models.NexusDailyBriefingLog).filter(models.NexusDailyBriefingLog.id == log_id).first()
-    if not row:
+    if not row or not settings_walls.in_scope(db, user, row.employee_email):
         raise HTTPException(404, "Log entry not found.")
     email = row.employee_email
     db.delete(row)

@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlparse, urlsplit, urlunspl
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import String, and_, cast, func, or_
+from sqlalchemy import String, and_, cast, false, func, or_
 from sqlalchemy.exc import IntegrityError, InvalidRequestError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -6951,7 +6951,14 @@ def get_task_notify_settings(user: dict = Depends(require_manager), db: Session 
 
 @router.put("/notify/settings")
 def put_task_notify_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
-    return _save_task_notify_settings(db, patch, user["email"])
+    # The mail plumbing is the Super Administrators' (Neil, 11/02/2026) -
+    # task_notify.save_settings refuses a CHANGE to it from anyone else.
+    try:
+        return _save_task_notify_settings(db, patch, user["email"], user)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 # ── My own task email preferences (every user) ──────────────────────────────
@@ -6989,6 +6996,32 @@ def put_my_task_notify_prefs(body: dict, user: dict = Depends(get_current_user),
     return _my_notify_payload(db, user["email"], tnp.save(db, user["email"], body or {}))
 
 
+def _walled_email_log(db: Session, user: dict, q):
+    """The delivery log as `user` may read it (11/02/2026): every row names
+    a task and carries its subject line, so a caller sees only the rows of
+    tasks they could open - inside their company wall and by the task's own
+    visibility rule (task_visible_to, the one per-task rule). A row whose
+    task no longer exists is a Super Administrator's alone. Checked per
+    task, not per row: the distinct task ids are read once."""
+    import auth
+    if auth.is_global_admin(user, db):
+        return q
+    ids = [tid for (tid,) in q.with_entities(models.TaskEmailLog.task_id).distinct().all() if tid]
+    tasks = db.query(models.Task).filter(models.Task.id.in_(ids)).all() if ids else []
+    scope = auth.company_scope(user, db)
+    walled = {t.id for t in wall_tasks(db, user, tasks, scope)}
+    visible = None
+    ok = []
+    for t in tasks:
+        if t.id not in walled:
+            continue
+        if visible is None and not is_manager(user):
+            visible = visible_project_ids(db, user)
+        if task_visible_to(db, user, t, visible):
+            ok.append(t.id)
+    return q.filter(models.TaskEmailLog.task_id.in_(ok)) if ok else q.filter(false())
+
+
 @router.get("/notify/log")
 def get_task_notify_log(task_id: str = "", status: str = "", limit: int = 20, offset: int = 0,
                         user: dict = Depends(require_manager), db: Session = Depends(get_db)):
@@ -6997,6 +7030,7 @@ def get_task_notify_log(task_id: str = "", status: str = "", limit: int = 20, of
         q = q.filter(models.TaskEmailLog.task_id == task_id)
     if status:
         q = q.filter(models.TaskEmailLog.status == status)
+    q = _walled_email_log(db, user, q)
     total = q.count()
     rows = q.order_by(models.TaskEmailLog.created_at.desc()).offset(offset).limit(min(limit, 500)).all()
     return {"rows": [{

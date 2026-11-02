@@ -136,15 +136,16 @@ def validate(patch: dict) -> dict:
 
 
 def save_settings(db: Session, patch: dict, actor_email: str) -> dict:
-    merged = get_settings(db)
-    merged.update(patch)
-    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
-    if not row:
-        row = models.NexusSetting(key=_SETTINGS_KEY)
-        db.add(row)
-    row.value = json.dumps(merged)
-    row.updated_by = actor_email
-    row.updated_at = datetime.now(timezone.utc).isoformat()
+    """Merge a PATCH into what is stored now, under the row lock
+    (scoped_settings.merge_save) - two saves at once keep both changes."""
+    import scoped_settings
+
+    def build(stored: dict) -> dict:
+        merged = json.loads(json.dumps(_DEFAULT_SETTINGS))
+        merged.update(stored)
+        merged.update(patch)
+        return merged
+    merged = scoped_settings.merge_save(db, _SETTINGS_KEY, build, actor_email)
     db.commit()
     return merged
 
