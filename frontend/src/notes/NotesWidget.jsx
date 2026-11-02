@@ -12,7 +12,7 @@ import { api } from '../api';
 import { DashCard } from '../dashboard/widgets.jsx';
 import { LoadingState } from '../components/AsyncState';
 import { colorCss, localDay, noteTitle, editedLabel, isBoard } from './notesModel';
-import { createBoard, openBoard } from './newBoard';
+import { newBoardFromAnywhere } from './newBoard';
 import './notes.css';
 
 const openNotes = (id) => window.dispatchEvent(new CustomEvent('nexus:navigate', {
@@ -67,18 +67,14 @@ export default function NotesWidget({ config, saveConfig, canSaveConfig, phone }
     } catch (err) { setNotice(err.message || 'Could not add it'); } finally { setBusy(false); }
   };
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(''), 3500); return () => clearTimeout(t); }, [notice]);
-  // New Board (Neil, 11/02/2026): a whiteboard note, opened on Notes.
-  const newBoard = async () => {
-    if (busy) return;
-    setBusy(true);
-    try { const n = await createBoard(); openBoard(n.id); }
-    catch (err) { setNotice(err.message || 'Could not start a board'); } finally { setBusy(false); }
-  };
+  // New Board (Neil, 11/02/2026): Notes opens with the template question,
+  // the same one its own New Board asks.
+  const newBoard = () => newBoardFromAnywhere();
 
   return (
     <DashCard title="Notes" sub={notice || undefined}
       action={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-        <button type="button" className="nt-tag" onClick={newBoard} disabled={busy} title="A whiteboard to draw, plan and mark things up" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
+        <button type="button" className="nt-tag" onClick={newBoard} title="A whiteboard to draw, plan and mark things up" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
           <PenTool size={12} aria-hidden="true" /> New Board
         </button>
         <button type="button" className="nt-tag" onClick={() => openNotes('')} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--wk-green)', fontWeight: 600 }}>
