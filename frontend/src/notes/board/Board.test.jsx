@@ -173,4 +173,41 @@ describe('Board', () => {
     expect(screen.getByTestId('nx-board').className).toContain('is-phone');
     expect(engine.props.renderTopRightUI).toBeUndefined();     // the look toggle lives in the menu on a phone
   });
+
+  // ── live collaboration (useBoardCollab) ──────────────────────────────────
+  it('attaches the live session to the engine, hands it the pointer, and pushes every change into it', async () => {
+    const collab = { attach: vi.fn(), onChange: vi.fn(), pointer: vi.fn() };
+    await act(async () => { render(<Board note={note()} look="clean" onScene={vi.fn()} collab={collab} />); });
+    expect(collab.attach).toHaveBeenCalledWith(fakeApi, { onRemoteFiles: expect.any(Function) });
+    expect(engine.props.isCollaborating).toBe(true);
+    engine.props.onPointerUpdate({ pointer: { x: 3, y: 4, tool: 'pointer' }, button: 'down' });
+    expect(collab.pointer).toHaveBeenCalledWith({ pointer: { x: 3, y: 4, tool: 'pointer' }, button: 'down' });
+    fakeApi.scene = [el()];
+    act(() => { engine.props.onChange(fakeApi.scene, { ...fakeApi.appState, selectedElementIds: { e1: true } }, {}); });
+    expect(collab.onChange).toHaveBeenCalledWith(fakeApi.scene, expect.any(Object), { e1: true });
+  });
+
+  it('an image the others added shows through the viewer and rides in the next save', async () => {
+    const collab = { attach: vi.fn(), onChange: vi.fn(), pointer: vi.fn() };
+    const onScene = vi.fn();
+    loadBoardFiles.mockResolvedValueOnce({ f9: { id: 'f9', mimeType: 'image/png', dataURL: 'data:image/png;base64,AA', created: 1 } });
+    await act(async () => { render(<Board note={note()} look="clean" onScene={onScene} collab={collab} />); });
+    const { onRemoteFiles } = collab.attach.mock.calls[0][1];
+    const meta = { id: 'f9', mimeType: 'image/png', url: 'https://api/files/view?u=f9', created: 1 };
+    await act(async () => { onRemoteFiles({ f9: meta }); });
+    expect(loadBoardFiles).toHaveBeenCalledWith({ f9: meta });
+    expect(fakeApi.addFiles).toHaveBeenCalledWith([expect.objectContaining({ id: 'f9' })]);
+    act(() => { engine.props.onChange([el()], fakeApi.appState, {}); vi.advanceTimersByTime(800); });
+    expect(JSON.parse(onScene.mock.calls[0][0]).files.f9.url).toBe('https://api/files/view?u=f9');
+  });
+
+  it('a viewer follows the saved scene as it moves on, without a history entry', async () => {
+    const first = JSON.stringify({ type: SCENE_TYPE, version: 1, look: 'clean', elements: [el()], appState: {}, files: {} });
+    const { rerender } = render(<Board note={note({ scene: first, canEdit: false })} look="clean" />);
+    await act(async () => {});
+    fakeApi.updateScene.mockClear();
+    const next = JSON.stringify({ type: SCENE_TYPE, version: 1, look: 'clean', elements: [el(), el({ id: 'e2' })], appState: {}, files: {} });
+    await act(async () => { rerender(<Board note={note({ scene: next, canEdit: false })} look="clean" />); });
+    expect(fakeApi.updateScene).toHaveBeenCalledWith({ elements: expect.arrayContaining([expect.objectContaining({ id: 'e2' })]), captureUpdate: 'NEVER' });
+  });
 });

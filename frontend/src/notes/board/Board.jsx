@@ -64,7 +64,10 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   const thumbTimer = useRef(0);
   const lookRef = useRef(look);
   const propsRef = useRef({ onScene, onThumb, canEdit, noteId: note?.id });
-  useEffect(() => { lookRef.current = look; propsRef.current = { onScene, onThumb, canEdit, noteId: note?.id }; });
+  // The live session (useBoardCollab), read through a ref so the engine's
+  // callbacks stay stable while the session connects, restarts or ends.
+  const collabRef = useRef(collab);
+  useEffect(() => { lookRef.current = look; propsRef.current = { onScene, onThumb, canEdit, noteId: note?.id }; collabRef.current = collab; });
 
   const initialData = useMemo(() => ({
     elements: initial.elements,
@@ -73,11 +76,10 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     scrollToContent: initial.elements.length > 0,
   }), [initial]);
 
-  // Hand the api up once, attach collaboration, load the images.
+  // Hand the api up once, load the images.
   useEffect(() => {
     if (!api) return undefined;
     onApi?.(api);
-    collab?.attach?.(api);
     let alive = true;
     const metas = { ...filesMeta.current };
     if (Object.keys(metas).length) {
@@ -85,6 +87,37 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     }
     return () => { alive = false; };
   }, [api]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Images the others added arrive as meta over the live session: remember
+  // them so the saved scene keeps them, and show them through the viewer.
+  const onRemoteFiles = useCallback((metas) => {
+    const fresh = {};
+    for (const [id, meta] of Object.entries(metas || {})) {
+      if (!filesMeta.current[id] && meta?.url) { filesMeta.current[id] = meta; fresh[id] = meta; }
+    }
+    if (!api || !Object.keys(fresh).length) return;
+    loadBoardFiles(fresh).then((files) => { if (Object.keys(files).length) api.addFiles(Object.values(files)); });
+  }, [api]);
+
+  // Attach the live session to the engine - again when the session object
+  // changes (it connected, or was rebuilt); attach is idempotent.
+  useEffect(() => {
+    if (!api || !collab?.attach) return;
+    collab.attach(api, { onRemoteFiles });
+  }, [api, collab, onRemoteFiles]);
+
+  // A viewer has no live session (the channel key is the editors' alone):
+  // when the saved scene moves on under it, the new drawing goes on the
+  // engine as-is, never into a history it cannot use anyway.
+  const seenScene = useRef(note?.scene);
+  useEffect(() => {
+    if (canEdit || !api || note?.scene === seenScene.current) return;
+    seenScene.current = note?.scene;
+    const next = parseScene(note?.scene);
+    if (!next) return;
+    api.updateScene({ elements: next.elements, captureUpdate: CaptureUpdateAction.NEVER });
+    onRemoteFiles(next.files);
+  }, [note?.scene, api, canEdit, onRemoteFiles]);
 
   const serialize = useCallback(() => {
     if (!api) return '';
@@ -122,7 +155,14 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
       const done = () => { uploading.current.delete(id); if (!uploading.current.size) setNotice(null); };
       if (!file) { done(); continue; }
       uploadBoardFile(propsRef.current.noteId, file)
-        .then((meta) => { filesMeta.current[meta.id] = meta; if (meta.id !== id) filesMeta.current[id] = { ...meta, id }; done(); scheduleSave(); })
+        .then((meta) => {
+          filesMeta.current[meta.id] = meta;
+          if (meta.id !== id) filesMeta.current[id] = { ...meta, id };
+          done();
+          // The others learn of the image through the live session's file meta.
+          collabRef.current?.onChange?.(api.getSceneElementsIncludingDeleted(), filesMeta.current, api.getAppState?.()?.selectedElementIds);
+          scheduleSave();
+        })
         .catch((e) => {
           done();
           setNotice({ text: `The image was not stored: ${e?.message || 'upload failed'}`, error: true });
@@ -138,8 +178,13 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
 
   const onChange = useCallback((elements, appState, files) => {
     storeNewFiles(files, elements);
+    // Into the shared document first (the others see it as it is drawn),
+    // then the save timer.
+    collabRef.current?.onChange?.(elements, filesMeta.current, appState?.selectedElementIds);
     scheduleSave();
   }, [storeNewFiles, scheduleSave]);
+  // Where the pointer is, for the others' cursors (the session throttles it).
+  const onPointerUpdate = useCallback((payload) => { collabRef.current?.pointer?.(payload); }, []);
 
   const setLook = useCallback((next) => {
     if (!LOOKS.includes(next) || next === lookRef.current) return;
@@ -202,6 +247,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
           handleKeyboardGlobally={false}
           autoFocus={canEdit && !isPhone}
           isCollaborating={!!collab}
+          onPointerUpdate={collab ? onPointerUpdate : undefined}
           renderTopRightUI={isPhone || !canEdit ? undefined : () => lookToggle}
         >
           <MainMenu>

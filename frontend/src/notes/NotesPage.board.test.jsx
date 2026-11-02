@@ -48,6 +48,15 @@ vi.mock('./board/Board', () => ({
   ),
 }));
 
+// The live session is its own hook (board/useBoardCollab.test.jsx covers it);
+// here only that a shared board turns it on and shows who is drawing.
+const boardCollabMock = vi.hoisted(() => ({ useBoardCollab: vi.fn() }));
+vi.mock('./board/useBoardCollab', () => boardCollabMock);
+// Eligibility (useNoteCollab.collabEligible) needs a Realtime client and WebCrypto.
+vi.mock('../lib/supabase', () => ({ supabase: { channel: () => ({}), removeChannel: () => {} } }));
+import { webcrypto } from 'node:crypto';
+if (!globalThis.crypto?.subtle) vi.stubGlobal('crypto', webcrypto);
+
 import NotesPage from './NotesPage';
 import NotesWidget from './NotesWidget';
 import QuickNotePanel from './QuickNotePanel';
@@ -55,6 +64,14 @@ import { noteTitle, isBoard } from './notesModel';
 import { CREATE_ITEMS } from '../lib/quickCreate';
 
 beforeEach(() => {
+  boardCollabMock.useBoardCollab.mockReset();
+  boardCollabMock.useBoardCollab.mockImplementation(({ enabled }) => ({
+    enabled: !!enabled, phase: enabled ? 'ready' : 'off', status: enabled ? 'live' : 'off', live: !!enabled,
+    peers: enabled ? [{ name: 'Bob Brown', color: '#123456', email: 'bob@greensglobal.com' }] : [],
+    attach: vi.fn(), onChange: vi.fn(), pointer: vi.fn(), restart: vi.fn(), resync: vi.fn(), fail: vi.fn(),
+    epoch: enabled ? 'ep1' : '', keyTag: '', getHtml: () => null, setHtml: () => true, isRemote: () => false,
+    encodeState: () => '', applyState: () => {}, bindEditor: () => {},
+  }));
   localStorage.clear();
   Object.values(apiMock).forEach((f) => f.mockReset?.());
   Object.values(exportMock).forEach((f) => f.mockClear?.());
@@ -239,5 +256,30 @@ describe('New Board elsewhere', () => {
       await waitFor(() => expect(nav).toHaveBeenCalled());
       expect(nav.mock.calls[0][0].detail).toEqual({ view: 'dashboard', sub: 'notes:board_3' });
     } finally { window.removeEventListener('nexus:navigate', nav); }
+  });
+});
+
+describe('A shared board draws together', () => {
+  it('turns the live session on for a board shared with Can Edit and shows who is drawing', async () => {
+    apiMock.noteGet.mockResolvedValue(board({ shared: true, sharedWith: [{ email: 'bob@greensglobal.com', can: 'edit' }] }));
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    const calls = boardCollabMock.useBoardCollab.mock.calls.map((c) => c[0]);
+    expect(calls.at(-1)).toMatchObject({ enabled: true, canEdit: true });
+    expect(calls.at(-1).note.id).toBe('board_1');
+    expect(await screen.findByText(/Bob Brown is editing/)).toBeTruthy();
+    expect(screen.getByText(/· Live/)).toBeTruthy();
+  });
+
+  it('stays off for a private board and for a board shared to read', async () => {
+    apiMock.noteGet.mockResolvedValue(board());
+    const { unmount } = render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    expect(boardCollabMock.useBoardCollab.mock.calls.at(-1)[0].enabled).toBe(false);
+    unmount();
+    apiMock.noteGet.mockResolvedValue(board({ mine: false, can: 'read', owner: 'bob@greensglobal.com', shared: true }));
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    expect(boardCollabMock.useBoardCollab.mock.calls.at(-1)[0].enabled).toBe(false);
   });
 });

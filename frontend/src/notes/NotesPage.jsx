@@ -28,6 +28,7 @@ import HoldButton from '../ui/HoldButton';
 import NoteEditor from './NoteEditor';
 import { useNoteSync } from './useNoteSync';
 import { useNoteCollab, collabEligible } from './useNoteCollab';
+import { useBoardCollab } from './board/useBoardCollab';
 import { diffNotes } from './notesMerge';
 import { safeHtml } from './noteSafeHtml';
 import { createTaskFrom, openTask } from './notesTasks';
@@ -400,11 +401,16 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     if (e && e === (myEmail || '').toLowerCase()) return 'You';
     return (people || []).find((p) => p.email === e)?.name || email || 'Someone';
   }, [people, myEmail]);
-  // A shared note's editors type together live (useNoteCollab).
+  // A shared note's editors type together live (useNoteCollab); a shared
+  // board's editors draw together the same way (useBoardCollab) - the same
+  // channel, the engine's elements instead of words.
   const eligible = !isBoard(note) && collabEligible(note);
+  const boardEligible = isBoard(note) && collabEligible(note);
   const myName = (people || []).find((p) => p.email === (myEmail || '').toLowerCase())?.name || myEmail;
   const collab = useNoteCollab(id, { enabled: eligible, me: myEmail, name: myName });
-  useEffect(() => { collabRef.current = collab; }, [collab]);
+  const boardCollab = useBoardCollab({ note, canEdit: !!note && note.can !== 'read' && !note.trashedAt, enabled: boardEligible, me: myEmail, name: myName });
+  // useNoteSync reads the live session through this ref: whichever one the open note has.
+  useEffect(() => { collabRef.current = isBoard(note) ? boardCollab : collab; }, [collab, boardCollab, note]);
   const [menu, setMenu] = useState('');      // '' | 'color' | 'more'
   const [dialog, setDialog] = useState('');  // '' | 'share' | 'history'
   const titleRef = useRef(null);
@@ -613,7 +619,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             {note.editedBy && note.editedBy !== (myEmail || '').toLowerCase() && note.updatedAt && (
               <span>Edited by {nameOf(note.editedBy)} {editedLabel(note.updatedAt).replace(/^edited /i, '')}</span>
             )}
-            <PresenceLine people={sync.people} peers={collab.peers} live={collab.live} nameOf={nameOf} />
+            <PresenceLine people={sync.people} peers={board ? boardCollab.peers : collab.peers} live={board ? boardCollab.live : collab.live} nameOf={nameOf} />
             {!readOnly && !isPhone && <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} />}
           </div>
 
@@ -644,7 +650,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                   onLook={(l) => setLookPick(l)}
                   onScene={readOnly ? undefined : (sceneStr) => sync.edit({ scene: sceneStr })}
                   onThumb={readOnly ? undefined : onThumb}
-                  collab={null} onApi={setBoardApi} />
+                  collab={boardCollab.enabled ? boardCollab : null} onApi={setBoardApi} />
               </Suspense>
             </div>
           ) : eligible && collab.phase !== 'ready' && collab.phase !== 'failed'
