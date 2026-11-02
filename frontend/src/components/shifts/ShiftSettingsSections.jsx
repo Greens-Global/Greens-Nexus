@@ -165,7 +165,7 @@ const SWITCHES = [
 export const SHIFT_SETTING_PARTS = {
   basics: ['timeZone', 'weekStart', 'defaultGraceMin'],
   requests: [...SWITCHES.map(([k]) => k), 'releaseShifts', 'releaseNeedsApproval', 'openShiftsAcrossTeams'],
-  attendance: ['noShowAlertMin', 'leftEarlyMin', 'timesheetEscalateDays', 'breakNudgeMin', 'mealReminderMin', 'noShowOnUsualHours'],
+  attendance: ['noShowAlertMin', 'leftEarlyMin', 'earlyPunchAlertMin', 'timesheetEscalateDays', 'breakNudgeMin', 'mealReminderMin', 'noShowOnUsualHours'],
   overtime: ['otAlertOn', 'otAlertDailyLeadMin', 'otAlertWeeklyLeadMin'],
   rules: ['ruleMinRestHours', 'ruleMaxDaysInRow', 'ruleDailyOtHours', 'ruleWeeklyOtHours', 'ruleMaxWeekHours', 'publishReasonRequired'],
   sharing: ['outlookCalendarOn', 'outlookShowAs', 'confirmRequests'],
@@ -357,6 +357,9 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                   desc="Also alerts for office staff who have usual hours but no shift on the schedule that day. Time off and holidays excuse those." />
                 <MinutesField label="Left Early" aria="Left early" value={nums?.leftEarlyMin} fallback={15} onChange={(v) => patchNum({ leftEarlyMin: v })}
                   hint="Clocking out this many minutes before the shift's end counts as leaving early on the schedule." />
+                {/* Early punch alert (Neil, 11/02/2026, early_punch.py): the punch is always recorded. */}
+                <MinutesField label="Early Punch Alert" aria="Early punch alert" value={nums?.earlyPunchAlertMin} fallback={0} onChange={(v) => patchNum({ earlyPunchAlertMin: v })}
+                  hint="Tell the manager when someone punches in more than this many minutes before their shift. 0 turns it off. The punch is always recorded." />
                 {/* Stalled Time Sheet escalation (Oct 19 2026, timesheet_alerts.py). */}
                 <MinutesField label="Escalate Unapproved Time Sheets After (Days)" aria="Escalate unapproved time sheets after" unit="days" max={30}
                   value={nums?.timesheetEscalateDays} fallback={2} onChange={(v) => patchNum({ timesheetEscalateDays: v })}
@@ -482,12 +485,12 @@ function mealHours(min) {
 // The numeric keys of the shift settings, with the most each accepts - one
 // form, saved together by the Save row (Oct 23; each used to save on blur).
 const NUM_MAX = {
-  defaultGraceMin: 120, noShowAlertMin: 240, leftEarlyMin: 240, timesheetEscalateDays: 30, breakNudgeMin: 240, mealReminderMin: 295,
+  defaultGraceMin: 120, noShowAlertMin: 240, leftEarlyMin: 240, earlyPunchAlertMin: 240, timesheetEscalateDays: 30, breakNudgeMin: 240, mealReminderMin: 295,
   otAlertDailyLeadMin: 240, otAlertWeeklyLeadMin: 480,
   ruleMinRestHours: 24, ruleMaxDaysInRow: 14, ruleDailyOtHours: 24, ruleWeeklyOtHours: 80, ruleMaxWeekHours: 100,
 };
 const NUM_DEFAULT = {
-  defaultGraceMin: 10, noShowAlertMin: 10, leftEarlyMin: 15, timesheetEscalateDays: 2, breakNudgeMin: 60, mealReminderMin: 270,
+  defaultGraceMin: 10, noShowAlertMin: 10, leftEarlyMin: 15, earlyPunchAlertMin: 0, timesheetEscalateDays: 2, breakNudgeMin: 60, mealReminderMin: 270,
   otAlertDailyLeadMin: 30, otAlertWeeklyLeadMin: 120,
   ruleMinRestHours: 0, ruleMaxDaysInRow: 0, ruleDailyOtHours: 0, ruleWeeklyOtHours: 0, ruleMaxWeekHours: 0,
 };

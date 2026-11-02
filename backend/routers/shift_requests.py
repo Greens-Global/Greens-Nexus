@@ -163,7 +163,11 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # California meal reminder (Charmi + Neil, Oct 20 2026,
              # meal_watch.py): one bell once the day's work reaches this many
              # minutes with no 30-minute meal yet; 270 = 4.5 hours, 0 = off.
-             "mealReminderMin": 270}
+             "mealReminderMin": 270,
+             # Early punch alert (Neil, 11/02/2026, early_punch.py): a clock-in
+             # more than this many minutes before the expected start tells
+             # the manager. The punch is always recorded; 0 = off.
+             "earlyPunchAlertMin": 0}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
@@ -172,7 +176,7 @@ _INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftE
                  "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100),
                  "otAlertDailyLeadMin": (0, 240), "otAlertWeeklyLeadMin": (0, 480),
                  "timesheetEscalateDays": (0, 30), "breakNudgeMin": (0, 240),
-                 "mealReminderMin": (0, 295)}
+                 "mealReminderMin": (0, 295), "earlyPunchAlertMin": (0, 240)}
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers", "release": "releaseShifts"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -374,6 +378,7 @@ class SettingsIn(BaseModel):
     locationTrailOn: Optional[bool] = None      # web location trail while clocked in (Oct 20; off by default)
     breakNudgeMin: Optional[int] = None         # 0-240; minutes on an open break before "Still on Break?"; manager at 2x; 0 = off
     mealReminderMin: Optional[int] = None       # 0-295; minutes of work before the California meal reminder; 0 = off
+    earlyPunchAlertMin: Optional[int] = None    # 0-240; minutes before the expected start a clock-in alerts the manager; 0 = off
 
 
 @router.get("/settings")

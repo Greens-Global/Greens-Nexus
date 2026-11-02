@@ -1244,6 +1244,7 @@ def punch(body: PunchIn, request: Request,
                     ip=ip, user_agent=ua, source="web",
                     created_by=email, created_at=now, **geo)
     db.add(row)
+    _early_punch_alert(db, row, email)
     # Soft-gate escalation (Charmi / Visesh, Sep 25): an out-of-fence punch IN
     # or OUT goes to the employee's manager as a bell notification AND an email
     # ("email manager when punches out of the geofence").
@@ -1442,9 +1443,26 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
                     note=body.note.strip()[:300], source="offline",
                     created_by=email, created_at=now)
     db.add(row)
+    _early_punch_alert(db, row, email)
     _notify_offline_punch(db, row)
     db.commit()
     return _serialize(row)
+
+
+def _early_punch_alert(db: Session, row, email: str) -> None:
+    """Early punch alert (Neil, 11/02/2026, early_punch.py): a clock-in well
+    before the expected start tells the manager. Called by every punch
+    writer right after the row is added; the punch is ALWAYS recorded -
+    nothing here may raise out of the route."""
+    if (getattr(row, "kind", "") or "") != "in":
+        return
+    try:
+        import early_punch
+        db.flush()
+        emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == (email or "").lower()).first()
+        early_punch.check(db, row, emp)
+    except Exception as e:   # noqa: BLE001 - an alert never blocks a punch
+        print(f"[early_punch] alert skipped for {email}: {e}")
 
 
 def _notify_offline_punch(db: Session, row) -> None:
@@ -6029,14 +6047,16 @@ def track_clock(body: TrackClockIn, request: Request, dev: AgentDevice = Depends
     geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
            if (body.lat or "").strip() else
            {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0})
-    db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
+    _row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
                      local_date=_local_date(now, body.tz_offset_min or 0),
                      tz_offset_min=body.tz_offset_min or 0,
                      lat=(body.lat or "").strip()[:24], lng=(body.lng or "").strip()[:24],
                      accuracy_m=max(0, int(body.accuracy_m or 0)),
                      # Phone punches carried no IP, so the hover showed none (Oct 18 2026).
                      ip=_client_meta(request)[0], user_agent=_client_meta(request)[1],
-                     source="mobile", created_by=email, created_at=now, **geo))
+                     source="mobile", created_by=email, created_at=now, **geo)
+    db.add(_row)
+    _early_punch_alert(db, _row, email)
     if body.kind == "in":
         if _live_consent(db, email) is not None:
             _open_session(db, email) or _new_session(db, dev)  # start tracking on clock-in
