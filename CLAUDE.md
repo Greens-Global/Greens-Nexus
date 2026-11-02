@@ -336,8 +336,11 @@ keep the diff minimal.
   Images are files in the private `task-files` bucket under
   `notes/boards/<noteId>/`, never data URLs in the scene. The engine is the
   self-hosted Excalidraw package in `frontend/src/notes/board/Board.jsx`,
-  lazy in the one `vendor-excalidraw` chunk (the single bundle-budget
-  exception, `scripts/check-bundle-size.mjs`); its fonts are copied by
+  reached only through `notes/board/engine`'s `import()` and split by the
+  build into its own lazy chunk - NO manual chunk for it (11/02/2026: a
+  manual chunk dragged its shared dependencies in and put 3 MB on first
+  paint; `scripts/check-bundle-size.mjs` now fails when the engine is in
+  the entry's static graph or first paint passes 3,000 KB); its fonts are copied by
   `scripts/copy-excalidraw-assets.mjs` on build, English only, nothing from a
   CDN (the CSP is self only). Clean look by default, Sketch per board
   (`scene.js` `applyLook`). Live drawing rides the Notes encrypted transport

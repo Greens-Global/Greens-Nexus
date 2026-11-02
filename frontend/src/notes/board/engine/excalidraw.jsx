@@ -3,8 +3,8 @@
 // scripts/check-engine-imports.mjs keeps it that way. It satisfies the
 // Engine contract in ./index.js; Board.jsx and the export helpers know only
 // that contract. Lazy: reached through loadEngine()'s import() alone, so
-// this and the package land in the vendor-excalidraw chunk together
-// (vite.config.js manualChunks) and never on first paint.
+// this and the package land in the build's own lazy chunk for it (no
+// manual chunk - see vite.config.js) and never on first paint.
 //
 // Nothing of the engine's own hosted features is wired: no export dialog
 // (it links to its service), no library panel, no AI, no theme toggle; the

@@ -10,7 +10,7 @@
 //
 // Robustness (Neil, 11/02/2026):
 //   - The engine is fetched by loadEngine() when the board mounts (the
-//     vendor-excalidraw chunk). While it loads the stage shows a skeleton;
+//     engine's own lazy chunk). While it loads the stage shows a skeleton;
 //     when it does not load (a deploy swapped the files, the CSP, offline)
 //     or throws while drawing, the board shows its last saved picture
 //     read-only with Retry (engine/fallback.jsx) - never blank, never a
