@@ -12937,7 +12937,7 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
 
 
 # ── Second Approval By HR (Neil, Oct 27 2026) ───────────────────────────────
-# A per-company switch (Settings > Time & Pay > Time-Off Approval, layered
+# A per-company switch (Settings > Time Off & Leave > Time Off Approval, layered
 # through scoped_settings, off by default). When it is on, a manager's
 # approval is the first level: the request stays 'pending' with
 # approval_stage 'hr' - so balances, the schedule, payroll and every other

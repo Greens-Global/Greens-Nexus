@@ -3,7 +3,7 @@
 Greens' policy is USE IT OR LOSE IT: by default, what is left of a bucket
 when the leave year ends expires. Per company and per bucket (vacation,
 sick), layered through scoped_settings (defaults <- the tenant row <- the
-company's own, key "leave.yearEnd"), Settings > Time & Pay > Leave Year-End
+company's own, key "leave.yearEnd"), Settings > Time Off & Leave > Leave Year-End
 picks one of:
   reset      "Use It Or Lose It" - everything left expires (the default);
   carry_all  "Carry Everything" - nothing expires;
