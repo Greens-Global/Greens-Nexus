@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Accounting -> Allocations (Oct 2): the basis per person, the entry
@@ -42,11 +42,18 @@ vi.mock('../../stepup/StepUp', () => ({ ensureStepUp: vi.fn(async () => ({ ok: t
 import AllocationsTab from './AllocationsTab';
 import { api } from '../../api';
 
+// The tab opens on LAST month and its buttons stay disabled while the
+// preview's month differs from it (preview?.month !== month). The fixtures
+// are September 2026, so the clock is pinned to October 2026 - without it
+// every month roll disabled Keep Run and the exports in these tests.
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-15T12:00:00Z'));
   vi.clearAllMocks();
   globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
   globalThis.URL.revokeObjectURL = vi.fn();
 });
+afterEach(() => { vi.useRealTimers(); });
 
 describe('AllocationsTab', () => {
   // 10/23 meeting, item 05 (fix 10/24; Viral: "remove Global Scrolling ... mostly on every screen").
