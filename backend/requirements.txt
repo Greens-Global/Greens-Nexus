@@ -40,3 +40,6 @@ tzdata==2025.2
 # StorTrack competitor rates from Cubby's BigQuery warehouse (cubby_warehouse.py,
 # Oct 2026). Imported lazily: the app boots without it or its key.
 google-cloud-bigquery==3.40.1
+# Web Push to installed phones (push.py, Frontline Reach, Nov 2026): signs each
+# send with the NEXUS_VAPID_* keys. Off until those settings exist.
+pywebpush==2.5.0

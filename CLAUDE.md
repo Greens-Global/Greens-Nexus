@@ -352,6 +352,30 @@ keep the diff minimal.
   module - boards live in Notes. jsdom cannot load the engine: tests get the
   global mock in `frontend/vitest.setup.js`. Users never see the word
   Excalidraw.
+- **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
+  on the phone (`public/manifest.webmanifest`, `public/sw.js` - a push-only
+  worker, no caching, offline is deferred) and pushes the BELL: a Web Push
+  goes out for every `NexusNotification` row with a named recipient through
+  the `after_insert` listener in `backend/push.py` and the leader-only
+  `push_loop` (off the event loop); broadcasts never push; never add a
+  second push path or push anything that is not a bell row. Push is OFF
+  until `NEXUS_VAPID_PRIVATE_KEY` / `NEXUS_VAPID_PUBLIC_KEY` /
+  `NEXUS_VAPID_SUBJECT` are set on the server (Neil sets Azure app settings;
+  never generate or commit keys); `nexus_push_subscriptions` and
+  `nexus_push_outbox` need RLS on dev and prod. People reach each other on
+  Teams, never an in-app chat: every Teams link goes through
+  `lib/teamsLinks.js` and the two buttons are `components/PersonActions.jsx`
+  (hidden for externals and yourself). Announcements publish from
+  `announcements_publish.py`'s loop (claimed once with a conditional
+  UPDATE), fan out per the post's `notify` (Bell / Bell and Teams / Bell and
+  Email - the bell is the push in every mode, never a second push), hide
+  scheduled posts from staff, and keep images and files in the private
+  `task-files` bucket (a new post uploads under `announcements/new/`, an
+  edit under `announcements/<id>/`). Existing posts are stamped published by
+  the migration (`notified_at = created_at`) so a release never re-bells them. The planner's scheduled
+  labor line is `GET /timeclock/schedule/labor` (hours from
+  `shift_attendance._paid_minutes`, rates from the payroll history by day,
+  fixed pay counted not priced, managers never see pay).
 - Timesheets are approved through review + Nexus Sign (`timesheet_review.py`;
   ONLY THE EMPLOYEE SIGNS - Neil, Oct 16 2026). After the period's last day
   the manager (else the company's HR contact; nobody at all = the Global

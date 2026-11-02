@@ -2577,6 +2577,8 @@ export const api = {
   timeMyConfirmations:        () => req('/timeclock/my-schedule/confirmations'),
   timeSchedConfirm:           (publishId) => req(`/timeclock/schedule/confirm/${encodeURIComponent(publishId)}`, { method: 'POST' }),
   timeSchedConfirmations:     (start, end) => req(`/timeclock/schedule/confirmations?start=${start}&end=${end}`),
+  // Scheduled hours and labor cost for the planner header (Frontline Reach, 11/02/2026); pay hidden for the manager tier.
+  timeScheduleLabor:          (start, end) => req(`/timeclock/schedule/labor?start=${start}&end=${end}`),
   timeSchedNudge:             (data) => req('/timeclock/schedule/nudge', { method: 'POST', body: JSON.stringify(data) }),
   // The offer letter first, then the hiring packet (Neil, Oct 14). Options: which
   // letter this kind of hire gets and what it asks of HR; start: generated and
@@ -3375,3 +3377,11 @@ export const fetchCareersOpening = (slug, id) => _publicCareers(`public/${encode
 // `form` is a FormData: first_name, last_name, email, phone, location,
 // linkedin_url, consent, nx_f2 (the honeypot - always empty) and resume.
 export const submitCareersApplication = (openingId, form) => _publicCareers(`apply/${encodeURIComponent(openingId)}`, { method: 'POST', body: form });
+
+// Web Push devices (Frontline Reach, Neil 11/02/2026; backend routers/push.py).
+// `pushConfig` says whether the server has keys and which public key the
+// browser subscribes with; the rest register and remove THIS device.
+api.pushConfig = () => req('/push/config');
+api.pushSubscribe = (sub) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
+api.pushUnsubscribe = (endpoint) => req('/push/subscribe', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
+api.pushSubscriptions = () => req('/push/subscriptions');
