@@ -6235,6 +6235,17 @@ class Announcement(Base):
     created_at   = Column(String, default="")                   # ISO timestamp
     updated_at   = Column(String, default="")
     deleted_at   = Column(String, default="", index=True)       # '' = live
+    # Reach (Neil, 11/02/2026): a picture or a file on the post (our private
+    # storage, opened through the signed viewer), publish later, and how the
+    # audience hears about it - 'quiet' (bell only), 'push_teams' (phone push
+    # + a Teams DM each) or 'email'. `notified_at` is stamped when the post
+    # went out, so a scheduled post is published exactly once.
+    image_url    = Column(String, default="")
+    file_url     = Column(String, default="")
+    file_name    = Column(String, default="")
+    publish_at   = Column(String, default="")                   # ISO timestamp, '' = published at create
+    notify       = Column(String, default="quiet")              # quiet | push_teams | email
+    notified_at  = Column(String, default="")                   # '' = not yet published to its audience
 
 
 class AnnouncementRead(Base):

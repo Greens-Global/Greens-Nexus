@@ -1419,6 +1419,13 @@ def _run_migrations():
             "ALTER TABLE nexus_notes ADD COLUMN thumb_url VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_notes ADD COLUMN source TEXT DEFAULT ''",
             "ALTER TABLE nexus_note_versions ADD COLUMN scene TEXT DEFAULT ''",
+            # Announcements reach (Neil 11/02/2026) - see the Postgres list. models.Announcement.
+            "ALTER TABLE nexus_announcements ADD COLUMN image_url VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_announcements ADD COLUMN file_url VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_announcements ADD COLUMN file_name VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_announcements ADD COLUMN publish_at VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_announcements ADD COLUMN notify VARCHAR DEFAULT 'quiet'",
+            "ALTER TABLE nexus_announcements ADD COLUMN notified_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3392,6 +3399,15 @@ def _run_migrations():
         "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS thumb_url VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS source TEXT DEFAULT ''",
         "ALTER TABLE nexus_note_versions ADD COLUMN IF NOT EXISTS scene TEXT DEFAULT ''",
+        # Announcements reach (Neil 11/02/2026): a picture or file on a post,
+        # publish later, a notify choice, and the publish stamp. Existing
+        # table, no new RLS. models.Announcement.
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS image_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS file_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS file_name VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS publish_at VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS notify VARCHAR DEFAULT 'quiet'",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS notified_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4178,6 +4194,13 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(weekly_digest_loop()))
         except Exception as e:
             print(f"[startup] weekly digest loop skipped: {e}")
+        try:
+            # Announcements published later (Neil, 11/02/2026): every minute, due
+            # posts get their bells and their push / Teams / email fan-out once.
+            from announcements_publish import announcements_loop
+            _tasks.append(_a.create_task(announcements_loop()))
+        except Exception as e:
+            print(f"[startup] announcements publish skipped: {e}")
         try:
             from workforce_scorecard import scorecard_loop
             _tasks.append(_a.create_task(scorecard_loop()))
