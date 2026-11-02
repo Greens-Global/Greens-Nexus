@@ -82,7 +82,7 @@ vi.mock('../api', () => ({
 
 const ShiftScheduleModule = await import('./ShiftSchedule');
 const ShiftSchedule = ShiftScheduleModule.default;
-const { laborText, laborOver, laborParts } = ShiftScheduleModule;
+const { laborText, laborOver } = ShiftScheduleModule;
 
 // jsdom has no PointerEvent; the grid drags and long-presses with pointer events.
 if (!window.PointerEvent) {
@@ -1444,14 +1444,6 @@ describe('Scheduled labor line', () => {
     // A manager's payload carries neither key: the line is exactly as before.
     expect(laborText({ hours: 1250, cost: null, currency: 'USD', payHidden: true })).toBe('Scheduled 1,250 h');
     expect(laborOver({ hours: 1250, cost: null, currency: 'USD', payHidden: true })).toBe(false);
-    // The fragments: only the " of ... budget" pieces are marked; a line with no budget is one piece.
-    expect(laborParts(under)).toEqual([
-      { text: 'Scheduled 1,250 h', budget: false }, { text: ' of 1,300 h budget', budget: true },
-      { text: ' · $98,400', budget: false }, { text: ' of $100,000 budget', budget: true },
-    ]);
-    expect(laborParts({ hours: 40, cost: 800, currency: 'USD', payHidden: false, fixedPayPeople: 1 }))
-      .toEqual([{ text: 'Scheduled 40 h · $800 · 1 person on fixed pay', budget: false }]);
-    expect(laborParts(null)).toEqual([]);
   });
 
   it('paints only the budget fragments amber (data-labor-over on the line) when the schedule is over budget', async () => {

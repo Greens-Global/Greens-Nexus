@@ -101,7 +101,7 @@ export function laborOver(l) {
 // budget" pieces marked so the screen can color them alone when the
 // schedule is over (the scheduled figures stay muted); adjacent plain
 // fragments are merged, so a line with no budget is one text node.
-export function laborParts(l) {
+function laborParts(l) {
   if (!l || !(l.hours > 0)) return [];
   const h = l.hours % 1 === 0 ? l.hours : Number(l.hours.toFixed(2));
   const budget = budgetOf(l);

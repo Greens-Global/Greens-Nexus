@@ -13,7 +13,7 @@ import { applyMask, formatCount, formatPlaceholder, formatInputMode } from '../.
 
 // Where the note sits: under the box, left-aligned with it on the left half
 // of the page, hugging the page's right edge on the right half.
-export function noteAnchor(style) {
+function noteAnchor(style) {
   const top = `calc(${style?.top || '0%'} + ${style?.height || '0%'} + 2px)`;
   const left = parseFloat(style?.left);
   return Number.isFinite(left) && left > 50 ? { right: 0, top } : { left: style?.left, top };

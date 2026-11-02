@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import SignTextField, { noteAnchor } from './SignTextField';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import SignTextField from './SignTextField';
 
 // The signer's text box on a PDF page (Nexus Sign). A `format` on the field
 // masks what is typed and shows the live digit count; the server's 422
@@ -48,9 +48,12 @@ describe('SignTextField', () => {
     const note = screen.getByRole('alert');
     expect(note.style.right).toBe('0px');
     expect(note.style.left).toBe('');
-    expect(noteAnchor({ left: '50%', top: '20%', height: '3%' })).toEqual({ left: '50%', top: 'calc(20% + 3% + 2px)' });
-    expect(noteAnchor({ left: '50.5%', top: '20%', height: '3%' })).toEqual({ right: 0, top: 'calc(20% + 3% + 2px)' });
-    expect(noteAnchor(undefined)).toEqual({ left: undefined, top: 'calc(0% + 0% + 2px)' });
+    expect(note.style.top).toMatch(/^calc\(/);                               // under the box (jsdom folds the calc)
+    cleanup();
+    // Exactly half way is still the left half.
+    render(<SignTextField field={field} value="" onChange={() => {}} style={{ ...st, left: '50%' }} error="Bad." />);
+    expect(screen.getByRole('alert').style.left).toBe('50%');
+    expect(screen.getByRole('alert').style.right).toBe('');
   });
   it('is a plain text box without a format', () => {
     render(<SignTextField field={{ id: 'p', type: 'text', x: 0, y: 0, w: 0.2, h: 0.03 }} value="" onChange={() => {}} style={st} />);
