@@ -21,8 +21,14 @@ Bell notifications
   audience (type 'announcement'). The bell's broadcast form (recipient='') is
   manager-only by design, so an employee would never see it - per-person rows
   are the only route to the whole company. Cost: one nexus_notifications row
-  per recipient (~180 for a company-wide post), written in the same commit.
-  No email or Teams message is sent.
+  per recipient (~180 for a company-wide post), written in the same commit
+  when the post is due at create. Reach (Neil, 11/02/2026): a post may carry
+  a picture or a file (our private storage), be scheduled (`publish_at`; it
+  stays hidden from staff and the bells wait until it is due) and ask for a
+  notice beyond the bell (`notify`: quiet / push_teams / email). Bells for a
+  scheduled post and every push / Teams / email fan-out are the publish
+  pass's job (announcements_publish.run_due, every minute), never a
+  request's - `notified_at` is its once-only stamp.
 
 Body text is PLAIN TEXT with line breaks; the tile renders it pre-wrapped and
 React escapes it, so no HTML is accepted or sanitized here.
@@ -39,6 +45,7 @@ import auth
 from auth import get_current_user, require_administrator
 from database import get_db
 from models import Announcement, AnnouncementRead, NexusEmployee, NexusNotification, NexusRole
+from routers.items import _validate_photo_url
 
 router = APIRouter(prefix="", tags=["Announcements"])
 
@@ -46,6 +53,9 @@ TITLE_MAX = 200
 BODY_MAX = 20000
 LIST_LIMIT = 50
 AUDIENCES = ("company", "department")
+NOTIFY_MODES = ("quiet", "push_teams", "email")
+FILE_NAME_MAX = 200
+ACK_NAMES = 2        # "Acknowledged by Ana Diaz, Bob Lee and 3 more"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -103,7 +113,14 @@ def _is_pinned(a: Announcement, today: str) -> bool:
     return bool(a.pinned_until) and a.pinned_until >= today
 
 
-def _can_see(a: Announcement, *, email: str, department: str, is_admin: bool) -> bool:
+def _is_scheduled(a: Announcement, now: str) -> bool:
+    """Not yet published: a publish time still ahead and no publish stamp."""
+    return bool(a.publish_at) and not (a.notified_at or "") and a.publish_at > now
+
+
+def _can_see(a: Announcement, *, email: str, department: str, is_admin: bool, now: str = "") -> bool:
+    if _is_scheduled(a, now or _now()) and not is_admin:
+        return False
     if (a.audience or "company") != "department":
         return True
     if is_admin or (a.author_email or "").lower() == email:
@@ -111,7 +128,8 @@ def _can_see(a: Announcement, *, email: str, department: str, is_admin: bool) ->
     return bool(department) and (a.department or "").strip().lower() == department.lower()
 
 
-def _serialize(a: Announcement, *, people: dict, db: Session, mark=None, counts=None, today: str = "") -> dict:
+def _serialize(a: Announcement, *, people: dict, db: Session, mark=None, counts=None, today: str = "",
+               ack_names=None) -> dict:
     today = today or _today()
     out = {
         "id": a.id,
@@ -128,9 +146,17 @@ def _serialize(a: Announcement, *, people: dict, db: Session, mark=None, counts=
         "updated_at": a.updated_at or "",
         "read_at": (mark.read_at if mark else "") or "",
         "acknowledged_at": (mark.acknowledged_at if mark else "") or "",
+        "image_url": a.image_url or "",
+        "file_url": a.file_url or "",
+        "file_name": a.file_name or "",
+        "publish_at": a.publish_at or "",
+        "notify": a.notify or "quiet",
+        "notified_at": a.notified_at or "",
+        "scheduled": _is_scheduled(a, _now()),
     }
     if counts is not None:
         out["read_count"], out["ack_count"] = counts
+        out["ack_names"] = list(ack_names or [])
     return out
 
 
@@ -232,6 +258,46 @@ def _validate(body: dict, current: Announcement | None = None) -> dict:
     elif not patch:
         out["requires_ack"] = False
 
+    # Reach (11/02/2026): a picture, a file, publish later, the notify choice.
+    for key in ("image_url", "file_url"):
+        if key in body:
+            url = _text(body, key).strip()
+            if url.startswith("data:"):
+                raise _bad("Upload the file first; an inline data URL is not accepted.")
+            _validate_photo_url(url, "Image" if key == "image_url" else "File")   # 400 outside our storage
+            out[key] = url
+        elif not patch:
+            out[key] = ""
+    if "file_name" in body:
+        name = _text(body, "file_name").strip()
+        if len(name) > FILE_NAME_MAX:
+            raise _bad(f"File name must be {FILE_NAME_MAX} characters or fewer.")
+        out["file_name"] = name
+    elif not patch:
+        out["file_name"] = ""
+    if "publish_at" in body:
+        when = _text(body, "publish_at").strip()
+        if when:
+            try:
+                dt = datetime.fromisoformat(when.replace("Z", "+00:00"))
+            except ValueError:
+                raise _bad("Publish time must be a date and time.")
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            when = dt.astimezone(timezone.utc).isoformat()
+        if patch and (current.notified_at or "") and when != (current.publish_at or ""):
+            raise _bad("This announcement is already published; its publish time cannot change.")
+        out["publish_at"] = when
+    elif not patch:
+        out["publish_at"] = ""
+    if "notify" in body:
+        mode = _text(body, "notify").strip().lower() or "quiet"
+        if mode not in NOTIFY_MODES:
+            raise _bad("Notify must be 'quiet', 'push_teams' or 'email'.")
+        out["notify"] = mode
+    elif not patch:
+        out["notify"] = "quiet"
+
     return out
 
 
@@ -255,10 +321,13 @@ def _audience_emails(a: Announcement, people: dict, author_scope) -> list[str]:
     return out
 
 
-def _notify_audience(db: Session, a: Announcement, people: dict, author_scope, author_name: str) -> int:
+def _notify_audience(db: Session, a: Announcement, people: dict, author_scope, author_name: str,
+                     recipients: list[str] | None = None) -> int:
     """One bell notification per person in the audience (see module docstring
-    for why not a broadcast row). Returns how many were written."""
-    recipients = _audience_emails(a, people, author_scope)
+    for why not a broadcast row). Returns how many were written. The publish
+    pass passes the `recipients` still missing a bell."""
+    if recipients is None:
+        recipients = _audience_emails(a, people, author_scope)
     now = _now()
     title = f"Announcement: {a.title}"
     body = (a.body or "")[:280] + ("..." if len(a.body or "") > 280 else "")
@@ -280,7 +349,7 @@ def _notify_audience(db: Session, a: Announcement, people: dict, author_scope, a
             company=people.get(em, {}).get("company", ""),
             created_at=now,
         ))
-    # Bell only: no mail or Teams sender here.
+    # Bell only: push / Teams / email are the publish pass's (announcements_publish).
     return len(recipients)
 
 
@@ -297,12 +366,13 @@ def list_announcements(user: dict = Depends(get_current_user), db: Session = Dep
     department = people.get(email, {}).get("department", "")
     scope = auth.company_scope(user, db)
     today = _today()
+    now = _now()
 
     rows = (db.query(Announcement)
             .filter(Announcement.deleted_at == "")
             .order_by(Announcement.created_at.desc())
             .all())
-    rows = [a for a in rows if _can_see(a, email=email, department=department, is_admin=is_admin)]
+    rows = [a for a in rows if _can_see(a, email=email, department=department, is_admin=is_admin, now=now)]
     if scope is not None:
         rows = [a for a in rows
                 if auth.company_ok(_author_company(people, a.author_email), scope, shared_when_blank=True)]
@@ -318,6 +388,7 @@ def list_announcements(user: dict = Depends(get_current_user), db: Session = Dep
              db.query(AnnouncementRead)
                .filter(AnnouncementRead.announcement_id.in_(ids), AnnouncementRead.email == email).all()}
     counts = None
+    ack_names = {}
     if is_admin:
         counts = {}
         for aid, reads, acks in (
@@ -327,8 +398,16 @@ def list_announcements(user: dict = Depends(get_current_user), db: Session = Dep
               .filter(AnnouncementRead.announcement_id.in_(ids))
               .group_by(AnnouncementRead.announcement_id).all()):
             counts[aid] = (int(reads or 0), int(acks or 0))
+        # The first acknowledgers' names, in the order they acknowledged.
+        for m in (db.query(AnnouncementRead)
+                    .filter(AnnouncementRead.announcement_id.in_(ids), AnnouncementRead.acknowledged_at != "")
+                    .order_by(AnnouncementRead.acknowledged_at.asc()).all()):
+            names = ack_names.setdefault(m.announcement_id, [])
+            if len(names) < ACK_NAMES:
+                names.append(_name_of(people, db, m.email))
     return [_serialize(a, people=people, db=db, mark=marks.get(a.id),
-                       counts=(counts.get(a.id, (0, 0)) if counts is not None else None), today=today)
+                       counts=(counts.get(a.id, (0, 0)) if counts is not None else None), today=today,
+                       ack_names=ack_names.get(a.id))
             for a in rows]
 
 
@@ -341,7 +420,11 @@ def create_announcement(body: dict, user: dict = Depends(require_administrator),
     db.add(a)
     people = _people(db)
     author_name = _name_of(people, db, a.author_email)
-    _notify_audience(db, a, people, auth.company_scope(user, db), author_name)
+    if not a.publish_at or a.publish_at <= now:
+        # Due now: the bells are instant, as before. The push / Teams / email
+        # fan-out (and the notified_at stamp) is the publish pass's, within
+        # the minute - never in a request. A scheduled post waits for the pass.
+        _notify_audience(db, a, people, auth.company_scope(user, db), author_name)
     db.commit()
     db.refresh(a)
     return _serialize(a, people=people, db=db, counts=(0, 0))
@@ -396,9 +479,16 @@ def _upsert_mark(db: Session, a: Announcement, email: str, *, ack: bool) -> Anno
     return mark
 
 
+def _assert_published(a: Announcement, user: dict) -> None:
+    """A scheduled post is nobody's to read or acknowledge but an administrator's."""
+    if _is_scheduled(a, _now()) and int(user.get("level") or 0) < 4:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+
+
 @router.post("/announcements/{announcement_id}/read")
 def mark_announcement_read(announcement_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     a = _live(db, announcement_id)
+    _assert_published(a, user)
     people = _people(db)
     _assert_wall(a, people, user, db)
     mark = _upsert_mark(db, a, (user.get("email") or "").lower(), ack=False)
@@ -410,6 +500,7 @@ def acknowledge_announcement(announcement_id: str, user: dict = Depends(get_curr
     """Acknowledge (also marks read). Allowed whether or not the announcement
     asks for it - an extra acknowledgement is harmless."""
     a = _live(db, announcement_id)
+    _assert_published(a, user)
     people = _people(db)
     _assert_wall(a, people, user, db)
     mark = _upsert_mark(db, a, (user.get("email") or "").lower(), ack=True)
