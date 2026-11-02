@@ -1,49 +1,39 @@
 // Getting a board out (Notes whiteboard, Neil 11/02/2026): PNG, SVG, the
 // clipboard, and the board's own file. Everything is client-side through the
-// engine's export helpers; nothing goes to Excalidraw's servers.
-import { exportToBlob, exportToSvg, exportToClipboard } from '@excalidraw/excalidraw';
+// engine adapter's export calls (./engine); nothing goes to anyone's servers.
+// The engine is already here whenever a board is on screen, so awaiting
+// loadEngine() costs nothing then; `downloadScene` without a handle needs no
+// engine at all.
+import { loadEngine } from './engine';
 import { serializeScene } from './scene';
 
-const PADDING = 24;
-
+/** The engine's live state as the exports want it, from the handle. */
 function exportable(api) {
-  const appState = api.getAppState();
-  return {
-    elements: api.getSceneElements(),
-    files: api.getFiles(),
-    appState: { ...appState, exportEmbedScene: false },
-  };
+  return { elements: api.getSceneElements(), files: api.getFiles(), appState: { ...api.getAppState(), exportEmbedScene: false } };
 }
 
 /** A PNG of the whole board, 2x by default. `background: false` leaves it transparent. */
 export async function exportPng(api, { scale = 2, background = true } = {}) {
-  const { elements, files, appState } = exportable(api);
-  return exportToBlob({
-    elements, files, mimeType: 'image/png', exportPadding: PADDING,
-    appState: { ...appState, exportBackground: background, exportScale: scale, exportWithDarkMode: false },
-  });
+  const engine = await loadEngine();
+  return engine.exportPng(exportable(api), { scale, background });
 }
 
 /** A smaller PNG for the note list and the Dashboard widget. */
 export async function exportThumb(api, width = 480) {
-  const { elements, files, appState } = exportable(api);
-  if (!elements.length) return null;
-  return exportToBlob({
-    elements, files, mimeType: 'image/png', exportPadding: 12,
-    appState: { ...appState, exportBackground: true, exportScale: 1, exportWithDarkMode: false },
-    getDimensions: (w, h) => { const s = Math.min(1, width / Math.max(1, w)); return { width: Math.round(w * s), height: Math.round(h * s), scale: s }; },
-  });
+  const raw = exportable(api);
+  if (!raw.elements.length) return null;
+  const engine = await loadEngine();
+  return engine.exportPng(raw, { scale: 1, background: true, padding: 12, maxWidth: width });
 }
 
 export async function exportSvg(api) {
-  const { elements, files, appState } = exportable(api);
-  const svg = await exportToSvg({ elements, files, exportPadding: PADDING, appState: { ...appState, exportBackground: true, exportWithDarkMode: false } });
-  return new XMLSerializer().serializeToString(svg);
+  const engine = await loadEngine();
+  return engine.exportSvg(exportable(api));
 }
 
 export async function copyPng(api) {
-  const { elements, files, appState } = exportable(api);
-  await exportToClipboard({ elements, files, type: 'png', appState: { ...appState, exportBackground: true, exportWithDarkMode: false } });
+  const engine = await loadEngine();
+  await engine.copyPng(exportable(api));
 }
 
 const safeName = (title) => (String(title || 'Untitled Board').trim() || 'Untitled Board').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80);
@@ -57,7 +47,7 @@ export function downloadBlob(blob, filename) {
 }
 
 /** The board's own file: the saved scene, re-serialized from the engine when
- *  an api is given (so unsaved strokes are included), else the note's scene. */
+ *  a handle is given (so unsaved strokes are included), else the note's scene. */
 export function downloadScene(note, api = null, look = note?.look) {
   const json = api
     ? serializeScene({ elements: api.getSceneElementsIncludingDeleted(), appState: api.getAppState(), filesMeta: note?.filesMeta || {}, look })

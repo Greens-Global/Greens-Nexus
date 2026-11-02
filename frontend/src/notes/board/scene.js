@@ -1,7 +1,8 @@
 // A Board's scene (Notes whiteboard, Neil 11/02/2026): what is saved on the
-// note row's `scene` column and what the engine (Excalidraw, wrapped by
-// Board.jsx) is fed. Pure: no engine import, so the list, the API client and
-// the tests read a scene without loading the 2.7 MB chunk.
+// note row's `scene` column and what the drawing engine (behind the adapter
+// in ./engine, mounted by Board.jsx) is fed. Pure: no engine import, so the
+// list, the API client and the tests read a scene without loading the 2.7 MB
+// chunk.
 //
 // Shape:
 //   { type: 'nexus-board', version: 1, look: 'clean' | 'sketch',
@@ -98,18 +99,43 @@ export function parseScene(str) {
   };
 }
 
-/** Engine state -> the saved string. */
-export function serializeScene({ elements, appState, filesMeta, look }) {
+/** Engine state -> the scene object that is saved (the adapter's toScene). */
+export function buildScene({ elements, appState, filesMeta, look }) {
   const now = Date.now();
-  const kept = (elements || []).filter((e) => !e.isDeleted || (now - (Number(e.updated) || 0)) < DELETED_KEEP_MS);
-  return JSON.stringify({
+  const kept = (elements || []).filter((e) => e && (!e.isDeleted || (now - (Number(e.updated) || 0)) < DELETED_KEEP_MS));
+  return {
     type: SCENE_TYPE,
     version: SCENE_VERSION,
     look: normalizeLook(look),
     elements: kept,
     appState: pruneAppState(appState),
     files: pruneFiles(filesMeta),
-  });
+  };
+}
+
+/** Engine state -> the saved string. */
+export function serializeScene(state) {
+  return JSON.stringify(buildScene(state));
+}
+
+/**
+ * The scene guard before a save (Neil, 11/02/2026): a deleted element that
+ * was already carried by the last save (`updated` before `savedAt`) is
+ * dropped - everyone reading the server's copy has had its deletion - and
+ * so is a file no kept element points at. A scene still over SCENE_MAX
+ * after this is refused by Board.jsx with a notice, never sent as a 413.
+ * Pure and non-destructive: a new object, the input untouched; with no
+ * `savedAt` only the files are pruned.
+ */
+export function compact(scene, { savedAt = 0 } = {}) {
+  if (!scene || typeof scene !== 'object' || !Array.isArray(scene.elements)) return scene;
+  const since = Number(savedAt) || 0;
+  const elements = scene.elements.filter((e) => e && (!e.isDeleted || !(since > 0) || (Number(e.updated) || 0) >= since));
+  const used = new Set();
+  for (const e of elements) if (e.type === 'image' && e.fileId) used.add(e.fileId);
+  const files = {};
+  for (const [id, meta] of Object.entries(scene.files || {})) if (used.has(id)) files[id] = meta;
+  return { ...scene, elements, files };
 }
 
 const nonce = () => Math.floor(Math.random() * 0x7fffffff);
