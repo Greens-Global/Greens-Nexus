@@ -2390,7 +2390,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
               })}
             </div>
           )}
-      {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
+      {view && <AttachmentViewer att={view} onClose={() => setView(null)} markupSource={{ kind: 'task', id: task.id, label: task.title || 'Task', url: `/tasks?task=${encodeURIComponent(task.id)}` }} />}
     </div>
     {/* Outside the panel: its paste / drop handlers must not see the dialogs' events. */}
       {versionsOf && (

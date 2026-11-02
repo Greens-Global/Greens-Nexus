@@ -137,6 +137,6 @@ export async function openMarkup({ imageUrl, mimeType = '', name = '', source: g
   } catch (e) {
     // The board exists but is empty: still open it so nothing is lost, and say why.
     if (navigate) openBoard(note.id);
-    throw new Error(`The board was made but the picture could not be placed: ${e?.message || 'upload failed'}`);
+    throw new Error(`The board was made but the picture could not be placed: ${e?.message || 'upload failed'}`, { cause: e });
   }
 }

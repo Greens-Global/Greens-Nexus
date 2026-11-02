@@ -1055,7 +1055,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             savedReplies={deskAccess.canWorkQueue && (privileged || isAssignee || !isRequester)}
             ticket={t} myEmail={myEmail} />
         )}
-        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete && !confidential} />}
+        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete && !confidential}
+          markupSource={{ kind: 'ticket', id: t.id, label: [ticketNo(t.code), t.subject].filter(Boolean).join(' ').slice(0, 200) || 'Ticket', url: `/tickets?ticket=${encodeURIComponent(t.id)}` }} />}
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
       </div>
     </DrawerShell>
