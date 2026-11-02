@@ -593,5 +593,23 @@ class LevelFourShortcutTestsMore(_Base):
         self.assertEqual(titles, {"Team Member Request A", "Team Member Request B"})
 
 
+class TierMarkTests(_Base):
+    """Item 11: a guest or external never carries a tier mark."""
+
+    def test_guest_with_a_manager_row_has_no_mark(self):
+        db = self._db()
+        try:
+            db.query(models.NexusRole).filter(models.NexusRole.email == GUEST).update({"role": "manager"})
+            db.commit()
+            auth.invalidate_role_cache()
+            self.assertEqual(auth.tier_for(GUEST, db), "")
+            self.assertEqual(auth.tier_for(AMGR, db), "manager")
+            tiers = auth.tiers_by_email(db)
+            self.assertNotIn(GUEST, tiers)
+            self.assertEqual((tiers.get(AMGR), tiers.get(ADMIN_A), tiers.get(SUPER)), ("manager", "admin", "super"))
+        finally:
+            db.close()
+
+
 if __name__ == "__main__":
     unittest.main()

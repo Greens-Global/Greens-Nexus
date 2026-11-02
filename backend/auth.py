@@ -113,20 +113,43 @@ def tier_of(level) -> str:
     return ""
 
 
+def _outside_emails(db: Session) -> set:
+    """Guests and externals: never a tier mark, whatever a nexus_roles row
+    says (they are hard-capped at employee level by apply_external_policy)."""
+    from models import NexusEmployee
+    return {(e.work_email or "").lower() for e in db.query(NexusEmployee.work_email)
+            .filter(NexusEmployee.identity_type.in_(("guest", "external"))).all() if e.work_email}
+
+
 def tier_for(email: str, db: Session) -> str:
-    """One person's tier, through the role cache."""
-    return tier_of(_role_for((email or "").lower(), db)[1])
+    """One person's tier, through the role cache. '' for a guest / external."""
+    email = (email or "").lower()
+    tier = tier_of(_role_for(email, db)[1])
+    if tier:
+        from sqlalchemy import func
+        from models import NexusEmployee
+        row = (db.query(NexusEmployee.identity_type)
+               .filter(func.lower(NexusEmployee.work_email) == email).first())
+        if row is not None and (row.identity_type or "") in ("guest", "external"):
+            return ""
+    return tier
 
 
 def tiers_by_email(db: Session) -> dict[str, str]:
     """Every role row's tier at once - for a list payload (one query, not one
-    per row). Only people with a mark are in the map; `.get(email, "")`."""
+    per row). Only people with a mark are in the map; `.get(email, "")`.
+    Guests and externals never carry one."""
     from models import NexusRole
     out = {}
+    outside = None
     for row in db.query(NexusRole.email, NexusRole.role).all():
         tier = tier_of(_LEVELS.get(row.role, 1))
         if tier:
-            out[(row.email or "").lower()] = tier
+            if outside is None:
+                outside = _outside_emails(db)
+            em = (row.email or "").lower()
+            if em not in outside:
+                out[em] = tier
     return out
 
 
