@@ -38,12 +38,8 @@ const withElements = (els, appState = {}) => {
 function kanban() {
   const cols = ['To Do', 'Doing', 'Done'];
   const els = [];
-  cols.forEach((name, i) => {
-    const x = i * 400;
-    els.push(frame(x, 0, 360, 720, name));
-    els.push(text(x + 16, 16, name, { size: 24 }));
-    els.push(line(x + 16, 56, 328, 0, { strokeColor: '#cfd4d1' }));
-  });
+  // The frame's own name is the column heading; nothing drawn inside repeats it.
+  cols.forEach((name, i) => { els.push(frame(i * 400, 0, 360, 720, name)); });
   return withElements(els);
 }
 
@@ -62,13 +58,13 @@ function timeline() {
 }
 
 function grid() {
-  return withElements([text(0, -60, 'Grid', { size: 24 })], { gridModeEnabled: true, gridSize: 20 });
+  return withElements([], { gridModeEnabled: true, gridSize: 20 });
 }
 
 function floorPlan() {
   const els = [
     text(0, -80, 'Floor Plan', { size: 28 }),
-    text(0, -40, '1 square = 1 ft (grid 20). Walls 2 pt, doors as arcs, notes in slate.', { size: 14, color: NEXUS_COLORS.slate }),
+    text(0, -40, 'Each grid square is 1 ft. Draw walls with the thick line, doors as arcs, and labels in gray.', { size: 14, color: NEXUS_COLORS.slate }),
     rect(0, 0, 480, 360, { strokeWidth: 2 }),
     text(200, 160, 'Room', { size: 20, color: NEXUS_COLORS.slate }),
   ];
@@ -77,9 +73,9 @@ function floorPlan() {
 
 export const TEMPLATES = [
   { key: 'blank', label: 'Blank', hint: 'An empty board, Clean look', scene: () => emptyScene('clean') },
-  { key: 'grid', label: 'Grid', hint: 'Snap to a 20 pt grid for diagrams', scene: grid },
-  { key: 'kanban', label: 'Kanban', hint: 'To Do, Doing, Done as three frames', scene: kanban },
-  { key: 'timeline', label: 'Timeline', hint: 'Seven weeks on a dated axis', scene: timeline },
+  { key: 'grid', label: 'Grid', hint: 'Snaps to a grid for tidy diagrams', scene: grid },
+  { key: 'kanban', label: 'Kanban', hint: 'To Do, Doing and Done columns', scene: kanban },
+  { key: 'timeline', label: 'Timeline', hint: 'Seven weeks from this Sunday, dated', scene: timeline },
   { key: 'floorplan', label: 'Floor Plan', hint: 'A 1 ft grid and a room to start from', scene: floorPlan },
 ];
 

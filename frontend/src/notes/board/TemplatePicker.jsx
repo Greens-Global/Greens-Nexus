@@ -12,11 +12,11 @@ export default function TemplatePicker({ onPick, onClose, busy = false }) {
   return (
     <Modal title="New Board" onClose={onClose} placement="center" width="520px" minHeight="0">
       <p className="nt-tpl-hint">Start from a layout, or a blank board. Everything on it can be changed.</p>
-      <div className="nt-tpl-grid" role="list">
+      <div className="nt-tpl-grid" role="group" aria-label="Templates">
         {TEMPLATES.map((t) => {
           const Icon = ICONS[t.key] || LayoutTemplate;
           return (
-            <button key={t.key} type="button" role="listitem" className="nt-tpl" disabled={busy} onClick={() => onPick(t.key)}
+            <button key={t.key} type="button" className="nt-tpl" disabled={busy} onClick={() => onPick(t.key)}
               aria-label={`${t.label} - ${t.hint}`}>
               <Icon size={22} aria-hidden="true" />
               <span className="nt-tpl-label">{t.label}</span>

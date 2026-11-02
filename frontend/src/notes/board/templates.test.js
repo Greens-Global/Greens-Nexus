@@ -28,6 +28,20 @@ describe('board templates', () => {
     const frames = parseScene(templateScene('kanban')).elements.filter((e) => e.type === 'frame');
     expect(frames.map((f) => f.name)).toEqual(['To Do', 'Doing', 'Done']);
     expect(new Set(frames.map((f) => f.x)).size).toBe(3);
+    // the frame names are the headings - no text inside repeats them
+    expect(parseScene(templateScene('kanban')).elements.filter((e) => e.type === 'text')).toEqual([]);
+  });
+
+  it('Grid is an empty board with the grid on (no stray title)', () => {
+    expect(parseScene(templateScene('grid')).elements).toEqual([]);
+  });
+
+  it('the copy reads in the house words', () => {
+    expect(templateByKey('grid').hint).toBe('Snaps to a grid for tidy diagrams');
+    expect(templateByKey('kanban').hint).toBe('To Do, Doing and Done columns');
+    expect(templateByKey('timeline').hint).toBe('Seven weeks from this Sunday, dated');
+    const texts = parseScene(templateScene('floorplan')).elements.filter((e) => e.type === 'text').map((e) => e.text);
+    expect(texts).toContain('Each grid square is 1 ft. Draw walls with the thick line, doors as arcs, and labels in gray.');
   });
 
   it('Timeline carries seven dated ticks in US format', () => {
