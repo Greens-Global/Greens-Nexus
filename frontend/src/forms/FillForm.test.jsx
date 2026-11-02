@@ -96,10 +96,13 @@ describe('FillForm', () => {
     await screen.findByText('Vehicle Check');
     typeIn('Plate', 'ABC123');
     fireEvent.click(screen.getByRole('button', { name: 'No' }));
-    fireEvent.click(screen.getByRole('button', { name: /Add Tire/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Add Tire/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Another Tires/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Another Tires/ }));
     const tires = screen.getAllByLabelText('Tire');
     expect(tires).toHaveLength(2);
+    // The group's one name (its section): "Tires 1", "Tires 2", "Add Another Tires".
+    expect(screen.getByText('Tires 1')).toBeTruthy();
+    expect(screen.getByText('Tires 2')).toBeTruthy();
     fireEvent.change(tires[0], { target: { value: 'FL' } });
     fireEvent.change(screen.getAllByLabelText('PSI')[0], { target: { value: '32' } });
     fireEvent.change(tires[1], { target: { value: 'RR' } });
@@ -177,8 +180,8 @@ describe('FillForm', () => {
     await screen.findByText('Vehicle Check');
     typeIn('Plate', 'ABC123');
     fireEvent.click(screen.getByRole('button', { name: 'No' }));
-    fireEvent.click(screen.getByRole('button', { name: /Add Tire/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Add Tire/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Another Tires/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Another Tires/ }));
     fireEvent.change(screen.getAllByLabelText('Tire')[0], { target: { value: 'FL' } });
     fireEvent.change(screen.getAllByLabelText('Tire')[1], { target: { value: 'RR' } });
     submit();

@@ -479,6 +479,14 @@ class FormsTests(unittest.TestCase):
         self.assertEqual(r.json()["detail"], "This form has entries - archive it instead")
         self.assertEqual(self.client.delete(f"/documents/templates/{empty['id']}").status_code, 200)
 
+    def test_a_repeat_group_is_named_by_the_one_rule(self):
+        """The screens' groupLabel (forms/formsModel.js): the first member's
+        section, else the group key humanized."""
+        import form_entry_pdf
+        self.assertEqual(form_entry_pdf.group_label("tires", [{"token": "psi", "section": "Tire Checks"}]), "Tire Checks")
+        self.assertEqual(form_entry_pdf.group_label("tires", [{"token": "psi"}]), "Tires")
+        self.assertEqual(form_entry_pdf.group_label("tire_rows", []), "Tire Rows")
+
     def test_links_are_stored_on_the_entry(self):
         tpl = self._template()
         e = self._submit(tpl["id"], REP)

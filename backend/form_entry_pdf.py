@@ -16,6 +16,7 @@ export uses it too.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -155,6 +156,17 @@ def site_name(db: Session, site_id: str) -> str:
     return s.name if s else ""
 
 
+def group_label(group: str, members: list) -> str:
+    """What a repeat group is called - ONE rule, shared with the screens
+    (frontend/src/forms/formsModel.js groupLabel): its first member's
+    section, else the group key humanized ("tires" -> "Tires", "tire_rows"
+    -> "Tire Rows")."""
+    section = str(((members or [{}])[0] or {}).get("section") or "").strip()
+    if section:
+        return section
+    return " ".join(w[:1].upper() + w[1:].lower() for w in re.split(r"[\s_-]+", str(group or "")) if w)
+
+
 STATUS_WORDS = {"submitted": "Submitted", "reviewed": "Reviewed", "follow_up": "Needs Follow-Up", "closed": "Closed"}
 
 
@@ -262,7 +274,7 @@ def build_blocks(db: Session, entry, tpl: DocTemplate, defs: list) -> list:
         for g in groups_here:
             members = by_group[g]
             entries = answers.get(g) if isinstance(answers.get(g), list) else []
-            blocks.append(_para(members[0].get("repeatLabel") or g.replace("_", " ").title(), True))
+            blocks.append(_para(group_label(g, members), True))
             if not entries:
                 blocks.append(_para("No rows"))
                 continue

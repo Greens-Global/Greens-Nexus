@@ -48,6 +48,19 @@ export function groupBySection(defs = []) {
 }
 export const sectionsOf = (defs = []) => groupBySection(defs).map((g) => g.section);
 
+/**
+ * What a repeat group is called on screen - ONE rule, shared with the PDF
+ * (backend/form_entry_pdf.py group_label): its first member's Section, else
+ * the group key humanized ("tires" -> "Tires", "tire_rows" -> "Tire Rows").
+ * `defs` may be the whole field list or just the group's members.
+ */
+export const humanizeKey = (key) => String(key || '').split(/[\s_-]+/).filter(Boolean)
+  .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+export function groupLabel(group, defs = []) {
+  const first = (defs || []).find((d) => String(d?.repeat?.group || '') === String(group || ''));
+  return String(first?.section || '').trim() || humanizeKey(group);
+}
+
 /** The repeating groups in a field list: [{ group, max, fields }]. */
 export function repeatGroups(defs = []) {
   const out = [];

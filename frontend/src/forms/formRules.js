@@ -10,6 +10,7 @@
 // formula, repeat {group, max}}. Answers are {token: value}; a repeat group
 // is answers[group] = [{token: value}, ...].
 import { validateFieldValue, isEmptyValue, RESERVED_TYPES } from '../lib/mergeFieldTypes';
+import { groupLabel } from './formsModel';
 import { runFormula, fieldKey, FormulaError } from '../tasks/formula';
 
 /** The field types only a form has. */
@@ -188,7 +189,7 @@ export function validateAnswers(defs, answers = {}) {
   }
   for (const [g, info] of repeatGroups(defs)) {
     const rows = (Array.isArray(answers[g]) ? answers[g] : []).filter(rowHasContent);
-    if (!rows.length && info.defs.some((d) => d.required)) { errs[g] = 'At least one entry is needed here'; continue; }
+    if (!rows.length && info.defs.some((d) => d.required)) { errs[g] = `Add at least one ${groupLabel(g, info.defs)}`; continue; }
     rows.forEach((row, i) => {
       const scope = { ...answers, ...row };
       for (const d of info.defs) {

@@ -14,7 +14,7 @@ import { StatusLabel } from '../components/StatusLabel';
 import { PanelShell, saveBlob } from '../components/DocumentSidePanel';
 import { AttachmentViewer } from '../tasks/components';
 import { TicketComposer, TaskComposer } from './entryMounts';
-import { REVIEW_ACTIONS, entryState, entryTitle, entryBody, entryFiles, formatAnswer, groupBySection, mapsLink } from './formsModel';
+import { REVIEW_ACTIONS, entryState, entryTitle, entryBody, entryFiles, formatAnswer, groupBySection, groupLabel, mapsLink } from './formsModel';
 
 const go = (view, detail) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, ...detail } }));
 // The linked ticket / task opens itself, not just its module - both halves of
@@ -90,7 +90,7 @@ function Answers({ defs, answers, onOpen }) {
       groups.add(g);
       const members = fields.filter((f) => f.repeat?.group === g);
       members.forEach((m) => known.add(m.token));
-      items.push({ key: `group:${g}`, label: members.map((m) => m.label || m.token).join(' / '), wide: true,
+      items.push({ key: `group:${g}`, label: groupLabel(g, members), wide: true,
         node: <RepeatRows group={g} fields={members} rows={Array.isArray(answers[g]) ? answers[g] : []} onOpen={onOpen} /> });
     }
     return { section, items };

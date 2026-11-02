@@ -34,6 +34,7 @@ import { formatDateTime } from '../lib/datetime';
 import { toText } from '../tasks/formula';
 import { NX, FONT, btn } from '../tasks/theme';
 import { groupDefs, isVisible, visibleAnswers, validateAnswers, computeFormulas, nearestSite } from './formRules';
+import { groupLabel } from './formsModel';
 import { loadDraft, saveDraft, clearDraft, newEntryKey, hasContent, draftNotice } from './formDraft';
 
 // The signature pad is Nexus Sign's (components/ESign.jsx) - loaded when a
@@ -306,7 +307,7 @@ function Field({ def, value, error, onChange, ctx, idKey }) {
 }
 
 function RepeatGroup({ item, rows, errors, ctx, onRow, onAdd, onRemove, groupError }) {
-  const name = item.defs[0]?.label || item.repeat;
+  const name = groupLabel(item.repeat, item.defs);   // the one rule (forms/formsModel.js)
   const atMax = rows.length >= (item.max || 10);
   return (
     <div style={{ marginBottom: 16 }}>
@@ -328,7 +329,7 @@ function RepeatGroup({ item, rows, errors, ctx, onRow, onAdd, onRemove, groupErr
       ))}
       {!ctx.disabled && (
         <button type="button" style={chip(ctx.phone)} disabled={atMax} onClick={onAdd} title={atMax ? `Up to ${item.max} here` : undefined}>
-          <Plus size={14} /> Add {name}
+          <Plus size={14} /> Add Another {name}
         </button>
       )}
       {groupError && <div role="alert" style={errStyle}>{groupError}</div>}
