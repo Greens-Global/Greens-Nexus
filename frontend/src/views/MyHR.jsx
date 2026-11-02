@@ -10,6 +10,7 @@ import { api } from '../api';
 import { SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState';
 import { formatDate, formatDateLong } from '../lib/datetime';
 import { approvedLeaveDays, fmtDays, tenureLabel, openShiftMinutes } from '../lib/workdayStats';
+import { fmtLeave } from '../components/LeaveBalances';
 import EgnytePreview from '../egnyte/EgnytePreview';
 import { canPreview } from '../egnyte/lib';
 import MyShifts from '../components/MyShifts';
@@ -156,7 +157,7 @@ function Stat({ label, value, hint, color, Icon, hero, title, onClick }) {
     : <div className={cls} style={{ cursor: 'default' }} title={title}>{body}</div>;
 }
 
-export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false, askFocus = null, openForm = null }) {
+export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false, askFocus = null, leaveBalance = null, openForm = null }) {
   // A "confirm your schedule" bell or email (Shifts Phase 3a) lands here:
   // My Schedule shows that share's banner - bring the card into view.
   useEffect(() => {
@@ -493,6 +494,17 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
   // soonest first - the Time Off card's list (the full history is the tab).
   const chip = (s) => { const m = STATUS_META[s] || STATUS_META.pending; return <span style={{ padding: '2px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, background: m.bg, color: m.fg, flexShrink: 0 }}>{m.label}</span>; };
   const pendingCount = Array.isArray(leave) ? leave.filter(r => r.status === 'pending').length : 0;
+  // The Time Off tile's sub line shows the paid-leave balance once HR has
+  // balances on (the Time Off tab's payload, handed in by TimeClock so both
+  // surfaces read the same numbers). A bucket outside the policy stays out.
+  const balBits = leaveBalance?.live
+    ? ['vacation', 'sick']
+        .filter(k => leaveBalance[k] && leaveBalance[k].method !== 'none')
+        .map(k => `${fmtLeave(leaveBalance[k].available, leaveBalance.policy)} ${k === 'sick' ? 'sick' : 'vacation'}`)
+    : [];
+  const leaveHint = balBits.length
+    ? `${balBits.join(' · ')} left${pendingCount ? ` · ${pendingCount} pending` : ''}`
+    : pendingCount ? `Approved working days · ${pendingCount} pending` : `Approved working days in ${yr}`;
   const clockParts = typeof clock === 'function' ? clock() : null;
   // Time-tracking exempt: Workday hands in what it already knows (the
   // remembered answer, then /time/status), so the Hours tile never shows for
@@ -533,8 +545,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
               </div>
             ) : null}
             <Stat label="Time Off This Year" value={leaveLabel}
-              hint={pendingCount ? `Approved working days · ${pendingCount} pending` : `Approved working days in ${yr}`}
-              title={`Approved time off in ${yr}, counted in working days (Mon-Fri). A partial day counts as its share of an 8-hour day. Opens Time Off.`}
+              hint={leaveHint}
+              title={`Approved time off in ${yr}, counted in working days (Mon-Fri). A partial day counts as its share of an 8-hour day.${balBits.length ? ' The line under it is the paid time off you have left.' : ''} Opens Time Off.`}
               color="green" Icon={CalendarOff} onClick={onOpenTimeOff} />
             <Stat label="Time With Us" value={tenure}
               hint={tenure !== '-' ? `Since ${formatDate(profile.startDate)}` : 'No start date on your HR record'}
