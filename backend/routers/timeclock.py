@@ -1244,6 +1244,7 @@ def punch(body: PunchIn, request: Request,
                     ip=ip, user_agent=ua, source="web",
                     created_by=email, created_at=now, **geo)
     db.add(row)
+    _early_punch_alert(db, row, email)
     # Soft-gate escalation (Charmi / Visesh, Sep 25): an out-of-fence punch IN
     # or OUT goes to the employee's manager as a bell notification AND an email
     # ("email manager when punches out of the geofence").
@@ -1442,9 +1443,26 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
                     note=body.note.strip()[:300], source="offline",
                     created_by=email, created_at=now)
     db.add(row)
+    _early_punch_alert(db, row, email)
     _notify_offline_punch(db, row)
     db.commit()
     return _serialize(row)
+
+
+def _early_punch_alert(db: Session, row, email: str) -> None:
+    """Early punch alert (Neil, 11/02/2026, early_punch.py): a clock-in well
+    before the expected start tells the manager. Called by every punch
+    writer right after the row is added; the punch is ALWAYS recorded -
+    nothing here may raise out of the route."""
+    if (getattr(row, "kind", "") or "") != "in":
+        return
+    try:
+        import early_punch
+        db.flush()
+        emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == (email or "").lower()).first()
+        early_punch.check(db, row, emp)
+    except Exception as e:   # noqa: BLE001 - an alert never blocks a punch
+        print(f"[early_punch] alert skipped for {email}: {e}")
 
 
 def _notify_offline_punch(db: Session, row) -> None:
@@ -6029,14 +6047,16 @@ def track_clock(body: TrackClockIn, request: Request, dev: AgentDevice = Depends
     geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
            if (body.lat or "").strip() else
            {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0})
-    db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
+    _row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
                      local_date=_local_date(now, body.tz_offset_min or 0),
                      tz_offset_min=body.tz_offset_min or 0,
                      lat=(body.lat or "").strip()[:24], lng=(body.lng or "").strip()[:24],
                      accuracy_m=max(0, int(body.accuracy_m or 0)),
                      # Phone punches carried no IP, so the hover showed none (Oct 18 2026).
                      ip=_client_meta(request)[0], user_agent=_client_meta(request)[1],
-                     source="mobile", created_by=email, created_at=now, **geo))
+                     source="mobile", created_by=email, created_at=now, **geo)
+    db.add(_row)
+    _early_punch_alert(db, _row, email)
     if body.kind == "in":
         if _live_consent(db, email) is not None:
             _open_session(db, email) or _new_session(db, dev)  # start tracking on clock-in
@@ -7731,7 +7751,37 @@ def schedule_labor(start: str, end: str, user: dict = Depends(require_schedule_w
         out.update({"cost": total_cost, "currency": currency,
                     "costs": {k: round(v, 2) for k, v in currencies.items()},
                     "peopleWithoutRate": len(no_rate), "fixedPayPeople": len(fixed)})
+    # Weekly labor budget (Neil, 11/02/2026): HR++ ONLY - hr_access is the
+    # rule (the company's HR contact, administrators, a Full People grant in
+    # scope; the manager tier is never HR). Everyone else gets NEITHER key:
+    # the flag and the values are absent, not null, so a payload never says
+    # there is a budget to someone who may not see it.
+    budget_company = _budget_company(db, user, rows, people)
+    import hr_access
+    if hr_access.is_hr_for_company(db, user, budget_company):
+        from routers.shift_requests import get_settings as _shift_settings
+        cfg = _shift_settings(db, budget_company)
+        days = (d1 - d0).days + 1
+        scale = lambda v: (int(round(int(v) * days / 7.0)) if int(v or 0) > 0 else None)   # noqa: E731
+        out["budgetVisible"] = True
+        out["budget"] = {"hours": scale(cfg.get("laborBudgetHours", 0)),
+                         "amount": scale(cfg.get("laborBudgetAmount", 0)),
+                         "currency": currency or "USD"}
     return out
+
+
+def _budget_company(db: Session, user: dict, rows: list, people: dict) -> str:
+    """Whose weekly budget the planner shows: the one company of the people
+    scheduled in the range; several companies (or nobody scheduled) = the
+    caller's own company (auth.company_of)."""
+    companies = set()
+    for r in rows:
+        p = people.get((r.employee_email or "").lower())
+        companies.add((p.company if p is not None else "") or "")
+    if len(companies) == 1:
+        return next(iter(companies))
+    from auth import company_of
+    return company_of(user, db)
 
 
 @router.get("/schedule/check")
