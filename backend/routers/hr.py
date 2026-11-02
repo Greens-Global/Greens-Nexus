@@ -1519,6 +1519,16 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
     elif row.kind == "contract" and _contract_prints_pay(db, row) and not _has_comp(user, db):
         # A signed offer / promotion letter filed from Nexus Sign (Oct 14).
         raise HTTPException(403, "This document shows pay - Pay & Benefits access is needed")
+    if row.kind == "contract" and row.storage_path:
+        # The filed copy of an envelope with a sensitive field (a federal
+        # form's SSN or bank number) is audited each time it is opened
+        # (Neil, 11/02/2026) - the same event the Nexus Sign routes write.
+        from models import HrSignRequest
+        from routers import esign as _esign
+        env = db.query(HrSignRequest).filter(HrSignRequest.final_pdf_path == row.storage_path).first()
+        if env is not None:
+            _esign._note_final_view(db, env, user["email"])
+            db.commit()
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.storage_path}",
         headers=_storage_headers(), json={"expiresIn": 300}, timeout=15,

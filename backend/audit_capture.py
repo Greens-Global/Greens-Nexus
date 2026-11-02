@@ -199,7 +199,8 @@ _SECRET_PHRASES = ("api_key", "private_key", "secret_key", "access_key", "client
 # HR / pay identity values (mirrors hr.py's field audit mask, Sep 22).
 _HR_MASK = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation",
             "account", "dob", "birth")
-_HR_TABLES = {"nexus_employees", "hr_candidates", "hr_life_events", "hr_self_requests"}
+_HR_TABLES = {"nexus_employees", "hr_candidates", "hr_life_events", "hr_self_requests",
+              "hr_sign_parties"}   # field_values: an SSN or a bank number typed on a federal form
 # Every value of these tables is a pay figure or a personal financial figure.
 _VALUE_MASKED_TABLES = {"payroll_rates", "payroll_rate_history"}
 _PFS_FIGURE_TABLES_PREFIX = "pfs_"
