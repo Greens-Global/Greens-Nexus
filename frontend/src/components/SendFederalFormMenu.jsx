@@ -1,6 +1,7 @@
 // "Send Federal Form" on a person's Documents tab (Neil, 11/02/2026). HR++ -
-// administrators and a Full People grant that is not team-limited - sends
-// one form to one employee: Form W-4, Form I-9 or the Direct Deposit
+// administrators, a Full People grant that is not team-limited, and the
+// person's company's HR contact (/roles/me hr_contact_for) - sends one
+// form to one employee: Form W-4, Form I-9 or the Direct Deposit
 // Authorization, through POST /hr/employees/{id}/federal-forms/send. The
 // menu says the edition Nexus holds (GET /hr/federal-forms/status, with the
 // code's own labels until it answers); an expired edition is disabled with
@@ -16,7 +17,8 @@ import { FEDERAL_FORMS, federalFormLabel } from '../lib/federalForms';
 
 export default function SendFederalFormMenu({ employee, toastOk, toastErr, onSent }) {
   const role = useRole();
-  const hrPlus = !!role && (!!role.can?.('administrator') || (role.myGrantedModules?.get?.('hr') === 'full' && !role.hrTeam));
+  const hrContact = !!employee?.company && Array.isArray(role?.hrContactFor) && role.hrContactFor.includes(employee.company);
+  const hrPlus = !!role && (!!role.can?.('administrator') || (role.myGrantedModules?.get?.('hr') === 'full' && !role.hrTeam) || hrContact);
   const isEmployee = !!employee && (employee.employmentType || 'employee') !== 'contractor' && !employee.isExternal && !employee.externalKind;
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState(null);

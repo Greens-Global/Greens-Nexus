@@ -1313,6 +1313,7 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
             link_kind="life_event", link_id=ev.id, sender_signs_first=sender_first,
             prints_pay=p["printsPay"], saved=saved)
     except HTTPException as ex:
+        federal_discard(docs)
         raise hle.PacketError(str(ex.detail), ex.status_code)
 
 
@@ -1415,7 +1416,10 @@ def federal_documents(db: Session, *, kinds: list, entity: Optional[HrEntity], s
                       person_key: str, hr_key: str) -> list:
     """Nexus Sign document entries for the forms, uploaded - [{name, path,
     fields, formKind}]. Raises FederalFormProblem with the edition sentence
-    when a form's edition has lapsed (checked before anything is stored)."""
+    when a form's edition has lapsed, or when a form has no HR signer.
+    EVERY form is prepared and checked before ANY is stored (11/02/2026: a
+    refusal on the second form used to leave the first one's flat PDF in the
+    bucket), and a store that fails stores nothing more."""
     import uuid
     import federal_forms
     from federal_forms import editions
@@ -1426,18 +1430,38 @@ def federal_documents(db: Session, *, kinds: list, entity: Optional[HrEntity], s
         if refusal:
             raise FederalFormProblem(refusal)
     merge = federal_merge(entity, start_date)
-    out = []
+    ready = []
     for kind in kinds:
         spec = federal_forms.FORMS[kind]
         if "hr" in spec["roles"] and not hr_key:
             raise FederalFormProblem(f"{spec['title']} needs an HR signer for the company's part.")
         prepared = federal_forms.prepare(kind)
+        fields = federal_fields(kind, prepared["fields"], person_key=person_key, hr_key=hr_key, merge=merge)
+        ready.append((kind, spec, prepared["pdf"], fields))
+    out = []
+    for kind, spec, pdf, fields in ready:
         path = f"esign/{uuid.uuid4()}/{kind}.pdf"
-        if not esign._storage_put(esign._DOC_BUCKET, path, prepared["pdf"], "application/pdf").is_success:
+        if not esign._storage_put(esign._DOC_BUCKET, path, pdf, "application/pdf").is_success:
+            federal_discard(out)
             raise hle.PacketError("Could not store the forms - try again in a minute.", 502)
         out.append({"name": f"{spec['title']} ({spec['editionLabel']}).pdf", "path": path, "formKind": kind,
-                    "fields": federal_fields(kind, prepared["fields"], person_key=person_key, hr_key=hr_key, merge=merge)})
+                    "fields": fields})
     return out
+
+
+def federal_discard(documents: list) -> None:
+    """Take the federal forms' flat PDFs back out of the bucket when the
+    envelope they were made for was refused after they were stored (the
+    send's own checks: parties, documents). Only entries with a `formKind`
+    - a packet's template documents are not this module's. Best effort: a
+    delete that fails is logged, never raised over the refusal."""
+    from routers import esign
+    for d in documents or []:
+        if isinstance(d, dict) and d.get("formKind") and d.get("path"):
+            try:
+                esign._storage_remove(esign._DOC_BUCKET, d["path"])
+            except Exception as e:   # noqa: BLE001 - the refusal is the answer; this is housekeeping
+                print(f"[federal-forms] could not remove {d['path']}: {e}")
 
 
 # ── the packet's Details Form (Oct 14) ───────────────────────────────────────

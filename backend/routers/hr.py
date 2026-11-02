@@ -1672,10 +1672,14 @@ def send_federal_form(eid: str, body: FederalFormSendIn, request: Request,
         print(f"[federal-forms] person folder for {eid} not resolved: {e}")
     title = f"{spec['title']} - {name}"
     ip, ua = esign._client_meta(request)
-    out = esign.envelope_from_documents(
-        db, user, documents=docs, parties=parties, title=title, employee_id=eid, entity_id=emp.company or "",
-        message="", ip=ip, user_agent=ua, excluded_ack=True, document_class="employment",
-        link_kind=hle.FEDERAL_LINK_KIND, link_id=link_id, sender_signs_first=False, egnyte_folder=folder)
+    try:
+        out = esign.envelope_from_documents(
+            db, user, documents=docs, parties=parties, title=title, employee_id=eid, entity_id=emp.company or "",
+            message="", ip=ip, user_agent=ua, excluded_ack=True, document_class="employment",
+            link_kind=hle.FEDERAL_LINK_KIND, link_id=link_id, sender_signs_first=False, egnyte_folder=folder)
+    except HTTPException:
+        hpd.federal_discard(docs)      # a refused send leaves no flat PDF behind
+        raise
     return {**out, "requestId": out["id"], "kind": kind, "title": title}
 
 

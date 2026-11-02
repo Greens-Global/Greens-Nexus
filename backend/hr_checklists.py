@@ -191,6 +191,13 @@ FEDERAL_MARK = "hr_checklists.federal_forms_backfill"
 FEDERAL_ROW_SIGNALS = {"ON-05": ("", "envelope:w4+direct_deposit"),
                        "ON-18": ("", "envelope:i9_s1"),
                        "ON-23": ("id_on_file", "id_on_file|envelope:i9_s2")}
+# The seed's hints on those rows BEFORE the federal forms (the words the
+# backfill may replace - a hint HR wrote themselves is theirs, 11/02/2026).
+FEDERAL_OLD_HINTS = {
+    "ON-05": "W-4, state withholding, direct deposit and full tax IDs go into the payroll provider, never Nexus.",
+    "ON-18": "Completed outside Nexus, by the end of the first day.",
+    "ON-23": "The employer examines the original documents within 3 business days of the start date.",
+}
 
 
 def backfill_federal_forms(db) -> int:
@@ -198,7 +205,8 @@ def backfill_federal_forms(db) -> int:
     and each company's own, never a role's) takes the federal form signals on
     ON-05 / ON-18 / ON-23 where the row still carries the seed's old condition
     (none, none, id_on_file) - a condition HR changed by hand is left alone.
-    The hint follows the seed when it was the seed's. Commits; returns
+    The hint follows the seed only when it still reads as the OLD seed's
+    (FEDERAL_OLD_HINTS) or is empty - words HR wrote stay. Commits; returns
     templates changed."""
     if db.get(NexusSetting, FEDERAL_MARK):
         return 0
@@ -211,7 +219,8 @@ def backfill_federal_forms(db) -> int:
             spec = FEDERAL_ROW_SIGNALS.get(r.get("key"))
             if spec and (r.get("signal") or "") == spec[0]:
                 r["signal"], changed = spec[1], True
-                r["hint"] = seed[r["key"]]["hint"]
+                if (r.get("hint") or "").strip() in ("", FEDERAL_OLD_HINTS.get(r["key"], "")):
+                    r["hint"] = seed[r["key"]]["hint"]
         if changed:
             tpl.items, tpl.updated_by, tpl.updated_at = items, "system", _now()
             n += 1
@@ -912,13 +921,23 @@ def _form_docs(req):
     return out
 
 
+# The form signals the PERSON's signature ticks: Form I-9 Section 1, the
+# Form W-4 and the Direct Deposit Authorization are the person's own
+# statements - signed is done, whatever else the envelope still waits for
+# (an HR countersign on a packet, a later document). Section 2 is HR's and
+# ticks on the completed envelope.
+_PERSON_SIGNED_KINDS = ("i9_s1", "w4", "direct_deposit")
+
+
 def _sig_federal(db, emp, kind: str, cand_ids: list) -> bool:
     form = "i9" if kind in ("i9_s1", "i9_s2") else kind
     for req in _person_envelopes(db, emp, cand_ids):
         docs = [fields for fk, fields in _form_docs(req) if fk == form]
         if not docs:
             continue
-        if kind == "i9_s1":
+        if req.status == "completed":
+            return True
+        if kind in _PERSON_SIGNED_KINDS:
             # The person's part is signed when the party who owns the
             # person-sourced boxes has signed - whatever the envelope's state.
             roles = {f.get("role") for fields in docs for f in fields if f.get("source") == "person"}
@@ -927,8 +946,6 @@ def _sig_federal(db, emp, kind: str, cand_ids: list) -> bool:
                               HrSignParty.status == "signed").first()) if roles else None
             if signed is not None:
                 return True
-        elif req.status == "completed":
-            return True
     return False
 
 

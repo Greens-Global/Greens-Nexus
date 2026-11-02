@@ -63,7 +63,7 @@ vi.mock('./engine', async (importOriginal) => {
 
 import Board from './Board';
 import { loadEngine } from './engine';
-import { SCENE_TYPE, FONT_SANS, FONT_HAND } from './scene';
+import { SCENE_TYPE, FONT_SANS, FONT_HAND, DELETED_KEEP_MS } from './scene';
 
 const el = (over = {}) => ({ id: 'e1', type: 'rectangle', x: 0, y: 0, width: 10, height: 10, roughness: 1, version: 1, versionNonce: 1, isDeleted: false, updated: 1, ...over });
 const note = (over = {}) => ({ id: 'note_1', title: 'Yard', kind: 'board', scene: '', canEdit: true, mine: true, sharedWith: [], ...over });
@@ -335,6 +335,22 @@ describe('Board', () => {
     expect(fakeApi.updateScene).not.toHaveBeenCalled();
   });
 
+  it('an own save that comes back re-dumped by the server (an emoji escaped as \\uXXXX) is still known as ours', async () => {
+    const onScene = vi.fn();
+    const { rerender } = render(<Board note={note({ rev: 4 })} look="clean" onScene={onScene} />);
+    await act(async () => {});
+    fakeApi.scene = [el({ id: 't', type: 'text', text: 'Yard 😀 café' })];
+    act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); vi.advanceTimersByTime(800); });
+    const sent = onScene.mock.calls[0][0];
+    // Python's json.dumps(ensure_ascii=True) spelling of the same scene
+    const theirs = sent.replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+    expect(theirs).not.toBe(sent);
+    fakeApi.updateScene.mockClear();
+    await act(async () => { rerender(<Board note={note({ rev: 5, scene: theirs })} look="clean" onScene={onScene} />); });
+    expect(fakeApi.updateScene).not.toHaveBeenCalled();
+    expect(draft.clearDraft).toHaveBeenCalledWith('note_1');
+  });
+
   // ── saving: flush, no repeats, not the others' strokes ─────────────────
   it('Back / Close inside the save delay still hands over the last stroke, once', async () => {
     const onScene = vi.fn();
@@ -499,7 +515,7 @@ describe('Board', () => {
     expect(JSON.parse(onScene.mock.calls[0][0]).elements.map((e) => e.id)).toEqual(['e1', 'drawn']);
   });
 
-  it('Discard forgets the draft; a draft from an older rev, one equal to the board, or a viewer\'s board is never offered', async () => {
+  it('Discard forgets the draft; a draft from an older rev with other strokes IS offered (Restore reconciles newest-wins); one equal to the board, or a viewer\'s board, is never offered', async () => {
     const saved = JSON.stringify({ type: SCENE_TYPE, version: 1, look: 'clean', elements: [el()], appState: {}, files: {} });
     const mine = JSON.stringify({ type: SCENE_TYPE, version: 1, look: 'clean', elements: [el({ id: 'z' })], appState: {}, files: {} });
     draft.loadDraft.mockResolvedValue({ scene: mine, rev: 3, at: Date.now() });
@@ -509,19 +525,31 @@ describe('Board', () => {
     expect(draft.clearDraft).toHaveBeenCalledWith('note_1');
     expect(screen.queryByRole('status', { name: /unsaved drawing/i })).toBeNull();
     a.unmount();
-    // older than the board: the server moved on, the draft is dropped
+    // drawn over an older rev: a collaborator saved in between, but the
+    // strokes in the draft are not on the board - it is offered, and
+    // Restore merges newest-wins over what the board has now (11/02/2026:
+    // the rev gate dropped these and lost the strokes)
     draft.clearDraft.mockClear();
     draft.loadDraft.mockResolvedValue({ scene: mine, rev: 2, at: Date.now() });
+    fakeApi.scene = [el()];
     const b = render(<Board note={note({ rev: 3, scene: saved })} look="clean" onScene={vi.fn()} />);
+    await act(async () => {});
+    expect(screen.getByRole('status', { name: /unsaved drawing/i })).toBeTruthy();
+    expect(draft.clearDraft).not.toHaveBeenCalled();
+    fakeApi.updateScene.mockClear();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Restore' })); });
+    expect(fakeApi.updateScene.mock.calls.at(-1)[0].elements.map((e) => e.id)).toEqual(['e1', 'z']);
+    b.unmount();
+    // the same as the board: nothing to offer - even when the server's
+    // spelling of the JSON differs (non-ASCII escaped)
+    draft.clearDraft.mockClear();
+    const savedWithEmoji = JSON.stringify({ type: SCENE_TYPE, version: 1, look: 'clean', elements: [el({ id: 't', type: 'text', text: 'Yard 😀' })], appState: {}, files: {} });
+    const serverSpelling = savedWithEmoji.replace(/[\u007f-\uffff]/g, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`);
+    draft.loadDraft.mockResolvedValue({ scene: savedWithEmoji, rev: 3, at: Date.now() });
+    const c = render(<Board note={note({ rev: 3, scene: serverSpelling })} look="clean" onScene={vi.fn()} />);
     await act(async () => {});
     expect(screen.queryByRole('status', { name: /unsaved drawing/i })).toBeNull();
     expect(draft.clearDraft).toHaveBeenCalledWith('note_1');
-    b.unmount();
-    // the same as the board: nothing to offer
-    draft.loadDraft.mockResolvedValue({ scene: saved, rev: 3, at: Date.now() });
-    const c = render(<Board note={note({ rev: 3, scene: saved })} look="clean" onScene={vi.fn()} />);
-    await act(async () => {});
-    expect(screen.queryByRole('status', { name: /unsaved drawing/i })).toBeNull();
     c.unmount();
     // a viewer cannot save a draft back
     draft.loadDraft.mockResolvedValue({ scene: mine, rev: 3, at: Date.now() });
@@ -544,17 +572,21 @@ describe('Board', () => {
     expect(screen.queryByText(/too large/)).toBeNull();
   });
 
-  it('a save compacts: a deleted element from before the last save and the file only it used are left out', async () => {
-    const stale = el({ id: 'gone', type: 'image', fileId: 'fOld', isDeleted: true, updated: Date.now() - 60_000 });
-    const saved = JSON.stringify({ type: SCENE_TYPE, version: 1, look: 'clean', elements: [el(), stale], appState: {},
-      files: { fOld: { id: 'fOld', mimeType: 'image/png', url: 'https://api/files/view?u=old', created: 1 } } });
+  it('a save compacts: a deletion more than a day old and the file only it used are left out; one from an hour ago is still carried', async () => {
+    const file = (id) => ({ id, mimeType: 'image/png', url: `https://api/files/view?u=${id}`, created: 1 });
+    const stale = el({ id: 'gone', type: 'image', fileId: 'fOld', isDeleted: true, updated: Date.now() - DELETED_KEEP_MS - 60_000 });
+    const recent = el({ id: 'hourAgo', type: 'image', fileId: 'fHour', isDeleted: true, updated: Date.now() - 3600_000 });
+    const saved = JSON.stringify({ type: SCENE_TYPE, version: 1, look: 'clean', elements: [el(), stale, recent], appState: {},
+      files: { fOld: file('fOld'), fHour: file('fHour') } });
     const onScene = vi.fn();
-    fakeApi.scene = [el(), stale];
+    fakeApi.scene = [el(), stale, recent];
     await act(async () => { render(<Board note={note({ scene: saved })} look="clean" onScene={onScene} />); });
-    fakeApi.scene = [el({ x: 5, version: 2 }), stale];
+    fakeApi.scene = [el({ x: 5, version: 2 }), stale, recent];
     act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); vi.advanceTimersByTime(800); });
     const out = JSON.parse(onScene.mock.calls[0][0]);
-    expect(out.elements.map((e) => e.id)).toEqual(['e1']);
-    expect(out.files).toEqual({});
+    // the hour-old deletion rides along for a collaborator who saved in
+    // between and has not seen it yet - never pruned by this tab's own clock
+    expect(out.elements.map((e) => e.id)).toEqual(['e1', 'hourAgo']);
+    expect(Object.keys(out.files)).toEqual(['fHour']);
   });
 });

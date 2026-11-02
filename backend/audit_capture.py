@@ -200,7 +200,12 @@ _SECRET_PHRASES = ("api_key", "private_key", "secret_key", "access_key", "client
 _HR_MASK = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation",
             "account", "dob", "birth")
 _HR_TABLES = {"nexus_employees", "hr_candidates", "hr_life_events", "hr_self_requests",
-              "hr_sign_parties"}   # field_values: an SSN or a bank number typed on a federal form
+              "hr_sign_parties"}
+# Whole columns of an HR table hidden by name: a signer's `field_values` is
+# one JSON of everything typed on a federal form (an SSN or a bank number
+# under the field's own id, which no _HR_MASK word matches), so the JSON is
+# redacted as one value (11/02/2026).
+_HR_MASK_COLUMNS = {"hr_sign_parties": ("field_values",)}
 # Every value of these tables is a pay figure or a personal financial figure.
 _VALUE_MASKED_TABLES = {"payroll_rates", "payroll_rate_history"}
 _PFS_FIGURE_TABLES_PREFIX = "pfs_"
@@ -242,6 +247,8 @@ def _redact_reason(table: str, col: str) -> str:
     if table in _VALUE_MASKED_TABLES:
         return "pay"
     if table in _HR_TABLES and any(m in col.lower() for m in _HR_MASK):
+        return "sensitive"
+    if col.lower() in _HR_MASK_COLUMNS.get(table, ()):
         return "sensitive"
     return ""
 

@@ -132,6 +132,21 @@ def _storage_put(bucket: str, path: str, content: bytes, content_type: str, upse
     return _StorageResult(True)
 
 
+def _storage_remove(bucket: str, path: str) -> _StorageResult:
+    """Take one object back out (a flat PDF stored for an envelope that was
+    then refused). Missing is fine: the point is that nothing is left."""
+    if _storage_configured():
+        r = httpx.delete(f"{_SUPABASE_URL}/storage/v1/object/{bucket}/{path}",
+                         headers=_storage_headers(), timeout=30)
+        return _StorageResult(r.is_success or r.status_code == 404, content=r.content, text=r.text)
+    p = _local_storage_path(bucket, path)
+    try:
+        p.unlink()
+    except FileNotFoundError:
+        pass
+    return _StorageResult(True)
+
+
 def _storage_fetch(bucket: str, path: str, timeout: int = 60) -> _StorageResult:
     if _storage_configured():
         r = httpx.get(f"{_SUPABASE_URL}/storage/v1/object/{bucket}/{path}",

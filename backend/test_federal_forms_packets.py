@@ -18,6 +18,7 @@ import re
 import tempfile
 import unittest
 from datetime import date
+from unittest import mock
 
 # A throwaway sqlite of its own, so `python -m unittest test_federal_forms_packets`
 # never ALTERs or clears a local greens_nexus.db (CLAUDE.md: one file per process).
@@ -27,6 +28,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_tmp.name}"
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 os.environ.setdefault("NEXUS_FROM_EMAIL", "nexus@greensglobal.com")
 
+from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import auth  # noqa: E402
@@ -34,6 +36,7 @@ import cache  # noqa: E402
 import database  # noqa: E402
 import hr_checklist_seed  # noqa: E402
 import hr_checklists as hc  # noqa: E402
+import hr_life_events as hle  # noqa: E402
 import hr_packet_docs as hpd  # noqa: E402
 import job_switch  # noqa: E402
 import main  # noqa: E402
@@ -540,12 +543,34 @@ class ChecklistSeedTests(FederalPacketCase):
         self.db.add(models.HrChecklistTemplate(id="tpl-lib", kind="onboarding", entity_id="", name="Onboarding",
                                                items=old, updated_by="seed", updated_at="2026-10-01T00:00:00"))
         self.db.commit()
-        self.assertEqual(hc.backfill_federal_forms(self.db), 1)
+        # A company's own copy: the old seed hint on ON-05, HR's own words on
+        # ON-18, no hint at all on ON-23 (11/02/2026: only the seed's old
+        # hint or an empty one is replaced - what HR wrote stays).
+        ours = [dict(r) for r in old]
+        for r in ours:
+            if r["key"] == "ON-05":
+                r["hint"] = hc.FEDERAL_OLD_HINTS["ON-05"]
+            if r["key"] == "ON-18":
+                r["hint"] = "Bring the completed I-9 to the front desk by lunch on day one."
+            if r["key"] == "ON-23":
+                r["hint"] = ""
+        self.db.add(models.HrChecklistTemplate(id="tpl-co", kind="onboarding", entity_id=CO, name="Onboarding",
+                                               items=ours, updated_by=HR, updated_at="2026-10-05T00:00:00"))
+        self.db.commit()
+        self.assertEqual(hc.backfill_federal_forms(self.db), 2)
         self.db.expire_all()
         items = {r["key"]: r for r in self.db.query(models.HrChecklistTemplate).filter_by(id="tpl-lib").one().items}
         self.assertEqual(items["ON-05"]["signal"], "envelope:w4+direct_deposit")
         self.assertEqual(items["ON-18"]["signal"], "envelope:i9_s1")
         self.assertEqual(items["ON-23"]["signal"], "id_on_file|envelope:i9_s2")
+        seed = {r["key"]: r for r in hr_checklist_seed.ONBOARDING}
+        co = {r["key"]: r for r in self.db.query(models.HrChecklistTemplate).filter_by(id="tpl-co").one().items}
+        self.assertEqual(co["ON-05"]["signal"], "envelope:w4+direct_deposit")
+        self.assertEqual(co["ON-05"]["hint"], seed["ON-05"]["hint"])                 # the seed's old words follow the seed
+        self.assertEqual(co["ON-18"]["signal"], "envelope:i9_s1")
+        self.assertEqual(co["ON-18"]["hint"], "Bring the completed I-9 to the front desk by lunch on day one.")
+        self.assertEqual(co["ON-23"]["signal"], "id_on_file|envelope:i9_s2")
+        self.assertEqual(co["ON-23"]["hint"], seed["ON-23"]["hint"])                 # empty takes the seed's
         self.assertEqual(hc.backfill_federal_forms(self.db), 0)
 
     def test_the_and_condition_needs_both_forms(self):
@@ -574,6 +599,91 @@ class ChecklistSeedTests(FederalPacketCase):
         self.db.query(models.HrSignRequest).filter_by(id="r-i9").update({"status": "completed"})
         self.db.commit()
         self.assertTrue(hc._sig_envelope(self.db, emp, "i9_s2"))
+
+
+class PersonSignedTicksTests(FederalPacketCase):
+    def test_w4_and_direct_deposit_tick_when_the_person_signed_section_2_needs_the_envelope(self):
+        """The W-4 and the Direct Deposit Authorization are the person's own
+        statements: their signature ticks the row while the packet still
+        waits for HR's countersign on another document (11/02/2026); the
+        I-9's Section 2 is HR's and ticks only on the completed envelope."""
+        emp = self.db.query(models.NexusEmployee).filter_by(id="e-ana").first()
+        self.db.add(models.HrSignRequest(
+            id="r-pkt", title="Hiring Packet", employee_id="e-ana", status="pending", pdf_storage_path="p",
+            documents=[{"name": "w4.pdf", "path": "p1", "formKind": "w4", "fields": [
+                            {"id": "w4-ssn", "role": "employee", "type": "text", "source": "person"}]},
+                       {"name": "dd.pdf", "path": "p2", "formKind": "direct_deposit", "fields": [
+                            {"id": "direct_deposit-dd1_account", "role": "employee", "type": "text", "source": "person"}]},
+                       {"name": "i9.pdf", "path": "p3", "formKind": "i9", "fields": [
+                            {"id": "i9-ssn", "role": "employee", "type": "text", "source": "person"},
+                            {"id": "i9-a1_title", "role": "hr", "type": "text", "source": "hr"}]}]))
+        self.db.add(models.HrSignParty(id="p-ana", request_id="r-pkt", role_key="employee", name="Ana", email=ANA,
+                                       ordinal=1, status="waiting"))
+        self.db.add(models.HrSignParty(id="p-hr", request_id="r-pkt", role_key="hr", name="Charmi", email=HR,
+                                       ordinal=2, status="waiting"))
+        self.db.commit()
+        for kind in ("w4", "direct_deposit", "w4+direct_deposit", "i9_s1", "i9_s2"):
+            self.assertFalse(hc._sig_envelope(self.db, emp, kind), kind)
+        self.db.query(models.HrSignParty).filter_by(id="p-ana").update({"status": "signed"})
+        self.db.commit()
+        for kind in ("w4", "direct_deposit", "w4+direct_deposit", "i9_s1"):
+            self.assertTrue(hc._sig_envelope(self.db, emp, kind), kind)
+        self.assertFalse(hc._sig_envelope(self.db, emp, "i9_s2"))
+        self.db.query(models.HrSignRequest).filter_by(id="r-pkt").update({"status": "completed"})
+        self.db.commit()
+        self.assertTrue(hc._sig_envelope(self.db, emp, "i9_s2"))
+
+
+class RefusedSendStoresNothingTests(FederalPacketCase):
+    def test_a_refusal_inside_federal_documents_uploads_nothing(self):
+        """Every form is prepared and checked before any is stored: the I-9
+        with no HR signer refuses the whole batch and the W-4 ahead of it
+        never reaches the bucket."""
+        ent = self.db.query(models.HrEntity).filter_by(id=CO).first()
+        puts = []
+        with mock.patch.object(esign, "_storage_put", side_effect=lambda *a, **k: puts.append(a[1]) or esign._StorageResult(True)):
+            with self.assertRaises(hpd.FederalFormProblem) as cm:
+                hpd.federal_documents(self.db, kinds=["w4", "i9"], entity=ent, start_date="2026-11-16",
+                                      person_key="employee", hr_key="")
+        self.assertIn("needs an HR signer", str(cm.exception))
+        self.assertEqual(puts, [])
+
+    def test_a_store_that_fails_takes_back_what_it_stored(self):
+        ent = self.db.query(models.HrEntity).filter_by(id=CO).first()
+        puts, removed = [], []
+        results = iter([esign._StorageResult(True), esign._StorageResult(False, text="boom")])
+        with mock.patch.object(esign, "_storage_put", side_effect=lambda b, path, *a, **k: puts.append(path) or next(results)), \
+                mock.patch.object(esign, "_storage_remove", side_effect=lambda b, path: removed.append(path) or esign._StorageResult(True)):
+            with self.assertRaises(hle.PacketError):
+                hpd.federal_documents(self.db, kinds=["w4", "direct_deposit"], entity=ent, start_date="2026-11-16",
+                                      person_key="employee", hr_key="")
+        self.assertEqual(len(puts), 2)
+        self.assertEqual(removed, puts[:1])
+
+    def test_a_send_the_envelope_refuses_leaves_no_flat_pdf_behind(self):
+        puts, removed = [], []
+        with mock.patch.object(esign, "_storage_put", side_effect=lambda b, path, *a, **k: puts.append(path) or esign._StorageResult(True)), \
+                mock.patch.object(esign, "_storage_remove", side_effect=lambda b, path: removed.append(path) or esign._StorageResult(True)), \
+                mock.patch.object(esign, "envelope_from_documents", side_effect=HTTPException(409, "Ana already has a Form W-4 out.")):
+            r = self.client.post("/hr/employees/e-ana/federal-forms/send", json={"kind": "w4"})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(len(puts), 1)
+        self.assertEqual(removed, puts)
+        self.assertEqual(self.db.query(models.HrSignRequest).count(), 0)
+
+    def test_storage_remove_local_branch_tolerates_a_missing_file(self):
+        self.assertTrue(esign._storage_remove(esign._DOC_BUCKET, "esign/never-stored/w4.pdf").is_success)
+
+
+class RolesMeHrContactTests(FederalPacketCase):
+    def test_roles_me_names_the_companies_the_caller_is_hr_contact_of(self):
+        r = self.client.get("/roles/me")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["hr_contact_for"], sorted([CO, CO_IN]))   # Charmi: both companies' HR contact
+        self._as(MGR)
+        cache.module_grants.invalidate()
+        auth._role_cache.clear()
+        self.assertEqual(self.client.get("/roles/me").json()["hr_contact_for"], [])
 
 
 class FormatsOneSourceTests(unittest.TestCase):
