@@ -26,7 +26,13 @@ Design calls
     consecutive failures of any other kind disable it. A later successful
     subscribe from the same browser replaces the row.
   - The payload is the notice only (title, body, url, tag) - nothing a lock
-    screen should not show, same as the bell.
+    screen should not show, same as the bell. The tag is per ROW
+    (`<type>:<ref or id>`): same-tag notices replace each other on the
+    device, so a shared tag would silently swallow the first of two task
+    bells thirty seconds apart.
+  - A send waits SEND_TIMEOUT seconds at most; one hung push service must
+    not hold the whole outbox (the loop awaits the thread).
+  - Workflows > Automations lists the loop as `push`; off = the outbox waits.
 """
 from __future__ import annotations
 
@@ -40,6 +46,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 import database
+import job_switch
 import models
 
 VAPID_PRIVATE = "NEXUS_VAPID_PRIVATE_KEY"
@@ -50,6 +57,7 @@ DISABLE_AFTER = 5          # consecutive failures before a device is disabled
 BATCH = 200                # outbox rows per pass
 LOOP_SECONDS = 5
 TTL_SECONDS = 24 * 3600    # the push service keeps an undelivered notice this long
+SEND_TIMEOUT = 10          # seconds per send; a hung push service is a failure, not a stall
 
 
 def _now_iso() -> str:
@@ -100,26 +108,42 @@ def _url_for(n: models.NexusNotification) -> str:
     if isinstance(act, dict):
         for k in ("url", "href", "path"):
             v = act.get(k)
-            if isinstance(v, str) and v.startswith("/"):
+            # Same-origin paths only: "//host/x" and "\\host" resolve to
+            # another site in the worker's `new URL(url, origin)`.
+            if isinstance(v, str) and v.startswith("/") and not v.startswith(("//", "/\\")):
                 return v
     return "/"
+
+
+def _tag_for(n: models.NexusNotification) -> str:
+    return f"{n.type or 'notice'}:{n.ref_id or n.id or ''}"[:80]
 
 
 @event.listens_for(models.NexusNotification, "after_insert")
 def _queue_for_notice(mapper, connection, target):   # noqa: ARG001 - SQLAlchemy's signature
     """Every bell row with a named recipient becomes a push. Runs inside the
     notice's flush, on the same connection, so it commits or rolls back with
-    the notice; broadcast rows (recipient None / '') are skipped."""
+    the notice; broadcast rows (recipient None / '') are skipped. The queue
+    runs in a SAVEPOINT: on Postgres a failed statement would otherwise leave
+    the notice's own transaction aborted, so the except below could not keep
+    its promise - with the savepoint the push row is what rolls back, and the
+    bell still commits."""
     if not configured():
         return
     rcpt = (target.recipient or "").strip().lower()
     if not rcpt:
         return
     try:
-        sess = Session(bind=connection)
+        # create_savepoint: the session opens a SAVEPOINT on the notice's
+        # connection, commit() releases it, rollback() undoes only the push
+        # rows - the outer transaction (the bell) is never touched.
+        sess = Session(bind=connection, join_transaction_mode="create_savepoint")
         try:
-            queue_push(sess, [rcpt], target.title or "Nexus", target.body or "", _url_for(target), target.type or "")
-            sess.flush()
+            queue_push(sess, [rcpt], target.title or "Nexus", target.body or "", _url_for(target), _tag_for(target))
+            sess.commit()
+        except Exception:
+            sess.rollback()
+            raise
         finally:
             sess.close()
     except Exception as e:   # never let push break the notice that caused it
@@ -142,19 +166,20 @@ def _send_one(sub: models.NexusPushSubscription, payload: dict) -> tuple[bool, s
             vapid_private_key=os.getenv(VAPID_PRIVATE, "").strip(),
             vapid_claims={"sub": os.getenv(VAPID_SUBJECT, "").strip()},
             ttl=TTL_SECONDS,
+            timeout=SEND_TIMEOUT,
         )
         return True, "", False
     except WebPushException as e:
         status = getattr(getattr(e, "response", None), "status_code", None)
         return False, f"{status or ''} {e}".strip()[:300], status in (404, 410)
-    except Exception as e:   # DNS, TLS, timeouts - counted as a failure, not a gone device
-        return False, str(e)[:300], False
+    except Exception as e:   # DNS, TLS, a timeout - counted as a failure, not a gone device
+        return False, (str(e) or type(e).__name__)[:300], False
 
 
 def _send_batch(db: Session | None = None) -> int:
     """One pass over the outbox: send every waiting row to each of the
     person's live devices. Returns the rows handled. Runs in a thread."""
-    if not configured():
+    if not configured() or job_switch.off("push"):
         return 0
     own = db is None
     db = db or database.SessionLocal()
@@ -172,20 +197,25 @@ def _send_batch(db: Session | None = None) -> int:
         for s in subs:
             by_email.setdefault(s.email, []).append(s)
         now = _now_iso()
+        dead: set = set()   # subscriptions deleted or disabled earlier in THIS pass: not sent to again
         for row in rows:
             payload = {"title": row.title, "body": row.body, "url": row.url or "/", "tag": row.tag or ""}
             errors = []
             for sub in by_email.get(row.email, []):
+                if sub.id in dead:
+                    continue
                 ok, err, gone = _send_one(sub, payload)
                 if ok:
                     sub.failures = 0
                     sub.last_ok_at = now
                 elif gone:
                     db.delete(sub)
+                    dead.add(sub.id)
                 else:
                     sub.failures = int(sub.failures or 0) + 1
                     if sub.failures >= DISABLE_AFTER:
                         sub.disabled = True
+                        dead.add(sub.id)
                     errors.append(err)
             row.sent_at = now
             row.error = "; ".join(errors)[:500]

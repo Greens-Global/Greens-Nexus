@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -22,6 +23,20 @@ from database import get_db
 from models import NexusPushSubscription
 
 router = APIRouter(prefix="/push", tags=["push"])
+
+# The browsers' push services, and nothing else: the leader POSTs to every
+# endpoint it holds, so an arbitrary https URL here would be a blind request
+# from our server to wherever a signed-in person pointed it.
+PUSH_SERVICE_HOSTS = ("fcm.googleapis.com", "updates.push.services.mozilla.com")
+PUSH_SERVICE_SUFFIXES = (".push.apple.com", ".notify.windows.com", ".push.services.mozilla.com")
+
+
+def known_push_service(endpoint: str) -> bool:
+    try:
+        host = (urlsplit(endpoint).hostname or "").lower()
+    except ValueError:
+        return False
+    return bool(host) and (host in PUSH_SERVICE_HOSTS or host.endswith(PUSH_SERVICE_SUFFIXES))
 
 
 class Keys(BaseModel):
@@ -61,6 +76,8 @@ def subscribe(body: SubscribeIn, user: dict = Depends(get_current_user), db: Ses
     ep = (body.endpoint or "").strip()
     if not ep.startswith("https://") or len(ep) > 2000:
         raise HTTPException(400, "That does not look like a push subscription.")
+    if not known_push_service(ep):
+        raise HTTPException(400, "Unknown push service")
     if not body.keys.p256dh or not body.keys.auth:
         raise HTTPException(400, "The subscription has no keys.")
     now = datetime.now(timezone.utc).isoformat()
