@@ -21,9 +21,9 @@
 //     is offered on the next open: Restore puts it on the canvas (merged,
 //     repaired) and saves it; Discard forgets it.
 //   - Before a save the scene is compacted (scene.js compact: deleted
-//     elements already carried by the last save and files nothing points at
-//     go); a scene still over the cap is refused here with a notice, never
-//     sent as a 413.
+//     elements more than a day old and files nothing points at go); a
+//     scene still over the cap is refused here with a notice, never sent
+//     as a 413.
 //
 // Lazy: NotesPage imports this file with React.lazy; the engine's chunk is
 // fetched only when a board opens.
@@ -32,7 +32,7 @@ import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser } from 
 import './board.css';
 import { loadEngine, CAPTURE } from './engine';
 import BoardFallback, { EngineBoundary, BoardLoading } from './engine/fallback';
-import { parseScene, applyLook, lookDefaults, emptyScene, compact, LOOKS, SCENE_MAX } from './scene';
+import { parseScene, applyLook, lookDefaults, emptyScene, compact, sameScene, LOOKS, SCENE_MAX } from './scene';
 import { uploadBoardFile, loadBoardFiles } from './files';
 import { remoteWins } from './boardSync';
 import { exportPng, exportSvg, exportThumb, copyPng, downloadBlob, downloadScene } from './exportBoard';
@@ -116,9 +116,6 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   // The last scene handed to onScene (starting from the saved one): a change
   // that serializes the same (a selection, a hover) is never sent again.
   const lastSent = useRef(note?.scene || '');
-  // When the server last had this board (the open, then each save that came
-  // back): deleted elements from before it are compacted out of the next save.
-  const savedAt = useRef(Date.now());
   // Each element's version as this engine last reported it, to tell a change
   // drawn here from one the live session put on the engine.
   const seenEls = useRef(new Map(initial.elements.map((e) => [e.id, elKey(e)])));
@@ -176,14 +173,16 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   // a viewer takes it as is; an editor reconciles it with what is on the
   // canvas (newest version of each element wins) and does not save it back
   // - the elements that came this way are remembered so the engine's echo
-  // schedules nothing. Our own save coming back marks the draft done.
+  // schedules nothing. Our own save coming back marks the draft done - told
+  // by the drawing, not the string (the server re-dumps the JSON with
+  // non-ASCII escaped, so an emoji in a label would make our own save look
+  // like someone else's).
   const seenScene = useRef(note?.scene);
   const fromScene = useRef(new Map());
   useEffect(() => {
     if (!api || note?.scene === seenScene.current) return;
     seenScene.current = note?.scene;
-    if (canEdit && note?.scene === lastSent.current) {
-      savedAt.current = Date.now();
+    if (canEdit && sameScene(note?.scene || '', lastSent.current)) {
       clearDraft(propsRef.current.noteId);
       return;
     }
@@ -205,17 +204,18 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   }, [note?.scene, api, canEdit, onRemoteFiles, restoreRemote]);
 
   // A draft left behind by the last visit (draft.js): offered once the
-  // engine is up, to an editor, when it differs from the board and was
-  // drawn over this rev or a later one. An older draft lost to someone
-  // else's save is dropped (useNoteSync's merge already carried what it
-  // could); one equal to the board is already saved.
+  // engine is up, to an editor, whenever it is not the board as saved -
+  // its rev does not matter (11/02/2026: a draft drawn over an older rev
+  // was dropped, and the strokes in it were lost when a collaborator had
+  // saved in between; Restore reconciles newest-wins, so an old draft can
+  // never undo a newer save). One equal to the board is already saved.
   useEffect(() => {
     if (!api || !canEdit || !note?.id) return undefined;
     let alive = true;
     const noteId = note.id;
     loadDraft(noteId).then((d) => {
       if (!alive || !d) return;
-      if (d.scene === (note.scene || '') || (d.rev || 0) < (note.rev || 0)) { clearDraft(noteId); return; }
+      if (sameScene(d.scene, note.scene || '')) { clearDraft(noteId); return; }
       setDraftOffer(d);
     }).catch(() => { /* no draft */ });
     return () => { alive = false; };
@@ -229,10 +229,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     // picture that can not load.
     const els = api.getSceneElementsIncludingDeleted()
       .filter((e) => !(e?.type === 'image' && e.fileId && !filesMeta.current[e.fileId] && uploading.current.has(e.fileId)));
-    const scene = compact(
-      eng.toScene({ elements: els, appState: api.getAppState(), files: filesMeta.current, look: lookRef.current }),
-      { savedAt: savedAt.current },
-    );
+    const scene = compact(eng.toScene({ elements: els, appState: api.getAppState(), files: filesMeta.current, look: lookRef.current }));
     return JSON.stringify(scene);
   }, [api]);
 

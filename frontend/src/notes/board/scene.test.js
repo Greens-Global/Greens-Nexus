@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   SCENE_TYPE, SCENE_MAX, LOOKS, SAFE_APP_STATE_KEYS,
-  emptyScene, parseScene, serializeScene, buildScene, compact, lookDefaults, applyLook,
+  emptyScene, parseScene, serializeScene, buildScene, compact, sameScene, lookDefaults, applyLook, DELETED_KEEP_MS,
 } from './scene';
 
 const el = (over = {}) => ({
@@ -108,46 +108,66 @@ describe('board scene', () => {
   });
 
   // ── compact: the scene guard before a save (Neil, 11/02/2026) ───────────
-  it('compact drops deleted elements older than the last save and keeps the rest', () => {
-    const savedAt = Date.now() - 60_000;      // inside buildScene's 24 h carry window
-    const scene = buildScene({
+  it('compact drops deleted elements older than a day and keeps the rest - never by this tab\'s last save', () => {
+    const now = Date.now();
+    const scene = {
+      type: SCENE_TYPE, version: 1, look: 'clean', appState: {}, files: {},
       elements: [
         el({ id: 'live', updated: 10 }),
-        el({ id: 'oldGone', isDeleted: true, updated: savedAt - 1 }),
-        el({ id: 'atSave', isDeleted: true, updated: savedAt }),
-        el({ id: 'newGone', isDeleted: true, updated: savedAt + 5 }),
+        el({ id: 'oldGone', isDeleted: true, updated: now - DELETED_KEEP_MS - 1 }),
+        el({ id: 'atDay', isDeleted: true, updated: now - DELETED_KEEP_MS }),
+        el({ id: 'hourGone', isDeleted: true, updated: now - 3600_000 }),
+        el({ id: 'justGone', isDeleted: true, updated: now - 5 }),
       ],
-      appState: {}, filesMeta: {}, look: 'clean',
-    });
-    const out = compact(scene, { savedAt });
-    expect(out.elements.map((e) => e.id)).toEqual(['live', 'atSave', 'newGone']);
+    };
+    const out = compact(scene, { now });
+    // a deletion an hour old is still carried: a collaborator who saved in
+    // between has not necessarily seen it
+    expect(out.elements.map((e) => e.id)).toEqual(['live', 'hourGone', 'justGone']);
     // untouched input, same shape on disk
-    expect(scene.elements).toHaveLength(4);
+    expect(scene.elements).toHaveLength(5);
     expect(out.type).toBe(SCENE_TYPE);
     expect(Object.keys(out)).toEqual(Object.keys(scene));
+    expect(DELETED_KEEP_MS).toBe(24 * 3600 * 1000);
   });
 
   it('compact drops files no element references, keeping those a kept element (live or still-carried deleted) points at', () => {
     const f = (id) => ({ id, mimeType: 'image/png', url: `https://api/files/view?u=${id}`, created: 1 });
     const now = Date.now();
-    const scene = buildScene({
+    const scene = {
+      type: SCENE_TYPE, version: 1, look: 'clean', appState: {},
       elements: [
         el({ id: 'img1', type: 'image', fileId: 'a', updated: now - 90_000 }),
         el({ id: 'img2', type: 'image', fileId: 'b', isDeleted: true, updated: now - 10_000 }),
-        el({ id: 'img3', type: 'image', fileId: 'c', isDeleted: true, updated: now - 90_000 }),
+        el({ id: 'img3', type: 'image', fileId: 'c', isDeleted: true, updated: now - DELETED_KEEP_MS - 90_000 }),
       ],
-      appState: {}, filesMeta: { a: f('a'), b: f('b'), c: f('c'), orphan: f('orphan') }, look: 'clean',
-    });
-    const out = compact(scene, { savedAt: now - 60_000 });
+      files: { a: f('a'), b: f('b'), c: f('c'), orphan: f('orphan') },
+    };
+    const out = compact(scene, { now });
     expect(out.elements.map((e) => e.id)).toEqual(['img1', 'img2']);
     expect(Object.keys(out.files).sort()).toEqual(['a', 'b']);
   });
 
-  it('compact with no save yet keeps every deleted element; a scene that is not a scene comes back as is', () => {
+  it('compact with no clock given reads today; a scene that is not a scene comes back as is', () => {
     const scene = buildScene({ elements: [el({ id: 'gone', isDeleted: true, updated: Date.now() - 5 })], appState: {}, filesMeta: {}, look: 'clean' });
     expect(compact(scene).elements).toHaveLength(1);
-    expect(compact(scene, { savedAt: 0 }).elements).toHaveLength(1);
+    expect(compact(scene, {}).elements).toHaveLength(1);
     expect(compact(null)).toBeNull();
+  });
+
+  it('sameScene reads two saved scenes as one drawing when only the JSON spelling differs', () => {
+    const mine = JSON.stringify({ type: SCENE_TYPE, elements: [el({ id: 't', type: 'text', text: 'Yard 😀 café' })] });
+    // what Python's json.dumps(ensure_ascii=True) makes of it
+    const theirs = mine.replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+    expect(theirs).not.toBe(mine);
+    expect(theirs).toContain('\\ud83d');
+    expect(sameScene(mine, theirs)).toBe(true);
+    expect(sameScene(mine, mine)).toBe(true);
+    expect(sameScene(mine, JSON.stringify({ type: SCENE_TYPE, elements: [el({ id: 't', type: 'text', text: 'Yard' })] }))).toBe(false);
+    expect(sameScene('', '')).toBe(true);
+    expect(sameScene('', mine)).toBe(false);
+    expect(sameScene('not json', 'not json either')).toBe(false);
+    expect(sameScene(null, mine)).toBe(false);
   });
 
   it('serializeScene is buildScene as JSON', () => {
