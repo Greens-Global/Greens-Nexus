@@ -393,6 +393,19 @@ class FormsTests(unittest.TestCase):
         e = self._submit(tpl["id"], REP, {"n": 1})
         self.assertEqual(e["answers"]["n"], 1)
 
+    def test_a_bad_formula_is_refused_at_template_save_naming_the_field(self):
+        self._as(ADMIN)
+        fields = [{"token": "a", "label": "Hours", "type": "number"},
+                  {"token": "b", "label": "Overtime", "type": "number", "formula": 'field("x")'}]
+        r = self.client.post("/documents/templates", json={"name": "Bad Formula", "docType": "form",
+                                                             "category": "vehicle", "fieldDefs": fields})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("Overtime", r.json()["detail"])
+        tpl = self._template("Fine Formula", fields=fields[:1])
+        r = self.client.patch(f"/documents/templates/{tpl['id']}", json={"fieldDefs": fields})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("Overtime", r.json()["detail"])
+
     # ── Reach (Review Focus 5) ───────────────────────────────────────────────
 
     def test_manager_reach_reports_anywhere_and_team_sites_not_strangers_elsewhere(self):
