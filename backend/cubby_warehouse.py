@@ -133,3 +133,102 @@ def stor_track_rows(since: date, until: date) -> list[dict]:
         if "private_key" in msg or "BEGIN PRIVATE KEY" in msg:
             msg = ""
         raise WarehouseError(f"BigQuery did not answer ({type(e).__name__}){': ' + msg[:200] if msg else ''}") from None
+
+
+# ── Tasks and staff (Cubby tasks -> Nexus Tasks, Neil, Oct 30 2026) ──────────
+# Cubby's API task carries no assignee; the warehouse's `tasks` table does
+# (`assigned_managers` / `assigned_manager_groups` are staff and group NAMES),
+# and `managers` maps a name to a work email. cubby_tasks.py reads both after
+# each Cubby sync. Same dataset and credentials as StorTrack; a server
+# without the key simply gets no assignees (facility routing still works).
+
+TASKS_TABLE = "cubby-partner-data.analytics.tasks"
+MANAGERS_TABLE = "cubby-partner-data.analytics.managers"
+TASK_COLUMNS = ("task_id", "facility_id", "status", "task_title", "due_date", "schedule",
+                "assigned_managers", "assigned_manager_groups", "created_by", "contact_id", "unit_id",
+                "is_workflow_generated", "created_at", "updated_at")
+MANAGER_COLUMNS = ("manager_id", "manager_name", "manager_email")
+TASK_MAX_ROWS = 20_000
+
+
+def _names(value) -> list[str]:
+    """A warehouse ARRAY as a clean list of names - BigQuery hands a list,
+    a Postgres mirror a '{"A","B"}' string."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        s = value.strip()
+        if s.startswith("{") and s.endswith("}"):
+            s = s[1:-1]
+        parts = []
+        for p in s.split(","):
+            p = p.strip().strip('"').strip()
+            if p:
+                parts.append(p)
+        return parts
+    try:
+        return [str(v).strip() for v in value if str(v).strip()]
+    except TypeError:
+        return []
+
+
+def _run(sql: str, params: list) -> list[dict]:
+    client = _client()
+    try:
+        from google.cloud import bigquery
+        job_config = bigquery.QueryJobConfig(query_parameters=params)
+    except ImportError:
+        job_config = {p.name: p.value for p in params} if params and hasattr(params[0], "name") else {}
+    try:
+        job = client.query(sql, job_config=job_config)
+        return [dict(r.items()) if hasattr(r, "items") else dict(r) for r in job.result(timeout=QUERY_TIMEOUT_SEC)]
+    except WarehouseError:
+        raise
+    except Exception as e:  # noqa: BLE001 - never let the key into an error
+        msg = str(getattr(e, "message", "") or "").strip()
+        if "private_key" in msg or "BEGIN PRIVATE KEY" in msg:
+            msg = ""
+        raise WarehouseError(f"BigQuery did not answer ({type(e).__name__}){': ' + msg[:200] if msg else ''}") from None
+
+
+def tasks_sql() -> str:
+    cols = ", ".join(TASK_COLUMNS)
+    # Every open task plus anything touched since @since, so a completion in
+    # Cubby is seen even after the task left the open list.
+    return (f"SELECT {cols} FROM `{TASKS_TABLE}` "
+            "WHERE status = 'OPEN' OR updated_at >= @since "
+            f"ORDER BY updated_at DESC LIMIT {TASK_MAX_ROWS}")
+
+
+def managers_sql() -> str:
+    return f"SELECT {', '.join(MANAGER_COLUMNS)} FROM `{MANAGERS_TABLE}`"
+
+
+def task_rows(since) -> list[dict]:
+    """Cubby tasks from the warehouse: open ones and those updated since
+    `since` (a datetime). Assignee columns come back as lists of names.
+    [] when the warehouse is not configured. Raises WarehouseError."""
+    if not configured():
+        return []
+    try:
+        from google.cloud import bigquery
+        params = [bigquery.ScalarQueryParameter("since", "TIMESTAMP", since)]
+    except ImportError:
+        params = [since]
+    out = []
+    for r in _run(tasks_sql(), params):
+        row = dict(r)
+        row["assigned_managers"] = _names(row.get("assigned_managers"))
+        row["assigned_manager_groups"] = _names(row.get("assigned_manager_groups"))
+        for k in ("due_date", "created_at", "updated_at"):
+            v = row.get(k)
+            row[k] = v.isoformat() if hasattr(v, "isoformat") else (str(v) if v else "")
+        out.append(row)
+    return out
+
+
+def manager_rows() -> list[dict]:
+    """Cubby staff: name and work email. [] when not configured."""
+    if not configured():
+        return []
+    return [dict(r) for r in _run(managers_sql(), [])]
