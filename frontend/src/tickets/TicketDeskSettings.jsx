@@ -350,7 +350,7 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
         const active = e.key === current;
         return (
           <div key={e.key}>
-            {i === 1 && <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint, margin: '10px 10px 4px' }}>Companies</div>}
+            {i === 1 && <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, margin: '10px 10px 4px' }}>Companies</div>}
             <button type="button" onClick={() => setSelected(e.key)} aria-current={active ? 'true' : undefined}
               style={{
                 display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', borderRadius: 8,

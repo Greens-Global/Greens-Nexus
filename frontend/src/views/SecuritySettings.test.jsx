@@ -139,6 +139,56 @@ describe('SecuritySettings', () => {
     expect(await screen.findByText('seconds (15 minutes)')).toBeTruthy();
   });
 
+  // One switch behavior everywhere (Neil, 11/02/2026): a switch saves on
+  // click, alone, with an Undo toast; a typed number stays the Save row's
+  // draft; a failed save puts the switch back; turning one off asks first.
+  const SWITCH_GROUPS = [{ title: 'Sign-In', desc: 'Test group.', fields: [
+    { key: 'stepupEnforce', label: 'Require Re-Sign-In', desc: 'Test switch.' },
+    { key: 'webSessionIdleDays', label: 'Web Session Idle Limit', desc: 'Test number.' },
+  ] }];
+
+  it('a switch saves on click with an Undo, while a typed number stays a draft', async () => {
+    getSecuritySettings.mockResolvedValue(payload(true, { stepupEnforce: bool(false) }));
+    updateSecuritySettings.mockImplementation(async (values) => payload(true, { stepupEnforce: bool(!!values.stepupEnforce, 'saved') }));
+    const undo = vi.spyOn(dialog, 'undo').mockImplementation(() => {});
+    const confirm = vi.spyOn(dialog, 'confirm').mockResolvedValue(true);
+    render(<SecuritySettings groups={SWITCH_GROUPS} />);
+    fireEvent.change(await screen.findByLabelText('Web Session Idle Limit'), { target: { value: '20' } });
+    fireEvent.click(screen.getByRole('switch', { name: 'Require Re-Sign-In' }));
+    await waitFor(() => expect(updateSecuritySettings).toHaveBeenCalledWith({ stepupEnforce: true }, false));
+    expect(confirm).not.toHaveBeenCalled();   // turning a safety switch ON never asks
+    await waitFor(() => expect(undo).toHaveBeenCalled());
+    expect(undo.mock.calls[0][0]).toBe('Require Re-Sign-In turned on.');
+    expect(screen.getByRole('switch', { name: 'Require Re-Sign-In' })).toBeChecked();
+    // The typed number was not sent with it, and is still waiting for Save.
+    expect(screen.getByLabelText('Web Session Idle Limit')).toHaveValue(20);
+    expect(screen.getByRole('button', { name: /^Save$/ }).disabled).toBe(false);
+    // Undo writes the old value back (turning it off - the server is told it was confirmed).
+    await undo.mock.calls[0][1]();
+    expect(updateSecuritySettings).toHaveBeenLastCalledWith({ stepupEnforce: false }, true);
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Require Re-Sign-In' })).not.toBeChecked());
+    undo.mockRestore(); confirm.mockRestore();
+  });
+
+  it('turning a switch off asks first; a failed save puts it back', async () => {
+    getSecuritySettings.mockResolvedValue(payload(true, { stepupEnforce: bool(true, 'saved') }));
+    const confirm = vi.spyOn(dialog, 'confirm').mockResolvedValueOnce(false).mockResolvedValue(true);
+    const toastErr = vi.fn();
+    render(<SecuritySettings groups={SWITCH_GROUPS} toastErr={toastErr} />);
+    const sw = await screen.findByRole('switch', { name: 'Require Re-Sign-In' });
+    fireEvent.click(sw);   // Keep It On
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(confirm.mock.calls[0][0]).toMatch(/weakens sign-in security/);
+    expect(updateSecuritySettings).not.toHaveBeenCalled();
+    expect(sw).toBeChecked();
+    updateSecuritySettings.mockRejectedValueOnce(new Error('Only a Super Administrator can change this.'));
+    fireEvent.click(sw);   // Turn Off - and the server refuses
+    await waitFor(() => expect(updateSecuritySettings).toHaveBeenCalledWith({ stepupEnforce: false }, true));
+    await waitFor(() => expect(toastErr).toHaveBeenCalledWith('Only a Super Administrator can change this.'));
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Require Re-Sign-In' })).toBeChecked());
+    confirm.mockRestore();
+  });
+
   it('shows a retry instead of a blank screen when loading fails', async () => {
     getSecuritySettings.mockRejectedValue(new Error('Insufficient permissions'));
     render(<SecuritySettings />);

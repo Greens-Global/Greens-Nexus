@@ -21,7 +21,7 @@ import { dialog } from '../ui/dialog';
 import { useGroupDirty } from '../lib/groupDirty';
 import { RotateCcw, Lock } from 'lucide-react';
 import { api } from '../api';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 
 const GROUPS = [
   {
@@ -86,11 +86,13 @@ function spoken(value, unit) {
   return null;
 }
 
-export default function SecuritySettings({ toastOk, toastErr }) {
+// `groups`: the sections shown - GROUPS on the page (a test passes its own).
+export default function SecuritySettings({ toastOk, toastErr, groups = GROUPS }) {
   const [data, setData] = useState(null);   // { settings, canEdit }
   const [error, setError] = useState('');
-  const [draft, setDraft] = useState({});   // key -> number|bool|'' (typed) or null (reset)
+  const [draft, setDraft] = useState({});   // key -> number|'' (typed) or null (reset); switches are never a draft
   const [busy, setBusy] = useState(false);
+  const [switching, setSwitching] = useState(null);   // { key, on } while a switch saves
 
   const load = useCallback(() => {
     setError('');
@@ -99,6 +101,39 @@ export default function SecuritySettings({ toastOk, toastErr }) {
       .catch(e => setError(e?.message || 'Could not load security settings.'));
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // A switch saves on click (Neil, 11/02/2026 - one switch behavior
+  // everywhere), alone: a typed number beside it stays a draft for the Save
+  // row. It shows its new place at once and goes back if the save fails.
+  // Turning one off weakens sign-in for everyone, so that asks first (and
+  // the server wants confirmWeaken for it); the Undo toast writes the old
+  // value back.
+  const writeSwitch = async (key, label, on) => {
+    setSwitching({ key, on });
+    try {
+      const d = await api.updateSecuritySettings({ [key]: on }, !on);
+      setData(d);
+      return true;
+    } catch (e) {
+      toastErr?.(e?.message || `Could not save ${label}.`);
+      return false;
+    } finally {
+      setSwitching(null);
+    }
+  };
+  const toggle = async (key, label, on) => {
+    const was = !!data?.settings?.[key]?.value;
+    if (!on) {
+      const ok = await dialog.confirm(`Turning off ${label} weakens sign-in security for everyone, from their next sign-in.`,
+        { title: `Turn Off ${label}?`, confirmText: 'Turn Off', cancelText: 'Keep It On', danger: true });
+      if (!ok) return;
+    }
+    if (await writeSwitch(key, label, on)) {
+      dialog.undo(`${label} turned ${on ? 'on' : 'off'}.`, async () => {
+        if (await writeSwitch(key, label, was)) toastOk?.(`${label} is back ${was ? 'on' : 'off'}.`);
+      });
+    }
+  };
 
   const settings = useMemo(() => data?.settings || {}, [data]);
   const canEdit = !!data?.canEdit;
@@ -195,7 +230,7 @@ export default function SecuritySettings({ toastOk, toastErr }) {
         </div>
       )}
 
-      {GROUPS.map((g, gi) => (
+      {groups.map((g, gi) => (
         <section key={g.title} aria-label={g.title}>
           <div className="nx-set-pad" style={{ borderTop: gi || !canEdit ? '1px solid var(--line)' : 'none', background: 'var(--paper)' }}>
             <h5 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{g.title}</h5>
@@ -206,7 +241,7 @@ export default function SecuritySettings({ toastOk, toastErr }) {
             const v = valueOf(f.key);
             const inputId = `sec-${f.key}`;
             const pendingReset = draft[f.key] === null;
-            const disabled = !canEdit || busy || s.locked;
+            const disabled = !canEdit || busy || s.locked || !!switching;
             const edited = f.key in changes && !pendingReset;
             const shownSource = pendingReset ? (s.hasEnv ? 'env' : 'default') : (edited ? 'saved' : s.source);
             const said = s.type === 'int' ? spoken(typeof v === 'number' ? v : NaN, s.unit) : null;
@@ -215,9 +250,11 @@ export default function SecuritySettings({ toastOk, toastErr }) {
                 <SettingRow htmlFor={inputId} title={f.label} desc={f.desc}
                   control={s.type === 'bool' ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                      <input id={inputId} type="checkbox" role="switch" className="nx-switch" checked={!!v} disabled={disabled}
+                      {switching?.key === f.key && <Spinner size={12} />}
+                      <input id={inputId} type="checkbox" role="switch" className="nx-switch"
+                        checked={switching?.key === f.key ? switching.on : !!s.value} disabled={disabled}
                         aria-label={f.label} aria-describedby={`${inputId}-desc`}
-                        onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.checked }))} />
+                        onChange={e => toggle(f.key, f.label, e.target.checked)} />
                     </span>
                   ) : (
                     <>
@@ -233,7 +270,7 @@ export default function SecuritySettings({ toastOk, toastErr }) {
                   {s.locked && <span className="nx-set-badge">Required by Server Config</span>}
                   {s.type === 'int' && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Allowed: {rangeText(s)}</span>}
                   {s.outOfRange && <span style={{ fontSize: 12, color: 'var(--nx-own)' }}>The server config value is outside the allowed range.</span>}
-                  {canEdit && !s.locked && !pendingReset && (s.source === 'saved' || f.key in draft) && (
+                  {canEdit && !s.locked && s.type !== 'bool' && !pendingReset && (s.source === 'saved' || f.key in draft) && (
                     <button type="button" className="secondary-btn" disabled={busy} aria-label={`Reset ${f.label} to Default`}
                       onClick={() => setDraft(d => {
                         const n = { ...d };

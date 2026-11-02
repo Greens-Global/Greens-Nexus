@@ -15,7 +15,8 @@ import { SERVICE_AREAS } from '../tickets/ticketMeta';
 import UnitClasses from '../operations/UnitClasses';
 import { RatingsList } from '../components/TimeInsights';
 
-const LBL = { fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 };
+// The house label (DESIGN.md: 12px, normal case, no tracking).
+const LBL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 };
 
 // ── Tickets > Property Rules ─────────────────────────────────────────────────
 // Which tickets must name a property: by service area (a fixed list,
