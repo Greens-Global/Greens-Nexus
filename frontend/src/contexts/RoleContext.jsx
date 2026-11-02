@@ -139,6 +139,9 @@ export function RoleProvider({ children }) {
   // A company wall confines this person (/roles/me company_walled): the
   // organization-wide records (branding, shared rules) are not theirs.
   const [companyWalled, setCompanyWalled] = useState(false);
+  // Those companies with their names (/roles/me manage_company_rows): the
+  // Settings company list for someone People's list is not open to.
+  const [manageCompanyRows, setManageCompanyRows] = useState([]);
   // Time-tracking exempt (Oct 8): true = salaried, no time clock at all, so
   // no time widget is placed or offered on the dashboard. null = not known
   // yet. Seeded from the per-person memory (lib/timeTracking) so a known
@@ -219,6 +222,7 @@ export function RoleProvider({ children }) {
             // server still refuses what it would refuse.
             setManageCompanies(Array.isArray(data.manage_companies) ? data.manage_companies : null);
             setCompanyWalled(!!data.company_walled);
+            setManageCompanyRows(Array.isArray(data.manage_company_rows) ? data.manage_company_rows : []);
             // shortcut: a format changed on another device shows here from the next render on, not on screens already drawn; this browser remembers it for the next load.
             if (data.date_format) setDateFormat(data.date_format);
             if (typeof data.time_tracking_exempt === 'boolean') {
@@ -433,7 +437,7 @@ export function RoleProvider({ children }) {
       actingAs, startActAs, stopActAs,
       myLevel, myTier, myTitle,
       hrContactFor,
-      isGlobalAdmin, manageCompanies, companyWalled,
+      isGlobalAdmin, manageCompanies, companyWalled, manageCompanyRows,
     }}>
       {children}
     </RoleCtx.Provider>

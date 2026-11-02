@@ -44,6 +44,10 @@ def update_config(body: ConfigIn, user: dict = Depends(require_administrator), d
         raise HTTPException(400, str(e))
     # Whether everyone gets it, and who the tests go to, is the whole
     # organization's (Neil, 11/02/2026): Super Administrators only.
+    # The row lock first: the change is judged against the value stored now,
+    # so a stale form can never write back a mode a Super Administrator changed.
+    import scoped_settings
+    scoped_settings.lock_row(db, weekly_digest._SETTINGS_KEY)
     settings_walls.refuse_change(db, user, weekly_digest.get_settings(db), patch, ("mode", "test_recipients"))
     return weekly_digest.save_settings(db, patch, user["email"])
 

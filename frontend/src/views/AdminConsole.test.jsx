@@ -10,14 +10,15 @@ const COMPANIES = [{ id: 'c1', name: 'Greens Global' }, { id: 'c2', name: 'Green
 // `entities`: how the company list answers ('ok', 'denied' = a 403 from People,
 // 'error' = a failed load); the Workforce Analytics fallback list answers
 // `trackingCompanies` (or 403 when null).
-const apiState = { entities: 'ok', trackingCompanies: null };
+const apiState = { entities: 'ok', trackingCompanies: null, added: [] };
 const refusal = () => Object.assign(new Error('Forbidden'), { status: 403 });
 vi.mock('../api', () => ({
   api: new Proxy({}, { get: (_, k) => (
-    k === 'getEntities' ? () => (apiState.entities === 'ok' ? Promise.resolve(COMPANIES)
+    k === 'getEntitiesFresh' ? () => Promise.resolve([...COMPANIES, ...apiState.added])
+    : k === 'getEntities' ? () => (apiState.entities === 'ok' ? Promise.resolve(COMPANIES)
       : Promise.reject(apiState.entities === 'denied' ? refusal() : Object.assign(new Error('Network'), { status: 502 })))
       : k === 'timeMonitoringCompanies' ? () => (apiState.trackingCompanies ? Promise.resolve(apiState.trackingCompanies) : Promise.reject(refusal()))
-        : k === 'getMyTicketAccess' ? () => Promise.resolve({ canManageDesk: roleState.desk !== false })
+        : k === 'getMyTicketAccess' ? () => Promise.resolve({ canManageDesk: roleState.desk ?? (LEVELS[roleState.role] >= 3) })
           : k === 'getEntitySignatureTemplates' ? () => Promise.resolve({ templates: [], template: 'classic' })
             : vi.fn(() => Promise.resolve([]))) }),
 }));
@@ -26,10 +27,10 @@ vi.mock('../api', () => ({
 // limited to (null = company-wide); `hrTeam` = the manager tier (own team);
 // `manageCompanies` = the companies whose shift / pay settings they may change
 // (null = company-wide, /roles/me); `companyWalled` = a company wall confines
-// them; `desk` = a ticket desk supervisor (false = not).
+// them; `desk` = a ticket desk supervisor (by default the manager tier and up).
 const LEVELS = { employee: 1, supervisor: 2, manager: 3, administrator: 4, owner: 5 };
 const RANKS = { viewer: 1, editor: 2, full: 3, owner: 4 };
-const ROLE_DEFAULTS = { grants: {}, hrScope: null, hrTeam: false, manageCompanies: null, companyWalled: false, hrContactFor: [], desk: true };
+const ROLE_DEFAULTS = { grants: {}, hrScope: null, hrTeam: false, manageCompanies: null, manageCompanyRows: [], companyWalled: false, hrContactFor: [], desk: undefined };
 const roleState = { role: 'administrator', ...ROLE_DEFAULTS };
 const asRole = (role, extra = {}) => Object.assign(roleState, { role, ...ROLE_DEFAULTS }, extra);
 vi.mock('../contexts/RoleContext', () => ({
@@ -38,7 +39,8 @@ vi.mock('../contexts/RoleContext', () => ({
     canAccessModule: (m, minRole, lvl = 'viewer') => LEVELS[roleState.role] >= (LEVELS[minRole] ?? 1)
       || (RANKS[roleState.grants[m]] ?? 0) >= (RANKS[lvl] ?? 1),
     hrScope: roleState.hrScope, hrTeam: roleState.hrTeam,
-    manageCompanies: roleState.manageCompanies, companyWalled: roleState.companyWalled, hrContactFor: roleState.hrContactFor,
+    manageCompanies: roleState.manageCompanies, manageCompanyRows: roleState.manageCompanyRows,
+    companyWalled: roleState.companyWalled, hrContactFor: roleState.hrContactFor,
     myGrantedModules: new Map(Object.entries(roleState.grants)), actingAs: null,
     startActAs: vi.fn(), stopActAs: vi.fn(),
   }),
@@ -111,7 +113,7 @@ vi.mock('../components/EmployeeCustomFieldsSettings', () => ({ default: ({ compa
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); asRole('administrator'); dirtyState.weather = false; Object.assign(apiState, { entities: 'ok', trackingCompanies: null }); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); asRole('administrator'); dirtyState.weather = false; Object.assign(apiState, { entities: 'ok', trackingCompanies: null, added: [] }); });
 
 const rail = () => screen.getByRole('navigation', { name: 'Settings subjects' });
 // Lazy panels on a slow machine: give a find a little longer than the default second.
@@ -628,5 +630,44 @@ describe('AdminConsole walls', () => {
     const box = screen.getByLabelText('Applies To');
     await waitFor(() => expect(within(box).getByRole('option', { name: 'Greens Global' })).toBeInTheDocument());
     expect(screen.queryByText('The companies could not be loaded right now.')).not.toBeInTheDocument();
+  });
+});
+
+// Review follow-ups (11/02/2026): a manager refused both company lists still
+// reaches their own company; a company just added elsewhere is asked for
+// past the cache before it is dropped; Property Rules open for a desk
+// supervisor, as the route does.
+describe('AdminConsole walls, review follow-ups', () => {
+  it('gives a manager refused both company lists their own companies, never dropping them', async () => {
+    asRole('manager', { manageCompanies: ['c1'], manageCompanyRows: [{ id: 'c1', name: 'Greens Global' }] });
+    apiState.entities = 'denied';
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="shifts@c1" onSubChange={onSubChange} />);
+    expect(await find('Shift settings panel basics c1')).toBeInTheDocument();
+    expect(onSubChange).not.toHaveBeenCalled();
+    expect(within(screen.getByLabelText('Applies To')).getByRole('option', { name: 'Greens Global' })).toBeInTheDocument();
+    expect(screen.queryByText(/That company is not one you can open/)).not.toBeInTheDocument();
+  });
+
+  it('asks for the companies again past the cache before dropping an unknown one', async () => {
+    apiState.added = [{ id: 'c3', name: 'Greens New' }];
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="pay@c3" onSubChange={onSubChange} />);
+    await waitFor(() => expect(screen.getByLabelText('Applies To')).toHaveValue('c3'));
+    expect(await find('Export codes panel c3')).toBeInTheDocument();
+    expect(onSubChange).not.toHaveBeenCalled();
+  });
+
+  it('opens Property Rules for a desk supervisor below the Administrator tier', async () => {
+    asRole('employee', { desk: true });
+    render(<AdminConsole activeSub="tickets" onSubChange={() => {}} />);
+    // The lone group of Tickets for them, so it renders bare under the subject.
+    expect(await find('Property rules panel')).toBeInTheDocument();
+    cleanup();
+    // A Full tickets grant is not what the route checks: the desk role is.
+    asRole('employee', { grants: { tickets: 'full' }, desk: false });
+    render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
+    await waitFor(() => new Promise(r => setTimeout(r, 20)));   // the desk role has answered
+    expect(within(rail()).queryByRole('button', { name: 'Tickets' })).not.toBeInTheDocument();
   });
 });

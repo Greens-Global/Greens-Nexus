@@ -360,5 +360,127 @@ class MergeCase(_Harness):
         self.assertNotIn("letterheadId", stored or {})
 
 
+# ── Review follow-ups ────────────────────────────────────────────────────────
+class DeskRosterCase(_Harness):
+    URL = "/task-tickets/notify/settings"
+
+    def _seed(self, **cfg):
+        import ticket_notify
+        ticket_notify.save_settings(self.db, cfg, "seed")
+
+    def test_another_company_s_desk_is_kept_as_stored(self):
+        self._seed(agentEmailsByCompany={C2: [EMP2]})
+        self._as(ADMIN)
+        r = self.client.put(self.URL, json={"agentEmailsByCompany": {C1: [EMP1], C2: [ADMIN]}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._setting("ticket_notify_config")["agentEmailsByCompany"], {C1: [EMP1], C2: [EMP2]})
+        # Left out of the patch, another company's desk is still kept.
+        r = self.client.put(self.URL, json={"agentEmailsByCompany": {}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._setting("ticket_notify_config")["agentEmailsByCompany"], {C2: [EMP2]})
+
+    def test_the_fallback_desk_and_the_ticket_admin_are_a_super_administrator_s(self):
+        self._seed(agentEmails=[EMP1], ticketAdminEmail=EMP1)
+        self._as(ADMIN)
+        self.assertEqual(self.client.put(self.URL, json={"agentEmails": [EMP1, ADMIN]}).status_code, 403)
+        self.assertEqual(self.client.put(self.URL, json={"ticketAdminEmail": ADMIN}).status_code, 403)
+        # Sent back unchanged (another order, another case): no change.
+        r = self.client.put(self.URL, json={"agentEmails": [EMP1.upper()], "ticketAdminEmail": EMP1, "autoCloseDays": 3})
+        self.assertEqual(r.status_code, 200, r.text)
+        self._as(SUPER)
+        self.assertEqual(self.client.put(self.URL, json={"agentEmails": [EMP1, EMP2]}).status_code, 200)
+
+    def test_only_nexus_people_go_on_a_desk(self):
+        self._as(ADMIN)
+        r = self.client.put(self.URL, json={"agentEmailsByCompany": {C1: ["outsider@elsewhere.com"]}})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("not on the Nexus People list", r.text)
+        self._as(SUPER)
+        r = self.client.put(self.URL, json={"agentEmails": ["partner@elsewhere.com"]})
+        self.assertEqual(r.status_code, 400, r.text)
+
+
+class ReviewFollowUpCase(_Harness):
+    def test_the_mode_check_reads_the_locked_value(self):
+        import settings_walls
+        order = []
+        real_lock, real_refuse = scoped_settings.lock_row, settings_walls.refuse_change
+
+        def lock(db, key):
+            order.append(("lock", key))
+            return real_lock(db, key)
+
+        def refuse(*a, **k):
+            order.append(("check", ""))
+            return real_refuse(*a, **k)
+        scoped_settings.lock_row, settings_walls.refuse_change = lock, refuse
+        try:
+            for url in ("/daily-briefing/config", "/weekly-digest/config", "/workforce-scorecard/config"):
+                order.clear()
+                self.assertEqual(self.client.put(url, json={"mode": "off"}).status_code, 200, url)
+                self.assertEqual(order[0][0], "lock", url)
+                self.assertIn(("check", ""), order, url)
+        finally:
+            scoped_settings.lock_row, settings_walls.refuse_change = real_lock, real_refuse
+
+    def test_the_task_log_walls_by_the_task_s_owner_when_it_has_no_company(self):
+        for tid, owner in (("t-own-1", EMP1), ("t-own-2", EMP2)):
+            self.db.add(models.Task(id=tid, title=f"Owned by {owner}", company_id="", owner_email=owner, created_by=owner))
+            for _ in range(2):
+                self.db.add(models.TaskEmailLog(id=str(uuid.uuid4()), task_id=tid, event_type="created",
+                                                idempotency_key=str(uuid.uuid4()), recipient=EMP1,
+                                                subject=f"About {tid}", status="sent", created_at="2026-11-02T10:00:00"))
+        self.db.commit()
+        self._as(ADMIN)
+        out = self.client.get("/tasks/notify/log?limit=1").json()
+        self.assertEqual(out["total"], 2)          # counted in the database, not the page
+        self.assertEqual([r["taskId"] for r in out["rows"]], ["t-own-1"])
+
+    def test_repeats_and_case_in_a_stored_list_are_no_change(self):
+        row = models.NexusSetting(key="task_notify_config",
+                                  value=json.dumps({"defaultCc": ["Ops@greensglobal.com", "ops@greensglobal.com"]}))
+        self.db.add(row)
+        self.db.commit()
+        self._as(ADMIN)
+        r = self.client.put("/tasks/notify/settings", json={"defaultCc": ["ops@greensglobal.com"], "dueSoonDays": 3})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_domains_in_another_order_are_no_change(self):
+        ent = self.db.get(models.HrEntity, C1)
+        ent.domains = "a.example.com,b.example.com"
+        self.db.commit()
+        self._as(ADMIN)
+        r = self.client.patch(f"/hr/entities/{C1}", json={"domains": "B.example.com, a.example.com", "notes": "hi"})
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self.client.patch(f"/hr/entities/{C1}", json={"domains": "c.example.com"})
+        self.assertEqual(r.status_code, 403, r.text)
+
+    def test_test_sends_and_resends_stay_inside_the_walls(self):
+        from routers import workforce_scorecard as wsc_router
+        self._as(ADMIN)
+        # The digest: another company's person is not there; another address is refused.
+        self.assertEqual(self.client.post("/weekly-digest/test-send", json={"employee_email": EMP2}).status_code, 404)
+        r = self.client.post("/weekly-digest/test-send", json={"employee_email": EMP1, "to": ["inbox@elsewhere.com"]})
+        self.assertEqual(r.status_code, 403, r.text)
+        # The scorecard: the same rule for the addresses.
+        emp = self.db.query(models.NexusEmployee).filter_by(work_email=EMP1).first()
+        real = wsc_router._recipient
+        wsc_router._recipient = lambda db, email, cfg: (emp, None, "all") if email == EMP1 else (None, None, "")
+        try:
+            r = self.client.post("/workforce-scorecard/test-send", json={"manager_email": EMP1, "to": ["inbox@elsewhere.com"]})
+            self.assertEqual(r.status_code, 403, r.text)
+            self.assertEqual(self.client.post("/workforce-scorecard/test-send", json={"manager_email": EMP2}).status_code, 404)
+        finally:
+            wsc_router._recipient = real
+        # Force resends of another company's person: not found.
+        digest = models.NexusWeeklyDigestLog(id=str(uuid.uuid4()), employee_email=EMP2, week_start="2026-10-26")
+        card = models.NexusWorkforceScorecardLog(id=str(uuid.uuid4()), manager_email=EMP2, week_start="2026-10-26")
+        self.db.add_all([digest, card])
+        self.db.commit()
+        self.assertEqual(self.client.delete(f"/weekly-digest/log/{digest.id}").status_code, 404)
+        self.assertEqual(self.client.delete(f"/workforce-scorecard/log/{card.id}").status_code, 404)
+        self.assertIsNotNone(self.db.get(models.NexusWeeklyDigestLog, digest.id))
+
+
 if __name__ == "__main__":
     unittest.main()

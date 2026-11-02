@@ -132,7 +132,21 @@ def get_my_role(
             # A company wall confines the caller (auth.company_scope is not
             # None): the organization-wide records (branding, shared rules)
             # are not theirs to change - settings_walls.require_company_wide.
-            "company_walled": _company_walled(db, user)}
+            "company_walled": _company_walled(db, user),
+            # The same companies with their names, for Settings' company list
+            # when People's /hr/entities is not the caller's to read (a
+            # manager who may still change their company's shift settings).
+            "manage_company_rows": _manage_company_rows(db, user)}
+
+
+def _manage_company_rows(db: Session, user: dict) -> list:
+    from models import HrEntity
+    from routers.timeclock import _manage_companies
+    allowed = _manage_companies(db, user)
+    if not allowed:
+        return []
+    return [{"id": e.id, "name": e.name or ""} for e in
+            db.query(HrEntity.id, HrEntity.name).filter(HrEntity.id.in_(sorted(allowed))).order_by(HrEntity.name).all()]
 
 
 def _company_walled(db: Session, user: dict) -> bool:

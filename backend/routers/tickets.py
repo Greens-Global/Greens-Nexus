@@ -3442,6 +3442,10 @@ def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager
                 and not auth.is_global_admin(user, db)):
             raise PermissionError("Only a Super Administrator can change the sending mailbox, the reply-to "
                                   "address or Always CC.")
+        # Who new tickets go to: other companies' desks kept as stored, the
+        # fallback desk and the ticket admin a Super Administrator's, and
+        # only Nexus People on a roster.
+        patch = ticket_notify.wall_rosters(db, user, patch, get_notify_settings(db))
         patch = ticket_inbound.clean_settings_patch(db, patch, user)
         return save_notify_settings(db, patch, user["email"])
     except PermissionError as e:

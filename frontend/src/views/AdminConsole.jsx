@@ -389,8 +389,9 @@ const GROUPS = [
     needs: { role: 'manager', desk: 'supervisor' },
     sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
     keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields help topics what do you need help with saved replies canned responses default assignee auto assign ai summary suggested help topic' },
+  // PUT /ticket-property/rules: an Administrator or a desk supervisor (ticket_roles.can_manage_desk).
   { id: 'ticket-property-rules', subject: 'tickets', face: 'org', scope: 'org', icon: MapPinned, title: 'Property Rules',
-    needs: { role: 'administrator', grant: ['tickets', 'full'], orgWide: true },
+    needs: { role: 'administrator', orDesk: true, orgWide: true },
     sub: 'Which tickets must name the property they are about, by service area and by help topic.',
     keywords: 'property tickets required service area help topic facility unit link suggest' },
   // Time & Pay
@@ -620,6 +621,7 @@ const GROUP_META = Object.fromEntries(GROUPS.map(g => [g.id, g]));
 //            company's HR contact - never the manager tier (the labor budget)
 //   desk     'supervisor': a ticket desk supervisor (ticket_roles
 //            .can_manage_desk, from /task-tickets/my-access)
+//   orDesk   a desk supervisor passes too, below the role tier
 //   orgWide  one record for every company (branding, shared rules -
 //            settings_walls.require_company_wide): no company wall may
 //            confine the caller (companyWalled, from /roles/me)
@@ -629,7 +631,8 @@ function mayOpen(g, who, company) {
   const { can, canAccessModule, hrScope, hrTeam, manageCompanies, companyWalled, desk } = who;
   const n = g.needs || { role: 'administrator' };
   const grants = n.grant ? (Array.isArray(n.grant[0]) ? n.grant : [n.grant]) : [];
-  if (!can(n.role) && !grants.some(([m, l]) => canAccessModule?.(m, n.role, l))) return false;
+  if (!can(n.role) && !grants.some(([m, l]) => canAccessModule?.(m, n.role, l))
+      && !(n.orDesk && desk?.canManageDesk)) return false;
   if (n.desk === 'supervisor' && !desk?.canManageDesk) return false;
   if (n.orgWide && companyWalled) return false;
   if (n.teamWide && Array.isArray(manageCompanies)) return false;
@@ -1701,14 +1704,24 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
   // back to Every company - or, for someone whose access is limited to some
   // companies, their first one - with a notice. No panel mounts against it
   // meanwhile (`companyPending` below).
-  const knownCompany = !company || entities.some(e => e.id === company);
+  // A company whose settings they may change (/roles/me manage_companies) is
+  // always theirs to open. An unknown one is asked for again past the cache
+  // once (someone may have just added it) before it is dropped.
+  const knownCompany = !company || entities.some(e => e.id === company)
+    || (Array.isArray(who.manageCompanies) && who.manageCompanies.includes(company));
   const entitiesKnown = entitiesState === 'ok' || entitiesState === 'denied';
+  const refetchedFor = useRef('');
   useEffect(() => {
     if (!company || !entitiesKnown || knownCompany) return;
+    if (refetchedFor.current !== company && entitiesState === 'ok') {
+      refetchedFor.current = company;
+      refreshEntities?.(true);
+      return;
+    }
     const fallback = Array.isArray(who.hrScope) ? (entities[0]?.id || '') : '';
     toast?.(fallback ? 'That company is not one you can open - showing one of yours.' : 'That company is not one you can open - showing every company.', 'error');
     go(home ? { home: true, company: fallback } : { subject: subject || 'companies', group: '', company: fallback });
-  }, [company, entitiesKnown, knownCompany]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [company, entitiesKnown, knownCompany, entities]);   // eslint-disable-line react-hooks/exhaustive-deps
   const companyPending = !!company && !knownCompany;
 
   // A jump within the subject on screen (rail links, the "Different for"
@@ -2149,17 +2162,22 @@ export default function AdminConsole({ activeSub, onSubChange }) {
   // list is not theirs - a Full Employee Tracking grant then reads the
   // companies it may set the Workforce Analytics Policy for) or 'error' (a
   // failed load: the page says so with Retry, never "No companies yet").
+  // `fresh` skips the 2-minute cache (an address naming a company this list
+  // does not know yet). Refused both lists, a person still sees the companies
+  // whose settings they may change (/roles/me manage_company_rows).
+  const { manageCompanyRows } = useRole();
   const [entities, setEntities] = useState([]);
   const [entitiesState, setEntitiesState] = useState('loading');
-  const refreshEntities = useCallback(() => {
+  const refreshEntities = useCallback((fresh = false) => {
     const refused = (e) => e?.status === 403;
     setEntitiesState(s => (s === 'error' ? 'loading' : s));
-    return api.getEntities()
+    return (fresh === true ? api.getEntitiesFresh() : api.getEntities())
       .catch(e => (refused(e) ? api.timeMonitoringCompanies() : Promise.reject(e)))
       .then(rows => { setEntities(rows || []); setEntitiesState('ok'); },
         e => { if (refused(e)) { setEntities([]); setEntitiesState('denied'); } else setEntitiesState('error'); });
   }, []);
   useEffect(() => { refreshEntities(); }, [refreshEntities]);
+  const shownEntities = entitiesState === 'denied' && !entities.length && Array.isArray(manageCompanyRows) ? manageCompanyRows : entities;
 
   // Full-bleed, like every other module (HR, Item Management, Tickets) - no
   // maxWidth cap or extra padding of its own. .viewport (App.jsx) already
@@ -2198,7 +2216,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
       ) : (
         <SettingsBody subject={resolved.subject} group={resolved.group} company={resolved.company} onNavigate={navigate}
           home={!!resolved.home} onHome={() => onSubChange?.(resolved.company ? `settings@${resolved.company}` : 'settings')}
-          onDirtyChange={setSettingsDirty} entities={entities} entitiesState={entitiesState} refreshEntities={refreshEntities}
+          onDirtyChange={setSettingsDirty} entities={shownEntities} entitiesState={entitiesState} refreshEntities={refreshEntities}
           toast={showToast} toastOk={toastOk} toastErr={toastErr} />
       )}
 

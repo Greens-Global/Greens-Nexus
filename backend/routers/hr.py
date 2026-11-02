@@ -2986,7 +2986,7 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
     # domain-based auto-assignment. The form may send its copy back: only a
     # CHANGE is refused (11/02/2026), and the unchanged value is not re-saved.
     if scope is not None and body.domains is not None:
-        if _norm_domains(body.domains) != _norm_domains(row.domains or ""):
+        if set(_norm_domains(body.domains).split(",")) - {""} != set(_norm_domains(row.domains or "").split(",")) - {""}:
             raise HTTPException(403, "Only a company-wide admin can change a company's email domains")
         body.domains = None
     if body.name is not None and not body.name.strip():

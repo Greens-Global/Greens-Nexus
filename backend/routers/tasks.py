@@ -6999,27 +6999,31 @@ def put_my_task_notify_prefs(body: dict, user: dict = Depends(get_current_user),
 def _walled_email_log(db: Session, user: dict, q):
     """The delivery log as `user` may read it (11/02/2026): every row names
     a task and carries its subject line, so a caller sees only the rows of
-    tasks they could open - inside their company wall and by the task's own
-    visibility rule (task_visible_to, the one per-task rule). A row whose
-    task no longer exists is a Super Administrator's alone. Checked per
-    task, not per row: the distinct task ids are read once."""
+    tasks inside their company wall. The route is the manager tier's, which
+    sees every task inside its wall (task_visible_to), so the wall is the
+    whole rule. A row whose task no longer exists is a Super Administrator's
+    alone. Done in SQL - the task's company is task_util.task_company's
+    rule (its stamped company, else its owner's, else its creator's) - so
+    the count and the page stay in the database."""
     import auth
+    from sqlalchemy.orm import aliased
     if auth.is_global_admin(user, db):
         return q
-    ids = [tid for (tid,) in q.with_entities(models.TaskEmailLog.task_id).distinct().all() if tid]
-    tasks = db.query(models.Task).filter(models.Task.id.in_(ids)).all() if ids else []
+    q = q.join(models.Task, models.Task.id == models.TaskEmailLog.task_id)
     scope = auth.company_scope(user, db)
-    walled = {t.id for t in wall_tasks(db, user, tasks, scope)}
-    visible = None
-    ok = []
-    for t in tasks:
-        if t.id not in walled:
-            continue
-        if visible is None and not is_manager(user):
-            visible = visible_project_ids(db, user)
-        if task_visible_to(db, user, t, visible):
-            ok.append(t.id)
-    return q.filter(models.TaskEmailLog.task_id.in_(ok)) if ok else q.filter(false())
+    if scope is None:
+        return q
+    if not scope:
+        return q.filter(false())
+    owner = aliased(models.NexusEmployee)
+    creator = aliased(models.NexusEmployee)
+    q = (q.outerjoin(owner, and_(models.Task.owner_email != "",
+                                 func.lower(owner.work_email) == func.lower(models.Task.owner_email)))
+          .outerjoin(creator, and_(models.Task.created_by != "",
+                                   func.lower(creator.work_email) == func.lower(models.Task.created_by))))
+    company = func.coalesce(func.nullif(func.trim(models.Task.company_id), ""), func.nullif(owner.company, ""),
+                            func.nullif(creator.company, ""), "")
+    return q.filter(company.in_(sorted(scope)))
 
 
 @router.get("/notify/log")

@@ -257,7 +257,7 @@ def _norm(v):
     if isinstance(v, str):
         return v.strip().lower()
     if isinstance(v, list):
-        return sorted(str(_norm(x)) for x in v)
+        return sorted({str(_norm(x)) for x in v if str(_norm(x))})   # order, case, blanks and repeats are no change
     return v
 
 

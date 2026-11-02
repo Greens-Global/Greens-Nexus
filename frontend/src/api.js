@@ -3482,3 +3482,6 @@ api.resolveJobsiteLink = (link) => req('/timeclock/jobsites/resolve-link', { met
 // reset of one Settings group's own keys (the rest of the override stays).
 api.timeMonitoringCompanies = () => req('/timeclock/monitoring/companies');
 api.shiftRequestSettingsResetKeys = (company, keys) => req(`/timeclock/shift-requests/settings?company=${encodeURIComponent(company)}&keys=${encodeURIComponent((keys || []).join(','))}`, { method: 'DELETE' });
+// The companies again, past the 2-minute cache: Settings asks once when an
+// address names a company it does not know (someone may have just added it).
+api.getEntitiesFresh = () => req('/hr/entities');

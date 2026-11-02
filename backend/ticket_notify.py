@@ -144,6 +144,52 @@ def clean(patch: dict) -> dict:
     return out
 
 
+def wall_rosters(db: Session, user: dict, patch: dict, current: dict) -> dict:
+    """Who new tickets go to, checked against the caller (11/02/2026).
+
+      - agentEmailsByCompany: the caller sets or clears only the companies
+        their wall admits (auth.company_ok); every other company's roster
+        is kept exactly as stored, whatever the patch says about it.
+      - agentEmails (the every-company fallback desk) and ticketAdminEmail
+        (the last-resort recipient) are the whole organization's: a CHANGE
+        is a Super Administrator's (PermissionError).
+      - Anyone newly put on a roster must be on the Nexus People list (an
+        active internal record) - ValueError naming them otherwise. A name
+        already on a roster is not re-checked.
+    `patch` is a clean()ed patch; returns it with the rosters walled."""
+    import auth
+    import scoped_settings
+    patch = dict(patch)
+    if (scoped_settings.changed_keys(current, patch, ("agentEmails", "ticketAdminEmail"))
+            and not auth.is_global_admin(user, db)):
+        raise PermissionError("Only a Super Administrator can change the fallback desk or the ticket administrator - "
+                              "they receive tickets from every company.")
+    known = {e for e in (current.get("agentEmails") or [])}
+    stored_by = {str(c): list(v or []) for c, v in (current.get("agentEmailsByCompany") or {}).items()}
+    for lst in stored_by.values():
+        known.update(lst)
+    if "agentEmailsByCompany" in patch:
+        scope = auth.company_scope(user, db)
+        out = {c: v for c, v in stored_by.items() if not auth.company_ok(c, scope)}
+        for cid, lst in (patch.get("agentEmailsByCompany") or {}).items():
+            if auth.company_ok(cid, scope) and lst:
+                out[cid] = lst
+        patch["agentEmailsByCompany"] = out
+    added = set(patch.get("agentEmails") or []) - known
+    for cid, lst in (patch.get("agentEmailsByCompany") or {}).items():
+        added |= set(lst) - set(stored_by.get(cid) or [])
+    if added:
+        people = {(e or "").strip().lower() for (e,) in db.query(models.NexusEmployee.work_email)
+                  .filter(func.lower(models.NexusEmployee.work_email).in_(sorted(added)),
+                          models.NexusEmployee.status.in_(["active", "onboarding"]),
+                          func.coalesce(models.NexusEmployee.identity_type, "internal") == "internal").all()}
+        strangers = sorted(added - people)
+        if strangers:
+            raise ValueError(f"{', '.join(strangers)} {'is' if len(strangers) == 1 else 'are'} not on the Nexus People "
+                             "list - only people in People can be on the service desk.")
+    return patch
+
+
 def lock(db: Session):
     """Take the settings row lock before reading for a save (scoped_settings.lock_row)."""
     import scoped_settings as ss

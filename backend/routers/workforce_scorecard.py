@@ -118,6 +118,10 @@ def update_config(body: ConfigIn, user: dict = Depends(require_administrator), d
         patch = sc.validate(patch)
         # Whether the weekly email goes out, and who the tests go to, is the
         # whole organization's (Neil, 11/02/2026): Super Administrators only.
+        # The row lock first: the change is judged against the value stored
+        # now, so a stale form never writes back a mode a Super Administrator changed.
+        import scoped_settings
+        scoped_settings.lock_row(db, sc._SETTINGS_KEY)
         settings_walls.refuse_change(db, user, sc.get_settings(db), patch, ("mode", "test_recipients"))
         return sc.save_settings(db, patch, user["email"])
     except ValueError as e:
