@@ -19,7 +19,10 @@ function known(err) {
 export const browseProblem = (err) => known(err) || (err?.status === 403 ? NOT_ALLOWED : 'Could not reach Egnyte just now. Try again in a moment.');
 
 export const openProblem = (target, err) => {
-  if (target?.kind !== 'egnyte') return 'Could not get that document as a PDF. Try again in a moment.';
+  if (target?.kind !== 'egnyte') {
+    if (err?.status === 403 || err?.status === 404) return 'You do not have access to that document as a PDF.';
+    return 'Could not get that document as a PDF. Try again in a moment.';
+  }
   if (err?.status === 403) return 'You do not have access to that file in Egnyte.';
   return known(err) || 'Could not open that file from Egnyte. Try again in a moment.';
 };

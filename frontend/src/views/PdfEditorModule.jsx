@@ -251,7 +251,7 @@ export default function PdfEditorModule() {
     if (sendingRef.current) return;
     if (docRef.current.dirty) {
       const ok = await dialog.confirm(
-        'Your edits go with this copy to Nexus Sign and PDF Tools closes the file, so cancelling the send there does not bring them back. Save first to keep a copy.',
+        'Your edits go with this copy to Nexus Sign and PDF Tools closes the file, so canceling the send there does not bring them back. Save first to keep a copy.',
         { title: 'Send This Version?', confirmText: 'Continue To Nexus Sign', cancelText: 'Keep Editing' });
       if (!ok) return;
     }

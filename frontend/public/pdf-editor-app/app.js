@@ -1007,7 +1007,7 @@
                 { key: 'new',   label: 'Open as New PDF' },
                 { key: 'merge', label: 'Merge Into Current PDF' },
             ]);
-            if (!choice) return;                       // cancelled
+            if (!choice) return;                       // canceled
             if (choice === 'merge') { await mergeFilesIntoDoc([file]); return; }
         }
         loadPDF(file);
@@ -1116,12 +1116,12 @@
         }
     }
 
-    // Resolves true when the document opened, false when it did not (cancelled,
+    // Resolves true when the document opened, false when it did not (canceled,
     // wrong password, damaged); in that case the open document is untouched.
     async function loadPDF(file) {
         setStatus('Loading PDF...');
         // Nothing about the open document changes until the new one has really
-        // opened: a cancelled password prompt or a bad file leaves it as it was.
+        // opened: a canceled password prompt or a bad file leaves it as it was.
         const _prevBytes = state.pdfBytes, _prevName = state.fileName;
 
         try {
@@ -1140,7 +1140,7 @@
                     // Locked PDF → ASK for the password instead of erroring out
                     if (err && err.name === 'PasswordException') {
                         if (attempt >= 3) {
-                            setStatus('Open cancelled - incorrect password');
+                            setStatus('Open canceled - incorrect password');
                             showToast('Incorrect password - the PDF was not opened');
                             return false;
                         }
@@ -2118,7 +2118,7 @@
         }
 
         // If image tool, open file picker immediately (A7: also give a hint and
-        // let a canvas click re-open the picker if the user cancelled).
+        // let a canvas click re-open the picker if the user canceled).
         if (tool === 'image') {
             applyToolMode();
             setStatus('Insert image: choose a PNG or JPG to place on the page');
@@ -2345,7 +2345,7 @@
 
     // ── Text Tool ──
     function handleCanvasClick(opt) {
-        // Image tool still armed (the picker was cancelled): a click on the page
+        // Image tool still armed (the picker was canceled): a click on the page
         // picks the image again and places it there.
         if (state.activeTool === 'image' && !opt.target) {
             _imageInsertAt = fabricCanvas.getPointer(opt.e);
@@ -3342,7 +3342,7 @@
     // the scale. Kept separate so handleMeasureClick stays sync.
     async function _finishCalibration(px) {
         if (!_scaleChangeAllowed()) return;
-        // Loop until valid or cancelled, so bad input doesn't strand a half-state
+        // Loop until valid or canceled, so bad input doesn't strand a half-state
         // with the calibration line already gone (M17).
         let realLen = null, unit = measureUnit;
         for (;;) {
@@ -6692,7 +6692,7 @@
                             if (window.pdfLayers && window.renderLayersPanel) try { window.renderLayersPanel(); } catch (_) {}
                             showToast('Hidden layers shown - review, then Download again');
                         }
-                        setStatus('Download cancelled');
+                        setStatus('Download canceled');
                         return;
                     }
                 }
@@ -6713,7 +6713,7 @@
                 const choice = await _choiceModal('Some pages will be flattened',
                     redactPages + ' page' + (redactPages > 1 ? 's' : '') + ' with redaction will be saved as an image - the text under the redaction boxes is permanently removed and those pages will no longer be searchable. Bookmarks, comments, attachments and document properties are removed from the saved file, and form fields become plain content. This is how redaction protects the content. Continue?',
                     [{ key: 'go', label: 'Save' }, { key: 'goquiet', label: 'Save, don\'t warn again' }]);
-                if (choice !== 'go' && choice !== 'goquiet') { setStatus('Download cancelled'); return; }
+                if (choice !== 'go' && choice !== 'goquiet') { setStatus('Download canceled'); return; }
                 if (choice === 'goquiet') _suppressRasterWarn = true;
             }
         } catch (_) { /* best-effort */ }
@@ -8725,7 +8725,7 @@
     }
 
     // In-app text prompt (Electron does not support window.prompt()).
-    // Returns a Promise resolving to the entered string, or null if cancelled.
+    // Returns a Promise resolving to the entered string, or null if canceled.
     function customPrompt(message, placeholder = '', defaultValue = '') {
         return new Promise((resolve) => {
             const overlay = document.createElement('div');
@@ -9195,7 +9195,7 @@
 
     // ── OCR (Make Searchable PDF) ──
     let ocrWorker = null;
-    let ocrCancelled = false;
+    let ocrCanceled = false;
 
     let _ocrRunning = false;
     async function runOCR() {
@@ -9216,7 +9216,7 @@
         if (!langPick) { _ocrRunning = false; dom.ocrBtn.disabled = false; return; }
         const ocrLang = langPick.lang || 'eng';
 
-        ocrCancelled = false;
+        ocrCanceled = false;
         dom.ocrProgress.style.display = 'flex';
         dom.ocrStatus.textContent = 'Loading OCR engine...';
         dom.ocrProgressBar.style.width = '0%';
@@ -9277,7 +9277,7 @@
             const totalPages = pages.length;
 
             for (let i = 0; i < totalPages; i++) {
-                if (ocrCancelled) break;
+                if (ocrCanceled) break;
 
                 const pageNum = i + 1;
                 dom.ocrStatus.textContent = 'OCR page ' + pageNum + ' of ' + totalPages + '...';
@@ -9303,7 +9303,7 @@
 
                 let _ocrSkipped = 0, _ocrTotal = 0;
                 for (const word of data.words) {
-                    if (ocrCancelled) break;
+                    if (ocrCanceled) break;
                     if (!word.text.trim()) continue;
                     _ocrTotal++;
 
@@ -9328,7 +9328,7 @@
                 }
             }
 
-            if (!ocrCancelled) {
+            if (!ocrCanceled) {
                 // Save the searchable PDF
                 const newBytes = await pdfLibDoc.save();
                 await _reloadFromBytes(newBytes);
@@ -9343,8 +9343,8 @@
                 }, 2000);
             } else {
                 dom.ocrProgress.style.display = 'none';
-                showToast('OCR cancelled');
-                setStatus('OCR cancelled');
+                showToast('OCR canceled');
+                setStatus('OCR canceled');
             }
 
             try { await worker.terminate(); } catch (_) { /* already terminated by cancel */ }
@@ -9368,7 +9368,7 @@
     }
 
     async function cancelOCR() {
-        ocrCancelled = true;
+        ocrCanceled = true;
         _ocrRunning = false;
         if (ocrWorker) {
             try { await ocrWorker.terminate(); } catch (e) { /* ignore */ }
@@ -9546,7 +9546,7 @@
     }
 
     // A simple choice modal: a prompt + N buttons. Resolves the chosen button's
-    // `key`, or null if cancelled (x / Escape / backdrop). The first option is
+    // `key`, or null if canceled (x / Escape / backdrop). The first option is
     // styled as the primary action.
     function _choiceModal(title, message, options) {
         return new Promise((resolve) => {
@@ -10019,7 +10019,7 @@
                 out += '=== Page ' + p + ' ===\n' + parts.join('\n') + '\n\n';
             }
             if (!out.replace(/=== Page \d+ ===/g, '').trim()) {
-                showToast('No selectable text found — this looks scanned. Run Scan & OCR first.');
+                showToast('No selectable text found - this looks scanned. Run Scan & OCR first.');
                 setStatus('No text to extract (scanned document)');
                 return;
             }
@@ -10079,7 +10079,7 @@
             <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noPrint"><span>No printing</span></label>
             <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noCopy"><span>No copying text</span></label>
             <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noModify"><span>No editing</span></label>
-            <p class="modal-hint" style="margin-top:8px;color:#e07300;">⚠ If the open-password is lost, NO app can open the file — not even this one. Store it safely.</p>`,
+            <p class="modal-hint" style="margin-top:8px;color:#e07300;">⚠ If the open-password is lost, NO app can open the file - not even this one. Store it safely.</p>`,
             'Encrypt & Save');
         if (!v) return;
         if (!v.user && !v.owner && !v.noPrint && !v.noCopy && !v.noModify) { showToast('Set a password or a restriction first'); return; }
@@ -11073,7 +11073,7 @@
     }
 
     // A promise nobody caught used to fail in silence: the button just did nothing.
-    // Cancelled renders and aborted transfers are routine, not failures.
+    // Canceled renders and aborted transfers are routine, not failures.
     window.addEventListener('unhandledrejection', (e) => {
         const name = e.reason && e.reason.name;
         if (name === 'RenderingCancelledException' || name === 'AbortException' || name === 'AbortError') return;
@@ -12050,7 +12050,7 @@
             });
             const blob = await docx.Packer.toBlob(doc);
             const fileName = _baseName() + '.docx';
-            setStatus('Word ready — preview');
+            setStatus('Word ready - preview');
             const note = _textFormatNote(t);
             if (note) showToast('Word preview ready' + note);
             // Don't auto-download: show how the Word file will look first, then
@@ -12086,7 +12086,7 @@
                 .join('');
             wrap = false;
         } else {
-            bodyHtml = '<p style="color:#888">Preview unavailable — you can still download.</p>';
+            bodyHtml = '<p style="color:#888">Preview unavailable - you can still download.</p>';
             try {
                 if (!window.mammoth) await loadScript('libs/mammoth.browser.min.js').catch(() => {});
                 if (window.mammoth) {
@@ -12103,7 +12103,7 @@
         ov.innerHTML =
             '<div class="word-preview-modal">' +
               '<div class="word-preview-head">' +
-                '<span class="word-preview-title">Word preview — ' + escapeHtml(fileName) + '</span>' +
+                '<span class="word-preview-title">Word preview - ' + escapeHtml(fileName) + '</span>' +
                 '<div class="word-preview-actions">' +
                   '<button class="wp-btn wp-cancel">Close</button>' +
                   '<button class="wp-btn wp-download">Download .docx</button>' +

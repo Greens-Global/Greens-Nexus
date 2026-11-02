@@ -1111,7 +1111,7 @@
     wrap.appendChild(tools);
     dz.appendChild(wrap);
 
-    // If the picker is cancelled, disarm the landing-card action so a later
+    // If the picker is canceled, disarm the landing-card action so a later
     // manual open doesn't unexpectedly fire a stale tool/export.
     el('#fileInput')?.addEventListener('cancel', () => { pendingAction = null; });
   }

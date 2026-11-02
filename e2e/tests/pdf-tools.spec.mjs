@@ -90,7 +90,7 @@ const SECRETS = {
 };
 const hexOf = (s) => Buffer.from(s, 'latin1').toString('hex').toUpperCase();
 
-async function simplePdf(texts, { size = [612, 792], rotate = 0 } = {}) {
+async function simplePdf(texts, { size = [612, 792], rotate = 0, loose = false } = {}) {
   const d = await PDFDocument.create();
   const font = await d.embedFont(StandardFonts.Helvetica);
   for (const t of texts) {
@@ -98,7 +98,8 @@ async function simplePdf(texts, { size = [612, 792], rotate = 0 } = {}) {
     p.drawText(t, { x: 72, y: size[1] - 90, size: 14, font });
     if (rotate) p.setRotation(degrees(rotate));
   }
-  return Buffer.from(await d.save());
+  // loose: written without object streams, so Compress has something to win.
+  return Buffer.from(await d.save({ useObjectStreams: !loose }));
 }
 
 // Page 1 carries the secret in its text, and in everything a saved PDF can leak
@@ -212,19 +213,20 @@ async function verifier(browser) {
   const page = await ctx.newPage();
   await settled(async () => {
     await page.goto(`${BASE}/__blank`);
-    await page.addScriptTag({ url: `${BASE}/libs/pdf.min.js` });
+    await page.addScriptTag({ url: `${BASE}/libs/pdf.min.js`, type: 'module' });
   });
+  await page.waitForFunction(() => !!window.pdfjsLib);
   await page.evaluate((b) => {
     pdfjsLib.GlobalWorkerOptions.workerSrc = `${b}/libs/pdf.worker.min.js`;
     window.__worker = new pdfjsLib.PDFWorker(); // one worker: a new one per file ran the machine out of sockets
-    window.__open = (b64, password) => pdfjsLib.getDocument({ worker: window.__worker, data: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), ...(password ? { password } : {}) }).promise;
+    window.__open = async (b64, password) => { const task = pdfjsLib.getDocument({ worker: window.__worker, data: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), ...(password ? { password } : {}) }); const doc = await task.promise; doc.destroy = () => task.destroy(); return doc; };
     window.__render = async (doc, n, scale) => {
       const p = await doc.getPage(n);
       const v = p.getViewport({ scale });
       const c = document.createElement('canvas');
       c.width = v.width; c.height = v.height;
       const g = c.getContext('2d');
-      await p.render({ canvasContext: g, viewport: v }).promise;
+      await p.render({ canvas: c, canvasContext: g, viewport: v }).promise;
       return { c, g, rotate: p.rotate, view: p.view };
     };
     // How much of a region (fractions of the page) matches a predicate, 0..1.
@@ -797,8 +799,8 @@ async function addRect(page, [x0, y0, x1, y1], fill) {
 }
 const toPage = (page, n) => page.evaluate((n) => window.__hooks.goto(n), n);
 // A document open in the editor with one colored box on each page in `marks`.
-async function markedPages(browser, marks, texts = ['P1', 'P2', 'P3', 'P4']) {
-  const page = await openEngine(browser, await simplePdf(texts), 'pages.pdf', { query: HOOKS });
+async function markedPages(browser, marks, texts = ['P1', 'P2', 'P3', 'P4'], pdfOpts = {}) {
+  const page = await openEngine(browser, await simplePdf(texts, pdfOpts), 'pages.pdf', { query: HOOKS });
   await editView(page);
   for (const [n, color] of Object.entries(marks)) { await toPage(page, +n); await addRect(page, BOX, color); }
   return page;
@@ -919,13 +921,14 @@ test.describe('5. scroll mode', () => {
 
   test('Compress from scroll keeps the view and the markups', async ({ browser }) => {
     const v = await verifier(browser);
-    const page = await markedPages(browser, { 2: REDHEX }, ['ONE', 'TWO', 'THREE']);
+    const page = await markedPages(browser, { 2: REDHEX }, ['ONE', 'TWO', 'THREE'], { loose: true });
     await page.click('#scrollModeBtn');
     await page.waitForFunction(() => window.isScrollMode());
     await group(page, 'Optimize');
     await page.click('#compressBtn');
     await clickOk(page);
     await page.waitForFunction(() => /Compressed/.test(document.getElementById('statusText').textContent), null, { timeout: 30_000 });
+    await page.locator('.modal-overlay [data-act="cancel"]').click();
     expect(await page.evaluate(() => window.isScrollMode())).toBe(true);
     await expect(page.locator('#continuousView .cv-page')).toHaveCount(3);
     await page.waitForFunction(() => document.querySelector('#continuousView .cv-page canvas').width > 0);
@@ -1712,7 +1715,7 @@ test.describe('12. non-WinAnsi text', () => {
 // ═════════════════════════════════════════════════════════════════════════════
 test.describe('13. dirty tracking', () => {
   test('every kind of change counts as unsaved work, and a save clears it', async ({ browser }) => {
-    const page = await openEngine(browser, await simplePdf(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', ' ']), 'dirty.pdf', { query: HOOKS });
+    const page = await openEngine(browser, await simplePdf(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', ' '], { loose: true }), 'dirty.pdf', { query: HOOKS });
     const dirtyBtn = page.locator('#downloadBtn.dirty');
     expect(await isDirty(page), 'a fresh file').toBe(false);
     await expect(dirtyBtn).toHaveCount(0);
@@ -1728,6 +1731,8 @@ test.describe('13. dirty tracking', () => {
     const organize = async (id) => { await group(page, 'Organize Pages'); await page.click(id); };
     const pagesAre = (n) => page.waitForFunction((n) => document.getElementById('totalPages').textContent === String(n), n);
     const ops = {
+      // First: every later change leaves a file already packed, and a Compress that wins nothing changes nothing.
+      compress: async () => { await group(page, 'Optimize'); await page.click('#compressBtn'); await page.locator('.modal-overlay [data-k="level"]').selectOption('light'); await clickOk(page); await page.locator('.modal-overlay [data-act="cancel"]').click(); await settle(page, 600); },
       'a markup': async () => { await addRect(page, BOX, REDHEX); },
       rotate: async () => { await organize('#rotateBtn'); await expect(page.locator('.toast')).toContainText('rotated'); },
       'add page': async () => { await organize('#addPageBtn'); await clickOk(page); await pagesAre(10); },
@@ -1751,7 +1756,6 @@ test.describe('13. dirty tracking', () => {
       'remove blank': async () => { await organize('#rmBlankBtn'); await page.locator('.modal-overlay [data-choice="remove"]').click({ timeout: 5000 }); await settle(page, 600); },
       watermark: async () => { await organize('#watermarkBtn'); await clickOk(page); await settle(page, 600); },
       'page numbers': async () => { await organize('#pageNumBtn'); await clickOk(page); await settle(page, 600); },
-      compress: async () => { await group(page, 'Optimize'); await page.click('#compressBtn'); await page.locator('.modal-overlay [data-k="level"]').selectOption('light'); await clickOk(page); await settle(page, 600); },
       'hiding a layer': async () => { await page.evaluate(() => window.pdfLayers.setVisible(1, false)); await page.evaluate(() => window.pdfLayers.setVisible(1, true)); },
       undo: async () => { await page.click('#undoBtn'); await settle(page, 600); },
     };

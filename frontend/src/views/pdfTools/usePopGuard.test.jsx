@@ -7,7 +7,7 @@ vi.mock('../../lib/dialogGuard', async (orig) => ({
   askToLeave: vi.fn(() => Promise.resolve(guard.answer)),
 }));
 
-const { askToLeave, hasUnsavedWork, setInlineDirty } = await import('../../lib/dialogGuard');
+const { askToLeave, hasUnsavedWork, runPopGuard, setInlineDirty } = await import('../../lib/dialogGuard');
 const { default: usePopGuard } = await import('./usePopGuard');
 
 function Host({ dirty }) {
@@ -15,9 +15,10 @@ function Host({ dirty }) {
   return null;
 }
 
-// App's own popstate listener: registered without capture, like the real one.
+// App's own popstate listener, added first and asking first, like the real one:
+// Chrome runs a window's popstate listeners in the order they were added.
 let appHeard;
-const onAppPop = () => { appHeard += 1; };
+const onAppPop = (e) => { if (!runPopGuard(e)) appHeard += 1; };
 
 function popTo(path, depth) {
   window.history.replaceState({ depth }, '', path);
