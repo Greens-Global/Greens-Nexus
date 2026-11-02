@@ -208,6 +208,28 @@ describe('Approvals on a phone', () => {
     expect(screen.getByText('Approved 2 Requests')).toBeTruthy();
   });
 
+  it("after a decision focus lands on the next card's first decision, or on Undo when nothing is left", async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    render(<Approvals activeSub="" onSubChange={() => {}} />);
+    await screen.findByText(TIME_OFF);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    btn(/^Approve: Time Off/).focus();
+    fireEvent.click(btn(/^Approve: Time Off/));
+    expect(document.activeElement).toBe(btn(/^Approve: Reimbursement/));
+    // The last card of the list hands focus to the one above it.
+    await act(async () => { vi.advanceTimersByTime(400); });
+    fireEvent.click(btn(/^Accept: Dell Monitor/));
+    expect(document.activeElement).toBe(btn(/^Review: Time Sheet Review/));
+  });
+
+  it('focus goes to Undo when the last card is decided', async () => {
+    approvalsInbox.mockResolvedValue({ ...INBOX, rows: INBOX.rows.filter((r) => r.kind === 'time_off') });
+    render(<Approvals activeSub="" onSubChange={() => {}} />);
+    await screen.findByText(TIME_OFF);
+    fireEvent.click(btn(/^Approve: Time Off/));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Undo' }));
+  });
+
   // Review Focus 2: a no that needs a note opens the note sheet first and
   // never fires without it; the desktop prompt is never used on a phone.
   it('a reject that needs a note opens the note sheet and never fires without the note', async () => {

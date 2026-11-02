@@ -20,6 +20,9 @@
 //     fades the returning card in while the neighbors glide down;
 //   - the count pill bumps (scale 1 -> 1.08 -> 1, --dur-sm) when it changes;
 //   - the empty check pops once (--dur-md, --ease-spring).
+// Focus follows the list: after a decision it lands on the next card's first
+// decision (the one above when it was the last), or on the toast's Undo
+// when nothing is left.
 //   Reduced motion (or a test run) makes every wait 0: no ghost, no swipe,
 //   the card is simply gone.
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -55,9 +58,21 @@ export default function ApprovalsPhone({
   const cardEls = useRef(new Map());
   const timers = useRef(new Set());
   const lockUntil = useRef(0);
+  const focusAfter = useRef(null);     // { key: decided row, next: the card to focus, '' = the toast's Undo }
   const reduce = useReducedMotion();
   useFlip(listRef);
   useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear(); }, []);
+  // Runs after the render that hid the decided card (the toast is drawn in
+  // that same render, by ApprovalsCenter).
+  useEffect(() => {
+    const f = focusAfter.current;
+    if (!f || !hiddenKeys.has(f.key)) return;
+    focusAfter.current = null;
+    const root = listRef.current;
+    const card = f.next && root ? [...root.querySelectorAll('.apv-ph-card[data-key]')].find((c) => c.getAttribute('data-key') === f.next && !c.closest('.apv-ph-ghost')) : null;
+    const target = card?.querySelector('.apv-ph-acts button') || (!f.next ? document.querySelector('.apv-toast-undo') : null);
+    try { target?.focus({ preventScroll: !!card }); } catch { target?.focus(); }
+  });
 
   const visible = (r) => !hiddenKeys.has(r.key);
   const shown = useMemo(() => rows.filter((r) => !hiddenKeys.has(r.key)), [rows, hiddenKeys]);
@@ -73,6 +88,10 @@ export default function ApprovalsPhone({
   // on, a ghost of it holds its spot for the beat so the eye sees it go.
   const fire = (row, action, note, meta) => {
     lockUntil.current = Date.now() + LOCK_MS;
+    const live = listRef.current ? [...listRef.current.querySelectorAll('.apv-ph-card[data-key]')].filter((c) => !c.closest('.apv-ph-ghost')) : [];
+    const at = live.findIndex((c) => c.getAttribute('data-key') === row.key);
+    const next = at < 0 ? null : live[at + 1] || live[at - 1] || null;
+    focusAfter.current = { key: row.key, next: next ? next.getAttribute('data-key') : '' };
     const wait = motionWait(GHOST_MS);
     const el = cardEls.current.get(row.key);
     const root = listRef.current;
