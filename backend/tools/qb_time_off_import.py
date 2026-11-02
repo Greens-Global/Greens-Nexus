@@ -45,10 +45,22 @@ def _lazy_db():
     return lb, models, SessionLocal
 
 
-HR_ENTITY_IDS = {
-    "MCD": "7fcbe8bb-63af-4c5d-9696-1f2c8461b154",
-    "OSM": "52eaa7a3-c3ff-4072-a9f4-5d3c4072279e",
+# The QB company file -> the Nexus HR entity that holds its people. Resolved
+# by NAME at run time: the entity ids differ between the dev and prod
+# databases (the first cut hardcoded dev's ids, which do not exist on prod -
+# the cutover would have been written under a company nobody is in).
+HR_ENTITY_NAMES = {
+    "MCD": "Aarav Construction",
+    "OSM": "Oversite Management, Inc",
 }
+
+
+def _entity_id(db, models, comp: str) -> str:
+    name = HR_ENTITY_NAMES[comp]
+    row = (db.query(models.HrEntity)
+           .filter(models.HrEntity.name == name)
+           .first())
+    return row.id if row else ""
 
 
 def _parse_workbook(path: Path) -> list[dict]:
@@ -166,9 +178,8 @@ def run(company: str, xlsx: Path, commit: bool) -> int:
         return 2
 
     comp = company.upper()
-    company_id = HR_ENTITY_IDS.get(comp)
-    if not company_id:
-        print(f"ERROR: unknown company {comp!r}. Known: {sorted(HR_ENTITY_IDS)}")
+    if comp not in HR_ENTITY_NAMES:
+        print(f"ERROR: unknown company {comp!r}. Known: {sorted(HR_ENTITY_NAMES)}")
         return 2
 
     rows = cfg.get(comp) or {}
@@ -176,13 +187,17 @@ def run(company: str, xlsx: Path, commit: bool) -> int:
         print(f"ERROR: mapping file has no entries for {comp}.")
         return 2
 
-    print(f"=== {comp} ({company_id}) - cutover {cutover} ===")
     people = _parse_workbook(xlsx)
-    print(f"workbook: {len(people)} people parsed from {xlsx.name}\n")
 
     db = SessionLocal()
     actor = "qb_time_off_import"
     try:
+        company_id = _entity_id(db, models, comp)
+        if not company_id:
+            print(f"ERROR: no HR entity named {HR_ENTITY_NAMES[comp]!r} in this database.")
+            return 2
+        print(f"=== {comp} = {HR_ENTITY_NAMES[comp]} ({company_id}) - cutover {cutover} ===")
+        print(f"workbook: {len(people)} people parsed from {xlsx.name}\n")
         existing_cutover = lb.cutover(db, company_id)
         if not existing_cutover:
             print(f"CUTOVER: {comp} has no cutover set - would set to {cutover}")
@@ -257,7 +272,7 @@ def run(company: str, xlsx: Path, commit: bool) -> int:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--company", required=True, choices=sorted(HR_ENTITY_IDS))
+    ap.add_argument("--company", required=True, choices=sorted(HR_ENTITY_NAMES))
     ap.add_argument("--file", required=True, help="Path to the QB Time Off Report .xlsx")
     ap.add_argument("--commit", action="store_true", help="Actually write (default is dry-run)")
     ap.add_argument("--parse-only", action="store_true",
