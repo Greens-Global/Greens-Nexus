@@ -10,6 +10,8 @@
 //           ("Late 14m", "Left Early 1h", "No-Show", "On Now" - never "On
 //           Time"); the rule flags ("Overtime", "Outside Availability");
 //           the shift's own label only when it differs from the type name.
+//   line 3  the jobsite, when the shift names one (10/30/2026); its rain
+//           mark rides line 1 when that jobsite's sky is not quiet.
 // Everything else - the lunch, the note, the activities, the zone, every
 // conflict sentence, what the clock said - is the hover title and the
 // accessible name, and the panel. The time never truncates: the font
@@ -19,7 +21,8 @@
 // always, with `tapActual` (My Shifts) - a tap on the attendance word opens
 // a small sheet with the hover lines, since a phone has no hover.
 import { useEffect, useState } from 'react';
-import { Lock } from 'lucide-react';
+import { Lock, MapPin } from 'lucide-react';
+import WeatherChip, { weatherText } from './WeatherChip';
 import { formatDate } from '../../lib/datetime';
 import { timeOffLabel } from '../shiftScheduleLib';
 import { DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, shiftState, shiftTimeText, shiftShortText, shortTimeText, unpaidLabel, timeOffWhen, timeOffShort, isApprovedOff, isAllDayOff, zoneDiffers, actualLabel, actualColor, actualWord, actualException, flagOf, nextDay } from './shiftLib';
@@ -66,7 +69,12 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const weather = s.weatherStatus === 'cancelled' ? 'Cancelled for weather (unpaid)' : s.weatherStatus === 'delayed' ? 'Start delayed for weather'
     : s.weatherStatus === 'shortened' ? 'Ending early for weather' : s.weatherStatus === 'moved' ? 'Moved for weather' : s.weatherStatus === 'kept' ? 'Weather call: going ahead' : '';
   const cancelled = s.weatherStatus === 'cancelled';
-  const title = [`${shiftTimeText(s)}${label ? ` · ${label}` : ''}`, actText, weather, st.title, was ? `Team sees ${shiftTimeText(s.was)}` : '', unpaid, s.note,
+  // Where it is worked (the weather follows the jobsite, 10/30/2026), and
+  // that jobsite's own sky when it is not quiet. A jobsite with no address
+  // reads the team site's weather, which the day's chip already shows.
+  const site = s.jobsiteName ? `At ${s.jobsiteName}${s.jobsiteLocated === false ? " (no address yet - the team site's weather)" : ''}` : '';
+  const sky = s.weatherBand ? { band: s.weatherBand, chance: s.weatherChance || 0, inches: s.weatherInches || 0 } : null;
+  const title = [`${shiftTimeText(s)}${label ? ` · ${label}` : ''}`, site, sky ? weatherText(sky) : '', actText, weather, st.title, was ? `Team sees ${shiftTimeText(s.was)}` : '', unpaid, s.note,
     ...(s.activities || []).map((a) => `${a.start && a.end ? `${shiftTimeText(a)} ` : ''}${a.label || 'Activity'}${a.paid === false ? ' (unpaid)' : ''}`),
     otherZone ? `Times in ${zoneOptionLabel(zone)}` : '', ...(s.conflicts || [])].filter(Boolean).join('\n');
   const interactive = !!onOpen;
@@ -109,6 +117,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
         <span aria-hidden="true" data-type-dot="" style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
         <span style={{ whiteSpace: 'nowrap', flexShrink: 0, textDecoration: s.pendingDelete || cancelled ? 'line-through' : undefined }}>{shiftShortText(s)}{overnight && <span style={{ fontSize: '0.8em', color: 'var(--muted)', fontWeight: 600 }}> +1</span>}</span>
         {otherZone && <span title={`Times in ${zoneOptionLabel(zone)}`} style={{ fontSize: '0.8em', fontWeight: 600, color: 'var(--muted)', flexShrink: 0 }}>{tzAbbrev(zone)}</span>}
+        {sky && <WeatherChip w={sky} compact size={11} />}
         {typeName && <span data-type-name="" style={{ marginLeft: 'auto', fontSize: '0.82em', fontWeight: 600, color, flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{typeName}</span>}
       </div>
       {parts.length > 0 && (
@@ -116,6 +125,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
           {parts.map((p, i) => <span key={i}>{i > 0 && sep}{p}</span>)}
         </div>
       )}
+      {s.jobsiteName && !compact && <div data-jobsite="" style={{ ...LINE, fontSize: 10, color: 'var(--muted)', lineHeight: 1.35, display: 'flex', alignItems: 'center', gap: 3 }}><MapPin size={9} style={{ flexShrink: 0 }} /><span style={LINE}>{s.jobsiteName}</span></div>}
       {sheet && act && <ActualSheet at={sheet} shift={s} actual={act} text={actText} onClose={() => setSheet(null)} />}
       {children}
     </div>

@@ -1991,6 +1991,8 @@ export const api = {
   getConstructionOverview: () => req("/construction/overview"),
   getConstructionProjects: () => req("/construction/projects"),
   createConstructionProject: (data) => req("/construction/projects", { method: "POST", body: JSON.stringify(data) }),
+  // Project-based weather (Neil, 10/30/2026): every active jobsite's sky, see construction_weather.py
+  getConstructionWeather: (units = "imperial") => req(`/construction/weather?units=${units}`),
   getConstructionReviewQueue: () => req("/construction/review-queue"),
   getConstructionReports: (projectId) => req(`/construction/projects/${projectId}/reports`),
   generateConstructionReport: (projectId, data) => req(`/construction/projects/${projectId}/reports/generate`, { method: "POST", body: JSON.stringify(data) }),
@@ -2468,8 +2470,8 @@ export const api = {
   weatherWatchSettingsSave: (data) => req('/weather-watch/settings', { method: 'PUT', body: JSON.stringify(data) }),
   weatherWatchScan:         ()     => req('/weather-watch/scan', { method: 'POST' }),
   // The weather call itself: the screen, the decision, follow-up, acknowledging, a person's texts switch.
-  weatherCallScreen:    (groupId, date)       => req(`/weather-call/${encodeURIComponent(groupId)}/${date}`),
-  weatherCallDecide:    (groupId, date, data) => req(`/weather-call/${encodeURIComponent(groupId)}/${date}`, { method: 'POST', body: JSON.stringify(data) }),
+  weatherCallScreen:    (groupId, date, place = '')       => req(`/weather-call/${encodeURIComponent(groupId)}/${date}${place ? `?place=${encodeURIComponent(place)}` : ''}`),
+  weatherCallDecide:    (groupId, date, data, place = '') => req(`/weather-call/${encodeURIComponent(groupId)}/${date}${place ? `?place=${encodeURIComponent(place)}` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
   weatherCallReinstate: (id)                  => req(`/weather-call/${encodeURIComponent(id)}/reinstate`, { method: 'POST' }),
   weatherCallRemind:    (id)                  => req(`/weather-call/${encodeURIComponent(id)}/remind`, { method: 'POST' }),
   weatherCallAck:       (id)                  => req(`/weather-call/${encodeURIComponent(id)}/ack`, { method: 'POST' }),
@@ -3245,6 +3247,9 @@ export const api = {
   // light (a board's carry shapes / words, never its scene); this one
   // carries the board's scene for a preview or a restore.
   noteVersionGet: (noteId, versionId) => req(`/notes/${encodeURIComponent(noteId)}/versions/${encodeURIComponent(versionId)}`),
+  // The weather follows the jobsite (10/30/2026): "+ New Jobsite" in the
+  // shift popup - a name and an address make a Construction project.
+  createJobsite: (data) => req("/timeclock/jobsites", { method: "POST", body: JSON.stringify(data) }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

@@ -1449,6 +1449,11 @@ def _run_migrations():
             "ALTER TABLE server_sessions ADD COLUMN user_agent VARCHAR DEFAULT ''",
             "ALTER TABLE server_sessions ADD COLUMN ua_summary VARCHAR DEFAULT ''",
             "ALTER TABLE server_sessions ADD COLUMN location VARCHAR DEFAULT ''",
+            # The weather follows the jobsite (Neil, 10/30/2026) - see the Postgres list.
+            "ALTER TABLE scheduled_shifts ADD COLUMN jobsite VARCHAR DEFAULT ''",
+            "ALTER TABLE weather_outlook ADD COLUMN place VARCHAR DEFAULT ''",
+            "ALTER TABLE weather_advisories ADD COLUMN place VARCHAR DEFAULT ''",
+            "ALTER TABLE weather_decisions ADD COLUMN place VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3464,6 +3469,15 @@ def _run_migrations():
         "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS ua_summary VARCHAR DEFAULT ''",
         "ALTER TABLE server_sessions ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_sign_ins ENABLE ROW LEVEL SECURITY",
+        # The weather follows the jobsite (Neil, call of 10/30/2026): a shift
+        # names where it is worked ('' = the team's site, 'project-<id>' a
+        # construction project, 'site-<id>' a company site - jobsites.py), and
+        # Weather Watch / Weather Call key each band, notice and call on the
+        # team, the day AND that place ('' = the team's site, as before).
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS jobsite VARCHAR DEFAULT ''",
+        "ALTER TABLE weather_outlook ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
+        "ALTER TABLE weather_advisories ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
+        "ALTER TABLE weather_decisions ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4355,6 +4369,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] weather watch loop skipped: {e}")
         try:
+            # Project-based weather (Neil, 10/30/2026): each jobsite's people
+            # hear tomorrow's weather there the evening before, and a change
+            # in the morning. See construction_weather.daily_loop.
+            from construction_weather import daily_loop as construction_weather_loop
+            _tasks.append(_a.create_task(construction_weather_loop()))
+        except Exception as e:
+            print(f"[startup] construction weather loop skipped: {e}")
+        try:
             # Shifts Phase 1 (Oct 2026): the no-show scan - every minute, one
             # bell per manager / scheduler per team-day for anyone not clocked
             # in past start + grace + the company's noShowAlertMin, closed
@@ -4662,6 +4684,11 @@ async def lifespan(app: FastAPI):
                 # up once, server-side, paced; the browser no longer calls Nominatim.
                 from asset_geocode import geocode_loop
                 _tasks.append(_a.create_task(geocode_loop()))
+                # Construction jobsites' weather points (Neil, 10/30/2026): the
+                # projects that predate project-based weather get their address
+                # placed once, through the same one-a-second pacer.
+                from construction_weather import backfill_loop
+                _tasks.append(_a.create_task(backfill_loop()))
             else:
                 print("[startup] asset-files migration and geocode loops skipped (not the deployed worker)")
         except Exception as e:

@@ -1,26 +1,31 @@
 import { CloudRain, CloudLightning, TriangleAlert } from 'lucide-react';
 
 // The weather band on a schedule day (Weather Call, Oct 2026). The API's
-// `weather` rows are one per group and day, written by the half-hourly
-// watch; the grid shows the worst band among the groups on screen. Quiet
-// days carry nothing. Heads-up is blue, Major orange, a warning red.
+// `weather` rows are one per group, day and place (the team's site, or a
+// jobsite - the weather follows the jobsite, 10/30/2026), written by the
+// half-hourly watch; the grid shows the worst band among the groups on
+// screen. Quiet days carry nothing. Heads-up is blue, Major orange, a
+// warning red.
 
 export const BAND_RANK = { quiet: 0, heads_up: 1, major: 2, warning: 3 };
 export const BAND_LABEL = { heads_up: 'Rain likely', major: 'Major rain', warning: 'Weather warning' };
 const BAND_COLOR = { heads_up: 'hsl(var(--color-blue))', major: 'hsl(var(--color-orange))', warning: 'hsl(var(--color-red))' };
 
-// { date: { band, chance, inches, storm, alerts, windowStart, windowEnd, groups: [names] } }
-// for the groups in view (every group when none is a group row).
+// { date: { band, chance, inches, storm, alerts, windowStart, windowEnd, groups: [names], groupIds, places } }
+// for the groups in view (every group when none is a group row); `places`
+// runs beside `groupIds` - the worst one first, which a click opens.
 export function weatherByDay(rows = [], visibleGroupIds = null, groupNames = {}) {
   const out = {};
   rows.forEach((w) => {
     if (!w || !w.date || !BAND_RANK[w.band]) return;
     if (visibleGroupIds && visibleGroupIds.size && !visibleGroupIds.has(w.groupId)) return;
     const cur = out[w.date];
-    const name = groupNames[w.groupId] || '';
+    const team = groupNames[w.groupId] || '';
+    const name = team && w.placeName ? `${team} at ${w.placeName}` : team;
+    const place = w.place || '';
     // The worst band's group comes first in groupIds: a click opens that one.
-    if (!cur || BAND_RANK[w.band] > BAND_RANK[cur.band]) out[w.date] = { ...w, groups: [...(cur?.groups || []), name].filter(Boolean), groupIds: [w.groupId, ...(cur?.groupIds || [])] };
-    else { cur.groups = [...cur.groups, name].filter(Boolean); cur.groupIds = [...cur.groupIds, w.groupId]; }
+    if (!cur || BAND_RANK[w.band] > BAND_RANK[cur.band]) out[w.date] = { ...w, groups: [...(cur?.groups || []), name].filter(Boolean), groupIds: [w.groupId, ...(cur?.groupIds || [])], places: [place, ...(cur?.places || [])] };
+    else { cur.groups = [...cur.groups, name].filter(Boolean); cur.groupIds = [...cur.groupIds, w.groupId]; cur.places = [...cur.places, place]; }
   });
   return out;
 }

@@ -832,7 +832,28 @@ describe('Views, options, export, drag', () => {
     // A manager's click opens the Weather Call for the worst band's group.
     fireEvent.click(chips[0]);
     expect(await screen.findByRole('dialog', { name: 'Weather Call' })).toBeTruthy();
-    await waitFor(() => expect(weatherCallScreen).toHaveBeenCalledWith('g2', monday));
+    await waitFor(() => expect(weatherCallScreen).toHaveBeenCalledWith('g2', monday, ''));
+  });
+
+  // The weather follows the jobsite (10/30/2026): a band at a jobsite names
+  // the place, a click opens the Weather Call there, and a shift at a wet
+  // jobsite wears its own rain mark and the jobsite's name.
+  it('names the jobsite on the day chip and the shift, and opens the call at that place', async () => {
+    allTeams();
+    timeSchedule.mockResolvedValue({ ...data([shift({ groupId: 'g2', jobsite: 'project-red', jobsiteName: 'Redding Solar Farm', jobsiteLocated: true, weatherBand: 'major', weatherChance: 85, weatherInches: 0.9 })]),
+      groups: [{ id: 'g2', name: 'Yard', members: ['amy@greensglobal.com'], canEdit: true }],
+      weather: [{ groupId: 'g2', date: monday, place: 'project-red', placeName: 'Redding Solar Farm', band: 'major', chance: 85, inches: 0.9, windowStart: '7:00 AM', windowEnd: '3:30 PM' }] });
+    weatherCallScreen.mockReset().mockResolvedValue({ group: { id: 'g2', name: 'Yard', workSiteName: 'Redding Solar Farm', deciders: [] }, date: monday, outlook: {}, roster: [], decision: null, canDecide: true, smsDefault: true, places: [] });
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    const day = document.querySelector('[data-weather]');
+    expect(day.getAttribute('aria-label')).toBe('Major rain: 85% chance, 0.90 in during 7:00 AM - 3:30 PM (Yard at Redding Solar Farm)');
+    const block = blockOf('s1');
+    expect(block.querySelector('[data-jobsite]').textContent).toBe('Redding Solar Farm');
+    expect(block.querySelector('[data-weather="major"]')).toBeTruthy();
+    expect(block.getAttribute('title')).toContain('At Redding Solar Farm');
+    fireEvent.click(day);
+    await waitFor(() => expect(weatherCallScreen).toHaveBeenCalledWith('g2', monday, 'project-red'));
   });
 
   it('shows a weather-cancelled shift struck through, unpaid', async () => {

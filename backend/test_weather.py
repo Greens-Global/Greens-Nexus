@@ -64,9 +64,14 @@ class WeatherTests(unittest.TestCase):
         self.assertEqual(body["units"]["temp"], "°F")
         self.assertEqual(body["current"]["temp"], 66.9)
         self.assertFalse(body["current"]["isDay"])
-        # The hourly strip starts at the current hour, twelve hours long.
+        # The hourly strip starts at the current hour and runs a full day (the
+        # fixture has 22 hours left after 8 PM); ten days are asked for; a
+        # column the provider left out reads None rather than failing.
+        self.assertEqual(params["forecast_days"], 10)
         self.assertEqual(body["hourly"][0]["time"], "2026-09-28T20:00")
-        self.assertEqual(len(body["hourly"]), 12)
+        self.assertEqual(len(body["hourly"]), 22)
+        self.assertIsNone(body["hourly"][0]["precip"])
+        self.assertIsNone(body["daily"][0]["windMax"])
         self.assertEqual(body["today"], {"high": 82.2, "low": 63.0, "precipChance": 26, "uvMax": 6.85,
                                          "sunrise": "2026-09-28T06:40", "sunset": "2026-09-28T18:36"})
         self.assertEqual([d["date"] for d in body["daily"]], ["2026-09-28", "2026-09-29"])

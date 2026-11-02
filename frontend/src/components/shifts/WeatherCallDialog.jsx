@@ -15,6 +15,11 @@ import { AvatarName } from '../../tasks/components';
 // the shifts and tells the crew; the screen then becomes the roster of who
 // has acknowledged, with phone numbers beside anyone who has not, and the
 // Remind / Reinstate / Make Another Call buttons. Nexus never decides.
+// A team working in more than one place that day (the weather follows the
+// jobsite - Neil, 10/30/2026) is called ONE PLACE AT A TIME (Pranshu,
+// 11/02/2026): a tab per place, the rainiest first, and each tab's roster,
+// forecast and call are that place's only - a call for the wet jobsite can
+// never cancel anyone working somewhere dry.
 
 const KINDS = [
   ['cancel', 'Cancel the Day', 'The picked people are off. The day is unpaid.'],
@@ -57,7 +62,9 @@ function Hourly({ hours }) {
   );
 }
 
-export default function WeatherCallDialog({ groupId, date, onClose, onChanged, toastOk, toastErr }) {
+export default function WeatherCallDialog({ groupId, date, place = '', onClose, onChanged, toastOk, toastErr }) {
+  const [at, setAt] = useState(place);            // the place on screen ('' = the team's site)
+  const [places, setPlaces] = useState([]);       // the day's places, kept while a tab loads
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [tick, setTick] = useState(0);
@@ -73,8 +80,11 @@ export default function WeatherCallDialog({ groupId, date, onClose, onChanged, t
   useEffect(() => {
     let live = true;
     setError(null);
-    api.weatherCallScreen(groupId, date).then((r) => {
+    api.weatherCallScreen(groupId, date, at).then((r) => {
       if (!live) return;
+      setPlaces(r.places || []);
+      // Nobody works at the asked-for place that day: open the rainiest one.
+      if (r.places?.length && !r.places.some((p) => p.key === at)) { setAt(r.places[0].key); return; }
       setData((prev) => {
         if (prev === null) setSms(r.smsDefault !== false);   // the setting seeds the switch once; the decider's choice then stands
         return r;
@@ -82,8 +92,10 @@ export default function WeatherCallDialog({ groupId, date, onClose, onChanged, t
       setPicked((p) => p ?? new Set(r.roster.filter((x) => x.email).map((x) => x.email)));
     }).catch((e) => { if (live) setError(e?.message || 'The weather call could not be loaded.'); });
     return () => { live = false; };
-  }, [groupId, date, tick]);
+  }, [groupId, date, at, tick]);
   const reload = () => setTick((t) => t + 1);
+  const pickPlace = (key) => { if (key === at) return; setData(null); setPicked(null); setAnother(false); setReason(''); setAt(key); };
+  const placeName = places.length > 1 ? data?.group?.workSiteName || '' : '';
   const people = useMemo(() => (data?.roster || []).filter((p) => p.email), [data]);
   const decision = data?.decision && data.decision.status === 'active' ? data.decision : null;
   const history = data?.decision && data.decision.status !== 'active' ? data.decision : null;
@@ -96,13 +108,13 @@ export default function WeatherCallDialog({ groupId, date, onClose, onChanged, t
     if (kind === 'move' && !moveTo.trim()) { toastErr?.('Say where the crew should go instead.'); return; }
     const n = picked.size;
     const what = KINDS.find(([k]) => k === kind)?.[1] || kind;
-    const ok = await dialog.confirm(`${what} for ${n} of ${people.length} on ${formatDate(date)}? ${kind === 'cancel' ? 'Their day is unpaid. ' : ''}`
+    const ok = await dialog.confirm(`${what} for ${n} of ${people.length}${placeName ? ` at ${placeName}` : ''} on ${formatDate(date)}? ${kind === 'cancel' ? 'Their day is unpaid. ' : ''}`
       + `Nexus changes their shifts now and tells them on every channel${sms ? ', including a text' : ''}.`, { title: 'Make the Weather Call', confirmText: 'Confirm', danger: kind === 'cancel' });
     if (!ok) return;
     setBusy(true);
     try {
       await api.weatherCallDecide(groupId, date, { kind, emails: [...picked], new_start: kind === 'delay' ? newStart : undefined,
-        new_end: kind === 'end_early' ? newEnd : undefined, move_to: kind === 'move' ? moveTo.trim() : undefined, reason: reason.trim(), sms });
+        new_end: kind === 'end_early' ? newEnd : undefined, move_to: kind === 'move' ? moveTo.trim() : undefined, reason: reason.trim(), sms }, at);
       toastOk?.('Weather call made. The crew is being told.');
       setAnother(false); setReason('');
       reload(); onChanged?.();
@@ -134,6 +146,22 @@ export default function WeatherCallDialog({ groupId, date, onClose, onChanged, t
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>{formatWeekday(date)}, {formatDate(date)}{data?.group?.workSiteName ? ` · ${data.group.workSiteName}` : ''}</div>
+        {places.length > 1 && (
+          <div role="tablist" aria-label="Places" className="scroll-tabs" style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            {places.map((p) => {
+              const on = p.key === at;
+              const Icon = p.band === 'warning' ? TriangleAlert : CloudRain;
+              return (
+                <button key={p.key || 'team'} type="button" role="tab" aria-selected={on} data-place={p.key} onClick={() => pickPlace(p.key)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, padding: '5px 10px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+                    border: `1px solid ${on ? 'var(--wk-brand)' : 'var(--line)'}`, background: on ? 'var(--wk-brand-tint)' : 'var(--card)', color: on ? 'var(--wk-brand)' : 'var(--ink)' }}>
+                  {p.band !== 'quiet' && <Icon size={12} style={{ color: BAND_COLOR[p.band] }} aria-label={BAND_LABEL[p.band] || ''} />}
+                  {p.name} ({p.people})
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {error ? <ErrorBanner message={error} onRetry={reload} /> : !data ? <SkeletonBlocks count={3} height={56} borderRadius={10} /> : (
           <div style={{ display: 'grid', gap: 14 }}>
@@ -209,7 +237,7 @@ export default function WeatherCallDialog({ groupId, date, onClose, onChanged, t
                     </button>
                   </div>
                   <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 220, overflowY: 'auto' }}>
-                    {people.length === 0 && <div style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>Nobody is scheduled for this group that day.</div>}
+                    {people.length === 0 && <div style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>Nobody is scheduled for this group {placeName ? 'here ' : ''}that day.</div>}
                     {people.map((p) => (
                       <label key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
                         <input type="checkbox" checked={picked?.has(p.email) || false} onChange={() => toggle(p.email)} aria-label={`Apply to ${p.name}`} />

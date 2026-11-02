@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { formatDateTime } from '../../lib/datetime';
 
 // The shift panel's History (Shifts Phase 2, Oct 14): a saved shift lists
@@ -9,8 +9,10 @@ import { formatDateTime } from '../../lib/datetime';
 
 const timeSchedCheck = vi.fn();
 const timeSchedHistory = vi.fn();
+const createJobsite = vi.fn();
 vi.mock('../../api', () => ({
   api: {
+    createJobsite: (...a) => createJobsite(...a),
     timeSchedCheck: (...a) => timeSchedCheck(...a),
     timeSchedHistory: (...a) => timeSchedHistory(...a),
     timeOffTypes: vi.fn().mockResolvedValue({ builtIn: ['vacation'], custom: [] }),
@@ -120,5 +122,52 @@ describe('ShiftPanel live check', () => {
     await waitFor(() => expect(timeSchedCheck).toHaveBeenCalled());
     expect(timeSchedCheck).toHaveBeenLastCalledWith(expect.objectContaining({ start: '07:00', end: '15:30', break_min: 30 }));
     unmount();
+  });
+});
+
+// Where the shift is worked (the weather follows the jobsite - Neil,
+// 10/30/2026; Pranshu, 11/02/2026): the team's site by default, a project or
+// a company site, a hint when the jobsite has no address (it uses the team
+// site's weather), and "+ New Jobsite" makes one from a name and an address.
+describe('ShiftPanel jobsite', () => {
+  const JOBSITES = [
+    { id: 'project-red', kind: 'project', name: 'Redding Solar Farm', where: '1 Solar Way, Redding, CA', located: true, hint: '' },
+    { id: 'project-bar', kind: 'project', name: 'Barstow Lot', where: '', located: false, hint: 'No address on file yet' },
+    { id: 'site-irv', kind: 'site', name: 'Irvine Yard', where: '', located: true, hint: '' },
+  ];
+  const groups = [{ id: 'g1', name: 'Yard Crew', workSiteName: 'Irvine Yard', members: ['amy@x.com'] }];
+
+  it('saves the jobsite picked, warns about one with no address, and adds a new one in place', async () => {
+    const onSave = vi.fn();
+    createJobsite.mockReset().mockResolvedValue({ id: 'project-fre', kind: 'project', name: 'Fresno Warehouse', where: '1450 Oak St, Fresno, CA', located: true, hint: '' });
+    render(<ShiftPanel cell={{ email: 'amy@x.com', date: '2026-10-20', groupId: 'g1' }} presets={[]} groups={groups} people={[]} jobsites={JOBSITES} nameOf={(e) => e}
+      onSave={onSave} onAssign={noop} onDelete={noop} onDiscard={noop} onSaveTimeOff={noop} onClose={noop} />);
+    const pick = screen.getByLabelText('Jobsite');
+    expect(pick.value).toBe('');
+    expect(pick.options[0].textContent).toBe("The team's site (Irvine Yard)");
+    expect([...pick.querySelectorAll('optgroup')].map((g) => g.label)).toEqual(['Construction Projects', 'Company Sites']);
+    fireEvent.change(pick, { target: { value: 'project-bar' } });
+    expect(document.querySelector('[data-jobsite-hint]').textContent).toContain("Barstow Lot has no address on file yet, so this shift uses the team site's weather.");
+    fireEvent.change(pick, { target: { value: '__new' } });
+    fireEvent.change(screen.getByLabelText('Start'), { target: { value: '07:00' } });
+    fireEvent.change(screen.getByLabelText('End'), { target: { value: '15:30' } });
+    fireEvent.click(screen.getByRole('button', { name: /Add Jobsite/ }));
+    expect(screen.getByRole('alert').textContent).toBe('Give the jobsite a name and an address.');
+    expect(createJobsite).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Jobsite name'), { target: { value: 'Fresno Warehouse' } });
+    fireEvent.change(screen.getByLabelText('Jobsite address'), { target: { value: '1450 Oak St, Fresno, CA' } });
+    fireEvent.click(screen.getByRole('button', { name: /Add Jobsite/ }));
+    await waitFor(() => expect(screen.getByLabelText('Jobsite').value).toBe('project-fre'));
+    expect(createJobsite).toHaveBeenCalledWith({ name: 'Fresno Warehouse', address: '1450 Oak St, Fresno, CA' });
+    expect(screen.queryByRole('group', { name: 'New Jobsite' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ jobsite: 'project-fre', group_id: 'g1' }));
+  });
+
+  it('opens on the shift\'s own jobsite', () => {
+    render(<ShiftPanel cell={{ email: 'amy@x.com', date: '2026-10-20', existing: { ...existing, jobsite: 'project-red' } }} presets={[]} groups={groups} people={[]} jobsites={JOBSITES}
+      nameOf={(e) => e} onSave={noop} onAssign={noop} onDelete={noop} onDiscard={noop} onSaveTimeOff={noop} onClose={noop} />);
+    expect(screen.getByLabelText('Jobsite').value).toBe('project-red');
+    expect(screen.getByText('1 Solar Way, Redding, CA')).toBeTruthy();
   });
 });

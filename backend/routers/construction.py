@@ -32,6 +32,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import construction_notify
+import construction_weather
 import models
 from auth import get_current_user
 from database import get_db
@@ -251,6 +252,10 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user),
         archived=bool(body.archived),
         created_by=user["email"], created_at=now, modified_at=now,
     )
+    # Project-based weather (Neil, 10/30/2026): the address is the jobsite's
+    # weather point, found now so the first look at the project has a sky.
+    if not construction_weather.has_point(p):
+        construction_weather.geocode(p)
     db.add(p)
     _log_activity(db, project_id=p.id, entity_kind="project", entity_id=p.id,
                   type="created", actor_email=user["email"], detail="created this project")
@@ -266,9 +271,13 @@ def update_project(project_id: str, body: ProjectBody,
     if not _may_review(user, p):
         raise HTTPException(403, "Only a project manager can change this project.")
     data = body.model_dump(exclude_unset=True)
+    address_was = p.address or ""
     for k, v in data.items():
         if v is not None:
             setattr(p, k, v)
+    if (p.address or "") != address_was and "latitude" not in data and "longitude" not in data:
+        p.latitude, p.longitude = 0.0, 0.0
+        construction_weather.geocode(p)
     p.modified_at = now_iso()
     _log_activity(db, project_id=p.id, entity_kind="project", entity_id=p.id,
                   type="edited", actor_email=user["email"],
@@ -1006,3 +1015,26 @@ def overview(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         "logsThisWeek": len([l for l in logs if l.status != "draft"]),
         "projects": [project_to_dict(p, with_cost=_level(user) >= 3) for p in active],
     }
+
+
+# ── Site weather (Neil, call of 10/30/2026) ──────────────────────────────────
+@router.get("/weather")
+def site_weather(units: str = "imperial", user: dict = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """Every active jobsite the caller may see, with its weather: now, today,
+    the next days, the first wet hour and a flag (rain / storm / wind / heat).
+    One row per project; a project with no map point says why. The forecast
+    is the widget's cache (10 minutes a point), so this costs one outbound
+    call per site per ten minutes whoever asks."""
+    units = "metric" if units == "metric" else "imperial"
+    cfg = construction_weather.watch_config(db)
+    active = [p for p in _visible_projects(db, user) if (p.status or "active") == "active" and not p.archived]
+    sites = []
+    for p in sorted(active, key=lambda p: p.name.lower()):
+        try:
+            sites.append(construction_weather.site_weather(p, units, cfg))
+        except Exception as e:   # noqa: BLE001 - one site's outage never blanks the strip
+            sites.append({"projectId": p.id, "name": p.name, "address": p.address or "",
+                          "latitude": p.latitude or 0.0, "longitude": p.longitude or 0.0,
+                          "weather": None, "reason": getattr(e, "detail", None) or "Weather is unavailable right now."})
+    return {"sites": sites, "units": units}
