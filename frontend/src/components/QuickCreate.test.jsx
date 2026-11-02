@@ -66,9 +66,10 @@ describe('Header Create menu', () => {
     expect(document.activeElement.textContent.trim()).toBe('New Task');
     // Section labels and rows in order. No 1:1, Ask HR, Reimbursement,
     // Credential, Purchase Request, Send for Signature, Workflow or Time Off
-    // (Neil, Oct 29 2026).
+    // (Neil, Oct 29 2026). Fill a Form (11/02/2026) creates a form entry, so it
+    // sits with the Requests.
     expect([...document.querySelectorAll('.qc-menu .hud-sec')].map((e) => e.textContent)).toEqual(['Work', 'Requests', 'Outlook']);
-    expect(rows()).toEqual(['New Task', 'New Note', 'New Board', 'New Ticket', 'New Document', 'Request an Item', 'New Email', 'New Event']);
+    expect(rows()).toEqual(['New Task', 'New Note', 'New Board', 'New Ticket', 'New Document', 'Request an Item', 'Fill a Form', 'New Email', 'New Event']);
   });
 
   it('hides what the person cannot use', async () => {

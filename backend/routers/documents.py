@@ -20,6 +20,7 @@ Design notes:
 """
 import base64
 import copy
+import math
 import re
 import uuid
 from datetime import datetime, timezone
@@ -56,7 +57,9 @@ _TEMPLATE_CATEGORIES = ("letterhead", "hr", "legal", "finance", "operations", "s
                         # The one document an offer is (Neil, Oct 14: "there is a
                         # document to sign, but it's a single document called an
                         # offer letter") - one per kind of hire.
-                        "offer_letter")
+                        "offer_letter",
+                        # Forms & Checklists (Neil, 11/02/2026): what a form is for.
+                        "inspection", "incident", "vehicle", "checklist", "safety")
 
 # Requirement 3. A template is DRAFT while it is being written, ACTIVE once it
 # is the company's approved language, ARCHIVED when it is retired. Only an
@@ -64,7 +67,9 @@ _TEMPLATE_CATEGORIES = ("letterhead", "hr", "legal", "finance", "operations", "s
 # buys you, and requirement 20 asks for a plain "template inactive" error
 # rather than a document quietly produced from unfinished language.
 _TEMPLATE_STATUSES = ("draft", "active", "archived")
-_TEMPLATE_TYPES = ("document", "email")
+# 'form' (Neil, 11/02/2026): a field form filled on a phone - the same
+# template record and field list, plus the form-only keys and types below.
+_TEMPLATE_TYPES = ("document", "email", "form")
 
 # Template Builder (Phase 13) - merge-field type registry. "Reserved" types
 # never get a value out of the Generate-Document fill form (signature/initials
@@ -79,6 +84,15 @@ _FIELD_TYPES = ("text", "multiline", "number", "currency", "date", "time",
                 "email", "address", "person",
                 "dropdown", "radio", "checkbox", "signature", "initials", "image", "file")
 _RESERVED_FIELD_TYPES = ("signature", "initials", "image", "file")
+# Form-only field types (Neil, 11/02/2026) - allowed only when doc_type is
+# 'form': photo (a list of storage URLs), gps (a location stamp), scan (a QR
+# code's text), rating (1 to 5), yesno (true / false). On a form, signature is
+# a live pad whose PNG is stored as a URL, not a Nexus Sign placement.
+_FORM_FIELD_TYPES = ("photo", "gps", "scan", "rating", "yesno")
+# A form's audience - the Announcements rule (form_audience.py).
+_FORM_AUDIENCES = ("company", "department", "site")
+_SHOW_IF_OPS = ("eq", "ne", "any", "empty", "notEmpty")
+_REPEAT_MAX_CAP = 50
 # Who fills a template variable in an HR packet (Oct 14) - see _clean_field_defs.
 _FIELD_SOURCES = ("person", "hr")
 
@@ -729,6 +743,10 @@ def _ser_template(t: DocTemplate) -> dict:
             "tokens": _template_tokens(t),
             "department": t.department or "",
             "docType": t.doc_type or "document",
+            # Forms (Neil, 11/02/2026): who may fill it, and the shift card.
+            "audience": t.audience or "company",
+            "workSiteId": t.work_site_id or "",
+            "showOnShifts": bool(t.show_on_shifts),
             "signerRoles": t.signer_roles or [],
             "signatureRoles": sorted(signature_roles(t.content)),
             "status": t.status, "version": t.version,
@@ -762,6 +780,10 @@ class TemplateIn(BaseModel):
     docType: Optional[str] = None
     signerRoles: Optional[List[dict]] = None
     status: Optional[str] = None
+    # Forms (Neil, 11/02/2026)
+    audience: Optional[str] = None
+    workSiteId: Optional[str] = None
+    showOnShifts: Optional[bool] = None
 
 
 class TemplateUpdate(BaseModel):
@@ -778,6 +800,10 @@ class TemplateUpdate(BaseModel):
     fieldDefs: Optional[List[dict]] = None
     status: Optional[str] = None
     note: Optional[str] = ""
+    # Forms (Neil, 11/02/2026)
+    audience: Optional[str] = None
+    workSiteId: Optional[str] = None
+    showOnShifts: Optional[bool] = None
 
 
 class LetterheadIn(BaseModel):
@@ -1023,24 +1049,31 @@ def create_template(body: TemplateIn, user: dict = Depends(get_current_user), db
     if not body.name.strip():
         raise HTTPException(400, "name is required")
     department = (body.department or "").strip()
-    _require_template_manager(db, user, department)
     doc_type = body.docType or "document"
     if doc_type not in _TEMPLATE_TYPES:
         raise HTTPException(400, f"docType must be one of {', '.join(_TEMPLATE_TYPES)}")
+    if (doc_type == "form" and not department and _MANAGER_LEVEL <= user.get("level", 0) < _ADMIN_LEVEL):
+        # A manager's new form is their department's (they may manage it);
+        # company-wide forms stay an administrator's.
+        department = _caller_department(db, user)
+    _require_template_manager(db, user, department)
     status = body.status or "active"
     if status not in _TEMPLATE_STATUSES:
         raise HTTPException(400, f"status must be one of {', '.join(_TEMPLATE_STATUSES)}")
     category = body.category or "general"
     if category not in _TEMPLATE_CATEGORIES:
         raise HTTPException(400, f"category must be one of {_TEMPLATE_CATEGORIES}")
+    audience, work_site_id = _clean_form_audience(body.audience, department, body.workSiteId, form=doc_type == "form")
     now = _now_iso()
     content = as_pages(body.content) if body.content is not None else {}
     row = DocTemplate(id=str(uuid.uuid4()), name=body.name.strip(), category=category,
                        tags=body.tags or [], content=content,
                        requires_letterhead=bool(body.requiresLetterhead), letterhead_id=body.letterheadId or "",
-                       field_defs=_clean_field_defs(body.fieldDefs or []),
+                       field_defs=_clean_field_defs(body.fieldDefs or [], form=doc_type == "form"),
                        department=department, doc_type=doc_type,
                        signer_roles=_clean_signer_roles(body.signerRoles or []),
+                       audience=audience, work_site_id=work_site_id,
+                       show_on_shifts=1 if (body.showOnShifts and doc_type == "form") else 0,
                        status=status, version=1, created_by=user["email"], created_at=now,
                        updated_by=user["email"], updated_at=now)
     db.add(row); db.flush()
@@ -1494,8 +1527,19 @@ def update_template(tid: str, body: TemplateUpdate, user: dict = Depends(get_cur
         row.letterhead_id = body.letterheadId
     if body.mergeOverrides is not None:
         row.merge_overrides = _clean_merge_overrides(body.mergeOverrides)
+    if body.docType is not None and body.docType not in _TEMPLATE_TYPES:
+        raise HTTPException(400, f"docType must be one of {', '.join(_TEMPLATE_TYPES)}")
+    is_form = (body.docType or row.doc_type or "document") == "form"
     if body.fieldDefs is not None:
-        row.field_defs = _clean_field_defs(body.fieldDefs)
+        row.field_defs = _clean_field_defs(body.fieldDefs, form=is_form)
+    if body.audience is not None or body.workSiteId is not None or body.department is not None:
+        row.audience, row.work_site_id = _clean_form_audience(
+            body.audience if body.audience is not None else row.audience,
+            row.department,
+            body.workSiteId if body.workSiteId is not None else row.work_site_id,
+            form=is_form)
+    if body.showOnShifts is not None:
+        row.show_on_shifts = 1 if (body.showOnShifts and is_form) else 0
     if body.status is not None:
         # Was unvalidated - any string at all became the template's status,
         # so a typo could silently take a template out of the library.
@@ -1505,8 +1549,6 @@ def update_template(tid: str, body: TemplateUpdate, user: dict = Depends(get_cur
     if body.signerRoles is not None:
         row.signer_roles = _clean_signer_roles(body.signerRoles)
     if body.docType is not None:
-        if body.docType not in _TEMPLATE_TYPES:
-            raise HTTPException(400, f"docType must be one of {', '.join(_TEMPLATE_TYPES)}")
         row.doc_type = body.docType
     if body.content is not None:
         if was_status == "active" and not row.published_version:
@@ -1545,7 +1587,16 @@ def _publish(db: Session, tpl: DocTemplate, by: str, note: str = "") -> int:
     publishing existed have none): tpl.content IS version tpl.version, because
     update_template is the only writer of template content and it bumps
     version on every write. The caller flushes pending rows first
-    (autoflush is off) and commits."""
+    (autoflush is off) and commits.
+
+    The version row keeps the field list it was published with
+    (`field_defs`), and a FORM whose fields changed since its last publish
+    with no content edit gets a new version number here - its entries pin
+    the number (routers/forms.py), so one number never means two field
+    lists."""
+    if ((tpl.doc_type or "") == "form" and tpl.published_version and tpl.version == tpl.published_version
+            and (tpl.field_defs or []) != (tpl.published_meta or {}).get("fieldDefs", [])):
+        tpl.version = (tpl.version or 1) + 1
     v = (db.query(DocTemplateVersion)
            .filter(DocTemplateVersion.template_id == tpl.id,
                    DocTemplateVersion.version_no == tpl.version).first())
@@ -1555,6 +1606,7 @@ def _publish(db: Session, tpl: DocTemplate, by: str, note: str = "") -> int:
                                edited_at=_now_iso(), note="")
         db.add(v)
     v.note = ((v.note or "") + " (published)" + (f" - {note}" if note else "")).strip()
+    v.field_defs = copy.deepcopy(tpl.field_defs or [])
     tpl.published_version = tpl.version
     tpl.published_meta = _publish_meta(tpl)
     tpl.published_by, tpl.published_at = by, _now_iso()
@@ -1668,6 +1720,11 @@ def delete_template(tid: str, user: dict = Depends(get_current_user), db: Sessio
     # block it instead of silently orphaning those documents.
     if db.query(Document).filter(Document.template_id == tid).first():
         raise HTTPException(409, "Cannot delete a template that has generated documents - archive it instead")
+    # A form's entries pin the template they were filled on (Forms, Neil
+    # 11/02/2026) - deleting it would leave every entry without its fields.
+    from models import DocFormEntry
+    if db.query(DocFormEntry.id).filter(DocFormEntry.template_id == tid).first():
+        raise HTTPException(409, "This form has entries - archive it instead")
     # An HR packet sends it (Oct 14): deleting it would break every hire,
     # promotion or separation that packet covers.
     from models import HrPacketSetting
@@ -1689,6 +1746,8 @@ def duplicate_template(tid: str, user: dict = Depends(get_current_user), db: Ses
     row = DocTemplate(id=str(uuid.uuid4()), name=f"{src.name} (Copy)", category=src.category,
                        department=src.department or "", doc_type=src.doc_type or "document",
                        signer_roles=list(src.signer_roles or []),
+                       audience=src.audience or "company", work_site_id=src.work_site_id or "",
+                       show_on_shifts=src.show_on_shifts or 0,
                        tags=src.tags or [], content=copy.deepcopy(src.content) if src.content else {},
                        requires_letterhead=src.requires_letterhead, letterhead_id=src.letterhead_id,
                        merge_overrides=src.merge_overrides or {},
@@ -1887,12 +1946,76 @@ def get_document(did: str, user: dict = Depends(get_current_user), db: Session =
     return _ser_document(row, statuses.get(row.sign_request_id, ""))
 
 
-def _clean_field_defs(defs: list) -> list:
+def _clean_form_audience(audience, department: str, work_site_id, *, form: bool) -> tuple:
+    """(audience, work_site_id) a template may store. Only a form has an
+    audience; a department form needs the template's department, a site form
+    a work site. Not a form: 'company' and no site, whatever was sent."""
+    if not form:
+        return "company", ""
+    aud = (audience or "company").strip().lower()
+    if aud not in _FORM_AUDIENCES:
+        raise HTTPException(400, f"audience must be one of {', '.join(_FORM_AUDIENCES)}")
+    site = str(work_site_id or "").strip()[:80]
+    if aud == "department" and not (department or "").strip():
+        raise HTTPException(400, "A department form needs a department")
+    if aud == "site" and not site:
+        raise HTTPException(400, "A site form needs a work site")
+    return aud, site if aud == "site" else ""
+
+
+def _clean_show_if(raw) -> Optional[dict]:
+    """{token, op, value} - show this field only when the answer to `token`
+    says so. `value` is a list for 'any', anything scalar otherwise."""
+    if not isinstance(raw, dict):
+        return None
+    token = str(raw.get("token") or "")
+    op = str(raw.get("op") or "eq")
+    if not is_valid_token(token) or op not in _SHOW_IF_OPS:
+        return None
+    value = raw.get("value")
+    if op == "any":
+        value = [v for v in (value if isinstance(value, list) else [value]) if isinstance(v, (str, int, float, bool))][:50]
+    elif op in ("empty", "notEmpty"):
+        value = None
+    elif not isinstance(value, (str, int, float, bool)) and value is not None:
+        return None
+    return {"token": token, "op": op, "value": value}
+
+
+def _clean_repeat(raw) -> Optional[dict]:
+    """{group, max} - the field repeats inside the named group ("Add Another")."""
+    if not isinstance(raw, dict):
+        return None
+    group = str(raw.get("group") or "").strip()
+    if not is_valid_token(group):
+        return None
+    try:
+        mx = int(raw.get("max") or 10)
+    except (TypeError, ValueError):
+        mx = 10
+    return {"group": group, "max": max(1, min(_REPEAT_MAX_CAP, mx))}
+
+
+# Keys a form entry's answers share a space with: the workflow event's own
+# fields and `extra`'s reserved keys (routers/forms.py emits the answers FLAT
+# beside `form` / `decision` / `note`), and the GPS stamp `_location`. A
+# field may not be named one of them - it would be shadowed or shadow.
+_FORM_RESERVED_TOKENS = ("id", "key", "at", "actor", "form", "decision", "note", "_location")
+
+
+def _clean_field_defs(defs: list, *, form: bool = False) -> list:
     """Template Builder (Phase 13) - validate/normalize field_defs before
     persisting: dedupe by token (last one wins), enforce the token shape
     _clean_merge_overrides already requires for the values themselves, drop
     entries with an unknown type, strip unknown keys, coerce `required` to
-    bool. Options only kept for dropdown/radio."""
+    bool. Options only kept for dropdown/radio.
+
+    `form` (Neil, 11/02/2026): a form template also keeps the form-only
+    types (_FORM_FIELD_TYPES) and keys - `section` (the heading the field
+    sits under), `showIf`, `formula` (the Tasks formula language over the
+    other answers, checked with task_formula) and `repeat`. A document never
+    stores any of them."""
+    import task_formula
     by_token = {}
     for d in defs or []:
         if not isinstance(d, dict):
@@ -1903,8 +2026,10 @@ def _clean_field_defs(defs: list) -> list:
         # accepts is never silently dropped here.
         if not is_valid_token(token):
             continue
+        if form and token in _FORM_RESERVED_TOKENS:
+            raise HTTPException(400, f'"{token}" is a reserved name on a form - name the field something else')
         ftype = d.get("type")
-        if ftype not in _FIELD_TYPES:
+        if ftype not in _FIELD_TYPES and not (form and ftype in _FORM_FIELD_TYPES):
             continue
         validation = d.get("validation") if isinstance(d.get("validation"), dict) else {}
         clean = {
@@ -1936,6 +2061,40 @@ def _clean_field_defs(defs: list) -> list:
         }
         if ftype in ("dropdown", "radio"):
             clean["options"] = [str(o)[:200] for o in (d.get("options") or []) if str(o).strip()][:50]
+        if form:
+            # A form checks min / max at every submit: they are numbers or
+            # nothing, so a stored "ten" can never 500 a crew's entry.
+            for key in ("min", "max"):
+                raw = clean["validation"].get(key)
+                if raw in (None, ""):
+                    clean["validation"].pop(key, None)
+                    continue
+                try:
+                    num = float(raw)
+                    if isinstance(raw, bool) or not math.isfinite(num):
+                        raise ValueError
+                except (TypeError, ValueError):
+                    raise HTTPException(400, f'"{clean["label"]}" {key} must be a number')
+                clean["validation"][key] = int(num) if num.is_integer() else num
+            section = str(d.get("section") or "").strip()[:120]
+            if section:
+                clean["section"] = section
+            show_if = _clean_show_if(d.get("showIf"))
+            if show_if:
+                clean["showIf"] = show_if
+            formula = str(d.get("formula") or "").strip()
+            if formula:
+                try:
+                    task_formula.parse(formula)
+                except task_formula.FormulaError as e:
+                    raise HTTPException(400, f'"{clean["label"]}" formula: {e}')
+                clean["formula"] = formula[:task_formula.MAX_LENGTH]
+            repeat = _clean_repeat(d.get("repeat"))
+            if repeat:
+                if repeat.get("group") in _FORM_RESERVED_TOKENS:
+                    raise HTTPException(400, f'"{repeat["group"]}" is a reserved name on a form - '
+                                             f'name the repeat group something else')
+                clean["repeat"] = repeat
         by_token[token] = clean
     return list(by_token.values())
 

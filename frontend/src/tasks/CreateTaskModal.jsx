@@ -84,7 +84,9 @@ function buildRecurrence(form) {
   return r;
 }
 
-export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '' }) {
+// `onCreated(task)` runs after a successful create (Forms' Make a Task, 11/02/2026);
+// `defaults.description` seeds the description (HTML, one <p> per line).
+export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '', onCreated = null }) {
   const store = useTasks();
   const { createTask, updateTask, deleteTask, tasks, projects, teams, myEmail, customFields = [] } = store;
   const people = usePeople(true);   // assignee/collaborators - see TaskDetailDrawer
@@ -94,7 +96,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const isEdit = !!editing;
 
   const [form, setForm] = useState(() => ({
-    title: editing?.title ?? defaults.title ?? '', description: editing?.description ?? '',
+    title: editing?.title ?? defaults.title ?? '', description: editing?.description ?? defaults.description ?? '',
     // New tasks default assignee AND owner to the creator; editing keeps whatever
     // the task has (an unassigned / unowned task must stay that way).
     // A task can be assigned to several people; whoever finishes it finishes
@@ -273,13 +275,14 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     };
     try {
       let parentId = taskId;
+      let created = null;
       if (isEdit) {
         await updateTask(taskId, core);
         const kept = subtasks.filter((s) => s.id).map((s) => s.id);
         for (const t of tasks.filter((t) => t.parentTaskId === taskId)) if (!kept.includes(t.id)) await deleteTask(t.id).catch(() => {});
         for (const s of subtasks) if (s.id) { if (store.taskById[s.id]?.title !== s.title) await updateTask(s.id, { title: s.title }).catch(() => {}); }
       } else {
-        const created = await createTask(core);
+        created = await createTask(core);
         parentId = created.id;
       }
       for (const s of subtasks.filter((s) => !s.id)) await createTask({ title: s.title, parentTaskId: parentId, projectId: form.projectId || '', teamId: form.teamId || '', followerIds: form.followerIds, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
@@ -293,6 +296,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
       // The task itself saved, so the form closes either way - but a file
       // that did not attach is named, never dropped without a word.
       if (notAttached.length) dialog.alert(notAttachedText(notAttached, isEdit ? 'saved' : 'created'), { title: 'Some Files Did Not Attach' });
+      if (created) onCreated?.(created);
       onClose(true);
     } catch (e) { alert(`Could not save task: ${e.message || e}`); setBusy(false); }
   };

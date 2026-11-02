@@ -1,7 +1,10 @@
 // The Documents library's rules (Neil, 10/31/2026): one row per document, one
 // set of status words, the left views. No React here so the screen and its tests
 // read the same answers. Rows come from GET /documents/library, plus the HR
-// packet rows from GET /hr/packet-documents for whoever may read them.
+// packet rows from GET /hr/packet-documents for whoever may read them, plus
+// the form entries from GET /forms/entries (Neil, 11/02/2026 - a form entry
+// reads like the rest of Documents; its row opens forms/EntryPanel.jsx).
+import { ENTRY_STATES, formEntryRow } from '../forms/formsModel';
 
 const TONE_OF_HR = {
   Signed: 'green', 'Out For Signature': 'blue', 'In Review': 'amber', 'Waiting On Details': 'amber', Declined: 'red',
@@ -18,17 +21,19 @@ export function hrRow(r) {
   };
 }
 
-/** The library plus HR Records; a person's own copy of a packet envelope shows once. */
-export function mergeRows(library, hr) {
+/** The library plus HR Records and form entries; a person's own copy of a packet envelope shows once. */
+export function mergeRows(library, hr, forms = []) {
   const hrRows = (hr || []).map(hrRow);
+  const formRows = (forms || []).map(formEntryRow);
   const covered = new Set(hrRows.map((r) => r.signRequestId).filter(Boolean));
   const own = (library || []).filter((r) => r.kind !== 'envelope' || !covered.has(r.signRequestId));
-  return [...own, ...hrRows].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+  return [...own, ...hrRows, ...formRows].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
 }
 
 /** The one status a row shows: a word and the color of its dot. */
 export function rowStatus(row) {
   if (row.kind === 'hr') return { label: row.hrStatus, tone: TONE_OF_HR[row.hrStatus] || 'muted' };
+  if (row.kind === 'form_entry') { const s = ENTRY_STATES[row.entryStatus] || ENTRY_STATES.submitted; return { label: s.label, tone: s.tone }; }
   if (row.status === 'archived') return { label: 'Archived', tone: 'muted' };
   if (row.myTurn) return { label: 'Your Signature Needed', tone: 'amber' };
   switch (row.signStatus) {
@@ -63,6 +68,8 @@ export const VIEWS = [
   { key: 'out', label: 'Out For Signature', empty: 'Nothing is out for signature.', match: (r) => r.status !== 'archived' && isOut(r) },
   { key: 'signed', label: 'Signed', empty: 'No signed documents yet.', match: (r) => r.status !== 'archived' && isSigned(r) },
   { key: 'hr', label: 'HR Records', hrOnly: true, empty: 'No HR packet documents yet.', match: (r) => r.kind === 'hr' },
+  // Shown only when the person has entries to see (DocumentsBrowser).
+  { key: 'forms', label: 'Form Entries', formsOnly: true, empty: 'No form entries yet.', match: (r) => r.kind === 'form_entry' },
   { key: 'archived', label: 'Archived', empty: 'Nothing is archived.', match: (r) => r.status === 'archived' },
 ];
 

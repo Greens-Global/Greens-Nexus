@@ -47,6 +47,8 @@ import re
 import uuid
 from datetime import date, datetime, timezone
 
+import form_audience
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -157,15 +159,15 @@ def _is_scheduled(a: Announcement, now: str) -> bool:
 def _can_see(a: Announcement, *, email: str, department: str, is_admin: bool, now: str = "", sites=()) -> bool:
     if _is_scheduled(a, now or _now()) and not is_admin:
         return False
-    audience = a.audience or "company"
-    if audience not in ("department", "site"):
-        return True
     if is_admin or (a.author_email or "").lower() == email:
         return True
-    if audience == "site":
-        site_id = (a.work_site_id or "").strip()
-        return bool(site_id) and site_id in set(sites or ())
-    return bool(department) and (a.department or "").strip().lower() == department.lower()
+    # The one audience rule, shared with Forms (form_audience.in_audience): a
+    # department matches by name, a work site by membership (an empty site
+    # list - "any company site" - is never a member). Company walls are the
+    # caller's business (list_announcements), so the company part is not asked.
+    return form_audience.in_audience({"department": department, "sites": list(sites or ())},
+                                     audience=a.audience or "company", department=a.department or "",
+                                     work_site_id=(a.work_site_id or "").strip())
 
 
 def _site_names(db: Session, rows) -> dict:
@@ -415,11 +417,9 @@ def _audience_emails(a: Announcement, people: dict, author_scope) -> list[str]:
     site_id = (a.work_site_id or "").strip()
     out = []
     for em, p in people.items():
-        if em == author or p["external"] or p["status"] in ("inactive", "offboarded"):
+        if em == author or not form_audience.eligible(p):
             continue
-        if audience == "department" and p["department"].lower() != dept:
-            continue
-        if audience == "site" and (not site_id or site_id not in p.get("sites", ())):
+        if not form_audience.in_audience(p, audience=audience, department=dept, work_site_id=site_id):
             continue
         if author_scope is not None and not auth.company_ok(p["company"], author_scope, shared_when_blank=True):
             continue

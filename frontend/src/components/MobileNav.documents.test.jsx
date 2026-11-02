@@ -19,7 +19,7 @@ afterEach(cleanup);
 describe('Documents bottom bar', () => {
   it('lists every Documents tab, in the desktop strip order', () => {
     render(<MobileNav activeView="documents" activeSub="documents-browse" />);
-    expect(labels()).toEqual(['Documents', 'Templates', 'Sign', 'PDF Tools']);
+    expect(labels()).toEqual(['Documents', 'Templates', 'Forms', 'Sign', 'PDF Tools']);
   });
 
   it('marks the open tab, defaulting to the library before any navigation', () => {
