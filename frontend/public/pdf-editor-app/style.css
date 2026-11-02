@@ -1759,7 +1759,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
     margin-top: 6px;
 }
 .signature-style-option {
-    border: 1.5px solid rgba(255, 255, 255, 0.12);
+    border: 1.5px solid var(--border);
     background: rgba(255, 255, 255, 0.03);
     border-radius: 8px;
     padding: 10px 12px;
@@ -1768,7 +1768,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    color: #f2f2f7;
+    color: var(--text-primary);
     overflow: hidden;
     white-space: nowrap;
     transition: border-color 0.12s ease, background 0.12s ease;
@@ -3335,4 +3335,37 @@ html[data-theme="light"] {
     white-space: normal;
     width: 300px;
     color: var(--text-secondary);
+}
+
+/* Phones: the top bar ran off the right edge, so Search, Undo, Print and Save
+   could not be reached. It wraps to two rows here; the ribbon note, the page bar
+   and the status line stay on screen. */
+@media (max-width: 640px) {
+    .toolbar {
+        flex-wrap: wrap;
+        height: auto;
+        min-height: 0;
+        row-gap: 4px;
+        overflow: visible;
+    }
+    .toolbar-left { flex: 0 0 auto; }
+    .header-doc-title { flex: 1 1 0; min-width: 0; }
+    .toolbar-right {
+        flex: 1 1 100%;
+        margin-left: 0;
+        justify-content: flex-end;
+    }
+    .page-nav { max-width: 100%; overflow-x: auto; justify-content: flex-start; }
+    .page-nav:not(.docked) { left: 4px; right: 4px; transform: none; max-width: none; }
+    .tool-note-inline { flex: 1 1 100%; width: auto; margin: 0; }
+    .status-bar { flex-wrap: nowrap; }
+    .status-bar #statusText {
+        flex: 1 1 0;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .status-bar #fileInfo,
+    .status-bar #buildStamp { display: none; }
 }
