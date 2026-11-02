@@ -22,7 +22,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { Camera, Upload, X, MapPin, PenTool, QrCode, Star, Plus, Trash2, Check, RefreshCw, ExternalLink, Asterisk } from 'lucide-react';
 import { api } from '../api';
-import { Modal, DateField } from '../tasks/components';
+import { Modal, DateField, TimeField } from '../tasks/components';
 import TypedFieldInput from '../components/TypedFieldInput';
 import { storeTaskFile, filesFromPaste, dataUrlToFile } from '../tasks/lib';
 import { getPosition } from '../lib/geoPosition';
@@ -277,6 +277,8 @@ function Field({ def, value, error, onChange, ctx, idKey }) {
     case 'yesno': control = <YesNoField def={def} value={value} onChange={onChange} disabled={disabled} phone={ctx.phone} />; break;
     case 'signature': control = <SignatureField value={value} onChange={onChange} entryKey={ctx.entryKey} disabled={disabled} signerName={ctx.signerName} phone={ctx.phone} />; break;
     case 'date': control = <DateField value={value || ''} onChange={(v) => onChange(v || '')} title={def.label} disabled={disabled} style={{ width: '100%' }} />; break;
+    // The 12-hour picker, never the native time box (it follows the computer's region).
+    case 'time': control = <TimeField value={value || ''} onChange={(v) => onChange(v || '')} ariaLabel={def.label} disabled={disabled} step={5} style={{ width: '100%' }} />; break;
     case 'checkbox': ownLabel = false; control = <TypedFieldInput def={def} value={value} onChange={onChange} error={!!error} />; break;
     default: control = <TypedFieldInput def={def} value={value} onChange={onChange} error={!!error} />;
   }

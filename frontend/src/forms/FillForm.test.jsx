@@ -283,4 +283,17 @@ describe('FillForm', () => {
     await waitFor(() => expect(storeTaskFile).toHaveBeenCalledTimes(1));
     expect(storeTaskFile.mock.calls[0][0]).toBe(file);
   });
+
+  it('a time field is the 12-hour picker, never the native time box', async () => {
+    formGet.mockResolvedValue({ ...TEMPLATE, fieldDefs: [{ token: 'at', label: 'Time of Incident', type: 'time', section: 'Vehicle' }] });
+    const { container } = render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    expect(container.querySelector('input[type="time"]')).toBeNull();
+    const box = screen.getByRole('combobox', { name: 'Time of Incident' });
+    expect(screen.getByRole('option', { name: '2:15 PM' })).toBeTruthy();
+    fireEvent.change(box, { target: { value: '14:15' } });
+    submit();
+    await waitFor(() => expect(formSubmit).toHaveBeenCalledTimes(1));
+    expect(formSubmit.mock.calls[0][1].answers.at).toBe('14:15');
+  });
 });
