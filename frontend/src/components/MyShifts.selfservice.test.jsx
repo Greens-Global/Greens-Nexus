@@ -581,14 +581,14 @@ describe('MyShifts live status (Miranda, Oct 21 2026)', () => {
     // The live strip (Neil, 11/02/2026): four soft chips counted over the
     // rows - me working, Bob on a break, Cara clocked out is Off.
     const head = document.querySelector('[data-live-summary]');
-    expect(Array.from(head.querySelectorAll('.nx-label')).map((l) => l.textContent)).toEqual(['In 1', 'On Break 1', 'Late 0', 'Off 1']);
+    expect(Array.from(head.querySelectorAll('.nx-label')).map((l) => l.textContent)).toEqual(['In 1', 'On Break 1', 'Late 0', 'Not In 1']);
     expect(screen.queryByText(/^On shift now/)).toBeNull();
   });
 
   it('counts everyone Off when the live map has no one working', async () => {
     timeMyScheduleLive.mockResolvedValue(liveMap({}));
     render(<MyShifts part="team" />);
-    expect(await screen.findByText('Off 2')).toBeTruthy();
+    expect(await screen.findByText('Not In 2')).toBeTruthy();
     expect(screen.getByText('In 0')).toBeTruthy();
     expect(screen.getByText('Late 0')).toBeTruthy();
   });
