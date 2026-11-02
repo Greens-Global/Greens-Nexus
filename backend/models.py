@@ -6246,6 +6246,10 @@ class Announcement(Base):
     publish_at   = Column(String, default="")                   # ISO timestamp, '' = published at create
     notify       = Column(String, default="quiet")              # quiet | push_teams | email
     notified_at  = Column(String, default="")                   # '' = not yet published to its audience
+    # Work-site audience (Neil, 11/02/2026, Homebase lifts): audience 'site'
+    # reaches the people whose allowed work sites (work_site_ids) hold this
+    # HrWorkSite id - an empty list is NOT a member. '' for other audiences.
+    work_site_id = Column(String, default="")
 
 
 class AnnouncementRead(Base):
