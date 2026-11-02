@@ -123,6 +123,7 @@ describe('Form builder', () => {
   it('audience: one work site, shown on that site\'s shift cards', async () => {
     open();
     await screen.findByText('Odometer');
+    expect(screen.getByText("A Fill button under each shift - at the form's work site, or on every shift when the form is for the whole company or a department.")).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Who fills it'), { target: { value: 'site' } });
     fireEvent.change(await screen.findByLabelText('Work site'), { target: { value: 's1' } });
     fireEvent.click(screen.getByRole('switch', { name: 'Show On Shift Cards' }));

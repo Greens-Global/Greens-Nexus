@@ -223,7 +223,7 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
           <label style={label} htmlFor="form-on-shifts">Show On Shift Cards</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Switch id="form-on-shifts" label="Show On Shift Cards" checked={!!draft.showOnShifts} onChange={(v) => set('showOnShifts', v ? 1 : 0)} />
-            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>A Fill button on the shift card of anyone scheduled at the form's site.</span>
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>A Fill button under each shift - at the form's work site, or on every shift when the form is for the whole company or a department.</span>
           </div>
         </div>
       </section>
