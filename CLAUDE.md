@@ -151,6 +151,9 @@ keep the diff minimal.
   read by `routers/action_counts.py`. A new approval kind registers an
   `@source` in `approvals_inbox.py` - never a separate count query, or the
   badge and the inbox disagree.
+  On a phone Approvals is `approvals/ApprovalsPhone.jsx`: one card, two
+  decisions, the Filter sheet; the desktop list is unchanged; no bulk
+  approve on a phone (Neil, 11/02/2026).
 
 ## Frontend conventions
 
