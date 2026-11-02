@@ -7582,28 +7582,55 @@
     }
 
     let _exportFailures = 0; // annotations that could not be baked this save
+
+    // Any color Fabric accepts, as { r, g, b, a } (a = 0..1). null = cannot tell,
+    // so the caller draws the object through the canvas instead of guessing black.
+    function _parseColor(str) {
+        if (typeof str !== 'string') return null;
+        try {
+            const [r, g, b, a] = new fabric.Color(str).getSource();
+            return { r, g, b, a: a === undefined ? 1 : a };
+        } catch (_) { return null; }
+    }
+    const _isPlainPlacement = (o) => !o.angle && !o.skewX && !o.skewY && !o.flipX && !o.flipY && !o.shadow && !o.clipPath
+        && (o.originX === undefined || o.originX === 'left')
+        && (o.originY === undefined || o.originY === 'top');
+    // Text that drawText can reproduce. Everything else goes through the canvas,
+    // which draws exactly what the screen drew.
+    function _textDrawsAsVector(o) {
+        if (o.type !== 'i-text' && o.type !== 'text') return false;
+        if (!_isPlainPlacement(o) || o.linethrough || o.overline || o.charSpacing) return false;
+        if (o.backgroundColor || o.textBackgroundColor || (o.stroke && o.strokeWidth)) return false;
+        if (o.styles && (Array.isArray(o.styles) ? o.styles.length : Object.keys(o.styles).length)) return false;
+        if (Math.abs((o.scaleX === undefined ? 1 : o.scaleX) - (o.scaleY === undefined ? 1 : o.scaleY)) > 1e-6) return false;
+        if (String(o.text || '').includes('\n') && o.textAlign && o.textAlign !== 'left') return false;
+        const c = _parseColor(o.fill === undefined || o.fill === null ? '#000000' : o.fill);
+        return !!c && c.a === 1;
+    }
+
+    // Fabric's text layout: the first baseline sits 0.8791 of the font size below
+    // the object's top (_fontSizeMult 1.13, _fontSizeFraction 0.222) and each line
+    // is fontSize x 1.13 x lineHeight tall.
+    const _TEXT_BASELINE = 1.13 * (1 - 0.222);
+
+    // Scales are PDF points per canvas pixel. Coordinates are the canvas's own,
+    // top-left origin; `pageHeight` turns them into PDF's bottom-left origin. The
+    // caller has already mapped that plane onto the page's rotation and crop.
     async function drawObjectOnPDF(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight) {
         const { type } = obj;
+        const generic = () => drawGenericObjectAsImage(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
 
         if (type === 'i-text' || type === 'text' || type === 'textbox') {
-            // Rotated / center-origin text (stamps) and wrapping textboxes have
-            // no faithful drawText mapping — rasterize them exactly instead.
-            if (obj.angle || obj.originX === 'center' || obj.originY === 'center' || type === 'textbox'
-                || (typeof obj.fill === 'string' && obj.fill.startsWith('rgba'))) {
-                return await drawGenericObjectAsImage(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
-            }
-            // Text annotation — apply detected font family, bold, italic and underline
-            const fontSize = (obj.fontSize || 16) * scaleY * (obj.scaleY || 1);
-            const x = (obj.left || 0) * scaleX;
-            const y = pageHeight - (obj.top || 0) * scaleY - fontSize;
-
-            let color;
-            try {
-                color = hexToRgb(obj.fill || '#000000');
-            } catch {
-                color = { r: 0, g: 0, b: 0 };
-            }
-            const pdfColor = PDFLib.rgb(color.r / 255, color.g / 255, color.b / 255);
+            if (!_textDrawsAsVector(obj)) return await generic();
+            const sy = obj.scaleY === undefined ? 1 : obj.scaleY;
+            const fontSize = (obj.fontSize || 16) * sy * scaleY;
+            const inset = ((obj.strokeWidth || 0) * sy) / 2;   // Fabric insets by half the stroke, drawn or not
+            const x = ((obj.left || 0) + inset) * scaleX;
+            const y = pageHeight - ((obj.top || 0) + inset) * scaleY - fontSize * _TEXT_BASELINE;
+            const lineHeight = fontSize * 1.13 * (obj.lineHeight || 1.16);
+            const fill = _parseColor(obj.fill === undefined || obj.fill === null ? '#000000' : obj.fill);
+            const pdfColor = PDFLib.rgb(fill.r / 255, fill.g / 255, fill.b / 255);
+            const opacity = obj.opacity === undefined ? 1 : obj.opacity;
 
             let font = null;
             // 1st choice: the document's own embedded font (exact match);
@@ -7614,63 +7641,76 @@
             }
 
             const text = obj.text || '';
-            pdfPage.drawText(text, {
-                x, y, size: fontSize, color: pdfColor,
-                ...(font ? { font } : {}),
-            });
+            try {
+                // Throws before writing anything when the font cannot encode a
+                // character (the standard fonts are WinAnsi only: no Rupee sign,
+                // arrow or Hindi). That text is drawn through the canvas instead.
+                pdfPage.drawText(text, {
+                    x, y, size: fontSize, color: pdfColor, opacity, lineHeight,
+                    ...(font ? { font } : {}),
+                });
+            } catch (err) {
+                return await generic();
+            }
 
             // Underline: pdf-lib has no underline flag, so draw the line ourselves
             if (obj.underline && font) {
-                const firstLine = text.split('\n')[0] || text;
-                const lineW = font.widthOfTextAtSize(firstLine, fontSize);
-                const uy = y - fontSize * 0.12;
-                pdfPage.drawLine({
-                    start: { x, y: uy }, end: { x: x + lineW, y: uy },
-                    thickness: Math.max(fontSize * 0.06, 0.5), color: pdfColor,
+                text.split('\n').forEach((line, i) => {
+                    const uy = y - i * lineHeight - fontSize * 0.12;
+                    pdfPage.drawLine({
+                        start: { x, y: uy }, end: { x: x + font.widthOfTextAtSize(line, fontSize), y: uy },
+                        thickness: Math.max(fontSize * 0.06, 0.5), color: pdfColor, opacity,
+                    });
                 });
             }
         } else if (type === 'rect') {
             // Rectangle — outlined shapes AND filled marks (highlights,
             // underline/strike bars, comment marks, text-edit covers).
-            const x = (obj.left || 0) * scaleX;
-            const y = pageHeight - (obj.top || 0) * scaleY - (obj.height || 0) * scaleY * (obj.scaleY || 1);
-            const w = (obj.width || 0) * scaleX * (obj.scaleX || 1);
-            const h = (obj.height || 0) * scaleY * (obj.scaleY || 1);
+            const sx = obj.scaleX === undefined ? 1 : obj.scaleX;
+            const sy = obj.scaleY === undefined ? 1 : obj.scaleY;
+            const hasStroke = !!(obj.stroke && obj.strokeWidth);
+            const fillStr = obj.fill && obj.fill !== 'transparent' ? obj.fill : null;
+            const fill = fillStr ? _parseColor(fillStr) : null;
+            const stroke = hasStroke ? _parseColor(obj.stroke) : null;
+            if (!_isPlainPlacement(obj) || obj.rx || obj.ry || (fillStr && !fill) || (hasStroke && !stroke)
+                || (!obj.strokeUniform && hasStroke && Math.abs(sx - sy) > 1e-6)) {
+                return await generic();
+            }
+            // left/top is the OUTER corner: the rectangle's path starts half a
+            // stroke inside it (Fabric counts the stroke width even when not drawn).
+            const sw = obj.strokeWidth || 0;
+            const swX = obj.strokeUniform ? sw : sw * sx, swY = obj.strokeUniform ? sw : sw * sy;
+            const w = (obj.width || 0) * sx * scaleX;
+            const h = (obj.height || 0) * sy * scaleY;
+            const x = ((obj.left || 0) + swX / 2) * scaleX;
+            const y = pageHeight - ((obj.top || 0) + swY / 2) * scaleY - h;
 
             const opts = { x, y, width: w, height: h };
-            const fillStr = typeof obj.fill === 'string' ? obj.fill : null;
-            if (fillStr && fillStr !== 'transparent') {
-                try {
-                    let fr, alpha = obj.opacity !== undefined ? obj.opacity : 1;
-                    const m = fillStr.match(/^rgba?\(([\d.]+)[, ]+([\d.]+)[, ]+([\d.]+)(?:[,/ ]+([\d.]+))?\)$/);
-                    if (m) { fr = { r: +m[1], g: +m[2], b: +m[3] }; if (m[4] !== undefined) alpha *= +m[4]; }
-                    else fr = hexToRgb(fillStr);
-                    opts.color = PDFLib.rgb(fr.r / 255, fr.g / 255, fr.b / 255);
-                    opts.opacity = Math.max(0, Math.min(1, alpha));
-                } catch { /* unparseable fill — skip it */ }
+            const objOpacity = obj.opacity === undefined ? 1 : obj.opacity;
+            if (fill && fill.a > 0) {
+                opts.color = PDFLib.rgb(fill.r / 255, fill.g / 255, fill.b / 255);
+                opts.opacity = Math.max(0, Math.min(1, fill.a * objOpacity));
             }
-            if (obj.stroke && obj.strokeWidth) {
-                try {
-                    const sc = hexToRgb(obj.stroke);
-                    opts.borderColor = PDFLib.rgb(sc.r / 255, sc.g / 255, sc.b / 255);
-                    opts.borderWidth = (obj.strokeWidth || 1) * scaleX;
-                    if (Array.isArray(obj.strokeDashArray) && obj.strokeDashArray.length)
-                        opts.borderDashArray = obj.strokeDashArray.map(v => v * scaleX);
-                } catch { /* bad stroke color */ }
+            if (stroke && stroke.a > 0) {
+                opts.borderColor = PDFLib.rgb(stroke.r / 255, stroke.g / 255, stroke.b / 255);
+                opts.borderOpacity = Math.max(0, Math.min(1, stroke.a * objOpacity));
+                opts.borderWidth = swX * scaleX;
+                if (Array.isArray(obj.strokeDashArray) && obj.strokeDashArray.length) {
+                    const dashScale = (obj.strokeUniform ? 1 : sx) * scaleX;
+                    opts.borderDashArray = obj.strokeDashArray.map(v => v * dashScale);
+                }
             }
             if (opts.color === undefined && opts.borderColor === undefined) return; // nothing to draw
             pdfPage.drawRectangle(opts);
-        } else if (type === 'path') {
-            // Freehand drawing - render as image overlay
-            await drawPathAsImage(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
-        } else if (type === 'ellipse' || type === 'triangle' || type === 'line' || type === 'group' || type === 'polygon') {
-            // Shapes with no direct pdf-lib primitive (or with dash styles) —
-            // re-create the fabric object and embed it as a crisp PNG overlay.
-            // (These were previously DROPPED from the saved PDF entirely.)
-            await drawGenericObjectAsImage(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
         } else if (type === 'image') {
             // Image object
             await drawImageOnPDF(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
+        } else {
+            // Everything else (paths, ellipses, circles, polylines, groups, lines...)
+            // has no faithful pdf-lib primitive: re-create the Fabric object and
+            // embed it as a crisp PNG overlay. A type that cannot be re-created
+            // counts as a failure, it never disappears quietly.
+            await generic();
         }
     }
 
@@ -7680,9 +7720,10 @@
         try {
             const insts = await new Promise((resolve) => fabric.util.enlivenObjects([obj], resolve));
             const inst = insts && insts[0];
-            if (!inst) return;
+            if (!inst) { _exportFailures++; return; }
+            inst.visible = true;   // the caller decided this object belongs in the file
             const b = inst.getBoundingRect(true, true);
-            if (b.width < 1 || b.height < 1) return;
+            if (!(b.width > 0) && !(b.height > 0)) return;   // truly nothing to draw
             const pad = 8, ss = 3;
             const tmp = new fabric.StaticCanvas(null, {
                 width: Math.ceil((b.width + pad * 2) * ss),
@@ -7788,21 +7829,24 @@
     }
 
     async function drawImageOnPDF(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight) {
+        const generic = () => drawGenericObjectAsImage(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
         try {
             const src = obj.src;
-            if (!src) return;
+            if (!src) { _exportFailures++; return; }
 
-            // Rotation, flips and borders have no fast path in pdf-lib here —
-            // rasterize the fabric object so the save matches the screen.
-            if (obj.angle || obj.flipX || obj.flipY || (obj.stroke && obj.strokeWidth)) {
-                return await drawGenericObjectAsImage(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
+            // Rotation, flips, borders, crops, filters and see-through images have
+            // no fast path in pdf-lib here — rasterize the fabric object so the save
+            // matches the screen.
+            if (!_isPlainPlacement(obj) || (obj.stroke && obj.strokeWidth) || obj.cropX || obj.cropY
+                || (obj.filters && obj.filters.length) || (obj.opacity !== undefined && obj.opacity < 1)) {
+                return await generic();
             }
 
             let imgBytes;
             if (src.startsWith('data:')) {
                 // Data URL - convert without fetch
                 const base64 = src.split(',')[1];
-                if (!base64) return;
+                if (!base64) { _exportFailures++; return; }
                 const binaryStr = atob(base64);
                 imgBytes = new Uint8Array(binaryStr.length);
                 for (let i = 0; i < binaryStr.length; i++) {
@@ -7829,8 +7873,9 @@
 
             pdfPage.drawImage(pdfImage, { x, y, width: w, height: h });
         } catch (err) {
-            _exportFailures++;
-            console.warn('Could not embed image:', err);
+            // A format pdf-lib cannot embed (WebP, GIF...): the canvas can still draw it.
+            console.warn('Could not embed image directly, drawing it through the canvas:', err);
+            await generic();
         }
     }
 
