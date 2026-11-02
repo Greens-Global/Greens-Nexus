@@ -280,5 +280,67 @@ class GroupTests(_Base):
             db.close()
 
 
+class JobRoleTests(_Base):
+    """Items 2 and 5: job roles - the tier and company guards on edit and
+    delete, Super-only grants, assignment inside the wall."""
+
+    def _role(self, rid, company, tier="employee", modules=""):
+        db = self._db()
+        try:
+            db.add(models.NexusGroup(id=rid, name=f"Role {rid}", is_job_role=1, tier=tier,
+                                     company_id=company, allowed_modules=modules))
+            db.commit()
+        finally:
+            db.close()
+
+    def test_edit_and_delete_guard_tier_and_company(self):
+        self._role("JResc-a", COA)
+        self._role("JResc-b", COB)
+        self._role("JResc-shared", "")
+        self._role("JResc-admin", COA, tier="administrator")
+        self._walls_off()
+        self._as(ADMIN_A)
+        self.assertEqual(self.client.put("/jobroles/JResc-b", json={"description": "x"}).status_code, 404)
+        self.assertEqual(self.client.delete("/jobroles/JResc-b").status_code, 404)
+        self.assertEqual(self.client.put("/jobroles/JResc-shared", json={"description": "x"}).status_code, 403)
+        self.assertEqual(self.client.delete("/jobroles/JResc-shared").status_code, 403)
+        # A company A role at the Administrator tier: not theirs to change (its holders' tier).
+        self.assertEqual(self.client.put("/jobroles/JResc-admin", json={"tier": "employee"}).status_code, 403)
+        self.assertEqual(self.client.delete("/jobroles/JResc-admin").status_code, 403)
+        self.assertEqual(self.client.put("/jobroles/JResc-a", json={"description": "x"}).status_code, 200)
+        self.assertEqual(self.client.post("/jobroles", json={"name": "Shared New"}).status_code, 403)
+        listed = {r["id"] for r in self.client.get("/jobroles").json()}
+        self.assertNotIn("JResc-b", listed)
+        self.assertTrue({"JResc-a", "JResc-shared"} <= listed)
+        self._as(SUPER)
+        self.assertEqual(self.client.put("/jobroles/JResc-shared", json={"description": "x"}).status_code, 200)
+        self.assertEqual(self.client.delete("/jobroles/JResc-b").status_code, 200)
+
+    def test_owner_bypass_grants_on_job_roles_are_super_only(self):
+        self._role("JResc-a", COA)
+        self._as(ADMIN_A)
+        r = self.client.post("/jobroles", json={"name": "Wealth", "company_id": COA,
+                                                "allowed_modules": [{"id": "pfs", "level": "viewer"}]})
+        self.assertEqual(r.status_code, 403, r.text)
+        r = self.client.put("/jobroles/JResc-a", json={"allowed_modules": [{"id": "hr_comp", "level": "viewer"}]})
+        self.assertEqual(r.status_code, 403, r.text)
+        self._as(SUPER)
+        r = self.client.put("/jobroles/JResc-a", json={"allowed_modules": [{"id": "pfs", "level": "viewer"}]})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_assignment_stays_inside_the_wall(self):
+        self._role("JResc-shared", "")
+        self._role("JResc-b", COB)
+        self._as(ADMIN_A)
+        r = self.client.post("/jobroles/JResc-shared/assign", json={"email": BEMP, "reason": "x"})
+        self.assertEqual(r.status_code, 404, r.text)
+        r = self.client.post("/jobroles/JResc-b/assign", json={"email": AEMP, "reason": "x"})
+        self.assertEqual(r.status_code, 404, r.text)
+        self.assertEqual(self.client.get(f"/jobroles/effective/{BEMP}").status_code, 404)
+        r = self.client.post("/jobroles/JResc-shared/assign", json={"email": AEMP, "reason": "x"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.client.get(f"/jobroles/effective/{AEMP}").status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()
