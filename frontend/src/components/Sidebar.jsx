@@ -1,4 +1,4 @@
-import { forwardRef, useRef } from "react";
+import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { orderNav } from './navOrder';
 import { useRole } from "../contexts/RoleContext";
 import { useIsMobile } from "../lib/useIsMobile";
@@ -10,7 +10,7 @@ import {
   ClipboardCheck, Calculator,
   FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Handshake,
-  Settings, ChevronLeft, ChevronRight,
+  Settings, ChevronLeft,
   HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale, TrendingUp,
   FlaskConical,
   KeyRound,
@@ -28,6 +28,7 @@ import { VIEW_TO_PATH } from "../lib/routes";
 import NavCount from "./NavCount";
 import NavMore from "./NavMore";
 import { useOffscreenCounts } from "../lib/useOffscreenCounts";
+import { useRailMotion } from "../lib/railMotion";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
 // Who sees a NAV item - the rail, and the header search's Pages, agree
@@ -252,6 +253,68 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   // it is a drawer and the floating capsule stays.
   const phone = useIsMobile('(max-width: 900px)');   // the drawer breakpoint - style.css's `@media (max-width: 900px) { .sidebar {...} }`
 
+  // ── Motion (Neil, 11/01/2026) - see lib/railMotion.js for the strength and
+  // style.css "Rail motion" for every visual. The sidebar owns only what CSS
+  // cannot: two pills behind the rows (one glides to the hovered row, one is
+  // the active tint and travels on a module change), a one-time pop on the
+  // newly active icon, and the `is-opening` beat that cascades the labels in
+  // when the rail unfolds. Everything is translateY / scale / opacity. The
+  // phone drawer gets none of it (touch has no hover).
+  const { effective: motion } = useRailMotion();
+  const motionOn = motion !== 'off' && !phone;
+  const rowEls = useRef(new Map());
+  const hoverPill = useRef(null);
+  const activePill = useRef(null);
+  const setRowEl = (view) => (el) => { if (el) rowEls.current.set(view, el); else rowEls.current.delete(view); };
+  const onRowEnter = (view) => (e) => {
+    if (!motionOn || e.pointerType === 'touch') return;
+    const el = rowEls.current.get(view), p = hoverPill.current;
+    if (!el || !p) return;
+    // The active row already has its tint; a second pill under the pointer
+    // would read as a darker stripe, so the hover pill stands down there.
+    if (view === activeView) { p.classList.remove('is-on'); return; }
+    p.style.height = `${el.offsetHeight}px`;
+    p.style.transform = `translateY(${el.offsetTop}px)`;
+    p.classList.add('is-on');
+  };
+  const onListLeave = () => { hoverPill.current?.classList.remove('is-on'); };
+  // The active pill: placed before paint; a glide on a module change, a snap
+  // (no transition) on mount and whenever the rail folds or unfolds, because
+  // the rows' geometry changes under it then.
+  const snapRef = useRef({ first: true, collapsed });
+  useLayoutEffect(() => {
+    const p = activePill.current;
+    if (!p) return;
+    const el = rowEls.current.get(activeView);
+    if (!el) { p.style.opacity = '0'; return; }
+    const snap = snapRef.current.first || snapRef.current.collapsed !== collapsed;
+    snapRef.current = { first: false, collapsed };
+    if (snap) p.style.transition = 'none';
+    p.style.opacity = '1';
+    p.style.height = `${el.offsetHeight}px`;
+    p.style.transform = `translateY(${el.offsetTop}px)`;
+    if (snap) { void p.offsetHeight; p.style.transition = ''; }
+  });
+  // The pop and the cascade are "information from previous renders": the
+  // module that just became active pops once; the rail that just unfolded
+  // cascades its labels. Both clear on a timer.
+  const [prevActive, setPrevActive] = useState(activeView);
+  const [popView, setPopView] = useState(null);
+  if (prevActive !== activeView) { setPrevActive(activeView); setPopView(motionOn ? activeView : null); }
+  useEffect(() => {
+    if (!popView) return undefined;
+    const t = setTimeout(() => setPopView(null), 360);
+    return () => clearTimeout(t);
+  }, [popView]);
+  const [prevCollapsed, setPrevCollapsed] = useState(collapsed);
+  const [opening, setOpening] = useState(false);
+  if (prevCollapsed !== collapsed) { setPrevCollapsed(collapsed); setOpening(!collapsed && motionOn); }
+  useEffect(() => {
+    if (!opening) return undefined;
+    const t = setTimeout(() => setOpening(false), 700);
+    return () => clearTimeout(t);
+  }, [opening]);
+
   // A busy module scrolled out of the rail gets a "3 waiting below" pill
   // (components/NavMore.jsx).
   const navRef = useRef(null);
@@ -272,6 +335,8 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
     const href = `/${VIEW_TO_PATH[item.view] || item.view}`;
     const active = activeView === item.view;
     return {
+      ref: setRowEl(item.view),
+      onPointerEnter: onRowEnter(item.view),
       role: 'link',
       tabIndex: 0,
       'aria-current': active ? 'page' : undefined,
@@ -291,7 +356,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
     };
   }
 
-  function renderItem(item, i) {
+  function renderItem(item, i, ord = 0) {
     // ── Collapsed: icon-only rail ──
     // The module's name shows in the sidebar's own large tooltip
     // (components/NavTip.jsx) rather than the browser's small `title` one.
@@ -302,7 +367,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
         <NavTip key={item.view || i} label={item.label} side="right"
           detail={n ? `${countText(n)} waiting on you${detail ? ` - ${detail}` : ''}` : undefined}>
           <li className={`nav-item nav-item--icon${activeView === item.view ? " active" : ""}${n ? " has-count" : ""}`} data-count={n || undefined} {...rowProps(item, n)}>
-            <span className="nav-ico">
+            <span className={`nav-ico${popView === item.view ? " is-pop" : ""}`}>
               {renderIcon(item)}
               <NavCount n={n} corner />
             </span>
@@ -319,10 +384,10 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
     // here too - the data is still used by the mobile menu.
     return (
       <li key={item.view} className={`nav-item${activeView === item.view ? " active" : ""}${n ? " has-count" : ""}`} data-count={n || undefined} {...rowProps(item, n)}>
-        <span className="nav-ico">{renderIcon(item)}</span>
-        <span className="nav-label">{item.label}</span>
+        <span className={`nav-ico${popView === item.view ? " is-pop" : ""}`}>{renderIcon(item)}</span>
+        <span className="nav-label" style={{ '--i': ord }}>{item.label}</span>
         {item.badge && <em className="nav-badge">{item.badge}</em>}
-        <NavCount n={n} detail={countDetail(counts, item.view)} />
+        <NavCount n={n} detail={countDetail(counts, item.view)} order={ord} />
         {item.code && <span className="nav-code">{item.code}</span>}
       </li>
     );
@@ -330,7 +395,8 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
 
   return (
     <>
-      <aside ref={ref} className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}`}>
+      <aside ref={ref} className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}${opening ? " is-opening" : ""}`}
+        data-motion={motionOn ? motion : undefined}>
 
         {/* ── Collapse toggle: the edge tab, as it always was (Neil, Oct 14
             2026: a header chevron was tried and sent back) - Nexus green on
@@ -341,10 +407,9 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
           onClick={onToggleCollapse}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          {collapsed
-            ? <ChevronRight style={{ width: 13, height: 13 }} />
-            : <ChevronLeft  style={{ width: 13, height: 13 }} />
-          }
+          {/* One chevron, turned by CSS when the rail is folded - it rotates
+              with the width instead of swapping glyphs. */}
+          <ChevronLeft style={{ width: 13, height: 13 }} />
         </button>
         </NavTip>
 
@@ -354,7 +419,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
           <a href="#dashboard" className="sidebar-brand" aria-label="Nexus - go to Dashboard"
             onClick={(e) => { e.preventDefault(); onNavigate('dashboard'); }}>
             <span className="dk-mark" aria-hidden="true">N</span>
-            {!collapsed && <span className="company-name">Nexus</span>}
+            {!collapsed && <span className="company-name" style={{ '--i': 0 }}>Nexus</span>}
           </a>
           </NavTip>
         </div>
@@ -362,7 +427,13 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
         {/* ── Nav ── */}
         <nav className="sidebar-nav" ref={navRef}>
           {morePill('above')}
-          <ul className="nav-list" role="none">
+          <ul className="nav-list" role="none" onPointerLeave={onListLeave}>
+            {motionOn && (
+              <>
+                <li ref={activePill} className="nav-pill nav-pill--active" role="presentation" aria-hidden="true" />
+                <li ref={hoverPill} className="nav-pill nav-pill--hover" role="presentation" aria-hidden="true" />
+              </>
+            )}
             {/* Visibility below admin is grant-driven, NOT role-level: a manager
                 only sees baseline screens (no minRole) plus modules an Access
                 Group grants them. IT Admin / Global Admin (administrator+) still
@@ -378,17 +449,19 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
               // `grants` (a list) = any one of them opens the item; else the single grant/view key.
               const visible = orderNav(NAV).filter(item => !item.menuOnly && isNavItemVisible(item, { isExternal, can, myGrantedModules }));
               const out = [];
+              // `ord` is each label's place in the cascade (--i), top to bottom.
+              let ord = 1;
               if (!collapsed && visible.length && !visible[0].divider) {
-                out.push(<li key="k0" className="nav-kicker" role="presentation">{KICKERS[0]}</li>);
+                out.push(<li key="k0" className="nav-kicker" role="presentation" style={{ '--i': ord++ }}>{KICKERS[0]}</li>);
               }
               visible.forEach((item, i) => {
                 if (item.divider) {
                   group += 1;
                   out.push(<li key={`d${i}`} className="nav-divider" role="separator" />);
-                  if (!collapsed && KICKERS[group]) out.push(<li key={`k${group}`} className="nav-kicker" role="presentation">{KICKERS[group]}</li>);
+                  if (!collapsed && KICKERS[group]) out.push(<li key={`k${group}`} className="nav-kicker" role="presentation" style={{ '--i': ord++ }}>{KICKERS[group]}</li>);
                   return;
                 }
-                out.push(renderItem(item, i));
+                out.push(renderItem(item, i, ord++));
               });
               return out;
             })()}

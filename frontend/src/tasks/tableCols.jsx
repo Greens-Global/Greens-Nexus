@@ -61,7 +61,7 @@ const hasColumnPrefs = (all) => Object.values(all || {}).some((t) => COLUMN_KEYS
 function loadPrefs() {
   if (cache) return Promise.resolve(cache);
   if (!inflight) {
-    inflight = api.getTaskTablePrefs()
+    inflight = Promise.resolve().then(() => api.getTaskTablePrefs())
       .then((r) => { cache = r?.prefs || {}; fromServer = true; writeCache(cache); emit(); return cache; })
       // Offline or a 500: fall back to whatever this browser last saw, then to
       // the defaults. A person who cannot reach the server still gets a table.
