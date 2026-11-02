@@ -9,20 +9,30 @@ An announcement is PUBLISHED when its audience hears about it. Two moments:
   fan-out   What `notify` asks for beyond the bell, always done here, in the
             publish pass, never in a request (a company-wide email is ~180
             Graph calls):
-              quiet       nothing more
-              push_teams  one Web Push (push.queue_push, when Task A's module
-                          is installed and configured) to everyone in the
-                          audience + one Teams DM row per recipient
-                          (models.TicketTeamsMessage, kind 'announcement',
-                          delivered by teams_post's sweep as the author)
+              quiet       nothing more ("Bell" in the composer)
+              push_teams  one Teams DM row per recipient ("Bell and Teams";
+                          models.TicketTeamsMessage, kind 'announcement',
+                          delivered by teams_post's sweep AS THE AUTHOR - an
+                          author with no live session gets one bell saying
+                          the Teams messages were not sent, and no rows)
               email       one themed mail per recipient (graph_mail), from the
                           task-notification mailbox, else NEXUS_FROM_EMAIL
+            The Web Push is never sent from here: the bell IS the push
+            (push.py's after_insert listener queues one for every bell row),
+            in every mode. A second queue_push here doubled every phone.
 
 Exactly once: `run_due` CLAIMS a row by a conditional UPDATE on
 `notified_at` ('' -> now) and commits before anything is sent, so two workers
 or a restart mid-pass never publish the same post twice. Bells are
 idempotent too (recipients who already hold one are skipped), so a claim
-that follows the create request's bells adds none.
+that follows the create request's bells adds none. A publish that raises
+gives the claim back (`notified_at` -> '') so the next pass retries; after
+MAX_ATTEMPTS failures the row is stamped 'failed:<iso>' and left alone (the
+count is in memory - a restart starts over, which is fine). Rows that
+predate these columns carry notified_at '' from the migration default: the
+migration backfills them (main.py) and, as a second guard, an immediate
+post older than GRACE_MINUTES is never claimed - its bells went out at
+create, before this module existed.
 
 The loop runs every minute from main.py's lifespan, leader-gated like the
 other `*_loop` tasks, in a thread (never blocking the event loop). A failure
@@ -45,24 +55,52 @@ from models import Announcement, NexusNotification, TicketTeamsMessage
 SCAN_EVERY_SEC = 60
 TEAMS_KIND = "announcement"
 MODES = ("quiet", "push_teams", "email")
+MAX_ATTEMPTS = 5          # publish failures before a row is stamped failed and left alone
+GRACE_MINUTES = 10        # an immediate post older than this was belled at create: never re-publish
+_attempts: dict = {}      # announcement id -> failed publish attempts (in memory, see module docstring)
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def parse_when(s: str):
+    """An ISO timestamp -> aware UTC datetime; None for blank or unreadable.
+    A naive value is taken as UTC; a trailing Z is accepted."""
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def is_due(a: Announcement, now: str = "") -> bool:
-    """Published-or-due: no publish time, or one at or before now."""
-    return not (a.publish_at or "") or a.publish_at <= (now or _now())
+    """Published-or-due: no publish time, or one at or before now. Compared
+    as datetimes, never as strings (a seed or a hand-written row may carry
+    another shape)."""
+    when = parse_when(a.publish_at or "")
+    if when is None:
+        return True
+    ref = parse_when(now) if now else None
+    return when <= (ref or datetime.now(timezone.utc))
 
 
 def _scope_for(db: Session, email: str):
     """The author's company reach, built the way a request would (their role
-    level stands in for the request's user dict)."""
+    level stands in for the request's user dict). Fails CLOSED: an error here
+    means NO recipients (an empty scope), never the unrestricted None - a
+    company-walled administrator's post must not reach the whole tenant
+    because a lookup hiccuped."""
     try:
         return auth.company_scope({"email": email, "level": auth.level_for(email, db)}, db)
-    except Exception:
-        return None
+    except Exception as e:
+        print(f"[announcements] scope lookup failed for {email}: {e} - publishing to nobody")
+        return set()
 
 
 # ── Message bodies ─────────────────────────────────────────────────────────
@@ -143,23 +181,46 @@ def _bells(db: Session, a: Announcement, people: dict, scope, author_name: str, 
     return ann._notify_audience(db, a, people, scope, author_name, recipients=missing)
 
 
+def _author_can_send_teams(db: Session, author: str) -> bool:
+    """The Teams DMs go out as the author with their delegated Graph token
+    (teams_post.deliver_ticket_row). No live session = no token = every row
+    would die quietly after 48 hours, so we check before queueing."""
+    try:
+        import bff_session
+        return bool(bff_session.graph_token_for_email(db, author))
+    except Exception as e:
+        print(f"[announcements] token check failed for {author}: {e}")
+        return False
+
+
+def _teams_not_sent_bell(db: Session, a: Announcement) -> None:
+    """One bell to the author: the Teams messages did not go."""
+    author = (a.author_email or "").strip().lower()
+    if not author:
+        return
+    db.add(NexusNotification(
+        id=str(uuid.uuid4()), type="announcement", recipient=author,
+        title="Teams Messages Not Sent",
+        body=f"Sign in to Nexus and republish '{a.title or ''}' to send the Teams messages.",
+        ref_id=f"{a.id}:teams", item_name="", requested_by="", action="", actioned=False, read_by="",
+        company="", created_at=_now()))
+
+
 def _fan_out(db: Session, a: Announcement, author_name: str, recipients: list[str]) -> dict:
+    """What `notify` asks for beyond the bell. Never a Web Push: the bell's
+    after_insert listener (push.py) already pushes every bell row, so the
+    phone buzzes once per post whatever the mode."""
     mode = (a.notify or "quiet").strip().lower()
-    out = {"push": 0, "teams": 0, "email": 0, "failed": 0}
+    out = {"teams": 0, "email": 0, "failed": 0}
     if mode == "quiet" or not recipients:
         return out
     now = _now()
     if mode == "push_teams":
-        try:
-            import push      # Task A's module - absent or unconfigured = no push, Teams still goes
-            if push.configured():
-                push.queue_push(db, recipients, a.title or "Announcement", (a.body or "")[:140],
-                                _open_url(), f"announcement:{a.id}")
-                out["push"] = len(recipients)
-        except ImportError:
-            pass
-        except Exception as e:
-            print(f"[announcements] push skipped for {a.id}: {e}")
+        if not _author_can_send_teams(db, a.author_email or ""):
+            _teams_not_sent_bell(db, a)
+            out["failed"] = len(recipients)
+            print(f"[announcements] no Teams token for {a.author_email} - DMs for {a.id} not queued, author told")
+            return out
         html = teams_html(a, author_name)
         for em in recipients:
             db.add(TicketTeamsMessage(id=str(uuid.uuid4()), ticket_id=a.id, agent_email=a.author_email or "",
@@ -198,6 +259,40 @@ def publish(db: Session, a: Announcement) -> dict:
     return out
 
 
+def reset_attempts(aid: str) -> None:
+    """A failed post was given a new publish time: count from zero again."""
+    _attempts.pop(aid, None)
+
+
+def _predates_reach(a: Announcement, now: str) -> bool:
+    """An immediate post (no publish time) created more than GRACE_MINUTES
+    ago with no publish stamp is one the migration default left at '' - its
+    bells went out at create. Never claim it: that would bell the whole
+    company again for every old post."""
+    if (a.publish_at or "").strip():
+        return False
+    made = parse_when(a.created_at or "")
+    ref = parse_when(now) or datetime.now(timezone.utc)
+    return made is not None and (ref - made).total_seconds() > GRACE_MINUTES * 60
+
+
+def _release_claim(db: Session, aid: str, err: Exception) -> None:
+    """A publish that raised: give the claim back so the next pass retries,
+    or after MAX_ATTEMPTS stamp the row failed so it stops trying."""
+    n = _attempts.get(aid, 0) + 1
+    _attempts[aid] = n
+    stamp = "" if n < MAX_ATTEMPTS else f"failed:{_now()}"
+    try:
+        (db.query(Announcement).filter(Announcement.id == aid)
+           .update({"notified_at": stamp}, synchronize_session=False))
+        db.commit()
+    except Exception as e2:
+        db.rollback()
+        print(f"[announcements] could not release claim on {aid}: {e2}")
+    print(f"[announcements] publish failed for {aid} (attempt {n}/{MAX_ATTEMPTS}"
+          f"{', giving up' if stamp else ', will retry'}): {err}")
+
+
 def run_due() -> int:
     """One pass: claim every live, due, unpublished post and publish it.
     Returns how many were published."""
@@ -211,7 +306,7 @@ def run_due() -> int:
         rows = (db.query(Announcement)
                 .filter(Announcement.deleted_at == "", Announcement.notified_at == "")
                 .order_by(Announcement.created_at.asc()).all())
-        due = [a for a in rows if is_due(a, now)]
+        due = [a for a in rows if is_due(a, now) and not _predates_reach(a, now)]
         for a in due:
             # Claim first: the UPDATE wins on one worker only.
             claimed = (db.query(Announcement)
@@ -225,10 +320,11 @@ def run_due() -> int:
                 result = publish(db, a)
                 db.commit()
                 done += 1
+                _attempts.pop(a.id, None)
                 print(f"[announcements] published {a.id} ({a.notify or 'quiet'}): {result}")
             except Exception as e:
                 db.rollback()
-                print(f"[announcements] publish failed for {a.id}: {e}")
+                _release_claim(db, a.id, e)
     finally:
         db.close()
     return done

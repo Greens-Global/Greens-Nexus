@@ -113,9 +113,32 @@ def _is_pinned(a: Announcement, today: str) -> bool:
     return bool(a.pinned_until) and a.pinned_until >= today
 
 
+def _published(a: Announcement) -> bool:
+    """The publish pass stamped this post. A 'failed:<iso>' stamp (the pass
+    gave up on it) is NOT published - the administrator may move its time."""
+    stamp = (a.notified_at or "").strip()
+    return bool(stamp) and not stamp.startswith("failed:")
+
+
+def _failed(a: Announcement) -> bool:
+    return (a.notified_at or "").startswith("failed:")
+
+
 def _is_scheduled(a: Announcement, now: str) -> bool:
-    """Not yet published: a publish time still ahead and no publish stamp."""
-    return bool(a.publish_at) and not (a.notified_at or "") and a.publish_at > now
+    """Not yet published: a publish time still ahead and no publish stamp
+    (compared as datetimes, see announcements_publish.parse_when). A post the
+    publish pass gave up on is unpublished too - staff never see it until an
+    administrator gives it a new time and it goes out."""
+    import announcements_publish as pub
+    if _published(a):
+        return False
+    if _failed(a):
+        return True
+    when = pub.parse_when(a.publish_at or "")
+    if when is None:
+        return False
+    ref = pub.parse_when(now) or datetime.now(timezone.utc)
+    return when > ref
 
 
 def _can_see(a: Announcement, *, email: str, department: str, is_admin: bool, now: str = "") -> bool:
@@ -153,6 +176,11 @@ def _serialize(a: Announcement, *, people: dict, db: Session, mark=None, counts=
         "notify": a.notify or "quiet",
         "notified_at": a.notified_at or "",
         "scheduled": _is_scheduled(a, _now()),
+        "failed": _failed(a),      # the publish pass gave up: give it a new time to retry
+        # The date the list shows and sorts by: when it was (or will be)
+        # published, else when it was written - a post scheduled a week ahead
+        # must not surface buried under the posts written after it.
+        "shown_at": a.publish_at or a.created_at or "",
     }
     if counts is not None:
         out["read_count"], out["ack_count"] = counts
@@ -285,8 +313,20 @@ def _validate(body: dict, current: Announcement | None = None) -> dict:
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             when = dt.astimezone(timezone.utc).isoformat()
-        if patch and (current.notified_at or "") and when != (current.publish_at or ""):
+        if patch and _published(current) and when != (current.publish_at or ""):
             raise _bad("This announcement is already published; its publish time cannot change.")
+        if patch and when and not (current.publish_at or "").strip():
+            # An immediate post's bells went out at create (the publish pass
+            # may not have stamped it yet): it cannot be pulled back into the
+            # future, that would hide a post people were already told about.
+            import announcements_publish as pub
+            if pub.parse_when(when) > datetime.now(timezone.utc):
+                raise HTTPException(status_code=400, detail="This post is already published")
+        if patch and when != (current.publish_at or "") and (current.notified_at or "").startswith("failed:"):
+            # A failed publish, given a new time: let the pass try again.
+            import announcements_publish as pub
+            pub.reset_attempts(current.id)
+            out["notified_at"] = ""
         out["publish_at"] = when
     elif not patch:
         out["publish_at"] = ""
@@ -376,8 +416,9 @@ def list_announcements(user: dict = Depends(get_current_user), db: Session = Dep
     if scope is not None:
         rows = [a for a in rows
                 if auth.company_ok(_author_company(people, a.author_email), scope, shared_when_blank=True)]
-    # Stable: pinned block first, each block newest first (created_at desc).
-    rows.sort(key=lambda a: a.created_at or "", reverse=True)
+    # Stable: pinned block first, each block newest first by the date shown
+    # (publish_at when scheduled or published later, else created_at).
+    rows.sort(key=lambda a: a.publish_at or a.created_at or "", reverse=True)
     rows.sort(key=lambda a: 0 if _is_pinned(a, today) else 1)
     rows = rows[:LIST_LIMIT]
     ids = [a.id for a in rows]
@@ -420,7 +461,8 @@ def create_announcement(body: dict, user: dict = Depends(require_administrator),
     db.add(a)
     people = _people(db)
     author_name = _name_of(people, db, a.author_email)
-    if not a.publish_at or a.publish_at <= now:
+    import announcements_publish as pub
+    if pub.is_due(a, now):
         # Due now: the bells are instant, as before. The push / Teams / email
         # fan-out (and the notified_at stamp) is the publish pass's, within
         # the minute - never in a request. A scheduled post waits for the pass.

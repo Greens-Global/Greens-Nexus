@@ -4,11 +4,21 @@ publish later, the notify choice and the acknowledged-by names.
 - A scheduled post (publish_at in the future) is hidden from staff and shown
   to administrators flagged `scheduled`; when it comes due the publish pass
   writes its bells and fans out ONCE (a second pass sends nothing).
-- Fan-out per notify mode: quiet = bells only; push_teams = bells + push
-  queue + one Teams DM row per recipient; email = bells + one mail per
-  recipient. The author is never a recipient.
+- Fan-out per notify mode: quiet = bells only; push_teams = bells + one
+  Teams DM row per recipient (as the author - no live session = no rows and
+  one bell to the author instead); email = bells + one mail per recipient.
+  The author is never a recipient. The push is the BELL's (push.py's
+  after_insert listener): exactly one outbox row per subscribed recipient in
+  push_teams mode, never a second one from the publish pass.
 - An image or file URL outside our storage is refused; a bad notify word is
-  refused; a published post's publish time cannot be moved.
+  refused; a published post's publish time cannot be moved; an immediate
+  post cannot be pulled into the future after its bells went out.
+- Release safety: a post from before the reach columns (notified_at '' from
+  the migration default, bells sent at create) is stamped by the migration
+  and, even unstamped, never re-published by the pass.
+- A publish that raises gives the claim back and the next pass retries;
+  after five failures the row is stamped failed, hidden from staff, and an
+  administrator may give it a new time.
 - Administrators see the first acknowledgers' names on each post.
 
 Throwaway sqlite, NEXUS_SKIP_AUTH identity, every sender mocked. No network.
@@ -103,6 +113,8 @@ class AnnouncementsReachTests(unittest.TestCase):
             db.query(models.AnnouncementRead).delete(synchronize_session=False)
             db.query(models.NexusNotification).filter(models.NexusNotification.type == "announcement").delete(synchronize_session=False)
             db.query(models.TicketTeamsMessage).filter(models.TicketTeamsMessage.kind == "announcement").delete(synchronize_session=False)
+            db.query(models.NexusPushOutbox).delete(synchronize_session=False)
+            db.query(models.NexusPushSubscription).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -196,31 +208,167 @@ class AnnouncementsReachTests(unittest.TestCase):
 
     # ── Fan-out per mode ─────────────────────────────────────────────────────
 
-    def test_push_teams_mode_queues_push_and_one_teams_dm_per_recipient(self):
-        queued = []
-        fake_push = mock.MagicMock()
-        fake_push.configured.return_value = True
-        fake_push.queue_push.side_effect = lambda db, recipients, title, body, url, tag: queued.append((sorted(recipients), title, tag))
-        with mock.patch.dict("sys.modules", {"push": fake_push}), mock.patch("graph_mail.send_mail") as send:
+    def _author_bells(self):
+        db = database.SessionLocal()
+        try:
+            return [(n.title, n.body) for n in db.query(models.NexusNotification)
+                    .filter(models.NexusNotification.recipient == ADMIN,
+                            models.NexusNotification.type == "announcement").all()]
+        finally:
+            db.close()
+
+    def _outbox(self):
+        db = database.SessionLocal()
+        try:
+            return sorted((r.email, r.title, r.tag) for r in db.query(models.NexusPushOutbox).all())
+        finally:
+            db.close()
+
+    def _subscribe(self, email):
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusPushSubscription(id=f"ps_{email}", email=email, endpoint=f"https://fcm.googleapis.com/fcm/send/{email}",
+                                                p256dh="p", auth="a", user_agent="", created_at=_iso(0), last_ok_at="",
+                                                failures=0, disabled=False))
+            db.commit()
+        finally:
+            db.close()
+
+    VAPID = {"NEXUS_VAPID_PRIVATE_KEY": "test-private", "NEXUS_VAPID_PUBLIC_KEY": "BPublicKeyForTests",
+             "NEXUS_VAPID_SUBJECT": "mailto:it@greensglobal.com"}
+
+    def test_push_teams_mode_pushes_once_per_recipient_and_queues_one_teams_dm_each(self):
+        """The bell is the push: a subscribed recipient gets exactly ONE
+        outbox row for the post (from the bell's after_insert hook), the
+        publish pass adds none; and one Teams DM row per recipient, as the
+        author, who has a live session."""
+        self._subscribe(OPS)
+        with mock.patch.dict(os.environ, self.VAPID), \
+             mock.patch("bff_session.graph_token_for_email", return_value="tok"), \
+             mock.patch("graph_mail.send_mail") as send:
             r = self._post(notify="push_teams", audience="department", department="Operations")
             self.assertEqual(r.status_code, 201, r.text)
             a = r.json()
+            self.assertEqual(self._bells(a["id"]), [OPS])
             self.assertEqual(announcements_publish.run_due(), 1)
             send.assert_not_called()
-        self.assertEqual(queued, [([OPS], "Parking lot repaved", f"announcement:{a['id']}")])
+        self.assertEqual(self._outbox(), [(OPS, "Announcement: Parking lot repaved", f"announcement:{a['id']}")])
         rows = self._teams_rows(a["id"])
         self.assertEqual(sorted(x.requester_email for x in rows), [OPS])
         self.assertEqual({x.agent_email for x in rows}, {ADMIN})
         self.assertEqual({x.kind for x in rows}, {"announcement"})
         self.assertIn("Parking lot repaved", rows[0].html)
         self.assertEqual({x.sent for x in rows}, {0})                 # the Teams sweep delivers
+        self.assertEqual(self._author_bells(), [])
+        self.assertNotIn("queue_push", open(announcements_publish.__file__).read().split("def _fan_out")[1].split("def publish")[0])
 
-    def test_push_teams_mode_without_push_module_still_queues_teams(self):
-        with mock.patch.dict("sys.modules", {"push": None}):
+    def test_quiet_mode_pushes_once_too_because_the_bell_pushes(self):
+        self._subscribe(OPS)
+        with mock.patch.dict(os.environ, self.VAPID):
+            a = self._post(audience="department", department="Operations").json()
+            self.assertEqual(announcements_publish.run_due(), 1)
+        self.assertEqual(len(self._outbox()), 1)
+
+    def test_push_teams_mode_with_no_author_session_tells_the_author_instead_of_dead_rows(self):
+        with mock.patch("bff_session.graph_token_for_email", return_value=""):
             r = self._post(notify="push_teams")
             self.assertEqual(r.status_code, 201, r.text)
             self.assertEqual(announcements_publish.run_due(), 1)
-        self.assertEqual(sorted(x.requester_email for x in self._teams_rows(r.json()["id"])), sorted([OPS, FIN]))
+        self.assertEqual(self._teams_rows(r.json()["id"]), [])
+        self.assertEqual(self._author_bells(), [("Teams Messages Not Sent",
+                                                 "Sign in to Nexus and republish 'Parking lot repaved' to send the Teams messages.")])
+        self.assertTrue(self._list(ADMIN)[0]["notified_at"])
+
+    # ── Release safety and failure ───────────────────────────────────────────
+
+    def _old_post(self, days_ago=40, **kw):
+        db = database.SessionLocal()
+        try:
+            made = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+            a = models.Announcement(id=f"old-{days_ago}", title="Holiday hours", body="Closed Friday.", audience="company",
+                                    author_email=ADMIN, created_at=made, updated_at=made, deleted_at="",
+                                    department="", pinned_until="", requires_ack=False,
+                                    image_url="", file_url="", file_name="", publish_at="", notify="quiet", notified_at="", **kw)
+            db.add(a)
+            db.commit()
+            return a.id, made
+        finally:
+            db.close()
+
+    def test_a_post_from_before_the_release_is_never_published_again(self):
+        """Its bells went out at create (and were purged since); notified_at is
+        '' only because the column arrived with a default."""
+        aid, made = self._old_post()
+        self.assertEqual(self._bells(aid), [])
+        self.assertEqual(announcements_publish.run_due(), 0)
+        self.assertEqual(self._bells(aid), [])
+        # The migration line (both lists in main.py) stamps it published.
+        from sqlalchemy import text
+        with database.engine.connect() as c:
+            c.execute(text("UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''"))
+            c.commit()
+        db = database.SessionLocal()
+        try:
+            self.assertEqual(db.get(models.Announcement, aid).notified_at, made)
+        finally:
+            db.close()
+        self.assertEqual(announcements_publish.run_due(), 0)
+        self.assertFalse(self._list(OPS)[0]["scheduled"])          # staff still see it, as before
+
+    def test_a_publish_that_raises_gives_the_claim_back_then_gives_up_after_five(self):
+        a = self._post(publish_at=_iso(-1), notify="email").json()
+        self._as(OPS)
+        with mock.patch("announcements_publish.publish", side_effect=RuntimeError("Graph down")):
+            self.assertEqual(announcements_publish.run_due(), 0)
+        self.assertEqual(self._list(ADMIN)[0]["notified_at"], "")     # claim released
+        with mock.patch("graph_mail.send_mail"), mock.patch("graph_mail.DEFAULT_FROM_EMAIL", "nexus@greensglobal.com"):
+            self.assertEqual(announcements_publish.run_due(), 1)       # the next pass publishes
+        self.assertEqual(self._bells(a["id"]), sorted([OPS, FIN]))
+
+        b = self._post(publish_at=_iso(-1)).json()
+        with mock.patch("announcements_publish.publish", side_effect=RuntimeError("still down")):
+            for _ in range(announcements_publish.MAX_ATTEMPTS):
+                self.assertEqual(announcements_publish.run_due(), 0)
+        row = next(x for x in self._list(ADMIN) if x["id"] == b["id"])
+        self.assertTrue(row["notified_at"].startswith("failed:"))
+        self.assertTrue(row["failed"])
+        self.assertTrue(row["scheduled"])                              # not published: hidden from staff
+        self.assertNotIn(b["id"], [x["id"] for x in self._list(OPS)])
+        self.assertEqual(announcements_publish.run_due(), 0)           # left alone
+        # The administrator gives it a new time: it is tried again.
+        self._as(ADMIN)
+        r = self.client.patch(f"/announcements/{b['id']}", json={"publish_at": _iso(-1)})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["notified_at"], "")
+        self.assertEqual(announcements_publish.run_due(), 1)
+        self.assertEqual(self._bells(b["id"]), sorted([OPS, FIN]))
+
+    def test_an_immediate_post_cannot_be_pulled_into_the_future(self):
+        a = self._post().json()                                        # bells went out at create
+        self.assertEqual(self._bells(a["id"]), sorted([OPS, FIN]))
+        r = self.client.patch(f"/announcements/{a['id']}", json={"publish_at": _iso(+30)})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertEqual(r.json()["detail"], "This post is already published")
+        self.assertEqual([x["id"] for x in self._list(OPS)], [a["id"]])
+
+    def test_a_scope_lookup_failure_publishes_to_nobody(self):
+        with mock.patch("auth.company_scope", side_effect=RuntimeError("walls table away")):
+            self.assertEqual(announcements_publish._scope_for(database.SessionLocal(), ADMIN), set())
+
+    def test_due_is_compared_as_a_time_not_a_string(self):
+        a = models.Announcement(publish_at="2026-01-01T00:00:00Z")
+        self.assertTrue(announcements_publish.is_due(a, "2026-01-01T00:00:00.000001+00:00"))
+        self.assertTrue(announcements_publish.is_due(a, "2026-01-01T05:30:00+05:30"))   # same instant
+        self.assertFalse(announcements_publish.is_due(a, "2025-12-31T23:59:59+00:00"))
+        self.assertTrue(announcements_publish.is_due(models.Announcement(publish_at=""), "2020-01-01T00:00:00+00:00"))
+
+    def test_list_shows_and_sorts_by_the_publish_date(self):
+        early = self._post(title="Written first, out last", publish_at=_iso(+120)).json()
+        later = self._post(title="Written second").json()
+        rows = self._list(ADMIN)
+        self.assertEqual([x["id"] for x in rows], [early["id"], later["id"]])   # the scheduled one sorts by its publish time
+        self.assertEqual(rows[0]["shown_at"], early["publish_at"])
+        self.assertEqual(rows[1]["shown_at"], later["created_at"])
 
     def test_email_mode_sends_one_mail_per_recipient(self):
         with mock.patch("graph_mail.send_mail") as send, \
