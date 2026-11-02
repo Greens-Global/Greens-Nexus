@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import { Paperclip, X, Download, ShieldAlert, Play, AudioLines } from 'lucide-react';
 import { api } from '../api';
 import { filesFromPaste } from '../tasks/lib';
-import { NX, FONT, btn } from '../tasks/theme';
-import { useIsMobile, useEscapeLayer } from '../tasks/components';
+import { NX } from '../tasks/theme';
+import { useIsMobile, AttachmentViewer } from '../tasks/components';
 import { dialog as appDialog } from '../ui/dialog';
 import { NO_RECORDING_TYPES } from './ticketMeta';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
@@ -15,51 +15,10 @@ import { attachmentKindOf, attachFailed, returnToTicketAfterRecording } from './
 import { RecordUploadButtons } from './TicketEvidence';
 
 // ── Attachment viewer ────────────────────────────────────────────────────────
-// In-app viewer: images, recordings and PDFs open over the drawer instead of a
-// new tab. z sits ABOVE the ticket modal (4000) and BELOW the recorder pill
-// (6000). It is an Escape layer of its own (useEscapeLayer, the same stack
-// every Modal is on), so Escape closes the viewer without also closing the
-// drawer underneath; files with no inline renderer (docx, xlsx…) get a clean
-// download card rather than a broken embed.
-function AttachmentViewer({ att, onClose }) {
-  useEscapeLayer(() => onClose());
-  if (!att) return null;
-  const isPdf = /\.pdf($|\?)/i.test(att.name || '') || /\.pdf($|\?)/i.test(att.url || '');
-  const body = att.kind === 'image' ? (
-    <img src={att.url} alt={att.name} style={{ maxWidth: '92vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 8 }} />
-  ) : att.kind === 'video' ? (
-    <video src={att.url} controls autoPlay style={{ maxWidth: '92vw', maxHeight: '78vh', borderRadius: 8, background: '#000' }} />
-  ) : att.kind === 'audio' ? (
-    // A voice note (Neil, Oct 30 2026) plays here instead of a download card.
-    <div style={{ background: NX.surface, borderRadius: 14, padding: '26px 28px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, width: 'min(440px, 86vw)' }}>
-      <AudioLines size={30} style={{ color: NX.primary }} aria-hidden="true" />
-      <audio src={att.url} controls autoPlay preload="metadata" style={{ width: '100%' }} aria-label={`Play ${att.name}`} />
-    </div>
-  ) : isPdf ? (
-    <iframe src={att.url} title={att.name} style={{ width: '92vw', height: '78vh', border: 'none', borderRadius: 8, background: '#fff' }} />
-  ) : (
-    <div onClick={(e) => e.stopPropagation()} style={{ background: NX.surface, borderRadius: 14, padding: '34px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, maxWidth: '86vw' }}>
-      <Paperclip size={30} style={{ color: NX.faint }} />
-      <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
-      <div style={{ fontSize: 12.5, color: NX.dim }}>No inline preview for this file type.</div>
-      <a href={toDownloadUrl(att.url)} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-        <Download size={14} /> Download
-      </a>
-    </div>
-  );
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 5500, background: 'rgba(9,14,11,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: FONT }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px', color: '#fff' }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
-        <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
-        <span style={{ flex: 1 }} />
-        {att.url && <a href={toDownloadUrl(att.url)} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
-        <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
-      </div>
-      <div onClick={(e) => e.stopPropagation()}>{body}</div>
-    </div>
-  );
-}
+// The shared in-app viewer (tasks/components.jsx AttachmentViewer, 11/02/2026):
+// images, recordings, voice notes and PDFs open over the drawer, Escape closes
+// only the viewer, and a picture or a PDF page offers Mark Up - a board that
+// can be attached back to this ticket (`markupSource`).
 
 // ── Attachments ──────────────────────────────────────────────────────────────
 // Card size for the attachment gallery - wide/tall enough for a video thumbnail
