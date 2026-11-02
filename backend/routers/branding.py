@@ -25,6 +25,11 @@ router = APIRouter(prefix="/branding", tags=["Branding"])
 _SETTINGS_KEY = "branding_config"
 _VALID_ACCENTS = ("green", "blue", "custom")
 _DEFAULT_ACCENT = "green"
+# How the left navigation moves (Neil, 11/01/2026) - the company's default;
+# a person may pick their own under My Profile > Appearance (profile prefs).
+# Mirrors STRENGTHS in frontend/src/lib/railMotion.js.
+_VALID_MOTION = ("off", "subtle", "lively", "bold")
+_DEFAULT_MOTION = "lively"
 # Custom accent (Sep 27): any hex color plus an opacity. The floor keeps
 # white button text legible - below ~30% a button is mostly page background
 # and its label all but disappears (and every hover/focus tint derived from
@@ -45,7 +50,8 @@ def _clean_accent(cfg: dict) -> dict:
     opacity = min(max(opacity, OPACITY_MIN), OPACITY_MAX)
     if accent == "custom" and not hexv:
         accent = _DEFAULT_ACCENT
-    return {"accent": accent, "customHex": hexv, "opacity": opacity}
+    motion = cfg.get("navMotion") if cfg.get("navMotion") in _VALID_MOTION else _DEFAULT_MOTION
+    return {"accent": accent, "customHex": hexv, "opacity": opacity, "navMotion": motion}
 
 
 def _get_config(db: Session) -> dict:
@@ -72,6 +78,7 @@ class BrandingIn(BaseModel):
     accent: str
     customHex: str = ""
     opacity: int = OPACITY_MAX
+    navMotion: str = _DEFAULT_MOTION
 
 
 @router.get("/config")
@@ -88,6 +95,8 @@ def update_config(body: BrandingIn, user: dict = Depends(require_administrator),
         raise HTTPException(400, "Custom color must be a hex color such as #0f3d2e")
     if not OPACITY_MIN <= body.opacity <= OPACITY_MAX:
         raise HTTPException(400, f"Opacity must be between {OPACITY_MIN}% and {OPACITY_MAX}%")
+    if body.navMotion not in _VALID_MOTION:
+        raise HTTPException(400, "Navigation motion must be off, subtle, lively or bold")
     cfg = _clean_accent(body.model_dump())
     accent = cfg["accent"]
     row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
@@ -100,7 +109,8 @@ def update_config(body: BrandingIn, user: dict = Depends(require_administrator),
     row.updated_at = now
     db.add(models.AuditLog(timestamp=now, user_email=user["email"], user_role=user.get("role", ""),
                            action=("Set the brand color to "
-                                   + (f"{cfg['customHex']} at {cfg['opacity']}%" if accent == "custom" else accent)),
+                                   + (f"{cfg['customHex']} at {cfg['opacity']}%" if accent == "custom" else accent)
+                                   + f" and the navigation motion to {cfg['navMotion']}"),
                            resource_type="branding", resource_id=_SETTINGS_KEY))
     db.commit()
     return cfg

@@ -236,7 +236,7 @@ class EndpointTests(unittest.TestCase):
     def test_brand_color_custom_is_saved_and_public(self):
         r = self.client.put("/branding/config", json={"accent": "custom", "customHex": "#AB12CD", "opacity": 80})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json(), {"accent": "custom", "customHex": "#ab12cd", "opacity": 80})
+        self.assertEqual(r.json(), {"accent": "custom", "customHex": "#ab12cd", "opacity": 80, "navMotion": "lively"})
         cache.settings_config.invalidate()
         self.assertEqual(self.client.get("/branding/config").json()["customHex"], "#ab12cd")
 
