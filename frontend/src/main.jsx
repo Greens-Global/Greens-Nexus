@@ -5,6 +5,14 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { msalInstance } from './msalInstance'
 import { queryClient } from './lib/queryClient'
 import { setCacheBridge } from './api'
+// The Notes board engine (@excalidraw/excalidraw, lazy in vendor-excalidraw)
+// builds its font URL list the moment its chunk evaluates, from
+// window.EXCALIDRAW_ASSET_PATH - so the path must exist before any chunk
+// loads, not in Board.jsx (which runs after the engine it imports). Without
+// it the engine asked esm.sh for every font and the CSP blocked them all
+// (dev walk-through, 11/02/2026). The fonts are copied to
+// public/excalidraw-assets/ by scripts/copy-excalidraw-assets.mjs.
+if (typeof window !== 'undefined' && !window.EXCALIDRAW_ASSET_PATH) window.EXCALIDRAW_ASSET_PATH = '/excalidraw-assets/';
 // ProseMirror's own stylesheets. Every rich-text surface in Nexus is built on
 // ProseMirror (TipTap), and these are not optional decoration - they carry
 // behavior the editor assumes:
