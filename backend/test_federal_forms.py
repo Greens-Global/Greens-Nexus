@@ -102,6 +102,13 @@ class PrepareTests(unittest.TestCase):
             self.assertEqual(i9[fid]["role"], "hr", fid)
             self.assertEqual(i9[fid]["page"], 0, fid)
         self.assertTrue(i9["ssn"]["sensitive"])
+        # The identity numbers and the date of birth are sensitive too
+        # (11/02/2026): encrypted at rest, masked to HR's screen, printed
+        # only into the sealed PDF - the mask never shows a value.
+        for fid in ("date_of_birth", "lpr_a_number", "alien_a_number", "alien_i94", "alien_passport"):
+            self.assertTrue(i9[fid]["sensitive"], fid)
+        for fid in ("last_name", "first_name", "city", "zip", "citizen_us", "employee_signature"):
+            self.assertFalse(i9[fid].get("sensitive"), fid)
         self.assertEqual(i9["employee_signature"]["type"], "sign")
         self.assertEqual(i9["employer_signature"]["type"], "sign")
         self.assertEqual(i9["first_day"]["mergeKey"], "person.first_day")
