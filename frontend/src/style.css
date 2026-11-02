@@ -8256,7 +8256,10 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .apv-ph-swipe.is-yes { background: #16a34a; justify-content: flex-start; }
 .apv-ph-swipe.is-no { background: #dc2626; justify-content: flex-end; }
 .apv-ph-swipe-ic { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,.22); }
-.apv-ph-card { position: relative; display: grid; gap: 10px; padding: 14px 14px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); touch-action: pan-y; }
+.apv-ph-card { position: relative; display: grid; gap: 10px; padding: 14px 14px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+/* Only a card that swipes keeps the horizontal drag for itself; scrolling
+   and pinch zoom stay the browser's. Every other card is left alone. */
+.apv-ph-card[data-swipe] { touch-action: pan-y pinch-zoom; }
 .apv-ph-card[data-priority="urgent"] { box-shadow: inset 4px 0 0 #dc2626; }
 .apv-ph-card[data-priority="high"] { box-shadow: inset 4px 0 0 #d97706; }
 .apv-ph-top { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: start; }

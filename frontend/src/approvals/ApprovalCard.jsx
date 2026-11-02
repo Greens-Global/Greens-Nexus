@@ -7,7 +7,12 @@
 //
 // Swipe (touch only, never with reduced motion): drag the card right past
 // 40% of its width for the yes, left for the no; the colored backdrop and
-// its glyph grow under the card as it moves; under 40% it springs back.
+// its glyph grow under the card as it moves; under 40% it springs back. The
+// decision reads the drag ref, never the painted state (a move and its
+// release can land in one render batch); a cancelled pointer (the browser
+// took the gesture for a scroll or a zoom) only springs back. A fired swipe
+// tells onAct where the card was let go (`{ fromX }`), so its ghost leaves
+// from there.
 import { useRef, useState } from 'react';
 import { ArrowUpRight, Check, MoreHorizontal, X } from 'lucide-react';
 import { PrioritySignal } from '../components/StatusLabel';
@@ -36,7 +41,7 @@ export default function ApprovalCard({ row, own = false, ghost = false, swipe = 
   const canSwipe = swipe && !ghost && (yes || no);
   const onPointerDown = (e) => {
     if (!canSwipe || e.pointerType !== 'touch') return;
-    drag.current = { x: e.clientX, y: e.clientY, w: e.currentTarget.offsetWidth || 1, on: false, id: e.pointerId };
+    drag.current = { x: e.clientX, y: e.clientY, w: e.currentTarget.offsetWidth || 1, on: false, id: e.pointerId, dx: 0 };
   };
   const onPointerMove = (e) => {
     const d = drag.current;
@@ -50,16 +55,27 @@ export default function ApprovalCard({ row, own = false, ghost = false, swipe = 
       try { e.currentTarget.setPointerCapture?.(d.id); } catch { /* not every browser */ }
     }
     const allowed = (ddx > 0 && yes) || (ddx < 0 && no);
-    setDx(allowed ? ddx : ddx * 0.15);   // the way with no action resists
+    d.dx = allowed ? ddx : ddx * 0.15;   // the way with no action resists
+    setDx(d.dx);
   };
   const onPointerEnd = (e) => {
     const d = drag.current;
     drag.current = null;
     if (!d?.on) return;
     swallow.current = Date.now() + 400;   // the tap that ends a swipe is not a tap on a button
-    const far = Math.abs(dx) >= d.w * SWIPE_FIRE;
-    if (far && dx > 0 && yes) onAct(row, yes);
-    else if (far && dx < 0 && no) onAct(row, no);
+    const far = Math.abs(d.dx) >= d.w * SWIPE_FIRE;
+    if (far && d.dx > 0 && yes) onAct(row, yes, { fromX: d.dx });
+    else if (far && d.dx < 0 && no) onAct(row, no, { fromX: d.dx });
+    setSnap(true);
+    setDx(0);
+    try { e.currentTarget.releasePointerCapture?.(d.id); } catch { /* already released */ }
+  };
+  // The browser took the gesture (a scroll, a pinch, a call coming in):
+  // spring back and decide nothing.
+  const onPointerCancel = (e) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d?.on) return;
     setSnap(true);
     setDx(0);
     try { e.currentTarget.releasePointerCapture?.(d.id); } catch { /* already released */ }
@@ -74,10 +90,10 @@ export default function ApprovalCard({ row, own = false, ghost = false, swipe = 
           <span className="apv-ph-swipe-ic" style={{ transform: `scale(${0.6 + 0.4 * pull})` }}>{dx > 0 ? <Check size={22} /> : <X size={22} />}</span>
         </div>
       )}
-      <article className="apv-ph-card" data-key={row.key} data-kind={row.kind} data-priority={row.priority || undefined} data-count={row.count || 1}
+      <article className="apv-ph-card" data-key={row.key} data-swipe={canSwipe || undefined} data-kind={row.kind} data-priority={row.priority || undefined} data-count={row.count || 1}
         aria-label={name} aria-hidden={ghost || undefined}
         style={dx || snap ? { transform: `translateX(${dx}px)`, transition: snap ? 'transform var(--dur-sm) var(--ease-spring)' : 'none' } : undefined}
-        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd}
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerEnd} onPointerCancel={onPointerCancel}
         onTransitionEnd={() => setSnap(false)}>
         <div className="apv-ph-top">
           <PersonMark person={row.person} size={36} />

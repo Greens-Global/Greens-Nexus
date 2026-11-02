@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 
 // The phone card (approvals/ApprovalCard.jsx): two big decisions from the
 // row's inline actions, a third one behind "More", Review and Open when
@@ -11,6 +11,14 @@ vi.mock('../contexts/RoleContext', async (importOriginal) => ({
   ...(await importOriginal()),
   useRole: () => ({ isExternal: false, can: () => false, myGrantedModules: new Set(), myEmail: 'me@greensglobal.com' }),
 }));
+
+// jsdom has no PointerEvent: without one fireEvent builds a plain Event and
+// clientX / pointerType never reach the swipe handlers.
+if (typeof window.PointerEvent === 'undefined') {
+  window.PointerEvent = class PointerEvent extends window.MouseEvent {
+    constructor(type, init = {}) { super(type, init); this.pointerId = init.pointerId ?? 1; this.pointerType = init.pointerType || 'mouse'; }
+  };
+}
 
 const { default: ApprovalCard } = await import('./ApprovalCard');
 const { needsNote } = await import('./shared');
@@ -67,6 +75,60 @@ describe('ApprovalCard', () => {
     // A lone yes keeps More for the rest of the request.
     expect(screen.getByRole('button', { name: /^More:/ })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^Review:/ })).toBeNull();
+  });
+
+  describe('swipe', () => {
+    const swipeRow = { ...base, kind: 'reimbursement', actions: [A('approve', 'Approve', 'primary'), A('reject', 'Reject', 'plain', 'required')] };
+    const setup = () => {
+      const onAct = vi.fn();
+      const { container } = render(<ApprovalCard row={swipeRow} swipe onAct={onAct} onReview={() => {}} />);
+      const card = container.querySelector('.apv-ph-card');
+      Object.defineProperty(card, 'offsetWidth', { value: 300, configurable: true });
+      return { onAct, card };
+    };
+    const touch = (x, y = 100) => ({ pointerType: 'touch', pointerId: 1, clientX: x, clientY: y });
+
+    it('marks only a card that can swipe, so only it claims the horizontal drag', () => {
+      const { card } = setup();
+      expect(card.hasAttribute('data-swipe')).toBe(true);
+      const { container } = render(<ApprovalCard row={swipeRow} onAct={() => {}} onReview={() => {}} />);
+      expect(container.querySelector('.apv-ph-card').hasAttribute('data-swipe')).toBe(false);
+    });
+
+    it('a cancelled pointer springs back and never decides', () => {
+      const { onAct, card } = setup();
+      fireEvent.pointerDown(card, touch(10));
+      fireEvent.pointerMove(card, touch(250));                   // well past 40% of 300px
+      expect(card.style.transform).toBe('translateX(240px)');
+      fireEvent.pointerCancel(card, touch(250));
+      expect(onAct).not.toHaveBeenCalled();
+      expect(card.style.transform).toBe('translateX(0px)');
+      fireEvent.pointerUp(card, touch(250));                     // a stray up after the cancel does nothing either
+      expect(onAct).not.toHaveBeenCalled();
+    });
+
+    it('decides from the drag itself, even when the move and the release land in one render', () => {
+      const { onAct, card } = setup();
+      fireEvent.pointerDown(card, touch(10));
+      act(() => {
+        fireEvent.pointerMove(card, touch(30));                  // past the 12px start
+        fireEvent.pointerMove(card, touch(200));
+        fireEvent.pointerUp(card, touch(200));
+      });
+      expect(onAct).toHaveBeenCalledWith(swipeRow, swipeRow.actions[0], { fromX: 190 });
+    });
+
+    it('under 40% springs back without a decision; a left swipe is the no', () => {
+      const { onAct, card } = setup();
+      fireEvent.pointerDown(card, touch(200));
+      fireEvent.pointerMove(card, touch(150));
+      fireEvent.pointerUp(card, touch(150));
+      expect(onAct).not.toHaveBeenCalled();
+      fireEvent.pointerDown(card, touch(250));
+      fireEvent.pointerMove(card, touch(40));
+      fireEvent.pointerUp(card, touch(40));
+      expect(onAct).toHaveBeenCalledWith(swipeRow, swipeRow.actions[1], { fromX: -210 });
+    });
   });
 
   it('asks for a note only when the server marks the action required', () => {
