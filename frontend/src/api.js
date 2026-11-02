@@ -3385,3 +3385,10 @@ api.pushConfig = () => req('/push/config');
 api.pushSubscribe = (sub) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
 api.pushUnsubscribe = (endpoint) => req('/push/subscribe', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
 api.pushSubscriptions = () => req('/push/subscriptions');
+
+// Federal forms (Neil, 11/02/2026; backend federal_forms/ + routers/hr.py):
+// HR++ sends one form - w4 / i9 / direct_deposit - to one employee, and
+// Settings reads the edition watch. A hiring packet's forms travel as
+// `federal_forms` on saveDocumentsPacket's body like its other fields.
+api.sendFederalForm = (eid, kind) => req(`/hr/employees/${encodeURIComponent(eid)}/federal-forms/send`, { method: 'POST', body: JSON.stringify({ kind }) });
+api.federalFormsStatus = () => req('/hr/federal-forms/status');
