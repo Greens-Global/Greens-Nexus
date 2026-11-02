@@ -1981,6 +1981,13 @@ def _clean_repeat(raw) -> Optional[dict]:
     return {"group": group, "max": max(1, min(_REPEAT_MAX_CAP, mx))}
 
 
+# Keys a form entry's answers share a space with: the workflow event's own
+# fields and `extra`'s reserved keys (routers/forms.py emits the answers FLAT
+# beside `form` / `decision` / `note`), and the GPS stamp `_location`. A
+# field may not be named one of them - it would be shadowed or shadow.
+_FORM_RESERVED_TOKENS = ("id", "key", "at", "actor", "form", "decision", "note", "_location")
+
+
 def _clean_field_defs(defs: list, *, form: bool = False) -> list:
     """Template Builder (Phase 13) - validate/normalize field_defs before
     persisting: dedupe by token (last one wins), enforce the token shape
@@ -2004,6 +2011,8 @@ def _clean_field_defs(defs: list, *, form: bool = False) -> list:
         # accepts is never silently dropped here.
         if not is_valid_token(token):
             continue
+        if form and token in _FORM_RESERVED_TOKENS:
+            raise HTTPException(400, f'"{token}" is a reserved name on a form - name the field something else')
         ftype = d.get("type")
         if ftype not in _FIELD_TYPES and not (form and ftype in _FORM_FIELD_TYPES):
             continue
@@ -2067,6 +2076,9 @@ def _clean_field_defs(defs: list, *, form: bool = False) -> list:
                 clean["formula"] = formula[:task_formula.MAX_LENGTH]
             repeat = _clean_repeat(d.get("repeat"))
             if repeat:
+                if repeat.get("group") in _FORM_RESERVED_TOKENS:
+                    raise HTTPException(400, f'"{repeat["group"]}" is a reserved name on a form - '
+                                             f'name the repeat group something else')
                 clean["repeat"] = repeat
         by_token[token] = clean
     return list(by_token.values())

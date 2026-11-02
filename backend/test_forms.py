@@ -230,6 +230,25 @@ class FormsTests(unittest.TestCase):
                                                              "category": "safety", "fieldDefs": FIELDS[:1]})
         self.assertEqual(r.status_code, 403, r.text)
 
+    def test_a_form_refuses_reserved_field_names(self):
+        self._as(ADMIN)
+        for token in ("id", "key", "at", "actor", "form", "decision", "note", "_location"):
+            fields = [{"token": "odometer", "label": "Odometer", "type": "number"},
+                      {"token": token, "label": "Reserved", "type": "text"}]
+            r = self.client.post("/documents/templates", json={"name": "Reserved", "docType": "form",
+                                                                 "category": "vehicle", "fieldDefs": fields})
+            self.assertEqual(r.status_code, 400, (token, r.text))
+            self.assertIn(f'"{token}"', r.json()["detail"])
+        fields = [{"token": "psi", "label": "PSI", "type": "number", "repeat": {"group": "note", "max": 3}}]
+        r = self.client.post("/documents/templates", json={"name": "Reserved", "docType": "form",
+                                                             "category": "vehicle", "fieldDefs": fields})
+        self.assertEqual(r.status_code, 400, r.text)
+        # A document template keeps its own rules: "note" is an ordinary variable there.
+        r = self.client.post("/documents/templates", json={"name": "Memo", "docType": "document", "category": "hr",
+                                                             "fieldDefs": [{"token": "note", "label": "Note",
+                                                                            "type": "text"}]})
+        self.assertEqual(r.status_code, 200, r.text)
+
     def test_a_form_audience_needs_its_department_or_site(self):
         self._as(ADMIN)
         r = self.client.post("/documents/templates", json={"name": "X", "docType": "form", "category": "vehicle",
@@ -692,16 +711,16 @@ class FormsTests(unittest.TestCase):
             self.assertEqual(forms_router.csv_safe(lead + "x"), "'" + lead + "x")
         self.assertEqual(forms_router.csv_safe("Fine"), "Fine")
         self.assertEqual(forms_router.csv_safe(-5), -5)
-        fields = [{"token": "note", "label": "Note", "type": "text"},
+        fields = [{"token": "remark", "label": "Remark", "type": "text"},
                   {"token": "n", "label": "N", "type": "number"}]
         tpl = self._template("=Danger", fields=fields)
-        e = self._submit(tpl["id"], REP, {"note": '=HYPERLINK("http://evil.example")', "n": -5}, workSiteId=SITE_A)
+        e = self._submit(tpl["id"], REP, {"remark": '=HYPERLINK("http://evil.example")', "n": -5}, workSiteId=SITE_A)
         self._as(MGR)
         r = self.client.post(f"/forms/entries/{e['id']}/review", json={"status": "reviewed", "note": "@SUM(A1)"})
         self.assertEqual(r.status_code, 200, r.text)
         rows = list(csv.reader(io.StringIO(self.client.get(f"/forms/templates/{tpl['id']}/export.csv").text)))
         header, row = rows[0], rows[1]
-        self.assertEqual(row[header.index("note")], '\'=HYPERLINK("http://evil.example")')
+        self.assertEqual(row[header.index("remark")], '\'=HYPERLINK("http://evil.example")')
         self.assertEqual(row[header.index("reviewNote")], "'@SUM(A1)")
         self.assertEqual(row[header.index("form")], "'=Danger")
         self.assertEqual(row[header.index("n")], "-5")              # a number is left alone
