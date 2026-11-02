@@ -71,6 +71,8 @@ router = APIRouter(prefix="/esign", tags=["esign"])
 # otherwise bake in the wrong URL for its whole process lifetime.
 from app_url import app_url as _app_url_fn
 import email_theme
+import esign_formats
+import secret_box
 
 # ── Local-dev storage fallback (E-Sign only) ──────────────────────────────────
 # Every real deployment (Azure) always has SUPABASE_URL/SUPABASE_SERVICE_KEY
@@ -1188,16 +1190,20 @@ _ATTACH_MAX = 3_000_000  # Graph simple sendMail caps the whole message at ~4 MB
 def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: bytes,
                        open_link: str, view_link: str = "", note: str = "",
                        sender: Optional[dict] = None,
-                       party: Optional[HrSignParty] = None, custom: Optional[tuple] = None) -> tuple:
+                       party: Optional[HrSignParty] = None, custom: Optional[tuple] = None,
+                       restricted: bool = False) -> tuple:
     """Fully-executed notice - sender, signers and CC alike get the sealed PDF
     ATTACHED (their retained copy, ESIGN retention), plus the three actions the
     review asked for: View, Download and Open in Nexus. Oversized documents
-    fall back to link-only, and say so."""
+    fall back to link-only, and say so. So does a RESTRICTED envelope - one
+    with a sensitive field (an SSN, a bank number): the copy is fetched behind
+    a login or the signer's own link, never mailed (Neil, 11/02/2026)."""
     from_addr = os.getenv("NEXUS_FROM_EMAIL", "")
     if not (to_email and from_addr):
         return False, "no recipient email" if not to_email else "NEXUS_FROM_EMAIL not set"
-    attach = len(pdf) <= _ATTACH_MAX
-    html = _sealed_email_html(to_name, req, attach, open_link, view_link, note, sender, party)
+    attach = len(pdf) <= _ATTACH_MAX and not restricted
+    html = _sealed_email_html(to_name, req, attach, open_link, view_link, note, sender, party,
+                              restricted=restricted)
     safe = re.sub(r'[\/:*?"<>|]+', " ", req.title or "Document").strip()[:80] or "Document"
     # Same shape as the request: what happened, then which document - and the
     # same MIME path, so the completion notice and the request agree on who
@@ -1216,12 +1222,16 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
 
 def _sealed_email_html(to_name: str, req: HrSignRequest, attach: bool, open_link: str,
                        view_link: str = "", note: str = "", sender: Optional[dict] = None,
-                       party: Optional[HrSignParty] = None) -> str:
+                       party: Optional[HrSignParty] = None, restricted: bool = False) -> str:
     from html import escape
-    doc_line = ("The sealed document, with its Certificate of Completion, is attached."
-                if attach else
-                "The sealed document (with its Certificate of Completion) is too large to attach - "
-                "use View or Download below to get your copy.")
+    if attach:
+        doc_line = "The sealed document, with its Certificate of Completion, is attached."
+    elif restricted:
+        doc_line = ("This document carries personal identification or bank details, so it is "
+                    "not sent by email - use View or Download below to open your copy.")
+    else:
+        doc_line = ("The sealed document (with its Certificate of Completion) is too large to attach - "
+                    "use View or Download below to get your copy.")
     # View and Download are the same resource seen two ways: View opens it in
     # the browser, Download saves it. Where there is no separate viewing link
     # (an internal recipient, whose copy lives behind their Nexus login) the
@@ -1377,6 +1387,24 @@ def _clean_fields(fields: list, allow_merge: bool = False) -> list:
         # placer creates fields, and defaulting the other way would silently
         # make every field on an older envelope optional.
         f["required"] = bool(f.get("required", True))
+        # A text box may carry a format (checked at signing, 422 with the
+        # field) and may be sensitive (stored encrypted, masked everywhere but
+        # the sealed PDF) - federal forms, Neil 11/02/2026. Both keys are kept
+        # only when given, so an older envelope's fields are stored as before.
+        if "format" in f:
+            fmt = str(f.get("format") or "")
+            if fmt and fmt not in esign_formats.FORMATS:
+                raise HTTPException(400, f"Unknown field format: {fmt!r}")
+            if fmt and f.get("type") != "text":
+                raise HTTPException(400, "A format applies to a text field only.")
+            if fmt:
+                f["format"] = fmt
+            else:
+                f.pop("format", None)
+        if "sensitive" in f:
+            if f.get("sensitive") and f.get("type") != "text":
+                raise HTTPException(400, "Only a text field can be marked sensitive.")
+            f["sensitive"] = bool(f.get("sensitive"))
         # Freeze CLEAN geometry - _stamp_pdf does int(page)/float(x,y,w,h) at
         # finalize; a null/non-numeric coord there crashes sealing.
         try:
@@ -1389,6 +1417,89 @@ def _clean_fields(fields: list, allow_merge: bool = False) -> list:
     return fields
 
 
+def _clean_form_kind(entry: dict) -> dict:
+    """A document entry may say which federal form it is (`formKind`: "w4",
+    "i9", "direct_deposit" - a short key the federal forms package owns). A
+    plain string, kept only when given; anything else is refused."""
+    if "formKind" in entry:
+        kind = entry.get("formKind")
+        if kind is None or kind == "":
+            entry.pop("formKind", None)
+        elif not isinstance(kind, str) or len(kind) > 40 or not re.fullmatch(r"[a-z0-9_]+", kind):
+            raise HTTPException(400, f"Unknown form kind: {kind!r}")
+    return entry
+
+
+def _clean_documents(documents: list) -> list:
+    """Server-rendered packet documents ({name, path, fields, formKind?}) with
+    their fields validated the way a PDF send's are and the form kind kept."""
+    out = []
+    for d in documents or []:
+        entry = {"name": d["name"], "path": d["path"],
+                 "fields": _clean_fields(list(d.get("fields") or []))}
+        if "formKind" in d:
+            entry["formKind"] = d.get("formKind")
+        out.append(_clean_form_kind(entry))
+    return out
+
+
+def _has_sensitive(fields: Optional[list], documents: Optional[list]) -> bool:
+    """Whether any placed box on the source PDF or a packet document is a
+    sensitive field - the envelope is then restricted like a pay letter."""
+    def _any(fs):
+        return any(isinstance(f, dict) and f.get("sensitive") for f in (fs or []))
+    return _any(fields) or any(_any(d.get("fields")) for d in (documents or []) if isinstance(d, dict))
+
+
+def _sensitive_fields(req: HrSignRequest) -> dict:
+    """{field id: format} of every sensitive box on the envelope."""
+    out = {}
+    for f in (req.fields or []):
+        if isinstance(f, dict) and f.get("sensitive"):
+            out[str(f.get("id", ""))] = str(f.get("format") or "")
+    for d in (req.documents or []):
+        for f in (d.get("fields") or []) if isinstance(d, dict) else []:
+            if isinstance(f, dict) and f.get("sensitive"):
+                out[str(f.get("id", ""))] = str(f.get("format") or "")
+    return out
+
+
+def sensitive_mask(fmt: str, value) -> str:
+    """The masked face of a sensitive value (see esign_formats.mask)."""
+    return esign_formats.mask(fmt, value)
+
+
+_MASKED_KEY = "_masked"   # field_values[_MASKED_KEY] = {field id: mask}, written at signing
+
+
+def _masked_values(req: HrSignRequest, party: HrSignParty) -> dict:
+    """This party's answers as any screen may show them: a sensitive value's
+    stored "enc:<token>" is replaced by the mask recorded beside it when it
+    was signed, never decrypted here - only _stamp_pdf decrypts."""
+    values = party.field_values or {}
+    sensitive = _sensitive_fields(req)
+    masks = values.get(_MASKED_KEY) if isinstance(values.get(_MASKED_KEY), dict) else {}
+    out = {}
+    for key, val in values.items():
+        if key == _MASKED_KEY:
+            continue
+        if key in sensitive or (isinstance(val, str) and val.startswith("enc:")):
+            out[str(key)] = masks.get(key) or esign_formats.mask(sensitive.get(key, ""), "")
+        else:
+            out[str(key)] = val
+    return out
+
+
+def _note_final_view(db: Session, req: HrSignRequest, actor: str, party_id: str = "",
+                     ip: str = "", user_agent: str = "") -> None:
+    """The sealed PDF of an envelope with a sensitive field was handed out -
+    an audit event naming who, each time, beside the ordinary download row."""
+    if not _sensitive_fields(req):
+        return
+    _log(db, req.id, "viewed_final", f"restricted final document opened by {actor}",
+         party_id=party_id, ip=ip, user_agent=user_agent)
+
+
 def _clean_attachments(attachments: Optional[list]) -> list:
     """Template attachments carry field boxes that are frozen verbatim onto
     envelopes at send - validate them with the same rules as PDF sends."""
@@ -1397,7 +1508,7 @@ def _clean_attachments(attachments: Optional[list]) -> list:
         if not isinstance(a, dict) or not a.get("path"):
             continue
         a["fields"] = _clean_fields(a.get("fields") or [], allow_merge=True)
-        out.append(a)
+        out.append(_clean_form_kind(a))
     return out
 
 
@@ -1776,7 +1887,9 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                         link_kind=link_kind or "", link_id=link_id or "",
                         # Set before the commit below: the party links go out in
                         # this same request, so a later flag would leave a window.
-                        prints_pay=1 if prints_pay else 0)
+                        # A sensitive field (an SSN, a bank number) restricts the
+                        # envelope the same way pay does (Neil, 11/02/2026).
+                        prints_pay=1 if (prints_pay or _has_sensitive(fields, documents)) else 0)
     db.add(req)
     rows = []
     for p in ordered:
@@ -1950,8 +2063,7 @@ def envelope_from_documents(db: Session, user: dict, *, documents: list, parties
     certificate are untouched."""
     if not documents:
         raise HTTPException(400, "The packet has no documents")
-    docs = [{"name": d["name"], "path": d["path"], "fields": _clean_fields(list(d.get("fields") or []))}
-            for d in documents]
+    docs = _clean_documents(documents)
     _validate_parties(parties, {f.get("role", "") for d in docs for f in d["fields"]} - {""})
     first, rest = docs[0], docs[1:]
     return _create_request(db, user, title=title, source="pdf", template_id="",
@@ -2596,6 +2708,7 @@ def download_final(rid: str, user: dict = Depends(get_current_user), db: Session
     if not resp.is_success:
         raise HTTPException(502, "Could not create download link")
     _log(db, rid, "downloaded", f"by {user['email']}")
+    _note_final_view(db, req, user["email"])
     db.commit()
     return resp.json()
 
@@ -2776,7 +2889,9 @@ def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict
     for p in all_parties:
         if p.id == party.id:
             continue
-        for key, val in (p.field_values or {}).items():
+        # A sensitive value (an SSN, a bank number) shows as its mask here -
+        # never the stored token, never the value (Neil, 11/02/2026).
+        for key, val in _masked_values(req, p).items():
             filled[str(key)] = val
         if p.status == "signed":
             signed_by_role[p.role_key] = {
@@ -2793,7 +2908,9 @@ def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict
                # This signer's OWN answers, so re-opening the link (or the
                # View button on the completed mail) shows the document as they
                # filled it in rather than blank boxes (Sagar, Sep 22 2026).
-               "myValues": party.field_values or {},
+               # Their own sensitive answers come back masked too: the
+               # browser never receives the token or the value again.
+               "myValues": _masked_values(req, party),
                "mySignature": ({"kind": party.signature_kind or "typed",
                                 "data": party.signature_data or "",
                                 "signedAt": party.signed_at or ""}
@@ -3187,6 +3304,46 @@ def _apply_saved(db: Session, req: HrSignRequest, party: HrSignParty) -> None:
          party_id=party.id)
 
 
+def _party_text_fields(req: HrSignRequest, party: HrSignParty) -> list:
+    """This party's placed boxes on the source PDF and the packet documents."""
+    out = [f for f in (req.fields or []) if isinstance(f, dict) and f.get("role") == party.role_key]
+    for d in (req.documents or []):
+        out.extend(f for f in ((d.get("fields") or []) if isinstance(d, dict) else [])
+                   if isinstance(f, dict) and f.get("role") == party.role_key)
+    return out
+
+
+def _checked_field_values(req: HrSignRequest, party: HrSignParty, values: dict) -> dict:
+    """The values as they are stored (Neil, 11/02/2026 - federal forms).
+
+    A box with a `format` refuses a value that does not fit it: 422 with the
+    field id and the one sentence the screen shows under the box - the value
+    itself is never echoed. A `sensitive` box's value is stored as
+    "enc:<token>" (secret_box, the vault key) with its mask recorded beside
+    it under `_masked`, so every reader but _stamp_pdf shows the mask and
+    nothing ever has to decrypt to display. Values of ordinary boxes are
+    stored exactly as they arrived, as before."""
+    values = dict(values or {})
+    masks = {}
+    for f in _party_text_fields(req, party):
+        fid = str(f.get("id", ""))
+        raw = values.get(fid)
+        if raw is None or not str(raw).strip():
+            continue
+        fmt = str(f.get("format") or "")
+        if fmt:
+            message = esign_formats.check(fmt, str(raw).strip())
+            if message:
+                raise HTTPException(422, {"field": fid, "message": message})
+        if f.get("sensitive"):
+            plain = str(raw).strip()
+            values[fid] = "enc:" + secret_box.encrypt(plain)
+            masks[fid] = esign_formats.mask(fmt, plain)
+    if masks:
+        values[_MASKED_KEY] = masks
+    return values
+
+
 def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: SignIn,
                      ip: str, ua: str) -> dict:
     """The shared engine: record the signature, advance the order, finalize when done.
@@ -3231,6 +3388,7 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
     if missing:
         shown = ", ".join(missing[:5]) + ("…" if len(missing) > 5 else "")
         raise HTTPException(400, f"These required fields are still empty: {shown}")
+    stored_values = _checked_field_values(req, party, body.field_values or {})
     now = _now_iso()
     party.signature_kind = body.signature_kind
     party.signature_data = body.signature_data
@@ -3241,7 +3399,7 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
     party.pages_total = max(0, int(body.pages_total or 0))
     party.consent_at = now
     party.consent_text_version = _CONSENT_VERSION
-    party.field_values = body.field_values or {}
+    party.field_values = stored_values
     party.ip, party.user_agent = ip, ua
     party.signed_at = now
     party.status = "signed"
@@ -4057,6 +4215,8 @@ def my_final_copy(party_id: str, request: Request,
     ip, ua = _client_meta(request)
     _log(db, req.id, "downloaded", f"by {party.name} (My Documents)", party_id=party.id,
          ip=ip, user_agent=ua)
+    _note_final_view(db, req, f"{party.name} <{user['email']}>", party_id=party.id,
+                     ip=ip, user_agent=ua)
     db.commit()
     return RedirectResponse(resp.json()["url"], status_code=302)
 
@@ -4108,6 +4268,8 @@ def public_download(token: str, request: Request, code: str = "",
     ip, ua = _client_meta(request)
     _log(db, req.id, "downloaded", f"by {party.name} (public link)", party_id=party.id,
          ip=ip, user_agent=ua)
+    _note_final_view(db, req, f"{party.name} (public link)", party_id=party.id,
+                     ip=ip, user_agent=ua)
     db.commit()
     return resp.json()
 
@@ -4171,6 +4333,9 @@ def public_copy(token: str, request: Request, code: str = "",
     ip, ua = _client_meta(request)
     _log(db, req.id, "copy_retained", f"{party.name} downloaded a copy before signing",
          party_id=party.id, ip=ip, user_agent=ua)
+    if req.status == "completed" and req.final_pdf_path:
+        _note_final_view(db, req, f"{party.name} (public link)", party_id=party.id,
+                         ip=ip, user_agent=ua)
     db.commit()
     if req.status == "completed" and req.final_pdf_path:
         # The DOCUMENT, not the whole sealed record: this button is "download a
@@ -4472,6 +4637,16 @@ def _stamp_pdf(source: bytes, fields: list, parties: List[HrSignParty],
                     c.drawString(x + 3, y + h * 0.35, label)
                 elif ftype in ("text", "check", "dropdown"):
                     val = (p.field_values or {}).get(f.get("id", ""), "")
+                    if isinstance(val, str) and val.startswith("enc:"):
+                        # A sensitive value is decrypted HERE and nowhere
+                        # else - the sealed PDF is the one place it is
+                        # printed in the clear (Neil, 11/02/2026). A token
+                        # this key cannot open leaves the box blank rather
+                        # than sinking the seal.
+                        try:
+                            val = secret_box.decrypt(val[4:])
+                        except (ValueError, RuntimeError):
+                            val = ""
                     if ftype == "check":
                         val = "[x]" if val else "[ ]"
                     elif ftype == "dropdown" and str(val) not in [str(o) for o in (f.get("options") or [])]:
@@ -5395,6 +5570,10 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     # sender, signers and CC, internal or external (link fallback when the
     # document is too big to attach). Best-effort and audited per recipient.
     n_signers = sum(1 for p in parties if (p.party_role or "signer") == "signer")
+    # An envelope with a sensitive field (an SSN, a bank number) mails the
+    # link only - the sealed PDF is opened behind a login or the signer's own
+    # link, never attached (Neil, 11/02/2026).
+    restricted = _has_sensitive(req.fields, req.documents)
     filed_note = (f" It has been filed automatically ({egnyte_note})." if egnyte_ok and egnyte_note
                   else "")
     # Deep link, not a list: the review's complaint was landing in a signing
@@ -5432,7 +5611,8 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
         ok, detail = _send_sealed_email(name, email, req, final, open_link, view_link,
                                         note=(egnyte_note if egnyte_ok and egnyte_note
                                               and email == req.created_by else ""),
-                                        sender=sender, party=by_id.get(party_id), **kw)
+                                        sender=sender, party=by_id.get(party_id),
+                                        restricted=restricted, **kw)
         _log(db, req.id, "sent", f"sealed copy emailed to {name or email}"
              + ("" if ok else f" - email failed: {detail}"), party_id=party_id)
 
