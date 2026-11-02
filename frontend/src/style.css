@@ -3164,6 +3164,11 @@ button, [role="button"], select { touch-action: manipulation; }
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 input:focus-visible, textarea:focus-visible, select:focus-visible, [contenteditable]:focus-visible { outline-offset: 0; }
 [style*="outline: none"]:focus-visible, [style*="outline:none"]:focus-visible { outline: 2px solid var(--focus-ring) !important; outline-offset: 1px; }
+/* A paste target (Forms' photo field, Neil 11/02/2026): focusable so Ctrl+V
+   works without clicking a button first, and ringed whenever it holds focus -
+   a click included - so the person sees where the paste will land. */
+.nx-paste-zone { border-radius: 10px; }
+.nx-paste-zone:focus { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
 /* Borderless inline-edit fields (Oct 12) - every input that is a bare line
    of text with no box of its own: the task title, hours/minutes cells, the
    search pills and menu search rows, add-subtask / add-label / add-task

@@ -60,7 +60,7 @@ export const openEntry = (entry) => window.dispatchEvent(new CustomEvent('nexus:
 
 // ── Form-only inputs ──────────────────────────────────────────────────────────
 
-function PhotoField({ value, onChange, entryKey, phone, disabled }) {
+function PhotoField({ value, onChange, entryKey, phone, disabled, label: name = 'Photos' }) {
   const urls = Array.isArray(value) ? value : [];
   const camRef = useRef(null);
   const fileRef = useRef(null);
@@ -80,7 +80,8 @@ function PhotoField({ value, onChange, entryKey, phone, disabled }) {
   }, [entryKey, onChange]);
   const onPaste = (e) => { const fs = filesFromPaste(e); if (fs.length) { e.preventDefault(); add(fs); } };
   return (
-    <div onPaste={onPaste} tabIndex={-1} style={{ }}>
+    // Focusable (Tab, or a click) so Ctrl+V pastes without pressing a button first; .nx-paste-zone rings it.
+    <div onPaste={onPaste} tabIndex={0} className="nx-paste-zone" role="group" aria-label={phone ? name : `${name} - press Ctrl+V to paste a screenshot`}>
       {(urls.length > 0 || uploads.length > 0) && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: 8, marginBottom: 10 }}>
           {urls.map((u, i) => (
@@ -269,7 +270,7 @@ function Field({ def, value, error, onChange, ctx, idKey }) {
   let control;
   let ownLabel = true;    // the control carries the label itself
   switch (def.type) {
-    case 'photo': control = <PhotoField value={value} onChange={onChange} entryKey={ctx.entryKey} phone={ctx.phone} disabled={disabled} />; break;
+    case 'photo': control = <PhotoField value={value} onChange={onChange} entryKey={ctx.entryKey} phone={ctx.phone} disabled={disabled} label={def.label} />; break;
     case 'gps': control = <GpsField value={value} onChange={onChange} workSites={ctx.workSites} disabled={disabled} phone={ctx.phone} />; break;
     case 'scan': control = <ScanField def={def} value={value} onChange={onChange} disabled={disabled} inputId={inputId} phone={ctx.phone} />; break;
     case 'rating': control = <RatingField def={def} value={value} onChange={onChange} disabled={disabled} phone={ctx.phone} />; break;

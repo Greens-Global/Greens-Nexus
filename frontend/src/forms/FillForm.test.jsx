@@ -269,4 +269,18 @@ describe('FillForm', () => {
     await waitFor(() => expect(formSubmit).toHaveBeenCalledTimes(1));
     expect(formSubmit.mock.calls[0][1].workSiteId).toBe('s1');
   });
+
+  it('the photo field takes focus and a Ctrl+V paste, with no button pressed first', async () => {
+    render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    const zone = screen.getByRole('group', { name: 'Photos - press Ctrl+V to paste a screenshot' });
+    expect(zone).toHaveAttribute('tabindex', '0');
+    expect(zone).toHaveClass('nx-paste-zone');
+    zone.focus();
+    expect(zone).toHaveFocus();
+    const file = new File(['x'], 'shot.png', { type: 'image/png' });
+    fireEvent.paste(zone, { clipboardData: { items: [{ type: 'image/png', getAsFile: () => file }] } });
+    await waitFor(() => expect(storeTaskFile).toHaveBeenCalledTimes(1));
+    expect(storeTaskFile.mock.calls[0][0]).toBe(file);
+  });
 });
