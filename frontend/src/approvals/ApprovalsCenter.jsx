@@ -88,6 +88,9 @@ const matchesPriority = (r, f) => f === 'all' || (f === 'high' ? (PRIORITY_RANK[
 const moduleName = (link) => NAV.find((n) => n.view === link?.view)?.label || '';
 const ACTION_WORD = { approve: 'Approved', reject: 'Rejected', decline: 'Declined', accept: 'Accepted', send_back: 'Sent Back',
   yes: 'Voted Yes', no: 'Voted No', deny: 'Denied', changes: 'Changes Requested' };
+// The Undo toast's first word, Title Case (doneWord's own copy is sentence
+// case for the other screens that use it).
+const doneTitle = (key) => ACTION_WORD[key] || doneWord(key).replace(/\b\w/g, (c) => c.toUpperCase());
 const ACTION_COLOR = { approve: '#16a34a', accept: '#16a34a', yes: '#16a34a', reject: '#dc2626', decline: '#dc2626', deny: '#dc2626', no: '#dc2626' };
 
 // `activeSub` is the Dashboard sub after "approvals": '' | '<group>' | 'history'.
@@ -115,6 +118,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
   const pending = useRef(new Map());
   const settled = useRef(new Map());
   const toastTimer = useRef(null);
+  const toastSeq = useRef(0);
   const reloadTimer = useRef(null);
   const mounted = useRef(true);
   const listRef = useRef(null);
@@ -145,11 +149,30 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
 
   useEffect(() => { load(); loadHistory(); return pollWhileVisible(load, POLL_MS); }, [load, loadHistory]);
 
+  // Each toast carries an id, so a toast refreshed in place (an Undo toast
+  // losing a decision that has since been sent) keeps its own timer.
   const say = useCallback((t) => {
     clearTimeout(toastTimer.current);
-    setToast(t);
-    if (t) toastTimer.current = setTimeout(() => setToast((cur) => (cur === t ? null : cur)), t.kind === 'undo' ? UNDO_MS : t.kind === 'error' ? 7000 : 4500);
+    if (!t) { setToast(null); return; }
+    const id = ++toastSeq.current;
+    setToast({ ...t, id });
+    toastTimer.current = setTimeout(() => setToast((cur) => (cur?.id === id ? null : cur)), t.kind === 'undo' ? UNDO_MS : t.kind === 'error' ? 7000 : 4500);
   }, []);
+  // The Undo toast speaks for EVERY decision still inside its window, not
+  // just the last one: tap-tap-tap down the list and Undo still brings them
+  // all back (each to its own place - the rows are only hidden). One reads
+  // "Approved - Ana Diaz, Time Off"; several the same way "Approved 3
+  // Requests"; a mix "3 Decisions".
+  const undoText = (keys) => {
+    const ps = keys.map((k) => pending.current.get(k)).filter(Boolean);
+    if (ps.length === 1) {
+      const { row, action, label } = ps[0];
+      return `${doneTitle(action.key)} - ${[fullName(row.person), label || row.title].filter(Boolean).join(', ')}`;
+    }
+    const words = new Set(ps.map((p) => doneTitle(p.action.key)));
+    return words.size === 1 ? `${[...words][0]} ${ps.length} Requests` : `${ps.length} Decisions`;
+  };
+  const sayUndo = () => { const keys = [...pending.current.keys()]; say({ kind: 'undo', keys, msg: undoText(keys) }); };
   const hide = (key, on) => setHidden((h) => { const n = new Set(h); if (on) n.add(key); else n.delete(key); return n; });
   const reloadSoon = () => { clearTimeout(reloadTimer.current); reloadTimer.current = setTimeout(() => { load(); loadHistory(); }, 900); };
 
@@ -158,6 +181,14 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
     if (!p) return;
     clearTimeout(p.timer);
     pending.current.delete(key);
+    // Sent: it can no longer be undone, so the Undo toast stops counting it.
+    if (mounted.current) {
+      setToast((cur) => {
+        if (cur?.kind !== 'undo' || !cur.keys?.includes(key)) return cur;
+        const rest = cur.keys.filter((k) => pending.current.has(k));
+        return rest.length ? { ...cur, keys: rest, msg: undoText(rest) } : null;
+      });
+    }
     let opts = {};
     for (;;) {
       try {
@@ -202,7 +233,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
   function queue(row, action, note) {
     hide(row.key, true);
     const timer = setTimeout(() => commit(row.key), UNDO_MS);
-    pending.current.set(row.key, { row, action, note, timer });
+    pending.current.set(row.key, { row, action, note, timer, label: labelOf(row.group) });
   }
 
   // `givenNote`: the phone's NoteSheet has already asked (ApprovalsPhone);
@@ -224,8 +255,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
     queue(row, action, note);
     setReviewing((cur) => (cur?.key === row.key ? null : cur));
     setSelected((s) => { if (!s.has(row.key)) return s; const n = new Set(s); n.delete(row.key); return n; });
-    const who = fullName(row.person);
-    say({ kind: 'undo', keys: [row.key], msg: `${doneWord(action.key)}: ${who ? `${who} - ` : ''}${row.title}` });
+    sayUndo();
   }
 
   async function decideSelected() {
@@ -237,7 +267,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
     }
     batch.forEach((r) => queue(r, bulkAction(r), ''));
     setSelected(new Set());
-    say({ kind: 'undo', keys: batch.map((r) => r.key), msg: `Approved ${batch.length} ${batch.length === 1 ? 'request' : 'requests'}` });
+    sayUndo();
   }
 
   function undo(keys) {

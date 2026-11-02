@@ -129,7 +129,7 @@ describe('Approvals on a phone', () => {
     expect(titles()).toEqual([LETTER, TIME_OFF, SHEETS, ITEM]);
     expect(chipCount('All')).toBe(6);
     expect(screen.getByText('7 Waiting')).toBeTruthy();
-    expect(screen.getByText(/^Approved: Ankit Patel - Reimbursement/)).toBeTruthy();
+    expect(screen.getByText('Approved - Ankit Patel, Money')).toBeTruthy();
     fireEvent.click(screen.getByText('Undo'));
     expect(titles()).toEqual([LETTER, TIME_OFF, MONEY, SHEETS, ITEM]);   // the same place, third
     await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
@@ -138,6 +138,47 @@ describe('Approvals on a phone', () => {
     await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
     expect(decideReimbursement).toHaveBeenCalledWith('r1', { action: 'approve', note: '' });
     expect(prompt).not.toHaveBeenCalled();
+  });
+
+  // Tap, tap: the second decision inside the window must not orphan the
+  // first. The toast speaks for both, and one Undo brings both back, each
+  // to its own place, with nothing sent.
+  it('Undo after two quick decisions brings both back and sends neither', async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    render(<Approvals activeSub="" onSubChange={() => {}} />);
+    await screen.findByText(TIME_OFF);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fireEvent.click(btn(/^Approve: Reimbursement/));
+    expect(screen.getByText('Approved - Ankit Patel, Money')).toBeTruthy();
+    await act(async () => { vi.advanceTimersByTime(UNDO_MS / 2); });
+    fireEvent.click(btn(/^Reject: Time Off/));            // optional note: fires at once
+    expect(titles()).toEqual([LETTER, SHEETS, ITEM]);
+    expect(screen.getByText('2 Decisions')).toBeTruthy();
+    fireEvent.click(screen.getByText('Undo'));
+    expect(titles()).toEqual([LETTER, TIME_OFF, MONEY, SHEETS, ITEM]);
+    expect(screen.queryByText('Undo')).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(UNDO_MS * 2); });
+    expect(decideReimbursement).not.toHaveBeenCalled();
+    expect(timeOffDecide).not.toHaveBeenCalled();
+  });
+
+  it('the Undo toast drops a decision once it has been sent', async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    decideReimbursement.mockResolvedValue({});
+    render(<Approvals activeSub="" onSubChange={() => {}} />);
+    await screen.findByText(TIME_OFF);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fireEvent.click(btn(/^Approve: Reimbursement/));
+    await act(async () => { vi.advanceTimersByTime(UNDO_MS - 1000); });
+    fireEvent.click(btn(/^Approve: Time Off/));
+    expect(screen.getByText('Approved 2 Requests')).toBeTruthy();
+    await act(async () => { vi.advanceTimersByTime(1100); });   // the reimbursement goes out
+    expect(decideReimbursement).toHaveBeenCalledWith('r1', { action: 'approve', note: '' });
+    expect(screen.getByText('Approved - Priya Sharma, Time Off')).toBeTruthy();
+    fireEvent.click(screen.getByText('Undo'));
+    expect(titles()).toContain(TIME_OFF);
+    await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
+    expect(timeOffDecide).not.toHaveBeenCalled();
   });
 
   // Review Focus 2: a no that needs a note opens the note sheet first and
