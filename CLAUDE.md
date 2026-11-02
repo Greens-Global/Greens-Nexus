@@ -376,6 +376,23 @@ keep the diff minimal.
   labor line is `GET /timeclock/schedule/labor` (hours from
   `shift_attendance._paid_minutes`, rates from the payroll history by day,
   fixed pay counted not priced, managers never see pay).
+- **Forms are templates (Neil, 11/02/2026, `docs/Forms.md`):** a field form
+  (inspection, incident report, vehicle check, checklist) is a `DocTemplate`
+  with `doc_type='form'` - the same field list plus form-only keys (`section`,
+  `showIf`, `formula`, `repeat`) and types (photo, gps, scan, rating, yesno,
+  live signature), built and reviewed under Documents > Forms. Entries are
+  their own table (`doc_form_entries`, RLS) with the ONE reach rule in
+  `backend/form_audience.py` (shared with announcements: a person with no
+  allowed sites is not a site member); a submitter never reviews their own
+  entry, and nothing changes an entry's state by itself. Crews fill a form
+  from Workday's Fill a Form tile, the shift card (`showOnShifts` for the
+  shift's site), the + menu and the Quick Actions dock; photos and
+  signatures go to `task-files/forms/<entryKey>/`; the same `entryKey` sent
+  twice is one entry. `form.submitted` / `form.reviewed` are emitted through
+  `workflows.emit` at the two choke points in `routers/forms.py` with the
+  answers FLAT on `extra`; the Insights Forms card carries counts, never
+  answers. Never add a second form engine, a second entry store or an
+  offline path outside the punch-queue pattern.
 - Timesheets are approved through review + Nexus Sign (`timesheet_review.py`;
   ONLY THE EMPLOYEE SIGNS - Neil, Oct 16 2026). After the period's last day
   the manager (else the company's HR contact; nobody at all = the Global
