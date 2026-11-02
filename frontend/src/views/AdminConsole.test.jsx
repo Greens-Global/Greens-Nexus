@@ -434,8 +434,13 @@ describe('AdminConsole', () => {
       const region = screen.getByRole('region', { name: 'Pay Rules' });
       await within(region).findByRole('switch', { name: 'Punch Rounding' }, { timeout: 5000 });
       expect(region.querySelector('[data-company-overrides]')).toBeNull();
-      await act(async () => { vi.advanceTimersByTime(16000); });
-      const line = await waitFor(() => { const el = region.querySelector('[data-company-overrides]'); expect(el).not.toBeNull(); return el; });
+      // Whenever the companies' checks start, 15 seconds later they give up.
+      const overrides = () => region.querySelector('[data-company-overrides]');
+      for (let i = 0; i < 50 && !overrides(); i++) {
+        await act(async () => { vi.advanceTimersByTime(16000); await Promise.resolve(); });
+      }
+      const line = overrides();
+      expect(line).not.toBeNull();
       expect(within(line).getByRole('button', { name: 'Greens Global' })).toBeInTheDocument();
       expect(within(line).getByText('Could not check Greens India.')).toBeInTheDocument();
       expect(within(line).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
