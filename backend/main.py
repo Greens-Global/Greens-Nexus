@@ -1418,6 +1418,13 @@ def _run_migrations():
             "ALTER TABLE nexus_notes ADD COLUMN collab_key VARCHAR DEFAULT ''",
             # Cubby tasks in Nexus Tasks (Oct 31 2026) - see the Postgres list. models.Task.
             "ALTER TABLE tasks ADD COLUMN cubby_task_id VARCHAR DEFAULT ''",
+            # Training due modes and escalation (11/03/2026) - see the Postgres list.
+            "ALTER TABLE kb_assignment_rules ADD COLUMN due_date VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_assignment_rules ADD COLUMN new_hires_only BOOLEAN DEFAULT 0",
+            "ALTER TABLE kb_assignment_rules ADD COLUMN escalate_days INTEGER DEFAULT 0",
+            "ALTER TABLE kb_training_plans ADD COLUMN due_date VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_course_assignments ADD COLUMN escalated_at VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN default_due_days INTEGER DEFAULT 0",
             # Boards (Neil 11/02/2026) - see the Postgres list. models.NexusNote / NexusNoteVersion.
             "ALTER TABLE nexus_notes ADD COLUMN scene TEXT DEFAULT ''",
             "ALTER TABLE nexus_notes ADD COLUMN thumb_url VARCHAR DEFAULT ''",
@@ -3426,6 +3433,16 @@ def _run_migrations():
         # pointer on the task and the link table, a new table with explicit
         # RLS. models.Task.cubby_task_id, models.CubbyTaskLink.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS cubby_task_id VARCHAR DEFAULT ''",
+        # Training due modes and escalation (Sagar, 11/03/2026): a rule or plan due
+        # by one date, an onboarding-only rule, escalation to the supervisor, the
+        # first escalation stamp, a course's default due days. Existing tables,
+        # no new RLS. models.KbAssignmentRule / KbTrainingPlan / KbCourseAssignment / KbCourse.
+        "ALTER TABLE kb_assignment_rules ADD COLUMN IF NOT EXISTS due_date VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_assignment_rules ADD COLUMN IF NOT EXISTS new_hires_only BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE kb_assignment_rules ADD COLUMN IF NOT EXISTS escalate_days INTEGER DEFAULT 0",
+        "ALTER TABLE kb_training_plans ADD COLUMN IF NOT EXISTS due_date VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_course_assignments ADD COLUMN IF NOT EXISTS escalated_at VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS default_due_days INTEGER DEFAULT 0",
         "CREATE INDEX IF NOT EXISTS ix_tasks_cubby_task_id ON tasks (cubby_task_id)",
         "ALTER TABLE cubby_task_links ENABLE ROW LEVEL SECURITY",
         # Boards (Neil 11/02/2026): a whiteboard is a note - its drawing, a

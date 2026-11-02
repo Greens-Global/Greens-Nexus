@@ -81,8 +81,8 @@ export default function Compliance({ me }) {
                         {data.columns.map((c) => {
                           const cell = p.cells[c.key];
                           if (!cell) return <td key={c.key}><span className="kb-meta">-</span></td>;
-                          const tip = `${cell.status}${cell.due ? ` · due ${fmtDate(cell.due)}` : ''}${cell.expires ? ` · valid through ${fmtDate(cell.expires)}` : ''}${cell.days_overdue ? ` · ${cell.days_overdue} days overdue` : ''}`;
-                          return <td key={c.key}><div className="kb-grid-cell" style={{ background: CELL_COLORS[cell.color] }} title={tip}>{cell.color === 'green' ? <Check size={14} /> : cell.days_overdue ? `${cell.days_overdue}d late` : cell.pct != null && cell.status === 'In Progress' ? `${cell.pct}%` : cell.status}</div></td>;
+                          const tip = `${cell.status}${cell.due ? ` · due ${fmtDate(cell.due)}` : ''}${cell.expires ? ` · valid through ${fmtDate(cell.expires)}` : ''}${cell.days_overdue ? ` · ${cell.days_overdue} days overdue` : ''}${cell.escalated ? ' · escalated to the supervisor' : ''}`;
+                          return <td key={c.key}><div className="kb-grid-cell" style={{ background: CELL_COLORS[cell.color], outline: cell.escalated ? '2px solid #7f1d1d' : undefined, outlineOffset: -2 }} title={tip} aria-label={tip}>{cell.color === 'green' ? <Check size={14} /> : cell.days_overdue ? `${cell.days_overdue}d late${cell.escalated ? ' !' : ''}` : cell.pct != null && cell.status === 'In Progress' ? `${cell.pct}%` : cell.status}</div></td>;
                         })}
                         <td style={{ whiteSpace: 'nowrap' }}><span style={{ color: CELL_COLORS.green, fontWeight: 600 }}>{p.counts.green}</span> / <span style={{ color: CELL_COLORS.amber, fontWeight: 600 }}>{p.counts.amber}</span> / <span style={{ color: CELL_COLORS.red, fontWeight: 600 }}>{p.counts.red}</span></td>
                       </tr>

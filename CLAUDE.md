@@ -775,6 +775,20 @@ keep the diff minimal.
   Results", Ask Nexus's extra sources (the answer step stays behind the AI
   switch) and the page rail's "Around This Page" - never a second index or
   a model-built graph. `test_kb_filing_graph.py` pins it.
+- **Training due modes and escalation (Sagar, 11/03/2026, `kb_daily._due_for`,
+  `run_escalations`):** an assignment rule or plan is due either WITHIN
+  `due_days` of the person's start date (else today) or BY ONE DATE for
+  everyone it covers (`due_date` - company-wide, department-wide), with
+  `due_days` as the GRACE for someone who joins after that date (their copy
+  is due that many days from their start, never a date already past). A
+  rule with `new_hires_only` is the onboarding track: only people who start
+  on or after the rule's own day, nobody already here. `escalate_days` on a
+  rule raises a course still not done that many days after its due date to
+  the person's manager (nobody = the company's HR contact), once, then
+  weekly, stamping `kb_course_assignments.escalated_at` for Compliance; the
+  pass runs under the `kb_daily` Automations switch. A course's
+  `default_due_days` only fills a hand assignment with no date picked.
+  `test_kb_training_due.py` pins all of it.
 
 ## Asana — removed (Sep 2026)
 

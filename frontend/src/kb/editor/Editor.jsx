@@ -124,7 +124,8 @@ export default function Editor({ id, me }) {
   const [deptOptions, setDeptOptions] = useState([]);
   const [deptInput, setDeptInput] = useState('');
   useEffect(() => { api.kbAudienceOptions().then((o) => setDeptOptions(o?.departments || [])).catch(() => {}); }, []);
-  const [newCreate, setNewCreate] = useState(isNew ? { collection_id: id.startsWith('new:') ? id.slice(4) : '', title: '', page_type: 'how_to', template: 'how_to' } : null);
+  const [newCreate, setNewCreate] = useState(isNew ? { collection_id: id.startsWith('new:') ? id.slice(4) : '', title: '', page_type: 'how_to', template: 'how_to', departments: [] } : null);
+  const [newDeptInput, setNewDeptInput] = useState('');
   const [loadedDoc, setLoadedDoc] = useState(null);   // what the editor shows once both it and the page exist
   const plusRef = useRef(null);
   const saveTimer = useRef(null);
@@ -242,6 +243,7 @@ export default function Editor({ id, me }) {
   // ── create (new page / import) ──
   const create = async (extra = {}) => {
     const body = { ...newCreate, ...extra };
+    if (!body.departments?.length) delete body.departments;   // none picked: the server files it under the collection's department
     if (!body.title?.trim()) { toast('Give the page a title', 'err'); return; }
     try {
       const p = await api.kbCreatePage(body);
@@ -370,7 +372,17 @@ export default function Editor({ id, me }) {
               <option value="">Choose later</option>
               {collections.filter((c) => !c.parent_id).map((c) => <optgroup key={c.id} label={c.name}><option value={c.id}>{c.name}</option>{collections.filter((x) => x.parent_id === c.id).map((x) => <option key={x.id} value={x.id}>{c.name} / {x.name}</option>)}</optgroup>)}
             </select>
-            <div className="kb-help">The department shelf it lives on. A page can apply to other departments too; set that on the page.</div></div>
+            <div className="kb-help">The department shelf it lives on.</div></div>
+          <div className="kb-field"><label>Also applies to</label>
+            <div className="kb-input" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {(() => { const colDept = collections.find((c) => c.id === newCreate.collection_id)?.department || collections.find((c) => c.id === collections.find((x) => x.id === newCreate.collection_id)?.parent_id)?.department || ''; return colDept ? <span className="kb-tag" title="From the collection" style={{ opacity: .8 }}>{colDept}</span> : null; })()}
+              {newCreate.departments.map((d) => <span key={d} className="kb-tag">{d}<button type="button" aria-label={`Remove ${d}`} onClick={() => setNewCreate({ ...newCreate, departments: newCreate.departments.filter((x) => x !== d) })} style={{ border: 0, background: 'none', cursor: 'pointer', padding: 0, display: 'inline-flex', color: 'inherit' }}><X size={11} /></button></span>)}
+              <input list="kb-new-dept-list" value={newDeptInput} onChange={(e) => setNewDeptInput(e.target.value)} placeholder="Add a department" aria-label="Also applies to" className="kb-bare" style={{ border: 0, font: 'inherit', fontSize: 13, flex: '1 1 140px', minWidth: 0, background: 'transparent', color: 'inherit' }}
+                     onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ',') && newDeptInput.trim()) { e.preventDefault(); const d = deptOptions.find((o) => o.toLowerCase() === newDeptInput.trim().toLowerCase()) || newDeptInput.trim(); if (!newCreate.departments.includes(d)) setNewCreate({ ...newCreate, departments: [...newCreate.departments, d] }); setNewDeptInput(''); } else if (e.key === 'Enter') { e.preventDefault(); create(); } }}
+                     onBlur={() => { const v = newDeptInput.trim(); if (!v) return; const d = deptOptions.find((o) => o.toLowerCase() === v.toLowerCase()); if (d && !newCreate.departments.includes(d)) setNewCreate({ ...newCreate, departments: [...newCreate.departments, d] }); setNewDeptInput(''); }} />
+              <datalist id="kb-new-dept-list">{deptOptions.filter((o) => !newCreate.departments.includes(o)).map((o) => <option key={o} value={o} />)}</datalist>
+            </div>
+            <div className="kb-help">One page can apply to many departments. It shows in each one's collection under Also Applies Here and in that department's filter. You can change this on the page later.</div></div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', paddingTop: 4, borderTop: '1px solid var(--kb-line)' }}>
             <button type="button" className="kb-btn ghost" onClick={() => setImportOpen(true)}><Upload />Have a Word or PDF file? Import it</button>
             <button type="button" className="kb-btn pri lg" style={{ marginLeft: 'auto' }} disabled={!newCreate.title.trim()} onClick={() => create()}>Start Writing</button>
