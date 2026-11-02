@@ -337,7 +337,13 @@ const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE
 // 2,961 KB, vendor-react unchanged at 827 KB, total 18,742 KB. Neil chose the
 // engine over tldraw (paid license) and over a homegrown canvas, and chose
 // this raise over hosting the engine as a separate iframe app, on 11/02/2026.
-const TOTAL_KB     = 19200 + (NX_SRC_ON ? 350 : 0);
+// Nov 2, 2026 (later): 19200 -> 19600. Forms & Checklists (Neil, 11/02/2026):
+// the fill screen (FillForm, lazy, ~25 KB), the Documents > Forms tab (lazy)
+// and jsqr (vendor-jsqr, 130 KB, loaded ONLY when someone scans a QR code on
+// a phone without BarcodeDetector - iPhone Safari). Every byte is lazy: first
+// paint is unchanged (2,806 KB, FIRST_PAINT_KB below guards it). Measured with
+// the CI's build values: 19,292 KB. Raised with Neil's "merge all" OK.
+const TOTAL_KB     = 19600 + (NX_SRC_ON ? 350 : 0);
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a
