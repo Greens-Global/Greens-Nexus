@@ -78,7 +78,7 @@ import { MapSpotIntake, dataUrlToFile } from './TicketMapSpot';
 // from the site map - the spot goes with the ticket as map_spot, the map's
 // picture is attached once the ticket exists, and a photo is asked for.
 // `initial` (Help Center, Oct 2026): { subject, description, type } handed
-// over from help - Ask Nexus's File a Ticket, "I Need To..." - plain text.
+// over from help - Ask Nexus's File a Ticket, "How Do I..." - plain text.
 export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, forProperty = null, onBatch = null, mapSpot = null, initial = null }) {
   // Reachable standalone from Support.jsx without TicketsView ever mounting
   // (its own ticket composer) - needs its own call so intake-field/SLA
@@ -668,24 +668,24 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           <label style={label} id="ct-team">Which Team Can Help? {req}</label>
           {deptOptions.length <= 8 ? (
             <div role="radiogroup" aria-labelledby="ct-team"
-              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
+              // min(100%, 168px): "Human Resources" fits on one line at 375px, and a
+              // narrower box than the name is never asked for.
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 168px), 1fr))', gap: 8 }}>
               {deptOptions.map((d) => {
                 const on = form.hrDepartmentId === d.id;
                 const Icon = deptIcon(d.name);
-                const taste = (helpGroupFor(d.name)?.topics || []).slice(0, 3).map((tp) => tp.name.replace(/\s*\(.*\)$/, '')).join(', ');
+                // The name alone (Neil, 11/02/2026): the "taste of what it
+                // handles" line under each name read as clutter and told
+                // nobody anything the name did not. "HR" is spelled out.
                 return (
                   <button key={d.id} type="button" role="radio" aria-checked={on} onClick={() => { if (!on) pickDept(d.id); }}
                     className="nx-ct-tile"
-                    style={{ display: 'flex', alignItems: 'flex-start', gap: 9, textAlign: 'left', cursor: 'pointer', fontFamily: FONT,
-                      padding: '9px 11px', borderRadius: 10, background: NX.surface,
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', cursor: 'pointer', fontFamily: FONT,
+                      padding: '11px 12px', minHeight: 44, borderRadius: 10, background: NX.surface,
                       border: `1px solid ${on ? brand : err('hrDepartmentId') ? NX.red : NX.border}`,
                       boxShadow: on ? `inset 0 0 0 1px ${brand}` : 'none' }}>
-                    <Icon size={17} strokeWidth={1.9} style={{ color: on ? brand : NX.dim, flex: 'none', marginTop: 1 }} aria-hidden="true" />
-                    <span style={{ minWidth: 0, flex: 1 }}>
-                      <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: NX.ink, lineHeight: 1.3 }}>{d.name}</span>
-                      {taste && <span title={taste} style={{ display: 'block', fontSize: 11.5, color: NX.faint, lineHeight: 1.35, marginTop: 2,
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{taste}</span>}
-                    </span>
+                    <Icon size={17} strokeWidth={1.9} style={{ color: on ? brand : NX.dim, flex: 'none' }} aria-hidden="true" />
+                    <span style={{ minWidth: 0, flex: 1, fontSize: 13.5, fontWeight: 600, color: NX.ink, lineHeight: 1.3 }}>{deptDisplayName(d.name)}</span>
                   </button>
                 );
               })}
@@ -694,7 +694,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
             <TicketSelect value={form.hrDepartmentId} onChange={pickDept}
               placeholder="Select department" searchPlaceholder="Search departments…" emptyText="No departments to choose from."
               invalid={err('hrDepartmentId')} style={sel}
-              options={[['', 'Select department'], ...deptOptions.map((d) => [d.id, d.name])]} />
+              options={[['', 'Select department'], ...deptOptions.map((d) => [d.id, deptDisplayName(d.name)])]} />
           )}
           {err('hrDepartmentId') && <div style={requiredHint}>Pick the team that should handle it</div>}
         </div>
@@ -972,6 +972,12 @@ const AREA_ICON = {
   facilities: Building2, storageops: Warehouse, security: ShieldCheck, finance: Receipt, hr: Users, field: HardHat,
   hardware: Monitor, email: Monitor, files: Monitor, network: Monitor, collab: Monitor, tasks: Monitor,
 };
+// Display names for the team tiles. The department row stays what Settings >
+// Companies > Departments calls it; only the abbreviation is spelled out on
+// this picker (Neil, 11/02/2026: "Rename HR to Human Resources here").
+const DEPT_DISPLAY = { hr: 'Human Resources', 'hr & payroll': 'Human Resources' };
+export const deptDisplayName = (name) => DEPT_DISPLAY[String(name || '').trim().toLowerCase()] || name;
+
 function deptIcon(name) {
   const votes = new Map();
   for (const tp of helpGroupFor(name)?.topics || []) {

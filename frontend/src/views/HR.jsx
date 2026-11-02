@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } fro
 import { InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import { SendHiringPacketModal, PacketSigner, PersonLifeEvents, PaperworkStatus, usDay } from '../components/HiringPacket';
 import PacketReview from '../components/PacketReview';
+import SendFederalFormMenu from '../components/SendFederalFormMenu';
 import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import { ProbationBadge, ProbationCard } from '../components/HrProbation';
@@ -891,7 +892,7 @@ export function WorkLogsSection({ employee }) {
   );
 }
 
-function DocumentsSection({ employeeId, toastOk, toastErr }) {
+function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
   const [docs, setDocs] = useState(null);
   const [kind, setKind] = useState('other');
   const [uploading, setUploading] = useState(false);
@@ -926,6 +927,8 @@ function DocumentsSection({ employeeId, toastOk, toastErr }) {
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
           <FileText size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Documents
         </span>
+        {/* Federal forms (Neil, 11/02/2026): HR++ sends a W-4, I-9 or direct deposit form to this person. */}
+        {employee && <SendFederalFormMenu employee={employee} toastOk={toastOk} toastErr={toastErr} onSent={onSent} />}
         <select className="form-input" value={kind} onChange={e => setKind(e.target.value)} style={{ padding: '3px 8px', fontSize: 11.5, height: 28 }}>
           {DOC_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
@@ -2209,7 +2212,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           <>
             {/* Signed offer / packet / letters, one line each with their filing (off the header - Neil, Oct 22). */}
             {!teamView && <PersonLifeEvents signed employeeId={e.id} workEmail={e.workEmail} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
-            <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
+            <DocumentsSection employeeId={e.id} employee={teamView ? null : e} onSent={onReload} toastOk={toastOk} toastErr={toastErr} />
             {/* The person's wired Egnyte folder (Neil, Aug 6): hiring package,
                 invoices, payment proofs live in Egnyte, not as Nexus uploads.
                 Resolution + re-pointing happen in Egnyte - Wiring. */}
@@ -5469,6 +5472,12 @@ export default function HR({ activeSub, onSubChange }) {
   useEffect(() => {
     const m = String(activeSub || '').match(/^hr-probation-(.+)$/);
     if (m) { setProbationFocus(m[1]); setOpenTab('overview'); setSelectedId(m[1]); onSubChange?.('hr-people'); }
+  }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The federal-form bells ("W-4 Signed - <name>", 11/02/2026) land on
+  // hr-documents-<employee id>: the person's Documents tab.
+  useEffect(() => {
+    const m = String(activeSub || '').match(/^hr-documents-(.+)$/);
+    if (m) { setOpenTab('documents'); setSelectedId(m[1]); onSubChange?.('hr-people'); }
   }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = !hrTeam && canAccessModule('hr_comp', 'owner', 'viewer');   // a team view never shows pay

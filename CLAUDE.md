@@ -342,8 +342,11 @@ keep the diff minimal.
   Images are files in the private `task-files` bucket under
   `notes/boards/<noteId>/`, never data URLs in the scene. The engine is the
   self-hosted Excalidraw package in `frontend/src/notes/board/Board.jsx`,
-  lazy in the one `vendor-excalidraw` chunk (the single bundle-budget
-  exception, `scripts/check-bundle-size.mjs`); its fonts are copied by
+  reached only through `notes/board/engine`'s `import()` and split by the
+  build into its own lazy chunk - NO manual chunk for it (11/02/2026: a
+  manual chunk dragged its shared dependencies in and put 3 MB on first
+  paint; `scripts/check-bundle-size.mjs` now fails when the engine is in
+  the entry's static graph or first paint passes 3,000 KB); its fonts are copied by
   `scripts/copy-excalidraw-assets.mjs` on build, English only, nothing from a
   CDN (the CSP is self only). Clean look by default, Sketch per board
   (`scene.js` `applyLook`). Live drawing rides the Notes encrypted transport
@@ -357,7 +360,17 @@ keep the diff minimal.
   Never add a second drawing engine, a second markup path, or a Whiteboards
   module - boards live in Notes. jsdom cannot load the engine: tests get the
   global mock in `frontend/vitest.setup.js`. Users never see the word
-  Excalidraw.
+  Excalidraw. **The engine is behind `notes/board/engine`** (Neil,
+  11/02/2026: it must stay replaceable): `engine/index.js` is the contract
+  and `loadEngine()`, `engine/excalidraw.jsx` the ONE file that imports the
+  package - `scripts/check-engine-imports.mjs` (in `npm run lint`) fails any
+  other; Board, the exports and the live session know only the Engine
+  object. When the chunk does not load the board shows its last picture
+  read-only with Retry (`engine/fallback.jsx`, never blank, never a throw to
+  the boundary); every save goes to an IndexedDB draft first
+  (`board/draft.js`, offered back on open with Restore / Discard, cleared
+  when the save lands); `scene.js compact` runs before a save and a scene
+  still over 2 MB is refused with a notice, never sent as a 413.
 - **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
   on the phone (`public/manifest.webmanifest`, `public/sw.js` - a push-only
   worker, no caching, offline is deferred) and pushes the BELL: a Web Push
@@ -399,6 +412,35 @@ keep the diff minimal.
   answers FLAT on `extra`; the Insights Forms card carries counts, never
   answers. Never add a second form engine, a second entry store or an
   offline path outside the punch-queue pattern.
+- **Federal forms (Neil, 11/02/2026, `backend/federal_forms/`,
+  `docs/Federal-Forms.md`):** Form W-4, Form I-9 (Section 2 by HR) and the
+  Direct Deposit Authorization are filled and signed in Nexus Sign - from
+  the hiring packet (`HrPacketSetting.federal_forms`, US employees only)
+  or one at a time from the person's Documents tab (HR++). ONE package:
+  the official PDFs are bundled with their SHA-256, fields come from each
+  PDF's own widgets (`maps/*.json`, `prepare()`), editions are pinned
+  (`editions.py`: a lapsed edition REFUSES to send, HR is belled 60 days
+  ahead), answers are checked by `formats.py` / `rules.py`. SSN, routing
+  and account numbers are `sensitive` fields: encrypted at rest
+  (`enc:` via `secret_box`), masked to every other party, never in a bell,
+  email, log or on the person record, printed only into the sealed PDF,
+  which is restricted (`prints_pay`, Pay & Benefits only, never an email
+  attachment, every open a `viewed_final` event). This deliberately
+  reverses the old "W-4 / I-9 / direct deposit live outside Nexus" notes.
+  Never add E-Verify, remote examination, state forms or a second
+  template path without Neil.
+- **Homebase lifts (Neil, 11/02/2026):** an early punch is NEVER blocked -
+  it is recorded and the manager gets one grouped bell per team and day
+  (`early_punch.py`, setting `earlyPunchAlertMin`, 0 = off); the weekly
+  labor budget (`laborBudgetHours` / `laborBudgetAmount`) is visible on
+  the planner to HR++ only (`hr_access.is_hr_for_company`) - managers get
+  neither the figure nor the flag; a time-off request carries a
+  RECOMMENDATION (`timeoff_recommend.py`: "Recommended: Approve" / "Check
+  First" with reasons) and nothing ever approves or rejects by code; an
+  announcement may target a work site (`work_site_id`; a person with an
+  empty `work_site_ids` is NOT a site member) and its reads route lists
+  who has not acknowledged; the planner's live strip (In / On Break /
+  Late / Off) reads Late from `shift_expect` like everything else.
 - Timesheets are approved through review + Nexus Sign (`timesheet_review.py`;
   ONLY THE EMPLOYEE SIGNS - Neil, Oct 16 2026). After the period's last day
   the manager (else the company's HR contact; nobody at all = the Global

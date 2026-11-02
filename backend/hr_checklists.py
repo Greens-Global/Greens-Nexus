@@ -32,7 +32,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, or_
 
 import hr_checklist_seed
-from models import (
+from models import (HrSignParty,
     HrCandidate,
     NexusGroup,
     HrChecklist,
@@ -180,6 +180,51 @@ def backfill_id_evidence(db) -> int:
             tpl.items, tpl.updated_by, tpl.updated_at = items, "system", _now()
             n += 1
     db.add(NexusSetting(key=EVIDENCE_MARK, value=_now(), updated_by="startup", updated_at=_now()))
+    db.commit()
+    return n
+
+
+# Federal forms (Neil, 11/02/2026): ON-05 ticks when the W-4 and the direct
+# deposit authorization are signed in Nexus Sign, ON-18 when the person signs
+# I-9 Section 1, ON-23 when HR signs Section 2 (an ID on file still counts).
+FEDERAL_MARK = "hr_checklists.federal_forms_backfill"
+FEDERAL_ROW_SIGNALS = {"ON-05": ("", "envelope:w4+direct_deposit"),
+                       "ON-18": ("", "envelope:i9_s1"),
+                       "ON-23": ("id_on_file", "id_on_file|envelope:i9_s2")}
+# The seed's hints on those rows BEFORE the federal forms (the words the
+# backfill may replace - a hint HR wrote themselves is theirs, 11/02/2026).
+FEDERAL_OLD_HINTS = {
+    "ON-05": "W-4, state withholding, direct deposit and full tax IDs go into the payroll provider, never Nexus.",
+    "ON-18": "Completed outside Nexus, by the end of the first day.",
+    "ON-23": "The employer examines the original documents within 3 business days of the start date.",
+}
+
+
+def backfill_federal_forms(db) -> int:
+    """Once, from main._startup_seeds: every onboarding template (the Library
+    and each company's own, never a role's) takes the federal form signals on
+    ON-05 / ON-18 / ON-23 where the row still carries the seed's old condition
+    (none, none, id_on_file) - a condition HR changed by hand is left alone.
+    The hint follows the seed only when it still reads as the OLD seed's
+    (FEDERAL_OLD_HINTS) or is empty - words HR wrote stay. Commits; returns
+    templates changed."""
+    if db.get(NexusSetting, FEDERAL_MARK):
+        return 0
+    seed = {r["key"]: r for r in hr_checklist_seed.ONBOARDING}
+    n = 0
+    for tpl in _base(db).filter(HrChecklistTemplate.kind == "onboarding").all():
+        items = [dict(r) for r in (tpl.items or []) if isinstance(r, dict)]
+        changed = False
+        for r in items:
+            spec = FEDERAL_ROW_SIGNALS.get(r.get("key"))
+            if spec and (r.get("signal") or "") == spec[0]:
+                r["signal"], changed = spec[1], True
+                if (r.get("hint") or "").strip() in ("", FEDERAL_OLD_HINTS.get(r["key"], "")):
+                    r["hint"] = seed[r["key"]]["hint"]
+        if changed:
+            tpl.items, tpl.updated_by, tpl.updated_at = items, "system", _now()
+            n += 1
+    db.add(NexusSetting(key=FEDERAL_MARK, value=_now(), updated_by="startup", updated_at=_now()))
     db.commit()
     return n
 
@@ -845,8 +890,75 @@ def _sig_provisioned(db, emp, arg):
             .first()) is not None
 
 
+# The federal forms (Neil, 11/02/2026) ride Nexus Sign envelopes as documents
+# carrying `formKind` - no template kind to join on, so they are read from
+# the person's envelopes themselves. Kinds joined with "+" must ALL be met
+# ("w4+direct_deposit" = both signed); "," still means any one.
+FEDERAL_SIGNALS = {"w4": "A signed Form W-4 is on file",
+                   "direct_deposit": "A signed Direct Deposit Authorization is on file",
+                   "i9_s1": "Form I-9 Section 1 is signed in Nexus Sign",
+                   "i9_s2": "Form I-9 Section 2 is signed in Nexus Sign"}
+
+
+def _person_envelopes(db, emp, cand_ids):
+    who = HrSignRequest.employee_id == emp.id
+    if cand_ids:
+        who = or_(who, HrSignRequest.candidate_id.in_(cand_ids))
+    return db.query(HrSignRequest).filter(HrSignRequest.status.in_(("pending", "completed")), who).all()
+
+
+def _form_docs(req):
+    """(formKind, fields) for every federal form document on an envelope -
+    the source PDF (a standalone send) and the packet documents alike."""
+    out = []
+    if (getattr(req, "link_kind", "") or "") == "federal_form" and ":" in (req.link_id or ""):
+        # A form sent by itself from the person record: the form IS the
+        # source PDF, and the link id says which ("<employee id>:<kind>").
+        out.append((req.link_id.rsplit(":", 1)[1], req.fields or []))
+    for d in (req.documents or []):
+        if isinstance(d, dict) and d.get("formKind"):
+            out.append((d["formKind"], d.get("fields") or []))
+    return out
+
+
+# The form signals the PERSON's signature ticks: Form I-9 Section 1, the
+# Form W-4 and the Direct Deposit Authorization are the person's own
+# statements - signed is done, whatever else the envelope still waits for
+# (an HR countersign on a packet, a later document). Section 2 is HR's and
+# ticks on the completed envelope.
+_PERSON_SIGNED_KINDS = ("i9_s1", "w4", "direct_deposit")
+
+
+def _sig_federal(db, emp, kind: str, cand_ids: list) -> bool:
+    form = "i9" if kind in ("i9_s1", "i9_s2") else kind
+    for req in _person_envelopes(db, emp, cand_ids):
+        docs = [fields for fk, fields in _form_docs(req) if fk == form]
+        if not docs:
+            continue
+        if req.status == "completed":
+            return True
+        if kind in _PERSON_SIGNED_KINDS:
+            # The person's part is signed when the party who owns the
+            # person-sourced boxes has signed - whatever the envelope's state.
+            roles = {f.get("role") for fields in docs for f in fields if f.get("source") == "person"}
+            signed = (db.query(HrSignParty.id)
+                      .filter(HrSignParty.request_id == req.id, HrSignParty.role_key.in_(roles),
+                              HrSignParty.status == "signed").first()) if roles else None
+            if signed is not None:
+                return True
+    return False
+
+
 def _sig_envelope(db, emp, arg):
     kinds = [k.strip() for k in (arg or "").split(",") if k.strip()]
+    fed_groups = [k for k in kinds if all(part in FEDERAL_SIGNALS for part in k.split("+"))]
+    if fed_groups:
+        cand_ids = [c.id for c in db.query(HrCandidate.id).filter(HrCandidate.employee_id == emp.id).all()]
+        if any(all(_sig_federal(db, emp, part, cand_ids) for part in g.split("+")) for g in fed_groups):
+            return True
+        kinds = [k for k in kinds if k not in fed_groups]
+        if not kinds:
+            return False
     # An offer is usually sent at the candidate stage, before the employee
     # record exists - so match the candidate this person was hired from too.
     cand_ids = [c.id for c in db.query(HrCandidate.id).filter(HrCandidate.employee_id == emp.id).all()]
@@ -984,6 +1096,9 @@ SIGNAL_PRESETS = {
     "envelope:offer,contractor_agreement": "The signed offer letter (or contractor agreement) is on file",
     "envelope:nda,handbook_ack": "The signed hiring packet is on file",
     "envelope:promotion": "The signed promotion letter is on file",
+    # Federal forms (Neil, 11/02/2026).
+    "envelope:w4+direct_deposit": "The signed Form W-4 and Direct Deposit Authorization are on file",
+    **{f"envelope:{k}": v for k, v in FEDERAL_SIGNALS.items()},
 }
 
 

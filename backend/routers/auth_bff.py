@@ -15,6 +15,8 @@ from fastapi.responses import RedirectResponse, JSONResponse
 
 import secret_box
 import bff_session as bff
+import client_ip
+import sign_in_watch
 from database import SessionLocal
 from auth import get_current_user
 
@@ -87,6 +89,13 @@ def callback(request: Request, code: str = "", state: str = "", error: str = "")
         # e.g. the DB pool isn't ready yet during a restart. Never surface a raw
         # 500 to a user mid-login - send them back to a clean login to retry.
         return fail
+    else:
+        if sid:
+            # New sign-in notice (Neil, 11/02/2026): record the device and place,
+            # tell the person when it is one they have not used. Never in the
+            # way of the sign-in - sign_in_watch.watch cannot raise.
+            sign_in_watch.watch(db, email=email, session_id=sid, ip=client_ip.client_ip(request),
+                                user_agent=request.headers.get("user-agent", ""))
     finally:
         db.close()
     if not sid:
