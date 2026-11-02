@@ -5656,7 +5656,7 @@
     }
 
     async function applyCrop() {
-        _exitScrollForOp();
+        await _exitScrollForOp();
         if (!cropRect || !state.pdfBytes) {
             showToast('Draw a crop area first');
             return;
@@ -5697,10 +5697,15 @@
             const cropWidth = cropRect.width * (cropRect.scaleX || 1);
             const cropHeight = cropRect.height * (cropRect.scaleY || 1);
 
-            // Convert display coordinates to PDF coordinates
+            // Convert display coordinates to PDF coordinates. The canvas shows the
+            // page's visible box, which does not have to start at 0,0 (a page that
+            // was cropped before), so go by that box and not by the page size.
             const pdfLibDoc = await PDFLib.PDFDocument.load(state.pdfBytes);
             const page = pdfLibDoc.getPages()[state.currentPage - 1];
-            const { width: pageWidth, height: pageHeight } = page.getSize();
+            const current = state.currentPage;
+            const [vx0, , , vy1] = (await state.pdfDoc.getPage(current)).view;
+            const pjView = (await state.pdfDoc.getPage(current)).view;
+            const pageWidth = pjView[2] - pjView[0], pageHeight = pjView[3] - pjView[1];
 
             const displayWidth = fabricCanvas.width;
             const displayHeight = fabricCanvas.height;
@@ -5709,98 +5714,75 @@
             const scaleY = pageHeight / displayHeight;
 
             // PDF coordinates: origin is bottom-left, y goes up
-            const pdfLeft = cropLeft * scaleX;
-            const pdfBottom = pageHeight - (cropTop + cropHeight) * scaleY;
-            const pdfRight = (cropLeft + cropWidth) * scaleX;
-            const pdfTop = pageHeight - cropTop * scaleY;
+            const pdfLeft = vx0 + cropLeft * scaleX;
+            const pdfBottom = vy1 - (cropTop + cropHeight) * scaleY;
+            const pdfRight = vx0 + (cropLeft + cropWidth) * scaleX;
+            const pdfTop = vy1 - cropTop * scaleY;
 
             if (choice.mode === 'all') {
                 // Same AREA on every page, applied as fractions so mixed page
                 // sizes crop proportionally (typical scans are uniform anyway).
-                const fx = pdfLeft / pageWidth, fy = pdfBottom / pageHeight;
-                const fw = (pdfRight - pdfLeft) / pageWidth, fh = (pdfTop - pdfBottom) / pageHeight;
+                const fx = cropLeft / displayWidth, fTop = cropTop / displayHeight;
+                const fw = cropWidth / displayWidth, fh = cropHeight / displayHeight;
                 // The crop rectangle was drawn against the CURRENT page's
                 // orientation (already checked upright above). Pages with a
                 // different rotation would map the rectangle to the wrong axis,
                 // so skip them rather than crop them incorrectly.
                 let skipped = 0;
-                for (const pg of pdfLibDoc.getPages()) {
+                const shifts = [];
+                const libPages = pdfLibDoc.getPages();
+                for (let n = 1; n <= libPages.length; n++) {
+                    const pg = libPages[n - 1];
                     if (((pg.getRotation().angle % 360) + 360) % 360 !== 0) { skipped++; continue; }
-                    const sz = pg.getSize();
-                    pg.setCropBox(fx * sz.width, fy * sz.height, fw * sz.width, fh * sz.height);
-                    pg.setMediaBox(fx * sz.width, fy * sz.height, fw * sz.width, fh * sz.height);
+                    const [x0, y0, x1, y1] = (await state.pdfDoc.getPage(n)).view;
+                    const w = x1 - x0, h = y1 - y0;
+                    const left = x0 + fx * w, bottom = y1 - (fTop + fh) * h;
+                    pg.setCropBox(left, bottom, fw * w, fh * h);
+                    pg.setMediaBox(left, bottom, fw * w, fh * h);
+                    shifts.push([n, fx * w, fTop * h]);
                 }
-                if (skipped) showToast('Cropped - skipped ' + skipped + ' rotated page(s)');
                 const allBytes = await pdfLibDoc.save();
-                state.pdfBytes = allBytes.slice().buffer;
-                // Every page's coordinate origin changed — markups are invalid
-                state.annotations = {}; state.undoStacks = {}; state.redoStacks = {};
-                const pdfAll = await pdfjsLib.getDocument({ data: allBytes.slice(), fontExtraProperties: true }).promise;
-                if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
-            state.pdfDoc = pdfAll;
                 cleanupCrop();
                 setActiveTool('select');
-                renderPage(state.currentPage);
-                generateThumbnails();
+                await _reloadFromBytes(allBytes, null, {
+                    beforeSwap: () => shifts.forEach(([n, dx, dy]) => _shiftPageAnnotations(n, dx, dy)),
+                });
                 setStatus('All ' + state.totalPages + ' pages cropped — Cmd/Ctrl+Z to undo');
-                showToast('All pages cropped');
+                showToast(skipped ? 'Cropped - skipped ' + skipped + ' rotated page(s)' : 'All pages cropped');
                 return;
             }
 
             let targetPage = page;
             if (choice.mode === 'dup') {
                 // Copy the page, insert the copy after the original, crop the COPY
-                const [copied] = await pdfLibDoc.copyPages(pdfLibDoc, [state.currentPage - 1]);
-                pdfLibDoc.insertPage(state.currentPage, copied);
+                const [copied] = await pdfLibDoc.copyPages(pdfLibDoc, [current - 1]);
+                pdfLibDoc.insertPage(current, copied);
                 targetPage = copied;
-                // Shift per-page state for pages after the insertion point
-                for (let i = state.totalPages; i > state.currentPage; i--) {
-                    if (state.annotations[i]) { state.annotations[i + 1] = state.annotations[i]; delete state.annotations[i]; }
-                    if (state.undoStacks[i]) { state.undoStacks[i + 1] = state.undoStacks[i]; delete state.undoStacks[i]; }
-                    if (state.redoStacks[i]) { state.redoStacks[i + 1] = state.redoStacks[i]; delete state.redoStacks[i]; }
-                }
             }
             targetPage.setCropBox(pdfLeft, pdfBottom, pdfRight - pdfLeft, pdfTop - pdfBottom);
             targetPage.setMediaBox(pdfLeft, pdfBottom, pdfRight - pdfLeft, pdfTop - pdfBottom);
 
             // Save modified PDF and reload
             const newBytes = await pdfLibDoc.save();
-            // Store a clean copy as ArrayBuffer
-            state.pdfBytes = newBytes.slice().buffer;
-
-            if (choice.mode === 'dup') {
-                // Land on the cropped copy; the original keeps its markups
-                state.currentPage = state.currentPage + 1;
-            } else {
-                // Clear annotations for cropped page (old coords are invalid)
-                delete state.annotations[state.currentPage];
-                delete state.undoStacks[state.currentPage];
-                delete state.redoStacks[state.currentPage];
-            }
-
-            // Reload into PDF.js
-            const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
-            if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
-            state.pdfDoc = pdf;
 
             // Clean up crop UI
             cleanupCrop();
             setActiveTool('select');
 
-            // Re-render
-            renderPage(state.currentPage);
-
-            // Regenerate thumbnails
-            generateThumbnails();
-
-            state.totalPages = state.pdfDoc.numPages;
-            dom.totalPages.textContent = state.totalPages;
-            dom.pageInput.max = state.totalPages;
-            dom.fileInfo.textContent = `${state.fileName} | ${state.totalPages} page(s)`;
             if (choice.mode === 'dup') {
+                // Land on the cropped copy; the original keeps its markups, and the
+                // pages after the insertion point keep theirs.
+                await _reloadFromBytes(newBytes, null, {
+                    remap: (p) => (p > current ? p + 1 : p),
+                    page: current + 1,
+                });
                 setStatus('Cropped copy added — original kept. Cmd/Ctrl+Z to undo.');
                 showToast('Cropped copy added after the original page');
             } else {
+                // Markups stay on what they were drawn on: the page's corner moved.
+                await _reloadFromBytes(newBytes, null, {
+                    beforeSwap: () => _shiftPageAnnotations(current, cropLeft * scaleX, cropTop * scaleY),
+                });
                 setStatus('Page cropped — Cmd/Ctrl+Z to undo');
                 showToast('Page ' + state.currentPage + ' cropped');
             }
@@ -5809,6 +5791,20 @@
             setStatus('Crop failed: ' + err.message);
             showToast('Crop failed');
         }
+    }
+
+    // Markups are placed from the page's top-left corner. When a crop moves that
+    // corner by (dx, dy) PDF points they move back by the same amount.
+    function _shiftPageAnnotations(n, dx, dy) {
+        const entry = state.annotations[n];
+        const objs = _entryObjects(entry);
+        if (!objs.length) return;
+        const zoom = entry.zoom || 1;
+        objs.forEach((o) => { o.left = (o.left || 0) - dx * zoom; o.top = (o.top || 0) - dy * zoom; });
+        // The page's undo snapshots are in the old coordinates; Undo of the crop
+        // itself restores them through the document snapshot.
+        delete state.undoStacks[n];
+        delete state.redoStacks[n];
     }
 
     function cancelCrop() {
@@ -9912,52 +9908,84 @@
     // ── Form filling (AcroForm) ──
     async function fillFormsTool() {
         if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
+        if (_guardStructural()) return;
+        const { PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList } = PDFLib;
+        const escAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        const firstOf = (x) => (Array.isArray(x) ? x[0] : x) || '';
         let doc, fields;
         try {
             doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             fields = doc.getForm().getFields();
         } catch (_) { fields = []; }
         if (!fields.length) { showToast('This PDF has no fillable form fields'); return; }
-        let body = '<p class="modal-hint" style="margin:0 0 10px;">' + fields.length + ' field(s) found:</p>';
+        // Class names cannot be used here: the bundled library is minified.
+        let inputs = 0;
+        let body = '';
         fields.forEach((f, i) => {
-            const name = f.getName();
-            const t = f.constructor.name;
-            const esc = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-            if (t === 'PDFTextField') {
+            const esc = escAttr(f.getName());
+            if (f instanceof PDFTextField) {
                 let cur = ''; try { cur = f.getText() || ''; } catch (_) {}
-                const curEsc = cur.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
                 body += `<label class="modal-label" style="margin-top:8px;">${esc}</label>
-                         <input type="text" class="modal-input" data-k="f${i}" value="${curEsc}">`;
-            } else if (t === 'PDFCheckBox') {
+                         <input type="text" class="modal-input" data-k="f${i}" value="${escAttr(cur)}">`;
+                inputs++;
+            } else if (f instanceof PDFCheckBox) {
                 let cur = false; try { cur = f.isChecked(); } catch (_) {}
                 body += `<label class="stamp-date-row" style="padding:8px 0 0;">
                          <input type="checkbox" data-k="f${i}" ${cur ? 'checked' : ''}><span>${esc}</span></label>`;
-            } else if (t === 'PDFDropdown' || t === 'PDFRadioGroup') {
+                inputs++;
+            } else if (f instanceof PDFDropdown || f instanceof PDFRadioGroup || f instanceof PDFOptionList) {
                 let opts = []; try { opts = f.getOptions(); } catch (_) {}
-                let sel = ''; try { sel = (t === 'PDFDropdown' ? f.getSelected()[0] : f.getSelected()) || ''; } catch (_) {}
+                let sel = ''; try { sel = firstOf(f.getSelected()); } catch (_) {}
                 body += `<label class="modal-label" style="margin-top:8px;">${esc}</label>
                          <select class="modal-input" data-k="f${i}"><option value=""></option>` +
-                        opts.map(o => `<option ${o === sel ? 'selected' : ''}>${o.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</option>`).join('') + '</select>';
+                        opts.map(o => `<option value="${escAttr(o)}" ${o === sel ? 'selected' : ''}>${escAttr(o)}</option>`).join('') + '</select>';
+                inputs++;
             }
         });
+        if (!inputs) { showToast('This PDF has no form fields that can be typed into'); return; }
+        body = '<p class="modal-hint" style="margin:0 0 10px;">' + inputs + ' field(s) found:</p>' + body;
         const v = await _toolModal('Fill form fields', body, 'Apply to PDF');
         if (!v) return;
         setStatus('Filling form...');
         try {
+            // The appearance of a typed value is drawn with Helvetica: a character it
+            // cannot encode would make the whole save fail, so that field is left
+            // alone and the person is told.
+            const helvetica = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
+            let changed = 0;
+            const refused = [];
             fields.forEach((f, i) => {
                 const val = v['f' + i];
                 if (val === undefined) return;
-                const t = f.constructor.name;
                 try {
-                    if (t === 'PDFTextField') f.setText(String(val));
-                    else if (t === 'PDFCheckBox') { if (val) f.check(); else f.uncheck(); }
-                    else if (t === 'PDFDropdown') { if (val) f.select(String(val)); }
-                    else if (t === 'PDFRadioGroup') { if (val) f.select(String(val)); }
-                } catch (e) { console.warn('field', f.getName(), e); }
+                    if (f instanceof PDFTextField) {
+                        const next = String(val);
+                        if ((f.getText() || '') === next) return;
+                        try { helvetica.encodeText(next.replace(/\r?\n/g, ' ')); }
+                        catch (_) { refused.push(f.getName()); return; }
+                        f.setText(next);
+                    } else if (f instanceof PDFCheckBox) {
+                        if (!!val === f.isChecked()) return;
+                        if (val) f.check(); else f.uncheck();
+                    } else if (f instanceof PDFDropdown || f instanceof PDFRadioGroup || f instanceof PDFOptionList) {
+                        if (firstOf(f.getSelected()) === String(val)) return;
+                        if (val) f.select(String(val)); else f.clear();
+                    } else return;
+                    changed++;
+                } catch (e) { console.warn('field', f.getName(), e); refused.push(f.getName()); }
             });
-            try { doc.getForm().updateFieldAppearances(); } catch (_) {}
-            await _reloadFromBytes(await doc.save(), 'Form filled');
-        } catch (err) { console.error(err); showToast('Form filling failed'); }
+            if (!changed) {
+                setStatus('Ready');
+                showToast(refused.length ? 'Could not fill: ' + refused.join(', ') : 'No form values were changed');
+                return;
+            }
+            doc.getForm().updateFieldAppearances(helvetica);
+            pushDocSnapshot('Fill form');
+            await _reloadFromBytes(await doc.save(), null);
+            const note = refused.length ? ' - could not fill ' + refused.join(', ') + ': the form font cannot show those characters' : '';
+            setStatus('Form filled' + note);
+            showToast('Form filled' + note);
+        } catch (err) { console.error(err); showToast('Form filling failed: ' + err.message); }
     }
 
     // ── Save Flattened: rasterize every page into an uneditable PDF ──
@@ -10418,7 +10446,6 @@
 
     // ── 2. Compare two PDFs — per-page visual diff ──
     async function comparePdfsTool() {
-        _exitScrollForOp();
         if (!state.pdfDoc) { showToast('Open the first PDF, then pick the second to compare'); return; }
         const input = document.createElement('input');
         input.type = 'file'; input.accept = 'application/pdf';
@@ -10428,13 +10455,19 @@
         };
         input.click();
     }
+    // The comparison opens beside the document, never instead of it: the open file,
+    // its markups and its unsaved work are left exactly as they were. The first side
+    // is the true current document, so redacted content cannot show in the result.
     async function runCompare(otherBytes) {
             setStatus('Comparing...');
+            let first = null, otherDoc = null;
             try {
-                const otherDoc = await pdfjsLib.getDocument({ data: otherBytes }).promise;
-                const nA = state.totalPages, nB = otherDoc.numPages;
+                first = await _openTrueDoc();
+                otherDoc = await pdfjsLib.getDocument({ data: otherBytes }).promise;
+                const nA = first.doc.numPages, nB = otherDoc.numPages;
                 const out = await PDFLib.PDFDocument.create();
                 const maxP = Math.max(nA, nB);
+                const previews = [];
                 let changedPages = 0;
                 for (let p = 1; p <= maxP; p++) {
                     setStatus('Comparing page ' + p + '/' + maxP + '...');
@@ -10449,7 +10482,7 @@
                         await pg.render({ canvasContext: cx, viewport: vp }).promise;
                         return c;
                     };
-                    const ca = await renderAt(state.pdfDoc, p);
+                    const ca = await renderAt(first.doc, p);
                     const cb = await renderAt(otherDoc, p);
                     const W = Math.max(ca ? ca.width : 0, cb ? cb.width : 0);
                     const H = Math.max(ca ? ca.height : 0, cb ? cb.height : 0);
@@ -10482,16 +10515,50 @@
                         dx.fillText(ca ? 'Only in FIRST document' : 'Only in SECOND document', 20, 40);
                         changedPages++;
                     }
-                    const jpg = await out.embedJpg(diff.toDataURL('image/jpeg', 0.9));
+                    const url = diff.toDataURL('image/jpeg', 0.9);
+                    previews.push(url);
+                    const jpg = await out.embedJpg(url);
                     const np = out.addPage([W / 1.5, H / 1.5]);
                     np.drawImage(jpg, { x: 0, y: 0, width: W / 1.5, height: H / 1.5 });
                 }
                 const bytes = await out.save();
-                if (otherDoc && otherDoc.destroy) { try { otherDoc.destroy(); } catch (_) {} }
-                await loadPDF(new File([bytes], 'comparison.pdf', { type: 'application/pdf' }));
+                await _verifyOutput(bytes, maxP, null);
+                const summary = changedPages + ' page(s) differ — differences shown in red';
                 setStatus('Comparison ready — ' + changedPages + ' page(s) differ (changes in red)');
-                showToast(changedPages + ' page(s) differ — differences shown in red');
+                showToast(summary);
+                _showCompareResult(bytes, previews, summary);
             } catch (err) { console.error(err); showToast('Compare failed: ' + err.message); }
+            finally {
+                if (otherDoc && otherDoc.destroy) { try { otherDoc.destroy(); } catch (_) {} }
+                if (first) first.close();
+            }
+    }
+    function _showCompareResult(bytes, previews, summary) {
+        const fileName = _baseName() + '_comparison.pdf';
+        const ov = document.createElement('div');
+        ov.className = 'word-preview-overlay';
+        ov.id = 'compareResult';
+        ov.innerHTML =
+            '<div class="word-preview-modal">' +
+              '<div class="word-preview-head">' +
+                '<span class="word-preview-title">Comparison - ' + escapeHtml(summary) + '</span>' +
+                '<div class="word-preview-actions">' +
+                  '<button class="wp-btn wp-cancel">Close</button>' +
+                  '<button class="wp-btn wp-download">Download Comparison</button>' +
+                '</div>' +
+              '</div>' +
+              '<div class="word-preview-body">' +
+                previews.map((u, i) => '<img class="word-preview-pageimg" src="' + u + '" alt="Comparison of page ' + (i + 1) + '">').join('') +
+              '</div>' +
+            '</div>';
+        document.body.appendChild(ov);
+        ov.querySelector('.wp-cancel').addEventListener('click', () => ov.remove());
+        ov.querySelector('.wp-download').addEventListener('click', () => {
+            _offerDownload(bytes, fileName, 'application/pdf');
+            setStatus('Saved ' + fileName);
+            showToast('Comparison saved: ' + fileName);
+            _emitDid('export', fileName, previews.length);
+        });
     }
     window.comparePdfsTool = comparePdfsTool;
     window.runCompare = runCompare;
