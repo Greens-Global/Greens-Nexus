@@ -6,15 +6,27 @@
 (function () {
     'use strict';
     const lib = window.pdfjsLib;
+    // JPEG 2000, JBIG2 and color-profile decoders ship as wasm beside the library.
+    const wasmUrl = new URL('libs/pdfjs-wasm/', document.baseURI).href;
     const paramsOf = (src) => {
         if (typeof src === 'string' || src instanceof URL) return { url: src };
         if (src instanceof ArrayBuffer || ArrayBuffer.isView(src)) return { data: src };
         return src;
     };
+    // pdf.js 6 moved destroy() from the document to its loading task. The engine
+    // calls doc.destroy() to free the worker; without this it would leak one per reload.
+    const withDestroy = (task) => {
+        const opened = task.promise.then((doc) => {
+            if (!doc.destroy) doc.destroy = () => task.destroy();
+            return doc;
+        });
+        Object.defineProperty(task, 'promise', { value: opened });
+        return task;
+    };
     window.pdfjsLib = Object.create(lib, {
         getDocument: {
             enumerable: true,
-            value: (src) => lib.getDocument({ ...paramsOf(src), isEvalSupported: false }),
+            value: (src) => withDestroy(lib.getDocument({ ...paramsOf(src), isEvalSupported: false, wasmUrl })),
         },
     });
 })();
