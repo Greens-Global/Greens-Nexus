@@ -12,11 +12,18 @@ import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 
-// Which balance a leave type draws from - the same words as the server's
-// leave_balances.bucket_of (sick and personal are one balance).
-export function bucketOf(name) {
+// Which balance a leave type draws from - the same rule as the server's
+// leave_balances.bucket_of (sick and personal are one balance). Phase 1D:
+// with a balance payload, each extra type's drawFromReasons checks first -
+// a request whose type matches one draws from that type's bucket; the
+// keyword matching stays the fallback for the built-in two.
+export function bucketOf(name, balance) {
   const n = String(name || '').trim().toLowerCase();
   if (!n) return '';
+  for (const t of balance?.extraTypes || []) {
+    const reasons = (t?.drawFromReasons || []).map(r => String(r || '').trim().toLowerCase());
+    if (t?.id && reasons.some(r => r && n.includes(r))) return t.id;
+  }
   if (/vacation|pto|paid time off|annual/.test(n)) return 'vacation';
   if (/sick|personal|medical/.test(n)) return 'sick';
   return '';
@@ -36,6 +43,38 @@ export function fmtLeave(hours, policy) {
 }
 
 const LABEL = { vacation: 'Vacation', sick: 'Sick / Personal' };
+
+// Phase 1D: one line for the HR table - the extra types that carry a
+// balance right now ("Bereavement 24 h · Floating Holiday 16 h").
+function extrasSummary(b, policy) {
+  const parts = (b?.extraTypes || [])
+    .filter(t => t && t.method !== 'tracked_only' && t.method !== 'none'
+      && ((t.available || 0) !== 0 || (t.upcoming || 0) > 0 || (t.pending || 0) > 0))
+    .map(t => `${t.name} ${fmtLeave(t.available, policy)}`);
+  return parts.join(' · ');
+}
+
+// Phase 1D: bucket -> display name, the built-in two plus the person's
+// extra types (ledger lines and the Adjust picker).
+function bucketNames(b) {
+  return { ...LABEL, ...Object.fromEntries((b?.extraTypes || []).map(t => [t.id, t.name])) };
+}
+
+// Phase 1C: hint under an extra leave type (bereavement, floating_holiday,
+// jury_duty, parental_leave, comp_time, ...). The backend's balances() payload
+// already carries method / eligibleOn / grant for the lump types, so this is
+// just presentation.
+function extraTypeHint(t) {
+  if (!t) return '';
+  if (t.method === 'none') return 'Not part of your policy.';
+  if (t.method === 'tracked_only') return 'Days you take are logged. No balance to run down.';
+  if (!t.eligible && t.eligibleOn) return `Starts ${day(t.eligibleOn)}.`;
+  if (t.method === 'lump') return t.carriesOver ? 'Granted at the start of each year.' : 'Granted each year. Use it or lose it.';
+  if (t.method === 'per_hour') return 'Earned per hour you work.';
+  if (t.method === 'anniversary') return 'Added on each work anniversary.';
+  if (t.method === 'per_period') return 'Added each pay period.';
+  return '';
+}
 const KIND = { opening: 'Opening Balance', accrual: 'Earned', used: 'Used', adjust: 'Adjustment',
   expire: 'Expired At Year End', carryover: 'Carried Over' };
 
@@ -108,22 +147,59 @@ export function LeaveBalanceCard({ balance }) {
             </div>
           );
         })}
+        {/* Phase 1C: extra leave types the policy carries (bereavement,
+            floating holiday, jury duty, ...). Tracked-only types (jury
+            duty) always render so the person knows the day is covered.
+            Lump / per_hour / anniversary types render once they have a
+            balance, grant, or upcoming / pending time. */}
+        {(balance.extraTypes || []).filter(t => (
+          t && (t.method === 'tracked_only'
+                || (t.available || 0) > 0 || (t.upcoming || 0) > 0 || (t.pending || 0) > 0
+                || t.grant || t.eligible)
+        )).map(t => (
+          <div key={t.id} style={{ border: '1px solid var(--wk-line2)', borderRadius: 12, padding: '11px 13px', background: 'var(--mist)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+              {t.name}{!t.paid && ' (unpaid)'}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', margin: '2px 0' }}>
+              {t.method === 'tracked_only' ? 'As taken' : fmtLeave(t.available, pol)}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{extraTypeHint(t)}</div>
+            {(t.upcoming > 0 || t.pending > 0) && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                {t.upcoming > 0 && <>{fmtLeave(t.upcoming, pol)} approved and coming up. </>}
+                {t.pending > 0 && <>{fmtLeave(t.pending, pol)} waiting for approval.</>}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
 // The line under the request form's Reason: what this type draws from and
-// whether the request fits (the rest would be unpaid).
+// whether the request fits (the rest would be unpaid). Phase 1D: an extra
+// leave type (bereavement, floating holiday, jury duty, ...) answers too.
 export function RequestBalanceHint({ balance, type, hours }) {
-  const bucket = bucketOf(type);
-  if (!balance?.live || !bucket || !balance[bucket]) return null;
-  const x = balance[bucket];
+  const bucket = bucketOf(type, balance);
+  if (!balance?.live || !bucket) return null;
+  const extra = bucket in LABEL ? null : (balance.extraTypes || []).find(t => t.id === bucket);
+  if (!extra && !balance[bucket]) return null;
+  if (extra) {
+    if (extra.method === 'tracked_only') {
+      return <div style={{ fontSize: 12, color: 'var(--muted)' }}>{extra.name} days are logged - no balance to run down.</div>;
+    }
+    if (!extra.paid) {
+      return <div style={{ fontSize: 12, color: 'var(--muted)' }}>{extra.name} is unpaid - it has no balance to draw from.</div>;
+    }
+  }
+  const x = extra || balance[bucket];
   const have = (Number(x.available) || 0) - (Number(x.upcoming) || 0);
   const over = hours > 0 && hours > have + 0.001;
   return (
     <div style={{ fontSize: 12, color: over ? '#b45309' : 'var(--muted)' }}>
-      {LABEL[bucket]} balance: {fmtLeave(have, balance.policy)} available.
+      {extra ? extra.name : LABEL[bucket]} balance: {fmtLeave(have, balance.policy)} available.
       {over && <> This request is {fmtLeave(hours, balance.policy)} - the part over your balance would be unpaid.</>}
     </div>
   );
@@ -269,6 +345,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
               <span style={{ flex: '0 0 170px' }}>Policy</span>
               <span style={{ flex: '0 0 100px', textAlign: 'right' }}>Vacation</span>
               <span style={{ flex: '0 0 100px', textAlign: 'right' }}>Sick</span>
+              <span style={{ flex: '1 1 150px' }}>Other Leave</span>
               <span style={{ flex: '0 0 120px' }}>Sick Starts</span>
             </div>
             {people.length === 0 && <div style={{ padding: 16, fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>No one matches.</div>}
@@ -288,6 +365,8 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
                   </span>
                   <span style={{ flex: '0 0 100px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtLeave(p.vacation?.available, p.policy)}</span>
                   <span style={{ flex: '0 0 100px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtLeave(p.sick?.available, p.policy)}</span>
+                  <span style={{ flex: '1 1 150px', color: 'var(--muted)', fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={extrasSummary(p, p.policy) || undefined}>{extrasSummary(p, p.policy) || '-'}</span>
                   <span style={{ flex: '0 0 120px', color: 'var(--muted)', fontSize: 12 }}>
                     {!p.startDate ? 'No start date' : p.sick?.eligible ? 'Eligible' : p.sick?.eligibleOn ? day(p.sick.eligibleOn) : '-'}
                   </span>
@@ -405,11 +484,23 @@ function PersonDetail({ email, onChanged, toastOk, toastErr }) {
         {pol.name} - started {b.startDate ? day(b.startDate) : 'date not on file'}, {(EMP_TYPES.find(([v]) => v === b.employmentType) || ['', b.employmentType || 'type not set'])[1]}.
         {' '}Vacation: {bucketHint(b, 'vacation', pol)} Sick: {bucketHint(b, 'sick', pol)}
       </div>
+      {(b.extraTypes || []).filter(t => t.method !== 'none').length > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>
+          {(b.extraTypes || []).filter(t => t.method !== 'none').map(t => (
+            <span key={t.id} style={{ marginRight: 12 }}>
+              {t.name}{!t.paid && ' (unpaid)'}: {t.method === 'tracked_only' ? 'as taken' : fmtLeave(t.available, pol)}{t.eligibleOn && !t.eligible ? ` from ${day(t.eligibleOn)}` : ''}.
+            </span>
+          ))}
+        </div>
+      )}
       {b.canEdit && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
           <select className="form-input" value={form.bucket} onChange={e => setForm(f => ({ ...f, bucket: e.target.value }))} aria-label="Balance" style={{ fontSize: 12, width: 'auto' }}>
             <option value="vacation">Vacation</option>
             <option value="sick">Sick / Personal</option>
+            {(b.extraTypes || []).filter(t => t.method !== 'none' && t.method !== 'tracked_only').map(t => (
+              <option key={t.id} value={t.id}>{t.name}{!t.paid ? ' (unpaid)' : ''}</option>
+            ))}
           </select>
           <input className="form-input" type="number" step="0.25" placeholder="Hours (+/-)" value={form.hours} onChange={e => setForm(f => ({ ...f, hours: e.target.value }))} aria-label="Hours" style={{ fontSize: 12, width: 110 }} />
           <input className="form-input" placeholder="Why (required)" value={form.note} maxLength={300} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} aria-label="Note" style={{ fontSize: 12, flex: '1 1 200px' }} />
@@ -425,7 +516,7 @@ function PersonDetail({ email, onChanged, toastOk, toastErr }) {
             {lines.slice(0, 60).map(l => (
               <div key={l.id} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 <span style={{ width: 82, color: 'var(--muted)' }}>{day(l.date)}</span>
-                <span style={{ width: 110, fontWeight: 600 }}>{LABEL[l.bucket]}</span>
+                <span style={{ width: 110, fontWeight: 600 }}>{bucketNames(b)[l.bucket] || l.bucket}</span>
                 <span style={{ width: 120 }}>{l.kind}</span>
                 <span style={{ width: 70, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: l.hours < 0 ? '#b45309' : 'var(--ink)' }}>{l.hours > 0 ? '+' : ''}{round(l.hours)} h</span>
                 <span style={{ flex: 1, minWidth: 140, color: 'var(--muted)' }}>{l.note}{l.by && l.by !== 'system' ? ` - ${l.by}` : ''}{l.at ? ` (${formatDateTime(l.at)})` : ''}</span>
