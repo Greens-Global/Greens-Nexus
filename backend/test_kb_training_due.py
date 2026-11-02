@@ -104,7 +104,7 @@ class KbTrainingDueCase(unittest.TestCase):
                                          assigned_by="rule", created_at=kb_core.now(), source="rule", rule_id="rule-esc"))
         db.commit()
         self.assertEqual(kb_daily.run_escalations(db), 1)
-        bells = db.query(models.NexusNotification).filter(models.NexusNotification.type == "kb_training_escalated").all()
+        bells = db.query(models.NexusNotification).filter(models.NexusNotification.title == "Training Escalated to You").all()
         self.assertEqual([b.recipient for b in bells], [MGR])
         self.assertIn("Olive Test: Gate Safety was due", bells[0].body)
         self.assertTrue(db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.id == "asn-old").first().escalated_at)
@@ -114,7 +114,7 @@ class KbTrainingDueCase(unittest.TestCase):
         a.due_date = kb_core.add_days(today, -4)
         db.commit()
         self.assertEqual(kb_daily.run_escalations(db), 1)
-        self.assertEqual(db.query(models.NexusNotification).filter(models.NexusNotification.type == "kb_training_escalated",
+        self.assertEqual(db.query(models.NexusNotification).filter(models.NexusNotification.title == "Training Escalated to You",
                                                                     models.NexusNotification.recipient == HR).count(), 1)
         # the escalation pass is listed for Workflows > Automations
         self.assertIn("escalations", kb_daily.PASS_LABELS)

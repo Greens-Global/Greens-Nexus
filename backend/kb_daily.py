@@ -407,8 +407,10 @@ def run_escalations(db) -> int:
             continue
         who = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
         line = f"{who}: {c.title} was due {_us(asn.due_date)}, {st['days_overdue']} days ago"
-        kb_core.notify(db, recipient=to, ntype="kb_training_escalated", title="Training Escalated to You",
-                       body=line + (". Second notice." if asn.escalated_at else "."), ref_id="compliance", item_name=c.title,
+        # the Team Training bell type (its icon lives in NotificationBell, Visesh's
+        # file); ref_id = the assignment, so it never dedupes against the Monday digest
+        kb_core.notify(db, recipient=to, ntype="kb_team_training", title="Training Escalated to You",
+                       body=line + (". Second notice." if asn.escalated_at else "."), ref_id=asn.id, item_name=c.title,
                        sub="compliance", dedupe_today=True)
         if cfg["email"]:
             _mail(db, to, f"Overdue training: {who}", [line, "It was escalated to you because it is past the rule's limit. Open Compliance to nudge or reassign."], link_sub="compliance")
