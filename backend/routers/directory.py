@@ -167,6 +167,8 @@ def _roster(db: Session, scope) -> dict:
 
     from routers.myhr import _person_name
 
+    # The tier mark beside the name (Neil, 11/02/2026) - auth.tier_of, one query.
+    tiers = auth.tiers_by_email(db)
     people = []
     for e in rows:
         email = (e.work_email or "").lower()
@@ -181,6 +183,7 @@ def _roster(db: Session, scope) -> dict:
             "designation": e.designation or "",
             "department": e.department or "",
             "departmentRole": _is_lead(dept, email),          # lead | backup | ''
+            "tier": tiers.get(email, ""),                      # super | admin | manager | ''
             "division": e.division or "",
             "company": e.company or "",
             "companyName": entities[e.company].name if e.company in entities else "",

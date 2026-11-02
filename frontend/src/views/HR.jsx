@@ -46,6 +46,7 @@ import { LevelPill, ModuleLevelPill, TierBadge, RoleOptions, rolesForCompany } f
 // External tab folded into People (Neil, Aug 24: one master list) - only the
 // shared pieces remain in use: badge, invite modal, lifecycle section.
 import { ExternalBadge, InviteExternalModal, inviteOutcomeToast, ExternalPersonSection } from './ExternalUsersPanel';
+import TierMark from '../components/TierMark';
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
@@ -1890,7 +1891,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             the name into a one-word column. */}
         <div style={{ flex: 1, minWidth: 'min(100%, 220px)' }}>
           <div style={{ fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {fullName(e)}
+            {fullName(e)}<TierMark tier={e.tier} size={16} />
             {e.identityType && e.identityType !== 'internal' && (
               <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-orange),0.14)', color: 'hsl(var(--color-orange))' }}>
                 {e.identityType === 'guest' ? 'Guest' : 'External'}
@@ -2709,6 +2710,7 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
               their own company on the company line. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
             <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{fullName(e)}</span>
+            <TierMark tier={e.tier} size={12} />
             {ext && (
               <span title={e.identityType === 'guest' ? 'Guest account (Microsoft 365 guest)' : 'External user (no Microsoft 365 login)'}
                 style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', padding: '1px 6px', borderRadius: 5,
@@ -6003,7 +6005,7 @@ export default function HR({ activeSub, onSubChange }) {
                             <Avatar e={e} card={false} />
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                {fullName(e)}{isExtRow(e) && <ExternalBadge />}
+                                {fullName(e)}{isExtRow(e) && <ExternalBadge />}<TierMark tier={e.tier} />
                                 <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                               </div>
                               <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -6052,7 +6054,7 @@ export default function HR({ activeSub, onSubChange }) {
                           <Avatar e={e} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {fullName(e)}{isExtRow(e) && <ExternalBadge />}
+                              {fullName(e)}{isExtRow(e) && <ExternalBadge />}<TierMark tier={e.tier} />
                                 <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                             </div>
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>

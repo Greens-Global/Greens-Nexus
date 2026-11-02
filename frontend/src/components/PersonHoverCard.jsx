@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Mail, User } from 'lucide-react';
 import PersonActions from './PersonActions';
+import TierMark from './TierMark';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { openPersonProfile } from '../lib/personNav';
@@ -158,7 +159,7 @@ export default function PersonHover({ email, name = '', children, disabled = fal
                       {(card.name || em).slice(0, 1).toUpperCase()}
                     </div>}
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.name}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.name}<TierMark tier={card.tier} /></div>
                   {card.jobTitle && <div style={{ fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.jobTitle}</div>}
                   {(card.department || card.location) && (
                     <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>

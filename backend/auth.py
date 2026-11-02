@@ -93,6 +93,43 @@ def level_for(email: str, db: Session) -> int:
     return _role_for((email or "").lower(), db)[1]
 
 
+def tier_of(level) -> str:
+    """The MARK a person carries beside their name (Neil, 11/02/2026):
+    'super' for a Super Administrator (level 5), 'admin' for an Administrator
+    (level 4), 'manager' for a Manager (level 3), '' for everyone else. One
+    rule for every people payload (/myhr/directory, /myhr/person, the Contact
+    Directory roster, hr._serialize, the Act As targets); the frontend draws
+    it with components/TierMark.jsx and never as text."""
+    try:
+        level = int(level or 0)
+    except (TypeError, ValueError):
+        return ""
+    if level >= 5:
+        return "super"
+    if level == 4:
+        return "admin"
+    if level == 3:
+        return "manager"
+    return ""
+
+
+def tier_for(email: str, db: Session) -> str:
+    """One person's tier, through the role cache."""
+    return tier_of(_role_for((email or "").lower(), db)[1])
+
+
+def tiers_by_email(db: Session) -> dict[str, str]:
+    """Every role row's tier at once - for a list payload (one query, not one
+    per row). Only people with a mark are in the map; `.get(email, "")`."""
+    from models import NexusRole
+    out = {}
+    for row in db.query(NexusRole.email, NexusRole.role).all():
+        tier = tier_of(_LEVELS.get(row.role, 1))
+        if tier:
+            out[(row.email or "").lower()] = tier
+    return out
+
+
 def invalidate_role_cache(email: str | None = None) -> None:
     """Call after assigning/changing a role so the new value takes effect immediately."""
     if email:
