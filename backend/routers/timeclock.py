@@ -281,14 +281,16 @@ def _visible_emails(db: Session, user: dict):
         # An Administrator sees their companies' people (plus their own
         # directs); only an unrestricted caller - a Super Administrator -
         # sees everyone (Neil, 11/02/2026: walled, the switch on or off).
-        from auth import company_scope
+        # People with no company are shared (auth.AdminScope), as in People.
+        from auth import company_scope, admits_blank
         cscope = company_scope(user, db)
         if cscope is None:
             return None
         import backup_manager
         mine = backup_manager.managed_directly(db, user["email"]) | {(user["email"] or "").lower()}
-        return mine | {(e.work_email or "").lower() for e in db.query(NexusEmployee.work_email)
-                       .filter(NexusEmployee.company.in_(cscope)).all() if e.work_email}
+        blank = admits_blank(cscope)
+        return mine | {(e.work_email or "").lower() for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all()
+                       if e.work_email and ((e.company or "") in cscope or (blank and not (e.company or "")))}
     # Direct reports, plus anyone the caller is Backup Manager for - the
     # backup has the manager's rights over them (Neil, Oct 13).
     import backup_manager

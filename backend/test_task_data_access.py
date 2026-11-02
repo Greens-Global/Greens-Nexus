@@ -164,7 +164,11 @@ class TaskDataAccessTests(unittest.TestCase):
     def test_an_admins_notification_is_for_administrators(self):
         n = self._notif("admins")
         self._not_found(mark_notification_read, n.id, user=BOSS, db=self.db)   # level 3 is not "admins"
-        mark_notification_read(n.id, user=ADMIN, db=self.db)
+        # About no task or team (no company): a Super Administrator's alone -
+        # an Administrator hears the "admins" fan-out of their companies only
+        # (Neil, 11/02/2026).
+        self._not_found(mark_notification_read, n.id, user=ADMIN, db=self.db)
+        mark_notification_read(n.id, user={**ADMIN, "level": 5}, db=self.db)
         self.db.refresh(n)
         self.assertTrue(n.read)
 
