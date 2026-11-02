@@ -40,12 +40,14 @@ vi.mock('../tasks/exporting', () => ({ exportExcel: (...a) => exportExcel(...a) 
 const weatherCallScreen = vi.fn();
 const timeSchedActuals = vi.fn();
 const timeSchedConfirmations = vi.fn();
+const timeScheduleLabor = vi.fn();
 const timeSchedNudge = vi.fn();
 vi.mock('../api', () => ({
   api: {
     timeSchedule: (...a) => timeSchedule(...a),
     timeSchedActuals: (...a) => timeSchedActuals(...a),
     timeSchedConfirmations: (...a) => timeSchedConfirmations(...a),
+    timeScheduleLabor: (...a) => timeScheduleLabor(...a),
     timeSchedNudge: (...a) => timeSchedNudge(...a),
     weatherCallScreen: (...a) => weatherCallScreen(...a),
     timeShiftAssign: (...a) => timeShiftAssign(...a),
@@ -169,6 +171,7 @@ beforeEach(() => {
   timeOffDecide.mockReset().mockResolvedValue({});
   timeSchedActuals.mockReset().mockResolvedValue({ cells: {}, people: {}, totals: {} });
   timeSchedConfirmations.mockReset().mockResolvedValue({ people: [], unconfirmed: 0 });
+  timeScheduleLabor.mockReset().mockResolvedValue(null);
   timeSchedNudge.mockReset().mockImplementation(async (b) => ({ nudged: b.emails.length }));
 });
 
@@ -1387,5 +1390,26 @@ describe('Confirmations: the schedule comes to people', () => {
     await screen.findByText('Amy Adams');
     expect(timeSchedConfirmations).toHaveBeenCalledTimes(3);                 // a viewer never asks
     expect(document.querySelector('[data-confirm-chip]')).toBeNull();
+  });
+});
+
+// Scheduled labor on the team line (Frontline Reach, Neil 11/02/2026).
+describe('Scheduled labor line', () => {
+  it('says the hours and cost for a scheduler, the hours alone when pay is hidden, and nothing when there is nothing scheduled', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    timeScheduleLabor.mockResolvedValue({ hours: 312, cost: 7840, currency: 'USD', payHidden: false, peopleWithoutRate: 2, fixedPayPeople: 1, days: [] });
+    const { unmount } = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    const line = await screen.findByText('Scheduled 312 h · $7,840 · 2 people without a rate · 1 on fixed pay');
+    expect(line.getAttribute('title')).toMatch(/net of unpaid breaks/);
+    expect(timeScheduleLabor).toHaveBeenCalledWith(expect.any(String), expect.any(String));
+    unmount();
+    timeScheduleLabor.mockResolvedValue({ hours: 8.5, cost: null, currency: 'USD', payHidden: true, peopleWithoutRate: null, fixedPayPeople: null, days: [] });
+    const r2 = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    expect(await screen.findByText('Scheduled 8.5 h')).toBeTruthy();
+    r2.unmount();
+    timeScheduleLabor.mockResolvedValue({ hours: 0, cost: 0, currency: 'USD', payHidden: false, peopleWithoutRate: 0, fixedPayPeople: 0, days: [] });
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Amy Adams');
+    expect(document.querySelector('[data-labor-line]')).toBeNull();
   });
 });
