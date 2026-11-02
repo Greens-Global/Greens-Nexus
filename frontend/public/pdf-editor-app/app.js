@@ -18,6 +18,14 @@
 
     // ── Configure PDF.js worker ──
     pdfjsLib.GlobalWorkerOptions.workerSrc = _assetUrl('libs/pdf.worker.min.js');
+    // One pdf.js worker for the whole session. A new one per file means a new script
+    // fetch each time, and pdf.js remembers a failed fetch for the life of the tab:
+    // one network blip made every later save fail its final check.
+    let _pdfWorker = null;
+    function _openPdf(src) {
+        if (!_pdfWorker || _pdfWorker.destroyed) _pdfWorker = new pdfjsLib.PDFWorker();
+        return pdfjsLib.getDocument({ ...src, worker: _pdfWorker });
+    }
 
     // ── State ──
     const state = {
@@ -1114,7 +1122,7 @@
             const L = await encLib();
             const dec = await L.PDFDocument.load(new Uint8Array(arrayBuffer.slice(0)), { password: password || '' });
             const plain = await dec.save();
-            check = await pdfjsLib.getDocument({ data: plain.slice(), fontExtraProperties: true }).promise;
+            check = await _openPdf({ data: plain.slice(), fontExtraProperties: true }).promise;
             if (!(await _pagesMatch(pdf, check))) throw new Error('the decrypted copy does not match the original');
             try { await pdf.destroy(); } catch (_) {}
             return {
@@ -1151,7 +1159,7 @@
             let pdfPassword = null;
             for (let attempt = 0; ; attempt++) {
                 try {
-                    pdf = await pdfjsLib.getDocument({
+                    pdf = await _openPdf({
                         data: arrayBuffer.slice(0), fontExtraProperties: true,
                         ...(pdfPassword ? { password: pdfPassword } : {}),
                     }).promise;
@@ -7415,7 +7423,7 @@
     async function _verifyOutput(bytes, expectedPages, password) {
         let pdf = null;
         try {
-            pdf = await pdfjsLib.getDocument({ data: bytes.slice(), ...(password ? { password } : {}) }).promise;
+            pdf = await _openPdf({ data: bytes.slice(), ...(password ? { password } : {}) }).promise;
             if (pdf.numPages !== expectedPages) {
                 throw new Error('it has ' + pdf.numPages + ' page(s) instead of ' + expectedPages);
             }
@@ -7466,7 +7474,7 @@
         saveCurrentAnnotations();
         if (!_hasMarkups()) return { doc: state.pdfDoc, close: () => {}, failures: 0, redacted: false };
         const built = await _buildTrueDocument();
-        const doc = await pdfjsLib.getDocument({ data: built.bytes.slice(), fontExtraProperties: true }).promise;
+        const doc = await _openPdf({ data: built.bytes.slice(), fontExtraProperties: true }).promise;
         if (doc.numPages !== built.pages) {
             try { doc.destroy(); } catch (_) {}
             throw new Error('The export did not pass its final check: ' + doc.numPages + ' page(s) instead of ' + built.pages);
@@ -9570,7 +9578,7 @@
         // Now a failed op leaves the live document untouched and throws.
         let pdf;
         try {
-            pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
+            pdf = await _openPdf({ data: newBytes.slice(), fontExtraProperties: true }).promise;
             if (!pdf.numPages) throw new Error('Result has no pages');
             // Touch the first page so a document that parses but can't render
             // (decrypt failure) is caught here, not after the swap.
@@ -10292,7 +10300,7 @@
                 let pdf = null, password = null;
                 for (let attempt = 0; ; attempt++) {
                     try {
-                        pdf = await pdfjsLib.getDocument({ data: buf.slice(0), ...(password ? { password } : {}) }).promise;
+                        pdf = await _openPdf({ data: buf.slice(0), ...(password ? { password } : {}) }).promise;
                         break;
                     } catch (err) {
                         if (err && err.name === 'PasswordException' && attempt < 3) {
@@ -10485,7 +10493,7 @@
             let first = null, otherDoc = null;
             try {
                 first = await _openTrueDoc();
-                otherDoc = await pdfjsLib.getDocument({ data: otherBytes }).promise;
+                otherDoc = await _openPdf({ data: otherBytes }).promise;
                 const nA = first.doc.numPages, nB = otherDoc.numPages;
                 const out = await PDFLib.PDFDocument.create();
                 const maxP = Math.max(nA, nB);
@@ -10786,7 +10794,7 @@
 
         try {
             const built = await _buildTrueDocument();
-            trueDoc = { bytes: built.bytes, pdf: await pdfjsLib.getDocument({ data: built.bytes.slice(), fontExtraProperties: true }).promise };
+            trueDoc = { bytes: built.bytes, pdf: await _openPdf({ data: built.bytes.slice(), fontExtraProperties: true }).promise };
             let bytes;
             try {
                 bytes = await buildNup('vector');

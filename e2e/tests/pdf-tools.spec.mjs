@@ -1893,9 +1893,10 @@ test.describe('14. window.__pdfEngine', () => {
     expect(await last()).toMatchObject({ action: 'redact', pages: 2 });
     // A failed save announces nothing.
     const before = (await dids(page)).length;
-    await page.evaluate(() => { PDFLib.PDFDocument.prototype.save = async function () { throw new Error('no'); }; });
+    await page.evaluate(() => { PDFLib.PDFDocument.prototype.save = async function () { throw new Error('out of disk'); }; });
     await saveMenuItem(page, 'all pages');
-    await expect(page.locator('.toast')).toContainText('Save failed');
+    await page.locator('.modal-overlay [data-choice="go"]').click({ timeout: 1500 }).catch(() => {});
+    await expect(page.locator('.toast')).toContainText('out of disk');
     expect((await dids(page)).length).toBe(before);
   });
 });
@@ -1910,5 +1911,15 @@ test.describe('layers', () => {
       await page.locator('.modal-overlay [data-choice="save"]').click();
     }, { confirm: false });
     expect((await colorBox(v, buf, 1, RED)).n).toBe(0);
+  });
+});
+
+test.describe('4. the final check', () => {
+  test('a worker script that stops loading later does not fail a save', async ({ browser }) => {
+    const v = await verifier(browser);
+    const page = await markedPages(browser, { 1: REDHEX }, ['ONE']);
+    await page.context().route('**/libs/pdf.worker.min.js*', (r) => r.abort());
+    const { buf } = await saved(page);
+    await expectPages(v, buf, [['ONE', REDHEX]]);
   });
 });
