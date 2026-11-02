@@ -172,10 +172,12 @@ class TeamScopeTests(unittest.TestCase):
         self.assertEqual(len(r.json()), 5)
         self.assertEqual(self._get(f"/hr/employees/{self.ids[OUT]}/compensation", who=PEER).status_code, 200)
 
-    def test_administrators_are_never_limited(self):
+    def test_administrators_reach_their_company_super_administrators_every_company(self):
+        # Neil, 11/02/2026: an Administrator is company-walled; only a Super Administrator passes the walls.
         db = database.SessionLocal()
         try:
-            self.assertIsNone(auth.hr_scope({"email": VAL, "level": 4}, db))
+            self.assertEqual(auth.hr_scope({"email": VAL, "level": 4}, db), {CO})
+            self.assertIsNone(auth.hr_scope({"email": VAL, "level": 5}, db))
         finally:
             db.close()
 

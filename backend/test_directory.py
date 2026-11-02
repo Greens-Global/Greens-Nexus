@@ -254,7 +254,10 @@ class DirectoryTests(unittest.TestCase):
         self.assertFalse(admin["enabled"])
         self.assertIn("Presence.Read.All", admin["reason"])
         self.assertIn("Teams-Presence-Setup", admin["reason"])
-        self.assertEqual(post.call_count, 1)                    # the refusal is remembered, not retried per poll
+        # Two rosters (staff: the whole org with the walls off; the Administrator:
+        # their company - 11/02/2026), one refusal each, then remembered - not
+        # retried per poll.
+        self.assertEqual(post.call_count, 2)
         self.assertEqual(again["reason"], admin["reason"])
 
     def test_presence_is_off_when_graph_is_not_configured(self):

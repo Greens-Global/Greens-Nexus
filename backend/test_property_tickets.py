@@ -66,9 +66,12 @@ class PropertyTicketTests(unittest.TestCase):
             # include_deleted: soft-deleted tickets (#439) still hold their codes,
             # and the never-repeating counter (#437) restarts only once both go.
             self.db.query(m).execution_options(include_deleted=True).delete()
+        # Everyone is in company c1 (the departments' company), so the tickets
+        # they file land there and the Administrator - company-walled since
+        # 11/02/2026 (Neil) - reaches them.
         for email in (ADMIN["email"], PLAIN["email"], MANAGER, WALKER["email"], DESK2, EDITOR["email"]):
             self.db.add(models.NexusEmployee(id=gen_id(), first_name=email.split("@")[0], work_email=email,
-                                             status="active", identity_type="internal"))
+                                             status="active", identity_type="internal", company="c1"))
         for email in (ADMIN["email"], DESK2):   # no desk roster configured -> administrators
             self.db.add(models.NexusRole(email=email, role="administrator"))
         self.db.add(models.NexusGroup(id="g-asset", name="Asset Team", allowed_modules="property-asset:viewer"))

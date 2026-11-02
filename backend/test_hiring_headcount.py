@@ -70,6 +70,12 @@ class HeadcountCase(unittest.TestCase):
             self.db.add(models.NexusEmployee(id=f"e{i}", work_email=u["email"], first_name=first, last_name="T",
                                              company=ENT, status="active", manager_email=mgr["email"] if mgr else ""))
         self.db.add(models.NexusRole(email=OWNER["email"], role="owner"))
+        # Ada runs Hire Co AND Other Co: an Administrator is company-walled
+        # (11/02/2026), so her second company comes from an entity access scope.
+        self.db.query(models.NexusAccessScope).filter(models.NexusAccessScope.email == ADMIN["email"]).delete(
+            synchronize_session=False)
+        self.db.add(models.NexusAccessScope(id="sc-ada-other", email=ADMIN["email"], module_id="hr",
+                                            scope_type="entity", scope_id=OTHER))
         # Holly (the HR contact) edits People; Pat holds Pay & Benefits.
         self.db.add(models.NexusGroup(id="g-hr", name="HR", allowed_modules="hr:editor"))
         self.db.add(models.NexusGroupMember(group_id="g-hr", email=HRC["email"]))

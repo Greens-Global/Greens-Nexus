@@ -142,7 +142,9 @@ class _ExternalBase(unittest.TestCase):
         db = database.SessionLocal()
         try:
             if not db.query(models.NexusRole).filter(models.NexusRole.email == ADMIN).first():
-                db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
+                # A Super Administrator (Neil, 11/02/2026: an Administrator is
+                # company-walled; only a Super Administrator passes the walls).
+                db.add(models.NexusRole(email=ADMIN, role="owner", assigned_by="test"))
                 db.commit()
         finally:
             db.close()
@@ -300,7 +302,7 @@ class TestGuestAccess(_ExternalBase):
         the flag - and the separate cache entry behind it - has to be what
         decides. Flagged `external` so a picker can label the row."""
         self._mk_guest()
-        # An administrator: since Sep 22 the opt-in is honored only for callers
+        # A Super Administrator: since Sep 22 the opt-in is honored only for callers
         # who can assign work (manager and up, or a Tasks editor grant).
         self._as_admin()
         r = self.client.get("/myhr/directory?include_external=true")

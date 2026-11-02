@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from auth import require_administrator
+from auth import require_administrator, require_owner
 from models import NexusAccessScope
 
 router = APIRouter(prefix="/access-scopes", tags=["Access Scopes"])
@@ -97,10 +97,12 @@ def get_walls(user: dict = Depends(require_administrator), db: Session = Depends
 
 
 @router.put("/config/walls")
-def set_walls(body: WallsIn, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    """Arm or disarm the company walls. Refuses to arm if it would lock the caller
-    out (walls on + a Global Admins group exists that they are not in). Writes an
-    audit row and invalidates the cached flag so it bites immediately."""
+def set_walls(body: WallsIn, user: dict = Depends(require_owner), db: Session = Depends(get_db)):
+    """Arm or disarm the company walls - a Super Administrator's switch only
+    (Neil, 11/02/2026: an Administrator is walled, and the walled never move
+    the wall). Refuses to arm if it would lock the caller out (walls on + a
+    Global Admins group exists that they are not in). Writes an audit row and
+    invalidates the cached flag so it bites immediately."""
     import cache
     import auth
     from models import NexusSetting, AuditLog

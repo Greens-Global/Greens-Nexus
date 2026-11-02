@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db
 from models import NexusGroup, NexusGroupMember, NexusRole
-from auth import get_current_user, require_administrator, invalidate_role_cache, _MODULE_LEVEL_RANK
+from auth import get_current_user, require_administrator, invalidate_role_cache, _MODULE_LEVEL_RANK, _LEVELS
 from routers.roles import VALID_ROLES, ROLE_LEVEL, _get_role
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -148,11 +148,24 @@ def list_groups(user: dict = Depends(get_current_user), db: Session = Depends(ge
     return result
 
 
+def _require_super_for_flagged(user: dict, group: NexusGroup | None = None, flagging: bool = False) -> None:
+    """A group flagged is_global_admin makes its members Super Administrators
+    in reach (auth.is_global_admin), so only a Super Administrator (level 5)
+    may create one, flag one, or change a flagged group at all - its name,
+    its grants, its members, or delete it (Neil, 11/02/2026). A level-4
+    caller editing a plain group is unchanged."""
+    if user["level"] >= _LEVELS["owner"]:
+        return
+    if flagging or (group is not None and getattr(group, "is_global_admin", 0)):
+        raise HTTPException(status_code=403, detail="Only a Super Administrator can change a Super Administrators group")
+
+
 @router.post("")
 def create_group(body: GroupCreate, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Group name is required")
+    _require_super_for_flagged(user, flagging=bool(body.is_global_admin))
 
     now = _ts()
     group = NexusGroup(
@@ -185,6 +198,7 @@ def update_group(group_id: str, body: GroupUpdate, user: dict = Depends(require_
     group = db.query(NexusGroup).filter(NexusGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+    _require_super_for_flagged(user, group, flagging=bool(body.is_global_admin))
 
     if body.name is not None:
         name = body.name.strip()
@@ -221,6 +235,7 @@ def delete_group(group_id: str, user: dict = Depends(require_administrator), db:
     group = db.query(NexusGroup).filter(NexusGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+    _require_super_for_flagged(user, group)
 
     db.query(NexusGroupMember).filter(NexusGroupMember.group_id == group_id).delete()
     db.delete(group)
@@ -241,6 +256,7 @@ def add_members(group_id: str, body: MembersUpdate, user: dict = Depends(require
     group = db.query(NexusGroup).filter(NexusGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+    _require_super_for_flagged(user, group)
     _refuse_job_role(group)
 
     now = _ts()
@@ -263,6 +279,7 @@ def remove_member(group_id: str, email: str, user: dict = Depends(require_admini
     group = db.query(NexusGroup).filter(NexusGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+    _require_super_for_flagged(user, group)
     _refuse_job_role(group)
 
     target = email.lower().strip()

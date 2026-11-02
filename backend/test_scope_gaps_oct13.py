@@ -40,7 +40,8 @@ def _assert_isolated():
 _assert_isolated()
 
 COA, COB = "ent-a", "ent-b"
-ADMIN = {"email": "gwen@greensglobal.com", "level": 4}
+ADMIN = {"email": "gwen@greensglobal.com", "level": 4}       # an Administrator: walled to company A (11/02/2026)
+SUPER = {"email": "gwen@greensglobal.com", "level": 5}       # the same person as a Super Administrator
 A_EMP = {"email": "amy@greensglobal.com", "level": 1}
 B_EMP = {"email": "beth@greensglobal.com", "level": 1}
 LEAD = {"email": "lena@greensglobal.com", "level": 1}      # holds the tracking grant, manages Ravi only
@@ -109,7 +110,8 @@ class ScopeGapTests(unittest.TestCase):
         # company B, not the roster just built for company A.
         self.assertEqual(self._names(B_EMP), ["Beth"])
         self.assertEqual(self._names(A_EMP), ["Amy", "Gwen", "Ravi"])
-        self.assertEqual(self._names(ADMIN), ["Amy", "Beth", "Gwen", "Ravi"])     # a Global Admin sees across
+        self.assertEqual(self._names(ADMIN), ["Amy", "Gwen", "Ravi"])             # an Administrator: their company
+        self.assertEqual(self._names(SUPER), ["Amy", "Beth", "Gwen", "Ravi"])     # a Super Administrator sees across
         self.assertEqual(self._names(NOBODY), [])                                # no company: nothing
 
     def test_birthdays_carry_no_year(self):

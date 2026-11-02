@@ -4086,6 +4086,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] probation seeds skipped: {e}")
+    # Tiers (Neil, 11/02/2026): the five Super Administrators (`owner`) set
+    # ONCE, every other owner row becoming an Administrator; a nexus_settings
+    # mark keeps it from ever re-applying (super_admins_seed).
+    try:
+        import super_admins_seed
+        db = SessionLocal()
+        try:
+            res = super_admins_seed.apply_once(db)
+            if res:
+                print(f"[startup] super administrators set: {len(res['super_admins'])}, "
+                      f"{len(res['demoted'])} other owner(s) now administrators")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] super administrator set skipped: {e}")
     # Presidents' Day (Neil, Oct 29 2026: "it's not showing Presidents' Day").
     # Calendars filled from the old Nager list say "Washington's Birthday" -
     # in hr_company_holidays.name and inside hr_holiday_policies.holidays.
