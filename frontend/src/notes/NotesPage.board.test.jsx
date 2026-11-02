@@ -348,12 +348,23 @@ describe('New Board elsewhere asks the same question', () => {
     } finally { window.removeEventListener('nexus:navigate', nav); }
   });
 
-  it('Notes opened at notes:new-board shows the template picker and settles on the list', async () => {
+  it('Notes opened at notes:new-board shows the template picker; closing it settles on the list', async () => {
     const onSubChange = vi.fn();
     render(<NotesPage activeSub="notes:new-board" onSubChange={onSubChange} />);
-    expect(await screen.findByRole('dialog', { name: 'New Board' })).toBeTruthy();
-    expect(onSubChange).toHaveBeenCalledWith('notes');
+    const picker = await screen.findByRole('dialog', { name: 'New Board' });
     expect(apiMock.noteGet).not.toHaveBeenCalledWith('new-board');
+    expect(apiMock.noteCreate).not.toHaveBeenCalled();
+    fireEvent.keyDown(picker, { key: 'Escape' });
+    await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('notes'));
+  });
+
+  it('picking a template at notes:new-board makes the board and opens it', async () => {
+    apiMock.noteCreate.mockResolvedValue(board({ id: 'board_5', title: '', scene: '', thumbUrl: '' }));
+    const onSubChange = vi.fn();
+    render(<NotesPage activeSub="notes:new-board" onSubChange={onSubChange} />);
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'New Board' })).getByRole('button', { name: /^Grid/ }));
+    await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'board', templateKey: 'grid' })));
+    await waitFor(() => expect(onSubChange).toHaveBeenLastCalledWith('notes:board_5'));
   });
 });
 

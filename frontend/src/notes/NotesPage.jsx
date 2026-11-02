@@ -847,14 +847,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
   const [pickingTemplate, setPickingTemplate] = useState(false);
   const newBoard = () => setPickingTemplate(true);
   // New Board from anywhere else (the + menu, Quick Note, the Dashboard tile)
-  // lands here as notes:new-board, so every New Board asks the same question.
-  useEffect(() => {
-    if (!askNewBoard) return;
-    setPickingTemplate(true);
-    onSubChange?.('notes');
-  }, [askNewBoard, onSubChange]);
+  // lands here as notes:new-board, so every New Board asks the same question;
+  // closing it settles on the list, picking opens the new board.
+  const showPicker = pickingTemplate || askNewBoard;
+  const closePicker = () => { setPickingTemplate(false); if (askNewBoard) onSubChange?.('notes'); };
   const startBoard = async (templateKey) => {
     setPickingTemplate(false);
+    if (askNewBoard) onSubChange?.('notes');
     await newNote({ kind: 'board', scene: templateScene(templateKey), templateKey });
   };
 
@@ -1004,7 +1003,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
         )}
       </div>
       {toastNode}
-      {pickingTemplate && <TemplatePicker onPick={startBoard} onClose={() => setPickingTemplate(false)} />}
+      {showPicker && <TemplatePicker onPick={startBoard} onClose={closePicker} />}
     </div>
   );
 }

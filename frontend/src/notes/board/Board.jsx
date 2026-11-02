@@ -35,7 +35,7 @@ const LOOK_LABEL = { clean: 'Clean', sketch: 'Sketch' };
 // Canvas Background: the engine's own picker row is sentence case and has no
 // api to open it from our menu, so the menu offers these (the engine's own
 // light swatches; dark mode inverts them like every engine color).
-export const CANVAS_COLORS = [
+const CANVAS_COLORS = [
   { color: '#ffffff', label: 'White' }, { color: '#f8f9fa', label: 'Light Gray' }, { color: '#f5faff', label: 'Light Blue' },
   { color: '#fffce8', label: 'Light Yellow' }, { color: '#fdf8f6', label: 'Light Rose' },
 ];
@@ -44,7 +44,7 @@ export const CANVAS_COLORS = [
 // session, a refreshed saved scene) go through the engine's own repair
 // first, so one malformed element never throws inside the canvas loop.
 // Text keeps its saved size (refreshDimensions: false) - the sender measured it.
-export function restoreRemote(elements) {
+function restoreRemote(elements) {
   try { return restoreElements(elements || [], null, { refreshDimensions: false }); } catch { /* fall back one by one */ }
   const out = [];
   for (const el of elements || []) {
