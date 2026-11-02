@@ -188,8 +188,8 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
               <div style={field}>
                 <label style={label} htmlFor="form-field-formula">Formula</label>
                 <input id="form-field-formula" className="form-input" style={{ width: '100%', fontFamily: 'ui-monospace, monospace', fontSize: 12.5 }} value={formula}
-                  placeholder='e.g. field("miles_out") - field("miles_in")' onChange={(e) => setFormula(e.target.value)} />
-                <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>Worked out from the other answers while the form is filled; read-only. The Tasks formula language, with field("token").</p>
+                  placeholder="e.g. {Miles Out} - {Miles In}" onChange={(e) => setFormula(e.target.value)} />
+                <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>Worked out from the other answers while the form is filled; read-only. Name another field as {'{Its Label}'} or {'{its_token}'} - the Tasks formula language (SUM, IF, ROUND, DAYS...).</p>
               </div>
             )}
             <div style={field}>
