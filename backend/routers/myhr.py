@@ -849,7 +849,11 @@ def people_directory(include_external: bool = False,
         if not can_assign:
             include_external = False
     scope = auth.company_scope(user, db)
-    key = "all" if scope is None else ("co:" + ",".join(sorted(scope)) if scope else "co:none")
+    # An Administrator (always walled, 11/02/2026) still sees the people with
+    # no company - the guests / externals they manage and untagged People
+    # rows are shared (auth.AdminScope; the key says so).
+    key = auth.scope_key(scope)
+    blank_ok = auth.admits_blank(scope)
     # Separate cache entry: the two lists differ in content, and the default one
     # must never be served an externals-included payload.
     if include_external:
@@ -871,7 +875,11 @@ def people_directory(include_external: bool = False,
                          NexusEmployee.identity_type.notin_(("guest", "external"))))
     if scope is not None:
         # Company wall: only people in the caller's companies; fail closed if none.
-        q = q.filter(NexusEmployee.company.in_(list(scope))) if scope else q.filter(false())
+        blank = or_(NexusEmployee.company.is_(None), NexusEmployee.company == "")
+        if blank_ok:
+            q = q.filter(or_(NexusEmployee.company.in_(list(scope)), blank) if scope else blank)
+        else:
+            q = q.filter(NexusEmployee.company.in_(list(scope))) if scope else q.filter(false())
     rows = q.order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
     # company is the ENTITY ID on the employee row; resolve the display name once
     # so pickers can offer company/department filters without an HR-gated call.

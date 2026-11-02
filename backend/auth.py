@@ -925,6 +925,27 @@ def _company_walls_on(db: Session) -> bool:
     return hit in ("on", "1", "true", "yes")
 
 
+class AdminScope(set):
+    """company_scope() for an Administrator: their companies, marked so the
+    PEOPLE reads (People, the directories, the org chart, the assignee
+    pickers) also admit the people with no company - the guests / externals
+    they manage and untagged People rows are shared (Neil, 11/02/2026).
+    Everything else reads it as the plain company set it is."""
+
+
+def admits_blank(scope) -> bool:
+    """Does this company scope admit people whose record has no company?"""
+    return isinstance(scope, AdminScope)
+
+
+def scope_key(scope) -> str:
+    """A cache key for a company scope (per-wall people caches)."""
+    if scope is None:
+        return "all"
+    key = "co:" + ",".join(sorted(scope)) if scope else "co:none"
+    return key + ("+blank" if admits_blank(scope) else "")
+
+
 def is_global_admin(user: dict, db: Session) -> bool:
     """True for the small set of people who see across every company: a Super
     Administrator (the `owner` tier, level 5), or a member of any Access Group
@@ -988,6 +1009,11 @@ def _own_company_scope(user: dict, db: Session):
       - Levels 1-3 keep the switch's meaning exactly as before: unrestricted
         while the walls are off, confined to their companies once armed.
 
+    An Administrator whose own People record has no company (and who holds
+    no entity scope or company group) gets an EMPTY AdminScope: they see no
+    company's records - only the shared rows (people with no company, shared
+    groups and roles they may hand out) - until they are placed in one.
+
     A person's companies = their home company (nexus_employees.company) ∪ any
     entity access-scopes they hold ∪ the companies of the company-scoped role
     groups they belong to. Every module intersects this set; a set() result means
@@ -1023,6 +1049,8 @@ def _own_company_scope(user: dict, db: Session):
                           NexusGroup.company_id != "").all()):
             if (g.company_id or "").strip():
                 companies.add(g.company_id.strip())
+    if level >= _LEVELS["administrator"]:
+        return AdminScope(companies)
     return companies
 
 
@@ -1087,15 +1115,15 @@ def company_of_email_map(db: Session) -> dict:
 def person_in_scope(email: str, scope, db: Session) -> bool:
     """Does `scope` (a company_scope() result) admit the PERSON behind
     `email`? None admits everyone. Otherwise their People record's company
-    must be in the set - except a person whose record carries no company (a
-    guest / external, or an untagged People row) or who has no record at
-    all: they are SHARED people, admitted for every walled caller (Neil,
+    must be in the set - except, for an Administrator (AdminScope), a person
+    whose record carries no company (a guest / external, or an untagged
+    People row) or who has no record at all: they are SHARED people (Neil,
     11/02/2026 - an Administrator manages the externals of their company,
     and those rows carry no company). The person-shaped twin of company_ok
     for the Roles & Access writes (scopes, group members, Act As, tiers)."""
     if scope is None:
         return True
-    return company_ok(company_of(email, db), scope, shared_when_blank=True)
+    return company_ok(company_of(email, db), scope, shared_when_blank=admits_blank(scope))
 
 
 def assert_person_in_scope(email: str, user: dict, db: Session) -> None:

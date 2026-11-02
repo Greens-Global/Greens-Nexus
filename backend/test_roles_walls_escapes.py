@@ -611,5 +611,38 @@ class TierMarkTests(_Base):
             db.close()
 
 
+class SharedPeopleTests(_Base):
+    """Item 7: people with no company stay in an Administrator's People and
+    directory reads; another company's never do."""
+
+    def test_people_list_and_directory_admit_people_with_no_company(self):
+        db = self._db()
+        try:
+            db.add(models.NexusEmployee(id="e-esc-untagged", first_name="Una", last_name="Tagged",
+                                        work_email="esc.untagged@greensglobal.com", status="active",
+                                        deleted_at="", company=""))
+            db.commit()
+        finally:
+            db.close()
+        self._as(ADMIN_A)
+        people = {e["workEmail"] for e in self.client.get("/hr/employees").json()}
+        self.assertIn(AEMP, people)
+        self.assertIn("esc.untagged@greensglobal.com", people)
+        self.assertNotIn(BEMP, people)
+        self.assertEqual(self.client.get("/hr/employees/e-esc-untagged/documents").status_code, 200)
+        directory = {p["email"] for p in self.client.get("/myhr/directory?include_external=true").json()}
+        self.assertTrue({AEMP, GUEST, "esc.untagged@greensglobal.com"} <= directory)
+        self.assertNotIn(BEMP, directory)
+        contacts = {p["email"] for p in self.client.get("/directory").json()["people"]}
+        self.assertIn("esc.untagged@greensglobal.com", contacts)
+        self.assertNotIn(BEMP, contacts)
+        db = self._db()
+        try:
+            self.assertTrue(auth.admits_blank(auth.company_scope({"email": ADMIN_A, "level": 4}, db)))
+            self.assertFalse(auth.admits_blank(auth.company_scope({"email": AEMP, "level": 1}, db)))
+        finally:
+            db.close()
+
+
 if __name__ == "__main__":
     unittest.main()

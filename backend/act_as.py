@@ -147,7 +147,7 @@ def eligible_targets(user: dict = Depends(_act_as_gate), db: Session = Depends(g
         email = (e.work_email or "").lower().strip()
         if not email or email == user["email"]:
             continue
-        if not auth.company_ok(e.company or "", scope, shared_when_blank=True):
+        if not auth.company_ok(e.company or "", scope, shared_when_blank=auth.admits_blank(scope)):
             continue
         role_row = roles.get(email)
         role = role_row.role if role_row else "employee"
