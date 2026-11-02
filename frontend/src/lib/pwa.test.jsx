@@ -25,6 +25,7 @@ function fakeServiceWorker(existing = null) {
 }
 
 afterEach(() => {
+  pwa._resetInstallPrompt();
   delete navigator.serviceWorker;
   delete window.PushManager;
   delete window.Notification;
@@ -70,20 +71,33 @@ describe('isIos / isStandalone', () => {
 });
 
 describe('useInstallPrompt', () => {
-  it('captures beforeinstallprompt, offers Install, and clears it once accepted', async () => {
-    const { result } = renderHook(() => pwa.useInstallPrompt());
-    expect(result.current.canInstall).toBe(false);
-    expect(await result.current.install()).toBe('unavailable');
+  it('a beforeinstallprompt fired BEFORE the hook mounts (page load, long before My Profile opens) still offers Install', async () => {
     const ev = new Event('beforeinstallprompt');
     ev.prompt = vi.fn();
     ev.userChoice = Promise.resolve({ outcome: 'accepted' });
-    act(() => { window.dispatchEvent(ev); });
+    window.dispatchEvent(ev);                    // caught at module load, nothing mounted yet
+    const { result } = renderHook(() => pwa.useInstallPrompt());
     expect(result.current.canInstall).toBe(true);
     let outcome;
     await act(async () => { outcome = await result.current.install(); });
     expect(ev.prompt).toHaveBeenCalled();
     expect(outcome).toBe('accepted');
     expect(result.current.canInstall).toBe(false);
+  });
+
+  it('captures a beforeinstallprompt that fires after mount too, and a dismissed prompt stays offered', async () => {
+    const { result } = renderHook(() => pwa.useInstallPrompt());
+    expect(result.current.canInstall).toBe(false);
+    expect(await result.current.install()).toBe('unavailable');
+    const ev = new Event('beforeinstallprompt');
+    ev.prompt = vi.fn();
+    ev.userChoice = Promise.resolve({ outcome: 'dismissed' });
+    act(() => { window.dispatchEvent(ev); });
+    expect(result.current.canInstall).toBe(true);
+    let outcome;
+    await act(async () => { outcome = await result.current.install(); });
+    expect(outcome).toBe('dismissed');
+    expect(result.current.canInstall).toBe(true);
   });
 
   it('appinstalled marks the device as standalone', () => {
@@ -149,11 +163,90 @@ describe('usePushSubscription', () => {
     expect(apiSpies.pushSubscribe).not.toHaveBeenCalled();
   });
 
-  it('a device already subscribed in this browser shows as on', async () => {
+  it('a device subscribed in this browser AND on the server shows as on without re-posting', async () => {
     fakeServiceWorker(true);
     apiSpies.pushConfig = vi.fn(() => Promise.resolve({ enabled: true, publicKey: 'AQID_-8' }));
+    apiSpies.pushSubscriptions = vi.fn(() => Promise.resolve([{ id: 1, endpoint: 'https://push.example.test/send/abc', disabled: false }]));
+    apiSpies.pushSubscribe = vi.fn(() => Promise.resolve({}));
     const { result } = renderHook(() => pwa.usePushSubscription());
     await waitFor(() => expect(result.current.loaded).toBe(true));
     expect(result.current.subscribed).toBe(true);
+    expect(apiSpies.pushSubscribe).not.toHaveBeenCalled();
+  });
+
+  it('self-heals: a browser subscription the server lacks (dropped, or another person signed in here) is posted again', async () => {
+    fakeServiceWorker(true);
+    apiSpies.pushConfig = vi.fn(() => Promise.resolve({ enabled: true, publicKey: 'AQID_-8' }));
+    apiSpies.pushSubscriptions = vi.fn(() => Promise.resolve([]));
+    apiSpies.pushSubscribe = vi.fn(() => Promise.resolve({}));
+    const { result } = renderHook(() => pwa.usePushSubscription());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(apiSpies.pushSubscribe).toHaveBeenCalledWith(expect.objectContaining({ endpoint: 'https://push.example.test/send/abc' }));
+    expect(result.current.subscribed).toBe(true);
+  });
+
+  it('a subscription the server disabled after failures is re-posted too; one the server lacks while push is off stays off', async () => {
+    fakeServiceWorker(true);
+    apiSpies.pushConfig = vi.fn(() => Promise.resolve({ enabled: true, publicKey: 'AQID_-8' }));
+    apiSpies.pushSubscriptions = vi.fn(() => Promise.resolve([{ id: 1, endpoint: 'https://push.example.test/send/abc', disabled: true }]));
+    apiSpies.pushSubscribe = vi.fn(() => Promise.resolve({}));
+    const a = renderHook(() => pwa.usePushSubscription());
+    await waitFor(() => expect(a.result.current.loaded).toBe(true));
+    expect(apiSpies.pushSubscribe).toHaveBeenCalledTimes(1);
+    expect(a.result.current.subscribed).toBe(true);
+    a.unmount();
+
+    apiSpies.pushConfig = vi.fn(() => Promise.resolve({ enabled: false, publicKey: '' }));
+    apiSpies.pushSubscriptions = vi.fn(() => Promise.resolve([]));
+    apiSpies.pushSubscribe.mockClear();
+    const b = renderHook(() => pwa.usePushSubscription());
+    await waitFor(() => expect(b.result.current.loaded).toBe(true));
+    expect(apiSpies.pushSubscribe).not.toHaveBeenCalled();
+    expect(b.result.current.subscribed).toBe(false);
+  });
+
+  it('an InvalidStateError (a subscription made with another server key) drops the old one and subscribes once more', async () => {
+    const { pushManager, subscription } = fakeServiceWorker();
+    const stale = Object.assign(new Error('different key'), { name: 'InvalidStateError' });
+    pushManager.subscribe.mockRejectedValueOnce(stale);
+    pushManager.getSubscription.mockResolvedValueOnce(null).mockResolvedValueOnce(subscription);
+    apiSpies.pushConfig = vi.fn(() => Promise.resolve({ enabled: true, publicKey: 'AQID_-8' }));
+    apiSpies.pushSubscriptions = vi.fn(() => Promise.resolve([]));
+    apiSpies.pushSubscribe = vi.fn(() => Promise.resolve({}));
+    const { result } = renderHook(() => pwa.usePushSubscription());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    let ok;
+    await act(async () => { ok = await result.current.subscribe(); });
+    expect(ok).toBe(true);
+    expect(subscription.unsubscribe).toHaveBeenCalled();
+    expect(pushManager.subscribe).toHaveBeenCalledTimes(2);
+    expect(result.current.subscribed).toBe(true);
+  });
+
+  it('any other failure shows one plain sentence, never the browser\'s raw message', async () => {
+    const { pushManager } = fakeServiceWorker();
+    pushManager.subscribe.mockRejectedValueOnce(new Error('Registration failed - push service error'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    apiSpies.pushConfig = vi.fn(() => Promise.resolve({ enabled: true, publicKey: 'AQID_-8' }));
+    apiSpies.pushSubscriptions = vi.fn(() => Promise.resolve([]));
+    const { result } = renderHook(() => pwa.usePushSubscription());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    await act(async () => { await result.current.subscribe(); });
+    expect(result.current.error).toBe(pwa.SUBSCRIBE_ERROR);
+    expect(result.current.error).not.toMatch(/Registration failed/);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('[pwa]'), expect.stringContaining('Registration failed'));
+  });
+
+  it('re-reads the permission when the tab comes back (allowed in the phone settings, no reload)', async () => {
+    fakeServiceWorker();
+    window.Notification.permission = 'denied';
+    apiSpies.pushConfig = vi.fn(() => Promise.resolve({ enabled: true, publicKey: 'AQID_-8' }));
+    apiSpies.pushSubscriptions = vi.fn(() => Promise.resolve([]));
+    const { result } = renderHook(() => pwa.usePushSubscription());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.permission).toBe('denied');
+    window.Notification.permission = 'granted';
+    act(() => { window.dispatchEvent(new Event('focus')); });
+    expect(result.current.permission).toBe('granted');
   });
 });
