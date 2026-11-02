@@ -488,6 +488,23 @@ class FormsTests(unittest.TestCase):
         self.assertEqual(form_entry_pdf.group_label("tires", [{"token": "psi"}]), "Tires")
         self.assertEqual(form_entry_pdf.group_label("tire_rows", []), "Tire Rows")
 
+    def test_pdf_captions_photos_and_prints_links_only_without_pictures(self):
+        import form_entry_pdf
+        from unittest import mock
+        urls = [STORAGE + "a.jpg", STORAGE + "b.jpg", STORAGE + "c.jpg"]
+        with mock.patch.object(form_entry_pdf, "_images_allowed", return_value=True):
+            blocks = form_entry_pdf._photo_blocks("Photos", urls)
+            text = json.dumps(blocks)
+            self.assertEqual(sum(1 for b in blocks if b["type"] == "image"), 3)
+            self.assertIn("Photo 1 of 3", text)
+            self.assertIn("Photo 3 of 3", text)
+            self.assertNotIn('"text": "' + urls[0], text)
+        with mock.patch.object(form_entry_pdf, "_images_allowed", return_value=False):
+            blocks = form_entry_pdf._photo_blocks("Photos", urls)
+            self.assertFalse(any(b["type"] == "image" for b in blocks))
+            self.assertIn(urls[2], json.dumps(blocks))
+            self.assertNotIn("Photo 1 of 3", json.dumps(blocks))
+
     def test_links_are_stored_on_the_entry(self):
         tpl = self._template()
         e = self._submit(tpl["id"], REP)

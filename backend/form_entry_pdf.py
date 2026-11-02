@@ -8,8 +8,9 @@ submitter's zone with its short name - the bell reads in the recipient's, the
 CSV in the exporter's), the
 site, the review state; then each section with its label / value rows, repeat
 groups as a table, photos as thumbnails (read through the signed-URL path a
-private bucket needs - when storage is not configured the URL is printed
-instead), the signature image, and a map link for a location stamp.
+private bucket needs, each captioned "Photo 1 of 3" - when storage is not
+configured the URL is printed instead), the signature image (else its URL),
+and a map link for a location stamp.
 
 `value_text(def, value)` is the one way an answer is written out - the CSV
 export uses it too.
@@ -203,12 +204,17 @@ def _images_allowed() -> bool:
 
 
 def _photo_blocks(label: str, urls: list) -> list:
+    """Each photo as a thumbnail captioned "Photo 1 of 3"; the URL is printed
+    only when thumbnails cannot be drawn (no storage key)."""
     out = [_para(f"{label}:", True)]
     allowed = _images_allowed()
-    for u in [x for x in urls if isinstance(x, str) and x.strip()][:MAX_THUMBS]:
+    shown = [x for x in urls if isinstance(x, str) and x.strip()][:MAX_THUMBS]
+    for i, u in enumerate(shown, 1):
         if allowed:
             out.append({"type": "image", "src": u, "width": THUMB_WIDTH_PT / 0.75})
-        out.append(_para(u))
+            out.append(_para(f"Photo {i} of {len(shown)}"))
+        else:
+            out.append(_para(u))
     return out
 
 
@@ -265,7 +271,8 @@ def build_blocks(db: Session, entry, tpl: DocTemplate, defs: list) -> list:
                     after.append(_para(f"{d.get('label') or 'Signature'}:", True))
                     if _images_allowed():
                         after.append({"type": "image", "src": v, "width": THUMB_WIDTH_PT / 0.75})
-                    after.append(_para(v))
+                    else:
+                        after.append(_para(v))   # the link only when the picture cannot be drawn
                 continue
             rows.append([_cell([_para(d.get("label") or d["token"], True)]), _cell(_value_blocks(d, v))])
         if rows:
