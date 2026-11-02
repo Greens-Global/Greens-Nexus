@@ -9,6 +9,7 @@ reaches everything.
 """
 import os
 import tempfile
+import time
 import unittest
 
 # A throwaway sqlite of its own (CLAUDE.md: one file per process).
@@ -181,6 +182,102 @@ class AccessScopeTests(_Base):
         self.assertEqual(len(self._scopes(AEMP)) + len(self._scopes(BEMP)), 2)
         self._as(SUPER)
         self.assertEqual(self.client.delete(f"/access-scopes/{AEMP}/sc-esc-1").status_code, 200)
+
+
+class GroupTests(_Base):
+    """Item 2: groups stay inside the caller's companies; Super-only grants."""
+
+    def _body(self, **extra):
+        return {"name": "New Group", "allowed_modules": [], "member_emails": [], **extra}
+
+    def _members(self, gid):
+        db = self._db()
+        try:
+            return {m.email for m in db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == gid)}
+        finally:
+            db.close()
+
+    def test_create_needs_a_company_of_theirs(self):
+        self._walls_off()
+        self._as(ADMIN_A)
+        self.assertEqual(self.client.post("/groups", json=self._body()).status_code, 403, "shared = Super only")
+        self.assertEqual(self.client.post("/groups", json=self._body(company_id=COB)).status_code, 403)
+        r = self.client.post("/groups", json=self._body(company_id=COA, member_emails=[BEMP]))
+        self.assertEqual(r.status_code, 404, "a company B member is refused")
+        r = self.client.post("/groups", json=self._body(company_id=COA, member_emails=[AEMP, GUEST]))
+        self.assertEqual(r.status_code, 200, r.text)
+        self._as(SUPER)
+        time.sleep(0.02)   # group ids are stamped from the clock
+        self.assertEqual(self.client.post("/groups", json=self._body(name="Shared")).status_code, 200)
+
+    def test_company_b_and_shared_groups_are_out_of_reach(self):
+        self._as(ADMIN_A)
+        self.assertEqual(self.client.put(f"/groups/{GRP_B}", json={"name": "Mine"}).status_code, 404)
+        self.assertEqual(self.client.post(f"/groups/{GRP_B}/members", json={"emails": [ADMIN_A]}).status_code, 404)
+        self.assertEqual(self.client.delete(f"/groups/{GRP_B}/members/{BEMP}").status_code, 404)
+        self.assertEqual(self.client.delete(f"/groups/{GRP_B}").status_code, 404)
+        # Joining company B's group would have widened their walls to company B.
+        self.assertEqual(self._members(GRP_B), {BEMP})
+        self.assertEqual(self.client.post(f"/groups/{PLAIN}/members", json={"emails": [AEMP]}).status_code, 403)
+        self.assertEqual(self.client.put(f"/groups/{PLAIN}", json={"name": "Mine"}).status_code, 403)
+        self.assertEqual(self.client.put(f"/groups/{GRP_A}", json={"company_id": COB}).status_code, 403)
+        self.assertEqual(self.client.post(f"/groups/{GRP_A}/members", json={"emails": [BEMP]}).status_code, 404)
+        self.assertEqual(self.client.post(f"/groups/{GRP_A}/members", json={"emails": [AEMP]}).status_code, 200)
+        db = self._db()
+        try:
+            self.assertEqual(auth.company_scope({"email": ADMIN_A, "level": 4}, db), {COA})
+        finally:
+            db.close()
+        self._as(SUPER)
+        self.assertEqual(self.client.post(f"/groups/{GRP_B}/members", json={"emails": [AEMP]}).status_code, 200)
+
+    def test_list_shows_their_companies_groups_and_members_only(self):
+        db = self._db()
+        try:
+            db.add(models.NexusGroupMember(group_id=PLAIN, email=AEMP))
+            db.add(models.NexusGroupMember(group_id=PLAIN, email=BEMP))
+            db.commit()
+        finally:
+            db.close()
+        self._as(ADMIN_A)
+        rows = {g["id"]: g for g in self.client.get("/groups").json()}
+        self.assertNotIn(GRP_B, rows)
+        self.assertIn(GRP_A, rows)
+        self.assertEqual(set(rows[PLAIN]["members"]), {AEMP})
+        self._as(SUPER)
+        rows = {g["id"]: g for g in self.client.get("/groups").json()}
+        self.assertIn(GRP_B, rows)
+        self.assertEqual(set(rows[PLAIN]["members"]), {AEMP, BEMP})
+
+    def test_owner_bypass_grants_are_super_only(self):
+        self.assertIn("pfs", auth.OWNER_ONLY_GRANTS)
+        self.assertIn("hr_comp", auth.OWNER_ONLY_GRANTS)
+        self._as(ADMIN_A)
+        r = self.client.post("/groups", json=self._body(company_id=COA, allowed_modules=[{"id": "pfs", "level": "viewer"}]))
+        self.assertEqual(r.status_code, 403, r.text)
+        r = self.client.put(f"/groups/{GRP_A}", json={"allowed_modules": [{"id": "pfs", "level": "viewer"}]})
+        self.assertEqual(r.status_code, 403, r.text)
+        r = self.client.put(f"/groups/{GRP_A}", json={"allowed_modules": [{"id": "hr", "level": "owner"}]})
+        self.assertEqual(r.status_code, 403, "hr:owner deletes people - Super only")
+        r = self.client.put(f"/groups/{GRP_A}", json={"allowed_modules": [{"id": "hr", "level": "full"}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        # A Super Administrator gives company A's group PFS; the Administrator
+        # cannot put anyone (themself included) in it, but can still rename it.
+        self._as(SUPER)
+        r = self.client.put(f"/groups/{GRP_A}", json={"allowed_modules": [{"id": "pfs", "level": "viewer"}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self._as(ADMIN_A)
+        self.assertEqual(self.client.post(f"/groups/{GRP_A}/members", json={"emails": [ADMIN_A]}).status_code, 403)
+        r = self.client.put(f"/groups/{GRP_A}", json={"name": "Alpha Renamed",
+                                                    "allowed_modules": [{"id": "pfs", "level": "viewer"}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self.client.put(f"/groups/{GRP_A}", json={"allowed_modules": [{"id": "pfs", "level": "editor"}]})
+        self.assertEqual(r.status_code, 403, "raising it is a new grant")
+        db = self._db()
+        try:
+            self.assertEqual(auth._module_level(ADMIN_A, "pfs", db), 0)
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

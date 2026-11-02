@@ -622,6 +622,40 @@ def require_level_or_modules(min_level: int, module_grants):
     return _check
 
 
+# Grants an Administrator may never hand out (Neil, 11/02/2026): a module
+# whose gate admits only a Super Administrator without a grant
+# (bypass_level="owner" - Personal Financial Statements, compensation,
+# deleting people, Workflows' organization face) would otherwise open to an
+# Administrator through a group they put themself or anyone else in.
+# {module_id: the lowest grant level that is Super-only}. Filled by
+# require_module_grant / require_any_module_grant as the routers import,
+# so a new owner-bypass gate joins the list by itself; PFS is listed from
+# the start (it never opens for an Administrator's role, whatever imported).
+OWNER_ONLY_GRANTS: dict[str, int] = {"pfs": 1}
+
+
+def _note_owner_only(module_ids, min_module_level: str, bypass_level: str) -> None:
+    if bypass_level != "owner":
+        return
+    rank = _MODULE_LEVEL_RANK[min_module_level]
+    for mid in module_ids:
+        cur = OWNER_ONLY_GRANTS.get(mid)
+        OWNER_ONLY_GRANTS[mid] = rank if cur is None else min(cur, rank)
+
+
+def owner_only_grants_in(modules) -> list:
+    """The module ids in `modules` ([{"id", "level"}] or ModuleGrant-like
+    objects) granted at a level only a Super Administrator may hand out."""
+    out = []
+    for m in modules or []:
+        mid = ((m.get("id") if isinstance(m, dict) else getattr(m, "id", "")) or "").strip().lower()
+        lvl = ((m.get("level") if isinstance(m, dict) else getattr(m, "level", "")) or "viewer").strip().lower()
+        floor = OWNER_ONLY_GRANTS.get(mid)
+        if floor is not None and _MODULE_LEVEL_RANK.get(lvl, 1) >= floor:
+            out.append(mid)
+    return out
+
+
 def require_module_grant(module_id: str, min_module_level: str = "viewer", bypass_level: str = "administrator"):
     """Grant-driven access (Jun 17): admits admins at/above `bypass_level`
     (administrator by default - they manage every screen), OR anyone whose Access
@@ -633,6 +667,7 @@ def require_module_grant(module_id: str, min_module_level: str = "viewer", bypas
     is also blocked at the API (UI hiding alone is not a security boundary)."""
     threshold = _MODULE_LEVEL_RANK[min_module_level]
     blevel = _LEVELS[bypass_level]
+    _note_owner_only((module_id,), min_module_level, bypass_level)
 
     def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
         if user["level"] >= blevel or _module_level(user["email"], module_id, db) >= threshold:
@@ -652,6 +687,7 @@ def require_any_module_grant(*module_ids: str, min_module_level: str = "viewer",
     here too, so UI hiding is still not the only boundary."""
     threshold = _MODULE_LEVEL_RANK[min_module_level]
     blevel = _LEVELS[bypass_level]
+    _note_owner_only(module_ids, min_module_level, bypass_level)
 
     def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
         if user["level"] >= blevel:

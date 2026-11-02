@@ -66,7 +66,9 @@ class _Base(unittest.TestCase):
             db.add(models.NexusRole(email=ADMIN_NOCO, role="administrator"))
             db.add(models.NexusRole(email=AEMP, role="employee"))
             db.add(models.NexusRole(email=BEMP, role="employee"))
-            db.add(models.NexusGroup(id=PLAIN, name="Plain Group", allowed_modules="tasks:viewer"))
+            # Company A's own group: an Administrator works only on their
+            # companies' groups (a shared one is a Super Administrator's).
+            db.add(models.NexusGroup(id=PLAIN, name="Plain Group", allowed_modules="tasks:viewer", company_id=COA))
             db.add(models.NexusGroup(id=GA_GROUP, name="Global Admins", is_global_admin=1))
             db.add(models.NexusGroupMember(group_id=GA_GROUP, email=SUPER))
             db.commit()
@@ -214,7 +216,7 @@ class PrivilegeTests(_Base):
         self._as(ADMIN_A)
         r = self.client.post("/groups", json=self._group_body(is_global_admin=True))
         self.assertIn(r.status_code, (401, 403), r.text)
-        ok = self.client.post("/groups", json=self._group_body())
+        ok = self.client.post("/groups", json=self._group_body(company_id=COA))
         self.assertEqual(ok.status_code, 200, ok.text)
         self.assertFalse(ok.json()["is_global_admin"])
         self._as(SUPER)
