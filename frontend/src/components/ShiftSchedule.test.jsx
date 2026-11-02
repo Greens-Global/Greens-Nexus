@@ -82,7 +82,7 @@ vi.mock('../api', () => ({
 
 const ShiftScheduleModule = await import('./ShiftSchedule');
 const ShiftSchedule = ShiftScheduleModule.default;
-const { laborText } = ShiftScheduleModule;
+const { laborText, laborOver } = ShiftScheduleModule;
 
 // jsdom has no PointerEvent; the grid drags and long-presses with pointer events.
 if (!window.PointerEvent) {
@@ -1401,13 +1401,13 @@ describe('Scheduled labor line', () => {
     timeSchedule.mockResolvedValue(data([shift()]));
     timeScheduleLabor.mockResolvedValue({ hours: 312, cost: 7840, currency: 'USD', payHidden: false, peopleWithoutRate: 2, fixedPayPeople: 1, days: [] });
     const { unmount } = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
-    const line = await screen.findByText('Scheduled 312 h · $7,840 · 2 people without a rate · 1 person on fixed pay');
+    const line = (await screen.findByText('Scheduled 312 h · $7,840 · 2 people without a rate · 1 person on fixed pay')).closest('[data-labor-line]');
     expect(line.getAttribute('title')).toBe('Scheduled hours for your team, published and draft shifts together, not counting unpaid breaks, at each person\'s hourly rate for that day. People on fixed pay are counted in the hours, not the cost.');
     expect(timeScheduleLabor).toHaveBeenCalledWith(expect.any(String), expect.any(String));
     unmount();
     timeScheduleLabor.mockResolvedValue({ hours: 8.5, cost: null, currency: 'USD', payHidden: true, peopleWithoutRate: null, fixedPayPeople: null, days: [] });
     const r2 = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
-    const hidden = await screen.findByText('Scheduled 8.5 h');
+    const hidden = (await screen.findByText('Scheduled 8.5 h')).closest('[data-labor-line]');
     expect(hidden.getAttribute('title')).toBe('Scheduled hours for your team, published and draft shifts together, not counting unpaid breaks.');
     r2.unmount();
     timeScheduleLabor.mockResolvedValue({ hours: 0, cost: 0, currency: 'USD', payHidden: false, peopleWithoutRate: 0, fixedPayPeople: 0, days: [] });
@@ -1425,5 +1425,46 @@ describe('Scheduled labor line', () => {
       .toBe('Scheduled 400 h · $7,840 and ₹52,000 · 1 person on fixed pay');
     // No total and one currency (nothing priced yet): hours only.
     expect(laborText({ hours: 40, cost: null, currency: 'USD', costs: {}, payHidden: false })).toBe('Scheduled 40 h');
+  });
+
+  // Weekly labor budget (Neil, 11/02/2026): HR++ only - the server sends
+  // `budgetVisible` and `budget` to them alone; the line says "of ... budget"
+  // after the scheduled figure and goes amber when over.
+  it('laborText: the budget after the scheduled figure for HR++, amber when over, nothing for everyone else', () => {
+    const under = { hours: 1250, cost: 98400, currency: 'USD', payHidden: false, budgetVisible: true, budget: { hours: 1300, amount: 100000, currency: 'USD' } };
+    expect(laborText(under)).toBe('Scheduled 1,250 h of 1,300 h budget · $98,400 of $100,000 budget');
+    expect(laborOver(under)).toBe(false);
+    const over = { ...under, budget: { hours: 1200, amount: 100000, currency: 'USD' } };
+    expect(laborText(over)).toBe('Scheduled 1,250 h of 1,200 h budget · $98,400 of $100,000 budget');
+    expect(laborOver(over)).toBe(true);
+    expect(laborOver({ ...under, budget: { hours: 1300, amount: 9000, currency: 'USD' } })).toBe(true);
+    // Hours budget only; no budget set at all (nulls) says nothing extra.
+    expect(laborText({ ...under, budget: { hours: 1300, amount: null, currency: 'USD' } })).toBe('Scheduled 1,250 h of 1,300 h budget · $98,400');
+    expect(laborText({ ...under, budget: { hours: null, amount: null, currency: 'USD' } })).toBe('Scheduled 1,250 h · $98,400');
+    // A manager's payload carries neither key: the line is exactly as before.
+    expect(laborText({ hours: 1250, cost: null, currency: 'USD', payHidden: true })).toBe('Scheduled 1,250 h');
+    expect(laborOver({ hours: 1250, cost: null, currency: 'USD', payHidden: true })).toBe(false);
+  });
+
+  it('paints only the budget fragments amber (data-labor-over on the line) when the schedule is over budget', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    timeScheduleLabor.mockResolvedValue({ hours: 312, cost: 7840, currency: 'USD', payHidden: false, peopleWithoutRate: 0, fixedPayPeople: 0, days: [],
+      budgetVisible: true, budget: { hours: 300, amount: 9000, currency: 'USD' } });
+    const { unmount } = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    const line = await waitFor(() => { const el = document.querySelector('[data-labor-line]'); if (!el) throw new Error('no line yet'); return el; });
+    expect(line.textContent).toBe('Scheduled 312 h of 300 h budget · $7,840 of $9,000 budget');
+    expect(line.getAttribute('data-labor-over')).toBe('');
+    expect(line.style.color).toBe('');                                   // the figures stay muted
+    const budgets = Array.from(line.querySelectorAll('[data-labor-budget]'));
+    expect(budgets.map((b) => b.textContent)).toEqual([' of 300 h budget', ' of $9,000 budget']);
+    budgets.forEach((b) => { expect(b.style.color).toBe('hsl(var(--color-orange))'); expect(b.style.fontWeight).toBe('600'); });
+    unmount();
+    // Under budget: the fragments are there, uncolored, and the line is not marked.
+    timeScheduleLabor.mockResolvedValue({ hours: 312, cost: 7840, currency: 'USD', payHidden: false, peopleWithoutRate: 0, fixedPayPeople: 0, days: [],
+      budgetVisible: true, budget: { hours: 400, amount: 9000, currency: 'USD' } });
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    const under = await waitFor(() => { const el = document.querySelector('[data-labor-line]'); if (!el) throw new Error('no line yet'); return el; });
+    expect(under.getAttribute('data-labor-over')).toBeNull();
+    under.querySelectorAll('[data-labor-budget]').forEach((b) => expect(b.style.color).toBe(''));
   });
 });

@@ -9,7 +9,7 @@ import { STEP_ICONS } from '../lib/text.builder-helpers';
 export const MODULE_COLOR = {
   core: '#64748b', hr: 'hsl(271,60%,48%)', tasks: 'hsl(215,75%,45%)', tickets: 'hsl(30,80%,48%)',
   time: 'hsl(142,60%,35%)', shifts: 'hsl(174,60%,36%)', items: 'hsl(42,80%,42%)', approvals: 'hsl(236,60%,52%)',
-  performance: 'hsl(330,60%,45%)',
+  performance: 'hsl(330,60%,45%)', documents: 'hsl(200,65%,40%)',
 };
 export const KIND_COLOR = {
   if: 'hsl(271,60%,48%)', approval: 'hsl(236,60%,52%)', wait: 'hsl(30,80%,48%)', for_each: 'hsl(174,60%,36%)',

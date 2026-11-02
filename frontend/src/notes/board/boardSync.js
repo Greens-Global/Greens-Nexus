@@ -15,15 +15,16 @@
 //
 // No engine import here: the hook that owns this (useBoardCollab) is part of
 // NotesPage, and importing the engine would pull its 3 MB chunk into every
-// visit to Notes. The engine's `CaptureUpdateAction.NEVER` is the string
-// "NEVER" (store.ts) - mirrored below and pinned by Board.test.jsx's mock.
+// visit to Notes. The capture word comes from the adapter contract
+// (./engine/index.js, engine-free); the adapter maps it onto the engine's own.
 import * as Y from 'yjs';
+import { CAPTURE } from './engine';
 
 export const ELEMENTS = 'elements';
 export const FILES = 'files';
 /** The transaction origin of this browser's own changes. */
 export const LOCAL = 'nx-board-local';
-export const CAPTURE_NEVER = 'NEVER';
+export const CAPTURE_NEVER = CAPTURE.NEVER;
 
 const plain = (v) => JSON.parse(JSON.stringify(v));
 

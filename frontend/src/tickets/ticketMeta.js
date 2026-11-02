@@ -1,7 +1,7 @@
 // Ticket Module - types, per-type intake fields, status/SLA policy and the small
 // pure helpers built on them. No JSX and no component imports: this is the
 // module's configuration layer, imported by every other ticket file.
-import { Ticket, Bug, AlertOctagon, Wrench, HelpCircle, ClipboardList, Lightbulb, RefreshCw, KeyRound, ShieldAlert, Timer, MessageSquareWarning, CirclePause } from 'lucide-react';
+import { Inbox, Bug, AlertTriangle, Wrench, HelpCircle, ClipboardList, Lightbulb, RefreshCw, KeyRound, ShieldAlert, Timer, MessageSquareWarning, CirclePause } from 'lucide-react';
 import { fmtDate as fmtDateRaw } from '../tasks/lib';
 import { formatDate, formatTime } from '../lib/datetime';
 import { NX } from '../tasks/theme';
@@ -22,15 +22,15 @@ export const today = (now = Date.now()) => new Date(now).toISOString().slice(0, 
 // show under each option IN the Type dropdown, not just once one is picked.
 export const TICKET_TYPE_META = {
   bug:             { label: 'Bug Report',      icon: Bug,           color: NX.red,    hint: 'An app or Nexus works, but does something wrong - a wrong number, a button that does nothing.' },
-  incident:        { label: 'Incident',        icon: AlertOctagon,  color: NX.amber,  hint: 'Something is broken or stopped working - a system, a device, or something at a building.' },
+  incident:        { label: 'Incident',        icon: AlertTriangle, color: NX.amber,  hint: 'Something is broken or stopped working - a system, a device, or something at a building.' },
   service_request: { label: 'Service Request', icon: Wrench,        color: NX.blue,   hint: 'You need something set up, installed or provided.' },
   feature_request: { label: 'Feature Request', icon: Lightbulb,     color: NX.green,  hint: 'An idea for something new, or a way to make something work better.' },
   task:            { label: 'Task',            icon: ClipboardList, color: NX.purple },
   question:        { label: 'Question',        icon: HelpCircle,    color: NX.dim },
   change_request:  { label: 'Change / Enhancement', icon: RefreshCw, color: NX.amber, hint: 'Something already works - you want it changed or improved.' },
   access_request:  { label: 'Access Request',  icon: KeyRound,      color: NX.teal,   hint: 'You need an account or a permission added, changed or removed.' },
-  request:         { label: 'Request',         icon: Ticket,        color: NX.blue },
-  other:           { label: 'Other',           icon: Ticket,        color: NX.dim,    hint: 'None of these fit - the team will sort it out.' },
+  request:         { label: 'Request',         icon: Inbox,         color: NX.blue },
+  other:           { label: 'Other',           icon: Inbox,         color: NX.dim,    hint: 'None of these fit - the team will sort it out.' },
 };
 // Selectable types at intake, in the order a requester sees them. Everything
 // NOT in this list still lives in TICKET_TYPE_META/TYPE_FIELDS so tickets

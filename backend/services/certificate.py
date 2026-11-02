@@ -342,22 +342,9 @@ def _strip_port(addr: str) -> str:
     return addr.split(":")[0] if addr.count(":") == 1 else addr
 
 
-_OS_PATTERNS = [("Windows NT 10.0", "Windows 10/11"), ("Windows NT 11", "Windows 11"),
-                ("iPhone", "iOS"), ("iPad", "iPadOS"), ("Android", "Android"),
-                ("Mac OS X", "macOS"), ("CrOS", "ChromeOS"), ("Linux", "Linux")]
-_BROWSER_PATTERNS = [("Edg/", "Edge"), ("OPR/", "Opera"), ("Chrome/", "Chrome"),
-                     ("Firefox/", "Firefox"), ("Safari/", "Safari")]
-
-
-def _ua_summary(ua: str) -> str:
-    ua = (ua or "").strip()
-    if not ua:
-        return ""
-    os_name = next((l for t, l in _OS_PATTERNS if t in ua), "")
-    browser = next((l for t, l in _BROWSER_PATTERNS if t in ua), "")
-    if os_name and browser:
-        return f"{os_name} - {browser}"
-    return os_name or browser or "Unrecognized user agent"
+# The ONE UA gloss, shared with routers/esign.py and the new sign-in notice
+# (ua_summary.py, 11/02/2026) - the certificate wording is unchanged.
+from ua_summary import summarize as _ua_summary
 
 
 _AUTH_LABELS = {

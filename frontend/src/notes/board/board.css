@@ -70,3 +70,29 @@
   width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--line, rgba(0, 0, 0, .14)); cursor: pointer; padding: 0;
 }
 .nx-board .nx-board-swatch:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
+/* The engine behind the adapter (engine/excalidraw.jsx) fills the stage. */
+.nx-board .nx-engine { position: absolute; inset: 0; }
+/* While the engine's chunk is on its way: never a blank stage. */
+.nx-board .nx-board-loading { position: absolute; inset: 0; padding: 14px; overflow: hidden; }
+/* The drawing tools did not load (engine/fallback.jsx): the last saved
+   picture full width, read-only, with Retry. */
+.nx-board .nx-board-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--card, #fff); }
+.nx-board .nx-board-fallback-pic { flex: 1 1 auto; min-height: 0; width: 100%; object-fit: contain; object-position: center top; background: var(--wk-hover, #f1f4f1); padding: 12px; box-sizing: border-box; }
+.nx-board .nx-board-fallback-empty { flex: 1 1 auto; display: grid; align-content: center; justify-items: center; gap: 8px; color: var(--muted, #8b958f); font-size: 13.5px; background: var(--wk-hover, #f1f4f1); }
+.nx-board .nx-board-fallback-bar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line, rgba(0, 0, 0, .08)); font-size: 13px; color: var(--ink, #1c2420); }
+.nx-board .nx-board-fallback-retry {
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line, rgba(0, 0, 0, .14)); background: var(--card, #fff); color: var(--ink, #1c2420);
+  font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+}
+.nx-board .nx-board-fallback-retry:hover { background: var(--wk-hover, #f1f4f1); }
+.nx-board .nx-board-fallback-retry:disabled { opacity: .6; cursor: default; }
+.nx-board .nx-board-fallback-retry:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
+/* An unsaved drawing from the last visit (draft.js), offered above the stage. */
+.nx-board .nx-board-draft { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 8px 14px; border-left: 3px solid var(--wk-blue, #3d7ee8); background: var(--wk-hover, #f1f4f1); font-size: 13px; color: var(--ink, #1c2420); }
+.nx-board .nx-board-draft-text { flex: 1 1 240px; }
+.nx-board .nx-board-draft button {
+  border: 1px solid var(--line, rgba(0, 0, 0, .14)); background: var(--card, #fff); color: var(--ink, #1c2420);
+  font: inherit; font-size: 12.5px; font-weight: 600; padding: 5px 11px; border-radius: 8px; cursor: pointer;
+}
+.nx-board .nx-board-draft button.is-primary { background: var(--wk-brand, #15803d); color: #fff; border-color: transparent; }
+.nx-board .nx-board-draft button:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }

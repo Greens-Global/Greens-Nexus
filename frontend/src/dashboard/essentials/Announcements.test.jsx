@@ -6,7 +6,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 
 const apiMock = vi.hoisted(() => ({
   getAnnouncements: vi.fn(), createAnnouncement: vi.fn(), updateAnnouncement: vi.fn(), deleteAnnouncement: vi.fn(),
-  markAnnouncementRead: vi.fn(), ackAnnouncement: vi.fn(), getAnnouncementReads: vi.fn(),
+  markAnnouncementRead: vi.fn(), ackAnnouncement: vi.fn(), getAnnouncementReads: vi.fn(), getWorkSites: vi.fn(),
 }));
 const role = vi.hoisted(() => ({ admin: false }));
 const confirmMock = vi.hoisted(() => vi.fn());
@@ -43,7 +43,8 @@ beforeEach(() => {
   apiMock.createAnnouncement.mockResolvedValue({ id: 'new' });
   apiMock.updateAnnouncement.mockResolvedValue({});
   apiMock.deleteAnnouncement.mockResolvedValue({ ok: true });
-  apiMock.getAnnouncementReads.mockResolvedValue([]);
+  apiMock.getAnnouncementReads.mockResolvedValue({ reads: [] });
+  apiMock.getWorkSites.mockResolvedValue([{ id: 's-yard', name: 'North Yard' }, { id: 's-depot', name: 'Depot' }]);
   confirmMock.mockResolvedValue(true);
   uploadMock.mockResolvedValue(STORAGE);
 });
@@ -149,7 +150,7 @@ describe('Announcements tile', () => {
     apiMock.getAnnouncements.mockResolvedValue([ann({ title: 'Parking lot closed', audience: 'department', department: 'Operations', read_count: 0, ack_count: 0, requires_ack: true })]);
     fireEvent.click(within(form).getByText('Post Announcement'));
     await waitFor(() => expect(apiMock.createAnnouncement).toHaveBeenCalledWith({
-      title: 'Parking lot closed', body: 'Use the side street.', audience: 'department', department: 'Operations', pinned_until: '', requires_ack: true,
+      title: 'Parking lot closed', body: 'Use the side street.', audience: 'department', department: 'Operations', work_site_id: '', pinned_until: '', requires_ack: true,
       image_url: '', file_url: '', file_name: '', notify: 'quiet', publish_at: '',
     }));
     expect(await screen.findByText('Parking lot closed')).toBeTruthy();
@@ -194,7 +195,7 @@ describe('helpers', () => {
   });
   it('formOf maps a row onto the composer fields', () => {
     expect(formOf(ann({ audience: 'department', department: 'Ops', pinned_until: '2026-11-01', requires_ack: true })))
-      .toEqual({ title: 'Office closed Friday', body: 'Line one.\nLine two.\nLine three.', audience: 'department', department: 'Ops', pinned_until: '2026-11-01', requires_ack: true,
+      .toEqual({ title: 'Office closed Friday', body: 'Line one.\nLine two.\nLine three.', audience: 'department', department: 'Ops', work_site_id: '', pinned_until: '2026-11-01', requires_ack: true,
         image_url: '', file_url: '', file_name: '', publish_at: '', notify: 'quiet' });
     expect(formOf(null).audience).toBe('company');
     expect(formOf(ann({ notify: 'bogus' })).notify).toBe('quiet');
@@ -324,5 +325,71 @@ describe('Announcements reach (11/02/2026)', () => {
     fireEvent.click(within(form).getByText('Save Changes'));
     await waitFor(() => expect(apiMock.updateAnnouncement).toHaveBeenCalled());
     expect(apiMock.updateAnnouncement.mock.calls[0][1]).not.toHaveProperty('publish_at');
+  });
+
+  // Work site audience + not yet acknowledged (Neil, 11/02/2026).
+  it('the composer offers Work Site and a site picker from the work-site library; the site travels with the post', async () => {
+    role.admin = true;
+    render(<Announcements />);
+    await screen.findByText('No announcements.');
+    fireEvent.click(screen.getByText('Post'));
+    const form = screen.getByRole('form', { name: 'Post Announcement' });
+    const audience = within(form).getByLabelText('Audience');
+    expect(Array.from(audience.options).map((o) => o.textContent)).toEqual(['Company', 'Department', 'Work Site']);
+    expect(within(form).queryByLabelText('Work Site')).toBeNull();
+    fireEvent.change(audience, { target: { value: 'site' } });
+    const picker = await within(form).findByLabelText('Work Site');
+    await waitFor(() => expect(Array.from(picker.options).map((o) => o.textContent)).toEqual(['Pick a site', 'North Yard', 'Depot']));
+    expect(apiMock.getWorkSites).toHaveBeenCalled();
+    fireEvent.change(within(form).getByPlaceholderText('What should people know?'), { target: { value: 'Gate code' } });
+    fireEvent.change(within(form).getByPlaceholderText('Plain text, line breaks are kept.'), { target: { value: 'New code Monday.' } });
+    fireEvent.click(within(form).getByText('Post Announcement'));
+    expect(await within(form).findByRole('alert')).toHaveTextContent('Pick the work site.');
+    expect(apiMock.createAnnouncement).not.toHaveBeenCalled();
+    fireEvent.change(picker, { target: { value: 's-yard' } });
+    fireEvent.click(within(form).getByText('Post Announcement'));
+    await waitFor(() => expect(apiMock.createAnnouncement).toHaveBeenCalledWith(expect.objectContaining({
+      audience: 'site', work_site_id: 's-yard', department: '',
+    })));
+  });
+
+  it('a site post carries its site name as the row chip and formOf keeps the site for Edit', async () => {
+    apiMock.getAnnouncements.mockResolvedValue([ann({ id: 'y', title: 'Yard gate', audience: 'site', workSiteId: 's-yard', workSiteName: 'North Yard' })]);
+    render(<Announcements />);
+    await screen.findByText('Yard gate');
+    expect(screen.getByText('North Yard')).toBeTruthy();
+    expect(formOf({ audience: 'site', workSiteId: 's-yard' })).toMatchObject({ audience: 'site', work_site_id: 's-yard' });
+    expect(formOf({ audience: 'company' }).work_site_id).toBe('');
+  });
+
+  it('Read by opens the list with who has not yet acknowledged; a plain list answer still renders', async () => {
+    role.admin = true;
+    apiMock.getAnnouncements.mockResolvedValue([ann({ id: 'k', title: 'Safety rule', requires_ack: true, read_count: 1, ack_count: 1 })]);
+    apiMock.getAnnouncementReads.mockResolvedValue({
+      reads: [{ email: 'ana@greensglobal.com', name: 'Ana Diaz', read_at: '2026-11-02T15:00:00+00:00', acknowledged_at: '2026-11-02T15:00:00+00:00' }],
+      notAcknowledged: [{ email: 'bob@greensglobal.com', name: 'Bob Lee' }, { email: 'cy@greensglobal.com', name: 'Cy Ng' }],
+    });
+    const { unmount } = render(<Announcements />);
+    await screen.findByText('Safety rule');
+    fireEvent.click(screen.getByText(/^Read by 1/));
+    expect(await screen.findByText('Ana Diaz')).toBeTruthy();
+    expect(screen.getByText('Not Yet Acknowledged (2)')).toBeTruthy();
+    expect(screen.getByText('Bob Lee, Cy Ng')).toBeTruthy();
+    unmount();
+    apiMock.getAnnouncementReads.mockResolvedValue({
+      reads: [{ email: 'ana@greensglobal.com', name: 'Ana Diaz', read_at: '2026-11-02T15:00:00+00:00', acknowledged_at: '2026-11-02T15:00:00+00:00' }],
+      notAcknowledged: [],
+    });
+    const second = render(<Announcements />);
+    await screen.findByText('Safety rule');
+    fireEvent.click(screen.getByText(/^Read by 1/));
+    expect(await screen.findByText('Everyone Has Acknowledged')).toBeTruthy();   // Title Case, like a status label
+    second.unmount();
+    apiMock.getAnnouncementReads.mockResolvedValue([{ email: 'ana@greensglobal.com', name: 'Ana Diaz', read_at: '2026-11-02T15:00:00+00:00', acknowledged_at: '' }]);
+    render(<Announcements />);
+    await screen.findByText('Safety rule');
+    fireEvent.click(screen.getByText(/^Read by 1/));
+    expect(await screen.findByText('Ana Diaz')).toBeTruthy();
+    expect(screen.queryByText(/Not Yet Acknowledged/)).toBeNull();
   });
 });

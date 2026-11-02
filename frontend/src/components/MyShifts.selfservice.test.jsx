@@ -578,16 +578,30 @@ describe('MyShifts live status (Miranda, Oct 21 2026)', () => {
     const cara = screen.getByText('Clocked Out').closest('[data-member]');
     expect(cara.getAttribute('data-member')).toBe('cara@x.com');
     expect(cara.querySelector('[data-on-dot]')).toBeNull();
+    // The live strip (Neil, 11/02/2026): four soft chips counted over the
+    // rows - me working, Bob on a break, Cara clocked out is Off.
     const head = document.querySelector('[data-live-summary]');
-    expect(head.textContent).toBe('On Break: Bob · Working: you');
-    expect(head.querySelector('b').textContent).toBe('On Break: Bob');
+    expect(Array.from(head.querySelectorAll('.nx-label')).map((l) => l.textContent)).toEqual(['In 1', 'On Break 1', 'Late 0', 'Not In 1']);
     expect(screen.queryByText(/^On shift now/)).toBeNull();
   });
 
-  it('says nobody is clocked in when the live map has no one working', async () => {
+  it('counts everyone Off when the live map has no one working', async () => {
     timeMyScheduleLive.mockResolvedValue(liveMap({}));
     render(<MyShifts part="team" />);
-    expect(await screen.findByText('Nobody clocked in right now')).toBeTruthy();
+    expect(await screen.findByText('Not In 2')).toBeTruthy();
+    expect(screen.getByText('In 0')).toBeTruthy();
+    expect(screen.getByText('Late 0')).toBeTruthy();
+  });
+
+  it('counts the server\'s late people and a Late chip filters the grid to them', async () => {
+    timeMyScheduleLive.mockResolvedValue({ ...liveMap({ 'me@x.com': { state: 'working', label: 'Working', since: ago(30) } }), late: ['bob@x.com'] });
+    render(<MyShifts part="team" />);
+    expect(await screen.findByText('Late 1')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Late 1' }));
+    const shown = Array.from(document.querySelectorAll('[role="row"][data-member]')).map((r) => r.getAttribute('data-member')).filter((m) => m !== 'open');
+    expect(shown).toEqual(['bob@x.com']);
+    fireEvent.click(screen.getByRole('button', { name: 'Late 1' }));
+    expect(document.querySelectorAll('[role="row"][data-member="me@x.com"]').length).toBe(1);
   });
 
   it('keeps the schedule and the On shift now line when the live call fails', async () => {

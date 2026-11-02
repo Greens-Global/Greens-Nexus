@@ -207,8 +207,11 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
         display: 'flex', flexDirection: 'column', gap: 6, padding: '11px 12px',
         borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: rowBg,
       }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-          <TicketTypeIcon type={t.type} size={15} />
+        {/* The type mark is a boxed icon centered on the title block (title +
+            number), so it lines up with the text whatever the glyph's shape;
+            the old bare glyph sat high and to the left (Neil, 11/02/2026). */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <TicketTypeIcon type={t.type} size={15} boxed />
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: 14.5, fontWeight: 600, color: NX.ink, lineHeight: 1.35 }}>
               {t.subject}
@@ -220,7 +223,10 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
           </div>
           {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} />}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {/* Chips on the left wrap among themselves; Assign keeps its own
+            column on the right, so it never drifts into the wrapped chips. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: 8 }}>
+         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }}>
           <TicketStatusChip status={t.status} />
           {t.approvalStatus === 'pending' && <ApprovalChip ticket={t} />}
           <PriorityChip priority={t.priority} />
@@ -243,6 +249,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
               <staleM.Icon size={11} /> {staleM.label}
             </span>
           )}
+         </div>
           {/* Tap to assign right from the card (Neil, Oct 1: assigning "is
               not working for me on mobile") - a bottom sheet, saved at once
               like the desktop list's inline Status/Priority. Only for someone
@@ -250,7 +257,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
           {canAssignRow ? (
             <button type="button" onClick={(e) => { e.stopPropagation(); setAssigning(true); }}
               aria-label={t.assigneeId ? `Assigned to ${nameOf(t.assigneeId) || t.assigneeId} - change` : 'Assign this ticket'}
-              style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, minHeight: 32, padding: '3px 8px 3px 4px',
+              style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, minHeight: 32, padding: '3px 8px 3px 4px',
                 border: `1px solid ${NX.border}`, borderRadius: 999, background: NX.surface, cursor: 'pointer', fontFamily: FONT }}>
               {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} card={false} /> : <UnassignedAvatar size={22} />}
               <span style={{ fontSize: 12.5, color: t.assigneeId ? NX.dim : NX.blue, fontWeight: t.assigneeId ? 400 : 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
@@ -259,7 +266,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
               <ChevronDown size={13} style={{ color: NX.faint, flexShrink: 0 }} />
             </button>
           ) : (
-            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
               {t.assigneeId
                 ? <><Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />
                     <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{nameOf(t.assigneeId)}</span></>

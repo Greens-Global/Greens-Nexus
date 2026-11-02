@@ -1244,6 +1244,7 @@ def punch(body: PunchIn, request: Request,
                     ip=ip, user_agent=ua, source="web",
                     created_by=email, created_at=now, **geo)
     db.add(row)
+    _early_punch_alert(db, row, email)
     # Soft-gate escalation (Charmi / Visesh, Sep 25): an out-of-fence punch IN
     # or OUT goes to the employee's manager as a bell notification AND an email
     # ("email manager when punches out of the geofence").
@@ -1442,9 +1443,26 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
                     note=body.note.strip()[:300], source="offline",
                     created_by=email, created_at=now)
     db.add(row)
+    _early_punch_alert(db, row, email)
     _notify_offline_punch(db, row)
     db.commit()
     return _serialize(row)
+
+
+def _early_punch_alert(db: Session, row, email: str) -> None:
+    """Early punch alert (Neil, 11/02/2026, early_punch.py): a clock-in well
+    before the expected start tells the manager. Called by every punch
+    writer right after the row is added; the punch is ALWAYS recorded -
+    nothing here may raise out of the route."""
+    if (getattr(row, "kind", "") or "") != "in":
+        return
+    try:
+        import early_punch
+        db.flush()
+        emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == (email or "").lower()).first()
+        early_punch.check(db, row, emp)
+    except Exception as e:   # noqa: BLE001 - an alert never blocks a punch
+        print(f"[early_punch] alert skipped for {email}: {e}")
 
 
 def _notify_offline_punch(db: Session, row) -> None:
@@ -6029,14 +6047,16 @@ def track_clock(body: TrackClockIn, request: Request, dev: AgentDevice = Depends
     geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
            if (body.lat or "").strip() else
            {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0})
-    db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
+    _row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
                      local_date=_local_date(now, body.tz_offset_min or 0),
                      tz_offset_min=body.tz_offset_min or 0,
                      lat=(body.lat or "").strip()[:24], lng=(body.lng or "").strip()[:24],
                      accuracy_m=max(0, int(body.accuracy_m or 0)),
                      # Phone punches carried no IP, so the hover showed none (Oct 18 2026).
                      ip=_client_meta(request)[0], user_agent=_client_meta(request)[1],
-                     source="mobile", created_by=email, created_at=now, **geo))
+                     source="mobile", created_by=email, created_at=now, **geo)
+    db.add(_row)
+    _early_punch_alert(db, _row, email)
     if body.kind == "in":
         if _live_consent(db, email) is not None:
             _open_session(db, email) or _new_session(db, dev)  # start tracking on clock-in
@@ -7731,7 +7751,37 @@ def schedule_labor(start: str, end: str, user: dict = Depends(require_schedule_w
         out.update({"cost": total_cost, "currency": currency,
                     "costs": {k: round(v, 2) for k, v in currencies.items()},
                     "peopleWithoutRate": len(no_rate), "fixedPayPeople": len(fixed)})
+    # Weekly labor budget (Neil, 11/02/2026): HR++ ONLY - hr_access is the
+    # rule (the company's HR contact, administrators, a Full People grant in
+    # scope; the manager tier is never HR). Everyone else gets NEITHER key:
+    # the flag and the values are absent, not null, so a payload never says
+    # there is a budget to someone who may not see it.
+    budget_company = _budget_company(db, user, rows, people)
+    import hr_access
+    if hr_access.is_hr_for_company(db, user, budget_company):
+        from routers.shift_requests import get_settings as _shift_settings
+        cfg = _shift_settings(db, budget_company)
+        days = (d1 - d0).days + 1
+        scale = lambda v: (int(round(int(v) * days / 7.0)) if int(v or 0) > 0 else None)   # noqa: E731
+        out["budgetVisible"] = True
+        out["budget"] = {"hours": scale(cfg.get("laborBudgetHours", 0)),
+                         "amount": scale(cfg.get("laborBudgetAmount", 0)),
+                         "currency": currency or "USD"}
     return out
+
+
+def _budget_company(db: Session, user: dict, rows: list, people: dict) -> str:
+    """Whose weekly budget the planner shows: the one company of the people
+    scheduled in the range; several companies (or nobody scheduled) = the
+    caller's own company (auth.company_of)."""
+    companies = set()
+    for r in rows:
+        p = people.get((r.employee_email or "").lower())
+        companies.add((p.company if p is not None else "") or "")
+    if len(companies) == 1:
+        return next(iter(companies))
+    from auth import company_of
+    return company_of(user, db)
 
 
 @router.get("/schedule/check")
@@ -7818,18 +7868,30 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
     (Miranda, Oct 21: see at a glance who is on a break). The same people as
     /my-schedule; status words and the punch time only - never a location,
     note or screenshot. Someone with no punch on their current workday is
-    absent, and so is anyone exempt from time tracking."""
+    absent, and so is anyone exempt from time tracking.
+
+    The live team strip (Homebase lifts, Neil 11/02/2026) adds `late` - the
+    members expected to have started by now (shift_expect.expected_starts +
+    late_now, the ONE expected-start rule) with no clock-in yet - and
+    `counts` {in, break, late, off} over every member listed. A punch whose
+    job category classes as leave (_leave_class: Sick / PTO / Personal) is
+    NOT a clock-in, exactly as shift_attendance reads it: the person is on
+    leave, never In and never Late, so they are not in `people` either."""
     email = (user.get("email") or "").lower()
     from routers.shift_requests import settings_for as _sr_settings_for
+    import shift_expect
     cfg = _sr_settings_for(db, email)
     _, _, group_ids = _visible_shift_groups(db, user, email, cfg, can_manage_shifts(user))
     now = datetime.now(timezone.utc)
     people = {}
+    late = []
+    members = []
     if group_ids:
         exempt = time_tracking_exempt_emails(db)
         members = sorted({(m.employee_email or "").lower() for m in db.query(ShiftGroupMember)
                           .filter(ShiftGroupMember.group_id.in_(group_ids)).all()} - exempt - {""})
         last = {}
+        last_in = {}
         if members:
             # Two days covers any live shift (16h stale guard) and today's clock-out.
             since = (now - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S")
@@ -7837,7 +7899,11 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
                       .filter(func.lower(TimePunch.employee_email).in_(members),
                               TimePunch.voided == 0, TimePunch.at >= since)
                       .order_by(TimePunch.at.asc()).all()):
-                last[(p.employee_email or "").lower()] = p   # ascending -> the latest wins
+                em = (p.employee_email or "").lower()
+                last[em] = p   # ascending -> the latest wins
+                if p.kind == "in":
+                    last_in[em] = p
+        on_leave = set()
         for em, p in last.items():
             state = _LIVE_STATE.get(p.kind)
             if not state or _stale_open_shift(p):
@@ -7845,10 +7911,26 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
             off = p.tz_offset_min or 0
             if state == "out" and _local_date(p.at, off) != _local_date(now.isoformat(), off):
                 continue   # clocked out on an earlier day - nothing live to show
+            opened = last_in.get(em)
+            if opened is not None and _leave_class(getattr(opened, "category", "") or ""):
+                on_leave.add(em)   # a Sick / PTO / Personal punch: on leave, not on the clock
+                continue
             # Stored `at` is naive UTC; the Z keeps browsers from reading it as local time.
             at = p.at if p.at.endswith("Z") or "+" in p.at[10:] else p.at + "Z"
             people[em] = {"state": state, "label": _LIVE_LABEL[state], "since": at}
-    return {"people": people, "asOf": now.isoformat()}
+        # Late: no clock-in today and the expected start + grace has passed on
+        # the shift's own clock. "Today" is the planner's day - the caller's
+        # team zone; a weather-cancelled day or no shift at all is never late.
+        candidates = [em for em in members if em not in people and em not in on_leave]
+        if candidates:
+            team_day = now.astimezone(shift_expect.zone(cfg.get("timeZone") or _DEFAULT_TEAM_TZ)).date()
+            expected = shift_expect.expected_starts(db, candidates, team_day)
+            late = [em for em in candidates if shift_expect.late_now(team_day, expected.get(em), now)]
+    n_in = sum(1 for p in people.values() if p["state"] == "working")
+    n_break = sum(1 for p in people.values() if p["state"] == "break")
+    counts = {"in": n_in, "break": n_break, "late": len(late),
+              "off": max(0, len(members) - n_in - n_break - len(late))}
+    return {"people": people, "late": late, "counts": counts, "asOf": now.isoformat()}
 
 
 @router.get("/my-schedule")
@@ -7941,6 +8023,8 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
                         key=lambda g: (g.id not in member_set, (g.name or "").lower())):
             ems = sorted(set(members_by_group.get(g.id, [])), key=lambda em: (em != email, names.get(em, em)))
             teams.append({"id": g.id, "name": g.name, "isMember": g.id in member_set,
+                          # Forms (11/02/2026): a site-scoped form shows on the shift card of this team's site.
+                          "workSiteId": g.work_site_id or "",
                           "members": [{"email": em, "name": names.get(em, em), "isMe": em == email,
                                        "photoUrl": photos.get(em, ""),
                                        "shift": defaults.get(em), "scheduled": placed.get(em, []),
@@ -12176,6 +12260,16 @@ class _TimeoffPrivacy:
         self._stand_ins = {}
         self._any_deleg = None
         self._hr = {}
+        self._recommend_memo = None
+
+    def recommend_memo(self):
+        """One timeoff_recommend.Memo for every row this viewer is shown -
+        the settings per company, the policies and each person's balances
+        are read once per list, not once per pending row (11/02/2026)."""
+        if self._recommend_memo is None:
+            import timeoff_recommend
+            self._recommend_memo = timeoff_recommend.Memo(self.db, emp_lookup=self._emp)
+        return self._recommend_memo
 
     def _emp(self, email: str):
         if self._emps is None:
@@ -12302,6 +12396,14 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" 
            "firstNote": getattr(r, "first_note", "") or ""}
     if priv is not None:
         out["canDecide"] = priv.can_decide(r)
+        if out["canDecide"] and r.status == "pending":
+            # Time-off recommendation (Neil, 11/02/2026): "Recommended:
+            # Approve" / "Check First" with reasons, for the DECIDER only -
+            # a hint beside the buttons, never a decision (timeoff_recommend).
+            import timeoff_recommend
+            rec = timeoff_recommend.for_decider(priv.db, r, priv.recommend_memo())
+            if rec:
+                out["recommendation"] = rec
         # Who decides it, whenever the viewer cannot: a confidential request,
         # or the viewer's own (nobody approves their own time off - Visesh,
         # 09/30: "no approval or decline for me"; the approvers are named).

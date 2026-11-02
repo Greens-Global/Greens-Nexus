@@ -2246,6 +2246,15 @@ class DocTemplate(Base):
     published_meta      = Column(JSON, default=dict)
     published_by        = Column(String, default="")
     published_at        = Column(String, default="")
+    # Forms (Neil, 11/02/2026): a form IS a template (doc_type 'form'). Who
+    # may fill it is the Announcements audience rule (form_audience.py):
+    # 'company' = the creator's company, 'department' = `department` above,
+    # 'site' = people whose allowed work sites include `work_site_id`.
+    # show_on_shifts = 1 puts the form on the shift card of anyone scheduled
+    # at that site.
+    audience            = Column(String, default="company")   # company|department|site
+    work_site_id        = Column(String, default="")          # HrWorkSite.id for a site form
+    show_on_shifts      = Column(Integer, default=0)
 
 
 class Document(Base):
@@ -2308,6 +2317,11 @@ class DocTemplateVersion(Base):
     edited_by   = Column(String, default="")
     edited_at   = Column(String, default="")
     note        = Column(String, default="")
+    # The field list this version was PUBLISHED with (Forms, 11/02/2026): a
+    # form entry pins `template_version` and is read against these, so a later
+    # publish that renames a field never relabels an old entry. None = not
+    # stored (published before this column, or never published).
+    field_defs  = Column(JSON, nullable=True)
 
 
 # ── Time tracking (SwipeClock replacement) ────────────────────────────────────
@@ -4698,6 +4712,14 @@ class ServerSession(Base):
     auth_time         = Column(Float, default=0.0)          # last interactive auth (step-up freshness)
     created_at        = Column(String, default="")
     last_seen         = Column(String, default="")
+    # Where this session signed in from (sign_in_watch.record, Neil 11/02/2026):
+    # My Profile > Security lists live sessions by device and place. The ip is
+    # client_ip.client_ip's trusted address; ua_summary is ua_summary.summarize;
+    # location is ip_location.lookup ('' when unknown - never printed as such).
+    ip                = Column(String, default="")
+    user_agent        = Column(String, default="")
+    ua_summary        = Column(String, default="")
+    location          = Column(String, default="")
 
 
 class M365SyncRun(Base):
@@ -6254,6 +6276,10 @@ class Announcement(Base):
     publish_at   = Column(String, default="")                   # ISO timestamp, '' = published at create
     notify       = Column(String, default="quiet")              # quiet | push_teams | email
     notified_at  = Column(String, default="")                   # '' = not yet published to its audience
+    # Work-site audience (Neil, 11/02/2026, Homebase lifts): audience 'site'
+    # reaches the people whose allowed work sites (work_site_ids) hold this
+    # HrWorkSite id - an empty list is NOT a member. '' for other audiences.
+    work_site_id = Column(String, default="")
 
 
 class AnnouncementRead(Base):
@@ -6330,6 +6356,9 @@ class HrPacketSetting(Base):
     # of doc_template_ids - "there's a different confidentiality agreement for
     # each team" (Neil). [{match: department | role, value, templateIds: []}]
     extra_docs       = Column(JSON, default=list)
+    # Federal onboarding forms sent with a US hiring packet (Neil, 11/02/2026):
+    # ["w4", "i9", "direct_deposit"] in registry order - federal_forms.FORMS.
+    federal_forms    = Column(JSON, default=list)
     # Where the person works, inside the country (Neil, Oct 22): "there is a
     # hiring packet that applies to California... when we open Texas we'll add
     # one for Texas". A US state code (CA, TX), '' = anywhere in the country.
@@ -9676,3 +9705,54 @@ class NexusPushOutbox(Base):
     created_at  = Column(String, default="", index=True)
     sent_at     = Column(String, default="", index=True)           # '' = waiting
     error       = Column(String, default="")
+
+
+class DocFormEntry(Base):
+    """One filled form (Forms & Checklists, Neil 11/02/2026). The template is
+    a DocTemplate with doc_type 'form'; `template_version` pins the published
+    version the answers were given against. `answers` is {token: value}: a
+    photo field is a list of storage URLs, gps an object {lat, lng, accuracyM,
+    siteName}, a repeat group a list of answer maps under the group's name,
+    a signature a PNG URL. Files live in the private task-files bucket under
+    forms/<entry_key>/. Nothing here changes state by itself: status moves
+    only when a person reviews it. Soft-deleted rows keep deleted_at."""
+    __tablename__ = "doc_form_entries"
+    id               = Column(String, primary_key=True)                # uuid
+    template_id      = Column(String, index=True, nullable=False)
+    template_version = Column(Integer, default=0)
+    title            = Column(String, default="")                      # the template's title when filled
+    entry_key        = Column(String, unique=True, nullable=False)     # client-made UUID: a retry never files twice
+    answers          = Column(JSON, default=dict)
+    company          = Column(String, default="", index=True)          # the submitter's HrEntity id
+    work_site_id     = Column(String, default="", index=True)
+    shift_id         = Column(String, default="")
+    submitted_by     = Column(String, index=True, nullable=False)
+    submitted_at     = Column(String, default="", index=True)
+    source           = Column(String, default="web")                   # web | phone
+    status           = Column(String, default="submitted", index=True) # submitted | reviewed | follow_up | closed
+    reviewer_email   = Column(String, default="")
+    reviewed_at      = Column(String, default="")
+    review_note      = Column(String, default="")
+    linked_ticket_id = Column(String, default="")
+    linked_task_id   = Column(String, default="")
+    linked_asset_id  = Column(String, default="")
+    deleted_at       = Column(String, default="")
+class NexusSignIn(Base):
+    """One BFF sign-in (sign_in_watch.record, Neil 11/02/2026): who, when, from
+    which device and roughly where. `device_key` = sha256(ua_summary + the
+    address's /24 or /48); `is_new` when no sign-in of this person's in the
+    last 180 days carried the same key (never the very first sign-in);
+    `notified` once the bell and email went. Kept 180 days (sign_in_watch.sweep).
+    RLS must be enabled on dev+prod like every new table."""
+    __tablename__ = "nexus_sign_ins"
+    id          = Column(String, primary_key=True)                 # si_ + hex
+    email       = Column(String, nullable=False, index=True)
+    session_id  = Column(String, default="")                       # the server_sessions row (never sent to a browser)
+    at          = Column(String, default="", index=True)           # UTC ISO
+    ip          = Column(String, default="")
+    user_agent  = Column(String, default="")
+    ua_summary  = Column(String, default="")
+    location    = Column(String, default="")
+    device_key  = Column(String, default="", index=True)
+    is_new      = Column(Boolean, default=False)
+    notified    = Column(Boolean, default=False)

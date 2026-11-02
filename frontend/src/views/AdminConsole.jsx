@@ -133,6 +133,8 @@ const EmployeeCustomFieldsSettings = lazy(() => import('../components/EmployeeCu
 const ProbationSettings = lazy(() => import('../components/HrProbation').then(m => ({ default: m.ProbationSettings })));
 // Headcount Requests: off per company until turned on (Neil, Oct 30 2026).
 const HeadcountSwitch = lazy(() => import('../components/hiring/HeadcountSwitch'));
+// Federal Forms (Neil, 11/02/2026): the edition of each form built into Nexus, read-only.
+const FederalFormsStatus = lazy(() => import('../components/settings/FederalFormsStatus'));
 const WorkSiteLibrary = fromHR('WorkSiteLibrary');
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
@@ -476,6 +478,11 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Shared shifts on people\'s Outlook calendars, and asking people to confirm a shared schedule.',
     keywords: 'sharing outlook calendar free busy confirm schedule share' },
+  // Weekly labor budget (Neil, 11/02/2026): HR++ only - the Full People grant, never the manager tier.
+  { id: 'shift-labor-budget', subject: 'shifts', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Labor Budget', part: 'labor', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
+    sub: 'The scheduled hours and labor cost a week should stay within, shown on the shift planner to HR and administrators only.',
+    keywords: 'labor budget weekly hours amount cost planner scheduled hr' },
   { id: 'shift-types', subject: 'shifts', face: 'both', scope: 'layered', icon: Clock, title: 'Shift Types',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The reusable shifts managers place with one click - name, code, color, times, time zone and days. A person\'s usual hours are one of these.',
@@ -523,6 +530,13 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The letters employees request from My HR - employment verification, salary certificate, experience letter, address proof, visa NOC: which ones a company offers, the Documents template each prints from, and the letterhead.',
     keywords: 'hr letters employment verification salary certificate experience letter address proof visa noc no objection certificate request my hr template letterhead signatory' },
+  // Federal Forms (Neil, 11/02/2026): read-only - which edition of the W-4,
+  // the I-9 and the Direct Deposit Authorization Nexus holds and when it
+  // lapses. What GET /hr/federal-forms/status demands: HR++.
+  { id: 'federal-forms', subject: 'hiring', face: 'org', scope: 'org', icon: FileText, title: 'Federal Forms', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
+    sub: 'The Form W-4, Form I-9 and Direct Deposit Authorization that hiring packets and a person\'s Documents tab send through Nexus Sign: the edition built into Nexus, when it lapses, and where it came from. An expired edition is never sent.',
+    keywords: 'federal forms w-4 w4 i-9 i9 direct deposit authorization edition expires irs uscis onboarding tax withholding employment eligibility' },
   // Items & Equipment
   { id: 'item-types', subject: 'items', face: 'org', scope: 'org', icon: Tag, title: 'Item Types & Custom Fields',
     needs: { role: 'manager', grant: ['inventory', 'editor'] },
@@ -1742,6 +1756,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'letterheads':          return <LazyPanelSection key={key} id={id} Panel={LetterheadsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'headcount-requests':   return <LazyPanelSection key={key} id={id} Panel={HeadcountSwitch} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'hr-letters':           return <LazyPanelSection key={key} id={id} Panel={HrLettersSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'federal-forms':        return <LazyPanelSection key={key} id={id} Panel={FederalFormsStatus} chrome={chrome} />;
       case 'ticket-property-rules': return <LazyPanelSection key={key} id={id} Panel={TicketPropertyRulesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ops-unit-rules':       return <LazyPanelSection key={key} id={id} Panel={UnitRulesPanel} chrome={chrome} />;
       case 'app-ratings':          return <LazyPanelSection key={key} id={id} Panel={AppRatingsPanel} chrome={chrome} />;

@@ -419,7 +419,7 @@ def _time_off_row(kind_key: str, t: dict) -> dict:
         first = t.get("firstApproverName") or t.get("firstApprover") or "the manager"
         detail = f"{detail} - approved by {first}, waiting for HR"
     hr = kind_key == "time_off_hr"
-    return row(kind_key, t["id"], person_email=t["email"], person_name=t.get("name") or "",
+    out = row(kind_key, t["id"], person_email=t["email"], person_name=t.get("name") or "",
                title=title, detail=detail,
                # HR's wait starts when the manager said yes.
                created_at=(t.get("firstDecidedAt") if hr else "") or t.get("createdAt"),
@@ -428,6 +428,13 @@ def _time_off_row(kind_key: str, t: dict) -> dict:
                facts=(("Type", kind), ("Dates", span), ("Days", str(days) if days else ""),
                       ("Note", "" if t.get("redacted") else t.get("note") or ""),
                       ("First Approval", (t.get("firstApproverName") or t.get("firstApprover") or "") if hr else "")))
+    # Time-off recommendation (Neil, 11/02/2026): the serializer's hint for
+    # the decider - a soft chip on the row, never a decision; the actions
+    # above are exactly what they were.
+    rec = t.get("recommendation")
+    if rec and rec.get("label"):
+        out["hint"] = {"tone": rec.get("tone") or "", "text": rec["label"], "reasons": list(rec.get("reasons") or [])}
+    return out
 
 
 @source("time_off_hr", "Time Off Awaiting HR", "timeoff")

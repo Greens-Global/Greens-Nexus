@@ -25,6 +25,7 @@ import BreakAttestModal, { BreakStatement } from './BreakAttestModal';
 import { PersonSelect } from '../tasks/components';
 import { dialog } from '../ui/dialog';
 import { HOLD_MAJOR_MS } from '../ui/HoldButton';
+import SignTextField from './esign/SignTextField';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
@@ -980,7 +981,9 @@ function HistoryPanel({ loadHistory, onClose }) {
 // A box belonging to ANOTHER party, drawn over the document. Filled or signed
 // by them, it shows what they put there, read-only and tinted; still empty, it
 // stays a faint placeholder carrying their name.
-function OtherPartyField({ field: f, style, payload }) {
+// Exported for its test: a sensitive value (SSN, bank account) another party
+// filled arrives masked from the server and is shown exactly as given.
+export function OtherPartyField({ field: f, style, payload }) {
   const who = (payload.parties || []).find(p => p.roleKey === f.role);
   const signed = (payload.signedByRole || {})[f.role];
   const filled = payload.filledByOthers || {};
@@ -988,7 +991,7 @@ function OtherPartyField({ field: f, style, payload }) {
     borderRadius: 4, color: '#374151', display: 'flex', alignItems: 'center', overflow: 'hidden' };
   const label = (text, extra = {}) => (
     <span style={{ ...tint, padding: '0 5px', fontSize: 10.5, whiteSpace: 'nowrap', ...extra }}
-      title={`${who?.name || 'Another signer'}`}>{text}</span>
+      title={`${who?.name || 'Another signer'}${f.sensitive ? ' - shown masked' : ''}`}>{text}</span>
   );
 
   if (f.type === 'sign' || f.type === 'initials') {
@@ -1068,7 +1071,7 @@ function UploadField({ field, style, innerRef, record, busy, disabled, error,
   );
 }
 
-export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi, copyApi, onReportBreak }) {
+export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi, copyApi, onReportBreak, fieldError = null }) {
   // Phone widths: the action bar's one row of controls does not fit, and the
   // signer should never have to scroll back up to finish (Sagar, Sep 22 2026).
   const narrow = useIsMobile('(max-width: 720px)');
@@ -1098,7 +1101,14 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
     seenPages.current.add(index);
     setPagesTotal(t => (total > t ? total : t));
   }, []);
-  const [values, setValues] = useState(payload.myValues || {});
+  // A federal form's text box may arrive prefilled by the server (`value`:
+  // the first day of employment, the employer block - 11/02/2026); it is the
+  // initial value, and the signer may still change it.
+  const [values, setValues] = useState(() => {
+    const v = { ...(payload.myValues || {}) };
+    for (const f of (payload.fields || [])) if (f.type === 'text' && f.value != null && f.value !== '' && (v[f.id] == null || v[f.id] === '')) v[f.id] = String(f.value);
+    return v;
+  });
   // Upload fields, keyed by field id. Seeded from the server so a signer who
   // comes back to the link sees what they already attached rather than an
   // empty box they would dutifully fill again; the server row is the truth,
@@ -1205,7 +1215,20 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   const othersFilled = payload.filledByOthers || {};
   const othersSigned = payload.signedByRole || {};
   const isTemplate = payload.source === 'template';
-  const setVal = (k, v) => setValues(p => ({ ...p, [k]: v }));
+  // A 422 from the sign POST names ONE field and a sentence (federal forms,
+  // Neil 11/02/2026 - a bad SSN or routing number): it shows under that
+  // field, the page scrolls to it, and it clears once the signer changes it.
+  // `dismissed` is the one the signer has typed over; a fresh 422 is a new
+  // object from the parent, so it shows again.
+  const [dismissed, setDismissed] = useState(null);
+  const fieldErr = fieldError?.field && fieldError !== dismissed ? fieldError : null;
+  useEffect(() => {
+    if (!fieldError?.field) return;
+    const el = fieldRefs.current[fieldError.field];
+    el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    el?.focus?.({ preventScroll: true });
+  }, [fieldError]);
+  const setVal = (k, v) => { setValues(p => ({ ...p, [k]: v })); if (fieldErr && fieldErr.field === k) setDismissed(fieldErr); };
 
   // Every actionable field of mine, in document order, with a completion check.
   const ACTIONABLE = ['sign', 'check', 'text', 'dropdown', 'radio', 'upload'];
@@ -1450,8 +1473,12 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
       } else if (type === 'text') {
         const k = `text:${label}`;
         parts.push(mine
-          ? <input key={key} ref={el => { fieldRefs.current[k] = el; }} className="form-input" placeholder={label} value={values[k] || ''} disabled={!payload.myTurn}
-              onChange={e => setVal(k, e.target.value)} style={{ display: 'inline-block', width: 220, margin: '2px 0', borderColor: '#fbbf24' }} />
+          ? <span key={key} style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+              <input ref={el => { fieldRefs.current[k] = el; }} className="form-input" placeholder={label} value={values[k] || ''} disabled={!payload.myTurn}
+                aria-invalid={fieldErr?.field === k ? 'true' : undefined}
+                onChange={e => setVal(k, e.target.value)} style={{ display: 'inline-block', width: 220, margin: '2px 0', borderColor: fieldErr?.field === k ? '#dc2626' : '#fbbf24' }} />
+              {fieldErr?.field === k && <span role="alert" style={{ display: 'block', fontSize: 11.5, color: '#b91c1c', fontWeight: 700, fontFamily: 'Inter,sans-serif', marginTop: 2 }}>{fieldErr.message}</span>}
+            </span>
           : <span key={key} title={`${(payload.parties || []).find(p => p.roleKey === role)?.name || 'Another signer'}`}
               style={{ borderBottom: '1px solid var(--line)', minWidth: 130, display: 'inline-block', fontSize: othersFilled[k] ? 14 : 12,
                 color: othersFilled[k] ? '#374151' : 'var(--muted)', background: othersFilled[k] ? 'rgba(16,185,129,0.07)' : 'transparent',
@@ -1493,8 +1520,10 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
             onChange={e => setVal(f.id, e.target.checked)} style={{ ...st, accentColor: '#10b981', cursor: 'pointer' }} />;
         }
         if (f.type === 'text' && mine) {
-          return <input key={f.id} ref={el => { fieldRefs.current[f.id] = el; }} value={values[f.id] || ''} disabled={!payload.myTurn} onChange={e => setVal(f.id, e.target.value)}
-            placeholder="Text" style={{ ...zoomSafe, border: '2.2px dashed #fbbf24', background: 'rgba(251,191,36,0.1)', borderRadius: 6, padding: '0 6px' }} />;
+          // A `format` (ssn, routing, date_mmddyyyy ...) masks the box as the
+          // signer types; the server's 422 sentence shows under it.
+          return <SignTextField key={f.id} field={f} innerRef={el => { fieldRefs.current[f.id] = el; }} value={values[f.id]} disabled={!payload.myTurn}
+            onChange={v => setVal(f.id, v)} style={st} inputStyle={zoomSafe} error={fieldErr?.field === f.id ? fieldErr.message : ''} />;
         }
         if (f.type === 'dropdown' && mine) {
           return (
@@ -1729,9 +1758,18 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
           (review section 7). */}
       {payload.myTurn && (
         <div ref={finishBarRef} className="nx-finish-bar" data-testid="finish-bar"
-          style={{ position: 'sticky', top: 0, zIndex: 26, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10,
+          style={{ position: 'sticky', top: 0, zIndex: 26, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
             background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
             padding: narrow ? 'calc(8px + env(safe-area-inset-top, 0px)) 12px 8px' : '8px 14px' }}>
+          {/* The server's 422 sentence, once more here above Finish: the field
+              it names may be on page 4 of a 5-page I-9 while the signer is
+              looking at page 1. The field's own note is the live region (the
+              alert); this line is a plain repeat, so it is not announced twice. */}
+          {fieldErr && (
+            <span data-testid="finish-bar-error" style={{ flexBasis: '100%', fontSize: 12, fontWeight: 600, color: '#b91c1c', lineHeight: 1.35 }}>
+              {fieldErr.message}
+            </span>
+          )}
           {actsNotSigns || !required.length ? (
             <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {actsNotSigns ? 'Nothing to fill in' : 'Ready to sign'}
@@ -2014,6 +2052,7 @@ export function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
   const [payload, setPayload] = useState(null);
   const [busy, setBusy] = useState(false);
   const [reporting, setReporting] = useState(false);   // CA: Report a Missed Break
+  const [fieldError, setFieldError] = useState(null);  // a 422 naming one field - shown under it, not toasted
   const [boxRef, boxH] = useFillHeight();
   const load = useCallback(
     () => api.mySignRender(partyId).then(setPayload),
@@ -2033,11 +2072,16 @@ export function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
 
   async function submit(data) {
     setBusy(true);
+    setFieldError(null);
     try {
       const r = await api.mySignSubmit(partyId, data);
       toastOk(r.status === 'completed' ? 'Signed - all parties done, document sealed.' : `Signed. Next: ${r.next}.`);
       onDone();
-    } catch (e) { toastErr(e?.message || 'Could not sign.'); setBusy(false); }
+    } catch (e) {
+      const d = e?.detail;
+      if (d && typeof d === 'object' && !Array.isArray(d) && d.field) { setFieldError({ field: d.field, message: d.message || e.message }); setBusy(false); return; }
+      toastErr(e?.message || 'Could not sign.'); setBusy(false);
+    }
   }
   // Approvers and certified-delivery recipients do not sign - they act, and
   // the envelope advances exactly the same way.
@@ -2079,7 +2123,7 @@ export function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
             ? <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
             : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onAct={act} onDecline={decline}
                 gateApi={gateApi} onCleared={() => load().catch(() => {})} uploadApi={uploadApi}
-                historyApi={historyApi}
+                historyApi={historyApi} fieldError={fieldError}
                 onReportBreak={payload.breakAttestation?.reviewId && payload.breakAttestation.canReport !== false
                   ? () => setReporting(true) : undefined} />}
           {/* CA-rule staff: Report a Missed Break instead of signing - the

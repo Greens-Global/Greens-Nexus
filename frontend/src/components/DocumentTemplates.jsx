@@ -354,6 +354,7 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
   const visible = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return (templates || []).filter(t => {
+      if (t.docType === 'form') return false;   // Documents > Forms (Neil, 11/02/2026)
       if (statusFilter === 'current' ? t.state === 'archived' : t.state !== statusFilter) return false;
       if (category && t.category !== category) return false;
       return !needle || [t.name, categoryLabel(t.category), t.department, ...(t.tags || [])]

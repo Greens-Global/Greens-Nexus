@@ -47,7 +47,7 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false, canMove 
                 title={!mobile && !movable ? 'You cannot change this ticket\'s status' : undefined}
                 style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 10, cursor: drag ? 'grab' : 'pointer', opacity: dragId === t.id ? 0.5 : 1, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <TicketTypeIcon type={t.type} size={14} />
+                  <TicketTypeIcon type={t.type} size={13} boxed />
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: NX.faint }}>{ticketNoShort(t.code)}</span>
                 </div>
                 <div style={{ marginTop: 6, fontSize: 13, fontWeight: 600, color: NX.ink }}>{t.subject}</div>

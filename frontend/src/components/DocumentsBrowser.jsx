@@ -402,13 +402,16 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
 
   const load = async () => {
     // HR Records answers only for whoever may read People; the server is the gate.
-    const [library, hr] = await Promise.all([
+    // Form entries (Neil, 11/02/2026): the viewer's reach, first page - the
+    // whole list with its filters is Documents > Forms > Entries.
+    const [library, hr, forms] = await Promise.all([
       api.getDocumentLibrary().then((r) => { setLoadError(''); return r; })
         .catch((e) => { setLoadError(e?.message || 'Could not load documents.'); return []; }),
       api.listPacketDocuments({}).then((r) => { setHrAccess(true); return r; })
         .catch(() => { setHrAccess(false); return []; }),
+      Promise.resolve().then(() => api.getFormEntries({ page: 1 })).then((r) => (Array.isArray(r?.items) ? r.items : [])).catch(() => []),
     ]);
-    const merged = mergeRows(library, hr);
+    const merged = mergeRows(library, hr, forms);
     setRows(merged);
     setView((v) => v || startView(merged));
     // A document just made from a template lands here, open beside the list.
@@ -424,7 +427,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
   const visible = useMemo(() => sortRows(searchRows(rowsInView(all, view), search, folders), sort.key, sort.dir),
     [all, view, search, folders, sort]);
   const selected = selectedId ? all.find((r) => r.id === selectedId) : null;
-  const views = VIEWS.filter((v) => !v.hrOnly || hrAccess);
+  const views = VIEWS.filter((v) => (!v.hrOnly || hrAccess) && (!v.formsOnly || all.some((r) => r.kind === 'form_entry')));
   const countOf = (key) => rowsInView(all, key).length;
   const viewEmpty = VIEWS.find((v) => v.key === view)?.empty || 'This folder is empty.';
 

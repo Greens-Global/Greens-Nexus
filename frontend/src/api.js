@@ -3391,3 +3391,51 @@ api.pushConfig = () => req('/push/config');
 api.pushSubscribe = (sub) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
 api.pushUnsubscribe = (endpoint) => req('/push/subscribe', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
 api.pushSubscriptions = () => req('/push/subscriptions');
+
+// Forms (Neil, 11/02/2026; backend routers/forms.py). A form is a template with
+// docType 'form' - its build, publish, duplicate and archive are the template
+// calls above. These are the entries: what this person may fill, the fill
+// payload, a submission (idempotent on entryKey), the viewer's list, review,
+// links to a ticket / task / asset, the PDF, and one CSV per form.
+api.getFormsMine = () => req('/forms/mine');
+api.getFormFill = (tid) => req(`/forms/${encodeURIComponent(tid)}`);
+api.submitFormEntry = (tid, data) => req(`/forms/${encodeURIComponent(tid)}/entries`, { method: 'POST', body: JSON.stringify(data) });
+// params: template, site, status, from, to, person, page - empty ones left out.
+// Answers {items: [entry], total, page, pageSize}.
+api.getFormEntries = (params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null));
+  return req(`/forms/entries${q.toString() ? `?${q}` : ''}`);
+};
+api.getFormEntry = (id) => req(`/forms/entries/${encodeURIComponent(id)}`);
+api.reviewFormEntry = (id, data) => req(`/forms/entries/${encodeURIComponent(id)}/review`, { method: 'POST', body: JSON.stringify(data) });
+api.linkFormEntry = (id, data) => req(`/forms/entries/${encodeURIComponent(id)}/link`, { method: 'POST', body: JSON.stringify(data) });
+api.formEntryPdf = (id) => reqBlob(`/forms/entries/${encodeURIComponent(id)}/pdf`);
+// params: from, to, status, site - the list's filters, empty ones left out.
+api.formTemplateCsv = (tid, params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null));
+  return reqBlob(`/forms/templates/${encodeURIComponent(tid)}/export.csv${q.toString() ? `?${q}` : ''}`);
+};
+// Forms & Checklists (Neil, 11/02/2026; backend routers/forms.py). The forms
+// this person may fill (the server's audience rule), one form's released
+// fields for the fill screen, and the send - idempotent on `entryKey`, so a
+// retry files the same entry once. Photos and signatures go to task-files
+// under forms/<entryKey>/ first (tasks/lib storeTaskFile); the body carries
+// their URLs. body: {entryKey, answers, workSiteId?, shiftId?, source, gps?}.
+// The same three calls under the names the fill screen uses (one definition above).
+api.formsMine = (...a) => api.getFormsMine(...a);
+api.formGet = (...a) => api.getFormFill(...a);
+api.formSubmit = (...a) => api.submitFormEntry(...a);
+// Federal forms (Neil, 11/02/2026; backend federal_forms/ + routers/hr.py):
+// HR++ sends one form - w4 / i9 / direct_deposit - to one employee, and
+// Settings reads the edition watch. A hiring packet's forms travel as
+// `federal_forms` on saveDocumentsPacket's body like its other fields.
+api.sendFederalForm = (eid, kind) => req(`/hr/employees/${encodeURIComponent(eid)}/federal-forms/send`, { method: 'POST', body: JSON.stringify({ kind }) });
+api.federalFormsStatus = () => req('/hr/federal-forms/status');
+// My Profile > Security (Neil, 11/02/2026; backend routers/me_sessions.py):
+// where you are signed in (a session is named by a hash - the cookie value
+// itself never comes back), sign one or every other device out, and the last
+// 20 sign-ins with the device and the approximate place.
+api.mySessions = () => req('/me/sessions');
+api.mySignIns = () => req('/me/sign-ins');
+api.signOutSession = (id) => req(`/me/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+api.signOutOtherSessions = () => req('/me/sessions/others', { method: 'POST' });
