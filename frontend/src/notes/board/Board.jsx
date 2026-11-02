@@ -16,6 +16,7 @@ import '@excalidraw/excalidraw/index.css';
 import './board.css';
 import { parseScene, serializeScene, applyLook, lookDefaults, emptyScene, LOOKS } from './scene';
 import { uploadBoardFile, loadBoardFiles } from './files';
+import { reconcile, remoteWins } from './boardSync';
 import { exportPng, exportSvg, exportThumb, copyPng, downloadBlob, downloadScene } from './exportBoard';
 import { dataUrlToFile } from '../../tasks/lib';
 import { exportFileName } from '../notesModel';
@@ -138,16 +139,34 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     collab.attach(api, { onRemoteFiles, restore: restoreRemote });
   }, [api, collab, onRemoteFiles]);
 
-  // A viewer has no live session (the channel key is the editors' alone):
-  // when the saved scene moves on under it, the new drawing goes on the
-  // engine as-is, never into a history it cannot use anyway.
+  // The saved scene moved on under this board (a new rev this Board did not
+  // just send: a save merged with someone else's shapes after a 409 or a
+  // draft merge, or - for a viewer, who has no live session - anyone's
+  // save). The newer drawing goes on the engine without a history entry:
+  // a viewer takes it as is; an editor reconciles it with what is on the
+  // canvas (newest version of each element wins) and does not save it back
+  // - the elements that came this way are remembered so the engine's echo
+  // schedules nothing.
   const seenScene = useRef(note?.scene);
+  const fromScene = useRef(new Map());
   useEffect(() => {
-    if (canEdit || !api || note?.scene === seenScene.current) return;
+    if (!api || note?.scene === seenScene.current) return;
     seenScene.current = note?.scene;
+    if (canEdit && note?.scene === lastSent.current) return;     // our own save coming back
     const next = parseScene(note?.scene);
     if (!next) return;
-    api.updateScene({ elements: restoreRemote(next.elements), captureUpdate: CaptureUpdateAction.NEVER });
+    const incoming = restoreRemote(next.elements);
+    if (canEdit) {
+      const current = api.getSceneElementsIncludingDeleted();
+      const mine = new Map((current || []).map((e) => [e?.id, e]));
+      const winners = incoming.filter((e) => e?.id && remoteWins(mine.get(e.id), e));
+      if (winners.length) {
+        for (const e of winners) fromScene.current.set(e.id, elKey(e));
+        api.updateScene({ elements: reconcile(current, winners), captureUpdate: CaptureUpdateAction.NEVER });
+      }
+    } else {
+      api.updateScene({ elements: incoming, captureUpdate: CaptureUpdateAction.NEVER });
+    }
     onRemoteFiles(next.files);
   }, [note?.scene, api, canEdit, onRemoteFiles]);
 
@@ -245,7 +264,8 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
       next.set(e.id, k);
       if (seenEls.current.get(e.id) === k) continue;
       changed = true;
-      if (!isRemote || !isRemote(e)) local = true;
+      const outside = fromScene.current.get(e.id) === k || (isRemote && isRemote(e));
+      if (!outside) local = true;
     }
     seenEls.current = next;
     return changed && !local;

@@ -279,6 +279,45 @@ describe('Board', () => {
     expect(restoreElements).toHaveBeenLastCalledWith(expect.any(Array), null, { refreshDimensions: false });
   });
 
+  it('an editor merges a saved scene that moved on (another person\'s shapes) into the canvas, without saving it back', async () => {
+    const first = JSON.stringify({ type: SCENE_TYPE, version: 1, look: 'clean', elements: [el()], appState: {}, files: {} });
+    const onScene = vi.fn(); const onThumb = vi.fn();
+    fakeApi.scene = [el(), el({ id: 'mine', version: 2 })];
+    const { rerender } = render(<Board note={note({ scene: first })} look="clean" onScene={onScene} onThumb={onThumb} />);
+    await act(async () => {});
+    // `mine` was drawn here (and saved) before the merge arrived.
+    act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); });
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    onScene.mockClear(); onThumb.mockClear();
+    fakeApi.updateScene.mockClear();
+    // The server's copy after a merge: Bob moved e1 (version 3) and drew b1; it also holds an older copy of `mine`.
+    const merged = JSON.stringify({ type: SCENE_TYPE, version: 1, look: 'clean', appState: {}, files: {},
+      elements: [el({ x: 99, version: 3, versionNonce: 5 }), el({ id: 'b1' }), el({ id: 'mine', version: 1 })] });
+    await act(async () => { rerender(<Board note={note({ scene: merged })} look="clean" onScene={onScene} onThumb={onThumb} />); });
+    const call = fakeApi.updateScene.mock.calls.at(-1)[0];
+    expect(call.captureUpdate).toBe('NEVER');
+    expect(call.elements.map((e) => e.id)).toEqual(['e1', 'mine', 'b1']);
+    expect(call.elements.find((e) => e.id === 'e1')).toMatchObject({ x: 99, version: 3, restored: true });
+    expect(call.elements.find((e) => e.id === 'mine').version).toBe(2);      // this person's newer copy stays
+    // The engine echoes the update: nothing is saved back.
+    act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); });
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(onScene).not.toHaveBeenCalled();
+    expect(onThumb).not.toHaveBeenCalled();
+  });
+
+  it('an editor\'s own save coming back as the note\'s scene is not put on the canvas again', async () => {
+    const onScene = vi.fn();
+    const { rerender } = render(<Board note={note()} look="clean" onScene={onScene} />);
+    await act(async () => {});
+    fakeApi.scene = [el()];
+    act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); vi.advanceTimersByTime(800); });
+    const sent = onScene.mock.calls[0][0];
+    fakeApi.updateScene.mockClear();
+    await act(async () => { rerender(<Board note={note({ scene: sent })} look="clean" onScene={onScene} />); });
+    expect(fakeApi.updateScene).not.toHaveBeenCalled();
+  });
+
   // ── saving: flush, no repeats, not the others' strokes ─────────────────
   it('Back / Close inside the save delay still hands over the last stroke, once', async () => {
     const onScene = vi.fn();
