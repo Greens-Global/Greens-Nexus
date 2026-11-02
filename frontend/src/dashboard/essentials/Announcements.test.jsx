@@ -145,7 +145,7 @@ describe('Announcements tile', () => {
     fireEvent.change(within(form).getByPlaceholderText('Plain text, line breaks are kept.'), { target: { value: 'Use the side street.' } });
     fireEvent.change(within(form).getByDisplayValue('Company'), { target: { value: 'department' } });
     fireEvent.change(within(form).getByPlaceholderText('e.g. Operations'), { target: { value: 'Operations' } });
-    fireEvent.click(within(form).getByLabelText('Requires acknowledgment'));
+    fireEvent.click(within(form).getByLabelText('Requires Acknowledgment'));
     apiMock.getAnnouncements.mockResolvedValue([ann({ title: 'Parking lot closed', audience: 'department', department: 'Operations', read_count: 0, ack_count: 0, requires_ack: true })]);
     fireEvent.click(within(form).getByText('Post Announcement'));
     await waitFor(() => expect(apiMock.createAnnouncement).toHaveBeenCalledWith({
@@ -204,6 +204,9 @@ describe('helpers', () => {
     expect(ackSummary(ann({ ack_count: 1, ack_names: ['Ana Diaz'] }))).toBe('Acknowledged by Ana Diaz');
     expect(ackSummary(ann({ ack_count: 5, ack_names: ['Ana Diaz', 'Bob Lee'] }))).toBe('Acknowledged by Ana Diaz, Bob Lee and 3 more');
     expect(ackSummary(ann({ ack_count: 2 }))).toBe('Acknowledged by 2');
+    // Exactly two acknowledgers (the server sends two names): "and", no comma.
+    expect(ackSummary(ann({ ack_count: 2, ack_names: ['Ana Diaz', 'Bob Lee'] }))).toBe('Acknowledged by Ana Diaz and Bob Lee');
+    expect(ackSummary(ann({ ack_count: 3, ack_names: ['Ana Diaz', 'Bob Lee'] }))).toBe('Acknowledged by Ana Diaz, Bob Lee and 1 more');
   });
   it('joinLocal / splitLocal round-trip a local date and time through an ISO instant', () => {
     const iso = joinLocal('2026-11-05', '09:30');
@@ -229,6 +232,40 @@ describe('Announcements reach (11/02/2026)', () => {
     expect(apiMock.markAnnouncementRead).not.toHaveBeenCalled();   // the link never toggles the row
     fireEvent.click(row);
     expect(screen.getByTestId('ann-image').getAttribute('src')).toContain('pic.png');
+  });
+
+  it('the picture is content (a real alt), the row is dated by when it published, and the Notify options say Bell', async () => {
+    apiMock.getAnnouncements.mockResolvedValue([ann({ id: 'd', title: 'Diwali hours', image_url: STORAGE, created_at: '2026-10-01T15:00:00+00:00', shown_at: '2026-10-20T15:00:00+00:00' })]);
+    role.admin = true;
+    render(<Announcements />);
+    const row = await screen.findByRole('button', { name: /Diwali hours/ });
+    expect(screen.getByText(/10\/20\/2026/)).toBeTruthy();
+    expect(screen.queryByText(/10\/01\/2026/)).toBeNull();
+    fireEvent.click(row);
+    expect(screen.getByTestId('ann-image').getAttribute('alt')).toBe('Picture for Diwali hours');
+    fireEvent.click(screen.getByText('Post'));
+    const form = screen.getByRole('form', { name: 'Post Announcement' });
+    const labels = Array.from(within(form).getByLabelText('Notify').options).map((o) => o.textContent);
+    expect(labels).toEqual(['Bell', 'Bell and Teams', 'Bell and Email']);
+    expect(within(form).getByText(/phone notification if they installed Nexus/)).toBeTruthy();
+    expect(within(form).queryByText(/Push/)).toBeNull();
+  });
+
+  it('a picture over 10 MB or a file over 25 MB is refused in a sentence before any upload starts', async () => {
+    role.admin = true;
+    render(<Announcements />);
+    await screen.findByText('No announcements.');
+    fireEvent.click(screen.getByText('Post'));
+    const form = screen.getByRole('form', { name: 'Post Announcement' });
+    const big = new File(['x'], 'huge.png', { type: 'image/png' });
+    Object.defineProperty(big, 'size', { value: 11 * 1024 * 1024 });
+    fireEvent.change(within(form).getByLabelText('Picture file'), { target: { files: [big] } });
+    expect(await within(form).findByRole('alert')).toHaveTextContent('That picture is larger than 10 MB.');
+    const bigFile = new File(['x'], 'plans.pdf', { type: 'application/pdf' });
+    Object.defineProperty(bigFile, 'size', { value: 26 * 1024 * 1024 });
+    fireEvent.change(within(form).getByLabelText('Attachment file'), { target: { files: [bigFile] } });
+    expect(await within(form).findByRole('alert')).toHaveTextContent('That file is larger than 25 MB.');
+    expect(uploadMock).not.toHaveBeenCalled();
   });
 
   it('an administrator sees Scheduled for and the acknowledged-by names; staff see neither', async () => {
