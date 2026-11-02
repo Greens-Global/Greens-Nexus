@@ -63,6 +63,9 @@ async function settled(start) {
 const openContexts = new Set();
 async function newContext(browser, options) {
   const ctx = await browser.newContext(options);
+  // Nothing in these tests may reach beyond this machine. The engine falls back to
+  // a public CDN when a bundled library fails to load; that must not rescue a test.
+  await ctx.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (r) => r.abort());
   openContexts.add(ctx);
   return ctx;
 }
@@ -1035,9 +1038,14 @@ test.describe('6. encrypted PDFs', () => {
     await expectPages(v, buf, [['KEEP-ME', REDHEX]]);
   });
 
-  test('a wrong password, four times over, opens nothing and "repairs" nothing', async ({ browser }) => {
-    const page = await openEngine(browser, null, undefined, { query: HOOKS });
-    await page.setInputFiles('#fileInput', { name: 'locked.pdf', mimeType: 'application/pdf', buffer: await encrypted(['LOCKED'], { user: 'right' }) });
+  test('a wrong password, three times over, opens nothing and "repairs" nothing', async ({ browser }) => {
+    const locked = await encrypted(['LOCKED'], { user: 'right' });
+    const page = await settled(async () => {
+      const p = await startEngine(browser, HOOKS);
+      await p.setInputFiles('#fileInput', { name: 'locked.pdf', mimeType: 'application/pdf', buffer: locked });
+      await p.locator('.modal-overlay input:visible').waitFor({ timeout: 5000 });
+      return p;
+    });
     for (let i = 0; i < 3; i++) {
       await page.locator('.modal-overlay input:visible').fill('wrong');
       await clickOk(page);
