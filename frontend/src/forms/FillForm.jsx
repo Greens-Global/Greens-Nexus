@@ -60,7 +60,7 @@ export const openEntry = (entry) => window.dispatchEvent(new CustomEvent('nexus:
 
 // ── Form-only inputs ──────────────────────────────────────────────────────────
 
-function PhotoField({ value, onChange, entryKey, phone, disabled, label: name = 'Photos' }) {
+function PhotoField({ value, onChange, entryKey, phone, disabled, label: name = 'Photos', onUploading }) {
   const urls = Array.isArray(value) ? value : [];
   const camRef = useRef(null);
   const fileRef = useRef(null);
@@ -70,14 +70,16 @@ function PhotoField({ value, onChange, entryKey, phone, disabled, label: name = 
       if (!file.type?.startsWith('image/')) continue;
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       setUploads((u) => [...u, { id, name: file.name, progress: 0 }]);
+      onUploading?.(1);   // Send waits for it (FillForm)
       storeTaskFile(file, (p) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, progress: p } : x))), FOLDER(entryKey))
         .then((url) => {
           setUploads((u) => u.filter((x) => x.id !== id));
           if (url) onChange((prev) => [...(Array.isArray(prev) ? prev : []), url]);
         })
-        .catch((e) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, error: e?.message || 'upload failed' } : x))));
+        .catch((e) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, error: e?.message || 'upload failed' } : x))))
+        .finally(() => onUploading?.(-1));
     }
-  }, [entryKey, onChange]);
+  }, [entryKey, onChange, onUploading]);
   const onPaste = (e) => { const fs = filesFromPaste(e); if (fs.length) { e.preventDefault(); add(fs); } };
   return (
     // Focusable (Tab, or a click) so Ctrl+V pastes without pressing a button first; .nx-paste-zone rings it.
@@ -224,7 +226,7 @@ function YesNoField({ def, value, onChange, disabled, phone }) {
   );
 }
 
-function SignatureField({ value, onChange, entryKey, disabled, signerName, phone }) {
+function SignatureField({ value, onChange, entryKey, disabled, signerName, phone, onUploading }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -233,10 +235,11 @@ function SignatureField({ value, onChange, entryKey, disabled, signerName, phone
     const file = dataUrlToFile(data, `signature-${Date.now()}.png`);
     if (!file) { setErr('The signature could not be saved - try again.'); return; }
     setBusy(true); setErr('');
+    onUploading?.(1);
     storeTaskFile(file, null, FOLDER(entryKey))
       .then((url) => { if (url) onChange(url); else setErr('The signature could not be uploaded - try again.'); })
       .catch((e) => setErr(e?.message || 'The signature could not be uploaded - try again.'))
-      .finally(() => setBusy(false));
+      .finally(() => { setBusy(false); onUploading?.(-1); });
   };
   return (
     <div>
@@ -270,12 +273,12 @@ function Field({ def, value, error, onChange, ctx, idKey }) {
   let control;
   let ownLabel = true;    // the control carries the label itself
   switch (def.type) {
-    case 'photo': control = <PhotoField value={value} onChange={onChange} entryKey={ctx.entryKey} phone={ctx.phone} disabled={disabled} label={def.label} />; break;
+    case 'photo': control = <PhotoField value={value} onChange={onChange} entryKey={ctx.entryKey} phone={ctx.phone} disabled={disabled} label={def.label} onUploading={ctx.onUploading} />; break;
     case 'gps': control = <GpsField value={value} onChange={onChange} workSites={ctx.workSites} disabled={disabled} phone={ctx.phone} />; break;
     case 'scan': control = <ScanField def={def} value={value} onChange={onChange} disabled={disabled} inputId={inputId} phone={ctx.phone} />; break;
     case 'rating': control = <RatingField def={def} value={value} onChange={onChange} disabled={disabled} phone={ctx.phone} />; break;
     case 'yesno': control = <YesNoField def={def} value={value} onChange={onChange} disabled={disabled} phone={ctx.phone} />; break;
-    case 'signature': control = <SignatureField value={value} onChange={onChange} entryKey={ctx.entryKey} disabled={disabled} signerName={ctx.signerName} phone={ctx.phone} />; break;
+    case 'signature': control = <SignatureField value={value} onChange={onChange} entryKey={ctx.entryKey} disabled={disabled} signerName={ctx.signerName} phone={ctx.phone} onUploading={ctx.onUploading} />; break;
     case 'date': control = <DateField value={value || ''} onChange={(v) => onChange(v || '')} title={def.label} disabled={disabled} style={{ width: '100%' }} />; break;
     // The 12-hour picker, never the native time box (it follows the computer's region).
     case 'time': control = <TimeField value={value || ''} onChange={(v) => onChange(v || '')} ariaLabel={def.label} disabled={disabled} step={5} style={{ width: '100%' }} />; break;
@@ -361,6 +364,10 @@ export default function FillForm({ templateId, template: given = null, preview =
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(null);
   const [site, setSite] = useState(workSiteId || '');
+  // Photos and signatures still uploading - Send waits for them, so an entry
+  // never goes without a picture the person already took.
+  const [uploading, setUploading] = useState(0);
+  const onUploading = useCallback((d) => setUploading((n) => Math.max(0, n + d)), []);
   // The draft offered back - until Continue or Discard nothing is saved over it.
   const [offer, setOffer] = useState(() => { if (preview) return null; const d = loadDraft(tid); return d && hasContent(d.answers) ? d : null; });
   const sending = useRef(false);
@@ -416,7 +423,7 @@ export default function FillForm({ templateId, template: given = null, preview =
   const discardDraft = () => { clearDraft(tid); setOffer(null); };
 
   const submit = async () => {
-    if (preview || sending.current || sent) return;
+    if (preview || sending.current || sent || uploading > 0) return;
     const errs = validateAnswers(defs, answers);
     if (Object.keys(errs).length) {
       setErrors(errs);
@@ -460,7 +467,7 @@ export default function FillForm({ templateId, template: given = null, preview =
 
   const fillAnother = () => { setSent(null); setAnswers({}); setErrors({}); setBanner(''); setEntryKey(newEntryKey()); };
 
-  const ctx = { answers, computed, entryKey, phone, workSites: sites, disabled: busy || !!sent, signerName };
+  const ctx = { answers, computed, entryKey, phone, workSites: sites, disabled: busy || !!sent, signerName, onUploading };
   const title = tpl?.title || 'Fill a Form';
 
   const footer = sent ? (
@@ -473,8 +480,10 @@ export default function FillForm({ templateId, template: given = null, preview =
   ) : (
     <>
       <button type="button" style={btn('outline')} disabled={busy} onClick={() => onClose?.()}>Cancel</button>
-      <button type="button" style={{ ...btn('primary'), opacity: busy || !tpl ? 0.6 : 1 }} disabled={busy || !tpl} onClick={submit}>
-        {busy ? <><Spinner size="inline" color="#fff" /> Sending...</> : 'Send'}
+      <button type="button" style={{ ...btn('primary'), opacity: busy || !tpl || uploading ? 0.6 : 1 }} disabled={busy || !tpl || uploading > 0} onClick={submit}>
+        {busy ? <><Spinner size="inline" color="#fff" /> Sending...</>
+          : uploading ? <><Spinner size="inline" color="#fff" /> Waiting for {uploading} photo{uploading === 1 ? '' : 's'}...</>
+          : 'Send'}
       </button>
     </>
   );

@@ -296,4 +296,27 @@ describe('FillForm', () => {
     await waitFor(() => expect(formSubmit).toHaveBeenCalledTimes(1));
     expect(formSubmit.mock.calls[0][1].answers.at).toBe('14:15');
   });
+
+  it('Send waits for photos still uploading and says how many', async () => {
+    const done = [];
+    storeTaskFile.mockImplementation(() => new Promise((r) => done.push(r)));
+    render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    typeIn('Plate', 'ABC123');
+    fireEvent.click(screen.getByRole('button', { name: 'No' }));
+    const cam = document.querySelector('input[type="file"][capture="environment"][accept="image/*"]');
+    fireEvent.change(cam, { target: { files: [new File(['a'], 'a.jpg', { type: 'image/jpeg' }), new File(['b'], 'b.jpg', { type: 'image/jpeg' })] } });
+    const wait2 = await screen.findByRole('button', { name: /Waiting for 2 photos\.\.\./ });
+    expect(wait2).toBeDisabled();
+    fireEvent.click(wait2);
+    expect(formSubmit).not.toHaveBeenCalled();
+    await act(async () => { done[0]('https://x.supabase.co/storage/v1/object/public/task-files/forms/k/a.png'); });
+    expect(await screen.findByRole('button', { name: /Waiting for 1 photo\.\.\./ })).toBeDisabled();
+    await act(async () => { done[1]('https://x.supabase.co/storage/v1/object/public/task-files/forms/k/b.png'); });
+    const send = await screen.findByRole('button', { name: 'Send' });
+    expect(send).not.toBeDisabled();
+    submit();
+    await waitFor(() => expect(formSubmit).toHaveBeenCalledTimes(1));
+    expect(formSubmit.mock.calls[0][1].answers.photos).toHaveLength(2);
+  });
 });
