@@ -9,8 +9,17 @@ import { Modal } from '../tasks/components';
 
 const SORTS = [{ key: 'oldest', label: 'Oldest' }, { key: 'newest', label: 'Newest' }, { key: 'priority', label: 'Priority' }, { key: 'person', label: 'Person' }];
 const GROUPS = [{ key: 'none', label: 'None' }, { key: 'person', label: 'Person' }, { key: 'kind', label: 'Type' }, { key: 'department', label: 'Department' }];
-const PRIORITIES = [{ key: 'all', label: 'All' }, { key: 'urgent', label: 'Urgent' }, { key: 'high', label: 'High' }];
+const PRIORITIES = [{ key: 'all', label: 'All' }, { key: 'urgent', label: 'Urgent' }, { key: 'high', label: 'High And Up' }];
 const WAITS = [{ key: 0, label: 'Any' }, { key: 3, label: '3+ Days' }, { key: 7, label: '7+ Days' }];
+// Choices only the desktop offers. One picked there (the sort and the group
+// are the person's saved table values) still shows here, pressed, so the
+// sheet never claims a choice that is not the one in force.
+const DESKTOP_ONLY = {
+  sort: { kind: 'Kind' },
+  group: { company: 'Company' },
+  priority: { medium: 'Medium', low: 'Low' },
+};
+const withCurrent = (options, value, names) => (options.some((o) => o.key === value) || !names[value] ? options : [...options, { key: value, label: names[value] }]);
 
 function Seg({ title, options, value, onPick }) {
   return (
@@ -29,7 +38,9 @@ function Seg({ title, options, value, onPick }) {
 
 export default function FilterSheet({ filters, setFilters, clearFilters, onClose, sortKey, setSortKey, groupBy, setGroupBy, deptCounts = [], companyCounts = [], seesAll = false }) {
   const manyCompanies = companyCounts.length > 1;
-  const groups = manyCompanies ? [...GROUPS, { key: 'company', label: 'Company' }] : GROUPS;
+  const sorts = withCurrent(SORTS, sortKey, DESKTOP_ONLY.sort);
+  const groups = withCurrent(manyCompanies ? [...GROUPS, { key: 'company', label: 'Company' }] : GROUPS, groupBy, DESKTOP_ONLY.group);
+  const priorities = withCurrent(PRIORITIES, filters.prioFilter, DESKTOP_ONLY.priority);
   const toggle = (name) => (v) => setFilters({ [name]: filters[name] === v ? '' : v });
   return (
     <Modal title="Filter" onClose={onClose} footer={
@@ -44,9 +55,9 @@ export default function FilterSheet({ filters, setFilters, clearFilters, onClose
           <input type="search" className="form-input" style={{ fontSize: 16, minHeight: 44 }} value={filters.query} onChange={(e) => setFilters({ query: e.target.value })}
             placeholder="Search by name, request or detail" aria-label="Search approvals" />
         </div>
-        <Seg title="Sort" options={SORTS} value={SORTS.some((s) => s.key === sortKey) ? sortKey : 'oldest'} onPick={setSortKey} />
+        <Seg title="Sort" options={sorts} value={sorts.some((s) => s.key === sortKey) ? sortKey : 'oldest'} onPick={setSortKey} />
         <Seg title="Group By" options={groups} value={groups.some((g) => g.key === groupBy) ? groupBy : 'kind'} onPick={setGroupBy} />
-        <Seg title="Priority" options={PRIORITIES} value={PRIORITIES.some((p) => p.key === filters.prioFilter) ? filters.prioFilter : 'all'} onPick={(v) => setFilters({ prioFilter: v })} />
+        <Seg title="Priority" options={priorities} value={priorities.some((p) => p.key === filters.prioFilter) ? filters.prioFilter : 'all'} onPick={(v) => setFilters({ prioFilter: v })} />
         <Seg title="Waiting" options={WAITS} value={filters.ageFilter || 0} onPick={(v) => setFilters({ ageFilter: v })} />
         {(seesAll || deptCounts.length > 1) && deptCounts.length > 0 && (
           <Seg title="Department" options={deptCounts.map(([name, n]) => ({ key: name, label: name, n }))} value={filters.dept} onPick={toggle('dept')} />

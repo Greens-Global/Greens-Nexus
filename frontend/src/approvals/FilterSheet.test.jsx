@@ -31,7 +31,7 @@ describe('FilterSheet', () => {
     expect(p.setGroupBy).toHaveBeenCalledWith('person');
     fireEvent.click(group('Priority').getByRole('button', { name: 'Urgent' }));
     expect(p.setFilters).toHaveBeenCalledWith({ prioFilter: 'urgent' });
-    fireEvent.click(group('Priority').getByRole('button', { name: 'High' }));
+    fireEvent.click(group('Priority').getByRole('button', { name: 'High And Up' }));
     expect(p.setFilters).toHaveBeenCalledWith({ prioFilter: 'high' });
     fireEvent.click(group('Waiting').getByRole('button', { name: '7+ Days' }));
     expect(p.setFilters).toHaveBeenCalledWith({ ageFilter: 7 });
@@ -65,5 +65,18 @@ describe('FilterSheet', () => {
     // Only Group By grows a Company choice when there are several.
     expect(group('Group By').getByRole('button', { name: 'Company' })).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Company' })).toBeTruthy();
+  });
+
+  it('shows a sort, a grouping or a priority picked on a computer, pressed, instead of pretending it is another', () => {
+    const p = { ...props(), sortKey: 'kind', groupBy: 'company', filters: { query: '', prioFilter: 'medium', ageFilter: 0, dept: '', company: '' } };
+    render(<FilterSheet {...p} />);
+    expect(group('Sort').getByRole('button', { name: 'Kind' }).getAttribute('aria-pressed')).toBe('true');
+    expect(group('Sort').getByRole('button', { name: 'Oldest' }).getAttribute('aria-pressed')).toBe('false');
+    expect(group('Group By').getByRole('button', { name: 'Company' }).getAttribute('aria-pressed')).toBe('true');
+    expect(group('Group By').getByRole('button', { name: 'Type' }).getAttribute('aria-pressed')).toBe('false');
+    expect(group('Priority').getByRole('button', { name: 'Medium' }).getAttribute('aria-pressed')).toBe('true');
+    // A phone choice is still one tap away.
+    fireEvent.click(group('Sort').getByRole('button', { name: 'Oldest' }));
+    expect(p.setSortKey).toHaveBeenCalledWith('oldest');
   });
 });

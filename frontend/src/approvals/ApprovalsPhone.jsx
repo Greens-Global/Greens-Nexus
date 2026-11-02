@@ -26,7 +26,7 @@
 //   Reduced motion (or a test run) makes every wait 0: no ghost, no swipe,
 //   the card is simply gone.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, History, Inbox, ListChecks, SlidersHorizontal } from 'lucide-react';
+import { CheckCircle2, History, Inbox, ListChecks, SearchX, SlidersHorizontal } from 'lucide-react';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import { Modal } from '../tasks/components';
@@ -172,7 +172,8 @@ export default function ApprovalsPhone({
         skeleton={<SkeletonBlocks count={3} height={132} borderRadius={12} />}
         emptyContent={
           <div className="apv-ph-empty">
-            <span className="apv-ph-empty-ic"><CheckCircle2 size={34} /></span>
+            {/* The green check is earned: only "All caught up" gets it. */}
+            <span className={`apv-ph-empty-ic${filtering ? ' is-filtered' : ''}`}>{filtering ? <SearchX size={32} /> : <CheckCircle2 size={34} />}</span>
             <div className="apv-empty-t">{filtering ? 'No approvals match your filters' : 'All caught up'}</div>
             <div className="apv-empty-d">{filtering ? 'Clear the search or the filters to see everything waiting on you.'
               : kind !== 'all' ? `Nothing in ${labelOf(kind)} waiting on you.`

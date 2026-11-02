@@ -8292,6 +8292,8 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .apv-ph-empty { padding: 44px 20px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; background: var(--card); }
 .apv-ph-empty-ic { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: color-mix(in srgb, #16a34a 12%, var(--card)); color: #16a34a; animation: apv-ph-pop var(--dur-md) var(--ease-spring) both; }
 @keyframes apv-ph-pop { from { transform: scale(.6); opacity: 0; } }
+/* Nothing matches the filters: a neutral mark, no pop - nothing was cleared. */
+.apv-ph-empty-ic.is-filtered { background: color-mix(in srgb, var(--ink) 7%, var(--card)); color: var(--muted); animation: none; }
 .apv-ph-clear { margin-top: 14px; min-height: 44px; }
 .apv-ph-fbtn { flex: 1 1 0; min-height: 48px; justify-content: center; font-size: 15px; border-radius: 10px; }
 .apv-ph-note-wrap { display: flex; flex-direction: column; gap: 6px; }
