@@ -8228,6 +8228,12 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    --ease-spring. Reduced motion: the JS skips the ghost, and this block
    stills the rest. */
 .apv-phone { font-family: Inter, sans-serif; color: var(--ink); }
+/* Sticky section labels: .viewport is overflow-y: auto but never scrolls
+   itself (the page does), and body's overflow-x: hidden makes it a
+   non-scrolling scroll container - either stops position: sticky. Same fix
+   as Documentation and Settings, and only while Approvals shows on a phone. */
+.viewport:has(.apv-phone) { overflow: visible; }
+body:has(.apv-phone) { overflow-x: clip; }
 .apv-ph-head { display: grid; gap: 12px; margin-bottom: 12px; }
 .apv-ph-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .apv-ph-title h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.01em; line-height: 1.2; }
