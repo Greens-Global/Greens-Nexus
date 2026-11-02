@@ -199,6 +199,9 @@ export default function EntryPanel({ entry: given, onClose, onChanged, toastOk, 
   }, [entry.templateId, entry.fieldDefs]);
 
   const fieldDefs = useMemo(() => defs || [], [defs]);
+  // Make a Ticket / Make a Task copy the answers, which read through the
+  // fields - so they wait for them, or a quick click makes a record with none.
+  const fieldsReady = defs !== null;
   const answers = entry.answers || {};
   const state = entryState(entry.status);
   if (gone) return <PanelShell title={entry.title || 'Form Entry'} onClose={onClose}><div className="nx-dl-muted">This entry is not available.</div></PanelShell>;
@@ -251,8 +254,8 @@ export default function EntryPanel({ entry: given, onClose, onChanged, toastOk, 
       </dl>
 
       <div className="nx-dl-actions">
-        <button type="button" className="secondary-btn" onClick={openTicket}>Make a Ticket</button>
-        <button type="button" className="secondary-btn" disabled={busy === 'task'} onClick={openTask}>{busy === 'task' ? 'Gathering Photos...' : 'Make a Task'}</button>
+        <button type="button" className="secondary-btn" disabled={!fieldsReady} title={fieldsReady ? undefined : 'Loading the answers...'} onClick={openTicket}>Make a Ticket</button>
+        <button type="button" className="secondary-btn" disabled={!fieldsReady || busy === 'task'} title={fieldsReady ? undefined : 'Loading the answers...'} onClick={openTask}>{busy === 'task' ? 'Gathering Photos...' : 'Make a Task'}</button>
         <button type="button" className="secondary-btn" disabled={busy === 'pdf'} onClick={download}>{busy === 'pdf' ? 'Preparing...' : 'Download PDF'}</button>
       </div>
       {(entry.linkedTicketId || entry.linkedTaskId || entry.linkedAssetId) && (

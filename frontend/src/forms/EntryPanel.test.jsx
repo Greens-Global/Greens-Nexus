@@ -63,7 +63,8 @@ const ENTRY = {
 
 beforeEach(() => {
   getFormEntry.mockReset().mockResolvedValue(ENTRY);
-  getDocTemplate.mockReset().mockResolvedValue(TEMPLATE);
+  // The fields arrive a beat after the panel, as on a real network (CI race, 11/02/2026).
+  getDocTemplate.mockReset().mockImplementation(() => new Promise((r) => setTimeout(() => r(TEMPLATE), 30)));
   reviewFormEntry.mockReset().mockImplementation((id, d) => Promise.resolve({ ...ENTRY, ...d, reviewNote: d.note }));
   linkFormEntry.mockReset().mockImplementation((id, d) => Promise.resolve({ ...ENTRY, linkedTicketId: d.ticketId || '', linkedTaskId: d.taskId || '' }));
   formEntryPdf.mockReset().mockResolvedValue({ blob: new Blob(['%PDF']), filename: 'vehicle-check.pdf' });
@@ -81,6 +82,7 @@ describe('Entry panel', () => {
   it('shows the answers under their sections, in words a person reads', async () => {
     open();
     const panel = await screen.findByRole('complementary', { name: 'Vehicle Check' });
+    await within(panel).findByRole('heading', { name: 'Vehicle' });   // the fields come a beat after the panel
     for (const h of ['Vehicle', 'Location', 'Tires', 'Sign Off']) expect(within(panel).getByRole('heading', { name: h })).toBeTruthy();
     expect(within(panel).getByText('48210')).toBeTruthy();
     expect(within(panel).getByText('Yes')).toBeTruthy();
@@ -157,6 +159,7 @@ describe('Entry panel', () => {
   it('Make a Ticket prefills the ticket and links it back to the entry', async () => {
     open();
     await screen.findByRole('complementary');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Make a Ticket' }).disabled).toBe(false));
     fireEvent.click(screen.getByRole('button', { name: 'Make a Ticket' }));
     expect(await screen.findByText('ticket composer')).toBeTruthy();
     const p = ticketProps.mock.calls.at(-1)[0];
@@ -171,6 +174,7 @@ describe('Entry panel', () => {
   it('Make a Task prefills the task the same way', async () => {
     open();
     await screen.findByRole('complementary');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Make a Task' }).disabled).toBe(false));
     fireEvent.click(screen.getByRole('button', { name: 'Make a Task' }));
     expect(await screen.findByText('task composer')).toBeTruthy();
     const p = taskProps.mock.calls.at(-1)[0];
@@ -178,6 +182,18 @@ describe('Entry panel', () => {
     expect(p.defaults.description).toContain('Any Damage?: Yes');
     fireEvent.click(screen.getByText('made task'));
     await waitFor(() => expect(linkFormEntry).toHaveBeenCalledWith('e1', { taskId: 'ta-4' }));
+  });
+
+  it('Make a Ticket and Make a Task wait for the answers, so neither is made without them', async () => {
+    let arrive;
+    getDocTemplate.mockReset().mockImplementation(() => new Promise((r) => { arrive = () => r(TEMPLATE); }));
+    open();
+    await screen.findByRole('complementary');
+    expect(screen.getByRole('button', { name: 'Make a Ticket' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Make a Task' }).disabled).toBe(true);
+    arrive();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Make a Ticket' }).disabled).toBe(false));
+    expect(screen.getByRole('button', { name: 'Make a Task' }).disabled).toBe(false);
   });
 
   it('shows the links an entry already has', async () => {
