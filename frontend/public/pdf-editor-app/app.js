@@ -5,8 +5,19 @@
 (function () {
     'use strict';
 
+    // The build stamps this script's own URL with ?v=<build id>
+    // (frontend/scripts/stamp-assets.mjs). Files the engine loads at run time
+    // never appear in index.html, so they take the same stamp from here -
+    // otherwise a year-cached pdf.js worker or library outlives every deploy.
+    const _ENGINE_VERSION = (() => {
+        try { return new URL(document.currentScript.src).searchParams.get('v') || ''; }
+        catch (_) { return ''; }
+    })();
+    const _assetUrl = (path) => (_ENGINE_VERSION && !/^(https?:|\/\/|data:|blob:)/.test(path)
+        ? path + '?v=' + encodeURIComponent(_ENGINE_VERSION) : path);
+
     // ── Configure PDF.js worker ──
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'libs/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = _assetUrl('libs/pdf.worker.min.js');
 
     // ── State ──
     const state = {
@@ -201,6 +212,8 @@
 
     // ── Initialize ──
     function init() {
+        const buildStamp = document.getElementById('buildStamp');
+        if (buildStamp) buildStamp.textContent = 'build ' + (_ENGINE_VERSION || 'dev');
         setupEventListeners();
         setupAIPanel();
         setupTextFormatBar();
@@ -8902,8 +8915,11 @@
             // itself (based on SIMD detection). Passing the full .js filename made
             // it build ".../tesseract-core-simd.wasm.js/tesseract-core-simd.wasm.js"
             // → 404 → OCR silently stalled at "Initializing" in the browser.
+            // The core and language files keep plain URLs: Tesseract builds them
+            // from these directories itself, so no stamp can reach them. They are
+            // pinned vendor files - a new version needs a new file name.
             const worker = await Tesseract.createWorker({
-                workerPath: tessBase + 'worker.min.js',
+                workerPath: tessBase + _assetUrl('worker.min.js'),
                 corePath: tessBase,
                 langPath: tessBase,
                 gzip: true,
@@ -10615,7 +10631,7 @@
     function loadScript(src) {
         return new Promise((resolve, reject) => {
             const script = document.createElement('script');
-            script.src = src;
+            script.src = _assetUrl(src);
             script.onload = resolve;
             script.onerror = reject;
             document.head.appendChild(script);
