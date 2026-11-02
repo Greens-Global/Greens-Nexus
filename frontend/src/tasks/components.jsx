@@ -159,6 +159,9 @@ export function useEscapeLayer(onEscape, active = true) {
 // and keep the full-screen bottom sheet.
 // `zIndex` (default 4000) is the overlay's, and the sheet's place in
 // lib/sheetStack.js: a sheet recedes only sheets at or below its own z.
+// `footer` may be a function `(close) => node`: `close(...args)` plays the
+// same exit the X does, then calls onClose(...args) - for a footer button
+// (Done, Cancel, a submit) that should leave the way the X leaves.
 export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000 }) {
   // Phones get a full-screen sheet, the shape the task drawer already uses
   // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
@@ -272,7 +275,7 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
           padding: isMobile ? '12px 16px calc(12px + env(safe-area-inset-bottom))' : '12px 20px',
           borderTop: `1px solid ${NX.border2}`, background: NX.surface2, flexShrink: 0,
           display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-        }}>{footer}</div>}
+        }}>{typeof footer === 'function' ? footer(exit) : footer}</div>}
       </div>
       {confirmClose && (
         <div onClick={(e) => e.stopPropagation()} style={{
