@@ -149,14 +149,14 @@ describe('actuals', () => {
     expect(punchTime('2026-10-12T03:34:00', 'Not/AZone')).toBe(at('2026-10-12T03:34:00'));   // an unknown zone: the viewer's clock
     expect(punchTime('2026-10-12T03:34:00', '')).toBe(at('2026-10-12T03:34:00'));
   });
-  it('colors the bar by status, the block\'s own color while in progress, nothing before', () => {
+  it('colors by status, green while in progress (never the type color), nothing before', () => {
     expect(actualColor('on_time')).toBe('hsl(var(--color-green))');
     expect(actualColor('late')).toBe('hsl(var(--color-orange))');
     expect(actualColor('left_early')).toBe('hsl(var(--color-orange))');
     expect(actualColor('no_show')).toBe('hsl(var(--color-red))');
     expect(actualColor('excused')).toBe('var(--muted)');
     expect(actualColor('exempt')).toBe('var(--muted)');
-    expect(actualColor('in_progress', '#2563eb')).toBe('#2563eb');
+    expect(actualColor('in_progress', '#f59e0b')).toBe('hsl(var(--color-green))');
     expect(actualColor('upcoming')).toBe('');
     expect(actualWord('left_early')).toBe('Left Early');
     expect(actualWord('no_show')).toBe('No-Show');

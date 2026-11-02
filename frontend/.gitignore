@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# The whiteboard engine's self-hosted fonts, copied from node_modules by
+# scripts/copy-excalidraw-assets.mjs before every build / dev run (Nov 2026).
+public/excalidraw-assets

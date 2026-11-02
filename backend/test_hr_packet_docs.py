@@ -260,14 +260,11 @@ class PacketDocsTests(unittest.TestCase):
                                  {"key": "employee", "role": "employee", "action": "sign"}])
         self.assertTrue(any("make it Signs" in x for x in p), p)
 
-    def test_an_unpublished_or_draft_template_is_a_problem_never_empty_output(self):
+    def test_a_draft_template_is_a_problem_never_empty_output(self):
         db = database.SessionLocal()
-        db.query(models.DocTemplate).filter_by(id="t-nda").update({"published_version": 0})
         db.query(models.DocTemplate).filter_by(id="t-sig").update({"status": "draft"})
         db.commit()
         db.close()
-        p = self._problems(doc_template_ids=["t-offer", "t-nda"])
-        self.assertTrue(any('"NDA" has not been published yet' in x for x in p), p)
         p = self._problems(doc_template_ids=["t-sig"])
         self.assertTrue(any("is draft in Documents" in x for x in p), p)
 

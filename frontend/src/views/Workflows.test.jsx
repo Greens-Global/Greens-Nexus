@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Render-smoke for Workflows (/workflows): every tab paints something in
@@ -67,7 +67,13 @@ const RUN = { ...RUNS.items[0], steps: [
   { id: 's2', stepId: 'b', kind: 'action', action: 'tasks.create', label: 'Create Task', status: 'failed', startedAt: T, finishedAt: T, input: {}, output: {}, detail: 'Mail server refused', attempt: 2 },
 ], event: { key: 'hr.employee.started', at: T, payload: { id: 'e1' } } };
 
+// The clock is pinned to October 2026, the month the fixtures live in: the
+// To-date test picks "15" on the calendar's current month and expects the
+// 10/28 row to fall OUTSIDE the range - once the real month rolled to
+// November the row was inside it and the "look further back" line vanished.
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-20T12:00:00Z'));
   Object.values(api).forEach((f) => f.mockReset());
   role.can.mockReturnValue(true);
   role.canAccessModule.mockReturnValue(true);
@@ -397,3 +403,5 @@ describe('Workflows', () => {
     await waitFor(() => expect(document.body.textContent).toMatch(/builder|Builder|Loading|Opening|Workflow/));
   });
 });
+
+afterEach(() => { vi.useRealTimers(); });

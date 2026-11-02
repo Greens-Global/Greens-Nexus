@@ -1,0 +1,207 @@
+/* The Workflows canvas - "Blueprint" (Neil, 10/30/2026). The builder's
+   graph-paper sheet, its blocks, ink connectors, insert points, dock and
+   side panel. Two skins: Paper (default) and Night (a dark sheet), per
+   person. Everything here is scoped under .wfc; the --cv-* tokens are the
+   skin, nothing else is colored directly. Paper is DERIVED from the app's
+   own tokens (--ink, --card, --line, --nx-canvas...), so it follows the
+   app's light and dark themes by itself; Night sets those same app tokens
+   inside the canvas to the app's dark values, so the recipe's own cards
+   hosted in the side panel (Settings, Test, a step's controls) follow the
+   skin too. Motion is transform / opacity only, on the app's --dur-* /
+   --ease-out tokens; the only loops are the trigger's "listening" ring and
+   the aurora's slow drift, both only while the workflow is Active. */
+
+.wfc {
+  --cv-bg: var(--nx-canvas, #f7f8fb);
+  --cv-minor: color-mix(in srgb, var(--ink, #0f172a) 5.5%, transparent);
+  --cv-major: color-mix(in srgb, var(--ink, #0f172a) 10%, transparent);
+  --cv-ink: var(--ink, #0f172a); --cv-muted: var(--muted, #64748b);
+  --cv-node: var(--card, #ffffff); --cv-node-line: color-mix(in srgb, var(--ink, #0f172a) 10%, transparent);
+  --cv-node-shadow: 0 1px 2px color-mix(in srgb, var(--ink, #0f172a) 5%, transparent), 0 6px 18px color-mix(in srgb, var(--ink, #0f172a) 7%, transparent);
+  --cv-edge: color-mix(in srgb, var(--muted, #64748b) 70%, var(--card, #ffffff));
+  --cv-hot: var(--wk-brand, hsl(215,75%,45%)); --cv-hot-soft: color-mix(in srgb, var(--cv-hot) 14%, transparent); --cv-on-hot: #ffffff;
+  --cv-chrome: color-mix(in srgb, var(--card, #ffffff) 82%, transparent); --cv-chrome-line: var(--line, rgba(15,23,42,.08));
+  --cv-live: var(--ok-fg, #16a34a); --cv-wait: var(--warn-fg, #d97706); --cv-bad: var(--bad-fg, #dc2626);
+  --cv-frame: color-mix(in srgb, var(--ink, #0f172a) 18%, transparent);
+  --cv-glow: color-mix(in srgb, var(--cv-hot) 35%, transparent);
+  --cv-aurora-a: hsla(215,80%,60%,.16); --cv-aurora-b: hsla(160,60%,50%,.12);
+  --cv-vignette: color-mix(in srgb, var(--ink, #0f172a) 8%, transparent);
+  --cv-mono: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+  --cv-spring: cubic-bezier(.34,1.4,.64,1);
+  position: relative; display: flex; min-height: 520px; height: calc(100vh - 230px);
+  border: 1px solid var(--cv-chrome-line); border-radius: 16px; overflow: hidden; background: var(--cv-bg); color: var(--cv-ink);
+  box-shadow: var(--shadow-lg, 0 8px 30px rgba(0,0,0,.08));
+}
+.wfc[data-skin="night"] {
+  /* the app's own dark palette (style.css [data-theme="dark"]), inside the canvas only */
+  color-scheme: dark;
+  --paper: #0d1117; --card: #161b27; --ink: #e8edf5; --muted: #8b97b0; --line: rgba(255,255,255,0.09); --mist: #161b27;
+  --ok-bg: #0a2218; --ok-fg: #4ade80; --warn-bg: #1c1206; --warn-fg: #fbbf24; --bad-bg: #200d0d; --bad-fg: #f87171; --info-bg: #0c1830; --info-fg: #60a5fa;
+  --bg-primary: var(--paper); --bg-secondary: #161b27; --bg-card: var(--card);
+  --border-color: rgba(255,255,255,0.09); --border-hover: rgba(255,255,255,0.16);
+  --text-primary: var(--ink); --text-secondary: var(--muted); --text-muted: #5c687e;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.5), 0 1px 6px rgba(0,0,0,.35); --shadow-md: 0 2px 12px rgba(0,0,0,.6), 0 4px 24px rgba(0,0,0,.45);
+  --nx-canvas: #0d1117; --nx-surface: #171c29; --nx-surface2: #10141e; --nx-ink: #e8edf5; --nx-dim: #9aa6bd; --nx-faint: #6b7688;
+  --nx-border: rgba(255,255,255,0.10); --nx-border2: rgba(255,255,255,0.055); --nx-hover: rgba(255,255,255,0.06); --nx-zebra: rgba(255,255,255,0.022);
+  /* the sheet itself: deeper than the app's dark, with a cyan grid */
+  --cv-bg: #0a1020; --cv-minor: rgba(125,211,252,.07); --cv-major: rgba(125,211,252,.15);
+  --cv-ink: #e6edf7; --cv-muted: #8b9bb4;
+  --cv-node: #111a2e; --cv-node-line: rgba(148,163,184,.18);
+  --cv-node-shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.45);
+  --cv-edge: #4b5a74; --cv-hot: #5eead4; --cv-hot-soft: rgba(94,234,212,.14); --cv-on-hot: #06231f;
+  --cv-chrome: rgba(13,19,34,.78); --cv-chrome-line: rgba(148,163,184,.14);
+  --cv-live: #4ade80; --cv-wait: #fbbf24; --cv-bad: #f87171; --cv-frame: rgba(148,163,184,.35);
+  --cv-glow: rgba(94,234,212,.40); --cv-aurora-a: rgba(56,189,248,.18); --cv-aurora-b: rgba(94,234,212,.14);
+  --cv-vignette: rgba(0,0,0,.45);
+}
+
+/* ── the dock (left) ── */
+.wfc-dock { width: 196px; flex: 0 0 196px; border-right: 1px solid var(--cv-chrome-line); background: var(--cv-chrome); backdrop-filter: blur(10px); padding: 14px 12px; display: flex; flex-direction: column; gap: 6px; z-index: 3; }
+.wfc-dock-lbl { font-family: var(--cv-mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--cv-muted); margin: 4px 2px 6px; }
+.wfc-block { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; background: var(--cv-node); border: 1px solid var(--cv-node-line); cursor: grab; user-select: none; touch-action: none; font-size: 13px; font-weight: 600; color: var(--cv-ink); box-shadow: var(--cv-node-shadow); font-family: inherit; text-align: left; width: 100%; transition: transform var(--dur-sm, 150ms) var(--ease-out); }
+.wfc-block:hover { transform: translateX(3px); }
+.wfc-block:active { cursor: grabbing; }
+.wfc-block:disabled { opacity: .5; cursor: default; }
+.wfc-block .wfc-ic { width: 26px; height: 26px; border-radius: 7px; }
+.wfc-dock-tip { margin-top: auto; font-size: 12px; color: var(--cv-muted); line-height: 1.5; }
+.wfc-dock-tip kbd { font-family: var(--cv-mono); font-size: 11px; border: 1px solid var(--cv-chrome-line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; color: var(--cv-ink); }
+.wfc-ghost-block { position: fixed; z-index: 1000; pointer-events: none; transform: translate(-50%, -50%) rotate(-2deg); opacity: .95; width: 170px; }
+
+/* ── the sheet ── */
+.wfc-sheet { position: relative; flex: 1; min-width: 0; overflow: hidden; cursor: grab; touch-action: none; background-color: var(--cv-bg);
+  background-image: linear-gradient(var(--cv-major) 1px, transparent 1px), linear-gradient(90deg, var(--cv-major) 1px, transparent 1px), linear-gradient(var(--cv-minor) 1px, transparent 1px), linear-gradient(90deg, var(--cv-minor) 1px, transparent 1px); }
+.wfc-sheet.is-panning { cursor: grabbing; }
+.wfc-sheet:focus-visible { outline: 2px solid var(--cv-hot); outline-offset: -2px; }
+/* a still wash of color; it drifts only while the workflow is live */
+.wfc-aurora { position: absolute; inset: -20%; pointer-events: none; filter: blur(30px);
+  background: radial-gradient(40% 50% at 30% 30%, var(--cv-aurora-a), transparent 70%), radial-gradient(35% 45% at 75% 70%, var(--cv-aurora-b), transparent 70%); }
+.wfc.is-active .wfc-aurora { animation: wfc-drift 36s ease-in-out infinite alternate; }
+@keyframes wfc-drift { from { transform: translate(-3%, -2%) rotate(0deg); } to { transform: translate(3%, 3%) rotate(4deg); } }
+.wfc-vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(120% 90% at 50% 40%, transparent 55%, var(--cv-vignette)); }
+.wfc-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+.wfc-world > svg { position: absolute; left: 0; top: 0; overflow: visible; }
+
+/* ink */
+.wfc-edge { fill: none; stroke: var(--cv-edge); stroke-width: 1.6; transition: stroke var(--dur-sm, 150ms); }
+.wfc-edge.is-dashed { stroke-dasharray: 5 6; }
+.wfc-edge.wfc-hot { stroke: var(--cv-hot); stroke-width: 2; }
+.wfc-edge.wfc-live { stroke: var(--cv-live); stroke-width: 2.2; stroke-dasharray: 7 9; animation: wfc-march .9s linear infinite; }
+@keyframes wfc-march { to { stroke-dashoffset: -32; } }
+.wfc-edge-label { font: 600 10.5px Inter, sans-serif; fill: var(--cv-muted); }
+.wfc-edge-label-bg { fill: var(--cv-bg); stroke: var(--cv-node-line); }
+.wfc-frame { fill: transparent; stroke: var(--cv-frame); stroke-dasharray: 6 6; stroke-width: 1.4; }
+.wfc-frame-lbl { font: 600 10.5px var(--cv-mono); fill: var(--cv-muted); letter-spacing: .08em; }
+.wfc-join { position: absolute; border-radius: 50%; background: var(--cv-edge); }
+.wfc-join.wfc-lit { background: var(--cv-live); }
+
+/* insert points */
+.wfc-hotspot { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: var(--cv-node); border: 1.5px solid var(--cv-edge); display: grid; place-items: center; color: var(--cv-muted); opacity: 0; transform: scale(.7); cursor: copy; z-index: 2; padding: 0; font: inherit;
+  transition: opacity var(--dur-sm, 150ms), transform var(--dur-sm, 150ms) var(--ease-out), border-color var(--dur-sm, 150ms), background var(--dur-sm, 150ms); }
+.wfc-world:hover .wfc-hotspot, .wfc-hotspot:focus-visible { opacity: .75; transform: scale(1); }
+.wfc-sheet.is-dragging .wfc-hotspot { opacity: .9; transform: scale(1); }
+.wfc-hotspot.is-armed { opacity: 1; transform: scale(1.25); background: var(--cv-hot); border-color: var(--cv-hot); color: var(--cv-on-hot); box-shadow: 0 0 0 8px var(--cv-hot-soft); }
+.wfc-hotspot:focus-visible { outline: 2px solid var(--cv-hot); outline-offset: 2px; }
+
+/* blocks */
+.wfc-node { position: absolute; width: 264px; height: 68px; border-radius: 14px; background: var(--cv-node); border: 1px solid var(--cv-node-line); box-shadow: var(--cv-node-shadow); display: flex; align-items: center; gap: 12px; padding: 0 14px 0 12px; cursor: grab; user-select: none; touch-action: none; box-sizing: border-box; font-family: inherit; text-align: left; color: var(--cv-ink);
+  transition: border-color var(--dur-sm, 150ms), opacity var(--dur-sm, 150ms); }
+.wfc-node:hover { border-color: var(--cv-hot); box-shadow: var(--cv-node-shadow), 0 0 0 4px var(--cv-hot-soft); }
+.wfc-node:focus-visible { outline: none; border-color: var(--cv-hot); box-shadow: var(--cv-node-shadow), 0 0 0 3px var(--cv-hot); }
+.wfc-node.is-selected { border-color: var(--cv-hot); box-shadow: var(--cv-node-shadow), 0 0 0 4px var(--cv-hot-soft), 0 0 24px var(--cv-glow); }
+.wfc-node.is-dragging { cursor: grabbing; z-index: 20; box-shadow: 0 18px 44px color-mix(in srgb, var(--cv-ink) 25%, transparent), 0 0 0 4px var(--cv-hot-soft); transition: none; pointer-events: none; }
+.wfc-node.is-skipped { opacity: .6; }
+.wfc-node.is-skipped .wfc-title { text-decoration: line-through; }
+.wfc-node[data-blank="true"] { border: 1.5px dashed var(--cv-hot); }
+.wfc-node.wfc-lit { border-color: var(--cv-live); box-shadow: var(--cv-node-shadow), 0 0 0 4px color-mix(in srgb, var(--cv-live) 18%, transparent); }
+.wfc-node.wfc-lit .wfc-dot { background: var(--cv-live); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cv-live) 20%, transparent); }
+.wfc-node.wfc-waitlit { border-color: var(--cv-wait); }
+.wfc-node.wfc-waitlit .wfc-dot { background: var(--cv-wait); position: relative; }
+.wfc-node.wfc-waitlit .wfc-dot::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--cv-wait); opacity: 0; animation: wfc-ring 1.2s ease-out infinite; }
+.wfc-node.wfc-failed { border-color: var(--cv-bad); box-shadow: var(--cv-node-shadow), 0 0 0 4px color-mix(in srgb, var(--cv-bad) 18%, transparent); }
+.wfc-node.wfc-failed .wfc-dot { background: var(--cv-bad); }
+.wfc-node.wfc-skippedrun { opacity: .45; }
+.wfc-ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #fff; flex: 0 0 34px; box-shadow: inset 0 -2px 0 rgba(0,0,0,.12); }
+.wfc-ic svg { width: 17px; height: 17px; }
+.wfc-block .wfc-ic svg { width: 14px; height: 14px; }
+.wfc-tx { min-width: 0; flex: 1; }
+.wfc-kind { font-family: var(--cv-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--cv-muted); font-weight: 500; line-height: 1; margin-bottom: 5px; display: flex; gap: 6px; align-items: center; white-space: nowrap; overflow: hidden; }
+.wfc-kind i { width: 3px; height: 3px; border-radius: 50%; background: var(--cv-muted); display: inline-block; flex: 0 0 3px; }
+.wfc-title { font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--cv-ink); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.wfc-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--cv-edge); flex: 0 0 9px; transition: background var(--dur-sm, 150ms); }
+.wfc-node.k-trigger { border-radius: 34px 14px 14px 34px; padding-left: 10px; }
+.wfc-node.k-trigger .wfc-ic { border-radius: 50%; position: relative; }
+.wfc-node.k-trigger.is-listening .wfc-ic::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--cv-live); opacity: 0; animation: wfc-ring 2.4s ease-out infinite; }
+@keyframes wfc-ring { 0% { transform: scale(.7); opacity: .8; } 100% { transform: scale(1.5); opacity: 0; } }
+/* The Only If gate is a chevron: clip-path cuts off every box-shadow, so its
+   edge, hover, selection and keyboard focus are all drawn with an inset
+   outline instead. */
+.wfc-node.k-gate { border-radius: 10px; clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 14px 100%, 0 50%); padding: 0 22px; border: 0; outline: 1px solid var(--cv-node-line); outline-offset: -1px; }
+.wfc-node.k-gate:hover { outline: 2px solid var(--cv-hot); outline-offset: -2px; }
+.wfc-node.k-gate.is-selected { outline: 2px solid var(--cv-hot); outline-offset: -2px; }
+.wfc-node.k-gate:focus-visible { outline: 3px solid var(--cv-hot); outline-offset: -3px; box-shadow: none; }
+.wfc-node.k-stop { width: 160px; border-radius: 999px; justify-content: center; gap: 8px; padding: 0 10px; }
+.wfc-node.k-stop .wfc-kind, .wfc-node.k-stop .wfc-dot { display: none; }
+.wfc-node.k-fault { border-style: dashed; background: transparent; box-shadow: none; cursor: default; }
+.wfc-node.k-fault .wfc-dot { display: none; }
+.wfc-node.k-fault:hover { border-color: var(--cv-node-line); box-shadow: none; }
+.wfc-ghost { position: absolute; width: 264px; height: 44px; border-radius: 12px; border: 1.5px dashed var(--cv-frame); display: grid; place-items: center; font-size: 12px; color: var(--cv-muted); font-weight: 500; background: transparent; font-family: inherit; cursor: copy; box-sizing: border-box; }
+.wfc-ghost.is-armed { border-color: var(--cv-hot); background: var(--cv-hot-soft); color: var(--cv-hot); }
+.wfc-ghost:focus-visible { outline: 2px solid var(--cv-hot); outline-offset: 2px; }
+
+/* floating chrome over the sheet */
+.wfc-chrome { position: absolute; display: inline-flex; border: 1px solid var(--cv-chrome-line); border-radius: 9px; background: var(--cv-chrome); backdrop-filter: blur(10px); overflow: hidden; z-index: 3; }
+.wfc-chrome button { font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 11px; border: 0; background: transparent; color: var(--cv-muted); cursor: pointer; }
+.wfc-chrome button:hover { background: var(--cv-hot-soft); }
+.wfc-chrome button[aria-pressed="true"] { background: var(--cv-hot-soft); color: var(--cv-hot); }
+.wfc-chrome button:focus-visible { outline: 2px solid var(--cv-hot); outline-offset: -2px; }
+.wfc-skin { top: 12px; right: 12px; }
+.wfc-corner { position: absolute; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; z-index: 3; }
+.wfc-zoom button { width: 32px; height: 30px; padding: 0; font-size: 13px; color: var(--cv-ink); }
+.wfc-zoom .wfc-pct { font-family: var(--cv-mono); font-size: 11px; min-width: 46px; display: grid; place-items: center; color: var(--cv-muted); border-left: 1px solid var(--cv-chrome-line); border-right: 1px solid var(--cv-chrome-line); }
+.wfc-zoom .wfc-fit { width: auto; padding: 0 10px; font-family: var(--cv-mono); font-size: 11px; }
+.wfc-mini { width: 172px; height: 112px; border: 1px solid var(--cv-chrome-line); border-radius: 10px; background: var(--cv-chrome); backdrop-filter: blur(10px); position: relative; overflow: hidden; }
+.wfc-mini svg { width: 100%; height: 100%; display: block; }
+.wfc-mini-vp { position: absolute; border: 1.5px solid var(--cv-hot); background: var(--cv-hot-soft); border-radius: 3px; pointer-events: none; }
+.wfc-overlay { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); width: min(520px, 90%); z-index: 2; }
+.wfc-replaybar { position: absolute; left: 12px; top: 12px; z-index: 3; display: inline-flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 9px; border: 1px solid var(--cv-chrome-line); background: var(--cv-chrome); backdrop-filter: blur(10px); font-size: 12.5px; color: var(--cv-ink); }
+.wfc-replaybar b { color: var(--cv-live); }
+.wfc-replaystop { font: inherit; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 7px; border: 1px solid var(--cv-chrome-line); background: transparent; color: var(--cv-ink); cursor: pointer; }
+.wfc-replaystop:hover { background: var(--cv-hot-soft); }
+
+/* ── the side panel (right) ── */
+.wfc-panel { width: 340px; flex: 0 0 340px; border-left: 1px solid var(--cv-chrome-line); background: var(--cv-chrome); backdrop-filter: blur(14px); display: flex; flex-direction: column; min-height: 0; z-index: 4; color: var(--cv-ink); }
+/* the rail (Settings / Test / Versions) stays mounted while a block is open, so a test result is still there afterwards */
+.wfc-panel-rail { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.wfc-panel-rail[hidden] { display: none; }
+.wfc-panel-hd { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--cv-chrome-line); }
+.wfc-panel-hd .wfc-ic { width: 30px; height: 30px; border-radius: 9px; flex-basis: 30px; }
+.wfc-panel-hd .wfc-ic svg { width: 15px; height: 15px; }
+.wfc-panel-k { font-family: var(--cv-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--cv-muted); }
+.wfc-panel-n { font-weight: 700; font-size: 14px; }
+.wfc-panel-x { margin-left: auto; background: transparent; border: 0; color: var(--cv-muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 4px 6px; border-radius: 6px; font-family: inherit; }
+.wfc-panel-x:hover { background: var(--cv-hot-soft); color: var(--cv-ink); }
+.wfc-panel-bd { padding: 14px; display: flex; flex-direction: column; gap: 12px; overflow: auto; flex: 1; min-height: 0; animation: wfc-fadein var(--dur-md, 220ms) var(--ease-out) both; }
+@keyframes wfc-fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.wfc-panel-ft { padding: 10px 14px; border-top: 1px solid var(--cv-chrome-line); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.wfc-sentence { font-size: 13.5px; line-height: 1.5; padding: 10px 12px; border-radius: 10px; background: var(--cv-node); border: 1px solid var(--cv-node-line); }
+.wfc-panel section[aria-label] { border: 0; padding: 0; background: transparent; box-shadow: none; }
+.wfc-fieldlbl { font-size: 12px; font-weight: 600; color: var(--cv-muted); margin-bottom: 4px; display: block; }
+.wfc-select { width: 100%; font: inherit; font-size: 13.5px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--cv-node-line); background: var(--cv-node); color: var(--cv-ink); }
+.wfc-select:focus-visible { outline: 2px solid var(--cv-hot); outline-offset: 1px; }
+.wfc-panel-tabs { display: flex; gap: 4px; padding: 10px 14px 0; }
+.wfc-panel-tab { font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--cv-chrome-line); background: transparent; color: var(--cv-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.wfc-panel-tab[aria-selected="true"] { background: var(--cv-hot); color: var(--cv-on-hot); border-color: var(--cv-hot); }
+
+/* ── the hint bar under the sheet ── */
+.wfc-hints { display: flex; gap: 16px; flex-wrap: wrap; padding: 8px 14px; font-size: 12px; color: var(--muted); }
+.wfc-hints b { color: var(--ink); font-weight: 600; }
+
+/* a block riding in with the layout */
+.wfc-enter { animation: wfc-rise var(--dur-md, 220ms) var(--ease-out) both; }
+@keyframes wfc-rise { from { opacity: 0; translate: 0 10px; } to { opacity: 1; translate: 0 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .wfc.is-active .wfc-aurora, .wfc-node.k-trigger.is-listening .wfc-ic::after, .wfc-edge.wfc-live, .wfc-node.wfc-waitlit .wfc-dot::after { animation: none; }
+  .wfc-node, .wfc-block, .wfc-hotspot, .wfc-panel-bd, .wfc-enter { transition: none; animation: none; }
+}
+@media (max-width: 900px) { .wfc-mini { display: none; } .wfc-panel { width: 300px; flex-basis: 300px; } }

@@ -3,54 +3,91 @@ import { render, fireEvent, within } from '@testing-library/react';
 import { formatTime } from '../../lib/datetime';
 import { ShiftBlock } from './ShiftBlock';
 
-// Actuals on the block (Phase 1, Oct 14): ONE thin bar under the time line
-// in the status color, the clock's story on hover, the status in the
-// accessible name - and still one calm text line. Nothing for an upcoming
-// shift or without actuals.
+// The calm block (Neil, Oct 30 2026): a type-colored dot, the time and the
+// type's code; a second line ONLY for words that need saying - an unshared
+// change ("New", "Edited · was ...", "Removed"), an attendance exception
+// ("Late 14m", "No-Show", "On Now"), a rule flag ("Overtime"). No fill, no
+// bar, no badge. The clock's story stays on hover and in the accessible name.
 
-vi.mock('./motion', () => ({ useReducedMotion: () => false }));
-
-const shift = { id: 's1', email: 'amy@x.com', date: '2026-10-12', start: '08:00', end: '17:00', code: 'GST', color: '#2563eb', published: true };
+const shift = { id: 's1', email: 'amy@x.com', date: '2026-10-12', start: '08:00', end: '17:00', code: 'GST', shiftName: 'General Shift', color: '#2563eb', published: true };
 const at = (iso) => formatTime(new Date(`${iso}Z`));
-const bar = () => document.querySelector('[data-actual]');
+const word = () => document.querySelector('[data-actual]');
 const block = () => document.querySelector('[data-shift="s1"]');
+const words = () => document.querySelector('[data-shift-words]');
 
-describe('ShiftBlock actuals', () => {
-  it('draws no bar without actuals or before the shift', () => {
+describe('ShiftBlock', () => {
+  it('reads a dot, the time and the type name - nothing else for a plain shared shift', () => {
     const { unmount } = render(<ShiftBlock shift={shift} onOpen={() => {}} />);
-    expect(bar()).toBeNull();
-    expect(block().textContent).toBe('8:00a - 5:00p');
+    expect(word()).toBeNull();
+    expect(words()).toBeNull();
+    expect(block().textContent).toBe('8:00a - 5:00p' + 'General Shift');
+    expect(block().querySelector('[data-type-dot]').style.background).toBe('rgb(37, 99, 235)');
+    expect(block().querySelector('[data-type-name]').style.color).toBe('rgb(37, 99, 235)');
+    // No tint: the block sits on the card.
+    expect(block().style.background).toBe('var(--card)');
     unmount();
     render(<ShiftBlock shift={shift} onOpen={() => {}} actual={{ status: 'upcoming' }} />);
-    expect(bar()).toBeNull();
-    expect(block().getAttribute('aria-label')).toBe('Shift 8:00 AM - 5:00 PM GST');
+    expect(word()).toBeNull();
+    expect(block().getAttribute('aria-label')).toBe('Shift 8:00 AM - 5:00 PM General Shift');
+  });
+  it('shows a label only when it differs from the type name, and +1 for an overnight end', () => {
+    const { rerender } = render(<ShiftBlock shift={{ ...shift, label: 'General Shift' }} onOpen={() => {}} />);
+    expect(words()).toBeNull();
+    rerender(<ShiftBlock shift={{ ...shift, label: 'Front desk' }} onOpen={() => {}} />);
+    expect(words().textContent).toBe('Front desk');
+    rerender(<ShiftBlock shift={{ ...shift, start: '22:00', end: '06:30' }} onOpen={() => {}} />);
+    expect(block().querySelector('[data-shift-time]').textContent).toContain('10:00p - 6:30a +1');
+  });
+  it('says New, Edited (with what the team sees) or Removed on a dashed block while unshared', () => {
+    const { rerender } = render(<ShiftBlock shift={{ ...shift, published: false }} onOpen={() => {}} />);
+    expect(words().textContent).toBe('New');
+    expect(block().style.borderStyle || block().style.border).toContain('dashed');
+    rerender(<ShiftBlock shift={{ ...shift, hasChanges: true, was: { start: '08:00', end: '16:30', label: '' } }} onOpen={() => {}} />);
+    expect(words().textContent).toBe('Edited · was 8:00a - 4:30p');
+    expect(block().getAttribute('data-unshared')).toBe('edited');
+    // An edit that kept the hours (a note, a label) says Edited alone.
+    rerender(<ShiftBlock shift={{ ...shift, hasChanges: true, was: { start: '08:00', end: '17:00', label: 'x' } }} onOpen={() => {}} />);
+    expect(words().textContent).toBe('Edited');
+    rerender(<ShiftBlock shift={{ ...shift, pendingDelete: true }} onOpen={() => {}} />);
+    expect(words().textContent).toBe('Removed');
+    expect(block().getAttribute('aria-label')).toContain(', Removing');
+    rerender(<ShiftBlock shift={shift} onOpen={() => {}} />);
+    expect(block().style.border).toContain('solid');
+    expect(block().getAttribute('data-unshared')).toBeNull();
+  });
+  it('names rule flags in words, one per kind, and keeps every sentence in the accessible name', () => {
+    const conflicts = ['42h scheduled this week (over 40h is overtime)', 'Outside availability: Tue unavailable', 'Only 9h 30m rest before this shift (10h minimum).'];
+    const { rerender } = render(<ShiftBlock shift={{ ...shift, conflicts }} onOpen={() => {}} />);
+    expect([...block().querySelectorAll('[data-flag]')].map((n) => n.textContent)).toEqual(['Overtime', 'Unavailable Tue']);
+    expect(words().textContent).toBe('Overtime · Unavailable Tue · +1');
+    expect(block().getAttribute('aria-label')).toContain('3 warnings: 42h scheduled this week');
+    expect(block().hasAttribute('data-conflict')).toBe(true);
+    rerender(<ShiftBlock shift={{ ...shift, conflicts }} showConflicts={false} onOpen={() => {}} />);
+    expect(block().querySelector('[data-flag]')).toBeNull();
   });
   it.each([
-    ['on_time', 'hsl(var(--color-green))', 'On Time', '\u2713'],
-    ['late', 'hsl(var(--color-orange))', 'Late', 'L'],
-    ['left_early', 'hsl(var(--color-orange))', 'Left Early', 'E'],
-    ['no_show', 'hsl(var(--color-red))', 'No-Show', 'N'],
-    ['excused', 'var(--muted)', 'Excused', ''],
-    ['exempt', 'var(--muted)', 'Exempt', ''],
-  ])('colors the bar for %s, names the status and adds the letter badge', (status, color, word, letter) => {
-    render(<ShiftBlock shift={shift} onOpen={() => {}} actual={{ shiftId: 's1', status }} />);
-    const b = bar();
-    expect(b.getAttribute('data-actual')).toBe(status);
-    expect(b.style.background).toBe(color);
-    expect(b.style.height).toBe('3px');
-    expect(b.style.animation).toBe('');
-    expect(block().getAttribute('aria-label')).toBe(`Shift 8:00 AM - 5:00 PM GST, ${word}`);
-    // Still one line: the bar and a one-letter badge (not a color) are the only additions.
-    expect(block().textContent).toBe(`8:00a - 5:00p${letter}`);
-    const badge = block().querySelector('[data-actual-badge]');
-    if (letter) { expect(badge.getAttribute('data-actual-badge')).toBe(status); expect(badge.style.color).toBe(color); } else expect(badge).toBeNull();
+    ['on_time', null, 'On Time'],
+    ['late', 'Late 14m', 'Late'],
+    ['left_early', 'Left Early 1h', 'Left Early'],
+    ['no_show', 'No-Show', 'No-Show'],
+    ['excused', null, 'Excused'],
+    ['exempt', null, 'Exempt'],
+  ])('shows attendance only as an exception word (%s)', (status, shown, name) => {
+    render(<ShiftBlock shift={shift} onOpen={() => {}} actual={{ shiftId: 's1', status, lateMin: 14, earlyMin: 60 }} />);
+    expect(block().getAttribute('aria-label')).toBe(`Shift 8:00 AM - 5:00 PM General Shift, ${name}`);
+    if (shown) {
+      expect(word().getAttribute('data-actual')).toBe(status);
+      expect(word().textContent).toBe(shown);
+    } else {
+      expect(word()).toBeNull();
+      expect(block().textContent).toBe('8:00a - 5:00pGeneral Shift');
+    }
     expect(document.querySelector('[data-actual-sheet]')).toBeNull();
   });
   it('opens a readable sheet on a tap when asked (My Shifts) or on a touch screen, never on a mouse', () => {
     const a = { shiftId: 's1', status: 'late', firstIn: '2026-10-12T15:04:00', lastOut: '2026-10-12T23:37:00', lateMin: 4, earlyMin: 23 };
     const { unmount } = render(<ShiftBlock shift={shift} onOpen={() => {}} actual={a} tapActual />);
-    expect(bar().style.height).toBe('6px');   // a finger-sized bar
-    fireEvent.click(block().querySelector('[data-actual-badge]'));
+    fireEvent.click(word());
     const sheet = document.querySelector('[data-actual-sheet]');
     expect(sheet.getAttribute('data-actual-sheet')).toBe('late');
     expect(sheet.textContent).toContain('Late');
@@ -58,21 +95,20 @@ describe('ShiftBlock actuals', () => {
     expect(sheet.textContent).toContain(`Clocked out ${at('2026-10-12T23:37:00')} (23 min early)`);
     fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
     expect(document.querySelector('[data-actual-sheet]')).toBeNull();
-    fireEvent.click(bar());
+    fireEvent.click(word());
     expect(document.querySelector('[data-actual-sheet]')).toBeTruthy();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(document.querySelector('[data-actual-sheet]')).toBeNull();
     unmount();
-    // A mouse: the hover title does the job; the badge is not a button.
+    // A mouse: the hover title does the job; the word is not a button.
     render(<ShiftBlock shift={shift} onOpen={() => {}} actual={a} />);
-    fireEvent.click(block().querySelector('[data-actual-badge]'));
+    fireEvent.click(word());
     expect(document.querySelector('[data-actual-sheet]')).toBeNull();
-    expect(bar().style.height).toBe('3px');
     document.body.innerHTML = '';
     // A touch screen (pointer: coarse): tappable without being asked.
     const mm = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({ matches: /pointer: coarse/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; } }));
     render(<ShiftBlock shift={shift} onOpen={() => {}} actual={a} />);
-    fireEvent.click(block().querySelector('[data-actual-badge]'));
+    fireEvent.click(word());
     expect(document.querySelector('[data-actual-sheet]')).toBeTruthy();
     mm.mockRestore();
   });
@@ -97,11 +133,11 @@ describe('ShiftBlock actuals', () => {
     expect(block().getAttribute('title')).toContain('Late\nScheduled over a company holiday');
     expect(block().getAttribute('title')).not.toContain('Clocked');
   });
-  it('breathes in the block\'s own color while the shift is in progress', () => {
-    render(<ShiftBlock shift={shift} onOpen={() => {}} actual={{ shiftId: 's1', status: 'in_progress', firstIn: '2026-10-12T15:04:00' }} />);
-    expect(bar().style.background).toBe('rgb(37, 99, 235)');
-    expect(bar().style.animation).toContain('pulse');
+  it('says On Now in green while the shift runs - never the type color', () => {
+    render(<ShiftBlock shift={{ ...shift, color: '#f59e0b' }} onOpen={() => {}} actual={{ shiftId: 's1', status: 'in_progress', firstIn: '2026-10-12T15:04:00' }} />);
+    expect(word().textContent).toBe('On Now');
+    expect(word().style.color).toBe('hsl(var(--color-green))');
     expect(block().getAttribute('title')).toContain(`In progress since ${at('2026-10-12T15:04:00')}`);
-    expect(block().getAttribute('aria-label')).toBe('Shift 8:00 AM - 5:00 PM GST, In Progress');
+    expect(block().getAttribute('aria-label')).toBe('Shift 8:00 AM - 5:00 PM General Shift, In Progress');
   });
 });

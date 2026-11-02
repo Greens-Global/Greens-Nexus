@@ -14,7 +14,6 @@ import { ArrowUpRight, ChevronLeft, ChevronRight, ExternalLink, Search, X } from
 import { formatDate } from '../lib/datetime';
 import { AGING, LEAD_STATUS, OFF_MARKET_REASON, agingLabel, attentionItems, collectionSeries, count, historyWindow, money, pastDueTrend, pct, periodStats, tidy } from './model';
 import { mailboxOccupancy, rentedAll, storageOccupancy, storageRent } from './occupancy';
-import UnitClasses from './UnitClasses';
 import { AgingChart, CollectionsChart, Legend, MovesChart, PastDueTrendChart, RentedTrendChart, UnitMixChart } from './charts';
 
 // A KPI is a button: it names where it goes ("Past Due, $8,937. Show tenants past due").
@@ -308,7 +307,7 @@ export function Collections({ data, scope, trend, many, range, focus, go }) {
 
 // ── Units & Pricing ───────────────────────────────────────────────────────────
 
-export function Units({ data, many, focus, go, unitClasses, canEditClasses, onClassesSaved }) {
+export function Units({ data, many, focus, go }) {
   useScrollTo(focus);
   return (
     <>
@@ -369,8 +368,7 @@ export function Units({ data, many, focus, go, unitClasses, canEditClasses, onCl
         </Card>
       </div>
 
-      <UnitClasses rules={unitClasses} canEdit={canEditClasses} onSaved={onClassesSaved} />
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>Also under Settings &gt; Operations &gt; Unit Rules.</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>Which units count as mailboxes or switched off is set in Settings &gt; Operations &gt; Unit Rules.</div>
     </>
   );
 }

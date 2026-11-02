@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
@@ -38,6 +39,66 @@ import models
 POLICIES_KEY = "leave.policies"
 CUTOVER_KEY = "leave.cutover"
 BUCKETS = ("vacation", "sick")
+
+# Phase 1A of the Benefit Accrual roadmap (10/26/2026 plan doc). The ledger
+# today has two first-class buckets - vacation and sick (BUCKETS). The plan
+# calls for configurable leave types per policy (bereavement, jury duty,
+# floating holidays, parental leave, comp time, ...). This file introduces
+# the DATA for those types on each policy without changing the balance
+# engine's behaviour; Phase 1B wires them into balances(), add_entry() and
+# bucket_of(). Each extra type carries:
+#   id              short slug, drawn against this id on the ledger
+#   name            display name
+#   paid            true | false
+#   method          per_hour | per_period | lump | anniversary | tracked_only | none
+#   waitingDays     days of employment before this type unlocks (0 = immediate)
+#   annualHours     a lump method's grant per calendar year; 0 for others
+#   balanceCapHours cap on the running balance (0 = uncapped)
+#   carryoverMax    hours a year-end may carry over (0 = none, -1 = unlimited)
+#   payoutOnTerm    true = owed at offboarding, in hours; false = forfeited
+#   eligibleTypes   list from _EMP_TYPES; empty means the policy's own list
+#   drawFromReasons short slugs the TimeOffRequest.type / timecard category
+#                   match against to draw from this bucket. Phase 1B's
+#                   bucket_of() reads this; today bucket_of() still uses
+#                   keyword matching.
+EXTRA_TYPE_METHODS = ("per_hour", "per_period", "lump", "anniversary", "tracked_only", "none")
+EXTRA_TYPE_DEFAULTS = {
+    "us-ca": [
+        {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
+         "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["bereavement", "funeral"]},
+        {"id": "floating_holiday", "name": "Floating Holiday", "paid": True, "method": "lump",
+         "waitingDays": 90, "annualHours": 16, "balanceCapHours": 16,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["floating holiday", "floater"]},
+        {"id": "jury_duty", "name": "Jury Duty", "paid": True, "method": "tracked_only",
+         "waitingDays": 0, "annualHours": 0, "balanceCapHours": 0,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["jury", "jury duty"]},
+    ],
+    "us-other": [
+        {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
+         "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["bereavement", "funeral"]},
+        {"id": "floating_holiday", "name": "Floating Holiday", "paid": True, "method": "lump",
+         "waitingDays": 90, "annualHours": 16, "balanceCapHours": 16,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["floating holiday", "floater"]},
+        {"id": "jury_duty", "name": "Jury Duty", "paid": True, "method": "tracked_only",
+         "waitingDays": 0, "annualHours": 0, "balanceCapHours": 0,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["jury", "jury duty"]},
+    ],
+    "in": [
+        {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
+         "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
+         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+         "drawFromReasons": ["bereavement", "funeral"]},
+    ],
+    "none": [],
+}
 
 # The call (Oct 19 2026). Hours throughout; `unit` is only how it is shown.
 DEFAULT_POLICIES = {
@@ -169,8 +230,14 @@ def clear_cutover(db: Session, company_id: str) -> bool:
 
 
 def policies(db: Session) -> dict:
-    """Every policy by id - HR's saved copy over the defaults."""
+    """Every policy by id - HR's saved copy over the defaults. Phase 1A: every
+    returned policy also carries `extraTypes` (bereavement / floating holiday /
+    jury duty on the US policies, bereavement on IN). A saved policy with its
+    own `extraTypes` wins; a saved policy with none inherits the defaults."""
     out = copy.deepcopy(DEFAULT_POLICIES)
+    for pid, extras in EXTRA_TYPE_DEFAULTS.items():
+        if pid in out:
+            out[pid]["extraTypes"] = copy.deepcopy(extras)
     raw = _setting(db, POLICIES_KEY)
     if raw:
         try:
@@ -180,6 +247,11 @@ def policies(db: Session) -> dict:
         for pid, p in (saved or {}).items():
             if isinstance(p, dict):
                 out[pid] = {**out.get(pid, {}), **p, "id": pid}
+                if "extraTypes" not in p and pid in EXTRA_TYPE_DEFAULTS:
+                    # HR saved a policy before Phase 1A - inherit the new types.
+                    out[pid]["extraTypes"] = copy.deepcopy(EXTRA_TYPE_DEFAULTS[pid])
+    for pid, pol in out.items():
+        pol.setdefault("extraTypes", [])
     return out
 
 
@@ -220,9 +292,56 @@ def clean_policy(pid: str, p: dict) -> dict:
         vac = {"method": vac_in["method"], "tiers": tiers}
         if vac["method"] == "per_hour":
             vac["baseHoursPerYear"] = _num(vac_in.get("baseHoursPerYear", 2080), 1, 5000)
+    extras = _clean_extra_types(p.get("extraTypes") or [])
     return {"id": pid, "name": name, "unit": unit,
             "hoursPerDay": _num(p.get("hoursPerDay", 8), 1, 24),
-            "eligibleTypes": types, "sick": sick, "vacation": vac}
+            "eligibleTypes": types, "sick": sick, "vacation": vac,
+            "extraTypes": extras}
+
+
+_EXTRA_ID = re.compile(r"^[a-z0-9][a-z0-9_]{0,39}$")
+
+
+def _clean_extra_types(items: list) -> list:
+    """Phase 1A: validate a policy's extra leave types. Each entry becomes a
+    clean dict with every field present. Unknown keys are dropped; a bad entry
+    raises ValueError. Returns [] when nothing is given."""
+    out: list = []
+    seen: set = set()
+    for i, raw in enumerate(items or []):
+        if not isinstance(raw, dict):
+            raise ValueError("Each extra leave type is an object.")
+        tid = str(raw.get("id") or "").strip().lower()[:40]
+        if not _EXTRA_ID.match(tid or ""):
+            raise ValueError("Each extra leave type needs an id (letters, numbers, underscores).")
+        if tid in BUCKETS:
+            raise ValueError(f"'{tid}' is already a built-in bucket.")
+        if tid in seen:
+            raise ValueError(f"Duplicate extra leave type id: {tid}.")
+        seen.add(tid)
+        method = raw.get("method") if raw.get("method") in EXTRA_TYPE_METHODS else "none"
+        name = str(raw.get("name") or "").strip()[:80] or tid.replace("_", " ").title()
+        emps = [t for t in (raw.get("eligibleTypes") or []) if t in _EMP_TYPES]
+        reasons: list[str] = []
+        for r in (raw.get("drawFromReasons") or []):
+            s = str(r or "").strip().lower()[:60]
+            if s and s not in reasons:
+                reasons.append(s)
+        try:
+            annual = _num(raw.get("annualHours", 0), 0, 5000)
+            cap = _num(raw.get("balanceCapHours", 0), 0, 5000)
+            carry = _num(raw.get("carryoverMax", 0), -1, 5000)
+            waiting = int(_num(raw.get("waitingDays", 0), 0, 3650))
+        except ValueError as e:
+            raise ValueError(f"Extra type {tid}: {e}")
+        out.append({
+            "id": tid, "name": name, "paid": bool(raw.get("paid", True)),
+            "method": method, "waitingDays": waiting,
+            "annualHours": annual, "balanceCapHours": cap,
+            "carryoverMax": carry, "payoutOnTerm": bool(raw.get("payoutOnTerm", False)),
+            "eligibleTypes": emps, "drawFromReasons": reasons,
+        })
+    return out
 
 
 def save_policies(db: Session, incoming: dict, by: str) -> dict:
@@ -315,18 +434,41 @@ def _tier(tiers: list, years: int) -> float:
     return rate
 
 
-def bucket_of(name: str) -> str:
-    """Which balance a leave type / punch category draws from: vacation /
+def bucket_of(name: str, pol: dict | None = None) -> str:
+    """Which balance a leave type / punch category draws from. Vacation /
     PTO / annual leave -> vacation; sick, personal and medical -> sick (one
-    balance - "sick can also mean personal"). '' = unpaid, no balance."""
+    balance - "sick can also mean personal"). '' = unpaid, no balance.
+
+    Phase 1B: if a policy is given, each extra type's `drawFromReasons`
+    checks first - a punch whose category matches one of them lands in that
+    type's bucket. Keyword matching is the fallback for the built-in two."""
     n = (name or "").strip().lower()
     if not n:
         return ""
+    if pol:
+        for t in (pol.get("extraTypes") or []):
+            tid = (t.get("id") or "").strip()
+            reasons = [str(r or "").strip().lower() for r in (t.get("drawFromReasons") or [])]
+            if tid and any(r and r in n for r in reasons):
+                return tid
     if any(w in n for w in ("vacation", "pto", "paid time off", "annual")):
         return "vacation"
     if any(w in n for w in ("sick", "personal", "medical")):
         return "sick"
     return ""
+
+
+def all_buckets(db: Session, pols: dict | None = None) -> set:
+    """Every bucket name the ledger can carry: BUCKETS plus every extra type
+    id from every saved policy. Phase 1B uses this to validate ledger writes."""
+    pols = pols if pols is not None else policies(db)
+    out = set(BUCKETS)
+    for p in pols.values():
+        for t in (p.get("extraTypes") or []):
+            tid = (t.get("id") or "").strip()
+            if tid:
+                out.add(tid)
+    return out
 
 
 # ── The balance ─────────────────────────────────────────────────────────────
@@ -460,8 +602,11 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
               .filter(models.TimeOffRequest.employee_email == email,
                       models.TimeOffRequest.status.in_(["approved", "pending"]),
                       models.TimeOffRequest.end_date >= today.isoformat()).all()):
-        b = bucket_of(r.type)
-        if not b:
+        # Phase 1D: policy-aware, so a request that draws from an extra type
+        # (whose name may also keyword-match vacation / sick) is counted once,
+        # by the extras loop below - never here too.
+        b = bucket_of(r.type, pol)
+        if b not in upcoming:
             continue
         (upcoming if r.status == "approved" else pending)[b] += request_hours(r, hpd)
 
@@ -480,6 +625,63 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
                          and (float(sp.get("hours") or 0) > 0 or sick_total > 0)),
         "expiresOn": f"{today.year}-12-31",
     }
+    # Phase 1B: extra leave types (bereavement, floating_holiday, jury_duty,
+    # ...) from the policy. Each type's balance is its ledger-row sum within
+    # the cutover window; a lump method's annual grant is added once the
+    # waiting period is past, mirroring sick's shape (replaced by an opening
+    # import). upcoming / pending come from the policy's drawFromReasons.
+    extras_out = []
+    for t in (pol.get("extraTypes") or []):
+        tid = (t.get("id") or "").strip()
+        if not tid:
+            continue
+        type_rows = [r for r in rows if r.bucket == tid
+                     and (r.kind == "opening" or (r.effective_date or "") >= cut)
+                     and (r.effective_date or "") <= today.isoformat()]
+        total = sum(float(r.hours or 0) for r in type_rows)
+        type_eligible = emp is not None and (
+            not (t.get("eligibleTypes") or [])
+            or (getattr(emp, "employment_type", "") or "full_time") in (t.get("eligibleTypes") or [])
+        )
+        eligible_on = ""
+        grant = None
+        if type_eligible and start is not None and t.get("method") == "lump" and float(t.get("annualHours") or 0) > 0:
+            el = start + timedelta(days=int(t.get("waitingDays") or 0))
+            eligible_on = el.isoformat()
+            opening_rows = [r for r in type_rows if r.kind == "opening"]
+            replaced = bool(opening_rows) and el <= cut_d and today.year == cut_d.year
+            if el <= today and not replaced:
+                grant = {"date": max(el, date.fromisoformat(y0)).isoformat(),
+                         "hours": float(t["annualHours"])}
+                total += grant["hours"]
+        up = 0.0
+        pd = 0.0
+        reasons = [str(r or "").strip().lower() for r in (t.get("drawFromReasons") or [])]
+        if reasons:
+            for r in (db.query(models.TimeOffRequest)
+                      .filter(models.TimeOffRequest.employee_email == email,
+                              models.TimeOffRequest.status.in_(["approved", "pending"]),
+                              models.TimeOffRequest.end_date >= today.isoformat()).all()):
+                rt = (r.type or "").strip().lower()
+                if any(x and x in rt for x in reasons):
+                    hrs = request_hours(r, hpd)
+                    if r.status == "approved":
+                        up += hrs
+                    else:
+                        pd += hrs
+        extras_out.append({
+            "id": tid, "name": t.get("name") or tid, "paid": bool(t.get("paid", True)),
+            "method": t.get("method", "none"), "available": round(total, 2),
+            "upcoming": round(up, 2), "pending": round(pd, 2),
+            "grant": grant, "eligibleOn": eligible_on,
+            "eligible": bool(type_eligible and t.get("method") != "none"
+                             and (not eligible_on or eligible_on <= today.isoformat())),
+            "carriesOver": bool(t.get("carryoverMax") or 0),
+            "payoutOnTerm": bool(t.get("payoutOnTerm", False)),
+            # Phase 1D: the request form mirrors bucket_of() client-side.
+            "drawFromReasons": reasons,
+        })
+    out["extraTypes"] = extras_out
     if with_entries:
         out["entries"] = [entry_dict(r) for r in reversed(rows)][:200]
     return out
@@ -492,19 +694,29 @@ def entry_dict(r) -> dict:
 
 
 def available(db: Session, email: str, bucket: str) -> float | None:
-    """Hours left in one bucket, or None when balances aren't set up yet."""
+    """Hours left in one bucket, or None when balances aren't set up yet.
+    Phase 1B: extra types (bereavement, floating_holiday, ...) are read from
+    the `extraTypes` list on the balance payload."""
     b = balances(db, email)
-    if not b.get("live") or bucket not in b:
+    if not b.get("live"):
         return None
-    return float(b[bucket]["available"])
+    if bucket in b:
+        return float(b[bucket]["available"])
+    for t in (b.get("extraTypes") or []):
+        if t.get("id") == bucket:
+            return float(t["available"])
+    return None
 
 
 # ── Writing ─────────────────────────────────────────────────────────────────
 
 def add_entry(db: Session, email: str, bucket: str, hours: float, kind: str, day: str,
               note: str = "", by: str = "", ref_id: str = "") -> models.LeaveLedgerEntry:
-    if bucket not in BUCKETS:
-        raise ValueError("bucket must be vacation or sick")
+    """Phase 1B: `bucket` can be `vacation`, `sick`, or any extra type id a
+    saved policy defines (bereavement, floating_holiday, jury_duty, ...).
+    Anything else is refused."""
+    if bucket not in all_buckets(db):
+        raise ValueError(f"bucket must be a configured leave type, got {bucket!r}")
     row = models.LeaveLedgerEntry(id=str(uuid.uuid4()), employee_email=(email or "").strip().lower(),
                                   bucket=bucket, hours=round(float(hours), 4), kind=kind,
                                   effective_date=day, ref_id=ref_id, note=(note or "")[:300],
@@ -513,13 +725,21 @@ def add_entry(db: Session, email: str, bucket: str, hours: float, kind: str, day
     return row
 
 
-def set_opening(db: Session, email: str, vacation: float | None, sick: float | None, by: str) -> list:
-    """The one-time import: each given bucket's opening row is replaced."""
+def set_opening(db: Session, email: str, vacation: float | None, sick: float | None, by: str,
+                extras: dict | None = None) -> list:
+    """The one-time import: each given bucket's opening row is replaced.
+
+    Phase 1B: `extras={type_id: hours}` sets opening rows for extra leave
+    types too (bereavement / floating_holiday / jury_duty / ...). Each id
+    must be a configured bucket."""
     cut = cutover_for(db, email)
     if not cut:
         raise ValueError("Set the start date first.")
     out = []
-    for bucket, hours in (("vacation", vacation), ("sick", sick)):
+    pairs = [("vacation", vacation), ("sick", sick)]
+    for tid, hours in (extras or {}).items():
+        pairs.append((tid, hours))
+    for bucket, hours in pairs:
         if hours is None:
             continue
         (db.query(models.LeaveLedgerEntry)

@@ -1,17 +1,25 @@
-import { useEffect, useState } from 'react';
-import { Search, Plus, Copy, Archive, RotateCcw, FileText, Award, Star, Pencil, Trash2, Eye, Building2, Check } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Search, Plus, FileText, Award, Star, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import DocumentBuilder from './DocumentBuilder';
-import { takePendingOpen } from '../lib/pendingOpen';
+import { setPendingOpen, takePendingOpen } from '../lib/pendingOpen';
+import { formatDate } from '../lib/datetime';
+import { useIsMobile } from '../lib/useIsMobile';
+import { TEMPLATE_STATES, templateStatus, templateUsable } from '../lib/documentLibrary';
+import { PanelShell, PdfPreview, StatusWord } from './DocumentSidePanel';
+import { CreateDocModal } from './DocumentsBrowser';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { Spinner } from './AsyncState';
 import WordTemplateWizard from './WordTemplateWizard';
+import HoldButton from '../ui/HoldButton';
 
 // ── Document Templates & Letterheads (Phase 3) ───────────────────────────────
-// Category tabs + search over doc_templates, reusing DocumentBuilder (kind=
-// "template") for both editing and read-only Preview - same in-tab-replace
-// convention as My Documents / E-Sign (a plain early return, not a portal).
+// A list over doc_templates with one status per row and a named Use Template
+// (Neil, 10/31/2026: Active and Published are one Publish step); a row opens
+// beside the list with its page and every action by name. DocumentBuilder (kind=
+// "template") edits - same in-tab-replace convention as the library / E-Sign
+// (a plain early return, not a portal).
 const CATEGORIES = [
   ['letterhead', 'Letterhead'], ['hr', 'HR'], ['legal', 'Legal'], ['finance', 'Finance'],
   ['operations', 'Operations'], ['sales', 'Sales'], ['engineering', 'Engineering'], ['general', 'General'],
@@ -28,7 +36,6 @@ function CreateTemplateModal({ letterheads, onClose, onCreated, toastErr }) {
   const [name, setName] = useState('');
   const [category, setCategory] = useState('general');
   const [department, setDepartment] = useState('');
-  const [status, setStatus] = useState('draft');
   const [requiresLetterhead, setRequiresLetterhead] = useState(false);
   const [letterheadId, setLetterheadId] = useState('');
   const [busy, setBusy] = useState(false);
@@ -36,7 +43,7 @@ function CreateTemplateModal({ letterheads, onClose, onCreated, toastErr }) {
   const create = () => {
     if (!name.trim()) return;
     setBusy(true);
-    api.createDocTemplate({ name: name.trim(), category, department: department.trim(), status, requiresLetterhead, letterheadId: requiresLetterhead ? letterheadId : '' })
+    api.createDocTemplate({ name: name.trim(), category, department: department.trim(), status: 'draft', requiresLetterhead, letterheadId: requiresLetterhead ? letterheadId : '' })
       .then(t => { onCreated(t); onClose(); })
       .catch(e => toastErr?.(e.message || 'Failed to create template'))
       .finally(() => setBusy(false));
@@ -72,20 +79,11 @@ function CreateTemplateModal({ letterheads, onClose, onCreated, toastErr }) {
               company-wide template (administrators only).
             </p>
           </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Status</label>
-            <select className="form-input" style={{ width: '100%' }} value={status} onChange={e => setStatus(e.target.value)}>
-              <option value="draft">Draft - still being written</option>
-              <option value="active">Active - approved, ready to use</option>
-            </select>
-            {/* Requirement 3: only an Active template can be generated from, so
-                a draft is the safe place to build one up before anyone uses it. */}
-            <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>
-              {status === 'draft'
-                ? 'Nobody can create documents from it until you activate it.'
-                : 'Anyone who can create documents will be able to use it immediately.'}
-            </p>
-          </div>
+          {/* Requirement 3: only a published template can be generated from, so
+              a draft is the safe place to build one up before anyone uses it. */}
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
+            It starts as a Draft. Once you publish it, people can make documents from it and HR packets can pick it.
+          </p>
           <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
             <input type="checkbox" checked={requiresLetterhead} onChange={e => setRequiresLetterhead(e.target.checked)} />
             Requires a letterhead
@@ -217,21 +215,128 @@ export function LetterheadsPanel({ toastOk, toastErr }) {
   );
 }
 
-export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr }) {
-  const [sub, setSub] = useState('library');
+// Which department keeps a template's wording. Was a browser prompt.
+function DepartmentModal({ template, onClose, onSaved, toastErr }) {
+  const [department, setDepartment] = useState(template.department || '');
+  const [busy, setBusy] = useState(false);
+  const save = () => {
+    setBusy(true);
+    api.updateDocTemplate(template.id, { department: department.trim() })
+      .then(() => { onSaved(department.trim()); onClose(); })
+      .catch(e => toastErr?.(e.message || 'Could not change the owning department'))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div className="nx-popup" style={cardStyle} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700 }}>Change Department</div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label htmlFor="template-department" style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Which department maintains "{template.name}"?</label>
+          <input id="template-department" className="form-input" autoFocus value={department} onChange={e => setDepartment(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') save(); }} placeholder="e.g. Legal" />
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Leave blank for a company-wide template, which only an administrator can edit.</p>
+        </div>
+        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 'auto' }}>
+          <button onClick={onClose} className="secondary-btn">Cancel</button>
+          <button className="primary-btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const categoryLabel = (key) => CATEGORIES.find(([v]) => v === key)?.[1] || key;
+
+// The row a template opens beside the list: its page, one status and every action by name.
+function TemplatePanel({ template: t, onClose, onEdit, onUse, onDepartment, onChanged, toastOk, toastErr }) {
+  const [busy, setBusy] = useState('');
+  const [versions, setVersions] = useState([]);
+  useEffect(() => {
+    let live = true;
+    api.getDocTemplateVersions(t.id).then(r => { if (live) setVersions(r || []); }).catch(() => {});
+    return () => { live = false; };
+  }, [t.id, t.version]);
+
+  const run = async (key, fn, ok) => {
+    setBusy(key);
+    try { await fn(); toastOk?.(ok); await onChanged(); }
+    catch (e) { toastErr?.(e?.message || 'That did not work.'); }
+    setBusy('');
+  };
+  const publish = () => run('publish', () => api.publishDocTemplate(t.id), 'Published');
+  const usable = templateUsable(t);
+  return (
+    <PanelShell title={t.name} onClose={onClose} subtitle={<StatusWord status={templateStatus(t)} />}>
+      <PdfPreview key={`${t.id}:${t.publishedVersion}:${t.state === 'draft' ? t.version : ''}`} label={`Preview of ${t.name}`}
+        load={() => api.docTemplatePreviewPdf(t.id)} />
+      <div className="nx-dl-actions">
+        {usable && <button type="button" className="primary-btn" onClick={() => onUse(t)}>Use Template</button>}
+        {t.state !== 'published' && t.state !== 'archived' && (
+          <button type="button" className={usable ? 'secondary-btn' : 'primary-btn'} disabled={busy === 'publish'} onClick={publish}>
+            {busy === 'publish' ? 'Publishing…' : t.state === 'changes' ? 'Publish Changes' : 'Publish'}
+          </button>
+        )}
+        <button type="button" className="secondary-btn" onClick={() => onEdit(t.id)}>Edit</button>
+      </div>
+      {t.state === 'changes' && <div className="nx-dl-muted">New documents and HR packets use version {t.publishedVersion} until these edits are published.</div>}
+      {t.state === 'draft' && <div className="nx-dl-muted">Nobody can make documents from a draft. Publishing it makes it usable, and HR packets can pick it.</div>}
+      <dl className="nx-dl-facts">
+        <div><dt>Category</dt><dd>{categoryLabel(t.category)}</dd></div>
+        <div><dt>Maintained By</dt><dd>{t.department || 'Company-Wide'}</dd></div>
+        {t.requiresLetterhead && <div><dt>Letterhead</dt><dd>Required</dd></div>}
+        {t.publishedVersion > 0 && <div><dt>Published</dt><dd>Version {t.publishedVersion}{t.publishedAt ? ` - ${formatDate(t.publishedAt)}` : ''}</dd></div>}
+        <div><dt>Updated</dt><dd>{formatDate(t.updatedAt)}</dd></div>
+      </dl>
+      {versions.length > 1 && (
+        <section className="nx-dl-section">
+          <h4>Version History</h4>
+          {versions.slice(0, 5).map(v => (
+            <div key={v.id} className="nx-dl-version">
+              <span>Version {v.versionNo}</span>
+              <span className="nx-dl-muted">{formatDate(v.editedAt)}{v.note ? ` - ${v.note}` : ''}</span>
+            </div>
+          ))}
+        </section>
+      )}
+      <section className="nx-dl-section">
+        <h4>More</h4>
+        <div className="nx-dl-actions">
+          <button type="button" className="secondary-btn" onClick={() => onDepartment(t)}>Change Department</button>
+          <button type="button" className="secondary-btn" disabled={busy === 'dup'} onClick={() => run('dup', () => api.duplicateDocTemplate(t.id), 'Duplicated as a draft')}>Duplicate</button>
+          {t.status === 'archived'
+            ? <button type="button" className="secondary-btn" disabled={busy === 'arc'} onClick={() => run('arc', () => api.updateDocTemplate(t.id, { status: 'active' }), 'Restored')}>Restore</button>
+            : <button type="button" className="secondary-btn" disabled={busy === 'arc'} onClick={() => run('arc', () => api.updateDocTemplate(t.id, { status: 'archived' }), 'Archived')}>Archive</button>}
+          {/* Held (Neil, Oct 30 2026); a refusal rewinds the button with the reason. */}
+          <HoldButton size="sm" label="Delete" doneLabel="Deleted" ariaLabel={`Delete template ${t.name}`}
+            fallbackMessage={`Delete template "${t.name}"? This can't be undone.`}
+            onConfirm={async () => {
+              try { await api.deleteDocTemplate(t.id); }
+              catch (e) { throw new Error(e.status === 409 ? 'This template has generated documents - archive it instead.' : (e.message || 'Failed to delete'), { cause: e }); }
+              toastOk?.('Deleted');
+              onClose();
+              await onChanged();
+            }} />
+        </div>
+      </section>
+    </PanelShell>
+  );
+}
+
+export default function DocumentTemplates({ employees = [], entities = [], toastOk, toastErr }) {
+  const isMobile = useIsMobile();
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
-  // 'current' = Active and Draft: a template just made is a Draft, and it
-  // vanished from an Active-only list the moment it was created.
-  const [statusFilter, setStatusFilter] = useState('current');   // current|active|draft|archived
+  const [statusFilter, setStatusFilter] = useState('current');   // current|published|changes|draft|archived
   const [templates, setTemplates] = useState(null);
   const [letterheads, setLetterheads] = useState([]);
+  const [folders, setFolders] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [wordOpen, setWordOpen] = useState(false);       // New template from a Word file (Oct 14)
   // Open In Documents from an HR packet (Oct 14) lands straight in the editor.
   const [editingId, setEditingId] = useState(() => takePendingOpen('doc-template'));
-  const [previewId, setPreviewId] = useState(null);
-  const [busyId, setBusyId] = useState('');
+  const [selectedId, setSelectedId] = useState('');
+  const [useId, setUseId] = useState('');
+  const [departmentOf, setDepartmentOf] = useState(null);
   const [seeding, setSeeding] = useState(false);
   // Starters are add-if-missing on the server, so an administrator can pull a
   // newly shipped starter (the Unsecured Promissory Note, Sep 29) into a
@@ -240,15 +345,22 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
   const { can } = useRole();
   const isAdmin = can('administrator');
 
-  const load = () => {
-    api.getDocTemplates({ status: statusFilter === 'current' ? '' : statusFilter, ...(category ? { category } : {}), ...(search.trim() ? { q: search.trim() } : {}) })
-      .then(rows => setTemplates(statusFilter === 'current' ? (rows || []).filter(t => t.status !== 'archived') : rows))
-      .catch(() => setTemplates([]));
-  };
+  const load = () => api.getDocTemplates({}).then(setTemplates).catch(() => setTemplates([]));
 
-  useEffect(() => { load(); }, [category, search, statusFilter]);
+  useEffect(() => { load(); }, []);
   useEffect(() => { api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([])); }, []);
-  useEffect(() => { if (openCreateSignal) setCreateOpen(true); }, [openCreateSignal]);
+  useEffect(() => { api.getDocFolders().then(setFolders).catch(() => setFolders([])); }, []);
+
+  const visible = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return (templates || []).filter(t => {
+      if (statusFilter === 'current' ? t.state === 'archived' : t.state !== statusFilter) return false;
+      if (category && t.category !== category) return false;
+      return !needle || [t.name, categoryLabel(t.category), t.department, ...(t.tags || [])]
+        .some(x => String(x || '').toLowerCase().includes(needle));
+    }).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  }, [templates, search, statusFilter, category]);
+  const selected = selectedId ? (templates || []).find(t => t.id === selectedId) : null;
 
   const seedStarters = () => {
     setSeeding(true);
@@ -256,188 +368,108 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
       .catch(e => toastErr?.(e.message || 'Failed to seed starters')).finally(() => setSeeding(false));
   };
 
-  const act = (id, fn, okMsg) => {
-    setBusyId(id);
-    fn(id).then(() => { toastOk?.(okMsg); load(); }).catch(e => toastErr?.(e.message || 'Action failed')).finally(() => setBusyId(''));
+  const onRowKey = (e, t) => {
+    if (e.key === 'Enter') { e.preventDefault(); setSelectedId(t.id); return; }
+    if (e.key === 'Escape') { setSelectedId(''); return; }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const next = e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
+    if (next) { next.focus(); if (selectedId) setSelectedId(next.dataset.row); }
   };
 
   if (editingId) return (
     <DocumentBuilder docId={editingId} kind="template" toastOk={toastOk} toastErr={toastErr}
       onClose={() => { setEditingId(null); load(); }} />
   );
-  if (previewId) return (
-    <DocumentBuilder docId={previewId} kind="template" toastOk={toastOk} toastErr={toastErr}
-      onClose={() => setPreviewId(null)} />
-  );
+
+  const rowAction = (t) => (templateUsable(t)
+    ? <button type="button" className="secondary-btn" onClick={(e) => { e.stopPropagation(); setUseId(t.id); }}>Use Template</button>
+    : t.state === 'draft'
+      ? <button type="button" className="secondary-btn" onClick={(e) => { e.stopPropagation(); setEditingId(t.id); }}>Edit</button>
+      : null);
 
   return (
-    <div>
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginBottom: 10, borderBottom: '1px solid var(--line)' }}>
-        {[['library', 'Templates'], ['letterheads', 'Letterheads']].map(([v, l]) => (
-          <button key={v} onClick={() => setSub(v)}
-            style={{ padding: '9px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${sub === v ? 'var(--pine)' : 'transparent'}`, color: sub === v ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', marginBottom: -1 }}>
-            {l}
+    <div className={`nx-dl nx-dl-norail${selected ? ' nx-dl-open' : ''}`}>
+      <div className="nx-dl-main">
+        <div className="nx-dl-tools">
+          <div className="nx-dl-search">
+            <Search size={14} aria-hidden="true" />
+            <input className="form-input" placeholder="Search templates" aria-label="Search templates" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <select className="form-input" aria-label="Category" style={{ flex: '0 1 170px' }} value={category} onChange={e => setCategory(e.target.value)}>
+            <option value="">All Categories</option>
+            {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          <select className="form-input" aria-label="Template status" style={{ flex: '0 1 190px' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <option value="current">Current Templates</option>
+            <option value="published">{TEMPLATE_STATES.published.label}</option>
+            <option value="changes">{TEMPLATE_STATES.changes.label}</option>
+            <option value="draft">{TEMPLATE_STATES.draft.label}</option>
+            <option value="archived">{TEMPLATE_STATES.archived.label}</option>
+          </select>
+          {isAdmin && templates?.length > 0 && (
+            <button className="secondary-btn" disabled={seeding} onClick={seedStarters} title="Add any starter template the library does not have yet">
+              {seeding ? 'Adding…' : 'Add Starter Templates'}
+            </button>
+          )}
+          <button className="secondary-btn" title="Letterheads are under Settings > Branding & Email"
+            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'branding:letterheads' } }))}>
+            Letterheads
           </button>
-        ))}
+          <button className="secondary-btn" onClick={() => setWordOpen(true)} title="Nexus reads the Word file and finds every blank and signature line">From Word File</button>
+          <button className="primary-btn" data-tour="documents-new-template" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Plus size={14} /> New Template
+          </button>
+        </div>
+
+        {!templates ? (
+          <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
+        ) : visible.length === 0 ? (
+          <div className="nx-dl-empty">
+            <FileText size={32} aria-hidden="true" />
+            <p>{search.trim() ? 'No template matches that search.'
+              : statusFilter === 'archived' ? 'No archived templates.'
+              : statusFilter === 'draft' ? 'No drafts. Templates you are still writing appear here.'
+              : 'No templates here yet.'}</p>
+            {!templates.length && (
+              <button className="primary-btn" disabled={seeding} onClick={seedStarters}>{seeding ? 'Adding…' : 'Add Starter Templates'}</button>
+            )}
+          </div>
+        ) : isMobile ? (
+          <div className="nx-dl-cards">
+            {visible.map(t => (
+              <button key={t.id} type="button" className="nx-dl-card" onClick={() => setSelectedId(t.id)}>
+                <strong>{t.name}</strong>
+                <span className="nx-dl-muted">{categoryLabel(t.category)} - {t.department || 'Company-Wide'}</span>
+                <span className="nx-dl-card-foot"><StatusWord status={templateStatus(t)} /><span className="nx-dl-muted">{formatDate(t.updatedAt)}</span></span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="nx-dl-table">
+            <table>
+              <thead><tr><th>Template</th><th>Category</th><th>Status</th><th>Maintained By</th><th>Updated</th><th aria-label="Actions" /></tr></thead>
+              <tbody>
+                {visible.map(t => (
+                  <tr key={t.id} data-row={t.id} tabIndex={0} className={selectedId === t.id ? 'sel' : ''} aria-selected={selectedId === t.id}
+                    onClick={() => setSelectedId(t.id)} onKeyDown={e => onRowKey(e, t)}>
+                    <td className="nx-dl-name">{t.name}</td>
+                    <td>{categoryLabel(t.category)}</td>
+                    <td><StatusWord status={templateStatus(t)} /></td>
+                    <td>{t.department || 'Company-Wide'}</td>
+                    <td className="nx-dl-date">{formatDate(t.updatedAt)}</td>
+                    <td className="nx-dl-rowact">{rowAction(t)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {sub === 'letterheads' ? (
-        <div style={{ padding: '18px 4px', fontSize: 13, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          Letterheads are under Settings &gt; Branding &amp; Email.
-          <button className="secondary-btn" style={{ fontSize: 12.5 }}
-            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'branding:letterheads' } }))}>
-            Open Letterheads
-          </button>
-        </div>
-      ) : (
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            <select className="form-input" style={{ flex: '0 1 180px', minWidth: 140, fontSize: 12.5, fontWeight: 600 }}
-              value={category} onChange={e => setCategory(e.target.value)}>
-              <option value="">All Categories</option>
-              {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-            <button className="primary-btn" data-tour="documents-new-template" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
-              <Plus size={13} /> New Template
-            </button>
-            <button className="secondary-btn" onClick={() => setWordOpen(true)} title="Nexus reads the Word file and finds every blank and signature line"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
-              <FileText size={13} /> From Word File
-            </button>
-            {isAdmin && templates?.length > 0 && (statusFilter === 'active' || statusFilter === 'current') && (
-              <button className="secondary-btn" disabled={seeding} onClick={seedStarters} title="Add any starter template the library does not have yet"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
-                <Star size={13} /> {seeding ? 'Adding…' : 'Add Starter Templates'}
-              </button>
-            )}
-            <div style={{ position: 'relative', maxWidth: 320, flex: '1 1 220px' }}>
-              <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-              <input className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }}
-                placeholder="Search templates…" value={search} onChange={e => setSearch(e.target.value)} />
-            </div>
-            {/* Draft -> Active -> Archived (requirement 3). A draft has to be
-                reachable here or it is created and then invisible. */}
-            <select className="form-input" style={{ fontSize: 12.5, width: 130 }}
-              value={statusFilter} onChange={e => setStatusFilter(e.target.value)} title="Template status">
-              <option value="current">Active And Draft</option>
-              <option value="active">Active</option>
-              <option value="draft">Draft</option>
-              <option value="archived">Archived</option>
-            </select>
-          </div>
-
-          {!templates ? (
-            <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
-          ) : templates.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '52px 20px', color: 'var(--muted)' }}>
-              <FileText size={36} style={{ opacity: 0.3, marginBottom: 12 }} />
-              <p style={{ fontSize: 13.5, margin: '0 0 16px' }}>{statusFilter === 'archived' ? 'No archived templates.'
-                : statusFilter === 'draft' ? 'No drafts - templates you are still writing appear here.'
-                : 'No templates here yet.'}</p>
-              {(statusFilter === 'active' || statusFilter === 'current') && (
-                <button className="primary-btn" disabled={seeding} onClick={seedStarters} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {seeding ? 'Adding…' : 'Add starter templates'}
-                </button>
-              )}
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
-              {templates.map(t => (
-                <div key={t.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <FileText size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                    <div style={{ fontSize: 13.5, fontWeight: 700, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 10 }}>
-                    <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800, color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)' }}>
-                      {CATEGORIES.find(([v]) => v === t.category)?.[1] || t.category}
-                    </span>
-                    <span title={`Status: ${t.status}`}
-                      style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800,
-                        color: t.status === 'active' ? 'var(--pine)' : t.status === 'draft' ? '#92400e' : 'var(--muted)',
-                        background: t.status === 'active' ? 'hsla(var(--color-green),0.12)'
-                          : t.status === 'draft' ? 'rgba(245,158,11,0.13)' : 'var(--mist)' }}>
-                      {t.status === 'active' ? 'Active' : t.status === 'draft' ? 'Draft' : 'Archived'}
-                    </span>
-                    {/* HR packets print the PUBLISHED version (Oct 14) - these
-                        say which active templates still need a Publish. */}
-                    {t.status === 'active' && (!t.publishedVersion || t.hasUnpublishedChanges) && (
-                      <span title={t.publishedVersion
-                          ? 'Edited since it was last published - HR packets still print the published version. Open it and click Publish Changes.'
-                          : 'Never published - HR packets cannot use it yet. Open it and click Publish.'}
-                        style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800,
-                          color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.12)' }}>
-                        {t.publishedVersion ? 'Unpublished Changes' : 'Not Published'}
-                      </span>
-                    )}
-                    <span title={t.department
-                        ? `Maintained by ${t.department}. Department heads of ${t.department}, and administrators, can edit it.`
-                        : 'Company-wide template - only an administrator can edit it.'}
-                      style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800,
-                        display: 'inline-flex', alignItems: 'center', gap: 3,
-                        color: t.department ? 'var(--pine)' : 'var(--muted)',
-                        background: t.department ? 'hsla(var(--color-green),0.12)' : 'var(--mist)' }}>
-                      <Building2 size={10} /> {t.department || 'Company-wide'}
-                    </span>
-                    {t.requiresLetterhead && (
-                      <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800, color: '#92400e', background: 'rgba(245,158,11,0.13)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                        <Award size={10} /> Letterhead
-                      </span>
-                    )}
-                  </div>
-                  {/* 8 icon buttons at ~30px need ~276px, but the grid track
-                      bottoms out at 240px (212px inside the padding) - so this
-                      row overflowed its own card at the narrow end even on a
-                      desktop, and always on a phone. Wrapping costs one extra
-                      line at narrow widths and nothing at wide ones. */}
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <button title="Preview" onClick={() => setPreviewId(t.id)}
-                      style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Eye size={14} /></button>
-                    <button title="Edit" onClick={() => setEditingId(t.id)}
-                      style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Pencil size={14} /></button>
-                    <button title="Set owning department" disabled={busyId === t.id} onClick={() => {
-                      const next = window.prompt(
-                        `Which department maintains "${t.name}"?
-
-Leave blank for a company-wide template (administrators only).`,
-                        t.department || '');
-                      if (next === null || next.trim() === (t.department || '')) return;
-                      setBusyId(t.id);
-                      api.updateDocTemplate(t.id, { department: next.trim() })
-                        .then(() => { toastOk?.(next.trim() ? `Now maintained by ${next.trim()}` : 'Now company-wide'); load(); })
-                        .catch(e => toastErr?.(e.message || 'Could not change the owning department'))
-                        .finally(() => setBusyId(''));
-                    }} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Building2 size={14} /></button>
-                    <button title="Duplicate" disabled={busyId === t.id} onClick={() => act(t.id, api.duplicateDocTemplate, 'Duplicated')}
-                      style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Copy size={14} /></button>
-                    {t.status === 'draft' && (
-                      /* Activating is what makes a template company-approved -
-                         only then can anyone generate a document from it. */
-                      <button title="Activate - makes this template usable for new documents"
-                        disabled={busyId === t.id}
-                        onClick={() => act(t.id, (id) => api.updateDocTemplate(id, { status: 'active' }), 'Activated')}
-                        style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex', color: 'var(--pine)' }}><Check size={14} /></button>
-                    )}
-                    {t.status === 'active' ? (
-                      <button title="Archive" disabled={busyId === t.id} onClick={() => act(t.id, (id) => api.updateDocTemplate(id, { status: 'archived' }), 'Archived')}
-                        style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Archive size={14} /></button>
-                    ) : (
-                      <button title="Restore" disabled={busyId === t.id} onClick={() => act(t.id, (id) => api.updateDocTemplate(id, { status: 'active' }), 'Restored')}
-                        style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><RotateCcw size={14} /></button>
-                    )}
-                    <button title="Delete" disabled={busyId === t.id} onClick={() => {
-                      if (!window.confirm(`Delete template "${t.name}"? This can't be undone.`)) return;
-                      setBusyId(t.id);
-                      api.deleteDocTemplate(t.id).then(() => { toastOk?.('Deleted'); load(); })
-                        .catch(e => toastErr?.(e.status === 409 ? 'This template has generated documents - archive it instead.' : (e.message || 'Failed to delete')))
-                        .finally(() => setBusyId(''));
-                    }} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex', color: 'hsl(var(--color-red))' }}><Trash2 size={14} /></button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {selected && (
+        <TemplatePanel key={selected.id} template={selected} toastOk={toastOk} toastErr={toastErr} onChanged={load}
+          onClose={() => setSelectedId('')} onEdit={setEditingId} onUse={(t) => setUseId(t.id)} onDepartment={setDepartmentOf} />
       )}
 
       {createOpen && (
@@ -449,6 +481,20 @@ Leave blank for a company-wide template (administrators only).`,
         <WordTemplateWizard categories={CATEGORIES.filter(([v]) => v !== 'letterhead')} toastErr={toastErr}
           onClose={() => { setWordOpen(false); load(); }}
           onOpen={(id) => { setWordOpen(false); load(); setEditingId(id); }} />
+      )}
+      {departmentOf && (
+        <DepartmentModal template={departmentOf} toastErr={toastErr} onClose={() => setDepartmentOf(null)}
+          onSaved={(d) => { toastOk?.(d ? `Now maintained by ${d}` : 'Now company-wide'); load(); }} />
+      )}
+      {useId && (
+        <CreateDocModal folders={folders} employees={employees} entities={entities} initialTemplateId={useId} toastErr={toastErr}
+          onClose={() => setUseId('')}
+          onCreated={(doc) => {
+            toastOk?.('Document made');
+            // It lands in the library, open beside the list.
+            setPendingOpen('document', doc.id);
+            window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-browse' } }));
+          }} />
       )}
     </div>
   );

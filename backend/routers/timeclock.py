@@ -7157,6 +7157,9 @@ def _sched_dict(row: ScheduledShift, presets: dict, effective: bool = False, tea
             "label": pend.get("label", row.label), "note": pend.get("note", row.note),
             "published": bool(row.published) and not pend and not removing,
             "hasChanges": bool(pend), "pendingDelete": removing,
+            # What the team sees now, for an edit not shared yet - the Shift
+            # Planner's block says "was 8:00a - 4:30p" (Oct 30 2026).
+            "was": {"start": row.start_hhmm, "end": row.end_hhmm, "label": row.label or ""} if pend else None,
             "openSlots": int(pend.get("openSlots", getattr(row, "open_slots", 0)) or 0),
             "weatherStatus": weather_status,
             "weatherDecisionId": getattr(row, "weather_decision_id", "") or "",
@@ -7556,6 +7559,12 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     weather = weather_watch.outlook_rows(db, start, end, group_ids)
 
     last = _last_publish(db) if can_write else {}
+    # Where the unshared changes are, per day (Oct 30 2026): the team line
+    # says "32 across all teams (29 next week)" without a second call.
+    unshared_by_date: dict = {}
+    if can_write:
+        for (d,) in _unshared_query(db, user).with_entities(ScheduledShift.work_date).all():
+            unshared_by_date[d] = unshared_by_date.get(d, 0) + 1
     return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
             "groups": groups, "scheduled": scheduled, "openShifts": open_shifts,
             "timeoff": timeoff, "holidays": holidays, "weather": weather,
@@ -7566,7 +7575,8 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
             # Teams "last shared" + the unshared count across the WHOLE
             # schedule, not just these dates (Oct 2, B4-31).
             "lastPublishedAt": (last.get("at") or "") if can_write else "",
-            "unsharedCount": _unshared_query(db, user).count() if can_write else 0,
+            "unsharedCount": sum(unshared_by_date.values()),
+            "unsharedByDate": unshared_by_date,
             # Shift settings and groups are company-wide switches
             # (_require_unscoped_team): offered only to those who can save them.
             # write_scope, not scope - every manager now READS everyone.
@@ -7620,15 +7630,108 @@ def _unshared_query(db: Session, user: dict, d0: str = "", d1: str = "", group_i
 
 
 @router.get("/schedule/unshared")
-def unshared_changes(start: str = "", end: str = "", user: dict = Depends(require_schedule_write),
+def unshared_changes(start: str = "", end: str = "", group_id: str = "", user: dict = Depends(require_schedule_write),
                      db: Session = Depends(get_db)):
     """How many changes are waiting to be shared - everything, or inside a
-    range - and the dates they span (the Share dialog, Oct 2)."""
+    range, optionally one team (Save & Share's "next week too", Oct 30
+    2026) - and the dates they span (the Share dialog, Oct 2)."""
     d0 = _parse_day(start, "start date").isoformat() if start else ""
     d1 = _parse_day(end, "end date").isoformat() if end else ""
-    rows = _unshared_query(db, user, d0, d1).with_entities(ScheduledShift.work_date).all()
+    rows = _unshared_query(db, user, d0, d1, group_id).with_entities(ScheduledShift.work_date).all()
     dates = sorted(d for (d,) in rows)
     return {"count": len(dates), "firstDate": dates[0] if dates else "", "lastDate": dates[-1] if dates else ""}
+
+
+@router.get("/schedule/labor")
+def schedule_labor(start: str, end: str, user: dict = Depends(require_schedule_write),
+                   db: Session = Depends(get_db)):
+    """Scheduled labor for the planner's header (Frontline Reach, Neil
+    11/02/2026): the hours and cost of the live shifts in [start, end] for
+    the people this scheduler manages. Hours are a shift's length less its
+    unpaid break (shift_attendance._paid_minutes - the planner's own paidMin
+    rule), priced at the person's rate IN EFFECT THAT DAY (_rate_on, the
+    payroll history), so a raise mid-week applies from its date. Fixed pay is
+    counted in `fixedPayPeople` and adds hours but no cost; a person with no
+    rate counts in `peopleWithoutRate`. Published and draft shifts are split
+    as well as summed. Cancelled (weather) days, shifts being removed and
+    open shifts (nobody to price) are left out. The manager tier never sees
+    pay (_pay_hidden): they get hours only, `payHidden: true`. People paid in
+    more than one currency: `cost` is null, `currency` '', `costs` per
+    currency (a sum across currencies is not a number)."""
+    d0 = _parse_day(start, "start date")
+    d1 = _parse_day(end, "end date")
+    if d1 < d0:
+        raise HTTPException(400, "The end date is before the start date.")
+    if (d1 - d0).days > 92:
+        raise HTTPException(400, "Three months at most.")
+    scope = _visible_emails(db, user)
+    pay_hidden = _pay_hidden(db, user)
+    people = _active_people(db)
+    q = (db.query(ScheduledShift)
+         .filter(ScheduledShift.work_date >= d0.isoformat(), ScheduledShift.work_date <= d1.isoformat(),
+                 ScheduledShift.employee_email != ""))
+    if scope is not None:
+        q = q.filter(ScheduledShift.employee_email.in_(list(scope)))
+    rows = [r for r in q.all()
+            if not (getattr(r, "pending_delete", 0) or 0) and (r.employee_email or "").lower() in people]
+    from shift_attendance import _paid_minutes
+    hist, current = {}, {}
+
+    def _pay_on(em: str, day: str) -> dict:
+        if em not in hist:
+            hist[em] = _rate_history(db, em)
+            current[em] = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+        return _rate_on(db, em, day, hist=hist[em], rate_row=current[em])
+
+    days: dict = {}
+    buckets = {"published": {"min": 0, "cost": 0.0}, "draft": {"min": 0, "cost": 0.0}}
+    fixed, no_rate, currencies = set(), set(), {}
+    for r in rows:
+        mins = _paid_minutes(r)
+        if mins <= 0:
+            continue
+        em = (r.employee_email or "").lower()
+        pay = _pay_on(em, r.work_date)
+        cost = 0.0
+        if (pay.get("payType") or "hourly") == "fixed":
+            fixed.add(em)
+        elif float(pay.get("hourlyRate") or 0) > 0:
+            cost = round(mins / 60.0 * float(pay["hourlyRate"]), 2)
+            cur = pay.get("currency") or "USD"
+            currencies[cur] = currencies.get(cur, 0.0) + cost
+        else:
+            no_rate.add(em)
+        day = days.setdefault(r.work_date, {"min": 0, "cost": 0.0})
+        day["min"] += mins
+        day["cost"] += cost
+        b = buckets["published" if int(getattr(r, "published", 1) or 0) else "draft"]
+        b["min"] += mins
+        b["cost"] += cost
+    hours = lambda m: round(m / 60.0, 2)   # noqa: E731
+    total_min = sum(d["min"] for d in days.values())
+    total_cost = round(sum(d["cost"] for d in days.values()), 2)
+    # One currency: the total is priced in it. Several: there is no honest
+    # single number ($ and Rs do not add), so `cost` is null and `costs` holds
+    # each; the planner prints the parts.
+    mixed = len(currencies) > 1
+    currency = "" if mixed else (next(iter(currencies)) if currencies else "USD")
+    if mixed:
+        total_cost = None
+    out = {
+        "start": d0.isoformat(), "end": d1.isoformat(),
+        "hours": hours(total_min), "payHidden": pay_hidden,
+        "days": [{"day": d, "hours": hours(v["min"]), **({} if pay_hidden else {"cost": round(v["cost"], 2)})}
+                 for d, v in sorted(days.items())],
+        "published": {"hours": hours(buckets["published"]["min"]), "cost": None if pay_hidden else round(buckets["published"]["cost"], 2)},
+        "draft": {"hours": hours(buckets["draft"]["min"]), "cost": None if pay_hidden else round(buckets["draft"]["cost"], 2)},
+    }
+    if pay_hidden:
+        out.update({"cost": None, "currency": currency, "costs": {}, "peopleWithoutRate": None, "fixedPayPeople": None})
+    else:
+        out.update({"cost": total_cost, "currency": currency,
+                    "costs": {k: round(v, 2) for k, v in currencies.items()},
+                    "peopleWithoutRate": len(no_rate), "fixedPayPeople": len(fixed)})
+    return out
 
 
 @router.get("/schedule/check")
@@ -8029,7 +8132,23 @@ class BulkScheduleIn(BaseModel):
     weekdays:   Optional[List[int]] = None  # 0=Mon..6=Sun; empty/None = every day
     break_min:  Optional[int] = None        # unpaid break; None = the preset's
     skip_timeoff: bool = True               # don't schedule over approved/pending time off
+    skip_holidays: bool = True              # leave each person's company holidays empty
     overwrite:  bool = False                # replace an existing shift that day, else skip it
+
+
+def _holiday_days(db: Session, emails, lo: str, hi: str) -> set:
+    """(email, date) pairs a fill or a copy leaves empty: each person's own
+    company holidays (their company's calendar, country rule), optional ones
+    excepted - the same days the no-show scan and the Workforce Scorecard
+    excuse (`shift_attendance._holiday_dates`), so a manager never has to
+    clear Thanksgiving by hand after Fill Automatically (Neil, Oct 30 2026)."""
+    emails = sorted({(e or "").lower() for e in emails if e})
+    if not emails:
+        return set()
+    import shift_attendance
+    people = {(e.work_email or "").lower(): e for e in
+              db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email).in_(emails)).all()}
+    return set(shift_attendance._holiday_dates(db, people, lo, hi))
 
 
 @router.post("/schedule/bulk")
@@ -8039,8 +8158,9 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
     RANGE in one action, instead of adding it per person per day (Visesh, Aug 26).
     Applies a preset (or explicit start/end) to every selected person on every
     date in [start_date, end_date] that matches `weekdays`, skipping dates a
-    person has time off (unless turned off) and existing shifts (unless
-    overwrite). Team-scoped: only people the caller can already see are touched."""
+    person has time off or a company holiday (unless turned off) and existing
+    shifts (unless overwrite). Team-scoped: only people the caller can already
+    see are touched."""
     scope = _visible_emails(db, user)
     named = _check_people(db, body.emails)   # a named person must be ACTIVE in People (Oct 2)
     emails = set(named)
@@ -8108,13 +8228,17 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
 
     def _is_off(em, ds):
         return any(s <= ds <= e for (s, e) in off.get(em, []))
+    holidays = _holiday_days(db, emails, dates[0], dates[-1]) if body.skip_holidays else set()
 
-    created = replaced = skipped = timeoff_skipped = 0
+    created = replaced = skipped = timeoff_skipped = holiday_skipped = 0
     now = _now_iso()
     for em in sorted(emails):
         for ds in dates:
             if body.skip_timeoff and _is_off(em, ds):
                 timeoff_skipped += 1
+                continue
+            if (em, ds) in holidays:
+                holiday_skipped += 1
                 continue
             have = existing.get((em, ds))
             if have:
@@ -8141,7 +8265,8 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
             created += 1
     db.commit()
     return {"created": created, "replaced": replaced, "skipped": skipped,
-            "timeoffSkipped": timeoff_skipped, "people": len(emails), "dates": len(dates)}
+            "timeoffSkipped": timeoff_skipped, "holidaySkipped": holiday_skipped,
+            "people": len(emails), "dates": len(dates)}
 
 
 # ── Copy / clear a range (Sep 28, Teams "Copy schedule" / "Clear") ────────────
@@ -8196,6 +8321,7 @@ class CopyScheduleIn(BaseModel):
     include_notes: bool = True
     include_activities: bool = True         # Teams "Include shift activities when copying shifts"
     skip_timeoff: bool = True               # don't copy onto approved/pending time off
+    skip_holidays: bool = True              # nor onto a person's company holiday
     overwrite: bool = False                 # replace a person's shifts on a target day, else skip it
     include_timeoff: bool = False           # also copy APPROVED time off - as new PENDING requests
 
@@ -8262,7 +8388,8 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
     four - instead of rebuilding it cell by cell (Teams "Copy schedule"). The
     copies are DRAFTS until published, carry their times, preset, label and
     unpaid break (and notes when asked), and follow bulk fill's rules: time
-    off is skipped unless turned off, and a person's existing shifts on a
+    off and company holidays are skipped unless turned off (last week's
+    Thursday never lands on Thanksgiving), and a person's existing shifts on a
     target day are kept unless `overwrite` - in which case a PUBLISHED one is
     only marked for removal, so staff keep it until the copy is published."""
     s0, s1 = _parse_day(body.source_start, "start date"), _parse_day(body.source_end, "end date")
@@ -8307,8 +8434,9 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
                           TimeOffRequest.status == "approved",
                           TimeOffRequest.start_date <= hi, TimeOffRequest.end_date >= lo).all()):
             off.setdefault((t.employee_email or "").lower(), []).append((t.start_date, t.end_date))
+    holidays = _holiday_days(db, people, lo, hi) if body.skip_holidays else set()
 
-    created = replaced = skipped = timeoff_skipped = 0
+    created = replaced = skipped = timeoff_skipped = holiday_skipped = 0
     cleared = set()     # target days already overwritten this run
     now = _now_iso()
     for k in range(repeats):
@@ -8318,6 +8446,9 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
             em = src["email"]
             if em and body.skip_timeoff and any(a <= day <= b for a, b in off.get(em, [])):
                 timeoff_skipped += 1
+                continue
+            if em and (em, day) in holidays:
+                holiday_skipped += 1
                 continue
             key = (em, day) if em else ("", day, src["start"], src["end"])
             have = existing.get(key)
@@ -8351,7 +8482,7 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
     timeoff_copied = _copy_timeoff(db, user, body, s0, s1, span, repeats) if body.include_timeoff else 0
     db.commit()
     return {"created": created, "replaced": replaced, "skipped": skipped, "timeoffSkipped": timeoff_skipped,
-            "timeoffCopied": timeoff_copied, "targetStart": lo, "targetEnd": hi}
+            "holidaySkipped": holiday_skipped, "timeoffCopied": timeoff_copied, "targetStart": lo, "targetEnd": hi}
 
 
 class ClearScheduleIn(BaseModel):
@@ -9299,7 +9430,8 @@ def _company_holidays_for_employee(db: Session, em: str, start: str, end: str) -
     # Eve): ONE answer - the stronger type, both names - whichever row was
     # saved last (holiday_policies.merge_day, Oct 29 2026 review).
     import holiday_policies
-    return holiday_policies.holidays_by_date(rows, emp.country)
+    country = holiday_policies.person_country(emp, holiday_policies.company_countries(db, [emp.company]).get(emp.company, ""))
+    return holiday_policies.holidays_by_date(rows, country)
 
 
 def _company_holidays_for_many(db: Session, people: dict, start: str, end: str) -> dict:
@@ -9316,12 +9448,14 @@ def _company_holidays_for_many(db: Session, people: dict, start: str, end: str) 
                       HrCompanyHoliday.date >= start, HrCompanyHoliday.date <= end).all()):
         by_company.setdefault(r.company_id, []).append(r)
     import holiday_policies
+    home = holiday_policies.company_countries(db, by_company.keys())
     out = {}
     for em, e in people.items():
         rows = by_company.get(e.company) if e is not None and e.company else None
         if not rows:
             continue
-        h = holiday_policies.holidays_by_date(rows, e.country)   # one answer per date (merge_day)
+        # One answer per date (merge_day), for their own country else the company's.
+        h = holiday_policies.holidays_by_date(rows, holiday_policies.person_country(e, home.get(e.company, "")))
         if h:
             out[em] = h
     return out
@@ -14170,7 +14304,18 @@ def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "
                 # another shift is shown and tagged but never demands a reason
                 # (hardening pass, Oct 15): `soft`.
                 warnings.append({**base, "text": text, "kind": "conflict", "soft": _soft_conflict(text)})
-        for w in shift_rules.publish_warnings(db, emails_on, d0, d1, [r.id for _, r in shared], presets=presets):
+        rule_rows = shift_rules.publish_warnings(db, emails_on, d0, d1, [r.id for _, r in shared], presets=presets)
+        # Scoped to the share (Neil, Oct 30 2026): a warning on a shift outside
+        # [d0, d1] counts only when that shift is one the team already sees as
+        # it is (published, no edit or removal waiting) - the share is what
+        # puts the warning on it. An unshared draft or edit on another date is
+        # not part of this share; its warning waits for the share that sends it.
+        outside = {w["shiftId"] for w in rule_rows if w.get("shiftId") and not (d0 <= (w.get("date") or "") <= d1)}
+        settled = {o.id for o in db.query(ScheduledShift).filter(ScheduledShift.id.in_(list(outside))).all()
+                   if o.published and not o.pending_delete and not _pending(o)} if outside else set()
+        for w in rule_rows:
+            if not (d0 <= (w.get("date") or "") <= d1) and w.get("shiftId") not in settled:
+                continue
             base = {"email": w["email"], "name": names.get(w["email"], w["email"]), "date": w["date"], "shiftId": w["shiftId"]}
             for text in w["texts"]:
                 warnings.append({**base, "text": text, "kind": "rule", "soft": False})

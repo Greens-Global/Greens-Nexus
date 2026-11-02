@@ -11,6 +11,7 @@ import { formatDateTime, formatDate } from '../lib/datetime';
 import { toViewUrl } from '../lib/storageView';
 import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
+import HoldButton from '../ui/HoldButton';
 import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND, CLAUDE_SEND_ON } from './meta';
 import { toast, useBuildStore, setAllTools } from './store';
 import { MODULES } from '../contexts/RoleContext';
@@ -443,7 +444,6 @@ function Tokens() {
   const [label, setLabel] = useState('');
   const [minted, setMinted] = useState(null);    // { token, label, expiresAt } shown once
   const [busy, setBusy] = useState(false);
-  const [confirmId, setConfirmId] = useState('');
   const load = useCallback(() => api.devNotesTokens().then((t) => setTokens(Array.isArray(t) ? t : [])).catch(() => {}), []);
   useEffect(() => { load(); }, [load]);
   const mint = async () => {
@@ -452,11 +452,12 @@ function Tokens() {
     catch (e) { toast(e?.message || 'The token could not be minted.'); }
     finally { setBusy(false); }
   };
+  // Revoke is held on the row (Hold to confirm, Neil, Oct 30 2026): one
+  // token, so the inline Revoke? / Keep step goes; a refusal rewinds the
+  // button with the reason; the list re-reads once the check has shown.
   const revoke = async (id) => {
-    setBusy(true);
-    try { await api.devNotesTokenRevoke(id); setConfirmId(''); if (minted?.id === id) setMinted(null); load(); toast('Token revoked'); }
-    catch (e) { toast(e?.message || 'The token could not be revoked.'); }
-    finally { setBusy(false); }
+    try { await api.devNotesTokenRevoke(id); if (minted?.id === id) setMinted(null); toast('Token revoked'); }
+    catch (e) { throw new Error(e?.message || 'The token could not be revoked.', { cause: e }); }
   };
   const live = tokens.filter((t) => !t.revokedAt);
   return (
@@ -483,9 +484,8 @@ function Tokens() {
                 <div className="bm-row-top"><span className="bm-row-title">{t.label || 'Token'}</span>{t.email && <span className="bm-dim bm-small">{t.email}</span>}</div>
                 <div className="bm-row-meta"><span>Minted {formatDate(t.createdAt)}</span><span className="bm-dot-sep" /><span>Expires {formatDate(t.expiresAt)}</span>{t.lastUsedAt && <><span className="bm-dot-sep" /><span>Last used {formatDateTime(t.lastUsedAt)}</span></>}</div>
               </div>
-              {confirmId === t.id
-                ? <span className="bm-confirm">Revoke? <button type="button" className="bm-btn bm-btn-sm bm-btn-danger" onClick={() => revoke(t.id)} disabled={busy}>Revoke</button><button type="button" className="bm-btn bm-btn-sm bm-btn-ghost" onClick={() => setConfirmId('')}>Keep</button></span>
-                : <button type="button" className="bm-btn bm-btn-sm bm-btn-ghost" onClick={() => setConfirmId(t.id)} disabled={busy}><Trash2 size={13} /> Revoke</button>}
+              <HoldButton size="sm" label="Revoke" doneLabel="Revoked" onConfirm={() => revoke(t.id)} onDone={() => load()} disabled={busy}
+                ariaLabel={`Revoke ${t.label || 'Token'}`} fallbackMessage={`Revoke "${t.label || 'Token'}"? Anything using it can no longer act as you.`} />
             </div>
           ))}
         </div>

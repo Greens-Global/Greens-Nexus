@@ -89,8 +89,7 @@ export function TicketPropertyRulesPanel({ toastOk, toastErr }) {
 }
 
 // ── Operations > Unit Rules ──────────────────────────────────────────────────
-// The same UnitClasses the Facility Operations Units tab shows, with its own
-// load. Managers (level 3) or an Operations editor grant save, as the route
+// UnitClasses with its own load - the one place these rules are edited. Managers (level 3) or an Operations editor grant save, as the route
 // requires.
 export function UnitRulesPanel() {
   const { canAccessModule } = useRole();

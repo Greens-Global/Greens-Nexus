@@ -696,7 +696,7 @@ function TourStep({ tour, index, onBack, onNext, onClose }) {
   // Nothing to point at (or a phone): the step is a normal popup.
   if (!rect || isMobile) {
     return (
-      <Modal title={step.title || tour.title} onClose={onClose}
+      <Modal title={step.title || tour.title} placement="center" onClose={onClose}
         footer={<><span style={{ marginRight: 'auto' }}>{counter}</span>{buttons}</>}>
         <div style={{ ...label11, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}><Compass size={12} />{tour.title}</div>
         {content}

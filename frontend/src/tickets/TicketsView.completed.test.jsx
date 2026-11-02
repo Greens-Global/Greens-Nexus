@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
-// The Completed section (resolved / closed tickets) starts collapsed on EVERY
-// visit (Neil, Oct 13 2026) - opening it lasts for the visit only. It used to
-// be a saved preference, so one click left it open on every screen after.
+// Finished tickets (resolved / closed) live in the Done queue (10/31/2026),
+// the successor of the Completed section that collapsed under the list
+// (Pranshu, Sept 8 2026; collapsed on every visit, Neil, Oct 13 2026): out of
+// the way by default, one click to see them.
 
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ instance: {}, accounts: [] }) }));
 vi.mock('../contexts/RoleContext', async (importOriginal) => ({
@@ -32,20 +33,18 @@ const { default: TicketsView } = await import('./TicketsView');
 
 afterEach(() => cleanup());
 
-describe('Ticket list - Completed section', () => {
-  it('starts collapsed on every visit and opens for this visit only', async () => {
-    const { unmount } = render(<TicketsView />);
-    const head = await screen.findByRole('button', { name: /Completed/ });
-    expect(head.getAttribute('aria-expanded')).toBe('false');
-    expect(screen.queryByText('Old monitor replaced')).toBeNull();     // resolved ticket hidden
-    expect(screen.getByText('Printer jam')).toBeTruthy();              // open one still listed
-    fireEvent.click(head);
-    expect(head.getAttribute('aria-expanded')).toBe('true');
+describe('Ticket list - the Done queue', () => {
+  it('keeps finished tickets out of the working queues and one tab away', async () => {
+    render(<TicketsView />);
+    await screen.findByText('Printer jam');
+    expect(screen.queryByText('Old monitor replaced')).toBeNull();     // resolved ticket out of the way
+    const done = screen.getByRole('button', { name: /^Done/ });
+    expect(done.textContent.trim()).toBe('Done');                      // a tally, not work waiting - no count pill (10/31/2026)
+    fireEvent.click(done);
     expect(screen.getByText('Old monitor replaced')).toBeTruthy();
-    unmount();
-    render(<TicketsView />);                                           // the next visit: collapsed again
-    const again = await screen.findByRole('button', { name: /Completed/ });
-    expect(again.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('Printer jam')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^All Open/ }));
+    expect(screen.getByText('Printer jam')).toBeTruthy();
     expect(screen.queryByText('Old monitor replaced')).toBeNull();
   });
 });

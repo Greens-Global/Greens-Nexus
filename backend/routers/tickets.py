@@ -381,6 +381,12 @@ def _with_latest_comment(db: Session, t: models.TaskTicket, user: dict, d: dict)
     d["latestComment"] = _latest_comments(db, internal_ok, ticket_id=t.id).get(t.id)
     if not internal_ok:
         _public_last_comment(d)
+    # The Needs Reply flag the list carries (list_tickets), from the PUBLIC
+    # thread: this dict replaces the row in the browser's list, and a row
+    # without the flag would fall back on latestComment - the internal-
+    # inclusive one for the desk, which an internal note would then "answer".
+    public_latest = d["latestComment"] if not internal_ok else _latest_comments(db, False, ticket_id=t.id).get(t.id)
+    d["needsReply"] = _needs_reply(t, public_latest)
     return _for_viewer(db, t, user, d)
 
 
@@ -1025,8 +1031,31 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
         d["latestComment"] = (any_latest if sees else public_latest).get(t.id)
         if not sees:
             _public_last_comment(d)
+        # The desk's Needs Reply queue (Neil, 10/31/2026) - from the PUBLIC
+        # thread for everyone, so an internal note never reads as an answer.
+        d["needsReply"] = _needs_reply(t, public_latest.get(t.id))
         out.append(_for_viewer(db, t, user, d))
     return out
+
+
+def _needs_reply(t: "models.TaskTicket", latest_public: dict | None) -> bool:
+    """Does the desk owe this ticket an answer? Live, not paused, not waiting
+    for an approval, not something its own assignee filed for themselves, and
+    either nobody has answered yet (no first response) or the requester wrote
+    the last PUBLIC comment. One rule, read by the Tickets main page's Needs
+    Reply tab (frontend tickets/queues.js) - the client only falls back to its
+    own copy for a row that lacks the flag."""
+    live = (t.status or "open") not in ("resolved", "closed")
+    if not live or t.sla_paused_at or (t.approval_status or "none") == "pending":
+        return False
+    req = (t.requester_email or "").lower()
+    if req and req == (t.assignee_email or "").lower():
+        return False
+    if not t.first_response_at:
+        return True
+    # `req and`: a mail-in or guest row with no requester, whose last public
+    # comment carries no author, must not read "" == "" as the requester.
+    return bool(req) and bool(latest_public) and (latest_public.get("authorId") or "") == req
 
 
 def _valid_requester(db: Session, user: dict, requested: str | None) -> str:

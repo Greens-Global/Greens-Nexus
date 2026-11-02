@@ -23,7 +23,6 @@ OWNERS = [
         "frontend/src/views/PropertyAsset.jsx",
         "frontend/src/views/AssetModule.jsx",
         "frontend/src/asset/",            # a trailing slash = the whole folder
-        "backend/routers/assets.py",
         "backend/routers/property_assets.py"]},
 ]
 

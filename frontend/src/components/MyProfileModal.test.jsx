@@ -1,10 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 
 // Profile (Oct 28 2026): who you are on top, four sections on the left -
 // Appearance first; a task email's "Email Settings" link opens Task Emails.
+const apiSpies = vi.hoisted(() => ({}));
 vi.mock('../api', () => ({
-  api: new Proxy({}, { get: () => () => Promise.resolve({}) }),
+  api: new Proxy({}, { get: (_, k) => (apiSpies[k] ||= vi.fn(() => Promise.resolve({}))) }),
 }));
 vi.mock('../tasks/MyEmailSettings', () => ({ default: () => <div>Email settings form</div> }));
 
@@ -36,5 +37,74 @@ describe('Profile - Date Format (Oct 20 2026)', () => {
     expect(labels.map((l) => l.split(' - ')[0])).toEqual(['MM/DD/YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD', 'DD MMM YYYY']);
     expect(labels[2]).toMatch(/^YYYY-MM-DD - \d{4}-\d{2}-\d{2}$/);
     expect(labels[0]).toMatch(/\(Default\)$/);   // the US format is marked as everyone's default
+  });
+});
+
+describe('Profile - Navigation Motion (Neil, 11/01/2026)', () => {
+  it('offers Company Default (with the company value), Off, Subtle, Lively and Bold under Appearance, and a pick saves at once', async () => {
+    render(<MyProfileModal onClose={() => {}} theme="light" onThemeToggle={() => {}} wkTheme="cobalt" setWkTheme={() => {}} />);
+    const group = screen.getByRole('radiogroup', { name: 'Navigation Motion' });
+    // Nothing saved for the company: its default reads Lively.
+    expect(within(group).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Company Default (Lively)', 'Off', 'Subtle', 'Lively', 'Bold']);
+    expect(within(group).getByRole('radio', { name: 'Company Default (Lively)' }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(within(group).getByRole('radio', { name: 'Subtle' }));
+    await waitFor(() => expect(apiSpies.saveTaskTablePrefs).toHaveBeenCalledWith('nav', { motion: 'subtle' }));
+    expect(within(group).getByRole('radio', { name: 'Subtle' }).getAttribute('aria-checked')).toBe('true');
+  });
+});
+
+describe('Profile - Phone Notifications (Frontline Reach, 11/02/2026)', () => {
+  // jsdom has no push APIs: fake exactly the ones the rows read, like pwa.test.jsx.
+  function fakePush(permission = 'default') {
+    const reg = { pushManager: { getSubscription: vi.fn(() => Promise.resolve(null)), subscribe: vi.fn() }, scope: '/' };
+    Object.defineProperty(navigator, 'serviceWorker', { value: { register: vi.fn(() => Promise.resolve(reg)), ready: Promise.resolve(reg) }, configurable: true });
+    window.PushManager = function PushManager() {};
+    window.Notification = { permission, requestPermission: vi.fn(() => Promise.resolve(permission)) };
+    import.meta.env.VITE_PWA_DEV = '1';
+  }
+  afterEach(() => { delete navigator.serviceWorker; delete window.PushManager; delete window.Notification; });
+
+  it('is the last section; with no push keys on the server it says to ask the administrator and keeps the switch off', async () => {
+    fakePush();
+    apiSpies.pushConfig = vi.fn(() => Promise.resolve({ enabled: false, publicKey: '' }));
+    render(<MyProfileModal onClose={() => {}} />);
+    const names = screen.getAllByRole('button').map((b) => b.textContent.trim()).filter((t) => /Appearance|Date & Time|Email Signature|Task Emails|Phone Notifications/.test(t));
+    expect(names.slice(0, 5)).toEqual(['Appearance', 'Date & Time', 'Email Signature', 'Task Emails', 'Phone Notifications']);
+    fireEvent.click(screen.getByRole('button', { name: /Phone Notifications/ }));
+    expect(screen.getByRole('heading', { name: 'Phone Notifications' })).toBeTruthy();
+    expect(screen.getByText('Install Nexus')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Not set up for the company yet. Ask your administrator.')).toBeTruthy());
+    expect(screen.queryByText(/push keys/)).toBeNull();
+    const sw = screen.getByRole('switch', { name: /Push to This Device/ });
+    expect(sw.checked).toBe(false);
+    expect(sw.disabled).toBe(true);
+  });
+
+  it('a browser without push says so, and an installed iPhone on an old iOS says to update it', async () => {
+    apiSpies.pushConfig = vi.fn(() => Promise.resolve({ enabled: true, publicKey: 'AQID_-8' }));
+    const { unmount } = render(<MyProfileModal onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /Phone Notifications/ }));
+    expect(screen.getByText(/Not available in this browser/)).toBeTruthy();
+    unmount();
+    // Installed (standalone): display-mode matches; useIsMobile's media query does not.
+    const realMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn((q) => ({ matches: /standalone/.test(q), addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
+    render(<MyProfileModal onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /Phone Notifications/ }));
+    expect(screen.getByText('Not available on this phone. Update it to iOS 16.4 or later.')).toBeTruthy();
+    expect(screen.getByText('Installed')).toBeTruthy();
+    window.matchMedia = realMatchMedia;
+  });
+
+  it('blocked notifications explain how to allow them and keep the switch off', async () => {
+    fakePush('denied');
+    apiSpies.pushConfig = vi.fn(() => Promise.resolve({ enabled: true, publicKey: 'AQID_-8' }));
+    apiSpies.pushSubscriptions = vi.fn(() => Promise.resolve([]));
+    render(<MyProfileModal onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /Phone Notifications/ }));
+    await waitFor(() => expect(screen.getByText(/Notifications are blocked for Nexus in this browser/)).toBeTruthy());
+    const sw = screen.getByRole('switch', { name: /Push to This Device/ });
+    expect(sw.checked).toBe(false);
+    expect(sw.disabled).toBe(true);
   });
 });

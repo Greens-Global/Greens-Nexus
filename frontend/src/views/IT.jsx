@@ -1,167 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { SkeletonBlocks, Spinner } from "../components/AsyncState";
-import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, Globe, Wifi, Plus, ExternalLink, AlertCircle } from "lucide-react";
+import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { api } from "../api";
-import ModuleTabs from "../components/ModuleTabs";
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 // Asset Management tab removed Jun 12 (Visesh) - the legacy hardware_assets
 // flow is superseded by the Items module; equipment lives on the items table.
-const TABS = [
-  { key: 'network',     label: 'Network Dashboard',  Icon: Wifi },
-  { key: 'it-websites', label: 'Website Management', Icon: Globe },
-];
-
-export default function IT({ activeSub = "network", onSubChange }) {
-  const sub = activeSub || 'network';
-
+// Website Management removed 10/31/2026 (Neil): five hard-coded sites, a frozen
+// date, and anything added was lost on refresh. An old /it/it-websites link
+// lands here, on the network.
+export default function IT() {
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      {/* Desktop: tabs render centered in the top header; phones keep the
-          in-page strip (ModuleTabs handles both) */}
-      <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
-      {sub === 'network'     && <NetworkDashboard />}
-      {sub === 'it-websites' && <ITWebsites />}
-    </div>
-  );
-}
-
-
-// ── Website Management ───────────────────────────────────────────────────────
-
-const TODAY_DATE = new Date('2026-05-28'); // SSL/domain expiry countdowns
-
-const INIT_SITES = [
-  { id: 1, name: 'Greens Global',        url: 'https://greensglobal.com',       platform: 'WordPress',  hosting: 'WP Engine',    domainExpiry: '2027-01-14', sslExpiry: '2026-08-01', status: 'Live',           analytics: '4,280 visits/mo' },
-  { id: 2, name: 'Nexus App',     url: 'https://vlow2k.github.io/Greens-Nexus', platform: 'React/Vite', hosting: 'GitHub Pages', domainExpiry: '-',         sslExpiry: 'Auto',       status: 'Live',           analytics: 'Internal' },
-  { id: 3, name: 'Greens Global Ads LP', url: 'https://greensglobal.com/promo', platform: 'WordPress',  hosting: 'WP Engine',    domainExpiry: '2027-01-14', sslExpiry: '2026-08-01', status: 'Live',           analytics: '1,050 visits/mo' },
-  { id: 4, name: 'Investor Portal',      url: 'https://investors.greensglobal.com', platform: 'Custom',  hosting: 'AWS',          domainExpiry: '2027-01-14', sslExpiry: '2026-11-20', status: 'In Development', analytics: '-' },
-  { id: 5, name: 'OPS Field App',        url: 'https://ops.greensglobal.com',   platform: 'React',      hosting: 'Render',       domainExpiry: '2027-01-14', sslExpiry: 'Auto',       status: 'Staging',        analytics: 'Internal' },
-];
-
-function ITWebsites() {
-  const [sites, setSites] = useState(INIT_SITES);
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ name: '', url: '', platform: '', hosting: '', domainExpiry: '', sslExpiry: '', status: 'Live', analytics: '' });
-
-  const sslDaysLeft = (val) => {
-    if (val === 'Auto' || val === '-') return null;
-    return Math.ceil((new Date(val) - TODAY_DATE) / (1000 * 3600 * 24));
-  };
-
-  const submit = (e) => {
-    e.preventDefault();
-    setSites(prev => [{ id: Date.now(), ...form }, ...prev]);
-    setShowModal(false);
-    setForm({ name: '', url: '', platform: '', hosting: '', domainExpiry: '', sslExpiry: '', status: 'Live', analytics: '' });
-  };
-
-  const statusColor = (s) => s === 'Live' ? 'status-approved' : s === 'Staging' ? 'status-pending' : 'status-badge';
-
-  return (
-    <div>
-      <div className="view-header">
-        <div className="view-title-group">
-          <h2>Website Management</h2>
-          <p>Monitor domains, SSL certificates, hosting, and site status</p>
-        </div>
-        <button className="primary-btn" onClick={() => setShowModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={14} /> Add Site
-        </button>
-      </div>
-
-      {/* Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
-        {[
-          { label: 'Total Sites',   value: sites.length,                                       color: 'hsl(var(--color-blue))' },
-          { label: 'Live',          value: sites.filter(s => s.status === 'Live').length,       color: 'hsl(var(--color-green))' },
-          { label: 'Staging / Dev', value: sites.filter(s => s.status !== 'Live').length,      color: 'hsl(var(--color-orange))' },
-          { label: 'SSL Alerts',    value: sites.filter(s => { const d = sslDaysLeft(s.sslExpiry); return d !== null && d <= 60; }).length, color: 'hsl(var(--color-red))' },
-        ].map(s => (
-          <div key={s.label} className="motion-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '16px 18px' }}>
-            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 6 }}>{s.label}</div>
-            <div style={{ fontSize: '1.8rem', fontWeight: 700, color: s.color }}>{s.value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Site cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
-        {sites.map(site => {
-          const sslDays = sslDaysLeft(site.sslExpiry);
-          const sslWarn = sslDays !== null && sslDays <= 60;
-          return (
-            <div key={site.id} className="motion-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 4 }}>{site.name}</div>
-                  <a href={site.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.78rem', color: 'hsl(var(--color-blue))', display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}>
-                    {site.url.replace('https://', '')} <ExternalLink size={10} />
-                  </a>
-                </div>
-                <span className={`status-badge ${statusColor(site.status)}`}>{site.status}</span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: '0.82rem' }}>
-                {[
-                  { label: 'Platform', value: site.platform },
-                  { label: 'Hosting',  value: site.hosting },
-                  { label: 'Domain Expiry', value: site.domainExpiry },
-                  { label: 'Analytics', value: site.analytics },
-                ].map(r => (
-                  <div key={r.label}>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{r.label}</div>
-                    <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{r.value}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 10, borderTop: '1px solid var(--border-color)' }}>
-                {sslWarn && <AlertCircle size={13} style={{ color: 'hsl(var(--color-orange))' }} />}
-                <span style={{ fontSize: '0.78rem', color: sslWarn ? 'hsl(var(--color-orange))' : 'var(--text-secondary)', fontWeight: sslWarn ? 600 : 400 }}>
-                  SSL: {site.sslExpiry === 'Auto' ? 'Auto-renew' : site.sslExpiry === '-' ? 'N/A' : sslDays !== null && sslDays < 0 ? 'EXPIRED' : `${sslDays}d remaining`}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div className="nx-popup" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 28 }}>
-            <h3 style={{ marginBottom: 20, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Add New Site</h3>
-            <form onSubmit={submit}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                {[
-                  { label: 'Site Name', key: 'name', type: 'text', full: true },
-                  { label: 'URL', key: 'url', type: 'url', full: true },
-                  { label: 'Platform', key: 'platform', type: 'text' },
-                  { label: 'Hosting', key: 'hosting', type: 'text' },
-                  { label: 'Domain Expiry', key: 'domainExpiry', type: 'date' },
-                  { label: 'SSL Expiry', key: 'sslExpiry', type: 'text' },
-                  { label: 'Status', key: 'status', type: 'select', options: ['Live', 'Staging', 'In Development', 'Offline'] },
-                  { label: 'Analytics', key: 'analytics', type: 'text' },
-                ].map(f => (
-                  <div key={f.key} className="form-group" style={f.full ? { gridColumn: '1/-1' } : {}}>
-                    <label>{f.label}</label>
-                    {f.type === 'select'
-                      ? <select className="form-select" value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}>
-                          {f.options.map(o => <option key={o}>{o}</option>)}
-                        </select>
-                      : <input className="form-input" type={f.type} required={f.key !== 'analytics'} value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))} />
-                    }
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
-                <button type="button" className="secondary-btn" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="primary-btn">Add Site</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <NetworkDashboard />
     </div>
   );
 }

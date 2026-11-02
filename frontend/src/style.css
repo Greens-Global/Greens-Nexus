@@ -100,6 +100,7 @@
   --ease-out: cubic-bezier(.16,1,.3,1);
   --ease-in: cubic-bezier(.55,0,.85,.36);
   --ease-standard: cubic-bezier(.2,.8,.2,1);
+  --ease-spring: cubic-bezier(.34,1.56,.64,1);   /* one overshoot, for a lift or a pop only (rail motion, 11/01/2026) */
 
   /* color tokens for status badges only */
   --color-blue:   215,75%,45%;
@@ -508,26 +509,27 @@ h1,h2,h3,h4,h5,h6,
 .sbfx--out .sbfx-star { fill: #eab308; }
 .sbfx--out .sbfx-star:nth-of-type(even) { fill: #f59e0b; }
 /* The sidebar's tooltips (components/NavTip.jsx, Neil Oct 14 2026: "large
-   and obvious"). A dark panel in a layer on the page, placed and flipped by
-   the component, so the folded rail cannot clip it. The control's name is
-   the big line (15px, semibold); a quieter second line only says why a
-   button cannot be pressed, or gives the clock's numbers. `data-tone` draws a
-   thin colored rule down its left edge - green Punch In, amber Break, red
-   Punch Out - color as a rule, never a chip. The arrow points at the control
-   wherever the clamp to the window moved the panel (--navtip-arrow). */
+   and obvious"; the flyout look since 11/01/2026). A light card in a layer
+   on the page, placed and flipped by the component, so the folded rail
+   cannot clip it. The control's name is the big line (15px, semibold); a
+   quieter second line only says why a button cannot be pressed, or gives
+   the clock's numbers. `data-tone` draws a thin colored rule down its left
+   edge - green Punch In, amber Break, red Punch Out - color as a rule,
+   never a chip. With rail motion on it slides out from the control (180ms,
+   ease-out); off, it fades in as before. No fill mode: there is no delay. */
 .navtip {
-  --navtip-bg: #111827; --navtip-fg: #fff; --navtip-dim: rgba(255, 255, 255, .74);
+  --navtip-bg: var(--card, #fff); --navtip-fg: var(--ink, #111827); --navtip-dim: var(--muted, #6b7280);
   position: fixed; left: 0; top: 0; z-index: 10050; pointer-events: none;
   display: flex; flex-direction: column; gap: 3px;
   width: max-content; max-width: 300px; padding: 9px 14px;
   border-radius: 8px; background: var(--navtip-bg); color: var(--navtip-fg);
+  border: 1px solid var(--line);
   font-family: var(--wk-font, 'Inter', system-ui, sans-serif); text-align: left;
-  box-shadow: 0 12px 32px rgba(17, 24, 39, .28), 0 2px 6px rgba(17, 24, 39, .18);
-  animation: navtip-in .16s cubic-bezier(.16, 1, .3, 1) both;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .10), 0 1px 2px rgba(0, 0, 0, .06);
+  animation: navtip-in var(--dur-sm, 150ms) var(--ease-out);
 }
 [data-theme="dark"] .navtip {
-  --navtip-bg: #f9fafb; --navtip-fg: #111827; --navtip-dim: rgba(17, 24, 39, .68);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .08);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .06);
 }
 .navtip-label { font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -.005em; white-space: nowrap; }
 .navtip-detail { font-size: 12.5px; font-weight: 500; line-height: 1.4; color: var(--navtip-dim); }
@@ -539,11 +541,15 @@ h1,h2,h3,h4,h5,h6,
 .navtip[data-tone="in"] { --navtip-tone: hsl(var(--color-green)); }
 .navtip[data-tone="break"] { --navtip-tone: #f59e0b; }
 .navtip[data-tone="out"] { --navtip-tone: #ef4444; }
-.navtip::after { content: ''; position: absolute; border: 6px solid transparent; }
-.navtip[data-side="right"]::after { right: 100%; top: var(--navtip-arrow, 50%); margin-top: -6px; border-right-color: var(--navtip-bg); }
-.navtip[data-side="left"]::after { left: 100%; top: var(--navtip-arrow, 50%); margin-top: -6px; border-left-color: var(--navtip-bg); }
-.navtip[data-side="top"]::after { top: 100%; left: var(--navtip-arrow, 50%); margin-left: -6px; border-top-color: var(--navtip-bg); }
-.navtip[data-side="bottom"]::after { bottom: 100%; left: var(--navtip-arrow, 50%); margin-left: -6px; border-bottom-color: var(--navtip-bg); }
+/* The flyout (rail motion on): the card slides out from the control's edge
+   and settles - the same `navtip-in` keyframes, a starting transform per side
+   and the ease-out curve (the spring is the icon's alone). Off, the plain
+   fade. */
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip { animation: navtip-in 180ms var(--ease-out); }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="right"] { --navtip-from: translateX(-6px) scale(.98); transform-origin: left center; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="left"] { --navtip-from: translateX(6px) scale(.98); transform-origin: right center; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="top"] { --navtip-from: translateY(6px) scale(.98); transform-origin: center bottom; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="bottom"] { --navtip-from: translateY(-6px) scale(.98); transform-origin: center top; }
 /* It slides the last few pixels out from the control it names. */
 .navtip[data-side="right"] { --navtip-from: translateX(-6px); }
 .navtip[data-side="left"] { --navtip-from: translateX(6px); }
@@ -1243,6 +1249,82 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .nx-overlay.is-closing { animation: nx-fade-out var(--dur-sm) ease-in forwards; pointer-events: none; }
 .nx-overlay.is-closing > .nx-panel { animation: nx-pop-out var(--dur-sm) var(--ease-in) forwards; }
 .nx-overlay.is-closing > .nx-modal-sheet { animation: nx-sheet-down var(--dur-sm) var(--ease-in) forwards; }
+
+/* ── Sheets (Neil, 11/01/2026) ─────────────────────────────────────────────
+   A desktop popup that is a record, a form or a workspace is a SHEET: docked
+   to the right edge, full height, the width it already had (the 60% rule's
+   max(60vw, width), the Workday panels' 85vw), corners rounded on the left.
+   It slides in from off screen (320ms, ease-out) while the scrim fades, its
+   body's first rows cascade in a beat behind the frame, and it slides out
+   (220ms, ease-in) while the scrim fades out over the same 220ms - the JS
+   exit (useExit(onClose, MOTION.md)) waits exactly that long. Every sheet
+   casts its shadow to the left and has a hairline left edge
+   (lib/sheetStack.js SHEET_SHADOW / SHEET_EDGE for inline-styled ones).
+   Questions - DialogHost's confirm / alert / prompt, "Save
+   your changes?", any box tagged .nx-center - keep the centered pop above.
+   Phones keep their bottom sheet: everything here is desktop only.
+   Who draws the class: tasks/components.jsx Modal and marketing/shared/Modal
+   (placement="sheet", the default), the Workday panels, the task drawer;
+   the class-styled shells (.modal-overlay > .modal-content.nx-popup, the
+   credvault .cv-modal.nx-popup) get the same geometry from the rules below
+   without touching their markup. Transform and opacity only. */
+@keyframes nx-slide-in    { from { transform: translateX(100%); } }
+@keyframes nx-slide-out   { to   { transform: translateX(100%); } }
+@keyframes nx-cascade-in  { from { opacity: 0; transform: translateX(10px); } }
+.nx-sheet-right { animation: nx-slide-in var(--dur-lg) var(--ease-out); box-shadow: -8px 0 40px rgba(0,0,0,.18); border-left: 1px solid var(--line); }
+.is-closing > .nx-sheet-right { animation: nx-slide-out var(--dur-md) var(--ease-in) forwards; }
+/* The scrim leaves with the sheet, not 70ms ahead of it. */
+.nx-overlay.is-closing:has(> .nx-sheet-right) { animation-duration: var(--dur-md); }
+/* The body's first eight children arrive 18ms apart, 40ms after the frame
+   starts moving - only while the sheet is arriving: the shell carries
+   `is-entering` for 500ms after it opens (lib/sheetStack.js
+   useSheetEntering), so a row that mounts later (data landing, a tab
+   switch) does not slide in on its own. `backwards` only holds the start
+   state through the delay; once an item has landed the animation is over,
+   so no containing block. */
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(-n+8) { animation: nx-cascade-in var(--dur-md) var(--ease-out); animation-fill-mode: backwards; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(1) { animation-delay: 40ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(2) { animation-delay: 58ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(3) { animation-delay: 76ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(4) { animation-delay: 94ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(5) { animation-delay: 112ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(6) { animation-delay: 130ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(7) { animation-delay: 148ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(8) { animation-delay: 166ms; }
+/* A sheet under a newer sheet recedes (lib/sheetStack.js sets the attribute,
+   and `inert` with it) and comes back when the top one starts to leave. */
+.nx-sheet-right { transition: transform var(--dur-md) var(--ease-out), opacity var(--dur-md) var(--ease-out); }
+.nx-sheet-right[data-nx-under] { transform: translateX(-24px) scale(.985); opacity: .86; pointer-events: none; }
+/* The class-styled shells. `.nx-popup.nx-popup` (0,2,0) sets the 60vw card;
+   these (0,4,0) win on a desktop. A folder panel keeps its own motion. */
+@supports selector(:has(a)) {
+  @media (min-width: 641px) {
+    .modal-overlay:has(> .modal-content.nx-popup:not(.nx-center):not(.folder-panel)) { justify-content: flex-end; align-items: stretch; padding: 0; }
+    .modal-overlay > .modal-content.nx-popup:not(.nx-center):not(.folder-panel) {
+      height: 100%; max-height: 100%; min-height: 0;
+      border-radius: 16px 0 0 16px;
+      box-shadow: -8px 0 40px rgba(0,0,0,.18); border-left: 1px solid var(--line);
+      animation: nx-slide-in var(--dur-lg) var(--ease-out);
+    }
+    .modal-overlay.is-closing > .modal-content.nx-popup:not(.nx-center):not(.folder-panel) { animation: nx-slide-out var(--dur-md) var(--ease-in) forwards; }
+    .modal-overlay.is-closing:has(> .modal-content.nx-popup:not(.nx-center):not(.folder-panel)) { animation-duration: var(--dur-md); }
+    /* A credvault question (the OTP prompt, the personal vault password)
+       passes `center` and keeps the centered card. */
+    .cv-modal-overlay:has(> .cv-modal.nx-popup:not(.nx-center)) { justify-content: flex-end; align-items: stretch; padding: 0; }
+    .cv-modal-overlay > .cv-modal.nx-popup:not(.nx-center) {
+      height: 100%; max-height: 100%; min-height: 0;
+      border-radius: 16px 0 0 16px;
+      box-shadow: -8px 0 40px rgba(0,0,0,.18); border-left: 1px solid var(--line);
+      animation: nx-slide-in var(--dur-lg) var(--ease-out);
+    }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nx-sheet-right, .is-closing > .nx-sheet-right, .nx-sheet-right .nx-cascade > *,
+  .modal-overlay > .modal-content.nx-popup, .cv-modal-overlay > .cv-modal.nx-popup,
+  .nx-overlay.is-closing:has(> .nx-sheet-right) { animation: none !important; transition: none !important; }
+  .nx-sheet-right[data-nx-under] { transform: none; opacity: 1; }
+}
 
 /* Popups cover 60% of the screen (Pranshu, Oct 15 2026): put .nx-popup on any
    centered modal / dialog panel. Comes after .modal-content so it wins over
@@ -4258,6 +4340,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .hdr-tab.active .hdr-tab-badge, .module-tab-inline-btn.active .hdr-tab-badge { background: var(--wk-brand-tint); border-color: transparent; color: var(--wk-brand); }
 [data-theme="dark"] .hdr-tab-badge { background: rgba(255,255,255,.06); color: var(--ink); }
 [data-theme="dark"] .hdr-tab.active .hdr-tab-badge { background: rgba(185,187,255,.16); color: #b9bbff; }
+/* A count that is a call to act (Tickets' Unassigned queue, 10/31/2026):
+   amber, the same word the Unassigned cell uses - never red (the bell's). */
+.hdr-tab-badge--alarm, .module-tab-inline-btn.active .hdr-tab-badge--alarm { background: rgba(217,119,6,.14); border-color: transparent; color: #b45309; }
+[data-theme="dark"] .hdr-tab-badge--alarm, [data-theme="dark"] .module-tab-inline-btn.active .hdr-tab-badge--alarm { background: rgba(245,158,11,.18); color: #fbbf24; }
 [data-theme="dark"] .hdr-tab { color: var(--muted); }
 [data-theme="dark"] .hdr-tab:hover { background: var(--mist); color: var(--ink); }
 [data-theme="dark"] .hdr-tab.active {
@@ -4477,14 +4563,16 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   font-family: var(--wk-font);
   font-size: clamp(22px, 2.4vw, 28px); font-weight: 800;
   letter-spacing: -.015em; line-height: 1.15;
-  margin: 0 0 4px; color: inherit;
+  margin: 0 0 10px; color: inherit;
 }
-.dk-head-sub { font-size: 13.5px; color: var(--wk-dim); line-height: 1.5; }
+.dk-head-sub { font-size: 15px; color: var(--wk-dim); line-height: 1.5; }   /* a touch larger, level with the controls across from it (Neil, Oct 30 2026) */
 .dk-head-sub b { color: var(--wk-brand); font-weight: 700; }
 [data-theme="dark"] .dk-head-sub { color: var(--muted); }
 [data-theme="dark"] .dk-head-sub b { color: #b9bbff; }
 
-.dk-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.dk-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+/* The h1's 10px and this 4px put the date line's middle level with the
+   controls across from it (Neil, Oct 30 2026). */
 /* The viewer's own time at the greeting's own size (same clamp, weight and
    tracking as .dk-head h1, Neil, Oct 7), with the other zones small on its
    baseline. Tabular digits so the row doesn't jiggle as the seconds tick. */
@@ -4832,7 +4920,7 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .dk-head h1 { font-size: 24px; grid-column: 1; grid-row: 1; }
   .dk-clock-row { grid-column: 2; grid-row: 1; }
   .dk-clock { font-size: 24px; }
-  .dk-head-sub { grid-column: 1 / -1; grid-row: 2; }
+  .dk-head-sub { grid-column: 1 / -1; grid-row: 2; font-size: 14.5px; }
   .dk-toolbar { grid-column: 1 / -1; grid-row: 3; }
   .dk-toolbar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 4px 0 6px; }
   .dk-toolbar::-webkit-scrollbar { display: none; }
@@ -6316,6 +6404,8 @@ body:has(.docs-root) { overflow-x: clip; }
   [data-theme="dark"] .nx-row-hover[data-selected="true"]:hover { background: rgba(96, 140, 255, 0.26) !important; }
 }
 .nx-row-hover:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
+/* The desk's keyboard highlight (↑ ↓, Oct 31 2026): a brand ring inside the row, over the zebra and the selection tint. */
+.nx-row-hover[data-focused="true"] { box-shadow: inset 0 0 0 2px var(--wk-brand, #15803d); }
 
 /* Latest Comment cell - a button inside a clickable row: its own hover so it
    reads as "opens the conversation", not just "opens the ticket". */
@@ -6648,6 +6738,45 @@ body:has(.docs-root) { overflow-x: clip; }
   animation: fb-spark .7s .25s cubic-bezier(.34, 1.56, .64, 1) both, fb-turn 1.1s .65s cubic-bezier(.65, 0, .35, 1) both;
 }
 @keyframes fb-turn { from { rotate: 0deg; } to { rotate: 360deg; } }
+/* Depth and light (Neil, Oct 30 2026: "a shadow effect below it ... make it
+   look amazing"). Now that the bar is the app's top edge it floats over
+   everything:
+   - a layered shadow, tinted with the bar's own green so it reads as the bar
+     casting light-blocked color, not grey smudge: a tight contact line, a
+     soft mid shadow and a long faint falloff;
+   - a lit bottom edge: a 1px mint line, brightest in the middle and fading
+     out at both ends, as if light catches the bar's lower lip;
+   - an aurora: one wide, faint pool of mint light drifting slowly back and
+     forth behind the content (transform only - the compositor moves it, no
+     repaint). Slow enough to read as the surface breathing, not as motion. */
+.feature-banner {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .10), inset 0 -1px 0 rgba(0, 0, 0, .14),
+    0 1px 1px rgba(3, 38, 20, .16),
+    0 4px 10px -2px rgba(4, 52, 28, .22),
+    0 14px 30px -10px rgba(4, 64, 34, .34);
+}
+[data-theme="dark"] .feature-banner {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .10), inset 0 -1px 0 rgba(0, 0, 0, .14),
+    0 1px 1px rgba(0, 0, 0, .40),
+    0 6px 14px -2px rgba(0, 0, 0, .45),
+    0 18px 36px -10px rgba(0, 40, 20, .55);
+}
+.feature-banner::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, transparent 0%, rgba(134, 239, 172, .35) 18%, rgba(187, 247, 208, .75) 50%, rgba(153, 246, 228, .4) 82%, transparent 100%);
+}
+.feature-banner::before {
+  content: ''; position: absolute; top: -60%; bottom: -60%; left: 0; width: 55%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(167, 243, 208, .16), rgba(167, 243, 208, .05) 55%, transparent);
+  transform: translateX(-20%);
+  animation: fb-aurora 18s 1.8s ease-in-out infinite alternate both;
+}
+@keyframes fb-aurora { from { transform: translateX(-20%); } to { transform: translateX(150%); } }
+@media (prefers-reduced-motion: reduce) {
+  .feature-banner::before { animation: none; }
+}
 .feature-banner-label {
   flex-shrink: 0; font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
   color: rgba(255, 255, 255, .9);
@@ -7951,7 +8080,6 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    Note under New Task (lib/quickCreate.js). Here, not in notes/notes.css:
    that file loads only once Notes has opened. The button stays mounted, so
    the shortcut and the nexus:quick-note event still open the panel. */
-@media (max-width: 900px) { .nt-header-btn { display: none; } }
 /* Room beside the centered NEXUS wordmark on a phone: the "+" takes a 40px
    slot with a 44px hit area, and the profile pill is the avatar alone. */
 @media (max-width: 640px) {
@@ -8142,3 +8270,214 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .nx-rec-x { width: 26px; height: 26px; display: grid; place-items: center; border: none; border-radius: 6px; background: transparent; color: var(--muted, #676879); cursor: pointer; }
 .nx-rec-error { display: block; margin-top: 4px; font-size: 12px; color: var(--wk-red, #e2445c); }
 @media (max-width: 768px) { .nx-mic { width: 40px; height: 40px; } .nx-voice, .nx-rec { height: 40px; } }
+
+/* ── Hold to confirm (ui/HoldButton.jsx, Neil, Oct 30 2026) ──
+   A red layer, a clipped copy of the label, wipes left to right at an even
+   pace while held (--nx-hold-ms) and rewinds in 180 ms with a strong ease-out
+   when let go. Done = solid red with a check. Reduced motion: four steps. */
+.nx-hold-wrap { position: relative; display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; vertical-align: middle; }
+.nx-hold {
+  position: relative; isolation: isolate; overflow: hidden; display: inline-flex; align-items: center;
+  height: 36px; min-width: 40px; padding: 0 16px; border-radius: 9px;
+  border: 1px solid hsl(var(--color-red)); background: hsla(var(--color-red), 0.08); color: hsl(var(--color-red));
+  font: 600 13.5px Inter, sans-serif; cursor: pointer; white-space: nowrap;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  transition: transform 160ms cubic-bezier(.23, 1, .32, 1), background-color 120ms ease-out;
+}
+.nx-hold-sm { height: 30px; padding: 0 11px; border-radius: 8px; font-size: 12.5px; }
+.nx-hold:hover:not(:disabled) { background: hsla(var(--color-red), 0.13); }
+.nx-hold:focus-visible { outline: 2px solid hsl(var(--color-red)); outline-offset: 2px; }
+.nx-hold:disabled { opacity: .5; cursor: not-allowed; }
+.nx-hold[data-holding] { transform: scale(.98); }
+.nx-hold-face, .nx-hold-fill { display: inline-flex; align-items: center; gap: 7px; }
+.nx-hold-sm .nx-hold-face, .nx-hold-sm .nx-hold-fill { gap: 6px; }
+.nx-hold-fill {
+  position: absolute; inset: 0; padding: inherit; justify-content: inherit;
+  background: hsl(var(--color-red)); color: #fff;
+  clip-path: inset(0 100% 0 0); transition: clip-path 180ms cubic-bezier(.23, 1, .32, 1);
+}
+.nx-hold[data-holding] .nx-hold-fill { clip-path: inset(0 0 0 0); transition: clip-path var(--nx-hold-ms, 1200ms) linear; }
+.nx-hold[data-nudge] .nx-hold-fill { clip-path: inset(0 88% 0 0); transition: clip-path 140ms ease-out; }
+.nx-hold[data-working] .nx-hold-fill, .nx-hold[data-done] .nx-hold-fill { clip-path: inset(0 0 0 0); transition: none; }
+.nx-hold[data-done] { background: hsl(var(--color-red)); color: #fff; }
+.nx-hold[data-working] { cursor: progress; }
+.nx-hold[data-working] .nx-hold-fill { animation: nx-hold-wait 900ms ease-in-out infinite alternate; }
+@keyframes nx-hold-wait { from { opacity: 1; } to { opacity: .78; } }
+.nx-hold-hint {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 2; pointer-events: none; white-space: nowrap;
+  font-size: 11.5px; font-weight: 600; color: var(--muted, #5b675f);
+}
+.nx-hold-error { font-size: 12px; color: hsl(var(--color-red)); text-align: right; }
+.nx-hold-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .nx-hold, .nx-hold-fill, .nx-hold[data-holding] .nx-hold-fill, .nx-hold[data-nudge] .nx-hold-fill { transition: none; }
+  .nx-hold[data-holding] { transform: none; }
+  .nx-hold[data-holding] .nx-hold-fill { clip-path: inset(0 var(--nx-hold-left, 100%) 0 0); }
+  .nx-hold[data-working] .nx-hold-fill { animation: none; }
+}
+/* The Documents library and Templates list (Neil, 10/31/2026): a left list of
+   views, a flat table, a panel beside it. Status is a dot and a word. */
+.nx-dl { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 20px; align-items: start; margin-top: 4px; }
+.nx-dl.nx-dl-open { grid-template-columns: 196px minmax(0, 1fr) minmax(360px, 34%); }
+.nx-dl.nx-dl-norail { grid-template-columns: minmax(0, 1fr); }
+.nx-dl.nx-dl-norail.nx-dl-open { grid-template-columns: minmax(0, 1fr) minmax(360px, 34%); }
+.nx-dl-rail { display: flex; flex-direction: column; gap: 1px; position: sticky; top: 12px; }
+.nx-dl-rail button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 7px 10px; background: none; border: none; border-left: 2px solid transparent; font: 500 13px Inter, sans-serif; color: var(--muted); text-align: left; cursor: pointer; }
+.nx-dl-rail button:hover { color: var(--ink); background: var(--mist); }
+.nx-dl-rail button.on { color: var(--ink); font-weight: 650; border-left-color: var(--pine); background: var(--mist); }
+.nx-dl-rail button > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-dl-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.nx-dl-rail-head { margin: 14px 0 4px; padding: 0 12px; font: 650 11px Inter, sans-serif; color: var(--muted); }
+.nx-dl-rail .nx-dl-rail-add { justify-content: flex-start; color: var(--muted); }
+.nx-dl-main { min-width: 0; }
+.nx-dl-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.nx-dl-search { position: relative; flex: 1 1 240px; min-width: 200px; }
+.nx-dl-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.nx-dl-search input { width: 100%; padding-left: 30px; font-size: 13px; }
+.nx-dl-table { border-top: 1px solid var(--line); overflow-x: auto; }
+.nx-dl-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.nx-dl-table th { text-align: left; padding: 8px 10px; font: 650 11.5px Inter, sans-serif; color: var(--muted); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.nx-dl-table th button { display: inline-flex; align-items: center; gap: 3px; background: none; border: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.nx-dl-table th button:hover { color: var(--ink); }
+.nx-dl-table td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.nx-dl-table tbody tr { cursor: pointer; }
+.nx-dl-table tbody tr:hover { background: var(--mist); }
+.nx-dl-table tbody tr.sel { background: var(--mist); box-shadow: inset 2px 0 0 var(--pine); }
+.nx-dl-table tbody tr:focus-visible { outline: 2px solid var(--pine); outline-offset: -2px; }
+.nx-dl-name { font-weight: 600; color: var(--ink); }
+.nx-dl-for { white-space: nowrap; }
+.nx-dl-open .nx-dl-co { display: none; }
+.nx-dl-date { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.nx-dl-rowact { text-align: right; white-space: nowrap; }
+.nx-dl-rowact .secondary-btn { font-size: 12px; padding: 4px 10px; }
+.nx-dl-status { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.nx-dl-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.nx-dl-green { background: hsl(var(--color-green)); }
+.nx-dl-blue { background: hsl(var(--color-blue)); }
+.nx-dl-amber { background: hsl(var(--color-orange)); }
+.nx-dl-red { background: hsl(var(--color-red)); }
+.nx-dl-ink { background: var(--ink); }
+.nx-dl-muted { font-size: 12px; color: var(--muted); }
+.nx-dl-empty { padding: 56px 20px; text-align: center; color: var(--muted); }
+.nx-dl-empty svg { opacity: .35; margin-bottom: 10px; }
+.nx-dl-empty p { font-size: 13.5px; margin: 0 0 14px; }
+.nx-dl-panel { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 14px; max-height: calc(100vh - 92px - var(--nx-announce-h, 0px)); overflow-y: auto; padding: 0 0 16px 18px; border-left: 1px solid var(--line); min-width: 0; }
+.nx-dl-panel-head { display: flex; align-items: flex-start; gap: 10px; }
+.nx-dl-panel-title { font-size: 15px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; margin-bottom: 4px; }
+.nx-dl-icon { flex: none; display: flex; padding: 6px; background: none; border: none; color: var(--muted); cursor: pointer; }
+.nx-dl-icon:hover { color: var(--ink); }
+.nx-dl-page { flex: none; width: 100%; height: 420px; border: 1px solid var(--line); background: var(--card); }
+.nx-dl-page-note { display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; font-size: 12.5px; color: var(--muted); }
+.nx-dl-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.nx-dl-actions button { font-size: 12.5px; }
+.nx-dl-section { display: flex; flex-direction: column; gap: 8px; }
+.nx-dl-section h4 { margin: 0; font-size: 12.5px; font-weight: 650; color: var(--ink); }
+.nx-dl-step { display: flex; gap: 9px; font-size: 13px; color: var(--ink); }
+.nx-dl-step .nx-dl-dot { margin-top: 6px; }
+.nx-dl-step small { display: block; font-size: 11.5px; color: var(--muted); }
+.nx-dl-version { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; }
+.nx-dl-facts { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.nx-dl-facts > div { display: flex; gap: 12px; font-size: 13px; }
+.nx-dl-facts dt { flex: 0 0 96px; color: var(--muted); }
+.nx-dl-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
+.nx-dl-lock { display: flex; align-items: center; gap: 6px; }
+.nx-dl-cards { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.nx-dl-card { display: flex; flex-direction: column; gap: 4px; padding: 12px 2px; background: none; border: none; border-bottom: 1px solid var(--line); text-align: left; font: 13px Inter, sans-serif; color: var(--ink); cursor: pointer; min-height: 44px; }
+.nx-dl-card-foot { display: flex; justify-content: space-between; gap: 10px; }
+@media (max-width: 1180px) {
+  .nx-dl, .nx-dl.nx-dl-open, .nx-dl.nx-dl-norail, .nx-dl.nx-dl-norail.nx-dl-open { grid-template-columns: minmax(0, 1fr); }
+  .nx-dl-rail { position: static; flex-direction: row; overflow-x: auto; scrollbar-width: none; gap: 2px; border-bottom: 1px solid var(--line); }
+  .nx-dl-rail::-webkit-scrollbar { display: none; }
+  .nx-dl-rail button { width: auto; flex: none; border-left: none; border-bottom: 2px solid transparent; }
+  .nx-dl-rail button.on { border-left: none; border-bottom-color: var(--pine); background: none; }
+  .nx-dl-rail-head { display: none; }
+  .nx-dl-panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 100vw); max-height: none; z-index: 1100; padding: 16px; background: var(--card); box-shadow: var(--shadow-lg); border-left: 1px solid var(--line); }
+}
+@media (max-width: 900px) {
+  .nx-dl-tools .primary-btn, .nx-dl-tools .secondary-btn { flex: 1 1 auto; justify-content: center; text-align: center; }
+}
+@media (max-width: 640px) {
+  .nx-dl-panel { width: 100vw; border-left: none; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+}
+/* the Undo toast after a hold (ui/dialog.jsx dialog.undo) */
+.nx-undo {
+  position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 100001;
+  display: flex; align-items: center; gap: 16px; padding: 10px 14px 10px 16px; border-radius: 10px;
+  background: var(--ink, #17211c); color: var(--paper, #fff); font: 500 13.5px Inter, sans-serif;
+  box-shadow: 0 8px 28px rgba(0,0,0,.24); animation: nx-fade-in var(--dur-sm, 160ms) ease-out;
+}
+.nx-undo button { background: none; border: none; padding: 0; color: inherit; font: 700 13.5px Inter, sans-serif; text-decoration: underline; cursor: pointer; }
+
+/* Full Screen (Neil, 10/31/2026; components/FullScreenButton.jsx): the
+   workflow builder and Operations fold the left navigation away and trim the
+   page margins. Computers only - phones are full width already. The header
+   stays: it carries the module's tabs. */
+@media (min-width: 901px) {
+  html.nx-fullscreen .sidebar { display: none; }
+  html.nx-fullscreen .main-content, html.nx-fullscreen .main-content.main-collapsed { margin-left: 0; }
+  html.nx-fullscreen .viewport:not(.viewport-flush) { padding: 14px 18px; }
+  html.nx-fullscreen .wfc { height: calc(100vh - 180px - var(--nx-announce-h, 0px)); }
+}
+
+/* ── Rail motion (Neil, 11/01/2026) ───────────────────────────────────────────
+   The left navigation's motion, keyed on what lib/railMotion.js writes:
+   <html data-rail-motion="off|subtle|lively|bold" style="--rail-lift"> for
+   the strength, and the aside's own `data-motion` (present only while motion
+   is on and the sidebar is a desktop rail, never the phone drawer). Every
+   rule here is transform or opacity. The spring curve (one overshoot) is for
+   the icon lift on the way up and the one-time pop alone; the icon settling
+   back, the pills, the flyout, the cascade, the count bump and the chevron
+   all ease out. Under reduced motion lib/railMotion.js resolves to Off, and the
+   media query below stops anything mid-flight. */
+.sidebar[data-motion] .nav-list { position: relative; }
+.sidebar[data-motion] .nav-item { position: relative; z-index: 1; }
+/* The rows' own hover / active fills move onto the pills, so nothing paints twice. */
+.sidebar[data-motion] .nav-item:hover, .sidebar[data-motion] .nav-item.active,
+[data-theme="dark"] .sidebar[data-motion] .nav-item:hover, [data-theme="dark"] .sidebar[data-motion] .nav-item.active { background: transparent; }
+.nav-pill {
+  position: absolute; left: 0; right: 0; top: 0; height: 36px; margin: 0; padding: 0;
+  border-radius: 6px; list-style: none; pointer-events: none; z-index: 0; will-change: transform;
+}
+.nav-pill--hover {
+  background: var(--wk-hover, var(--sidebar-hover-bg)); opacity: 0;
+  transition: transform var(--dur-md) var(--ease-out), opacity var(--dur-sm) var(--ease-out);
+}
+.nav-pill--hover.is-on { opacity: 1; }
+.nav-pill--active {
+  background: var(--wk-brand-tint, var(--sidebar-active-bg));
+  transition: transform var(--dur-lg) var(--ease-out), opacity var(--dur-sm) var(--ease-out);
+}
+[data-theme="dark"] .nav-pill--hover { background: var(--sidebar-hover-bg); }
+[data-theme="dark"] .nav-pill--active { background: rgba(43, 69, 225, .22); }
+/* The lift: the icon only, never the row, so neighbors stay put and text
+   never reflows. Hover-capable pointers only - a finger has no hover. The
+   spring only on the way up (260ms); it settles back in 200ms, ease-out. */
+.sidebar[data-motion] .nav-ico { transition: transform 200ms var(--ease-out); }
+@media (hover: hover) {
+  .sidebar[data-motion] .nav-item:hover .nav-ico { transform: scale(var(--rail-lift, 1.18)); transition-duration: 260ms; transition-timing-function: var(--ease-spring); }
+  .sidebar[data-motion] .nav-item:active .nav-ico { transform: scale(.96); transition-duration: var(--dur-xs); transition-timing-function: var(--ease-out); }
+}
+/* The one-time pop on the newly active icon plays on the glyph inside, so it
+   composes with the lift on .nav-ico instead of replacing it: one keyframe,
+   the spring supplies the single overshoot. */
+.sidebar[data-motion] .nav-ico.is-pop > svg { animation: nav-pop 320ms var(--ease-spring); }
+@keyframes nav-pop { from { transform: scale(.9); } }
+/* Unfold: the words arrive top to bottom, 14ms apart; folding is instant.
+   `backwards` holds the start state through each delay only. */
+.sidebar.is-opening .nav-label, .sidebar.is-opening .nav-kicker, .sidebar.is-opening .company-name,
+.sidebar.is-opening .nav-count:not(.is-corner) {
+  animation: nav-slidein 260ms var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 14ms);
+}
+@keyframes nav-slidein { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+/* The edge tab's chevron turns with the rail instead of swapping glyphs;
+   the turn is animated only with rail motion on. */
+.sidebar[data-motion] .sidebar-collapse-btn svg { transition: transform var(--dur-lg) var(--ease-out); }
+.sidebar.collapsed .sidebar-collapse-btn svg { transform: rotate(180deg); }
+/* A waiting count that changed bumps once - still the quiet gray number. */
+.sidebar[data-motion] .nav-count.is-bump { animation: nav-bump 320ms var(--ease-out); }
+@keyframes nav-bump { 0% { transform: scale(.7); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .nav-pill, .sidebar .nav-ico, .sidebar .nav-ico > svg, .sidebar-collapse-btn svg { transition: none !important; animation: none !important; }
+  .sidebar.is-opening .nav-label, .sidebar.is-opening .nav-kicker, .sidebar.is-opening .company-name, .sidebar.is-opening .nav-count,
+  .sidebar .nav-count.is-bump { animation: none !important; }
+}

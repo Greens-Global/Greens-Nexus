@@ -34,7 +34,7 @@ from sqlalchemy import or_, cast, func, String as SqlString
 from database import get_db
 from auth import get_current_user, require_module_grant
 from models import (DocFolder, Document, DocumentVersion, DocTemplate, DocTemplateVersion,
-                    DocLetterhead, HrSignRequest, HrSignParty, NexusEmployee)
+                    DocLetterhead, HrEntity, HrSignRequest, HrSignParty, NexusEmployee)
 from services.merge_fields import (BUILTIN_VARIABLES, builtin_when, group_label, is_auto_token,
                                    is_valid_token, resolve_merge_data, token_group)
 from services.doc_export import tiptap_to_blocks, render_pdf, render_docx
@@ -384,6 +384,133 @@ def list_documents(folder_id: str = "", status: str = "", q: str = "", mine: boo
     return out
 
 
+# ── The library (Neil, 10/31/2026) ───────────────────────────────────────────
+# Documents > Documents reads this one list: every document the caller may see
+# and every envelope they may see, one row each, with who it is for and where it
+# stands. Read-only and never a second access rule: documents pass the same
+# filters as list_documents, an envelope is listed for its parties and sender,
+# and for HR readers as GET /esign/requests lists it. HR packet paperwork stays
+# behind GET /hr/packet-documents (the screen merges those rows in). No content
+# travels here, so the list stays light.
+
+def _envelope_status(req: HrSignRequest) -> str:
+    """The envelope's status as of today, without the write _check_expiry does."""
+    if req.status == "pending" and req.expires_on:
+        day = str(req.expires_on)[:10]
+        try:
+            datetime.strptime(day, "%Y-%m-%d")
+        except ValueError:
+            return req.status
+        if day < datetime.now(timezone.utc).strftime("%Y-%m-%d"):
+            return "expired"
+    return req.status
+
+
+def _library_party(p: HrSignParty) -> dict:
+    return {"name": p.name or "", "role": p.party_role or "signer", "status": p.status or "",
+            "signedAt": p.signed_at or "", "viewedAt": p.viewed_at or "", "ordinal": p.ordinal or 0}
+
+
+_LIBRARY_SIGNING_ROLES = ("signer", "countersigner", "witness")
+
+
+@router.get("/library")
+def document_library(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import auth
+    from routers.esign import _its_their_turn
+    me = user["email"].lower()
+    query = db.query(Document).filter((Document.source == "") | (Document.source.is_(None)))
+    docs = _visible(query, user).order_by(Document.updated_at.desc()).all()
+    scope = auth.company_scope(user, db)
+    company_of = auth.company_of_email_map(db)
+    if scope is not None:
+        docs = [d for d in docs if auth.company_ok(company_of.get((d.owner_email or "").lower(), ""), scope)]
+
+    try:
+        require_hr_read(user=user, db=db)
+        hr_reader = True
+    except HTTPException:
+        hr_reader = False
+
+    mine = {p.request_id: p for p in db.query(HrSignParty).filter(HrSignParty.email == me).all()}
+    ids = {d.sign_request_id for d in docs if d.sign_request_id} | set(mine)
+    env_query = db.query(HrSignRequest)
+    if hr_reader:
+        # What Nexus Sign's Sent Requests lists an HR reader, less the packets
+        # (their rows come from HR Records), behind the company wall.
+        listed = env_query.filter(or_(
+            HrSignRequest.id.in_(ids), HrSignRequest.created_by == me,
+            HrSignRequest.link_kind.is_(None),
+            HrSignRequest.link_kind.notin_(("timesheet", "perf_review", "life_event")))).all()
+    else:
+        listed = env_query.filter(or_(HrSignRequest.id.in_(ids), HrSignRequest.created_by == me)).all()
+    requests = {}
+    for r in listed:
+        if r.id in ids or (r.created_by or "").lower() == me or scope is None or auth.company_ok(
+                r.entity_id or company_of.get((r.created_by or "").lower(), ""), scope):
+            requests[r.id] = r
+    parties: dict = {}
+    if requests:
+        for p in (db.query(HrSignParty).filter(HrSignParty.request_id.in_(list(requests)))
+                  .order_by(HrSignParty.ordinal).all()):
+            parties.setdefault(p.request_id, []).append(p)
+
+    emp_ids = {d.employee_id for d in docs if d.employee_id} | {r.employee_id for r in requests.values() if r.employee_id}
+    people = ({e.id: f"{e.first_name or ''} {e.last_name or ''}".strip()
+               for e in db.query(NexusEmployee).filter(NexusEmployee.id.in_(emp_ids)).all()} if emp_ids else {})
+    entities = {e.id: e.name for e in db.query(HrEntity).all()}
+
+    def company(entity_id: str, email: str) -> str:
+        return entities.get(entity_id or company_of.get((email or "").lower(), ""), "")
+
+    def envelope_part(r: HrSignRequest, owner: str = "") -> dict:
+        """What a row says about its envelope. Who is on it reaches only someone
+        who could already see that: a party, the sender, the document's owner,
+        an administrator or an HR reader; anyone else sees the status alone."""
+        rows = parties.get(r.id, [])
+        party = mine.get(r.id)
+        may_see = (hr_reader or party is not None or user["level"] >= _ADMIN_LEVEL
+                   or me in ((r.created_by or "").lower(), (owner or "").lower()))
+        signing = [p for p in rows if (p.party_role or "signer") in _LIBRARY_SIGNING_ROLES]
+        out = {"signRequestId": r.id, "signStatus": _envelope_status(r),
+               "partyId": party.id if party else "",
+               "myTurn": bool(party and _its_their_turn(r, party)),
+               "signers": len(signing), "signed": sum(1 for p in signing if p.status == "signed"),
+               "canManageEnvelope": hr_reader, "expiresOn": r.expires_on or ""}
+        out["parties"] = [_library_party(p) for p in rows] if may_see else []
+        return out
+
+    out, covered = [], set()
+    for d in docs:
+        row = {"id": d.id, "kind": "document", "title": d.title, "folderId": d.folder_id or "",
+               "tags": d.tags or [], "status": d.status, "templateId": d.template_id or "",
+               "version": d.current_version or 1, "ownerEmail": d.owner_email or "",
+               "mine": (d.owner_email or "") == me,
+               "canManage": user["level"] >= _ADMIN_LEVEL or (d.owner_email or "") == me,
+               "forName": people.get(d.employee_id, ""),
+               "company": company(d.entity_id, d.owner_email),
+               "updatedAt": d.updated_at or "", "signRequestId": "", "signStatus": ""}
+        req = requests.get(d.sign_request_id) if d.sign_request_id else None
+        if req is not None:
+            covered.add(req.id)
+            row.update(envelope_part(req, d.owner_email))
+        out.append(row)
+    for r in requests.values():
+        if r.id in covered:
+            continue
+        # A person's own Time Sheets and reviews stay theirs: signed copies
+        # list for them as they always have, the waiting ones ask for a signature.
+        out.append({"id": f"sign:{r.id}", "kind": "envelope", "title": r.title, "folderId": "", "tags": [],
+                    "status": "final", "templateId": r.template_id or "", "version": 1,
+                    "ownerEmail": r.created_by or "", "canManage": False,
+                    "forName": people.get(r.employee_id, ""),
+                    "company": company(r.entity_id, r.created_by),
+                    "updatedAt": r.completed_at or r.created_at or "",
+                    "linkKind": r.link_kind or "", **envelope_part(r)})
+    out.sort(key=lambda x: x.get("updatedAt") or "", reverse=True)
+    return out
+
+
 @router.post("")
 def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if not body.title.strip():
@@ -394,6 +521,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
     letterhead_id = ""
     merge_overrides = {}
     tpl = None
+    released_version = 0
     # Starting from a template clones its content (and, if the template
     # requires one, its letterhead - falling back to the org default) rather
     # than just recording template_id as a label. It also seeds the template's
@@ -408,16 +536,21 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
             # Requirement 3/20 - a draft is unfinished language and an archived
             # template is retired; neither is something to generate from.
             raise HTTPException(409, f'The template "{tpl.name}" is {tpl.status}, so it cannot be '
-                                     f'used to create a document. Ask its department to activate it.')
+                                     f'used to create a document. Ask its department to publish it.')
         if tpl:
+            # One Publish (Neil, 10/31/2026): a document is made from the wording
+            # last published, the same text an HR packet prints - edits in
+            # progress stay out of it until someone publishes them.
+            released = _released(db, tpl)
+            field_defs = released["fieldDefs"]
             if body.content is None:
-                content = copy.deepcopy(tpl.content) if tpl.content else {}
-            if tpl.requires_letterhead:
-                letterhead_id = tpl.letterhead_id or ""
+                content = copy.deepcopy(released["content"]) if released["content"] else {}
+            if released["requiresLetterhead"]:
+                letterhead_id = released["letterheadId"] or ""
                 if not letterhead_id:
                     default_lh = db.query(DocLetterhead).filter(DocLetterhead.is_default == True).first()  # noqa: E712
                     letterhead_id = default_lh.id if default_lh else ""
-            merge_overrides = dict(tpl.merge_overrides or {})
+            merge_overrides = dict(released["mergeOverrides"] or {})
             # Template Builder (Phase 13) - Generate Document: fill-form values
             # win over the template's own defaults (same "last writer wins"
             # convention resolve_merge_data already uses for its overrides).
@@ -429,16 +562,17 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
             # silently. Reserved types (signature/initials/image/file) are
             # legitimately empty at generation time - see _FIELD_TYPES.
             missing = [
-                fd.get("label") or fd.get("token") for fd in (tpl.field_defs or [])
+                fd.get("label") or fd.get("token") for fd in field_defs
                 if fd.get("required") and fd.get("type") not in _RESERVED_FIELD_TYPES
                 and not is_auto_token(fd.get("token"))
                 and not (merge_overrides.get(fd.get("token")) or "").strip()
             ]
             if missing:
                 raise HTTPException(422, f"Missing required field(s): {', '.join(missing)}")
-            bad = _invalid_values(tpl.field_defs or [], merge_overrides)
+            bad = _invalid_values(field_defs, merge_overrides)
             if bad:
                 raise HTTPException(422, "; ".join(bad))
+            released_version = released["version"]
     # Requirement 7: "The generated output should be non-editable. The user
     # should not be able to freely modify the final generated document after
     # the template values have been populated."
@@ -454,7 +588,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
     row = Document(id=str(uuid.uuid4()), title=body.title.strip(), folder_id=body.folderId or "",
                     template_id=body.templateId or "",
                     employee_id=body.employeeId or "", entity_id=body.entityId or "",
-                    template_version=(tpl.version or 1) if (generated and tpl) else 0,
+                    template_version=released_version if (generated and tpl) else 0,
                     content=content, letterhead_id=letterhead_id,
                     merge_overrides=merge_overrides,
                     status=status, owner_email=user["email"].lower(), tags=_clean_tags(body.tags or []), current_version=1,
@@ -575,8 +709,16 @@ def _publish_meta(t: DocTemplate) -> dict:
 
 def _has_unpublished_changes(t: DocTemplate) -> bool:
     if not t.published_version:
-        return False                       # "Not Published" is its own state
+        return False                       # an unedited live template IS its released text
     return (t.version or 0) > t.published_version or _publish_meta(t) != (t.published_meta or {})
+
+
+def _template_state(t: DocTemplate) -> str:
+    """The ONE status a template shows (Neil, 10/31/2026 - Active and Published
+    merged): draft, published, changes (edited since) or archived."""
+    if t.status != "active":
+        return t.status
+    return "changes" if _has_unpublished_changes(t) else "published"
 
 
 def _ser_template(t: DocTemplate) -> dict:
@@ -593,6 +735,11 @@ def _ser_template(t: DocTemplate) -> dict:
             "publishedVersion": t.published_version or 0,
             "publishedAt": t.published_at or "", "publishedBy": t.published_by or "",
             "hasUnpublishedChanges": _has_unpublished_changes(t),
+            "state": _template_state(t),
+            # What Use Template and the Send wizard ask for: the published
+            # fields, never ones added by an edit still in progress.
+            "releasedFieldDefs": (t.published_meta or {}).get("fieldDefs", t.field_defs or [])
+            if t.published_version else (t.field_defs or []),
             "createdBy": t.created_by, "createdAt": t.created_at,
             "updatedBy": t.updated_by, "updatedAt": t.updated_at}
 
@@ -1362,6 +1509,11 @@ def update_template(tid: str, body: TemplateUpdate, user: dict = Depends(get_cur
             raise HTTPException(400, f"docType must be one of {', '.join(_TEMPLATE_TYPES)}")
         row.doc_type = body.docType
     if body.content is not None:
+        if was_status == "active" and not row.published_version:
+            # Live since before Publish was one step: what it said until now is
+            # its released text, so the first edit does not reach anyone.
+            _publish(db, row, row.updated_by or user["email"], "Released as it stood before this edit")
+            db.flush()
         row.content = as_pages(body.content)
         row.version += 1
         db.add(DocTemplateVersion(id=str(uuid.uuid4()), template_id=row.id, version_no=row.version,
@@ -1370,7 +1522,7 @@ def update_template(tid: str, body: TemplateUpdate, user: dict = Depends(get_cur
     if was_status != "active" and row.status == "active" and not row.published_version:
         # First activation releases the text. An autosave never publishes.
         db.flush()
-        _publish(db, row, user["email"], "Activated")
+        _publish(db, row, user["email"], "Published")
     row.updated_by = user["email"]
     row.updated_at = _now_iso()
     db.commit(); db.refresh(row)
@@ -1414,14 +1566,33 @@ def published_snapshot(db: Session, tpl: DocTemplate) -> tuple:
     every HR packet prints. Raises TemplateNotPublished rather than ever
     returning empty content."""
     if not tpl.published_version:
-        raise TemplateNotPublished(f'"{tpl.name}" has not been published yet - open it in '
-                                   f'Documents > Templates and click Publish.')
+        if tpl.status != "active":
+            raise TemplateNotPublished(f'"{tpl.name}" has not been published yet - open it in '
+                                       f'Documents > Templates and click Publish.')
+        # Live since before Publish was one step (Neil, 10/31/2026: anything you
+        # can generate from, HR packets can use too): release it as it stands.
+        _publish(db, tpl, tpl.updated_by or "", "Released on first use")
+        db.flush()
     v = (db.query(DocTemplateVersion)
            .filter(DocTemplateVersion.template_id == tpl.id,
                    DocTemplateVersion.version_no == tpl.published_version).first())
     if v is None:
         raise TemplateNotPublished(f'The published version of "{tpl.name}" is missing - publish it again.')
     return copy.deepcopy(v.content or {}), dict(tpl.published_meta or {}), tpl.published_version
+
+
+def _released(db: Session, tpl: DocTemplate) -> dict:
+    """What a document generated from this template is made from."""
+    if tpl.published_version:
+        content, meta, version = published_snapshot(db, tpl)
+        return {"content": content, "version": version,
+                "fieldDefs": meta.get("fieldDefs", tpl.field_defs or []),
+                "mergeOverrides": meta.get("mergeOverrides", tpl.merge_overrides or {}),
+                "letterheadId": meta.get("letterheadId", tpl.letterhead_id or ""),
+                "requiresLetterhead": meta.get("requiresLetterhead", bool(tpl.requires_letterhead))}
+    return {"content": tpl.content, "version": tpl.version or 1, "fieldDefs": tpl.field_defs or [],
+            "mergeOverrides": tpl.merge_overrides or {}, "letterheadId": tpl.letterhead_id or "",
+            "requiresLetterhead": bool(tpl.requires_letterhead)}
 
 
 class PublishIn(BaseModel):
@@ -1437,8 +1608,10 @@ def publish_template(tid: str, body: PublishIn, user: dict = Depends(get_current
     if not row:
         raise HTTPException(404, "Template not found")
     _require_template_manager(db, user, row.department)
-    if row.status != "active":
-        raise HTTPException(409, f'"{row.name}" is {row.status} - activate it before publishing.')
+    if row.status == "archived":
+        raise HTTPException(409, f'"{row.name}" is archived - restore it before publishing.')
+    # One step (Neil, 10/31/2026): publishing a draft is what makes it usable.
+    row.status = "active"
     # A signature block for a signer the template does not list yet: add the
     # signer rather than refuse, so the Signers list always covers the blocks.
     keys = {r.get("key") for r in (row.signer_roles or [])}
@@ -1452,6 +1625,21 @@ def publish_template(tid: str, body: PublishIn, user: dict = Depends(get_current
     row.updated_by, row.updated_at = user["email"], _now_iso()
     db.commit(); db.refresh(row)
     return _ser_template(row)
+
+
+@router.get("/templates/{tid}/preview")
+def preview_template(tid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The page a template makes: its published wording (a draft's current text),
+    with its blanks showing as fields. Reading templates is open to the company."""
+    from types import SimpleNamespace
+    tpl = _get_template(db, tid)
+    released = _released(db, tpl)
+    page = SimpleNamespace(content=released["content"] or {}, letterhead_id=released["letterheadId"]
+                           if released["requiresLetterhead"] else "")
+    header_blocks, pages_blocks, footer_blocks, letterhead, page_setup = render_parts(db, page, {})
+    pdf_bytes = render_pdf(tpl.name, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup)
+    return Response(content=pdf_bytes, media_type="application/pdf",
+                    headers={"Content-Disposition": _content_disposition(tpl.name, "pdf")})
 
 
 @router.get("/templates/{tid}/versions")
@@ -1505,12 +1693,12 @@ def duplicate_template(tid: str, user: dict = Depends(get_current_user), db: Ses
                        requires_letterhead=src.requires_letterhead, letterhead_id=src.letterhead_id,
                        merge_overrides=src.merge_overrides or {},
                        field_defs=copy.deepcopy(src.field_defs) if src.field_defs else [],
-                       status="active", version=1, created_by=user["email"], created_at=now,
+                       status="draft", version=1, created_by=user["email"], created_at=now,
                        updated_by=user["email"], updated_at=now)
     db.add(row); db.flush()
-    # A copy exists to be edited: it gets its first version row but stays Not
-    # Published until someone clicks Publish, so a half-finished copy never
-    # reaches an HR packet.
+    # A copy exists to be edited: it gets its first version row and stays a
+    # Draft until someone clicks Publish, so a half-finished copy never reaches
+    # an HR packet or a new document.
     db.add(DocTemplateVersion(id=str(uuid.uuid4()), template_id=row.id, version_no=1,
                               content=copy.deepcopy(row.content or {}), edited_by=user["email"],
                               edited_at=now, note=f'Copied from "{src.name}"'))

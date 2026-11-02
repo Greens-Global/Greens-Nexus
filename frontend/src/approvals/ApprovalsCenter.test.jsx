@@ -247,6 +247,25 @@ describe('Approvals', () => {
 });
 
 // Neil, 10/28/2026: sort by priority, banding and a hover, sorts and filters.
+describe('All folds the departments (Pranshu, Oct 31 2026)', () => {
+  it('starts every department folded on All, opens one on a click, and shows the rows again on a kind', async () => {
+    const rows = INBOX.rows.map((r, i) => ({ ...r, department: i ? 'Operations' : 'Admin' }));
+    approvalsInbox.mockResolvedValue({ ...INBOX, rows, who: { isHr: true } });
+    const { rerender } = render(<Approvals activeSub={null} onSubChange={() => {}} />);
+    const admin = await screen.findByRole('button', { name: /^Admin/ });
+    expect(admin.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByRole('button', { name: /^Operations/ }).getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('Priya Sharma')).toBeNull();
+    fireEvent.click(admin);
+    expect(admin.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('Priya Sharma')).toBeTruthy();
+    expect(screen.queryByText('Ankit Patel')).toBeNull();
+    rerender(<Approvals activeSub="money" onSubChange={() => {}} />);
+    expect(screen.getByRole('button', { name: /^Operations/ }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('Ankit Patel')).toBeTruthy();
+  });
+});
+
 describe('Approvals sorts and filters', () => {
   const titles = () => [...document.querySelectorAll('.apv-row .apv-title')].map((b) => b.textContent);
 

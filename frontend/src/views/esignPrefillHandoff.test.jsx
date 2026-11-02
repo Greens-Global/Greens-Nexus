@@ -18,7 +18,7 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 const updateDocument = vi.fn(() => Promise.resolve({}));
 vi.mock('../api', () => ({
   api: {
-    getDocuments: () => Promise.resolve([]),
+    getDocumentLibrary: () => Promise.resolve([]),
     mySignatures: () => Promise.resolve([]),
     getDocFolders: () => Promise.resolve([]),
     getDocTemplates: () => Promise.resolve([]),

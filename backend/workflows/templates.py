@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 import models
 from workflows import catalog, validate
+from workflows.shape import shape_of
 
 SETTING = "workflows.templates"
 
@@ -223,4 +224,6 @@ def serialize(t: dict) -> dict:
             "description": t.get("description") or "", "definition": t["definition"],
             "blanks": list(t.get("blanks") or []), "requires": list(t.get("requires") or []),
             "builtIn": bool(t.get("builtIn", False)), "companyId": t.get("companyId", ""),
-            "createdBy": t.get("createdBy", ""), "createdAt": t.get("createdAt", "")}
+            "createdBy": t.get("createdBy", ""), "createdAt": t.get("createdAt", ""),
+            # the canvas silhouette for the gallery's thumbnails (workflows/shape.py)
+            "shape": shape_of(t.get("definition"))}

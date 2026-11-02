@@ -44,7 +44,7 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 | Area | Owner | Files |
 |---|---|---|
 | Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
-| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/assets.py`, `backend/routers/property_assets.py`, property models/tables |
+| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/property_assets.py`, property models/tables |
 
 Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
 the build-notes skill refuses commits by it) - change both together.
@@ -170,27 +170,43 @@ keep the diff minimal.
 - Cross-view navigation uses the `nexus:navigate` window event
   (`window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }))`).
 - Tab strips use the `.scroll-tabs` class (hidden scrollbars, mobile swipe).
-- **Popups cover 60% of the screen** (Pranshu, Oct 15 2026): every modal /
-  dialog / popup panel is `width: 60vw` and `min-height: 60vh` (at least
-  ~420px wide, never wider than the viewport, `max-height: 85vh` with its
-  body scrolling). Never a small fixed-width box that floats mid-page with
-  empty space around it. Phones keep the full-screen sheet. The shared
-  `Modal` in `tasks/components.jsx` is already 60vw wide; match it in any
-  hand-rolled overlay. **The 60% is for content, not blank space** (Pranshu,
-  Oct 21 2026): the popup body is a flex column and the one part that should
-  take the remaining height - the notes textarea's wrapper, the list, the
-  table, the preview - carries `className="nx-fill"` (style.css) so it grows
-  into the space; never leave a short form floating over an empty bottom
-  half.
+- **Popups are sheets from the right** (Neil, 11/01/2026): on a desktop,
+  every popup that is a record, a form or a workspace is a SHEET - docked to
+  the right edge, the full height, rounded only where it meets the page -
+  that slides in from off screen (`nx-slide-in`, 320ms, `--ease-out`) while
+  the scrim fades, its body's first rows cascading in a beat behind the
+  frame (`.nx-cascade`, only while the shell carries `is-entering`, the
+  first 500ms), and slides out in 220ms with the scrim (the exit waits
+  `MOTION.md`; a centered card `MOTION.exit`). The SIZE is still
+  Pranshu's 60% rule (Oct 15 2026): `width: max(60vw, <caller's width>)`,
+  at least ~420px, never wider than the viewport, and **the 60% is for
+  content, not blank space** (Pranshu, Oct 21 2026) - the popup body is a
+  flex column and the one part that should take the remaining height (the
+  notes textarea's wrapper, the list, the table, the preview) carries
+  `className="nx-fill"` so it grows into the space. The shared `Modal` in
+  `tasks/components.jsx` does all of this by default (`placement="sheet"`);
+  so do `marketing/shared/Modal.jsx`, the task drawer, and every
+  class-styled `.modal-overlay > .modal-content.nx-popup` / credvault
+  `.cv-modal.nx-popup` through style.css's "Sheets" block. A QUESTION - a
+  confirm, an alert, a prompt, "Save your changes?", "Delete this?" - stays
+  the centered card: `placement="center"` on the shared Modal, the class
+  `nx-center` on a generic `.modal-content`, `center` on the credvault
+  Modal, and `ui/dialog.jsx` (DialogHost) as it is. A sheet opened over a
+  sheet slides in on top and the one beneath recedes and goes `inert`
+  (`lib/sheetStack.js`, `data-nx-under`) until the top one leaves; the top
+  is what paints on top - highest z-index, then later in the document - so
+  every sheet passes its own z (a drawer under a Modal never recedes it).
+  Phones keep the full-screen bottom sheet; nothing here applies under 641px.
+  Never a small fixed-width box floating mid-page with empty space around it.
   **Exception - the Workday panels are 85%** (Sagar, Oct 27 2026): Ask HR
   (`views/MyHR.jsx`), Reimbursements (`components/Reimbursements.jsx`) and
   Purchase Requests (`PurchaseRequestsPanel` in
   `components/PurchaseRequests.jsx`) are whole workspaces, not single forms -
-  `width: 85vw`, `height: 85vh` (fixed, body scrolling), same 420px floor
-  and phone sheet. Do not "fix" them back to 60%; the forms they open on top
-  (e.g. New Purchase Request) stay on the 60% rule. A click outside these
-  three never closes them - it nudges the popup and lights up its close
-  button (`lib/usePopupNudge.js`); Close, Cancel and Escape close.
+  `width: 85vw`, now also sheets from the right (the full height), same
+  420px floor and phone sheet. Do not "fix" them back to 60%; the forms they
+  open on top (e.g. New Purchase Request) stay on the 60% rule. A click
+  outside these three never closes them - it nudges the popup and lights up
+  its close button (`lib/usePopupNudge.js`); Close, Cancel and Escape close.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 - **Every amount on every Accounting report drills down to its ledger lines
@@ -219,6 +235,38 @@ keep the diff minimal.
   (`lib/groupDirty.js`), so the Settings shell asks before the subject, the
   scope, the top tab, the module or the browser tab changes; the hook is a
   no-op wherever else the panel renders.
+- **The left navigation moves one way (Neil, 11/01/2026):** the strength
+  is a setting - the company default under Settings > Branding > Brand Color
+  (`navMotion` on the branding config), a person's own under My Profile >
+  Appearance (profile prefs `nav.motion`) - resolved by `lib/railMotion.js`
+  (reduced motion is always Off) and written to `<html data-rail-motion>` +
+  `--rail-lift`. `Sidebar.jsx` owns only the two pills (translateY) and the
+  `is-opening` / `is-pop` beats; every visual is the "Rail motion" block in
+  style.css: transform and opacity only, `--ease-spring` on the icon lift
+  (on the way up only - it settles back ease-out) and the one-time pop (on
+  the glyph inside `.nav-ico`, so it composes with the lift) alone - the
+  pills, the flyout, the count bump, the cascade and the chevron ease out -
+  Bold capped at 1.26, cascade 14ms a row,
+  nothing loops, nothing on touch, the phone drawer untouched, the folded
+  rail never peeks. The sidebar tooltip (`NavTip`) is the light flyout card.
+- **Hold to confirm (Neil, Oct 30 2026, plan
+  https://claude.ai/artifact/MU1RMFQ9nHYxSB31XjDwQ1, PRs #883-#884):** an
+  action that cannot be taken back (delete forever, void, offboard, end
+  access, finalize) is confirmed by pressing and holding `ui/HoldButton.jsx`,
+  never a plain click-to-confirm. `HOLD_RECORD_MS` (1.2 s) for one record,
+  which holds right on its row with no dialog; `HOLD_MAJOR_MS` (1.8 s) for
+  many records or other people, inside `dialog.confirm(msg, { hold: true,
+  onConfirm })` so the dialog says what goes. `onConfirm` may return a
+  promise (a refusal shows under the button) or `{ undo }` (an Undo toast,
+  `dialog.undo`). Keyboard holds work, and a click with no press behind it
+  (assistive tech) falls back to the ordinary confirm - keep both. Never
+  lengthen the holds or add a second confirm component.
+- **Full Screen (Neil, 10/31/2026):** a working surface that needs room
+  (the workflow builder, Operations) takes `components/FullScreenButton.jsx`
+  - `useFullScreen('<module>')` folds the left navigation away and trims the
+  page margins (`html.nx-fullscreen` in style.css), remembered per module in
+  this browser, computers only. The header stays (it carries the module's
+  tabs). Give another module the same button, never a second mode.
 
 ## Domain rules
 
@@ -262,6 +310,78 @@ keep the diff minimal.
   muted rows are dropped; nothing left = nothing sent). Mentions, deletions,
   urgent tasks and tasks due today/tomorrow never wait. New task email events
   go through `notify_task_event` - never mail directly - so they batch too.
+- **Many tasks at once go through the import engine** (Neil, 10/31/2026):
+  a pasted list in any task name box (Home's add row, My Day, the Create
+  Task title, the phone quick-add) and the Create form's "Add Several"
+  open `tasks/AddSeveralModal.jsx`, which sends rows to `POST /tasks/import`
+  (`task_import.run_import`, `source` paste / typed, a project or none) -
+  one transaction, one bell and one batched email per person, the same
+  dry run first. Never add a second bulk-create path or loop POST /tasks.
+  Tasks Home: on a wide window the Updates card leads (left column, first
+  in the DOM) and Tasks + Bookmarks stack on the right; a feed that loaded
+  empty leaves Tasks on the left; phones stay Tasks, Updates, Bookmarks.
+- **The Tickets desk is queues, not tiles** (Neil, 10/31/2026): the main
+  page's tabs (`tickets/queues.js`, in this order: Needs Reply, Unassigned,
+  Mine, Due Soon, Waiting, All Open, Done, then To Route / To Approve when
+  non-empty, then the person's saved views, then Raised by Me, then "+ View")
+  are filter presets over the tickets TasksContext holds, counted over the
+  WHOLE workspace (no count pill on Done, All Open or Raised by Me). The
+  server's `needsReply` flag on every `GET /task-tickets` row (`_needs_reply`
+  in routers/tickets.py) decides Needs Reply; the client copy in queues.js
+  is only a fallback for a row that arrived without the flag and must stay
+  identical to `_needs_reply`. The row's Next Clock
+  (`ticketMeta.nextClock`) is the ONE SLA wording on the list - red only
+  when overdue. The side pane (a row opens beside the list, ↑ ↓ Enter and
+  Previous / Next step the queue) is a per-person layout stored with the
+  list's columns (`useTableValue('tickets-v3', 'layout')`), desktop List
+  view only; phones, the Board, Reports and Support keep the popup drawer.
+- **Boards are notes** (Neil, 11/02/2026): a whiteboard is a `nexus_notes`
+  row with `kind='board'`, its drawing JSON in `scene` (2 MB cap, type
+  `nexus-board`, never through the HTML sanitizer), a PNG `thumb_url`, and an
+  optional `source` (the task / ticket / walkthrough / file it marks up).
+  Images are files in the private `task-files` bucket under
+  `notes/boards/<noteId>/`, never data URLs in the scene. The engine is the
+  self-hosted Excalidraw package in `frontend/src/notes/board/Board.jsx`,
+  lazy in the one `vendor-excalidraw` chunk (the single bundle-budget
+  exception, `scripts/check-bundle-size.mjs`); its fonts are copied by
+  `scripts/copy-excalidraw-assets.mjs` on build, English only, nothing from a
+  CDN (the CSP is self only). Clean look by default, Sketch per board
+  (`scene.js` `applyLook`). Live drawing rides the Notes encrypted transport
+  (`notes/collabTransport.js`; elements in `Y.Map('elements')`, our
+  `boardSync.reconcile` = newest version wins); viewers follow saves because
+  `GET /collab` is editors only. "Mark Up" on any image or PDF goes through
+  `lib/markup.js` (`openMarkup` -> a new board with the picture placed and
+  `source` set; "Attach to <source>" posts a PNG back through the existing
+  task / ticket attachment calls). A board in a note is the `boardEmbed`
+  node (anchor with `data-type="boardEmbed"`, allowed by `_NoteSanitizer`).
+  Never add a second drawing engine, a second markup path, or a Whiteboards
+  module - boards live in Notes. jsdom cannot load the engine: tests get the
+  global mock in `frontend/vitest.setup.js`. Users never see the word
+  Excalidraw.
+- **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
+  on the phone (`public/manifest.webmanifest`, `public/sw.js` - a push-only
+  worker, no caching, offline is deferred) and pushes the BELL: a Web Push
+  goes out for every `NexusNotification` row with a named recipient through
+  the `after_insert` listener in `backend/push.py` and the leader-only
+  `push_loop` (off the event loop); broadcasts never push; never add a
+  second push path or push anything that is not a bell row. Push is OFF
+  until `NEXUS_VAPID_PRIVATE_KEY` / `NEXUS_VAPID_PUBLIC_KEY` /
+  `NEXUS_VAPID_SUBJECT` are set on the server (Neil sets Azure app settings;
+  never generate or commit keys); `nexus_push_subscriptions` and
+  `nexus_push_outbox` need RLS on dev and prod. People reach each other on
+  Teams, never an in-app chat: every Teams link goes through
+  `lib/teamsLinks.js` and the two buttons are `components/PersonActions.jsx`
+  (hidden for externals and yourself). Announcements publish from
+  `announcements_publish.py`'s loop (claimed once with a conditional
+  UPDATE), fan out per the post's `notify` (Bell / Bell and Teams / Bell and
+  Email - the bell is the push in every mode, never a second push), hide
+  scheduled posts from staff, and keep images and files in the private
+  `task-files` bucket (a new post uploads under `announcements/new/`, an
+  edit under `announcements/<id>/`). Existing posts are stamped published by
+  the migration (`notified_at = created_at`) so a release never re-bells them. The planner's scheduled
+  labor line is `GET /timeclock/schedule/labor` (hours from
+  `shift_attendance._paid_minutes`, rates from the payroll history by day,
+  fixed pay counted not priced, managers never see pay).
 - Timesheets are approved through review + Nexus Sign (`timesheet_review.py`;
   ONLY THE EMPLOYEE SIGNS - Neil, Oct 16 2026). After the period's last day
   the manager (else the company's HR contact; nobody at all = the Global
@@ -410,6 +530,14 @@ keep the diff minimal.
   `weather_scope.py` is the one rule every weather path reads - never add a
   second one. New shift tables rely
   on `_enable_rls_everywhere`; run `get_advisors` after each release.
+  Holidays (Neil, Oct 30 2026): a country-tagged company holiday applies only
+  to people in that country, and a person with no country of their own takes
+  their company's (`holiday_policies.person_country` / `company_countries`) -
+  every holiday reader passes `person_country`, never the raw field. The
+  planner's day header names the holiday; Fill Automatically, the bulk add
+  and Copy Week leave each person's company holidays empty
+  (`skip_holidays`, on by default, `timeclock._holiday_days`) and say how
+  many they skipped.
 
 - **Settings is one tab (Neil, Oct 23 2026, plan
   https://claude.ai/artifact/UGtPmeFBrfU6wXhd474erx; `views/AdminConsole.jsx`).**
@@ -490,6 +618,46 @@ keep the diff minimal.
   `workflow_events`, `workflow_runs`, `workflow_run_steps`,
   `workflow_waits`, `workflow_approvals`, `workflow_subject_marks`) need RLS
   on dev and prod - run `get_advisors` after each release.
+  The builder's canvas (Blueprint, Neil, 10/30/2026) is a computed layout of
+  the definition - `frontend/src/workflows/canvas/layout.js`; never store
+  node coordinates, and the list's `shape` (`workflows/shape.py`,
+  mirrored in `canvas/shape.js`) carries step kinds only.
+
+- **Notes (Neil, Oct 29-31 2026, `routers/notes.py`, `frontend/src/notes/`).**
+  Dashboard > Notes (the page), Quick Note (the slide-over from the + menu's
+  New Note, or `quickNoteKeys()` - Ctrl+Alt+N / Ctrl+Cmd+N) and the
+  dashboard's Notes widget read and write the same rows (`nexus_notes`,
+  `nexus_note_versions`, `nexus_note_presence` - each needs RLS on dev and prod). A
+  note is private to its owner and the Nexus People it is shared with
+  (404, never 403, to anyone else); a mention notifies nobody. Saves carry
+  the rev they were read with (409 = Keep Mine / Use Theirs); editors
+  co-type live over an ENCRYPTED Realtime channel (the module docstring has
+  the rules). Voice notes, videos and dictation (`lib/voice.js`,
+  `notes/noteMedia.jsx`) work on the web and the phone alike: on the web
+  they sit, named, at the top right of the toolbar - the formatting wraps,
+  never scrolls them out of sight - and in the "/" menu; on a phone they ride
+  the bar above the keyboard. Dictation is the browser's own speech
+  recognition (no AI, no key); a browser without it shows no microphone.
+  Make a Task works on the page and in Quick Note. A new editor feature goes
+  in BOTH the web toolbar and the phone bar (`NoteEditor.jsx`).
+
+- **Documents (Neil, 10/31/2026, plan https://claude.ai/artifact/VZxM4iUKKnmPfxsNvxxPdJ,
+  `routers/documents.py`, `components/DocumentsBrowser.jsx`,
+  `lib/documentLibrary.js`).** Four tabs: Documents (one library, `documents-browse`;
+  the old Dashboard, My Documents and HR Records tabs and their subs land here),
+  Templates, Nexus Sign (its own tab, unchanged - Neil's call) and PDF Tools.
+  `GET /documents/library` is every document and envelope the caller may see, one
+  row each, no content, and never a second access rule: documents as
+  `list_documents` filters them, an envelope for its parties and sender and for HR
+  readers as `/esign/requests` lists it, its people only for those who could
+  already see them. HR packet rows stay behind `/hr/packet-documents`. A row
+  opens beside the list (`DocumentSidePanel.jsx`). Status words live in
+  `rowStatus`; the screen says Signed while Nexus Sign and the sealed PDF keep
+  Fully Executed. Templates have ONE status (`_template_state`: draft, published,
+  changes, archived) and ONE Publish: publishing a draft is the only step that
+  makes it usable, a document is made from the published wording
+  (`_released`) exactly as an HR packet prints it, and a template live since
+  before this is released as it stands on first use or first edit.
 
 - **Cubby tasks in Nexus Tasks (Neil, Oct 30 2026, `backend/cubby_tasks.py`,
   Settings > Operations > Cubby Tasks).** After each 15-minute Cubby sync

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppWindow, ArrowRight, Check, ChevronDown, FileText, Laptop, Package, Plane, Plus, Receipt, Settings2, Tag, Upload, Utensils, X } from 'lucide-react';
 import { api } from '../api';
 import { usePopupNudge } from '../lib/usePopupNudge';
+import { SHEET_SHADOW, SHEET_EDGE } from '../lib/sheetStack';
 import { useIsMobile } from '../lib/useIsMobile';
 import { Spinner } from './AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
@@ -442,13 +443,13 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
       <ArrowRight className="wd-askhr-go" size={15} aria-hidden="true" />
     </button>
     {open && (
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: phone ? 0 : 16 }}
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: phone ? 'center' : 'stretch', justifyContent: phone ? 'center' : 'flex-end', padding: 0 }}
         onClick={nudge}>
         {/* A phone gets the whole screen, like Purchase Requests (phone pass, Oct 29 2026). */}
-        <div role="dialog" aria-label="Reimbursements" className={`${popupClass}${phone ? ' nx-sheet' : ''}`} onClick={(e) => e.stopPropagation()}
+        <div role="dialog" aria-label="Reimbursements" className={`${popupClass}${phone ? ' nx-sheet' : ' nx-sheet-right'}`} onClick={(e) => e.stopPropagation()}
           style={phone
             ? { background: 'var(--card)', width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }
-            : { background: 'var(--card)', borderRadius: 14, width: '85vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '85vh', maxHeight: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            : { background: 'var(--card)', borderRadius: '16px 0 0 16px', width: '85vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', boxShadow: SHEET_SHADOW, borderLeft: SHEET_EDGE }}>
           <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--line)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Reimbursements</div>

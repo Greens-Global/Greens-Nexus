@@ -21,7 +21,7 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
+from routers import tasks, purchases, reviews, marketing, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
@@ -1418,6 +1418,21 @@ def _run_migrations():
             "ALTER TABLE nexus_notes ADD COLUMN collab_key VARCHAR DEFAULT ''",
             # Cubby tasks in Nexus Tasks (Oct 31 2026) - see the Postgres list. models.Task.
             "ALTER TABLE tasks ADD COLUMN cubby_task_id VARCHAR DEFAULT ''",
+            # Boards (Neil 11/02/2026) - see the Postgres list. models.NexusNote / NexusNoteVersion.
+            "ALTER TABLE nexus_notes ADD COLUMN scene TEXT DEFAULT ''",
+            "ALTER TABLE nexus_notes ADD COLUMN thumb_url VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_notes ADD COLUMN source TEXT DEFAULT ''",
+            "ALTER TABLE nexus_note_versions ADD COLUMN scene TEXT DEFAULT ''",
+            # Announcements reach (Neil 11/02/2026) - see the Postgres list. models.Announcement.
+            "ALTER TABLE nexus_announcements ADD COLUMN image_url VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_announcements ADD COLUMN file_url VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_announcements ADD COLUMN file_name VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_announcements ADD COLUMN publish_at VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_announcements ADD COLUMN notify VARCHAR DEFAULT 'quiet'",
+            "ALTER TABLE nexus_announcements ADD COLUMN notified_at VARCHAR DEFAULT ''",
+            # Posts from before these columns were belled at create: stamp them
+            # published, or the first publish pass would bell everyone again.
+            "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2600,6 +2615,11 @@ def _run_migrations():
         # routers/announcements.py.
         "ALTER TABLE nexus_announcements ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE nexus_announcement_reads ENABLE ROW LEVEL SECURITY",
+        # Web Push (Frontline Reach, Neil 11/02/2026): a device's push subscription
+        # and the outbox the bell feeds. New tables - RLS per CLAUDE.md.
+        # models.NexusPushSubscription / NexusPushOutbox, push.py.
+        "ALTER TABLE nexus_push_subscriptions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE nexus_push_outbox ENABLE ROW LEVEL SECURITY",
         # HR life events (Neil, Oct 8): hiring packet / promotion / separation
         # through Nexus Sign, filed to the person's Egnyte folder. New tables -
         # RLS per CLAUDE.md. models.HrPacketSetting, models.HrLifeEvent.
@@ -3387,6 +3407,25 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS cubby_task_id VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_tasks_cubby_task_id ON tasks (cubby_task_id)",
         "ALTER TABLE cubby_task_links ENABLE ROW LEVEL SECURITY",
+        # Boards (Neil 11/02/2026): a whiteboard is a note - its drawing, a
+        # thumbnail and where a Mark Up came from; versions keep the drawing.
+        # Existing tables, no new RLS. models.NexusNote / NexusNoteVersion.
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS scene TEXT DEFAULT ''",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS thumb_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS source TEXT DEFAULT ''",
+        "ALTER TABLE nexus_note_versions ADD COLUMN IF NOT EXISTS scene TEXT DEFAULT ''",
+        # Announcements reach (Neil 11/02/2026): a picture or file on a post,
+        # publish later, a notify choice, and the publish stamp. Existing
+        # table, no new RLS. models.Announcement.
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS image_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS file_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS file_name VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS publish_at VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS notify VARCHAR DEFAULT 'quiet'",
+        "ALTER TABLE nexus_announcements ADD COLUMN IF NOT EXISTS notified_at VARCHAR DEFAULT ''",
+        # Posts from before these columns were belled at create: stamp them
+        # published, or the first publish pass would bell everyone again.
+        "UPDATE nexus_announcements SET notified_at = created_at WHERE notified_at = '' AND publish_at = ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4131,6 +4170,18 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(ticket_notify_loop()))
         except Exception as e:
             print(f"[startup] ticket notification loop skipped: {e}")
+        # Web Push (Frontline Reach, Neil 11/02/2026): drains the outbox the
+        # bell feeds. Started only when the three VAPID settings exist, so a
+        # server without keys spends nothing and says so once.
+        try:
+            import push as _push_mod
+            if _push_mod.configured():
+                _tasks.append(_a.create_task(_push_mod.push_loop()))
+                print("[startup] web push on")
+            else:
+                print("[startup] web push off (NEXUS_VAPID_* not set)")
+        except Exception as e:
+            print(f"[startup] web push loop skipped: {e}")
         try:
             from task_notify import task_notify_loop
             _tasks.append(_a.create_task(task_notify_loop()))
@@ -4161,6 +4212,13 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(weekly_digest_loop()))
         except Exception as e:
             print(f"[startup] weekly digest loop skipped: {e}")
+        try:
+            # Announcements published later (Neil, 11/02/2026): every minute, due
+            # posts get their bells and their push / Teams / email fan-out once.
+            from announcements_publish import announcements_loop
+            _tasks.append(_a.create_task(announcements_loop()))
+        except Exception as e:
+            print(f"[startup] announcements publish skipped: {e}")
         try:
             from workforce_scorecard import scorecard_loop
             _tasks.append(_a.create_task(scorecard_loop()))
@@ -4778,6 +4836,13 @@ def health():
     could tell. No values are exposed, only whether each is configured."""
     import intacct_client
     import secret_box
+
+    def _push_health() -> bool:
+        try:
+            import push as _p
+            return _p.configured()
+        except Exception:
+            return False
     return {"status": "ok",
             "secrets": {"vault_key": secret_box.KEY_CONFIGURED,
                         "app_url_explicit": bool(os.getenv("NEXUS_APP_URL", "").strip()),
@@ -4791,7 +4856,10 @@ def health():
                         "cubby_api_key": bool(os.getenv("CUBBY_API_KEY", "").strip()),
                         # People > Sync Employee Codes reads Intacct directly
                         # (intacct_client.py, the five INTACCT_* settings).
-                        "intacct_direct": intacct_client.configured()}}
+                        "intacct_direct": intacct_client.configured(),
+                        # Web Push to installed phones (push.py): the three
+                        # NEXUS_VAPID_* settings. Off = the bell only.
+                        "push": _push_health()}}
 
 
 @app.get("/health/ready")
@@ -4881,14 +4949,9 @@ app.include_router(tasks.router)
 app.include_router(purchases.router)
 app.include_router(reviews.router)
 app.include_router(marketing.router)
-app.include_router(external_links.router) # External Links: registered BEFORE assets.router so its real
-                                           # GET/POST/click routes win the match over assets.py's leftover
-                                           # /external-links stub (Starlette matches in registration order,
-                                           # first route added wins on a path collision) - see
-                                           # routers/external_links.py's module docstring.
+app.include_router(external_links.router) # External Links
 app.include_router(external_links.personal_router) # Personal Links: private, owner-scoped shortcuts (Aug 12)
 app.include_router(link_layouts.router) # Per-user Links Module layout (folders/ordering/favorites) (Aug 13)
-app.include_router(assets.router)
 app.include_router(property_assets.router)
 app.include_router(accounting.router)
 app.include_router(accounting_dashboard.router)
@@ -5022,7 +5085,10 @@ app.include_router(acct_scan.router)               # Accounting: amount by entit
 from routers import accounting_ama  # noqa: E402
 app.include_router(accounting_ama.router)          # Accounting > AMA: asset management agreements, billed read from the ledger (Priyanka, Oct 7)
 from routers import announcements, my_work, my_team  # noqa: E402
+from routers import push as push_router  # noqa: E402  - Web Push devices (Frontline Reach, Neil 11/02/2026)
+import push as _push  # noqa: E402,F401  - registers the after_insert hook that queues a push for every named bell notice
 app.include_router(announcements.router)           # Dashboard > Announcements tile: company / department notices, read + acknowledge marks (Oct 7)
+app.include_router(push_router.router)                   # Web Push devices: config / subscribe / unsubscribe (Frontline Reach, Neil 11/02/2026)
 app.include_router(my_work.router)                 # Dashboard > My Work tile: the caller's open work by due bucket (Oct 7)
 app.include_router(my_team.router)                 # Dashboard > My Team tile: direct reports today + their overdue work, supervisor+ (Oct 7)
 from routers import implementation  # noqa: E402

@@ -1422,7 +1422,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // candidate. Documents already out for signature never change.
   const publishTemplate = async () => {
     if (publishing) return;
-    if (!window.confirm(`Publish "${title}"? HR packets that have not been sent yet switch to this wording. Documents already out for signature do not change.`)) return;
+    if (!window.confirm(`Publish "${title}"? New documents and HR packets that have not been sent yet use this wording. Documents already made or out for signature do not change.`)) return;
     setPublishing(true);
     try {
       await flushPendingSave();
@@ -1435,8 +1435,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     } finally { setPublishing(false); }
   };
 
-  // Activate (Oct 23): a Draft cannot make documents or go in an HR packet.
-  // The first activation also publishes (documents.update_template).
+  // Restore an archived template. If it was never published this also publishes
+  // (documents.update_template).
   const activateTemplate = async () => {
     if (activating) return;
     setActivating(true);
@@ -1444,9 +1444,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       await flushPendingSave();
       const res = await api.updateDocTemplate(docId, { status: 'active' });
       setDoc(d => ({ ...d, ...res }));
-      toastOk?.(res.publishedVersion ? `Active - published version ${res.publishedVersion}.` : 'Active.');
+      toastOk?.(res.publishedVersion ? `Restored - published version ${res.publishedVersion}.` : 'Restored.');
     } catch (e) {
-      toastErr?.(e.message || 'Could not activate the template');
+      toastErr?.(e.message || 'Could not restore the template');
     } finally { setActivating(false); }
   };
 
@@ -1801,30 +1801,31 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           {saveStatus === 'error' && <AlertCircle size={12} />}
           {SAVE_LABEL[saveStatus]}
         </span>
-        {kind === 'template' && doc.status === 'active' && (
+        {/* One Publish (Neil, 10/31/2026): Active and Published merged - new documents and HR packets read what is published. */}
+        {kind === 'template' && doc.status !== 'archived' && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
-            title="HR packets print the published version. Editing saves as you type; Publish releases your changes.">
-            {!doc.publishedVersion ? <span style={chipTone('orange')}>Not Published</span>
+            title="New documents and HR packets use the published wording. Editing saves as you type; Publish releases it.">
+            {doc.status === 'draft' ? <span style={chipTone('orange')}>Draft - Not Usable Yet</span>
               : doc.hasUnpublishedChanges ? <span style={chipTone('orange')}>Unpublished Changes</span>
-              : <span style={chipTone('green')}>Published v{doc.publishedVersion}</span>}
-            {(!doc.publishedVersion || doc.hasUnpublishedChanges) && !preview && (
+              : <span style={chipTone('green')}>Published{doc.publishedVersion ? ` v${doc.publishedVersion}` : ''}</span>}
+            {(doc.status === 'draft' || doc.hasUnpublishedChanges) && !preview && (
               <button onClick={publishTemplate} disabled={publishing} className="primary-btn"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: publishing ? 0.6 : 1 }}>
                 {publishing ? <Spinner size={14} /> : <BadgeCheck size={14} />}
-                {doc.publishedVersion ? 'Publish Changes' : 'Publish'}
+                {doc.hasUnpublishedChanges ? 'Publish Changes' : 'Publish'}
               </button>
             )}
           </span>
         )}
-        {kind === 'template' && doc.status !== 'active' && (
+        {kind === 'template' && doc.status === 'archived' && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
-            title="Only an Active template can make documents or go in an HR packet. Activating publishes this wording.">
-            <span style={doc.status === 'draft' ? chipTone('orange') : { ...chipTone('blue'), color: 'var(--muted)', background: 'var(--mist)' }}>{doc.status === 'draft' ? 'Draft - Not Usable Yet' : 'Archived'}</span>
+            title="An archived template makes nothing until it is restored.">
+            <span style={{ ...chipTone('blue'), color: 'var(--muted)', background: 'var(--mist)' }}>Archived</span>
             {!preview && (
               <button onClick={activateTemplate} disabled={activating} className="primary-btn"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: activating ? 0.6 : 1 }}>
                 {activating ? <Spinner size={14} /> : <BadgeCheck size={14} />}
-                {doc.status === 'draft' ? 'Activate' : 'Restore'}
+                Restore
               </button>
             )}
           </span>

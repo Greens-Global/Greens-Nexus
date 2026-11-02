@@ -121,6 +121,24 @@ class T(unittest.TestCase):
         self.assertEqual(got["group"], "priority")
         self.assertEqual(got["sort"], {"key": "dueOn", "dir": "desc"})
 
+    def test_motion_and_layout_round_trip(self):
+        # The rail's strength (lib/railMotion.js) and the Tickets desk's side
+        # pane (useTableValue('tickets-v3','layout')) are single words.
+        c.delete("/task-prefs")
+        r = c.put("/task-prefs/nav", json={"motion": "bold"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(c.get("/task-prefs").json()["prefs"]["nav"]["motion"], "bold")
+        c.put("/task-prefs/tickets-v3", json={"layout": "pane"})
+        self.assertEqual(c.get("/task-prefs").json()["prefs"]["tickets-v3"]["layout"], "pane")
+        # Not a word: dropped, not stored.
+        c.put("/task-prefs/nav", json={"motion": "<script>alert(1)</script>"})
+        self.assertEqual(c.get("/task-prefs").json()["prefs"]["nav"]["motion"], "bold")
+
+    def test_an_unknown_key_is_still_dropped(self):
+        c.delete("/task-prefs")
+        c.put("/task-prefs/nav", json={"motion": "subtle", "wallpaper": "stars"})
+        self.assertEqual(c.get("/task-prefs").json()["prefs"]["nav"], {"motion": "subtle"})
+
     def test_a_bad_sort_direction_is_dropped_not_stored(self):
         c.delete("/task-prefs")
         c.put("/task-prefs/mytasks", json={"sort": {"key": "dueOn", "dir": "sideways"}})

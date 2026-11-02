@@ -12,11 +12,12 @@ import { useActionCounts, tabCount } from '../lib/useActionCounts';
 // filters, Manage modal, etc.) - lazy so its chunk only loads when that tab
 // is actually opened, same as every other top-level view used to load.
 const ExternalLinks = lazy(() => import('./ExternalLinks'));
-// Notes (Neil, Oct 29 2026) - the scratchpad page, after Links. Its sub is
+// Tab order (Neil, Oct 30 2026): Dashboard, Approvals, Notes, Links.
+// Notes (Neil, Oct 29 2026) - the scratchpad page. Its sub is
 // `notes`, or `notes:<id>` for one open note (a share bell, a copied link).
 const NotesPage = lazy(() => import('../notes/NotesPage'));
 // Approvals (Pranshu, Oct 30 2026) - the Approvals screen moved in here as a
-// tab between Links and Notes. Its sub is `approvals`, `approvals:<kind>` or
+// tab, right after Dashboard (Neil, Oct 30). Its sub is `approvals`, `approvals:<kind>` or
 // `approvals:history`. The tab shows for Managers++ (manager tier, HR scope)
 // and for anyone with something waiting - an employee with a document to
 // sign still finds it; one with nothing to do is not shown an empty tab.
@@ -61,9 +62,9 @@ export default function Dashboard({ activeSub, onSubChange }) {
 
   const tabs = [
     { key: 'dashboard', label: 'Dashboard' },
-    { key: 'links', label: 'Links' },
     ...(showApprovals ? [{ key: 'approvals', label: 'Approvals', badge: approvalsWaiting }] : []),
     { key: 'notes', label: 'Notes' },
+    { key: 'links', label: 'Links' },
   ];
 
   return (

@@ -68,7 +68,7 @@ describe('Header Create menu', () => {
     // Credential, Purchase Request, Send for Signature, Workflow or Time Off
     // (Neil, Oct 29 2026).
     expect([...document.querySelectorAll('.qc-menu .hud-sec')].map((e) => e.textContent)).toEqual(['Work', 'Requests', 'Outlook']);
-    expect(rows()).toEqual(['New Task', 'New Note', 'New Ticket', 'New Document', 'Request an Item', 'New Email', 'New Event']);
+    expect(rows()).toEqual(['New Task', 'New Note', 'New Board', 'New Ticket', 'New Document', 'Request an Item', 'New Email', 'New Event']);
   });
 
   it('hides what the person cannot use', async () => {

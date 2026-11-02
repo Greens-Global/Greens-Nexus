@@ -132,7 +132,7 @@ export default function LabelsManageTab() {
             .then(() => setRenaming(null)).catch(() => {})} />
       )}
       {deleting && (
-        <Modal title="Delete Label" onClose={() => setDeleting(null)} footer={(
+        <Modal title="Delete Label" placement="center" onClose={() => setDeleting(null)} footer={(
           <>
             <button type="button" style={btn('ghost')} onClick={() => setDeleting(null)}>Cancel</button>
             <button type="button" disabled={busy} style={{ ...btn('primary'), background: NX.red, borderColor: NX.red }}
