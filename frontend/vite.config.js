@@ -195,11 +195,22 @@ export default defineConfig(({ command }) => ({
         manualChunks(id) {
           // The whiteboard engine (Notes boards, Neil 11/02/2026): the package
           // and the libraries only it uses, in one lazy chunk reached by
-          // notes/board/Board.jsx's import() alone - never on first paint.
-          // Its small shared-looking deps (clsx, nanoid, pako, lodash.*,
-          // @radix-ui/*) stay in the catch-all so no other chunk ever has to
-          // pull this one in to reach them. Budget: check-bundle-size.mjs
-          // CHUNK_EXEMPT['vendor-excalidraw'].
+          // notes/board/engine/index.js's import() of the adapter
+          // (engine/excalidraw.jsx, the one file that imports the package)
+          // alone - never on first paint. Its small shared-looking deps
+          // (clsx, nanoid, pako, lodash.*, @radix-ui/*) stay in the catch-all
+          // so no other chunk ever has to pull this one in to reach them. The
+          // adapter module itself is NOT listed here: on rolldown a manual
+          // chunk takes a module's whole static tree with it
+          // (advancedChunks.includeDependenciesRecursively, default true), and
+          // the adapter imports scene.js and boardSync.js (yjs) - listing it
+          // dragged them, and every chunk that needs them, onto this 3 MB
+          // chunk (measured 11/02/2026). The same pull already puts the
+          // engine's shared React-side deps (react/jsx-runtime, @radix-ui,
+          // tslib...) in here, so the entry imports this chunk statically
+          // today - check-bundle-size.mjs reports it; the cure is moving this
+          // whole map to advancedChunks groups with priorities (Neil's call).
+          // Budget: check-bundle-size.mjs CHUNK_EXEMPT['vendor-excalidraw'].
           if (id.includes(EXCALIDRAW_LOCALE_STUB) || id.includes(EXCALIDRAW_MERMAID_STUB) || id.includes('node_modules/@excalidraw/')
             || /node_modules\/(roughjs|points-on-curve|perfect-freehand|jotai|jotai-scope|tunnel-rat|fractional-indexing|es6-promise-pool|browser-fs-access|image-blob-reduce|pica|png-chunk-text|png-chunks-encode|png-chunks-extract|open-color|fuzzy|@braintree\/sanitize-url|canvas-roundrect-polyfill)\//.test(id)) return 'vendor-excalidraw';
           if (id.includes('@azure/msal-browser') || id.includes('@azure/msal-react')) return 'vendor-msal';

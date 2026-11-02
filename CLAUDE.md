@@ -351,7 +351,17 @@ keep the diff minimal.
   Never add a second drawing engine, a second markup path, or a Whiteboards
   module - boards live in Notes. jsdom cannot load the engine: tests get the
   global mock in `frontend/vitest.setup.js`. Users never see the word
-  Excalidraw.
+  Excalidraw. **The engine is behind `notes/board/engine`** (Neil,
+  11/02/2026: it must stay replaceable): `engine/index.js` is the contract
+  and `loadEngine()`, `engine/excalidraw.jsx` the ONE file that imports the
+  package - `scripts/check-engine-imports.mjs` (in `npm run lint`) fails any
+  other; Board, the exports and the live session know only the Engine
+  object. When the chunk does not load the board shows its last picture
+  read-only with Retry (`engine/fallback.jsx`, never blank, never a throw to
+  the boundary); every save goes to an IndexedDB draft first
+  (`board/draft.js`, offered back on open with Restore / Discard, cleared
+  when the save lands); `scene.js compact` runs before a save and a scene
+  still over 2 MB is refused with a notice, never sent as a 413.
 - **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
   on the phone (`public/manifest.webmanifest`, `public/sw.js` - a push-only
   worker, no caching, offline is deferred) and pushes the BELL: a Web Push

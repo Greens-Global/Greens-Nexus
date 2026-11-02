@@ -6,7 +6,7 @@
 // Budgets are set ~15% above the Aug 2026 baseline. If you hit one honestly
 // (a genuinely needed dependency), raise it deliberately in this file in the
 // same PR - the point is that growth is a decision, not an accident.
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -351,7 +351,8 @@ const CHUNK_EXEMPT = {
   'vendor-heic': 1400,
   // The whiteboard engine (Notes boards, Neil 11/02/2026). Its main file is
   // one 1.8 MB module the package does not split; it is reached only by the
-  // lazy import in notes/board/Board.jsx, never on first paint. Measured
+  // lazy import in notes/board/engine/index.js (loadEngine), never on first
+  // paint. Measured
   // 11/02/2026: 2,961 KB (3,031 kB in the build log). If it grows past this,
   // look for a new engine dependency leaking in before touching the number.
   'vendor-excalidraw': 3200,
@@ -372,6 +373,25 @@ for (const f of readdirSync(DIST)) {
 }
 
 if (total > TOTAL_KB) offenders.push(`TOTAL JS: ${Math.round(total)} KB (budget ${TOTAL_KB} KB)`);
+
+// The whiteboard engine is meant to be reached by import() alone
+// (notes/board/engine/index.js). Measured 11/02/2026: it is NOT - on rolldown
+// the vendor-excalidraw manual chunk pulls the engine's shared dependencies
+// (react/jsx-runtime, @radix-ui/*, @floating-ui/*, tslib, lodash.throttle,
+// zustand...) in with it (advancedChunks.includeDependenciesRecursively,
+// default true), so the entry and ~230 chunks import the 3 MB chunk
+// statically and it ships on first paint. Neither budget above sees that.
+// Reported here, not failed: the cure is moving the whole manualChunks map
+// in vite.config.js to advancedChunks groups with priorities (any
+// advancedChunks setting makes rolldown ignore manualChunks, so it is all or
+// nothing) - a deliberate change for Neil, not a side effect of a feature
+// PR. The entry's preload map may NAME the chunk; only `from "./vendor-
+// excalidraw..."` / `import "./vendor-excalidraw..."` is a static import.
+const STATIC_ENGINE_IMPORT = /(?:from|import)\s*["']\.\/vendor-excalidraw/;
+const engineImporters = readdirSync(DIST).filter((f) => f.endsWith('.js') && STATIC_ENGINE_IMPORT.test(readFileSync(join(DIST, f), 'utf8')));
+if (engineImporters.some((f) => /^index-.*\.js$/.test(f))) {
+  console.warn(`bundle note: the entry and ${engineImporters.length - 1} other chunks import vendor-excalidraw statically (the engine ships on first paint) - see the note in scripts/check-bundle-size.mjs`);
+}
 
 if (offenders.length) {
   console.error('\nBundle budget exceeded:');

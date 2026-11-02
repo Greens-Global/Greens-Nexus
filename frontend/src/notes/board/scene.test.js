@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   SCENE_TYPE, SCENE_MAX, LOOKS, SAFE_APP_STATE_KEYS,
-  emptyScene, parseScene, serializeScene, lookDefaults, applyLook,
+  emptyScene, parseScene, serializeScene, buildScene, compact, lookDefaults, applyLook,
 } from './scene';
 
 const el = (over = {}) => ({
@@ -105,5 +105,53 @@ describe('board scene', () => {
     expect(Object.keys(out.files)).toEqual(['ok']);
     const parsed = parseScene(JSON.stringify({ type: 'nexus-board', elements: [], files: { inl: { id: 'inl', url: 'data:image/png;base64,AA' } } }));
     expect(parsed.files).toEqual({});
+  });
+
+  // ── compact: the scene guard before a save (Neil, 11/02/2026) ───────────
+  it('compact drops deleted elements older than the last save and keeps the rest', () => {
+    const savedAt = Date.now() - 60_000;      // inside buildScene's 24 h carry window
+    const scene = buildScene({
+      elements: [
+        el({ id: 'live', updated: 10 }),
+        el({ id: 'oldGone', isDeleted: true, updated: savedAt - 1 }),
+        el({ id: 'atSave', isDeleted: true, updated: savedAt }),
+        el({ id: 'newGone', isDeleted: true, updated: savedAt + 5 }),
+      ],
+      appState: {}, filesMeta: {}, look: 'clean',
+    });
+    const out = compact(scene, { savedAt });
+    expect(out.elements.map((e) => e.id)).toEqual(['live', 'atSave', 'newGone']);
+    // untouched input, same shape on disk
+    expect(scene.elements).toHaveLength(4);
+    expect(out.type).toBe(SCENE_TYPE);
+    expect(Object.keys(out)).toEqual(Object.keys(scene));
+  });
+
+  it('compact drops files no element references, keeping those a kept element (live or still-carried deleted) points at', () => {
+    const f = (id) => ({ id, mimeType: 'image/png', url: `https://api/files/view?u=${id}`, created: 1 });
+    const now = Date.now();
+    const scene = buildScene({
+      elements: [
+        el({ id: 'img1', type: 'image', fileId: 'a', updated: now - 90_000 }),
+        el({ id: 'img2', type: 'image', fileId: 'b', isDeleted: true, updated: now - 10_000 }),
+        el({ id: 'img3', type: 'image', fileId: 'c', isDeleted: true, updated: now - 90_000 }),
+      ],
+      appState: {}, filesMeta: { a: f('a'), b: f('b'), c: f('c'), orphan: f('orphan') }, look: 'clean',
+    });
+    const out = compact(scene, { savedAt: now - 60_000 });
+    expect(out.elements.map((e) => e.id)).toEqual(['img1', 'img2']);
+    expect(Object.keys(out.files).sort()).toEqual(['a', 'b']);
+  });
+
+  it('compact with no save yet keeps every deleted element; a scene that is not a scene comes back as is', () => {
+    const scene = buildScene({ elements: [el({ id: 'gone', isDeleted: true, updated: Date.now() - 5 })], appState: {}, filesMeta: {}, look: 'clean' });
+    expect(compact(scene).elements).toHaveLength(1);
+    expect(compact(scene, { savedAt: 0 }).elements).toHaveLength(1);
+    expect(compact(null)).toBeNull();
+  });
+
+  it('serializeScene is buildScene as JSON', () => {
+    const input = { elements: [el()], appState: { gridSize: 20 }, filesMeta: {}, look: 'sketch' };
+    expect(serializeScene(input)).toBe(JSON.stringify(buildScene(input)));
   });
 });
