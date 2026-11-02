@@ -129,7 +129,10 @@ def task_notify(db: Session, *, kind: str, for_email: str, title: str, body: str
             main_bell = bool(t and (t.requester_email or "").strip().lower() == target)
     if not main_bell:
         return
-    recipients = admin_emails(db) if target == "admins" else [target]
+    # "admins" = the Administrators of the subject's company plus the Super
+    # Administrators (Neil, 11/02/2026) - never every company's.
+    recipients = (company_admin_emails(db, admins_subject_company(db, task_id, department_id))
+                  if target == "admins" else [target])
     action = dict(nexus_action) if nexus_action else None
     if action and task_id and not action.get("taskId"):
         action["taskId"] = task_id
@@ -287,6 +290,43 @@ def admin_emails(db: Session) -> list[str]:
     when a caller needs the concrete list)."""
     rows = db.query(NexusRole).filter(NexusRole.role.in_(["administrator", "owner"])).all()
     return [r.email for r in rows if r.email]
+
+
+def admins_subject_company(db: Session, task_id: str = "", department_id: str = "") -> str:
+    """The company an "admins" fan-out is about: its task's, else its team's
+    (department_id), else '' (only a Super Administrator hears those)."""
+    from models import Task, TaskTeam
+    if task_id:
+        t = db.get(Task, task_id)
+        if t is not None:
+            return row_company(db, t)
+    if department_id:
+        team = db.get(TaskTeam, department_id)
+        if team is not None:
+            return team_company(db, team)
+    return ""
+
+
+def company_admin_emails(db: Session, company_id: str) -> list[str]:
+    """admin_emails() narrowed by the company wall: the Super Administrators,
+    and the Administrators whose company scope admits `company_id`."""
+    import auth
+    out = []
+    for e in dict.fromkeys((x or "").strip().lower() for x in admin_emails(db)):
+        if e and auth.company_ok(company_id or "", auth.company_scope({"email": e, "level": auth.level_for(e, db)}, db)):
+            out.append(e)
+    return out
+
+
+def admins_row_visible(db: Session, user: dict, n) -> bool:
+    """May this level-4+ caller see an "admins" TaskNotification row? Its
+    subject's company must be inside their companies (a Super Administrator
+    sees every one)."""
+    import auth
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return True
+    return auth.company_ok(admins_subject_company(db, n.task_id or "", n.department_id or ""), scope)
 
 
 # ── Visibility (Jul 2026) ─────────────────────────────────────────────────────

@@ -145,8 +145,16 @@ def get_all_roles(
     user: dict = Depends(require_administrator),
     db:   Session = Depends(get_db),
 ):
-    """Return all role assignments. Requires administrator or above."""
+    """Return all role assignments. Requires administrator or above. A walled
+    caller - an Administrator, always (Neil, 11/02/2026) - gets only the
+    people inside their companies (and those with no company)."""
+    import auth
     rows = db.query(NexusRole).all()
+    scope = auth.company_scope(user, db)
+    if scope is not None:
+        emp_co = auth.company_of_email_map(db)
+        rows = [r for r in rows
+                if auth.company_ok(emp_co.get((r.email or "").lower(), ""), scope, shared_when_blank=True)]
     return [{"email": r.email, "role": r.role, "display_name": r.display_name or "",
              "assigned_by": r.assigned_by, "tier_pinned": bool(getattr(r, "tier_pinned", False))} for r in rows]
 
@@ -211,6 +219,9 @@ def assign_role(
 
     if requester_level < ROLE_LEVEL["administrator"]:
         raise HTTPException(status_code=403, detail="Need Administrator or Super Administrator role to manage roles")
+    # Someone outside the caller's companies: 404, as if not there.
+    import auth
+    auth.assert_person_in_scope(target_email, user, db)
 
     # IT Admins can delegate access, but only "down" - strictly below their own
     # level - and may not create, edit, or demote peer/other admins. Creating

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db
 from models import NexusGroup, NexusGroupMember, NexusRole
+import auth
 from auth import get_current_user, require_administrator, invalidate_role_cache, _MODULE_LEVEL_RANK, _LEVELS
 from routers.roles import VALID_ROLES, ROLE_LEVEL, _get_role
 
@@ -129,9 +130,22 @@ class GroupRoleAssignment(BaseModel):
 @router.get("")
 def list_groups(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if user["level"] >= 4:
-        # Administrators see all groups for management in the Access Manager
+        # Administrators see the groups for management in the Access Manager -
+        # a walled one (an Administrator, always: Neil, 11/02/2026) only their
+        # companies' groups and the shared ones, and in each only the members
+        # inside their companies (or with no company). A Super Administrator
+        # sees every group and every member.
         _seed_if_empty(db)
         groups = db.query(NexusGroup).order_by(NexusGroup.created_at).all()
+        scope = auth.company_scope(user, db)
+        if scope is not None:
+            groups = [g for g in groups if auth.company_ok(g.company_id or "", scope, shared_when_blank=True)]
+            emp_co = auth.company_of_email_map(db)
+            result = [_serialize(g, db) for g in groups]
+            for g in result:
+                g["members"] = [m for m in g["members"]
+                                if auth.company_ok(emp_co.get(m.lower(), ""), scope, shared_when_blank=True)]
+            return result
     else:
         # All other users only receive the groups they belong to - enough for the
         # frontend to compute myGrantedModules without exposing org-wide group data
@@ -160,12 +174,73 @@ def _require_super_for_flagged(user: dict, group: NexusGroup | None = None, flag
         raise HTTPException(status_code=403, detail="Only a Super Administrator can change a Super Administrators group")
 
 
+def _guard_group_company(user: dict, db: Session, company_id: str, existing: bool = True) -> None:
+    """The company wall on groups (Neil, 11/02/2026). A walled caller - an
+    Administrator, always - works only on their own companies' groups: a
+    group of another company is 404 (403 when they name that company for a
+    new group), and a SHARED group (company '') reaches every company, so
+    creating, editing or filling one is a Super Administrator's."""
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return
+    cid = (company_id or "").strip()
+    if not cid:
+        raise HTTPException(status_code=403, detail="Only a Super Administrator can change a shared group - pick your company for it")
+    if cid not in scope:
+        if existing:
+            raise HTTPException(status_code=404, detail="Group not found")
+        raise HTTPException(status_code=403, detail="You can only manage groups for your own company")
+
+
+def _guard_members(user: dict, db: Session, emails) -> None:
+    """Every member a walled caller adds must be inside their companies (or
+    have no company - a guest / external); anyone else is 404."""
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return
+    for email in emails or []:
+        email = (email or "").lower().strip()
+        if email and not auth.person_in_scope(email, scope, db):
+            raise HTTPException(status_code=404, detail="Not found")
+
+
+def _guard_owner_only_grants(user: dict, db: Session, modules, before: str = "") -> None:
+    """A grant on a module only a Super Administrator opens without one
+    (auth.OWNER_ONLY_GRANTS: Personal Financial Statements, compensation,
+    deleting people, Workflows' organization face) is a Super
+    Administrator's to give - in a group or a job role. Only an ADDED or
+    RAISED grant is refused, so an Administrator can still rename a group a
+    Super Administrator gave one, or take it away."""
+    if auth.is_global_admin(user, db):
+        return
+    had = set(auth.owner_only_grants_in(_parse_modules(before or "")))
+    had_levels = {m["id"]: _MODULE_LEVEL_RANK.get(m["level"], 1) for m in _parse_modules(before or "")}
+    for m in modules or []:
+        mid = ((m.get("id") if isinstance(m, dict) else m.id) or "").strip().lower()
+        lvl = ((m.get("level") if isinstance(m, dict) else m.level) or "viewer").strip().lower()
+        if not auth.owner_only_grants_in([{"id": mid, "level": lvl}]):
+            continue
+        if mid in had and _MODULE_LEVEL_RANK.get(lvl, 1) <= had_levels.get(mid, 0):
+            continue
+        raise HTTPException(status_code=403, detail="Only a Super Administrator can grant this module")
+
+
+def _guard_holds_owner_only(user: dict, db: Session, group: NexusGroup) -> None:
+    """Putting someone into a group or job role that carries a Super-only
+    grant hands them that grant - a Super Administrator's call too."""
+    if auth.owner_only_grants_in(_parse_modules(group.allowed_modules or "")) and not auth.is_global_admin(user, db):
+        raise HTTPException(status_code=403, detail="Only a Super Administrator can add people to a group with this access")
+
+
 @router.post("")
 def create_group(body: GroupCreate, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Group name is required")
     _require_super_for_flagged(user, flagging=bool(body.is_global_admin))
+    _guard_group_company(user, db, body.company_id or "", existing=False)
+    _guard_owner_only_grants(user, db, body.allowed_modules)
+    _guard_members(user, db, body.member_emails)
 
     now = _ts()
     group = NexusGroup(
@@ -199,6 +274,11 @@ def update_group(group_id: str, body: GroupUpdate, user: dict = Depends(require_
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     _require_super_for_flagged(user, group, flagging=bool(body.is_global_admin))
+    _guard_group_company(user, db, group.company_id or "")
+    if body.company_id is not None:
+        _guard_group_company(user, db, body.company_id or "", existing=False)
+    if body.allowed_modules is not None:
+        _guard_owner_only_grants(user, db, body.allowed_modules, before=group.allowed_modules or "")
 
     if body.name is not None:
         name = body.name.strip()
@@ -236,6 +316,7 @@ def delete_group(group_id: str, user: dict = Depends(require_administrator), db:
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     _require_super_for_flagged(user, group)
+    _guard_group_company(user, db, group.company_id or "")
 
     db.query(NexusGroupMember).filter(NexusGroupMember.group_id == group_id).delete()
     db.delete(group)
@@ -257,7 +338,10 @@ def add_members(group_id: str, body: MembersUpdate, user: dict = Depends(require
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     _require_super_for_flagged(user, group)
+    _guard_group_company(user, db, group.company_id or "")
     _refuse_job_role(group)
+    _guard_holds_owner_only(user, db, group)
+    _guard_members(user, db, body.emails)
 
     now = _ts()
     existing = {m.email for m in db.query(NexusGroupMember).filter(NexusGroupMember.group_id == group_id).all()}
@@ -280,7 +364,9 @@ def remove_member(group_id: str, email: str, user: dict = Depends(require_admini
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     _require_super_for_flagged(user, group)
+    _guard_group_company(user, db, group.company_id or "")
     _refuse_job_role(group)
+    _guard_members(user, db, [email])
 
     target = email.lower().strip()
     row = db.query(NexusGroupMember).filter(NexusGroupMember.group_id == group_id, NexusGroupMember.email == target).first()
@@ -311,12 +397,16 @@ def assign_group_role(group_id: str, body: GroupRoleAssignment, user: dict = Dep
     if user["role"] != "owner" and target_level >= requester_level:
         raise HTTPException(status_code=403, detail="You can only grant access up to one level below your own role")
 
+    _guard_group_company(user, db, group.company_id or "")
+    scope = auth.company_scope(user, db)
     members = db.query(NexusGroupMember).filter(NexusGroupMember.group_id == group_id).all()
     updated, skipped = [], []
     now = _ts()
 
     for m in members:
         email = m.email
+        if not auth.person_in_scope(email, scope, db):
+            continue    # outside the caller's companies: not theirs to touch, not named back
         if user["role"] != "owner":
             existing_role = _get_role(email, db)
             if ROLE_LEVEL.get(existing_role, 1) >= ROLE_LEVEL["administrator"]:

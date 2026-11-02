@@ -158,7 +158,12 @@ def _roster(db: Session, scope) -> dict:
            .filter(or_(NexusEmployee.identity_type.is_(None),
                        NexusEmployee.identity_type.notin_(("guest", "external")))))
     if scope is not None:
-        q = q.filter(NexusEmployee.company.in_(list(scope))) if scope else q.filter(NexusEmployee.id == "")
+        if auth.admits_blank(scope):
+            # An Administrator: their companies plus the people with no company (shared).
+            blank = or_(NexusEmployee.company.is_(None), NexusEmployee.company == "")
+            q = q.filter(or_(NexusEmployee.company.in_(list(scope)), blank) if scope else blank)
+        else:
+            q = q.filter(NexusEmployee.company.in_(list(scope))) if scope else q.filter(NexusEmployee.id == "")
     rows = q.order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
     entities = {e.id: e for e in db.query(HrEntity).all()}
     depts = db.query(HrDepartment).order_by(HrDepartment.sort_order, HrDepartment.name).all()
@@ -357,7 +362,7 @@ def contact_directory(user: dict = Depends(get_current_user), db: Session = Depe
     if user.get("external"):
         raise HTTPException(403, "The contact directory is for company staff.")
     scope = auth.company_scope(user, db)
-    key = "all" if scope is None else ("co:" + ",".join(sorted(scope)) if scope else "co:none")
+    key = auth.scope_key(scope)
     roster = cache.contact_directory.get_or_load(key, lambda: _roster(db, scope))
     # Availability mutates the dicts; work on copies so the cached roster stays pure.
     people = [dict(p) for p in roster["people"]]
@@ -416,7 +421,7 @@ def teams_presence(user: dict = Depends(get_current_user), db: Session = Depends
         raise HTTPException(403, "The contact directory is for company staff.")
     import graph_mail
     scope = auth.company_scope(user, db)
-    key = "all" if scope is None else ("co:" + ",".join(sorted(scope)) if scope else "co:none")
+    key = auth.scope_key(scope)
     admin = int(user.get("level") or 0) >= auth._LEVELS["administrator"]
 
     def disabled(reason: str) -> dict:

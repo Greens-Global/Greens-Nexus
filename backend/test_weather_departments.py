@@ -82,7 +82,9 @@ class WeatherDepartmentTests(unittest.TestCase):
             self.db.add(models.NexusEmployee(id=f"emp-{em}", first_name=first, last_name="X", work_email=em,
                                              phone="(949) 555-0100", status="active", deleted_at="", company=ENT,
                                              department=dept))
-        self.db.add(models.NexusRole(email=BOSS, role="administrator", assigned_by="test"))
+        # Company-wide: a Super Administrator (Neil, 11/02/2026 - an
+        # Administrator is walled to their own company, the switch on or off).
+        self.db.add(models.NexusRole(email=BOSS, role="owner", assigned_by="test"))
         self.db.add(models.HrEntity(id=ENT, name="Greens Build", manager_email=BOSS, manager_emails=[BOSS]))
         self.db.add(models.HrEntity(id=OTHER_ENT, name="Greens Books"))
         # No weather given: the new-department hook decides by the name.

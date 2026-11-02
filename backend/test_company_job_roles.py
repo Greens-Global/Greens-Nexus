@@ -168,8 +168,15 @@ class CompanyJobRoleTests(unittest.TestCase):
         self._as(ADMIN)
         r = self.client.put(f"/jobroles/{SHARED_ADMIN}", json={"company_id": COA})
         self.assertEqual(r.status_code, 403, r.text)
-        # Other edits stay open to them as before.
+        # Tiers (Neil, 11/02/2026): editing a role at all needs the right to
+        # grant its CURRENT tier, and a shared role is a Super
+        # Administrator's - so no other edit either; their own company's
+        # employee-tier role stays theirs to edit.
         r = self.client.put(f"/jobroles/{SHARED_ADMIN}", json={"description": "Runs IT"})
+        self.assertEqual(r.status_code, 403, r.text)
+        r = self.client.put(f"/jobroles/{SHARED}", json={"description": "Crew"})
+        self.assertEqual(r.status_code, 403, r.text)
+        r = self.client.put(f"/jobroles/{ROLE_A}", json={"description": "Alpha crew"})
         self.assertEqual(r.status_code, 200, r.text)
 
     # ── list filter ──────────────────────────────────────────────────────────

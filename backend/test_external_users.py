@@ -43,6 +43,7 @@ models.Base.metadata.create_all(bind=database.engine)
 
 GUEST = "jane.doe@acmeconstruction.com"
 ADMIN = "authprobe.extadmin@greensglobal.com"
+SUPER = "authprobe.super@greensglobal.com"   # a Super Administrator (owner)
 
 
 class TestEmailFromClaims(unittest.TestCase):
@@ -117,7 +118,7 @@ class _ExternalBase(unittest.TestCase):
             db.query(models.NexusEmployee).filter(
                 models.NexusEmployee.work_email.in_([GUEST])).delete(synchronize_session=False)
             db.query(models.NexusRole).filter(
-                models.NexusRole.email.in_([GUEST, ADMIN])).delete(synchronize_session=False)
+                models.NexusRole.email.in_([GUEST, ADMIN, SUPER])).delete(synchronize_session=False)
             db.query(models.NexusGroupMember).filter(
                 models.NexusGroupMember.email == GUEST).delete(synchronize_session=False)
             ext_ids = [g.id for g in db.query(models.NexusGroup)
@@ -142,14 +143,26 @@ class _ExternalBase(unittest.TestCase):
         db = database.SessionLocal()
         try:
             if not db.query(models.NexusRole).filter(models.NexusRole.email == ADMIN).first():
-                # A Super Administrator (Neil, 11/02/2026: an Administrator is
-                # company-walled; only a Super Administrator passes the walls).
-                db.add(models.NexusRole(email=ADMIN, role="owner", assigned_by="test"))
+                # An Administrator (level 4). Company-walled since 11/02/2026,
+                # but a guest has no company - a shared person - so the
+                # externals they manage stay in reach (Neil, 11/02/2026).
+                db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
                 db.commit()
         finally:
             db.close()
         auth.invalidate_role_cache(ADMIN)
         self._as(ADMIN)
+
+    def _as_super(self):
+        db = database.SessionLocal()
+        try:
+            if not db.query(models.NexusRole).filter(models.NexusRole.email == SUPER).first():
+                db.add(models.NexusRole(email=SUPER, role="owner", assigned_by="test"))
+                db.commit()
+        finally:
+            db.close()
+        auth.invalidate_role_cache(SUPER)
+        self._as(SUPER)
 
     def _mk_guest(self, status="active", expires_at="", modules_csv=""):
         db = database.SessionLocal()
@@ -302,7 +315,7 @@ class TestGuestAccess(_ExternalBase):
         the flag - and the separate cache entry behind it - has to be what
         decides. Flagged `external` so a picker can label the row."""
         self._mk_guest()
-        # A Super Administrator: since Sep 22 the opt-in is honored only for callers
+        # An Administrator: since Sep 22 the opt-in is honored only for callers
         # who can assign work (manager and up, or a Tasks editor grant).
         self._as_admin()
         r = self.client.get("/myhr/directory?include_external=true")
@@ -486,7 +499,10 @@ class TestRemove(_ExternalBase):
             db.close()
         try:
             self.assertEqual(self.client.delete(f"/external-users/{GUEST}").status_code, 200)
-            r = self.client.get("/tasks")   # admin sees all tasks
+            # A Super Administrator sees every task - an untagged one (no
+            # company anywhere) is theirs only (Neil, 11/02/2026).
+            self._as_super()
+            r = self.client.get("/tasks")
             self.assertEqual(r.status_code, 200, r.text)
             row = next(t for t in r.json() if t["id"] == "ext-t-removed")
             self.assertEqual(row["assigneeId"], GUEST)

@@ -37,7 +37,8 @@ from database import get_db
 from models import NexusGroup, NexusGroupMember, NexusRole, NexusEmployee, HrEntity, AuditLog
 from auth import get_current_user, require_administrator, invalidate_role_cache, company_scope, _MODULE_LEVEL_RANK
 from routers.roles import VALID_ROLES, ROLE_LEVEL, _get_role
-from routers.groups import ModuleGrant, _parse_modules, _modules_csv
+from routers.groups import ModuleGrant, _parse_modules, _modules_csv, _guard_owner_only_grants
+import auth
 
 router = APIRouter(prefix="/jobroles", tags=["jobroles"])
 
@@ -252,6 +253,23 @@ def _guard_company_in_scope(user: dict, db: Session, company_id: str):
         raise HTTPException(status_code=403, detail="You can only manage roles for your own company")
 
 
+def _guard_existing_role(user: dict, db: Session, jr: NexusGroup) -> None:
+    """Editing or deleting a job role (Neil, 11/02/2026): the caller must be
+    able to grant the role's CURRENT tier, and a walled caller - an
+    Administrator, always - works only on their own companies' roles: another
+    company's is 404, and a SHARED role (company '') is used by every
+    company, so changing it is a Super Administrator's."""
+    _guard_can_assign_tier(user, _clean_tier(jr.tier or "employee"))
+    scope = company_scope(user, db)
+    if scope is None:
+        return
+    cid = (jr.company_id or "").strip()
+    if not cid:
+        raise HTTPException(status_code=403, detail="Only a Super Administrator can change a shared job role")
+    if cid not in scope:
+        raise HTTPException(status_code=404, detail="Job role not found")
+
+
 def _employee_company(db: Session, email: str) -> Optional[str]:
     """The person's home company: an HrEntity id, '' when their People record
     has no company, or None when they have no People record at all."""
@@ -279,7 +297,13 @@ def list_job_roles(company_id: Optional[str] = None, include_shared: bool = Fals
             q = q.filter(or_(NexusGroup.company_id == cid, shared))
         else:
             q = q.filter(NexusGroup.company_id == cid)
-    return [_serialize(r, db) for r in q.order_by(NexusGroup.name).all()]
+    rows = q.order_by(NexusGroup.name).all()
+    # A walled caller (an Administrator, always) sees their companies' roles
+    # and the shared ones they may hand out - never another company's.
+    scope = company_scope(user, db)
+    if scope is not None:
+        rows = [r for r in rows if auth.company_ok(r.company_id or "", scope, shared_when_blank=True)]
+    return [_serialize(r, db) for r in rows]
 
 
 @router.post("")
@@ -291,6 +315,10 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
     _guard_can_assign_tier(user, tier)  # can't create a role whose tier you couldn't grant
     company_id = _clean_company(db, body.company_id)
     _guard_company_in_scope(user, db, company_id)
+    if not company_id and company_scope(user, db) is not None:
+        # A shared role is the organization's (every company hands it out).
+        raise HTTPException(status_code=403, detail="Only a Super Administrator can create a shared job role - pick your company for it")
+    _guard_owner_only_grants(user, db, body.allowed_modules)
 
     now = _ts()
     jr = NexusGroup(
@@ -323,6 +351,9 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
     jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
     if not jr:
         raise HTTPException(status_code=404, detail="Job role not found")
+    _guard_existing_role(user, db, jr)
+    if body.allowed_modules is not None:
+        _guard_owner_only_grants(user, db, body.allowed_modules, before=jr.allowed_modules or "")
 
     if body.name is not None:
         name = body.name.strip()
@@ -410,6 +441,7 @@ def delete_job_role(jr_id: str, user: dict = Depends(require_administrator), db:
     jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
     if not jr:
         raise HTTPException(status_code=404, detail="Job role not found")
+    _guard_existing_role(user, db, jr)
     members = _member_emails(db, jr_id)
     if members:
         raise HTTPException(status_code=409, detail=f"Reassign {len(members)} people off this job role before deleting it")
@@ -428,6 +460,15 @@ def check_can_assign(db: Session, user: dict, jr: NexusGroup, email: str, hr_pat
     IT/Global Admin - People editors may move someone between roles up to
     the Manager tier. Administrator/owner tiers stay an admin's decision."""
     tier = _clean_tier(jr.tier or "employee")
+    # The company wall (Neil, 11/02/2026): a walled caller assigns only to
+    # people inside their companies (or with no company), and only their
+    # companies' roles or the shared ones - anything else is 404.
+    scope = company_scope(user, db)
+    if scope is not None:
+        if not auth.person_in_scope(email, scope, db):
+            raise HTTPException(status_code=404, detail="Not found")
+        if not auth.company_ok(jr.company_id or "", scope, shared_when_blank=True):
+            raise HTTPException(status_code=404, detail="Job role not found")
     if hr_path and user["level"] < ROLE_LEVEL["administrator"]:
         if ROLE_LEVEL.get(tier, 1) >= ROLE_LEVEL["administrator"]:
             raise HTTPException(status_code=403, detail="Only an Administrator or Super Administrator can move someone into an administrator role.")
@@ -480,7 +521,10 @@ def apply_job_role(db: Session, jr: NexusGroup, email: str, by: str) -> str:
     # role said "Marketing Lead". Overwrite deliberately - the M365 sync only
     # backfills an EMPTY job_title, so this assignment survives future syncs;
     # "Push to M365" carries it back to Entra when wanted.
-    if emp and (jr.name or "").strip():
+    # Tiers (Neil, 11/02/2026): an Administrator- or Super Administrator-tier
+    # role is an ACCESS role, not a job - its name ("Super Administrators")
+    # never goes under anyone's name, so their own title stays.
+    if emp and (jr.name or "").strip() and ROLE_LEVEL.get(tier, 1) < ROLE_LEVEL["administrator"]:
         emp.job_title = jr.name.strip()
 
     # Role's default manager/approver: copy onto the person's card ONLY if they
@@ -552,6 +596,7 @@ def unassign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_cur
         raise HTTPException(status_code=404, detail="Job role not found")
     email = body.email.lower().strip()
     _guard_can_assign_tier(user, _clean_tier(jr.tier or "employee"))
+    auth.assert_person_in_scope(email, user, db)
     if user["role"] != "owner" and ROLE_LEVEL.get(_get_role(email, db), 1) >= ROLE_LEVEL["administrator"]:
         raise HTTPException(status_code=403, detail="Only a Super Administrator can change another admin's access")
     # Taking a role away is a role change too - same reason and log as a swap
@@ -588,13 +633,19 @@ def apply_role_manager(jr_id: str, body: ApplyManagerBody,
     jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
     if not jr:
         raise HTTPException(status_code=404, detail="Job role not found")
+    if not auth.company_ok(jr.company_id or "", company_scope(user, db), shared_when_blank=True):
+        raise HTTPException(status_code=404, detail="Job role not found")
     mgr = (body.manager_email or "").lower().strip()
     if not mgr:
         raise HTTPException(status_code=400, detail="Manager email is required")
     if not db.query(NexusEmployee).filter(NexusEmployee.work_email == mgr).first():
         raise HTTPException(status_code=400, detail="That manager isn't in the People directory")
+    auth.assert_person_in_scope(mgr, user, db)
+    scope = company_scope(user, db)
     changed = 0
     for email in _member_emails(db, jr_id):
+        if not auth.person_in_scope(email, scope, db):
+            continue    # a holder from another company is not this caller's to change
         if email == mgr:
             continue    # a person can't be their own approver
         emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
@@ -611,6 +662,7 @@ def effective_access(email: str, user: dict = Depends(require_administrator), db
     primary job role, additional groups, and the winning per-module level with
     provenance (via the job role vs. added manually via a group)."""
     email = email.lower().strip()
+    auth.assert_person_in_scope(email, user, db)
     groups = (
         db.query(NexusGroup)
         .join(NexusGroupMember, NexusGroupMember.group_id == NexusGroup.id)

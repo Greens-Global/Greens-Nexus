@@ -14,7 +14,7 @@ from typing import Optional
 from database import get_db
 import workflows
 from notify_company import notification_company
-from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
+from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited, admits_blank
 from routers.stepup import require_stepup
 from currency import is_currency
 from models import NexusEmployee, PayrollRate, HrRemovedIdentity, PayrollRateHistory
@@ -148,6 +148,8 @@ def _validate(employment_type: Optional[str], status: Optional[str], identity_ty
 def _in_scope(emp: Optional[NexusEmployee], scope) -> bool:
     if emp is not None and is_team_scope(scope):   # People limited to their own team (Oct 6)
         return (emp.work_email or "").strip().lower() in scope.emails
+    if emp is not None and scope is not None and not (emp.company or "") and admits_blank(scope):
+        return True    # an Administrator: people with no company are shared (11/02/2026)
     return emp is not None and (scope is None or (emp.company or "") in scope)
 
 
@@ -166,7 +168,11 @@ def _scoped(q, scope):
     if is_team_scope(scope):
         return q.filter(func.lower(NexusEmployee.work_email).in_(sorted(scope.emails)))
     if scope is not None:
-        q = q.filter(NexusEmployee.company.in_(scope))
+        if admits_blank(scope):
+            q = q.filter(or_(NexusEmployee.company.in_(scope), NexusEmployee.company.is_(None),
+                             NexusEmployee.company == ""))
+        else:
+            q = q.filter(NexusEmployee.company.in_(scope))
     return q
 
 

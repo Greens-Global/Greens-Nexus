@@ -153,46 +153,58 @@ def _role_from_grants(grants: dict, mode: str) -> str:
     return REQUESTER
 
 
-def ticket_role(user: dict, db: Session, mode: str | None = None) -> str:
-    """requester / agent / supervisor for the signed-in `user` dict."""
+def ticket_role(user: dict, db: Session, mode: str | None = None, company: str | None = None) -> str:
+    """requester / agent / supervisor for the signed-in `user` dict.
+
+    `company`: the ticket's company when the question is about one ticket.
+    An Administrator supervises the desk only within their companies (Neil,
+    11/02/2026: walled, the switch on or off) - on another company's ticket
+    their grants decide, like anyone's. A Super Administrator supervises
+    everywhere. With no company (the desk as a whole) an Administrator is a
+    supervisor of their own companies' desk - every ticket read is walled
+    by company on its own."""
     import auth
     if user.get("external"):
         return REQUESTER
-    if user.get("level", 0) >= auth._LEVELS["administrator"]:
+    level = user.get("level", 0)
+    if level >= auth._LEVELS["owner"]:
         return SUPERVISOR
+    if level >= auth._LEVELS["administrator"]:
+        if company is None or auth.company_ok(company or "", auth.company_scope(user, db)):
+            return SUPERVISOR
     grants = auth._grants_for(user.get("email") or "", db)
     return _role_from_grants(grants, mode or desk_access_mode(db))
 
 
-def _at_least(user: dict, db: Session, role: str) -> bool:
-    return _ROLE_RANK[ticket_role(user, db)] >= _ROLE_RANK[role]
+def _at_least(user: dict, db: Session, role: str, company: str | None = None) -> bool:
+    return _ROLE_RANK[ticket_role(user, db, company=company)] >= _ROLE_RANK[role]
 
 
 # The named checks. Use these - never a raw grant lookup - wherever a ticket
 # endpoint or screen decides what someone may do on the desk.
-def can_work_queue(user: dict, db: Session) -> bool:
+def can_work_queue(user: dict, db: Session, company: str | None = None) -> bool:
     """See the whole company's queue, open any ticket, edit triage fields."""
-    return _at_least(user, db, AGENT)
+    return _at_least(user, db, AGENT, company)
 
 
-def can_read_internal(user: dict, db: Session) -> bool:
+def can_read_internal(user: dict, db: Session, company: str | None = None) -> bool:
     """Read and write internal notes (subject to the requester carve-out in
     routers/tickets.py _sees_internal)."""
-    return _at_least(user, db, AGENT)
+    return _at_least(user, db, AGENT, company)
 
 
-def can_assign(user: dict, db: Session) -> bool:
-    return _at_least(user, db, AGENT)
+def can_assign(user: dict, db: Session, company: str | None = None) -> bool:
+    return _at_least(user, db, AGENT, company)
 
 
-def can_delete(user: dict, db: Session) -> bool:
+def can_delete(user: dict, db: Session, company: str | None = None) -> bool:
     """Delete tickets (incl. bulk), comments and attachments."""
-    return _at_least(user, db, SUPERVISOR)
+    return _at_least(user, db, SUPERVISOR, company)
 
 
-def can_manage_desk(user: dict, db: Session) -> bool:
+def can_manage_desk(user: dict, db: Session, company: str | None = None) -> bool:
     """Desk settings, components, departments, approval routing."""
-    return _at_least(user, db, SUPERVISOR)
+    return _at_least(user, db, SUPERVISOR, company)
 
 
 def capabilities(user: dict, db: Session) -> dict:

@@ -2113,7 +2113,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             news.append("updated the " + _and_list(list(dict.fromkeys(edited))))
         if "approval_reset" in changed:
             news.append("sent back for approval")
-        public_reply = comment_body and not (comment_internal and ticket_roles.can_read_internal(user, db))
+        public_reply = comment_body and not (comment_internal and ticket_roles.can_read_internal(
+            user, db, company=getattr(t, "company_id", "") or ""))
         if public_reply and (status_changed or news):
             # One bell for the whole save: the reply rides along here and the
             # comment's own bell skips the requester (below).
@@ -2389,7 +2390,7 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
         # its company) - not the desk's.
         internal = bool(internal) and _sees_internal(db, t, user, False)
     else:
-        internal = bool(internal) and ticket_roles.can_read_internal(user, db)
+        internal = bool(internal) and ticket_roles.can_read_internal(user, db, company=getattr(t, "company_id", "") or "")
     c = models.TaskComment(id=gen_id(), task_id=t.id, author_email=user["email"], body=text,
                            internal=internal, created_at=now_iso())
     db.add(c)

@@ -69,7 +69,9 @@ class ShiftViewTests(unittest.TestCase):
             # the Manager tier sees only its own team) a manager's People grant
             # is team-limited, so the company-wide scope these tests exercise
             # is an administrator's.
-            db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
+            # Company-wide: a Super Administrator (Neil, 11/02/2026 - an
+            # Administrator is walled to their own company, the switch on or off).
+            db.add(models.NexusRole(email=ADMIN, role="owner", assigned_by="test"))
             db.add(models.NexusGroup(id=G_VW, name="vw", allowed_modules="hr:viewer"))
             db.add(models.NexusGroupMember(group_id=G_VW, email=VIEWER))
             db.add(models.ShiftGroup(open_shifts=1, id=GROUP, name="Store"))

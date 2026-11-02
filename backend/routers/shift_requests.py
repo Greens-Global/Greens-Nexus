@@ -863,6 +863,12 @@ def _decidable(db: Session, r: models.ShiftRequest, scope, me: str, cache: dict 
         return True
     deciders = _claim_deciders(db, r, cache) if r.kind == "open" and r.status in PENDING else []
     if deciders:
+        # An Administrator - walled to their companies (Neil, 11/02/2026) -
+        # still decides a cross-team claim inside them, as an unscoped
+        # scheduler does everywhere.
+        import auth
+        if auth.level_for(me, db) >= auth._LEVELS["administrator"] and _in_scope(r, scope):
+            return True
         return me in deciders
     return _in_scope(r, scope)
 
