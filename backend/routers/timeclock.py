@@ -7818,18 +7818,30 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
     (Miranda, Oct 21: see at a glance who is on a break). The same people as
     /my-schedule; status words and the punch time only - never a location,
     note or screenshot. Someone with no punch on their current workday is
-    absent, and so is anyone exempt from time tracking."""
+    absent, and so is anyone exempt from time tracking.
+
+    The live team strip (Homebase lifts, Neil 11/02/2026) adds `late` - the
+    members expected to have started by now (shift_expect.expected_starts +
+    late_now, the ONE expected-start rule) with no clock-in yet - and
+    `counts` {in, break, late, off} over every member listed. A punch whose
+    job category classes as leave (_leave_class: Sick / PTO / Personal) is
+    NOT a clock-in, exactly as shift_attendance reads it: the person is on
+    leave, never In and never Late, so they are not in `people` either."""
     email = (user.get("email") or "").lower()
     from routers.shift_requests import settings_for as _sr_settings_for
+    import shift_expect
     cfg = _sr_settings_for(db, email)
     _, _, group_ids = _visible_shift_groups(db, user, email, cfg, can_manage_shifts(user))
     now = datetime.now(timezone.utc)
     people = {}
+    late = []
+    members = []
     if group_ids:
         exempt = time_tracking_exempt_emails(db)
         members = sorted({(m.employee_email or "").lower() for m in db.query(ShiftGroupMember)
                           .filter(ShiftGroupMember.group_id.in_(group_ids)).all()} - exempt - {""})
         last = {}
+        last_in = {}
         if members:
             # Two days covers any live shift (16h stale guard) and today's clock-out.
             since = (now - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S")
@@ -7837,7 +7849,11 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
                       .filter(func.lower(TimePunch.employee_email).in_(members),
                               TimePunch.voided == 0, TimePunch.at >= since)
                       .order_by(TimePunch.at.asc()).all()):
-                last[(p.employee_email or "").lower()] = p   # ascending -> the latest wins
+                em = (p.employee_email or "").lower()
+                last[em] = p   # ascending -> the latest wins
+                if p.kind == "in":
+                    last_in[em] = p
+        on_leave = set()
         for em, p in last.items():
             state = _LIVE_STATE.get(p.kind)
             if not state or _stale_open_shift(p):
@@ -7845,10 +7861,26 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
             off = p.tz_offset_min or 0
             if state == "out" and _local_date(p.at, off) != _local_date(now.isoformat(), off):
                 continue   # clocked out on an earlier day - nothing live to show
+            opened = last_in.get(em)
+            if opened is not None and _leave_class(getattr(opened, "category", "") or ""):
+                on_leave.add(em)   # a Sick / PTO / Personal punch: on leave, not on the clock
+                continue
             # Stored `at` is naive UTC; the Z keeps browsers from reading it as local time.
             at = p.at if p.at.endswith("Z") or "+" in p.at[10:] else p.at + "Z"
             people[em] = {"state": state, "label": _LIVE_LABEL[state], "since": at}
-    return {"people": people, "asOf": now.isoformat()}
+        # Late: no clock-in today and the expected start + grace has passed on
+        # the shift's own clock. "Today" is the planner's day - the caller's
+        # team zone; a weather-cancelled day or no shift at all is never late.
+        candidates = [em for em in members if em not in people and em not in on_leave]
+        if candidates:
+            team_day = now.astimezone(shift_expect.zone(cfg.get("timeZone") or _DEFAULT_TEAM_TZ)).date()
+            expected = shift_expect.expected_starts(db, candidates, team_day)
+            late = [em for em in candidates if shift_expect.late_now(team_day, expected.get(em), now)]
+    n_in = sum(1 for p in people.values() if p["state"] == "working")
+    n_break = sum(1 for p in people.values() if p["state"] == "break")
+    counts = {"in": n_in, "break": n_break, "late": len(late),
+              "off": max(0, len(members) - n_in - n_break - len(late))}
+    return {"people": people, "late": late, "counts": counts, "asOf": now.isoformat()}
 
 
 @router.get("/my-schedule")
