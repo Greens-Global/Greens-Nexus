@@ -5,7 +5,7 @@
 // payout and an adjustment within the plan's bound, never the money.
 // Rules: backend/perf_bonus.py.
 import { useCallback, useEffect, useState } from 'react';
-import { BadgeDollarSign, Scale } from 'lucide-react';
+import { BadgeDollarSign, Scale, CheckCheck } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
@@ -23,6 +23,7 @@ const RUN_STATUS = {
   paid: { label: 'Paid', color: NX.green },
   cancelled: { label: 'Cancelled', color: '#64748b' },
 };
+const NOTE_TEXT = [['no_pay_rate', 'no pay rate on file'], ['hourly_paid', 'base is the pay of the period'], ['hourly_standard_month', 'base is a standard month (no hours on the Time Sheet)'], ['no_review', 'no completed review, KPI score alone']];
 const pct = (v) => (v == null ? '-' : `${v}%`);
 const people = (n) => `${n} ${n === 1 ? 'person' : 'people'}`;
 const signed = (v) => (!v ? '0%' : `${v > 0 ? '+' : ''}${v}%`);
@@ -93,9 +94,11 @@ function Lines({ lines, hr, canAdjust, onAdjust }) {
           <span role="cell" style={{ minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{ln.name}{ln.excluded && <StatusLabel label="Excluded" color="#64748b" size="sm" style={{ marginLeft: 6 }} />}</span>
             <span style={{ display: 'block', ...muted, fontSize: 11.5 }}>
-              {ln.managerName ? `Reports to ${ln.managerName}` : 'No manager'}{ln.note === 'no_pay_rate' ? ' - no pay rate on file' : ''}{ln.score == null ? ' - no score this period' : ln.measuredWeight < 100 ? ` - ${ln.measuredWeight}% of the weight measured` : ''}
+              {ln.managerName ? `Reports to ${ln.managerName}` : 'No manager'}{NOTE_TEXT.filter(([k]) => (ln.note || '').split(',').includes(k)).map(([, t]) => ` - ${t}`).join('')}{ln.score == null ? ((ln.note || '').includes('thin_data') ? ' - thin data, not paid' : ' - no score this period') : ln.measuredWeight < 100 ? ` - ${ln.measuredWeight}% of the weight measured` : ''}
+              {ln.reviewScore != null && ` - KPIs ${ln.kpiScore}, review ${ln.reviewScore}`}
             </span>
             {ln.adjustReason && <span style={{ display: 'block', ...muted, fontSize: 11.5 }}>{ln.adjustedByName}: &quot;{ln.adjustReason}&quot;</span>}
+            {ln.reviewedAt && <StatusLabel label={`Reviewed by ${ln.reviewedByName || ln.reviewedBy}`} color={NX.green} size="sm" />}
           </span>
           <span role="cell" style={{ fontSize: 12.5 }}>{ln.roleName}</span>
           <span role="cell" style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: scoreColor(ln.score) }}>{ln.score ?? '-'}</span>
@@ -138,6 +141,26 @@ function Fairness({ f }) {
   );
 }
 
+function Budget({ run, onSaved, toastErr }) {
+  const [v, setV] = useState(run.budget ?? '');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setV(run.budget ?? ''); }, [run.budget]);
+  const open = run.status === 'review' || run.status === 'approved';
+  const save = () => {
+    setBusy(true);
+    api.perfBonusRunUpdate(run.id, v === '' ? { clearBudget: true } : { budget: Number(v) }).then(onSaved).catch((e) => toastErr?.(e.message || 'Could not save.')).finally(() => setBusy(false));
+  };
+  const over = run.overBudget;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={LBL}>Budget</span>
+      <input className="form-input" type="number" aria-label="Budget" value={v} disabled={!open || busy} onChange={(e) => setV(e.target.value)} placeholder="none" style={{ width: 110, fontSize: 13, textAlign: 'right' }} />
+      {open && String(v) !== String(run.budget ?? '') && <button type="button" className="secondary-btn" disabled={busy} onClick={save} style={{ fontSize: 12, padding: '4px 10px' }}>Set</button>}
+      {run.budget != null && <StatusLabel label={`${Math.round((run.total || 0) / run.budget * 100)}% of budget`} color={over ? NX.amber : NX.green} size="sm" />}
+    </span>
+  );
+}
+
 function RunDetail({ runId, onBack, onChanged, toastOk, toastErr }) {
   const [run, setRun] = useState(null);
   const [err, setErr] = useState('');
@@ -170,12 +193,19 @@ function RunDetail({ runId, onBack, onChanged, toastOk, toastErr }) {
         <span style={{ fontSize: 15, fontWeight: 700 }}>{run.label}</span>
         <StatusLabel label={st.label} color={st.color} size="sm" />
         <span style={muted}>{people(run.lineCount)} · total <b data-total>{money(run.total || 0, run.lines[0]?.currency || 'USD')}</b>{run.approvedAt ? ` · approved ${formatDate(run.approvedAt.slice(0, 10))}` : ''}{run.paidAt ? ` · paid ${formatDate(run.paidAt.slice(0, 10))}` : ''}</span>
+        <Budget run={run} onSaved={setRun} toastErr={toastErr} />
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8 }}>
           {run.status === 'review' && <button type="button" className="secondary-btn" disabled={busy} onClick={() => act('cancel')}>Cancel Run</button>}
           {run.status === 'review' && <button type="button" className="primary-btn" disabled={busy} onClick={() => act('approve')}>Approve</button>}
           {run.status === 'approved' && <button type="button" className="primary-btn" disabled={busy} onClick={() => act('pay')}>Pay Onto Time Sheets</button>}
         </span>
       </div>
+      {run.lines.length > 0 && run.status === 'review' && (
+        <div data-reviewed style={{ ...muted, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <CheckCheck size={14} /> Reviewed by managers: <b>{run.reviewed} of {run.lines.filter((l) => !l.excluded).length}</b>
+          {run.managersPending?.length > 0 && <span>- waiting on {run.managersPending.map((m) => m.name || m.email).join(', ')}</span>}
+        </div>
+      )}
       {run.lines.length ? <Lines lines={run.lines} hr canAdjust={run.status === 'review'} onAdjust={setAdjust} /> : <div style={muted}>Nobody in this company holds a role with an active {run.period.includes('Q') ? 'quarterly' : 'monthly'} bonus plan.</div>}
       {run.lines.length > 0 && <Fairness f={run.fairness} />}
       {adjust && <AdjustModal line={adjust} hr onClose={() => setAdjust(null)} toastErr={toastErr} onSaved={() => { setAdjust(null); toastOk?.('Line updated.'); load(); }} />}
@@ -190,11 +220,19 @@ export function BonusRunsAdmin({ company, toastOk, toastErr }) {
   const [open, setOpen] = useState('');
   const [period, setPeriod] = useState('');
   const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState(null);
   const load = useCallback(() => {
     if (!company) return;
     api.perfBonusRuns(company).then((r) => { setErr(''); setRuns(Array.isArray(r) ? r : []); }).catch((e) => setErr(e.message || 'Could not load the bonus runs.'));
   }, [company]);
   useEffect(() => { load(); }, [load]);
+  // Picking a period shows who would be on the run and which manual KPIs are still unrated.
+  useEffect(() => {
+    if (!period) { setReady(null); return; }
+    let live = true;
+    api.perfBonusReadiness(company, period).then((r) => { if (live) setReady(r && r.missing ? r : null); }).catch(() => { if (live) setReady(null); });
+    return () => { live = false; };
+  }, [company, period]);
   const start = async () => {
     if (!period) return;
     setBusy(true);
@@ -217,6 +255,17 @@ export function BonusRunsAdmin({ company, toastOk, toastErr }) {
           </span>
         )}
       </div>
+      {!open && ready && (
+        <div data-readiness style={{ ...muted, marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: 'var(--mist)' }}>
+          {people(ready.people)} would be on this run.{' '}
+          {ready.missing.length === 0 ? 'Every manual KPI is rated.' : (
+            <>
+              <b>{ready.missing.length} manual KPI {ready.missing.length === 1 ? 'rating is' : 'ratings are'} still missing</b> - each is left out of the score, and under 50% measured pays nothing:{' '}
+              {ready.missing.slice(0, 6).map((m) => `${m.name} (${m.kpiName}${m.managerName ? `, ${m.managerName}` : ''})`).join('; ')}{ready.missing.length > 6 ? '; and more' : ''}.
+            </>
+          )}
+        </div>
+      )}
       {err ? <ErrorBanner message={err} onRetry={load} /> : open ? (
         <RunDetail runId={open} onBack={() => setOpen('')} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
       ) : runs === null ? <SkeletonBlocks count={2} height={48} /> : runs.length === 0 ? (
@@ -245,8 +294,13 @@ export function BonusRunsAdmin({ company, toastOk, toastErr }) {
 export function BonusReviewCard({ toastOk, toastErr }) {
   const [runs, setRuns] = useState(null);
   const [adjust, setAdjust] = useState(null);
+  const [busy, setBusy] = useState(false);
   const load = useCallback(() => api.perfBonusReview().then((r) => setRuns(Array.isArray(r) ? r : [])).catch(() => setRuns([])), []);
   useEffect(() => { load(); }, [load]);
+  const looksRight = async (r) => {
+    setBusy(true);
+    try { await api.perfBonusRunReviewed(r.id); toastOk?.('Marked as reviewed.'); load(); } catch (e) { toastErr?.(e.message || 'Could not mark it.'); } finally { setBusy(false); }
+  };
   if (!runs || !runs.length) return null;
   return (
     <section style={card} aria-label="Bonus Review" data-bonus-review>
@@ -257,7 +311,10 @@ export function BonusReviewCard({ toastOk, toastErr }) {
       </div>
       {runs.map((r) => (
         <div key={r.id} style={{ display: 'grid', gap: 6, marginBottom: 10 }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{r.label}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{r.label}</span>
+            {r.lines.some((l) => !l.reviewedAt) && <button type="button" className="secondary-btn" disabled={busy} style={{ marginLeft: 'auto', fontSize: 12, display: 'inline-flex', gap: 6, alignItems: 'center' }} onClick={() => looksRight(r)}><CheckCheck size={13} /> Looks Right</button>}
+          </div>
           <Lines lines={r.lines} hr={false} canAdjust onAdjust={setAdjust} />
         </div>
       ))}

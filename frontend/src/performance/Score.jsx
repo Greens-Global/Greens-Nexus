@@ -133,6 +133,16 @@ export default function ScoreCard({ email = '', title = 'My Score', canRate = fa
               {data.measuredWeight > 0 && data.measuredWeight < 100 && ` - ${data.measuredWeight}% of the weight measured so far, the rest scaled up`}
             </span>
           </div>
+          {data.bonusPlan && (
+            <div data-bonus-plan style={{ ...muted, marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: 'var(--mist)' }}>
+              <b>Bonus plan:</b> {data.bonusPlan.targetPct}% of base pay, paid {data.bonusPlan.period}.{' '}
+              {data.bonusPlan.payoutPct == null ? 'Nothing measured yet, so no payout to show.'
+                : data.bonusPlan.blendedScore != null ? `Blended with your latest review (${data.bonusPlan.reviewScore}) the bonus score is ${data.bonusPlan.blendedScore}, which pays ${data.bonusPlan.payoutPct}% of the target.`
+                  : `At this score the payout is ${data.bonusPlan.payoutPct}% of the target.`}{' '}
+              Score {data.bonusPlan.thresholdScore} pays {data.bonusPlan.payoutAtThreshold}%, 100 pays the full target{data.bonusPlan.maxPayout > 100 ? `, up to ${data.bonusPlan.maxPayout}% when every KPI is over target` : ''}.
+              {data.bonusPlan.reviewWeight > 0 && ` The bonus score blends ${100 - data.bonusPlan.reviewWeight}% KPIs with ${data.bonusPlan.reviewWeight}% your latest review rating.`}
+            </div>
+          )}
           <div style={{ display: 'grid' }}>
             {(data.items || []).map(it => <Row key={it.kpi} it={it} onRate={canRate ? setRating : null} />)}
           </div>

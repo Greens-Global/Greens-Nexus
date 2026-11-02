@@ -12,6 +12,7 @@ import ScoreCard from './Score';
 const SCORE = {
   email: 'erin@x.com', name: 'Erin T', period: '2026-10', role: { id: 'r1', name: 'Analyst' }, scorecard: { id: 'v1', version: 1 },
   status: 'scored', score: 64.3, measuredWeight: 70,
+  bonusPlan: { targetPct: 10, period: 'monthly', thresholdScore: 60, payoutAtThreshold: 50, maxPayout: 100, reviewWeight: 0, payoutPct: 55.4 },
   items: [
     { kpi: 'tasks_on_time', name: 'Tasks On Time', source: 'nexus', unit: '%', weight: 50, target: 90, threshold: 60, cap: 100, value: 75, display: '75%', measured: true, attainment: 50, status: 'partly', rating: null },
     { kpi: 'no_shows', name: 'No-Shows', source: 'nexus', unit: 'count', weight: 20, target: 0, threshold: 3, cap: 0, value: 0, display: '0', measured: true, attainment: 100, status: 'met', rating: null },
@@ -29,6 +30,7 @@ describe('ScoreCard', () => {
     render(<ScoreCard />);
     expect(await screen.findByText('64.3')).toBeTruthy();
     expect(screen.getByText(/70% of the weight measured so far/)).toBeTruthy();
+    expect(document.querySelector('[data-bonus-plan]').textContent).toContain('10% of base pay, paid monthly. At this score the payout is 55.4% of the target.');
     expect(screen.getByText('75%')).toBeTruthy();
     expect(screen.getByText('50% of target')).toBeTruthy();
     expect(within(document.querySelector('[data-kpi="manual:judgment"]')).getByText('Awaiting a rating')).toBeTruthy();

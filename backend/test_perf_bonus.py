@@ -63,7 +63,8 @@ class BonusTests(unittest.TestCase):
         auth._role_cache.clear()
         self.db = database.SessionLocal()
         for m in (models.PerfKpi, models.PerfScorecard, models.PerfScorecardKpi, models.PerfKpiRating, models.PerfBonusPlan,
-                  models.PerfBonusRun, models.PerfBonusLine, models.TimecardBonus, models.PayrollRate, models.NexusEmployee,
+                  models.PerfBonusRun, models.PerfBonusLine, models.PerfBonusPlanLog, models.PerfReview, models.NexusNotification,
+                  models.TimecardBonus, models.PayrollRate, models.NexusEmployee,
                   models.HrEntity, models.NexusGroup, models.NexusGroupMember):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=CO, name="Bonus Co", hr_contact_email=HR))
@@ -76,7 +77,10 @@ class BonusTests(unittest.TestCase):
         self.db.add(models.PayrollRate(employee_email=EMP, pay_type="fixed", monthly_salary=5000, currency="USD"))
         self.db.add(models.PayrollRate(employee_email=PEER, pay_type="hourly", hourly_rate=20, currency="USD"))
         self.db.commit()
-        sc.save(self.db, U(HR), CO, ROLE, [{"kpi": "tasks_on_time", "weight": 100, "target": 90, "threshold": 60, "cap": 100}], "", "", date(2026, 10, 1))
+        self.judgment = sc.create_manual_kpi(self.db, U(HR), CO, "Judgment", "", "rating", "high")
+        self.db.flush()
+        sc.save(self.db, U(HR), CO, ROLE, [{"kpi": "tasks_on_time", "weight": 70, "target": 90, "threshold": 60, "cap": 100},
+                                           {"kpi": self.judgment.key, "weight": 30, "target": 4, "threshold": 2, "cap": 5}], "", "", date(2026, 10, 1))
         self.plan = pb.save_plan(self.db, U(HR), CO, ROLE, {"targetPct": 10, "period": "monthly", "thresholdScore": 60, "payoutAtThreshold": 50, "maxPayout": 100, "adjustMax": 20})
         self.db.commit()
 
@@ -187,6 +191,62 @@ class BonusTests(unittest.TestCase):
         self.assertEqual(erin.bonus_id, bonuses[EMP].id)
         with self.assertRaises(HTTPException):
             pb.cancel(self.db, run)                      # paid runs are not cancelled
+
+    def _bells(self, who, key_prefix):
+        self.db.flush()                                                     # autoflush is off: see what this request wrote
+        return [n for n in self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == who).all() if n.ref_id.startswith(key_prefix)]
+
+    def test_review_blend_bells_reviewed_and_budget(self):
+        pb.save_plan(self.db, U(HR), CO, ROLE, {"targetPct": 10, "period": "monthly", "reviewWeight": 50})
+        self.db.add(models.PerfReview(id="rv1", cycle_id="c1", employee_email=EMP, manager_email=MGR, stage="complete", rating="meets",
+                                      completed_at="2026-09-30T12:00:00Z"))
+        self.db.commit()
+        run = self._run()
+        self.db.commit()
+        lines = {ln.email: ln for ln in pb.lines_of(self.db, run)}
+        e, p = lines[EMP], lines[PEER]
+        self.assertEqual((e.kpi_score, e.review_score, e.score), (66.7, 85.0, 75.8))          # half KPI, half the "Meets" review (75.85 rounds half-even)
+        self.assertEqual((p.kpi_score, p.review_score, p.score, p.note), (100.0, None, 100.0, "hourly_standard_month,no_review"))
+        hist = pb.plan_history(self.db, pb.plan_for(self.db, ROLE).id)
+        self.assertEqual((len(hist), sorted(h["review_weight"] for h in hist)), (2, [0.0, 50.0]))   # both saves kept (same second: order is not asserted)
+        # The manager was told the run is open; nobody has reviewed yet.
+        self.assertEqual(len(self._bells(MGR, "perf-bonus-review:")), 1)
+        out = pb.run_out(self.db, run, True)
+        self.assertEqual((out["reviewed"], [m["email"] for m in out["managersPending"]]), (0, [MGR]))
+        self.assertIn("no review on file", out["fairness"]["byManager"][0]["flags"])
+        # Looks Right marks every line of theirs; HR's override of a manager adjustment tells the manager.
+        with self.assertRaises(HTTPException):
+            pb.mark_reviewed(self.db, U(PEER), run)
+        self.assertEqual(pb.mark_reviewed(self.db, U(MGR), run), 2)
+        pb.adjust(self.db, U(MGR), e, 10, "Carried the close.")
+        pb.adjust(self.db, U(HR), e, 0, "Within the team's range already.")
+        self.db.commit()
+        self.assertEqual(len(self._bells(MGR, "perf-bonus-override:")), 1)
+        self.assertEqual(pb.run_out(self.db, run, True)["managersPending"], [])
+        # Budget: over it is a flag, not a block.
+        pb.set_budget(self.db, run, 300)
+        out = pb.run_out(self.db, run, True)
+        self.assertEqual((out["budget"], out["overBudget"]), (300.0, True))
+        pb.set_budget(self.db, run, "")
+        self.assertIsNone(run.budget)
+        self.assertEqual(pb.plan_summary(self.db, ROLE, 80)["payoutPct"], 75.0)                       # no email: the KPI score alone
+        own = pb.plan_summary(self.db, ROLE, 66.7, 0, EMP, "2026-10-31")
+        self.assertEqual((own["reviewScore"], own["blendedScore"], own["payoutPct"]), (85.0, 75.8, 69.8))   # the same blend the run used
+        self.assertIsNone(pb.plan_summary(self.db, "no-such-role"))
+
+    def test_readiness_and_the_month_end_reminder(self):
+        r = pb.readiness(self.db, CO, "2026-10")
+        self.assertEqual((r["people"], sorted(m["email"] for m in r["missing"])), (2, sorted([EMP, PEER])))
+        self.assertEqual(r["missing"][0]["kpiName"], "Judgment")
+        self.assertEqual(pb.rating_reminders(self.db, date(2026, 10, 20)), 0)                 # too early in the month
+        self.assertEqual(pb.rating_reminders(self.db, date(2026, 10, 28)), 1)                 # one bell for the manager
+        bell = self._bells(MGR, "perf-ratings-due:2026-10")[0]
+        self.assertIn("2 manual KPI ratings are still missing for October 2026", bell.body)
+        for em in (EMP, PEER):
+            ps.rate(self.db, U(MGR), em, self.judgment.key, "2026-10", 4, "Fine month.", date(2026, 10, 28))
+        self.db.commit()
+        self.assertEqual(pb.rating_reminders(self.db, date(2026, 10, 28)), 0)
+        self.assertEqual(pb.readiness(self.db, CO, "2026-10")["missing"], [])
 
     def test_exclusion_and_the_manager_review(self):
         run = self._run()
