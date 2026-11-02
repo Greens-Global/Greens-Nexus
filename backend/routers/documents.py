@@ -1049,10 +1049,14 @@ def create_template(body: TemplateIn, user: dict = Depends(get_current_user), db
     if not body.name.strip():
         raise HTTPException(400, "name is required")
     department = (body.department or "").strip()
-    _require_template_manager(db, user, department)
     doc_type = body.docType or "document"
     if doc_type not in _TEMPLATE_TYPES:
         raise HTTPException(400, f"docType must be one of {', '.join(_TEMPLATE_TYPES)}")
+    if (doc_type == "form" and not department and _MANAGER_LEVEL <= user.get("level", 0) < _ADMIN_LEVEL):
+        # A manager's new form is their department's (they may manage it);
+        # company-wide forms stay an administrator's.
+        department = _caller_department(db, user)
+    _require_template_manager(db, user, department)
     status = body.status or "active"
     if status not in _TEMPLATE_STATUSES:
         raise HTTPException(400, f"status must be one of {', '.join(_TEMPLATE_STATUSES)}")

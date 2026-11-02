@@ -211,6 +211,25 @@ class FormsTests(unittest.TestCase):
             for key in ("section", "showIf", "formula", "repeat"):
                 self.assertNotIn(key, d, d)
 
+    def test_a_manager_creates_a_form_for_their_own_department(self):
+        self._as(MGR)
+        r = self.client.post("/documents/templates", json={"name": "Yard Walk", "docType": "form",
+                                                             "category": "safety", "fieldDefs": FIELDS[:1]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["department"], "Operations")
+        self.assertEqual(r.json()["audience"], "company")
+        # Theirs to change afterwards.
+        r = self.client.patch(f"/documents/templates/{r.json()['id']}", json={"name": "Yard Walk 2"})
+        self.assertEqual(r.status_code, 200, r.text)
+        # A document template still needs its department named; an employee may not create a form.
+        r = self.client.post("/documents/templates", json={"name": "Letter", "docType": "document",
+                                                             "category": "hr"})
+        self.assertEqual(r.status_code, 403, r.text)
+        self._as(REP)
+        r = self.client.post("/documents/templates", json={"name": "Mine", "docType": "form",
+                                                             "category": "safety", "fieldDefs": FIELDS[:1]})
+        self.assertEqual(r.status_code, 403, r.text)
+
     def test_a_form_audience_needs_its_department_or_site(self):
         self._as(ADMIN)
         r = self.client.post("/documents/templates", json={"name": "X", "docType": "form", "category": "vehicle",
