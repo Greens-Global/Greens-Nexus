@@ -385,10 +385,10 @@ class PacketTests(FederalPacketCase):
     def test_an_expired_edition_is_refused_at_verify(self):
         self._setting(forms=("w4",))
         eid = self._start()["id"]
-        _Frozen.value = date(2027, 1, 15)
+        _Frozen.value = date(2027, 2, 1)     # January is the grace month; February is not
         r = self._verify(eid)
         self.assertEqual(r.status_code, 400, r.text)
-        self.assertEqual(r.json()["detail"], "The Form W-4 edition in Nexus (2026) expired on 12/31/2026. "
+        self.assertEqual(r.json()["detail"], "The Form W-4 edition in Nexus (2026) expired on 01/31/2027. "
                                              "Ask an administrator to update it before sending.")
         self.db.expire_all()
         self.assertEqual(self.db.query(models.HrLifeEvent).filter_by(id=eid).first().status, "review")
@@ -466,7 +466,7 @@ class StandaloneSendTests(FederalPacketCase):
         self.assertEqual(list(forms), ["w4", "i9", "direct_deposit"])
         self.assertEqual((forms["i9"]["editionLabel"], forms["i9"]["expires"], forms["i9"]["state"]),
                          ("01/20/25", "05/31/2027", "ok"))
-        self.assertEqual((forms["w4"]["expires"], forms["w4"]["state"]), ("12/31/2026", "ok"))
+        self.assertEqual((forms["w4"]["expires"], forms["w4"]["state"]), ("01/31/2027", "ok"))
         self.assertTrue(forms["w4"]["sourceUrl"].startswith("https://www.irs.gov/"))
         self.assertEqual(r.json()["today"], "11/02/2026")
         _Frozen.value = date(2026, 12, 15)

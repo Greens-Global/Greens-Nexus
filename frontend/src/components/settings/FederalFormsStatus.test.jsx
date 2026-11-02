@@ -10,7 +10,7 @@ vi.mock('../../api', () => ({ api: { federalFormsStatus: (...a) => federalFormsS
 const { default: FederalFormsStatus } = await import('./FederalFormsStatus');
 
 const FORMS = [
-  { kind: 'w4', title: 'Form W-4', editionLabel: '2026', expires: '12/31/2026', state: 'ok', message: 'Form W-4 (2026) is current through 12/31/2026.', sourceUrl: 'https://www.irs.gov/pub/irs-pdf/fw4.pdf' },
+  { kind: 'w4', title: 'Form W-4', editionLabel: '2026', expires: '01/31/2027', state: 'ok', message: 'Form W-4 (2026) is current through 01/31/2027.', sourceUrl: 'https://www.irs.gov/pub/irs-pdf/fw4.pdf' },
   { kind: 'i9', title: 'Form I-9', editionLabel: '01/20/25', expires: '05/31/2027', state: 'expiring', message: 'The Form I-9 edition in Nexus (01/20/25) expires on 05/31/2027.', sourceUrl: 'https://www.uscis.gov/sites/default/files/document/forms/i-9.pdf' },
   { kind: 'direct_deposit', title: 'Direct Deposit Authorization', editionLabel: 'v1', expires: '', state: 'expired', message: 'The Direct Deposit Authorization edition in Nexus (v1) expired on 01/01/2026. Ask an administrator to update it before sending.', sourceUrl: 'nexus:federal_forms/make_direct_deposit.py' },
 ];

@@ -10,7 +10,7 @@ packet or sent one at a time from the person's record:
 
 | Form | Edition in Nexus | Who fills | Expires |
 |---|---|---|---|
-| Form W-4 (Employee's Withholding Certificate) | 2026 (IRS, released 12/11/2025) | The employee | 12/31/2026 - the IRS issues a new one most years |
+| Form W-4 (Employee's Withholding Certificate) | 2026 (IRS, released 12/11/2025) | The employee | 01/31/2027 - the IRS issues a new one most years; January is the grace month (Neil, 11/02/2026) |
 | Form I-9 (Employment Eligibility Verification) | 01/20/25 (USCIS) | Section 1 the employee, Section 2 HR | 05/31/2027 (printed on the form) |
 | Direct Deposit Authorization | v1 (ours) | The employee | never |
 
