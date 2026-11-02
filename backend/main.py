@@ -1418,6 +1418,13 @@ def _run_migrations():
             "ALTER TABLE nexus_notes ADD COLUMN collab_key VARCHAR DEFAULT ''",
             # Cubby tasks in Nexus Tasks (Oct 31 2026) - see the Postgres list. models.Task.
             "ALTER TABLE tasks ADD COLUMN cubby_task_id VARCHAR DEFAULT ''",
+            # Training due modes and escalation (11/03/2026) - see the Postgres list.
+            "ALTER TABLE kb_assignment_rules ADD COLUMN due_date VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_assignment_rules ADD COLUMN new_hires_only BOOLEAN DEFAULT 0",
+            "ALTER TABLE kb_assignment_rules ADD COLUMN escalate_days INTEGER DEFAULT 0",
+            "ALTER TABLE kb_training_plans ADD COLUMN due_date VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_course_assignments ADD COLUMN escalated_at VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN default_due_days INTEGER DEFAULT 0",
             # Boards (Neil 11/02/2026) - see the Postgres list. models.NexusNote / NexusNoteVersion.
             "ALTER TABLE nexus_notes ADD COLUMN scene TEXT DEFAULT ''",
             "ALTER TABLE nexus_notes ADD COLUMN thumb_url VARCHAR DEFAULT ''",
@@ -3426,6 +3433,16 @@ def _run_migrations():
         # pointer on the task and the link table, a new table with explicit
         # RLS. models.Task.cubby_task_id, models.CubbyTaskLink.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS cubby_task_id VARCHAR DEFAULT ''",
+        # Training due modes and escalation (Sagar, 11/03/2026): a rule or plan due
+        # by one date, an onboarding-only rule, escalation to the supervisor, the
+        # first escalation stamp, a course's default due days. Existing tables,
+        # no new RLS. models.KbAssignmentRule / KbTrainingPlan / KbCourseAssignment / KbCourse.
+        "ALTER TABLE kb_assignment_rules ADD COLUMN IF NOT EXISTS due_date VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_assignment_rules ADD COLUMN IF NOT EXISTS new_hires_only BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE kb_assignment_rules ADD COLUMN IF NOT EXISTS escalate_days INTEGER DEFAULT 0",
+        "ALTER TABLE kb_training_plans ADD COLUMN IF NOT EXISTS due_date VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_course_assignments ADD COLUMN IF NOT EXISTS escalated_at VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS default_due_days INTEGER DEFAULT 0",
         "CREATE INDEX IF NOT EXISTS ix_tasks_cubby_task_id ON tasks (cubby_task_id)",
         "ALTER TABLE cubby_task_links ENABLE ROW LEVEL SECURITY",
         # Boards (Neil 11/02/2026): a whiteboard is a note - its drawing, a
@@ -5366,6 +5383,10 @@ from routers import perf_reviews as perf_reviews_router  # noqa: E402 - new tabl
 app.include_router(perf_reviews_router.router)  # Performance: review cycles - People > Performance, Workday > Performance (Neil, Oct 27 2026)
 from routers import perf_feedback as perf_feedback_router  # noqa: E402 - new tables: create_all + explicit RLS lines
 app.include_router(perf_feedback_router.router)  # Performance: peer feedback, kudos, improvement plans (Neil, Oct 29 2026)
+from routers import perf_scorecards as perf_scorecards_router  # noqa: E402 - new tables: create_all + _enable_rls_everywhere
+from routers import perf_bonus as perf_bonus_router  # noqa: E402 - bonus plans per role + runs; new tables: create_all + _enable_rls_everywhere
+app.include_router(perf_scorecards_router.router)  # Performance: KPI scorecards per department - Settings > Performance (Charmi, 10/30/2026)
+app.include_router(perf_bonus_router.router)  # Performance: bonus plans per role and the bonus run (Pranshu, 10/30/2026)
 from routers import extra_time as extra_time_router  # noqa: E402
 app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)
 from routers import import_hub as import_hub_router  # noqa: E402 - also registers import_hub_models before create_all

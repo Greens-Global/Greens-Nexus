@@ -3090,6 +3090,34 @@ export const api = {
   perfActionUpdate: (id, data) => req(`/performance/actions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
   perfSettings: (company = "") => req(`/performance/settings?company=${encodeURIComponent(company || "")}`),
   perfSettingsSave: (data) => req("/performance/settings", { method: "PUT", body: JSON.stringify(data) }),
+  // KPI scorecards per department (Charmi, 10/30/2026) - routers/perf_scorecards.py.
+  perfScorecards: (company) => req(`/performance/scorecards?company=${encodeURIComponent(company || "")}`),
+  perfScorecardSave: (data) => req("/performance/scorecards", { method: "PUT", body: JSON.stringify(data) }),
+  perfScorecardRetire: (id) => req(`/performance/scorecards/${encodeURIComponent(id)}/retire`, { method: "POST" }),
+  perfScorecardCopySource: (company, sourceId) => req(`/performance/scorecards/copy-source/${encodeURIComponent(sourceId)}?company=${encodeURIComponent(company || "")}`),
+  perfSharedScorecardSave: (data) => req("/performance/scorecards/shared", { method: "PUT", body: JSON.stringify(data) }),
+  perfMyScorecard: () => req("/performance/scorecards/current"),
+  perfScore: (person = "", month = "") => req(`/performance/score?person=${encodeURIComponent(person || "")}&month=${encodeURIComponent(month || "")}`),
+  perfTeamScores: (month = "") => req(`/performance/score/team?month=${encodeURIComponent(month || "")}`),
+  perfRateKpi: (data) => req("/performance/score/rating", { method: "PUT", body: JSON.stringify(data) }),
+  // Bonus plans per role and bonus runs (Oct 30 2026) - routers/perf_bonus.py.
+  perfBonusPlans: (company) => req(`/performance/bonus/plans?company=${encodeURIComponent(company || "")}`),
+  perfBonusPlanSave: (data) => req("/performance/bonus/plans", { method: "PUT", body: JSON.stringify(data) }),
+  perfBonusRuns: (company) => req(`/performance/bonus/runs?company=${encodeURIComponent(company || "")}`),
+  perfBonusRunStart: (data) => req("/performance/bonus/runs", { method: "POST", body: JSON.stringify(data) }),
+  perfBonusRun: (id) => req(`/performance/bonus/runs/${encodeURIComponent(id)}`),
+  perfBonusLineAdjust: (id, data) => req(`/performance/bonus/lines/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
+  perfBonusRunApprove: (id) => req(`/performance/bonus/runs/${encodeURIComponent(id)}/approve`, { method: "POST" }),
+  perfBonusRunPay: (id) => req(`/performance/bonus/runs/${encodeURIComponent(id)}/pay`, { method: "POST" }),
+  perfBonusRunCancel: (id) => req(`/performance/bonus/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  perfBonusReview: () => req("/performance/bonus/review"),
+  perfBonusReadiness: (company, period) => req(`/performance/bonus/readiness?company=${encodeURIComponent(company || "")}&period=${encodeURIComponent(period || "")}`),
+  perfBonusRunUpdate: (id, data) => req(`/performance/bonus/runs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
+  perfBonusRunReviewed: (id, emails = []) => req(`/performance/bonus/runs/${encodeURIComponent(id)}/reviewed`, { method: "POST", body: JSON.stringify({ emails }) }),
+  perfBonusPlanHistory: (id) => req(`/performance/bonus/plans/${encodeURIComponent(id)}/history`),
+  perfKpis: (company) => req(`/performance/kpis?company=${encodeURIComponent(company || "")}`),
+  perfKpiCreate: (data) => req("/performance/kpis", { method: "POST", body: JSON.stringify(data) }),
+  perfKpiUpdate: (id, data) => req(`/performance/kpis/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
 
   // Performance review cycles (Neil, Oct 27 2026) - routers/perf_reviews.py.
   perfCycles: (company = "") => req(`/performance/cycles?company=${encodeURIComponent(company || "")}`),
@@ -3448,3 +3476,7 @@ api.signOutOtherSessions = () => req('/me/sessions/others', { method: 'POST' });
 // PDF Tools: one Audit Log row per action (routers/pdf_tools.py). Name, page count
 // and places only, never the file. The caller ignores the answer.
 api.pdfToolsEvent = (body) => req('/pdf-tools/events', { method: 'POST', body: JSON.stringify(body) });
+// A jobsite placed from its Google Maps link (11/02/2026), like a work site:
+// the exact point its weather is read at, and the address the link names.
+api.resolveProjectLink = (link) => req('/construction/resolve-link', { method: 'POST', body: JSON.stringify({ link }) });
+api.resolveJobsiteLink = (link) => req('/timeclock/jobsites/resolve-link', { method: 'POST', body: JSON.stringify({ link }) });

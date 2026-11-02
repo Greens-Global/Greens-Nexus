@@ -43,6 +43,7 @@ class CourseIn(BaseModel):
     overview: Optional[list] = None
     est_minutes: Optional[int] = None
     recert_months: Optional[int] = None
+    default_due_days: Optional[int] = None   # a hand assignment with no date picked is due this many days out (11/03/2026)
     departments: Optional[str] = None
     lessons: Optional[list] = None
     quiz: Optional[dict] = None
@@ -79,6 +80,9 @@ class RuleIn(BaseModel):
     due_days: Optional[int] = None
     renew_months: Optional[int] = None
     active: Optional[bool] = None
+    due_date: Optional[str] = None         # YYYY-MM-DD: one date for everyone; '' = within due_days (11/03/2026)
+    new_hires_only: Optional[bool] = None  # an onboarding track: people who start on or after the rule
+    escalate_days: Optional[int] = None    # days overdue before the supervisor is told; 0 = never
 
 
 class PlanIn(BaseModel):
@@ -86,6 +90,7 @@ class PlanIn(BaseModel):
     description: Optional[str] = None
     items: Optional[list] = None
     due_days: Optional[int] = None
+    due_date: Optional[str] = None         # one date for everyone; '' = within due_days (11/03/2026)
     audience: Optional[dict] = None
     active: Optional[bool] = None
 
@@ -147,7 +152,7 @@ def _draft_of(c: models.KbCourse) -> dict:
         return d
     return {"title": c.title, "description": c.description or "", "overview": _j(c.overview, []), "est_minutes": c.est_minutes or 15,
             "lessons": kb_core.lessons_of(c), "quiz": _j(c.quiz, {}) or {"passPct": 80, "drawCount": 0, "maxTries": 3, "shuffle": True, "questions": []},
-            "recert_months": c.recert_months or 0, "departments": c.departments or "", "delivery": c.delivery or "online"}
+            "recert_months": c.recert_months or 0, "default_due_days": int(c.default_due_days or 0), "departments": c.departments or "", "delivery": c.delivery or "online"}
 
 
 QUESTION_TYPES = ("single", "multi", "tf", "order", "short", "photo")   # WP 5.5 added order, short and photo
@@ -493,7 +498,7 @@ def create_course(body: CourseIn, user: dict = Depends(require_author), db: Sess
         raise HTTPException(422, "A course needs a title")
     me = user["email"].lower()
     c = models.KbCourse(id=kb_core.new_id("crs"), course_code="", title=title[:200], description=(body.description or "")[:400], overview=json.dumps(body.overview or []),
-                        recert_months=int(body.recert_months or 0), departments=body.departments or "", status="draft", owner_email=me, owner_name=_name(db, me),
+                        recert_months=int(body.recert_months or 0), default_due_days=max(0, int(body.default_due_days or 0)), departments=body.departments or "", status="draft", owner_email=me, owner_name=_name(db, me),
                         est_minutes=int(body.est_minutes or 15), lessons="[]", quiz=json.dumps({"passPct": 80, "drawCount": 0, "maxTries": 3, "shuffle": True, "questions": []}),
                         created_at=kb_core.now(), updated_at=kb_core.now(), major=0, draft="", published_at="", published_by="")
     kb_core.assign_course_code(db, c)
@@ -552,6 +557,9 @@ def update_course(cid: str, body: CourseIn, user: dict = Depends(require_author)
         draft["est_minutes"] = max(1, int(body.est_minutes))
     if body.recert_months is not None:
         draft["recert_months"] = max(0, int(body.recert_months))
+    if body.default_due_days is not None:
+        draft["default_due_days"] = max(0, int(body.default_due_days))
+        c.default_due_days = draft["default_due_days"]   # not part of what learners see: takes effect at once
     if body.departments is not None:
         draft["departments"] = body.departments[:200]
     if body.delivery in ("online", "in_person"):
@@ -919,9 +927,11 @@ def assign_course(cid: str, body: AssignIn, user: dict = Depends(require_author)
             if body.due_date and have.due_date != body.due_date[:10]:
                 have.due_date = body.due_date[:10]
             continue
-        db.add(models.KbCourseAssignment(id=kb_core.new_id("asn"), course_id=c.id, user_email=e, user_name=_name(db, e), due_date=(body.due_date or "")[:10],
+        # no date picked: the course's own default, counted from this person's day (11/03/2026)
+        due = (body.due_date or "")[:10] or (kb_core.add_days(kb_core.today_for(db, e), int(c.default_due_days)) if c.default_due_days else "")
+        db.add(models.KbCourseAssignment(id=kb_core.new_id("asn"), course_id=c.id, user_email=e, user_name=_name(db, e), due_date=due,
                                          assigned_by=me, created_at=kb_core.now(), source="manual"))
-        kb_core.notify(db, recipient=e, ntype="kb_course_assigned", title="Training Assigned", body=f"{c.title}" + (f" - due {body.due_date[:10]}" if body.due_date else ""),
+        kb_core.notify(db, recipient=e, ntype="kb_course_assigned", title="Training Assigned", body=f"{c.title}" + (f" - due {kb_daily_us(due)}" if due else ""),
                        ref_id=c.id, item_name=c.title, sub=f"course:{c.id}", requested_by=me)
         made += 1
     db.commit()
@@ -953,6 +963,18 @@ def remove_assignment(aid: str, user: dict = Depends(require_author), db: Sessio
     return {"ok": True}
 
 
+def kb_daily_us(iso: str) -> str:
+    from kb_daily import _us
+    return _us(iso)
+
+
+def _day_or_422(v) -> str:
+    v = (v or "").strip()[:10]
+    if v and not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+        raise HTTPException(422, "The due date must be a calendar day")
+    return v
+
+
 def _rule_out(db: Session, r: models.KbAssignmentRule) -> dict:
     target = ""
     if r.kind == "course":
@@ -964,6 +986,7 @@ def _rule_out(db: Session, r: models.KbAssignmentRule) -> dict:
     a = kb_audience.loads(r.audience)
     return {"id": r.id, "kind": r.kind, "target_id": r.target_id, "target": target, "audience": a, "audience_text": kb_audience.describe(a, db),
             "due_days": r.due_days, "renew_months": r.renew_months, "active": bool(r.active), "created_by": r.created_by, "last_run_at": r.last_run_at,
+            "due_date": r.due_date or "", "new_hires_only": bool(r.new_hires_only), "escalate_days": int(r.escalate_days or 0),
             "matches": len(kb_audience.members(db, a, kb_access.scope_of_email(db, r.created_by)))}
 
 
@@ -983,6 +1006,7 @@ def create_rule(body: RuleIn, user: dict = Depends(require_author), db: Session 
         _get_plan(db, body.target_id, user)
     r = models.KbAssignmentRule(id=kb_core.new_id("rule"), kind=body.kind, target_id=body.target_id, audience=kb_audience.dumps(body.audience or {}),
                                 due_days=int(body.due_days if body.due_days is not None else 14), renew_months=int(body.renew_months or 0), active=True,
+                                due_date=_day_or_422(body.due_date), new_hires_only=bool(body.new_hires_only), escalate_days=max(0, int(body.escalate_days or 0)),
                                 created_by=user["email"].lower(), created_at=kb_core.now(), updated_at=kb_core.now())
     db.add(r)
     db.commit()
@@ -1003,6 +1027,12 @@ def update_rule(rid: str, body: RuleIn, user: dict = Depends(require_author), db
         r.due_days = int(body.due_days)
     if body.renew_months is not None:
         r.renew_months = int(body.renew_months)
+    if body.due_date is not None:
+        r.due_date = _day_or_422(body.due_date)
+    if body.new_hires_only is not None:
+        r.new_hires_only = bool(body.new_hires_only)
+    if body.escalate_days is not None:
+        r.escalate_days = max(0, int(body.escalate_days))
     if body.active is not None:
         r.active = bool(body.active)
     r.updated_at = kb_core.now()
@@ -1041,7 +1071,7 @@ def _plan_out(db: Session, p: models.KbTrainingPlan, email: str = "") -> dict:
                 items.append({"kind": "policy", "id": d.id, "title": d.title, "code": d.doc_code or "", "status": d.status})
     a = kb_audience.loads(p.audience) if p.audience else {}
     assigned = db.query(models.KbPlanAssignment).filter(models.KbPlanAssignment.plan_id == p.id).all()
-    return {"id": p.id, "name": p.name, "description": p.description or "", "items": items, "due_days": p.due_days, "audience": a,
+    return {"id": p.id, "name": p.name, "description": p.description or "", "items": items, "due_days": p.due_days, "due_date": p.due_date or "", "audience": a,
             "audience_text": kb_audience.describe(a, db) if p.audience else "Assigned by name", "active": bool(p.active),
             "assigned": len(assigned), "completed": sum(1 for x in assigned if x.completed_at), "created_by": p.created_by}
 
@@ -1067,7 +1097,7 @@ def create_plan(body: PlanIn, user: dict = Depends(require_author), db: Session 
         raise HTTPException(422, "A plan needs a name")
     p = models.KbTrainingPlan(id=kb_core.new_id("plan"), name=body.name.strip()[:200], description=(body.description or "")[:500],
                               items=json.dumps([{"kind": i.get("kind"), "id": i.get("id")} for i in (body.items or []) if isinstance(i, dict) and i.get("kind") in ("course", "policy") and i.get("id")]),
-                              due_days=int(body.due_days or 30), audience=kb_audience.dumps(body.audience) if body.audience else "", active=True,
+                              due_days=int(body.due_days or 30), due_date=_day_or_422(body.due_date), audience=kb_audience.dumps(body.audience) if body.audience else "", active=True,
                               created_by=user["email"].lower(), created_at=kb_core.now(), updated_at=kb_core.now())
     db.add(p)
     db.commit()
@@ -1085,6 +1115,8 @@ def update_plan(pid: str, body: PlanIn, user: dict = Depends(require_author), db
         p.items = json.dumps([{"kind": i.get("kind"), "id": i.get("id")} for i in body.items if isinstance(i, dict) and i.get("kind") in ("course", "policy") and i.get("id")])
     if body.due_days is not None:
         p.due_days = int(body.due_days)
+    if body.due_date is not None:
+        p.due_date = _day_or_422(body.due_date)
     if body.audience is not None:
         p.audience = kb_audience.dumps(body.audience) if body.audience else ""
     if body.active is not None:
@@ -1322,7 +1354,8 @@ def compliance(scope: str = "direct", company: str = "", department: str = "", m
             due_soon = bool(a and a.due_date and 0 <= kb_core.days_between(day, a.due_date) <= 14) or bool(st["expires"] and 0 <= kb_core.days_between(day, st["expires"]) <= 30)
             color = "green" if st["status"] == "Completed" and not due_soon else "red" if st["status"] in ("Overdue", "Expired") else "amber"
             counts[color] += 1
-            cells[f"course:{c.id}"] = {"status": st["status"], "color": color, "pct": st["pct"], "due": a.due_date if a else "", "expires": st["expires"], "days_overdue": st["days_overdue"]}
+            cells[f"course:{c.id}"] = {"status": st["status"], "color": color, "pct": st["pct"], "due": a.due_date if a else "", "expires": st["expires"], "days_overdue": st["days_overdue"],
+                                       "escalated": bool(a and a.escalated_at)}
         for d in policies:
             if email not in policy_aud[d.id]:
                 continue

@@ -740,6 +740,27 @@ keep the diff minimal.
   (`_released`) exactly as an HR packet prints it, and a template live since
   before this is released as it stands on first use or first edit.
 
+- **PDF Tools (Neil, 11/02/2026, `frontend/public/pdf-editor-app/`,
+  `views/PdfEditorModule.jsx`, `views/pdfTools/`, `routers/pdf_tools.py`).** A
+  static engine in a same-origin iframe, under Documents > PDF Tools. The shell
+  reaches it ONLY through `nexus-bridge.js` (postMessage both ways, origin and
+  source checked), which reaches the engine ONLY through `window.__pdfEngine`
+  and its `pdf-engine:*` events. Every save and export goes through the engine's
+  one save layer and `_verifyOutput`: bytes that do not open are never offered,
+  and a redaction really removes the content from every output. A test of
+  redaction must inflate every stream and decode hex strings - pdf-lib writes
+  text as `<...> Tj`, so a plain search of the file finds nothing and proves
+  nothing. Egnyte keeps old versions, so a redacted file never goes back in one
+  click: Save Back opens the dialog and its warning. Nothing is uploaded to a
+  third party, no CDN (the CSP is self only), no AI path. Each open, save, send,
+  redact, protect and export writes one Audit Log row through
+  `POST /pdf-tools/events` (name, page count and places only, never the file).
+  Unsaved work: `setInlineDirty` for navigate() and `usePopGuard` for Back and
+  Forward, which App's popstate listener asks first (`runPopGuard`) - never a
+  second popstate listener, because Chrome runs a window's listeners in the
+  order they were added, capture or not, and jsdom does not. Engine tests are
+  `e2e/tests/pdf-tools.spec.mjs` (their own CI job, real browser, real files).
+
 - **Cubby tasks in Nexus Tasks (Neil, Oct 30 2026, `backend/cubby_tasks.py`,
   Settings > Operations > Cubby Tasks).** After each 15-minute Cubby sync
   (`cubby_sync.run_claimed` calls `cubby_tasks.after_sync`), every open
@@ -775,6 +796,20 @@ keep the diff minimal.
   Results", Ask Nexus's extra sources (the answer step stays behind the AI
   switch) and the page rail's "Around This Page" - never a second index or
   a model-built graph. `test_kb_filing_graph.py` pins it.
+- **Training due modes and escalation (Sagar, 11/03/2026, `kb_daily._due_for`,
+  `run_escalations`):** an assignment rule or plan is due either WITHIN
+  `due_days` of the person's start date (else today) or BY ONE DATE for
+  everyone it covers (`due_date` - company-wide, department-wide), with
+  `due_days` as the GRACE for someone who joins after that date (their copy
+  is due that many days from their start, never a date already past). A
+  rule with `new_hires_only` is the onboarding track: only people who start
+  on or after the rule's own day, nobody already here. `escalate_days` on a
+  rule raises a course still not done that many days after its due date to
+  the person's manager (nobody = the company's HR contact), once, then
+  weekly, stamping `kb_course_assignments.escalated_at` for Compliance; the
+  pass runs under the `kb_daily` Automations switch. A course's
+  `default_due_days` only fills a hand assignment with no date picked.
+  `test_kb_training_due.py` pins all of it.
 
 ## Asana — removed (Sep 2026)
 

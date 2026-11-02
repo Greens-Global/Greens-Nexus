@@ -24,7 +24,9 @@ const PRECISION = {
 const FAR_MOVE_M = 1000;
 const distText = (m) => formatDistance(m);   // miles / feet (lib/distance.js)
 
-export default function WorkSiteLinkPanel({ link, point, savedPoint, onResolved }) {
+// `resolve` reads the link: the work-site route by default; Construction and
+// the shift popup pass their own (same reader, their own permission).
+export default function WorkSiteLinkPanel({ link, point, savedPoint, onResolved, resolve: read = api.resolveWorkSiteLink, what = 'building' }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -35,7 +37,7 @@ export default function WorkSiteLinkPanel({ link, point, savedPoint, onResolved 
     if (!v || busy) return;
     setBusy(true); setError('');
     try {
-      const r = await api.resolveWorkSiteLink(v);
+      const r = await read(v);
       onResolved({ link: v, point: { lat: r.lat, lng: r.lng, precision: r.precision, label: r.label || '',
         address: r.address || '', placeName: r.placeName || '' } });
       setText(''); setHelp(false);
@@ -54,7 +56,7 @@ export default function WorkSiteLinkPanel({ link, point, savedPoint, onResolved 
           <Link2 size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
           <input className="form-input" style={{ width: '100%', paddingLeft: 28, fontSize: 12.5 }} value={text}
             aria-label="Google Maps link or coordinates"
-            placeholder={link ? 'Paste a new Google Maps link to move this location' : 'Paste the Google Maps link of the building'}
+            placeholder={link ? 'Paste a new Google Maps link to move this location' : `Paste the Google Maps link of the ${what}`}
             onChange={e => { setText(e.target.value); setError(''); }}
             onPaste={e => { const v = e.clipboardData?.getData('text'); if (v && v.trim()) { e.preventDefault(); setText(v.trim()); resolve(v); } }}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); resolve(); } }} />

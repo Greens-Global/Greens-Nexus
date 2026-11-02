@@ -428,6 +428,9 @@ describe('Builder', () => {
   it('a refused delete rewinds the button and says why', async () => {
     api.wfDelete.mockRejectedValueOnce(Object.assign(new Error('Only the owner may delete this workflow'), { status: 403 }));
     const go = open();
+    // Delete is disabled until the workflow has loaded - wait for it, as the
+    // test above does, or a slow runner's press is ignored (CI, 11/02/2026).
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
     const del = await screen.findByRole('button', { name: 'Delete, press and hold' });
     vi.useFakeTimers();
     try {

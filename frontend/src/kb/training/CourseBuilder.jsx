@@ -130,7 +130,7 @@ export default function CourseBuilder({ id, me }) {
     if (!draft || !data) return;
     setSaving(true);
     try {
-      const d = await api.kbUpdateCourse(data.course.id, { title: draft.title, description: draft.description, overview: draft.overview, est_minutes: draft.est_minutes, recert_months: draft.recert_months, departments: draft.departments, lessons: draft.lessons, quiz: draft.quiz, rev: data.rev });
+      const d = await api.kbUpdateCourse(data.course.id, { title: draft.title, description: draft.description, overview: draft.overview, est_minutes: draft.est_minutes, recert_months: draft.recert_months, default_due_days: draft.default_due_days ?? data.course.default_due_days ?? 0, departments: draft.departments, lessons: draft.lessons, quiz: draft.quiz, rev: data.rev });
       setData(d); setDirty(false); if (!silent) toast('Saved');
     } catch (e) { toast(errText(e), 'err'); } finally { setSaving(false); }
   };
@@ -305,6 +305,7 @@ export default function CourseBuilder({ id, me }) {
                 <div className="kb-field"><label>Renew every</label><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="number" min="0" className="kb-input" style={{ width: 90 }} value={draft.recert_months} onChange={(e) => patch({ recert_months: Number(e.target.value) || 0 })} /><span className="kb-meta">months (0 = never)</span></div></div>
               </div>
               <div className="kb-help">A renewal is assigned 30 days before a certificate expires, and the person starts over.</div>
+              <div className="kb-field"><label>Default due</label><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="number" min="0" className="kb-input" style={{ width: 90 }} value={draft.default_due_days ?? data.course.default_due_days ?? 0} onChange={(e) => patch({ default_due_days: Number(e.target.value) || 0 })} /><span className="kb-meta">days after a hand assignment with no date picked (0 = no due date). Rules and plans set their own.</span></div></div>
             </section>
           )}
 
@@ -376,7 +377,7 @@ export default function CourseBuilder({ id, me }) {
               </div>
             </Modal>
           )}
-          {ruleOpen && <AudienceModal value={normalizeAudience({})} title="Assign by Audience" dueLabel="Due" renewLabel="Renew every" onClose={() => setRuleOpen(false)} onChange={(a) => api.kbCreateRule({ kind: 'course', target_id: data.course.id, audience: a, due_days: a.due_days, renew_months: a.renew_months }).then(() => { toast('Rule saved. Matching people are assigned now and new hires as they start.'); load(); setAssignments(null); }).catch((e) => toast(errText(e), 'err'))} />}
+          {ruleOpen && <AudienceModal rule value={normalizeAudience({})} title="Assign by Audience" dueLabel="Due" renewLabel="Renew every" onClose={() => setRuleOpen(false)} onChange={(a) => api.kbCreateRule({ kind: 'course', target_id: data.course.id, audience: a, due_days: a.due_days, renew_months: a.renew_months, due_date: a.due_date || '', new_hires_only: !!a.new_hires_only, escalate_days: a.escalate_days || 0 }).then(() => { toast('Rule saved. Matching people are assigned now and new hires as they start.'); load(); setAssignments(null); }).catch((e) => toast(errText(e), 'err'))} />}
           {publishOpen && (
             <Modal title={data.course.status === 'published' ? `Publish v${data.course.major + 1}` : 'Publish the Course'} onClose={() => setPublishOpen(false)} minHeight="30vh" footer={<div className="kb" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={() => setPublishOpen(false)}>Cancel</button><button type="button" className="kb-btn pri" onClick={publish}><Check />Publish</button></div>}>
               <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

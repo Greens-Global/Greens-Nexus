@@ -4,16 +4,16 @@ import { useEffect, useState } from 'react';
 import { Plus, Users, X, Trash2 } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection from '../../components/AsyncState';
-import { Modal } from '../../tasks/components';
+import { Modal, DateField } from '../../tasks/components';
 import { Chip, SectionHead } from '../components/Chips';
 import AudienceModal, { normalizeAudience } from '../components/AudienceModal';
 import { PeopleMultiPick } from '../components/PeoplePick';
 import { useToast, errText } from '../components/Toast';
-import { goKb, plural } from '../lib';
+import { goKb, plural, fmtDate } from '../lib';
 
 function PlanModal({ plan, courses, policies, onClose, onSaved }) {
   const toast = useToast();
-  const [form, setForm] = useState({ name: plan?.name || '', description: plan?.description || '', due_days: plan?.due_days ?? 30, items: plan?.items?.map((i) => ({ kind: i.kind, id: i.id })) || [], audience: plan?.audience || null });
+  const [form, setForm] = useState({ name: plan?.name || '', description: plan?.description || '', due_days: plan?.due_days ?? 30, due_date: plan?.due_date || '', items: plan?.items?.map((i) => ({ kind: i.kind, id: i.id })) || [], audience: plan?.audience || null });
   const [aud, setAud] = useState(false);
   const [emails, setEmails] = useState([]);
   const add = (kind, id) => { if (id && !form.items.some((i) => i.kind === kind && i.id === id)) setForm({ ...form, items: [...form.items, { kind, id }] }); };
@@ -31,7 +31,13 @@ function PlanModal({ plan, courses, policies, onClose, onSaved }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="kb-field"><label>Name</label><input className="kb-input" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="New Hire: Site Manager" /></div>
           <div className="kb-field"><label>Description</label><input className="kb-input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Everything a new site manager finishes in the first month" /></div>
-          <div className="kb-field"><label>Due</label><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="number" min="1" className="kb-input" style={{ width: 90 }} value={form.due_days} onChange={(e) => setForm({ ...form, due_days: Number(e.target.value) || 30 })} /><span className="kb-meta">days after start date</span></div></div>
+          <div className="kb-field"><label>Due</label>
+            <div className="kb-seg" role="radiogroup" aria-label="Due mode" style={{ alignSelf: 'flex-start' }}>
+              <button type="button" role="radio" aria-checked={!form.due_date} className={!form.due_date ? 'on' : ''} onClick={() => setForm({ ...form, due_date: '' })}>Within a number of days</button>
+              <button type="button" role="radio" aria-checked={!!form.due_date} className={form.due_date ? 'on' : ''} onClick={() => setForm({ ...form, due_date: form.due_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10) })}>By one date for everyone</button>
+            </div>
+            {form.due_date && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}><DateField value={form.due_date} onChange={(v) => setForm({ ...form, due_date: v || '' })} noPast style={{ minHeight: 40, borderRadius: 10, width: 200 }} /><span className="kb-meta">Everyone on the plan, by this date.</span></div>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}><input type="number" min="1" className="kb-input" style={{ width: 90 }} value={form.due_days} onChange={(e) => setForm({ ...form, due_days: Number(e.target.value) || 30 })} /><span className="kb-meta">{form.due_date ? 'days of grace for someone who joins after the date' : 'days after start date'}</span></div></div>
           <div className="kb-field"><label>Who gets it automatically</label><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span className="kb-meta kb-grow">{form.audience ? 'An audience is set' : 'Nobody yet (assign by name below, or set an audience)'}</span><button type="button" className="kb-btn sm" onClick={() => setAud(true)}><Users />{form.audience ? 'Change' : 'Set Audience'}</button></div></div>
           <div className="kb-field"><label>Also assign to</label><PeopleMultiPick value={emails} onChange={setEmails} /></div>
         </div>
@@ -75,7 +81,7 @@ export default function Plans() {
             <AsyncSection loading={!plans} isEmpty={plans && plans.length === 0} emptyContent={<div className="kb-empty">No plans yet. "New Hire: Site Manager" is the usual first one.</div>}>
               {(plans || []).map((p) => (
                 <div key={p.id} className="kb-row link" onClick={() => setEdit(p)} style={{ alignItems: 'flex-start' }}>
-                  <div className="kb-grow"><div className="kb-title">{p.name}{!p.active && <Chip color="#9ca3af" style={{ marginLeft: 6 }}>Off</Chip>}</div><div className="kb-meta">{plural(p.items.length, 'item')} · due {p.due_days} days after start · {p.audience_text} · {p.assigned} assigned, {p.completed} done</div></div>
+                  <div className="kb-grow"><div className="kb-title">{p.name}{!p.active && <Chip color="#9ca3af" style={{ marginLeft: 6 }}>Off</Chip>}</div><div className="kb-meta">{plural(p.items.length, 'item')} · {p.due_date ? `due by ${fmtDate(p.due_date)}` : `due ${p.due_days} days after start`} · {p.audience_text} · {p.assigned} assigned, {p.completed} done</div></div>
                   <button type="button" className="kb-btn sm" onClick={(e) => { e.stopPropagation(); setEdit(p); }}>Edit</button>
                 </div>
               ))}
@@ -88,7 +94,7 @@ export default function Plans() {
             <AsyncSection loading={!rules} isEmpty={rules && rules.length === 0} emptyContent={<div className="kb-empty">Rules are made from a course's Who Takes It tab.</div>}>
               {(rules || []).map((r) => (
                 <div key={r.id} className="kb-row" style={{ alignItems: 'flex-start' }}>
-                  <div className="kb-grow"><div className="kb-title"><a href="#b" onClick={(e) => { e.preventDefault(); goKb(r.kind === 'course' ? 'builder' : 'plans', r.target_id); }}>{r.target}</a>{!r.active && <Chip color="#9ca3af" style={{ marginLeft: 6 }}>Off</Chip>}</div><div className="kb-meta">{r.audience_text} · due {r.due_days} days{r.renew_months ? ` · renews every ${r.renew_months} months` : ''} · {r.matches} match</div></div>
+                  <div className="kb-grow"><div className="kb-title"><a href="#b" onClick={(e) => { e.preventDefault(); goKb(r.kind === 'course' ? 'builder' : 'plans', r.target_id); }}>{r.target}</a>{!r.active && <Chip color="#9ca3af" style={{ marginLeft: 6 }}>Off</Chip>}</div><div className="kb-meta">{r.audience_text}{r.new_hires_only ? ' · new hires only' : ''} · {r.due_date ? `due by ${fmtDate(r.due_date)}, ${r.due_days} days of grace` : `due ${r.due_days} days`}{r.renew_months ? ` · renews every ${r.renew_months} months` : ''}{r.escalate_days ? ` · escalates after ${r.escalate_days} days overdue` : ''} · {r.matches} match</div></div>
                   {r.active && <button type="button" className="kb-ibtn" style={{ width: 28, height: 28 }} aria-label="Turn off" onClick={() => api.kbDeleteRule(r.id).then(load)}><Trash2 size={14} /></button>}
                 </div>
               ))}

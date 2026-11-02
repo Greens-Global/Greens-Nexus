@@ -1352,6 +1352,7 @@ class KbCourse(Base):
     description = Column(String, default="")
     overview    = Column(String, default="")           # "what you'll learn" - JSON list of objective strings
     recert_months = Column(Integer, default=0)         # 0 = no recertification; else retake every N months
+    default_due_days = Column(Integer, default=0)     # days a hand assignment gets when no date is picked (11/03/2026)
     departments = Column(String, default="")
     status      = Column(String, default="draft")     # draft | published
     owner_email = Column(String, default="")
@@ -1413,6 +1414,7 @@ class KbCourseAssignment(Base):
     source      = Column(String, default="manual")    # manual | rule | plan | renewal (rebuild, Oct 2026)
     rule_id     = Column(String, default="")          # KbAssignmentRule.id that made it
     plan_id     = Column(String, default="")          # KbTrainingPlan.id it belongs to
+    escalated_at = Column(String, default="")         # first time the supervisor was told it is overdue (11/03/2026)
 
 
 class KbQuizAttempt(Base):
@@ -8308,6 +8310,16 @@ class KbAssignmentRule(Base):
     created_at   = Column(String, default="")
     updated_at   = Column(String, default="")
     last_run_at  = Column(String, default="")
+    # Due modes (Sagar, 11/03/2026): '' = within `due_days` of the start date
+    # (or of today); a date = one calendar date for everyone the rule covers
+    # (company-wide or department-wide), with `due_days` as the grace for a
+    # person who joins after it. new_hires_only = an onboarding track: only
+    # people whose start date is on or after the rule's own start. escalate_days
+    # = days overdue before the supervisor (else the HR contact) is told, then
+    # weekly. ALTER lines in main.py.
+    due_date       = Column(String, default="")
+    new_hires_only = Column(Boolean, default=False)
+    escalate_days  = Column(Integer, default=0)
 
 
 class KbTrainingPlan(Base):
@@ -8319,6 +8331,7 @@ class KbTrainingPlan(Base):
     description = Column(String, default="")
     items       = Column(Text, default="")           # JSON [{kind: course|policy, id, order}]
     due_days    = Column(Integer, default=30)
+    due_date    = Column(String, default="")         # one calendar date for everyone (11/03/2026); '' = due_days from start
     audience    = Column(Text, default="")           # JSON, "" = assigned by name only
     active      = Column(Boolean, default=True)
     created_by  = Column(String, default="")
@@ -9764,3 +9777,158 @@ class NexusSignIn(Base):
     device_key  = Column(String, default="", index=True)
     is_new      = Column(Boolean, default=False)
     notified    = Column(Boolean, default=False)
+
+
+# ── Performance: KPI scorecards per department (Oct 30 2026, perf_scorecards.py)
+class PerfKpi(Base):
+    """A MANUAL KPI in the library (Nexus's own metrics come from
+    perf_metrics.METRICS and have no row). company_id '' = every company."""
+    __tablename__ = "hr_perf_kpis"
+    id          = Column(String, primary_key=True)                 # uuid
+    company_id  = Column(String, default="", index=True)
+    key         = Column(String, nullable=False)                   # "manual:<slug>" - what scorecard rows point at
+    name        = Column(String, nullable=False)
+    description = Column(Text, default="")
+    unit        = Column(String, default="rating")                 # % | count | per100 | rating
+    direction   = Column(String, default="high")                   # high | low (which way is better)
+    active      = Column(Boolean, default=True)                    # retired KPIs stay on past versions
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+
+
+class PerfScorecard(Base):
+    """A JOB ROLE's scorecard, one VERSION (kind 'role': in force from
+    effective_from, the first of a month, to effective_to, '' = open; a change
+    to a running version becomes a new row starting next month) - or a SHARED
+    set (kind 'shared', role_id '', named) HR keeps to copy from, edited in
+    place. company_id '' on a shared set = every company may copy it."""
+    __tablename__ = "hr_perf_scorecards"
+    id             = Column(String, primary_key=True)              # uuid
+    company_id     = Column(String, default="", index=True)
+    kind           = Column(String, default="role")                # role | shared
+    role_id        = Column(String, default="", index=True)        # NexusGroup.id (is_job_role) for kind 'role'
+    name           = Column(String, default="")                    # the role's name at save, or the shared set's name
+    copied_from    = Column(String, default="")                    # "Role: X" / "Shared set: Y" when it started as a copy
+    version        = Column(Integer, default=1)
+    effective_from = Column(String, default="")                    # YYYY-MM-01
+    effective_to   = Column(String, default="")                    # YYYY-MM-DD, '' = open
+    status         = Column(String, default="active")              # active | retired
+    notes          = Column(Text, default="")
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class PerfScorecardKpi(Base):
+    """A KPI on a scorecard version: weight (whole %), target (full marks),
+    threshold (below it nothing), cap (above it no extra)."""
+    __tablename__ = "hr_perf_scorecard_kpis"
+    id           = Column(String, primary_key=True)                # uuid
+    scorecard_id = Column(String, nullable=False, index=True)
+    kpi_key      = Column(String, nullable=False)
+    weight       = Column(Integer, default=0)
+    target       = Column(Float, default=0)
+    threshold    = Column(Float, default=0)
+    cap          = Column(Float, default=0)
+    position     = Column(Integer, default=0)
+
+
+class PerfKpiRating(Base):
+    """A manager's (or HR's) rating of a MANUAL KPI for one person and month,
+    with the written reason (perf_scores.rate). One row per person, KPI and
+    month; rating again replaces it."""
+    __tablename__ = "hr_perf_kpi_ratings"
+    id         = Column(String, primary_key=True)                  # uuid
+    company_id = Column(String, default="", index=True)
+    email      = Column(String, nullable=False, index=True)
+    kpi_key    = Column(String, nullable=False)
+    period     = Column(String, nullable=False, index=True)        # YYYY-MM
+    value      = Column(Float, default=0)
+    reason     = Column(Text, default="")
+    rated_by   = Column(String, default="")
+    rated_at   = Column(String, default="")
+
+
+class PerfBonusPlan(Base):
+    """The bonus plan of one job role (perf_bonus.py): target % of base pay,
+    cadence and the payout curve read off the monthly score. One per role,
+    edited in place - a run keeps the values it was priced with."""
+    __tablename__ = "hr_perf_bonus_plans"
+    id                  = Column(String, primary_key=True)                 # uuid
+    company_id          = Column(String, default="", index=True)
+    role_id             = Column(String, nullable=False, index=True)
+    target_pct          = Column(Float, default=0)                         # % of base pay at 100% payout
+    period              = Column(String, default="monthly")                # monthly | quarterly
+    threshold_score     = Column(Float, default=60)                        # below it: nothing
+    payout_at_threshold = Column(Float, default=50)                        # % of target at the threshold
+    max_payout          = Column(Float, default=100)                       # % of target; > 100 = stretch for over-target
+    adjust_max          = Column(Float, default=20)                        # a manager's +/- % bound
+    review_weight       = Column(Float, default=0)                         # % of the score taken from the latest review rating (0 = KPIs only)
+    active              = Column(Integer, default=1)
+    created_at          = Column(String, default="")
+    updated_by          = Column(String, default="")
+    updated_at          = Column(String, default="")
+
+
+class PerfBonusRun(Base):
+    """One bonus run: a company and a period (YYYY-MM or YYYY-Qn).
+    review -> approved -> paid, or cancelled."""
+    __tablename__ = "hr_perf_bonus_runs"
+    id           = Column(String, primary_key=True)
+    company_id   = Column(String, default="", index=True)
+    period       = Column(String, nullable=False)
+    period_start = Column(String, default="")
+    period_end   = Column(String, default="")
+    status       = Column(String, default="review", index=True)
+    line_count   = Column(Integer, default=0)
+    budget       = Column(Float, nullable=True)                            # HR's pool for the run; over it = a flag, never a block
+    notes        = Column(Text, default="")
+    created_by   = Column(String, default="")
+    created_at   = Column(String, default="")
+    approved_by  = Column(String, default="")
+    approved_at  = Column(String, default="")
+    paid_at      = Column(String, default="")
+
+
+class PerfBonusLine(Base):
+    """One person on a run, with every input the amount was priced with."""
+    __tablename__ = "hr_perf_bonus_lines"
+    id              = Column(String, primary_key=True)
+    run_id          = Column(String, nullable=False, index=True)
+    email           = Column(String, nullable=False, index=True)
+    role_id         = Column(String, default="")
+    role_name       = Column(String, default="")
+    department      = Column(String, default="")
+    manager_email   = Column(String, default="", index=True)
+    score           = Column(Float, nullable=True)                         # what the payout reads: the KPI score, or its blend with the review
+    kpi_score       = Column(Float, nullable=True)                         # period average of the monthly KPI scores
+    review_score    = Column(Float, nullable=True)                         # the latest completed review's rating as 0..100, when the plan blends it
+    reviewed_by     = Column(String, default="")                           # the manager who said the line looks right (or adjusted it)
+    reviewed_at     = Column(String, default="")
+    over_target     = Column(Float, default=0)
+    measured_weight = Column(Float, default=0)
+    months_scored   = Column(Integer, default=0)
+    payout_pct      = Column(Float, nullable=True)
+    base_pay        = Column(Float, default=0)
+    currency        = Column(String, default="USD")
+    target_pct      = Column(Float, default=0)
+    adjust_max      = Column(Float, default=20)
+    adjust_pct      = Column(Float, default=0)
+    adjust_reason   = Column(Text, default="")
+    adjusted_by     = Column(String, default="")
+    adjusted_at     = Column(String, default="")
+    excluded        = Column(Integer, default=0)
+    note            = Column(String, default="")                           # no_pay_rate | hourly_standard_month
+    computed_amount = Column(Float, default=0)
+    final_amount    = Column(Float, default=0)
+    bonus_id        = Column(String, default="")                           # the TimecardBonus once paid
+
+
+class PerfBonusPlanLog(Base):
+    """Every save of a bonus plan, as saved (perf_bonus.save_plan) - the plan
+    row is edited in place, this is its history."""
+    __tablename__ = "hr_perf_bonus_plan_log"
+    id         = Column(String, primary_key=True)
+    plan_id    = Column(String, nullable=False, index=True)
+    snapshot   = Column(JSON, default=dict)
+    changed_by = Column(String, default="")
+    changed_at = Column(String, default="")
