@@ -8216,6 +8216,7 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .apv-foot .apv-open { flex-basis: 100%; }
   .apv-foot > span { display: none; }
   .apv-toast { bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .apv-toast-undo { min-height: 44px; padding: 0 12px; }
 }
 
 /* ── Approvals on the phone (approvals/ApprovalsPhone.jsx, Neil, 11/02/2026) ──
@@ -8243,7 +8244,7 @@ body:has(.apv-phone) { overflow-x: clip; }
 .apv-phone .apv-tabs { display: flex; align-self: stretch; }
 .apv-phone .apv-tabs button { flex: 1 1 0; justify-content: center; min-height: 44px; font-size: 14px; }
 .apv-ph-chips { display: flex; align-items: center; gap: 8px; padding: 2px 0 12px; }
-.apv-ph-chip { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 13.5px; font-weight: 600; white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform var(--dur-xs) var(--ease-standard); }
+.apv-ph-chip { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 13.5px; font-weight: 600; white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform var(--dur-xs) var(--ease-standard); }
 .apv-ph-chip:active { transform: scale(.97); }
 .apv-ph-chip b { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
 .apv-ph-chip.is-on { background: var(--wk-brand-tint); border-color: color-mix(in srgb, var(--wk-brand) 35%, var(--line)); color: var(--wk-brand); }
@@ -8271,7 +8272,9 @@ body:has(.apv-phone) { overflow-x: clip; }
 .apv-ph-top { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: start; }
 .apv-ph-who { min-width: 0; }
 .apv-ph-name { font-size: 15px; font-weight: 700; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.apv-ph-ttl { display: block; width: 100%; background: none; border: none; padding: 0; margin: 2px 0 0; font: inherit; font-size: 13.5px; line-height: 1.35; color: var(--ink); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+/* A 44px tall hit area from padding (13px over and under an ~18px line),
+   pulled back by the same negative margin so the card's layout is as it was. */
+.apv-ph-ttl { display: block; width: 100%; background: none; border: none; padding: 13px 0; margin: -11px 0 -13px; font: inherit; font-size: 13.5px; line-height: 1.35; color: var(--ink); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .apv-ph-side { display: grid; justify-items: end; gap: 4px; }
 .apv-ph-age { font-size: 12.5px; font-weight: 600; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .apv-ph-age.is-slow { color: #d97706; }
