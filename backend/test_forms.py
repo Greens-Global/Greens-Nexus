@@ -452,6 +452,27 @@ class FormsTests(unittest.TestCase):
         e = self._submit(tpl["id"], REP, {"d": "2026-11-02", "n": 40000})
         self.assertIsNone(e["answers"]["shifted"])               # over the 36,500-day clamp
 
+    def test_a_formula_field_hidden_by_show_if_is_not_worked_out(self):
+        fields = [
+            {"token": "fuel", "label": "Fuel", "type": "yesno"},
+            {"token": "qty", "label": "Qty", "type": "number"},
+            {"token": "total", "label": "Total", "type": "number", "formula": "{Qty} * 2",
+             "showIf": {"token": "fuel", "op": "eq", "value": True}},
+            {"token": "kind", "label": "Kind", "type": "dropdown", "options": ["a", "b"],
+             "repeat": {"group": "rows", "max": 5}},
+            {"token": "n", "label": "N", "type": "number", "repeat": {"group": "rows", "max": 5}},
+            {"token": "dbl", "label": "Double", "type": "number", "formula": "{N} * 2",
+             "showIf": {"token": "kind", "op": "eq", "value": "a"}, "repeat": {"group": "rows", "max": 5}},
+        ]
+        tpl = self._template("Hidden Formula", fields=fields)
+        rows = [{"kind": "a", "n": 3}, {"kind": "b", "n": 4, "dbl": 99}]
+        e = self._submit(tpl["id"], REP, {"fuel": False, "qty": 5, "total": 77, "rows": rows})
+        self.assertNotIn("total", e["answers"])
+        self.assertEqual(e["answers"]["rows"][0]["dbl"], 6)
+        self.assertNotIn("dbl", e["answers"]["rows"][1])
+        e = self._submit(tpl["id"], REP, {"fuel": True, "qty": 5, "rows": []})
+        self.assertEqual(e["answers"]["total"], 10)
+
     def test_a_non_numeric_min_is_refused_at_save_and_a_stored_one_never_500s(self):
         self._as(ADMIN)
         bad = [{"token": "n", "label": "Count", "type": "number", "validation": {"min": "ten"}}]

@@ -651,14 +651,20 @@ def run_formula(src: str, env: _Env):
 
 def compute(defs: list, answers: dict, *, today: date | None = None) -> dict:
     """`answers` with every formula field filled in (a copy): the form's
-    single fields, then each repeat row's."""
+    single fields, then each repeat row's. A formula field hidden by its
+    showIf (on the form, or in that row) is not worked out and holds no
+    value - the same visibility clean() applies."""
     answers = dict(answers or {})
     by_group = groups(defs)
     singles = [d for d in defs or [] if not group_of(d)]
+    shown = visible_tokens(defs, answers)
     env = _Env(defs, answers, today=today)
     for d in singles:
         if d.get("formula"):
-            answers[d["token"]] = run_formula(d["formula"], env)
+            if d["token"] in shown:
+                answers[d["token"]] = run_formula(d["formula"], env)
+            else:
+                answers.pop(d["token"], None)
     for g, members in by_group.items():
         rows = answers.get(g)
         if not isinstance(rows, list):
@@ -666,10 +672,14 @@ def compute(defs: list, answers: dict, *, today: date | None = None) -> dict:
         new_rows = []
         for row in rows:
             row = dict(row) if isinstance(row, dict) else {}
+            row_shown = visible_tokens(members, {**answers, **row})
             env = _Env(defs, answers, row=row, today=today)
             for d in members:
                 if d.get("formula"):
-                    row[d["token"]] = run_formula(d["formula"], env)
+                    if d["token"] in row_shown:
+                        row[d["token"]] = run_formula(d["formula"], env)
+                    else:
+                        row.pop(d["token"], None)
             new_rows.append(row)
         answers[g] = new_rows
     return answers
