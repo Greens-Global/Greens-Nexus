@@ -28,6 +28,41 @@ const FRONTEND_ROOT = fileURLToPath(new URL('.', import.meta.url));
 // bump again - but if it ever does, increment nx2 -> nx3.
 const CACHE_NS = 'nx2';
 
+// The whiteboard engine ships 60 translations as separate dynamic imports
+// (`import("./locales/xx-YY-<hash>.js")`). Nexus is English only and the
+// engine's English strings are built in, so every one of those imports is
+// pointed at one empty module here - otherwise rolldown emits sixty ~70 KB
+// chunks (about 4 MB) that no one would ever download but the bundle budget
+// still counts (Notes boards, Neil 11/02/2026).
+//
+// The same plugin stubs `@excalidraw/mermaid-to-excalidraw`: the engine
+// reaches it only from its text-to-diagram dialog (off: aiEnabled={false})
+// and from pasting Mermaid source, and it drags the whole Mermaid renderer
+// in (about 2.5 MB more, landing in vendor-react and tripling first paint).
+// The stub rejects, so a pasted Mermaid snippet lands as plain text.
+const EXCALIDRAW_LOCALE_STUB = '\0excalidraw-locale-stub';
+const EXCALIDRAW_MERMAID_STUB = '\0excalidraw-mermaid-stub';
+function excalidrawLocaleStub() {
+  return {
+    name: 'nexus-excalidraw-locale-stub',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (!importer || !importer.includes('@excalidraw/excalidraw/dist/')) return null;
+      if (/^\.\/locales\/.+\.js$/.test(source)) return EXCALIDRAW_LOCALE_STUB;
+      if (source === '@excalidraw/mermaid-to-excalidraw') return EXCALIDRAW_MERMAID_STUB;
+      return null;
+    },
+    load(id) {
+      if (id === EXCALIDRAW_LOCALE_STUB) return 'export default {};';
+      if (id === EXCALIDRAW_MERMAID_STUB) {
+        return 'export async function parseMermaidToExcalidraw() { throw new Error("Diagrams from text are not available in Nexus."); }\nexport default { parseMermaidToExcalidraw };';
+      }
+      return null;
+    },
+  };
+}
+
+
 // Build identity. Every deploy path supplies a commit sha somewhere:
 //   - the wrangler workflows pass VITE_BUILD_ID explicitly,
 //   - Cloudflare Pages' own Git builds (how dev deploys) set CF_PAGES_COMMIT_SHA,
@@ -129,7 +164,7 @@ export default defineConfig(({ command }) => ({
     ...((NX_SRC || command === 'serve') && !process.env.VITEST
       // Dev serve stamps every element - size is irrelevant locally.
       ? [nxSrcVitePlugin({ root: FRONTEND_ROOT, only: command === 'serve' || process.env.VITE_NX_SRC === 'all' ? undefined : process.env.VITE_NX_SRC === 'interactive' ? 'interactive' : 'handlers' })] : []),
-    react(), versionManifest(), stampUnhashedAssets(),
+    react(), versionManifest(), stampUnhashedAssets(), excalidrawLocaleStub(),
   ],
   base: '/',
   // Build Mode's local preview / e2e runs share the main checkout's node_modules
@@ -158,6 +193,15 @@ export default defineConfig(({ command }) => ({
         // Split vendors into separate cached chunks — same approach as Amazon, Netflix, etc.
         // Each chunk loads in parallel and is cached independently by the browser.
         manualChunks(id) {
+          // The whiteboard engine (Notes boards, Neil 11/02/2026): the package
+          // and the libraries only it uses, in one lazy chunk reached by
+          // notes/board/Board.jsx's import() alone - never on first paint.
+          // Its small shared-looking deps (clsx, nanoid, pako, lodash.*,
+          // @radix-ui/*) stay in the catch-all so no other chunk ever has to
+          // pull this one in to reach them. Budget: check-bundle-size.mjs
+          // CHUNK_EXEMPT['vendor-excalidraw'].
+          if (id.includes(EXCALIDRAW_LOCALE_STUB) || id.includes(EXCALIDRAW_MERMAID_STUB) || id.includes('node_modules/@excalidraw/')
+            || /node_modules\/(roughjs|points-on-curve|perfect-freehand|jotai|jotai-scope|tunnel-rat|fractional-indexing|es6-promise-pool|browser-fs-access|image-blob-reduce|pica|png-chunk-text|png-chunks-encode|png-chunks-extract|open-color|fuzzy|@braintree\/sanitize-url|canvas-roundrect-polyfill)\//.test(id)) return 'vendor-excalidraw';
           if (id.includes('@azure/msal-browser') || id.includes('@azure/msal-react')) return 'vendor-msal';
           if (id.includes('@supabase/supabase-js'))  return 'vendor-supabase';
           if (id.includes('lucide-react'))            return 'vendor-icons';

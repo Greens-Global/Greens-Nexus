@@ -100,6 +100,7 @@
   --ease-out: cubic-bezier(.16,1,.3,1);
   --ease-in: cubic-bezier(.55,0,.85,.36);
   --ease-standard: cubic-bezier(.2,.8,.2,1);
+  --ease-spring: cubic-bezier(.34,1.56,.64,1);   /* one overshoot, for a lift or a pop only (rail motion, 11/01/2026) */
 
   /* color tokens for status badges only */
   --color-blue:   215,75%,45%;
@@ -508,26 +509,27 @@ h1,h2,h3,h4,h5,h6,
 .sbfx--out .sbfx-star { fill: #eab308; }
 .sbfx--out .sbfx-star:nth-of-type(even) { fill: #f59e0b; }
 /* The sidebar's tooltips (components/NavTip.jsx, Neil Oct 14 2026: "large
-   and obvious"). A dark panel in a layer on the page, placed and flipped by
-   the component, so the folded rail cannot clip it. The control's name is
-   the big line (15px, semibold); a quieter second line only says why a
-   button cannot be pressed, or gives the clock's numbers. `data-tone` draws a
-   thin colored rule down its left edge - green Punch In, amber Break, red
-   Punch Out - color as a rule, never a chip. The arrow points at the control
-   wherever the clamp to the window moved the panel (--navtip-arrow). */
+   and obvious"; the flyout look since 11/01/2026). A light card in a layer
+   on the page, placed and flipped by the component, so the folded rail
+   cannot clip it. The control's name is the big line (15px, semibold); a
+   quieter second line only says why a button cannot be pressed, or gives
+   the clock's numbers. `data-tone` draws a thin colored rule down its left
+   edge - green Punch In, amber Break, red Punch Out - color as a rule,
+   never a chip. With rail motion on it slides out from the control (180ms,
+   ease-out); off, it fades in as before. No fill mode: there is no delay. */
 .navtip {
-  --navtip-bg: #111827; --navtip-fg: #fff; --navtip-dim: rgba(255, 255, 255, .74);
+  --navtip-bg: var(--card, #fff); --navtip-fg: var(--ink, #111827); --navtip-dim: var(--muted, #6b7280);
   position: fixed; left: 0; top: 0; z-index: 10050; pointer-events: none;
   display: flex; flex-direction: column; gap: 3px;
   width: max-content; max-width: 300px; padding: 9px 14px;
   border-radius: 8px; background: var(--navtip-bg); color: var(--navtip-fg);
+  border: 1px solid var(--line);
   font-family: var(--wk-font, 'Inter', system-ui, sans-serif); text-align: left;
-  box-shadow: 0 12px 32px rgba(17, 24, 39, .28), 0 2px 6px rgba(17, 24, 39, .18);
-  animation: navtip-in .16s cubic-bezier(.16, 1, .3, 1) both;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .10), 0 1px 2px rgba(0, 0, 0, .06);
+  animation: navtip-in var(--dur-sm, 150ms) var(--ease-out);
 }
 [data-theme="dark"] .navtip {
-  --navtip-bg: #f9fafb; --navtip-fg: #111827; --navtip-dim: rgba(17, 24, 39, .68);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .08);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .06);
 }
 .navtip-label { font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -.005em; white-space: nowrap; }
 .navtip-detail { font-size: 12.5px; font-weight: 500; line-height: 1.4; color: var(--navtip-dim); }
@@ -539,11 +541,15 @@ h1,h2,h3,h4,h5,h6,
 .navtip[data-tone="in"] { --navtip-tone: hsl(var(--color-green)); }
 .navtip[data-tone="break"] { --navtip-tone: #f59e0b; }
 .navtip[data-tone="out"] { --navtip-tone: #ef4444; }
-.navtip::after { content: ''; position: absolute; border: 6px solid transparent; }
-.navtip[data-side="right"]::after { right: 100%; top: var(--navtip-arrow, 50%); margin-top: -6px; border-right-color: var(--navtip-bg); }
-.navtip[data-side="left"]::after { left: 100%; top: var(--navtip-arrow, 50%); margin-top: -6px; border-left-color: var(--navtip-bg); }
-.navtip[data-side="top"]::after { top: 100%; left: var(--navtip-arrow, 50%); margin-left: -6px; border-top-color: var(--navtip-bg); }
-.navtip[data-side="bottom"]::after { bottom: 100%; left: var(--navtip-arrow, 50%); margin-left: -6px; border-bottom-color: var(--navtip-bg); }
+/* The flyout (rail motion on): the card slides out from the control's edge
+   and settles - the same `navtip-in` keyframes, a starting transform per side
+   and the ease-out curve (the spring is the icon's alone). Off, the plain
+   fade. */
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip { animation: navtip-in 180ms var(--ease-out); }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="right"] { --navtip-from: translateX(-6px) scale(.98); transform-origin: left center; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="left"] { --navtip-from: translateX(6px) scale(.98); transform-origin: right center; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="top"] { --navtip-from: translateY(6px) scale(.98); transform-origin: center bottom; }
+:root[data-rail-motion]:not([data-rail-motion="off"]) .navtip[data-side="bottom"] { --navtip-from: translateY(-6px) scale(.98); transform-origin: center top; }
 /* It slides the last few pixels out from the control it names. */
 .navtip[data-side="right"] { --navtip-from: translateX(-6px); }
 .navtip[data-side="left"] { --navtip-from: translateX(6px); }
@@ -1243,6 +1249,82 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .nx-overlay.is-closing { animation: nx-fade-out var(--dur-sm) ease-in forwards; pointer-events: none; }
 .nx-overlay.is-closing > .nx-panel { animation: nx-pop-out var(--dur-sm) var(--ease-in) forwards; }
 .nx-overlay.is-closing > .nx-modal-sheet { animation: nx-sheet-down var(--dur-sm) var(--ease-in) forwards; }
+
+/* ── Sheets (Neil, 11/01/2026) ─────────────────────────────────────────────
+   A desktop popup that is a record, a form or a workspace is a SHEET: docked
+   to the right edge, full height, the width it already had (the 60% rule's
+   max(60vw, width), the Workday panels' 85vw), corners rounded on the left.
+   It slides in from off screen (320ms, ease-out) while the scrim fades, its
+   body's first rows cascade in a beat behind the frame, and it slides out
+   (220ms, ease-in) while the scrim fades out over the same 220ms - the JS
+   exit (useExit(onClose, MOTION.md)) waits exactly that long. Every sheet
+   casts its shadow to the left and has a hairline left edge
+   (lib/sheetStack.js SHEET_SHADOW / SHEET_EDGE for inline-styled ones).
+   Questions - DialogHost's confirm / alert / prompt, "Save
+   your changes?", any box tagged .nx-center - keep the centered pop above.
+   Phones keep their bottom sheet: everything here is desktop only.
+   Who draws the class: tasks/components.jsx Modal and marketing/shared/Modal
+   (placement="sheet", the default), the Workday panels, the task drawer;
+   the class-styled shells (.modal-overlay > .modal-content.nx-popup, the
+   credvault .cv-modal.nx-popup) get the same geometry from the rules below
+   without touching their markup. Transform and opacity only. */
+@keyframes nx-slide-in    { from { transform: translateX(100%); } }
+@keyframes nx-slide-out   { to   { transform: translateX(100%); } }
+@keyframes nx-cascade-in  { from { opacity: 0; transform: translateX(10px); } }
+.nx-sheet-right { animation: nx-slide-in var(--dur-lg) var(--ease-out); box-shadow: -8px 0 40px rgba(0,0,0,.18); border-left: 1px solid var(--line); }
+.is-closing > .nx-sheet-right { animation: nx-slide-out var(--dur-md) var(--ease-in) forwards; }
+/* The scrim leaves with the sheet, not 70ms ahead of it. */
+.nx-overlay.is-closing:has(> .nx-sheet-right) { animation-duration: var(--dur-md); }
+/* The body's first eight children arrive 18ms apart, 40ms after the frame
+   starts moving - only while the sheet is arriving: the shell carries
+   `is-entering` for 500ms after it opens (lib/sheetStack.js
+   useSheetEntering), so a row that mounts later (data landing, a tab
+   switch) does not slide in on its own. `backwards` only holds the start
+   state through the delay; once an item has landed the animation is over,
+   so no containing block. */
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(-n+8) { animation: nx-cascade-in var(--dur-md) var(--ease-out); animation-fill-mode: backwards; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(1) { animation-delay: 40ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(2) { animation-delay: 58ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(3) { animation-delay: 76ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(4) { animation-delay: 94ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(5) { animation-delay: 112ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(6) { animation-delay: 130ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(7) { animation-delay: 148ms; }
+.nx-sheet-right.is-entering .nx-cascade > *:nth-child(8) { animation-delay: 166ms; }
+/* A sheet under a newer sheet recedes (lib/sheetStack.js sets the attribute,
+   and `inert` with it) and comes back when the top one starts to leave. */
+.nx-sheet-right { transition: transform var(--dur-md) var(--ease-out), opacity var(--dur-md) var(--ease-out); }
+.nx-sheet-right[data-nx-under] { transform: translateX(-24px) scale(.985); opacity: .86; pointer-events: none; }
+/* The class-styled shells. `.nx-popup.nx-popup` (0,2,0) sets the 60vw card;
+   these (0,4,0) win on a desktop. A folder panel keeps its own motion. */
+@supports selector(:has(a)) {
+  @media (min-width: 641px) {
+    .modal-overlay:has(> .modal-content.nx-popup:not(.nx-center):not(.folder-panel)) { justify-content: flex-end; align-items: stretch; padding: 0; }
+    .modal-overlay > .modal-content.nx-popup:not(.nx-center):not(.folder-panel) {
+      height: 100%; max-height: 100%; min-height: 0;
+      border-radius: 16px 0 0 16px;
+      box-shadow: -8px 0 40px rgba(0,0,0,.18); border-left: 1px solid var(--line);
+      animation: nx-slide-in var(--dur-lg) var(--ease-out);
+    }
+    .modal-overlay.is-closing > .modal-content.nx-popup:not(.nx-center):not(.folder-panel) { animation: nx-slide-out var(--dur-md) var(--ease-in) forwards; }
+    .modal-overlay.is-closing:has(> .modal-content.nx-popup:not(.nx-center):not(.folder-panel)) { animation-duration: var(--dur-md); }
+    /* A credvault question (the OTP prompt, the personal vault password)
+       passes `center` and keeps the centered card. */
+    .cv-modal-overlay:has(> .cv-modal.nx-popup:not(.nx-center)) { justify-content: flex-end; align-items: stretch; padding: 0; }
+    .cv-modal-overlay > .cv-modal.nx-popup:not(.nx-center) {
+      height: 100%; max-height: 100%; min-height: 0;
+      border-radius: 16px 0 0 16px;
+      box-shadow: -8px 0 40px rgba(0,0,0,.18); border-left: 1px solid var(--line);
+      animation: nx-slide-in var(--dur-lg) var(--ease-out);
+    }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nx-sheet-right, .is-closing > .nx-sheet-right, .nx-sheet-right .nx-cascade > *,
+  .modal-overlay > .modal-content.nx-popup, .cv-modal-overlay > .cv-modal.nx-popup,
+  .nx-overlay.is-closing:has(> .nx-sheet-right) { animation: none !important; transition: none !important; }
+  .nx-sheet-right[data-nx-under] { transform: none; opacity: 1; }
+}
 
 /* Popups cover 60% of the screen (Pranshu, Oct 15 2026): put .nx-popup on any
    centered modal / dialog panel. Comes after .modal-content so it wins over
@@ -8335,4 +8417,67 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   html.nx-fullscreen .main-content, html.nx-fullscreen .main-content.main-collapsed { margin-left: 0; }
   html.nx-fullscreen .viewport:not(.viewport-flush) { padding: 14px 18px; }
   html.nx-fullscreen .wfc { height: calc(100vh - 180px - var(--nx-announce-h, 0px)); }
+}
+
+/* ── Rail motion (Neil, 11/01/2026) ───────────────────────────────────────────
+   The left navigation's motion, keyed on what lib/railMotion.js writes:
+   <html data-rail-motion="off|subtle|lively|bold" style="--rail-lift"> for
+   the strength, and the aside's own `data-motion` (present only while motion
+   is on and the sidebar is a desktop rail, never the phone drawer). Every
+   rule here is transform or opacity. The spring curve (one overshoot) is for
+   the icon lift on the way up and the one-time pop alone; the icon settling
+   back, the pills, the flyout, the cascade, the count bump and the chevron
+   all ease out. Under reduced motion lib/railMotion.js resolves to Off, and the
+   media query below stops anything mid-flight. */
+.sidebar[data-motion] .nav-list { position: relative; }
+.sidebar[data-motion] .nav-item { position: relative; z-index: 1; }
+/* The rows' own hover / active fills move onto the pills, so nothing paints twice. */
+.sidebar[data-motion] .nav-item:hover, .sidebar[data-motion] .nav-item.active,
+[data-theme="dark"] .sidebar[data-motion] .nav-item:hover, [data-theme="dark"] .sidebar[data-motion] .nav-item.active { background: transparent; }
+.nav-pill {
+  position: absolute; left: 0; right: 0; top: 0; height: 36px; margin: 0; padding: 0;
+  border-radius: 6px; list-style: none; pointer-events: none; z-index: 0; will-change: transform;
+}
+.nav-pill--hover {
+  background: var(--wk-hover, var(--sidebar-hover-bg)); opacity: 0;
+  transition: transform var(--dur-md) var(--ease-out), opacity var(--dur-sm) var(--ease-out);
+}
+.nav-pill--hover.is-on { opacity: 1; }
+.nav-pill--active {
+  background: var(--wk-brand-tint, var(--sidebar-active-bg));
+  transition: transform var(--dur-lg) var(--ease-out), opacity var(--dur-sm) var(--ease-out);
+}
+[data-theme="dark"] .nav-pill--hover { background: var(--sidebar-hover-bg); }
+[data-theme="dark"] .nav-pill--active { background: rgba(43, 69, 225, .22); }
+/* The lift: the icon only, never the row, so neighbors stay put and text
+   never reflows. Hover-capable pointers only - a finger has no hover. The
+   spring only on the way up (260ms); it settles back in 200ms, ease-out. */
+.sidebar[data-motion] .nav-ico { transition: transform 200ms var(--ease-out); }
+@media (hover: hover) {
+  .sidebar[data-motion] .nav-item:hover .nav-ico { transform: scale(var(--rail-lift, 1.18)); transition-duration: 260ms; transition-timing-function: var(--ease-spring); }
+  .sidebar[data-motion] .nav-item:active .nav-ico { transform: scale(.96); transition-duration: var(--dur-xs); transition-timing-function: var(--ease-out); }
+}
+/* The one-time pop on the newly active icon plays on the glyph inside, so it
+   composes with the lift on .nav-ico instead of replacing it: one keyframe,
+   the spring supplies the single overshoot. */
+.sidebar[data-motion] .nav-ico.is-pop > svg { animation: nav-pop 320ms var(--ease-spring); }
+@keyframes nav-pop { from { transform: scale(.9); } }
+/* Unfold: the words arrive top to bottom, 14ms apart; folding is instant.
+   `backwards` holds the start state through each delay only. */
+.sidebar.is-opening .nav-label, .sidebar.is-opening .nav-kicker, .sidebar.is-opening .company-name,
+.sidebar.is-opening .nav-count:not(.is-corner) {
+  animation: nav-slidein 260ms var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 14ms);
+}
+@keyframes nav-slidein { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+/* The edge tab's chevron turns with the rail instead of swapping glyphs;
+   the turn is animated only with rail motion on. */
+.sidebar[data-motion] .sidebar-collapse-btn svg { transition: transform var(--dur-lg) var(--ease-out); }
+.sidebar.collapsed .sidebar-collapse-btn svg { transform: rotate(180deg); }
+/* A waiting count that changed bumps once - still the quiet gray number. */
+.sidebar[data-motion] .nav-count.is-bump { animation: nav-bump 320ms var(--ease-out); }
+@keyframes nav-bump { 0% { transform: scale(.7); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .nav-pill, .sidebar .nav-ico, .sidebar .nav-ico > svg, .sidebar-collapse-btn svg { transition: none !important; animation: none !important; }
+  .sidebar.is-opening .nav-label, .sidebar.is-opening .nav-kicker, .sidebar.is-opening .company-name, .sidebar.is-opening .nav-count,
+  .sidebar .nav-count.is-bump { animation: none !important; }
 }

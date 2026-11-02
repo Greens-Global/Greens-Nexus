@@ -10,6 +10,7 @@ import KbTrainingEmailPref from './KbTrainingEmailPref';
 import { DATE_FORMATS, getDateFormat, setDateFormat, formatDate } from '../lib/datetime';
 import { Modal, useIsMobile } from '../tasks/components';
 import { SettingCard, SettingRow, SwitchRow } from './settings/SettingsUI';
+import { useRailMotion, FOLLOW_COMPANY } from '../lib/railMotion';
 import SaveRow from './SaveRow';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
@@ -37,6 +38,9 @@ const SECTIONS = [
 ];
 
 export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme, setWkTheme, sidebarPinned, onSidebarPinnedChange, focusEmail = false }) {
+  // How the left navigation moves (Neil, 11/01/2026) - the person's own
+  // choice over the company default (lib/railMotion.js). A pick saves at once.
+  const railMotion = useRailMotion();
   const isMobile = useIsMobile();
   const [section, setSection] = useState(focusEmail ? 'email' : 'appearance');
   // The settings API answers 403 for an account with no Task module access -
@@ -247,6 +251,9 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
           <SettingRow title="Theme" desc="The accent and surface colors of your workspace."
             control={segmented(wkTheme, WK_THEMES, (k) => setWkTheme(k), 'Theme')} />
         )}
+        <SettingRow title="Navigation Motion" desc="How the left navigation moves when you hover and click."
+          control={segmented(railMotion.personal, [[FOLLOW_COMPANY, `Company Default (${railMotion.company.charAt(0).toUpperCase()}${railMotion.company.slice(1)})`], ['off', 'Off'], ['subtle', 'Subtle'], ['lively', 'Lively'], ['bold', 'Bold']],
+            (k) => railMotion.setPersonal(k), 'Navigation Motion')} />
         {onSidebarPinnedChange && (
           <SettingRow title="Sidebar"
             desc={sidebarPinned ? 'Always stays expanded.' : 'Opens when you need it, closes when you click elsewhere.'}

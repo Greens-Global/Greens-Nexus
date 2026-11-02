@@ -9511,6 +9511,14 @@ class NexusNote(Base):
     ydoc        = Column(Text, default="")
     yepoch      = Column(String, default="")
     collab_key  = Column(String, default="")
+    # Boards (Neil, 11/02/2026): kind 'board' is a whiteboard. Its drawing is
+    # JSON in `scene` (type 'nexus-board', 2 MB at most, never the HTML
+    # sanitizer; `text` holds the words of its text elements for search),
+    # `thumb_url` a PNG in our storage for the list row, `source` JSON
+    # {kind, id, label, url} saying what a Mark Up board was made from.
+    scene       = Column(Text, default="")
+    thumb_url   = Column(String, default="")
+    source      = Column(Text, default="")
 
 
 class NexusNoteVersion(Base):
@@ -9526,6 +9534,7 @@ class NexusNoteVersion(Base):
     rev        = Column(Integer, default=0)
     saved_by   = Column(String, default="")
     created_at = Column(String, default="")
+    scene      = Column(Text, default="")     # a board's drawing as it stood (Boards, 11/02/2026)
 
 
 class NexusNotePresence(Base):

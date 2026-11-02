@@ -332,7 +332,7 @@ const GROUPS = [
   { id: 'brand-color', subject: 'branding', face: 'org', scope: 'org', icon: Palette, title: 'Brand Color',
     needs: { role: 'administrator' },
     sub: 'The accent color used across Nexus and on the sign-in screen.',
-    keywords: 'accent theme green blue login color' },
+    keywords: 'accent theme green blue login color navigation motion sidebar lively' },
   { id: 'email-appearance', subject: 'branding', face: 'org', scope: 'org', icon: Mail, title: 'Email Appearance',
     needs: { role: 'administrator' },
     sub: 'One logo, accent color and footer for every email Nexus sends: tasks, tickets, Nexus Sign, invitations and welcome emails.',

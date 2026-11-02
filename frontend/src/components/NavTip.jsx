@@ -8,6 +8,10 @@ import { createPortal } from 'react-dom';
 // first"), and the clock's status ring uses that line for its numbers. Nothing
 // else gets one: an action's tooltip is its name.
 //
+// Since 11/01/2026 it is the flyout: a light card that slides out from the
+// control (style.css `.navtip`), the same words and timing as before. It
+// eases out and never springs - the rail's spring curve is for the icon lift
+// and the one-time pop only.
 // It replaces the browser's own `title` tooltip (small, slow, unstyled) and the
 // CSS-only one the clock had, which the folded sidebar's overflow clipped - so
 // on the rail the clock fell back to `title`. This one is drawn in a layer on
@@ -92,11 +96,9 @@ export default function NavTip({ label, detail, side = 'right', tone, children }
     if (s === 'right' || s === 'left') {
       left = s === 'right' ? a.right + GAP : a.left - GAP - w;
       top = clamp(a.top + a.height / 2 - h / 2, EDGE, vh - EDGE - h);
-      el.style.setProperty('--navtip-arrow', `${a.top + a.height / 2 - top}px`);
     } else {
       left = clamp(a.left + a.width / 2 - w / 2, EDGE, vw - EDGE - w);
       top = s === 'top' ? a.top - GAP - h : a.bottom + GAP;
-      el.style.setProperty('--navtip-arrow', `${a.left + a.width / 2 - left}px`);
     }
     el.style.left = `${Math.round(left)}px`;
     el.style.top = `${Math.round(top)}px`;

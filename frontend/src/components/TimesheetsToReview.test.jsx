@@ -163,6 +163,21 @@ describe('TimesheetsToReview', () => {
     await waitFor(() => expect(toastErr).toHaveBeenCalledWith('0 time sheets approved and sent to sign, 1 failed. Storage is down.'));
   });
 
+  // Compact rows (11/02/2026): the queue must not take over the screen - the
+  // fix-first text sits on one truncated line that opens on click, and the
+  // list scrolls inside the card past ~6 rows instead of growing forever.
+  it('keeps the queue compact: detail expands on click, long lists scroll in place', async () => {
+    waiting.mockResolvedValue({ reviews: [row({ agreeBlocker: 'Fix this on the time sheet before you can approve - 09/01/2026: a clock-out with no clock-in.' })] });
+    render(<TimesheetsToReview onOpen={() => {}} />);
+    const detail = (await screen.findByText(/a clock-out with no clock-in/)).closest('button');
+    expect(detail.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(detail);
+    expect(detail.getAttribute('aria-expanded')).toBe('true');
+    const list = document.querySelector('[data-review="erin@x.com"]').parentElement;
+    expect(list.style.maxHeight).toBeTruthy();
+    expect(list.style.overflowY).toBe('auto');
+  });
+
   it('is disabled with the reason when nothing is clean', async () => {
     waiting.mockResolvedValue({ reviews: [row({ reviewFlag: 'Look at this before approving - 09/03/2026: Unusually long shift.' })] });
     render(<TimesheetsToReview onOpen={() => {}} />);

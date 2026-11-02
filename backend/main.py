@@ -1414,6 +1414,11 @@ def _run_migrations():
             "ALTER TABLE nexus_notes ADD COLUMN ydoc TEXT DEFAULT ''",
             "ALTER TABLE nexus_notes ADD COLUMN yepoch VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_notes ADD COLUMN collab_key VARCHAR DEFAULT ''",
+            # Boards (Neil 11/02/2026) - see the Postgres list. models.NexusNote / NexusNoteVersion.
+            "ALTER TABLE nexus_notes ADD COLUMN scene TEXT DEFAULT ''",
+            "ALTER TABLE nexus_notes ADD COLUMN thumb_url VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_notes ADD COLUMN source TEXT DEFAULT ''",
+            "ALTER TABLE nexus_note_versions ADD COLUMN scene TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3375,6 +3380,13 @@ def _run_migrations():
         "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS yepoch VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS collab_key VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_note_presence ENABLE ROW LEVEL SECURITY",
+        # Boards (Neil 11/02/2026): a whiteboard is a note - its drawing, a
+        # thumbnail and where a Mark Up came from; versions keep the drawing.
+        # Existing tables, no new RLS. models.NexusNote / NexusNoteVersion.
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS scene TEXT DEFAULT ''",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS thumb_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS source TEXT DEFAULT ''",
+        "ALTER TABLE nexus_note_versions ADD COLUMN IF NOT EXISTS scene TEXT DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
