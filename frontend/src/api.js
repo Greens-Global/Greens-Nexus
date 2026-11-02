@@ -3375,3 +3375,11 @@ export const fetchCareersOpening = (slug, id) => _publicCareers(`public/${encode
 // `form` is a FormData: first_name, last_name, email, phone, location,
 // linkedin_url, consent, nx_f2 (the honeypot - always empty) and resume.
 export const submitCareersApplication = (openingId, form) => _publicCareers(`apply/${encodeURIComponent(openingId)}`, { method: 'POST', body: form });
+
+// Web Push devices (Frontline Reach, Neil 11/02/2026; backend routers/push.py).
+// `pushConfig` says whether the server has keys and which public key the
+// browser subscribes with; the rest register and remove THIS device.
+api.pushConfig = () => req('/push/config');
+api.pushSubscribe = (sub) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
+api.pushUnsubscribe = (endpoint) => req('/push/subscribe', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
+api.pushSubscriptions = () => req('/push/subscriptions');

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Camera, Palette, Check, Copy, Mail, CalendarDays, Signature, User, Info } from 'lucide-react';
+import { Camera, Palette, Check, Copy, Mail, CalendarDays, Signature, User, Info, Smartphone } from 'lucide-react';
 import { api } from '../api';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
@@ -12,6 +12,7 @@ import { Modal, useIsMobile } from '../tasks/components';
 import { SettingCard, SettingRow, SwitchRow } from './settings/SettingsUI';
 import { useRailMotion, FOLLOW_COMPANY } from '../lib/railMotion';
 import SaveRow from './SaveRow';
+import { useInstallPrompt, usePushSubscription } from '../lib/pwa';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
 
@@ -32,6 +33,7 @@ const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ea
 // opens on Task Emails.
 const SECTIONS = [
   ['appearance', 'Appearance', Palette],
+  ['push', 'Phone Notifications', Smartphone],
   ['time', 'Date & Time', CalendarDays],
   ['signature', 'Email Signature', Signature],
   ['email', 'Task Emails', Mail],
@@ -41,6 +43,11 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   // How the left navigation moves (Neil, 11/01/2026) - the person's own
   // choice over the company default (lib/railMotion.js). A pick saves at once.
   const railMotion = useRailMotion();
+  // Nexus on the phone (Frontline Reach, Neil 11/02/2026, lib/pwa.js): install
+  // to the home screen and push for THIS device. Push carries the bell's own
+  // notices; it is off until the server has its keys.
+  const installer = useInstallPrompt();
+  const pushSub = usePushSubscription();
   const isMobile = useIsMobile();
   const [section, setSection] = useState(focusEmail ? 'email' : 'appearance');
   // The settings API answers 403 for an account with no Task module access -
@@ -260,6 +267,29 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             control={segmented(sidebarPinned ? 'open' : 'auto', [['auto', 'Collapse Automatically'], ['open', 'Keep Open']],
               (k) => onSidebarPinnedChange(k === 'open'), 'Sidebar')} />
         )}
+      </SettingCard>
+    ),
+    push: (
+      <SettingCard>
+        <SettingRow title="Install Nexus"
+          desc={installer.isStandalone ? 'Installed on this device. Open it from your home screen like any app.'
+            : installer.canInstall ? 'Put Nexus on your home screen: it opens full screen, with its own icon.'
+              : installer.isIos ? 'In Safari, tap Share, then Add to Home Screen.'
+                : 'Open Nexus in Chrome, Edge or Safari on your phone to install it to the home screen.'}
+          control={installer.isStandalone ? <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Installed</span>
+            : installer.canInstall ? <button type="button" className="primary-btn" style={{ fontSize: 12.5 }} onClick={() => installer.install()}>Install</button>
+              : null} />
+        <SwitchRow id="profile-push" title="Push to This Device"
+          desc={!pushSub.supported ? 'Not available in this browser. On an iPhone, install Nexus first and open it from the home screen.'
+            : !pushSub.loaded ? 'Checking...'
+              : !pushSub.enabled ? 'Not set up yet - the server has no push keys.'
+                : pushSub.permission === 'denied' ? 'Notifications are blocked for Nexus in this browser. Allow them in the browser or phone settings, then turn this on.'
+                  : pushSub.error ? pushSub.error
+                    : pushSub.subscribed ? 'The same notices as your bell, as notifications on this device.'
+                      : 'Get your bell notices as notifications on this device, even with Nexus closed.'}
+          checked={pushSub.subscribed}
+          disabled={!pushSub.supported || !pushSub.loaded || !pushSub.enabled || pushSub.busy || (pushSub.permission === 'denied' && !pushSub.subscribed)}
+          onChange={() => (pushSub.subscribed ? pushSub.unsubscribe() : pushSub.subscribe())} />
       </SettingCard>
     ),
     time: (
