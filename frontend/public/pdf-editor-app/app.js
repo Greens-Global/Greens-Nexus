@@ -1193,6 +1193,10 @@
             // one builds fresh (it's now kept hidden between edits, not destroyed).
             if (typeof destroyScrollView === 'function') destroyScrollView();
             _savedScrollTop = null;
+            // The opening sequence below turns the continuous view on again. Left
+            // "on", it would never rebuild, and a second file opened blank.
+            _scrollOn = false;
+            if (dom.canvasWrapper) dom.canvasWrapper.style.display = '';
             state.pdfDoc = pdf;
             state.totalPages = pdf.numPages;
             state.currentPage = 1;
@@ -1707,8 +1711,16 @@
         _canvasZoom = state.zoom;
     }
 
+    // Loads run one at a time: two overlapping loadFromJSON calls would leave
+    // whichever finished last on the canvas, under the other page's number.
+    let _restoreChain = Promise.resolve();
     function restoreAnnotations(pageNum, gen = _renderGen) {
         if (!fabricCanvas) return Promise.resolve();
+        const run = _restoreChain.then(() => (gen === _renderGen ? _restoreNow(pageNum, gen) : undefined));
+        _restoreChain = run.catch(() => {});
+        return run;
+    }
+    function _restoreNow(pageNum, gen) {
         // Anything added since the last save belongs to the page the canvas holds.
         saveCurrentAnnotations();
         _canvasPage = null;
@@ -1915,24 +1927,27 @@
     function _loadSnapshot(page, fabricData) {
         const snapZoom = fabricData.__zoom || state.zoom;
         _canvasPage = null;
-        _isRestoring = true;
-        fabricCanvas.loadFromJSON(fabricData, () => {
-            _canvasPage = page;
-            _canvasZoom = snapZoom;
-            _syncCanvasZoom();
-            const liveIds = new Set(state.layers.map(l => l.id));
-            fabricCanvas.forEachObject((o) => {
-                if (o._layerId !== undefined && !liveIds.has(o._layerId)) fabricCanvas.remove(o);
+        _restoreChain = _restoreChain.then(() => new Promise((resolve) => {
+            _isRestoring = true;
+            fabricCanvas.loadFromJSON(fabricData, () => {
+                _canvasPage = page;
+                _canvasZoom = snapZoom;
+                _syncCanvasZoom();
+                const liveIds = new Set(state.layers.map(l => l.id));
+                fabricCanvas.forEachObject((o) => {
+                    if (o._layerId !== undefined && !liveIds.has(o._layerId)) fabricCanvas.remove(o);
+                });
+                applyLayerVisibility();
+                _isRestoring = false;
+                fabricCanvas.renderAll();
+                applyToolMode();
+                saveCurrentAnnotations(); // re-tag with the CURRENT zoom, coords now match
+                markDirty();
+                _scheduleThumbRefresh();  // A2: refresh the thumbnail so undone markups clear
+                if (window.renderMeasureList) window.renderMeasureList();
+                resolve();
             });
-            applyLayerVisibility();
-            _isRestoring = false;
-            fabricCanvas.renderAll();
-            applyToolMode();
-            saveCurrentAnnotations(); // re-tag with the CURRENT zoom, coords now match
-            markDirty();
-            _scheduleThumbRefresh();  // A2: refresh the thumbnail so undone markups clear
-            if (window.renderMeasureList) window.renderMeasureList();
-        });
+        }));
         updateUndoRedoButtons();
     }
 
