@@ -500,3 +500,33 @@ describe('Insert Board in the note editor', () => {
     expect(screen.queryByRole('dialog', { name: 'Insert Board' })).toBeNull();
   });
 });
+
+describe('The board picker', () => {
+  it('lists the person\'s own boards first and marks one shared with them', async () => {
+    const { default: BoardPicker } = await import('./board/BoardPicker');
+    apiMock.notesList.mockResolvedValue({ notes: [
+      board({ id: 'b_shared', title: 'Bob Plan', mine: false, owner: 'bob@greensglobal.com' }),
+      board({ id: 'b_mine', title: 'My Plan' }),
+    ], counts: {}, tags: [] });
+    render(<BoardPicker onClose={vi.fn()} onPick={vi.fn()} />);
+    const picker = await screen.findByRole('dialog', { name: 'Insert Board' });
+    await within(picker).findByText('My Plan');
+    const titles = within(picker).getAllByRole('button').filter((b) => b.closest('li')).map((b) => b.textContent);
+    expect(titles[0]).toContain('My Plan');
+    expect(titles[1]).toContain('Bob Plan');
+    expect(titles[1]).toContain('Shared with you');
+    expect(titles[0]).not.toContain('Shared with you');
+  });
+
+  it('on a phone it is a bottom sheet over the note, and the overlay closes it', async () => {
+    const { default: BoardPicker } = await import('./board/BoardPicker');
+    apiMock.notesList.mockResolvedValue({ notes: [board()], counts: {}, tags: [] });
+    const onClose = vi.fn();
+    const { container } = render(<div><BoardPicker phone onClose={onClose} onPick={vi.fn()} /></div>);
+    const picker = await screen.findByRole('dialog', { name: 'Insert Board' });
+    expect(picker.classList.contains('is-sheet')).toBe(true);
+    expect(container.contains(picker)).toBe(false);          // portaled to the body, not inside the editor
+    fireEvent.pointerDown(document.querySelector('.nt-board-pick-overlay'));
+    expect(onClose).toHaveBeenCalled();
+  });
+});

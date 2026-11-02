@@ -431,3 +431,17 @@
 .nt-qn.is-page .nt-source-btn { max-width: 150px; }
 /* A board on a phone: a pinch or a drag at the sheet's edge never scrolls or bounces what is under it. */
 .nt-qn.is-page .nt-qn-body { overscroll-behavior: contain; }
+/* Insert Board on a phone (11/02/2026): a bottom sheet over the note. */
+.nt-board-pick-overlay { z-index: 4200; }
+.nt-board-pick.is-sheet {
+  position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: 100%; z-index: 4201; max-height: 72vh;
+  display: flex; flex-direction: column; border-radius: 16px 16px 0 0; border-bottom: none;
+  padding-bottom: env(safe-area-inset-bottom, 0px); animation: nt-sheet-up var(--dur-md, 220ms) var(--ease-out, cubic-bezier(.2, .8, .2, 1));
+}
+.nt-board-pick.is-sheet .nt-board-pick-list { max-height: none; flex: 1 1 auto; overscroll-behavior: contain; }
+.nt-board-pick.is-sheet .nt-board-pick-head input { font-size: 16px; }
+.nt-board-pick.is-sheet .nt-board-pick-list button { min-height: 52px; }
+.nt-board-pick-grab { width: 36px; height: 4px; border-radius: 2px; background: var(--wk-line2); margin: 8px auto 2px; flex-shrink: 0; }
+.nt-board-pick-shared { display: block; font-size: 11.5px; font-weight: 500; color: var(--wk-faint, #9699a6); }
+@keyframes nt-sheet-up { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .nt-board-pick.is-sheet { animation: none; } }

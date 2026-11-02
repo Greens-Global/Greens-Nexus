@@ -456,7 +456,7 @@ export default function NoteEditor({
         </div>
       )}
       {!readOnly && !phone && <MediaStatus voice={voice} dictation={dictation} busy={busy} error={err} onDismiss={clearErr} />}
-      {boardPick && <BoardPicker onClose={() => setBoardPick(false)} onPick={insertBoard} />}
+      {boardPick && <BoardPicker phone={phone} onClose={() => setBoardPick(false)} onPick={insertBoard} />}
       {!readOnly && inTable && (
         <div className="nt-subbar" role="toolbar" aria-label="Table">
           <span className="nt-subbar-label">Table</span>
@@ -498,6 +498,7 @@ export default function NoteEditor({
               <PBtn icon={Link2} label="Link" active={on('link')} onClick={openLink} />
               <PBtn icon={TableIcon} label="Insert Table" onClick={run((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
               <PBtn icon={Minus} label="Divider" onClick={run((c) => c.setHorizontalRule())} />
+              <PBtn icon={PenTool} label="Insert Board" active={boardPick} onClick={() => { setMore(false); openBoardPick(); }} />
               {onMakeTask && <PBtn icon={ListPlus} label="Make a Task" onClick={makeTask} />}
               <PBtn icon={Undo2} label="Undo" disabled={!e.can().undo()} onClick={run((c) => c.undo())} />
               <PBtn icon={Redo2} label="Redo" disabled={!e.can().redo()} onClick={run((c) => c.redo())} />
