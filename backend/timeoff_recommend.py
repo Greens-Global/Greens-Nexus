@@ -111,6 +111,12 @@ def _balance(db: Session, req, days: list) -> tuple[bool | None, str]:
     return True, f"Balance covers it ({_h(left)} h left after)."
 
 
+def _has_manager(db: Session, req) -> bool:
+    email = (req.employee_email or "").strip().lower()
+    emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == email).first()
+    return bool(((emp.manager_email if emp is not None else "") or "").strip())
+
+
 def _teammates_off(db: Session, req) -> list[str]:
     """One sentence per teammate (same manager) with approved or pending
     time off inside the request's span; [] when nobody is."""
@@ -188,13 +194,15 @@ def recommend(db: Session, req) -> dict:
     mates = _teammates_off(db, req)
     if mates:
         look.extend(mates)
-    else:
+    elif _has_manager(db, req):
+        # No manager = no team to speak of: saying nobody is off would claim
+        # a check that was never made.
         fine.append("Nobody else on the team is off those days.")
     ok, why = _notice(db, req, notice_days)
     if why:
         (fine if ok else look).append(why)
     if len(days) > short_days:
-        look.append(f"{len(days)} working days.")
+        look.append(f"{len(days)} working days - longer than the usual {short_days}.")
     tone = CHECK if look else GOOD
     return {"tone": tone, "label": LABELS[tone], "reasons": look + fine}
 
