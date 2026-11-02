@@ -1705,6 +1705,11 @@ def delete_template(tid: str, user: dict = Depends(get_current_user), db: Sessio
     # block it instead of silently orphaning those documents.
     if db.query(Document).filter(Document.template_id == tid).first():
         raise HTTPException(409, "Cannot delete a template that has generated documents - archive it instead")
+    # A form's entries pin the template they were filled on (Forms, Neil
+    # 11/02/2026) - deleting it would leave every entry without its fields.
+    from models import DocFormEntry
+    if db.query(DocFormEntry.id).filter(DocFormEntry.template_id == tid).first():
+        raise HTTPException(409, "This form has entries - archive it instead")
     # An HR packet sends it (Oct 14): deleting it would break every hire,
     # promotion or separation that packet covers.
     from models import HrPacketSetting

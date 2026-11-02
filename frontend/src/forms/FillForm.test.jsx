@@ -25,6 +25,8 @@ vi.mock('../components/ESign', () => ({
     </div>
   ),
 }));
+const mode = vi.hoisted(() => ({ phone: false }));
+vi.mock('../lib/useIsMobile', () => ({ useIsMobile: () => mode.phone }));
 vi.mock('../lib/geoPosition', () => ({ getPosition: (...a) => getPosition(...a) }));
 
 const FillForm = (await import('./FillForm')).default;
@@ -49,9 +51,10 @@ const ENTRY = { id: 'e1', templateId: 't1', title: 'Vehicle Check', status: 'sub
 const UUID_RE = /^[0-9a-f-]{20,}$/i;
 
 const typeIn = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
-const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
 beforeEach(() => {
+  mode.phone = false;
   localStorage.clear();
   formGet.mockReset().mockResolvedValue(TEMPLATE);
   formSubmit.mockReset().mockResolvedValue(ENTRY);
@@ -93,10 +96,13 @@ describe('FillForm', () => {
     await screen.findByText('Vehicle Check');
     typeIn('Plate', 'ABC123');
     fireEvent.click(screen.getByRole('button', { name: 'No' }));
-    fireEvent.click(screen.getByRole('button', { name: /Add Tire/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Add Tire/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Another Tires/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Another Tires/ }));
     const tires = screen.getAllByLabelText('Tire');
     expect(tires).toHaveLength(2);
+    // The group's one name (its section): "Tires 1", "Tires 2", "Add Another Tires".
+    expect(screen.getByText('Tires 1')).toBeTruthy();
+    expect(screen.getByText('Tires 2')).toBeTruthy();
     fireEvent.change(tires[0], { target: { value: 'FL' } });
     fireEvent.change(screen.getAllByLabelText('PSI')[0], { target: { value: '32' } });
     fireEvent.change(tires[1], { target: { value: 'RR' } });
@@ -148,7 +154,7 @@ describe('FillForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'No' }));
     // Three taps before React repaints: the ref guard (and then the disabled
     // "Sending..." button) let exactly one request out.
-    const go = screen.getByRole('button', { name: 'Submit' });
+    const go = screen.getByRole('button', { name: 'Send' });
     fireEvent.click(go); fireEvent.click(go); fireEvent.click(go);
     expect(formSubmit).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: /Sending/ })).toBeDisabled();
@@ -174,8 +180,8 @@ describe('FillForm', () => {
     await screen.findByText('Vehicle Check');
     typeIn('Plate', 'ABC123');
     fireEvent.click(screen.getByRole('button', { name: 'No' }));
-    fireEvent.click(screen.getByRole('button', { name: /Add Tire/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Add Tire/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Another Tires/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Another Tires/ }));
     fireEvent.change(screen.getAllByLabelText('Tire')[0], { target: { value: 'FL' } });
     fireEvent.change(screen.getAllByLabelText('Tire')[1], { target: { value: 'RR' } });
     submit();
@@ -229,7 +235,88 @@ describe('FillForm', () => {
     render(<FillForm template={TEMPLATE} preview onClose={() => {}} />);
     await screen.findByText('Vehicle Check');
     expect(formGet).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: 'Submit' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
     expect(screen.getByText(/Preview/)).toBeTruthy();
+  });
+
+  it('on a phone the chips, Yes / No and the rating stars are 44px tap targets', async () => {
+    mode.phone = true;
+    const tpl = { ...TEMPLATE, fieldDefs: [...TEMPLATE.fieldDefs, { token: 'score', label: 'Score', type: 'rating', section: 'Damage' }] };
+    render(<FillForm template={tpl} onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    for (const name of ['Yes', 'No', 'Take a Photo', 'Upload', 'Stamp My Location', 'Sign', '3 of 5']) {
+      expect(screen.getByRole('button', { name })).toHaveStyle({ minHeight: '44px' });
+    }
+    expect(screen.getByRole('button', { name: '3 of 5' })).toHaveStyle({ padding: '9px' });
+  });
+
+  it('a location that does not answer says how to turn it on', async () => {
+    getPosition.mockResolvedValue(null);
+    render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    fireEvent.click(screen.getByRole('button', { name: 'Stamp My Location' }));
+    expect(await screen.findByText('Location is off or did not answer. Allow location for Nexus in your browser settings, then tap Stamp My Location again.')).toBeTruthy();
+  });
+
+  it('with one work site the entry is at that site without asking', async () => {
+    formGet.mockResolvedValue({ ...TEMPLATE, workSites: [TEMPLATE.workSites[0]] });
+    render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    expect(screen.queryByText('Work Site')).toBeNull();
+    typeIn('Plate', 'ABC123');
+    fireEvent.click(screen.getByRole('button', { name: 'No' }));
+    submit();
+    await waitFor(() => expect(formSubmit).toHaveBeenCalledTimes(1));
+    expect(formSubmit.mock.calls[0][1].workSiteId).toBe('s1');
+  });
+
+  it('the photo field takes focus and a Ctrl+V paste, with no button pressed first', async () => {
+    render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    const zone = screen.getByRole('group', { name: 'Photos - press Ctrl+V to paste a screenshot' });
+    expect(zone).toHaveAttribute('tabindex', '0');
+    expect(zone).toHaveClass('nx-paste-zone');
+    zone.focus();
+    expect(zone).toHaveFocus();
+    const file = new File(['x'], 'shot.png', { type: 'image/png' });
+    fireEvent.paste(zone, { clipboardData: { items: [{ type: 'image/png', getAsFile: () => file }] } });
+    await waitFor(() => expect(storeTaskFile).toHaveBeenCalledTimes(1));
+    expect(storeTaskFile.mock.calls[0][0]).toBe(file);
+  });
+
+  it('a time field is the 12-hour picker, never the native time box', async () => {
+    formGet.mockResolvedValue({ ...TEMPLATE, fieldDefs: [{ token: 'at', label: 'Time of Incident', type: 'time', section: 'Vehicle' }] });
+    const { container } = render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    expect(container.querySelector('input[type="time"]')).toBeNull();
+    const box = screen.getByRole('combobox', { name: 'Time of Incident' });
+    expect(screen.getByRole('option', { name: '2:15 PM' })).toBeTruthy();
+    fireEvent.change(box, { target: { value: '14:15' } });
+    submit();
+    await waitFor(() => expect(formSubmit).toHaveBeenCalledTimes(1));
+    expect(formSubmit.mock.calls[0][1].answers.at).toBe('14:15');
+  });
+
+  it('Send waits for photos still uploading and says how many', async () => {
+    const done = [];
+    storeTaskFile.mockImplementation(() => new Promise((r) => done.push(r)));
+    render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    typeIn('Plate', 'ABC123');
+    fireEvent.click(screen.getByRole('button', { name: 'No' }));
+    const cam = document.querySelector('input[type="file"][capture="environment"][accept="image/*"]');
+    fireEvent.change(cam, { target: { files: [new File(['a'], 'a.jpg', { type: 'image/jpeg' }), new File(['b'], 'b.jpg', { type: 'image/jpeg' })] } });
+    const wait2 = await screen.findByRole('button', { name: /Waiting for 2 photos\.\.\./ });
+    expect(wait2).toBeDisabled();
+    fireEvent.click(wait2);
+    expect(formSubmit).not.toHaveBeenCalled();
+    await act(async () => { done[0]('https://x.supabase.co/storage/v1/object/public/task-files/forms/k/a.png'); });
+    expect(await screen.findByRole('button', { name: /Waiting for 1 photo\.\.\./ })).toBeDisabled();
+    await act(async () => { done[1]('https://x.supabase.co/storage/v1/object/public/task-files/forms/k/b.png'); });
+    const send = await screen.findByRole('button', { name: 'Send' });
+    expect(send).not.toBeDisabled();
+    submit();
+    await waitFor(() => expect(formSubmit).toHaveBeenCalledTimes(1));
+    expect(formSubmit.mock.calls[0][1].answers.photos).toHaveLength(2);
   });
 });

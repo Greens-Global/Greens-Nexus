@@ -54,6 +54,8 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   const [availOpen, setAvailOpen] = useState(false);
   const nameOf = useNameResolver();
   const phone = useIsMobile();
+  // The small Fill / Request buttons under a shift, big enough for a thumb on a phone.
+  const smallTap = phone ? { minHeight: 28, padding: '4px 9px' } : null;
   const [weekStart, setWeekStartPref] = useState('monday');
   const [cursor, setCursor] = useState(() => new Date());
   const [data, setData] = useState(null);
@@ -417,7 +419,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
                     {formsForShift(shiftForms, s, data?.teams).map((f) => (
                       <button key={f.id} type="button" onClick={() => setFillForm({ form: f, shift: s })} aria-label={`Fill ${f.title}`}
                         style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
-                          border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit', maxWidth: '100%' }}>
+                          border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit', maxWidth: '100%', ...smallTap }}>
                         <ClipboardList size={10} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Fill {f.title}</span>
                       </button>
                     ))}
@@ -425,7 +427,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
                       : askable && (
                         <button type="button" onClick={() => setAsk({ shift: s })} aria-label={`Request a swap${canRelease ? ', offer or release' : ' or offer'} for ${formatHHMM(s.start)} - ${formatHHMM(s.end)}`}
                           style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
-                            border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' }}>
+                            border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit', ...smallTap }}>
                           <ArrowLeftRight size={10} /> Request
                         </button>
                       )}

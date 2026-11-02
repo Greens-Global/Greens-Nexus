@@ -396,6 +396,7 @@ class FormsTests(unittest.TestCase):
         out = r.json()
         self.assertEqual(out["status"], "reviewed")
         self.assertEqual(out["reviewerEmail"], MGR)
+        self.assertEqual(out["reviewerName"], "Mgr Forms")   # the panel shows who, by name
         self.assertEqual(out["reviewNote"], "Looks good")
         self.assertTrue(out["reviewedAt"])
         r = self.client.post(f"/forms/entries/{e['id']}/review", json={"status": "follow_up", "note": "Check tire 2"})
@@ -410,9 +411,99 @@ class FormsTests(unittest.TestCase):
             self.assertIn("Check tire 2", bells[0].body)
             self.assertNotIn("—", bells[0].body)
             self.assertNotRegex(bells[0].body, r"\d{4}-\d{2}-\d{2}")   # never a raw ISO date
-            self.assertEqual(json.loads(bells[0].action)["entryId"], e["id"])
+            action = json.loads(bells[0].action)
+            self.assertEqual(action["entryId"], e["id"])
+            # The sub opens that entry, not just the Forms tab.
+            self.assertEqual((action["view"], action["sub"]), ("documents", f"documents-forms:entry:{e['id']}"))
         finally:
             db.close()
+
+    def test_times_read_in_the_readers_zone(self):
+        """The bell in the recipient's zone, the PDF in the submitter's (with
+        its short name), the CSV in the exporter's - an India crew member
+        reads India time, never UTC."""
+        import form_entry_pdf
+        # 08:44 UTC on 11/02/2026 is 2:14 PM in India and 12:44 AM in California (PST).
+        self.assertEqual(form_entry_pdf.us_datetime("2026-11-02T08:44:00Z", "Asia/Kolkata"), "11/02/2026 2:14 PM")
+        self.assertEqual(form_entry_pdf.us_datetime("2026-11-02T08:44:00", "Asia/Kolkata", named=True),
+                         "11/02/2026 2:14 PM IST")
+        self.assertEqual(form_entry_pdf.us_datetime("2026-11-02T08:44:00Z", "America/Los_Angeles", named=True),
+                         "11/02/2026 12:44 AM PT")
+        self.assertEqual(form_entry_pdf.us_datetime("2026-11-02T08:44:00Z"), "11/02/2026 8:44 AM")
+        self.assertEqual(form_entry_pdf.us_datetime("2026-11-02T08:44:00Z", "Not/AZone"), "11/02/2026 8:44 AM")
+
+        tpl = self._template()
+        e = self._submit(tpl["id"], REP)
+        db = database.SessionLocal()
+        try:
+            # REP works an India shift preset; MGR has none (the company default, Pacific).
+            db.add(models.Shift(id="forms-ist", name="India Day", timezone="Asia/Kolkata"))
+            db.add(models.ShiftAssignment(id="forms-ist-rep", employee_email=REP, shift_id="forms-ist"))
+            row = db.query(models.DocFormEntry).filter(models.DocFormEntry.id == e["id"]).first()
+            row.submitted_at = "2026-11-02T08:44:00"
+            db.commit()
+        finally:
+            db.close()
+        try:
+            self._as(MGR)
+            self.assertEqual(self.client.post(f"/forms/entries/{e['id']}/review",
+                                              json={"status": "reviewed"}).status_code, 200)
+            db = database.SessionLocal()
+            try:
+                bell = db.query(models.NexusNotification).filter(models.NexusNotification.recipient == REP).one()
+                self.assertIn("from 11/02/2026 2:14 PM as Reviewed", bell.body)
+                row = db.query(models.DocFormEntry).filter(models.DocFormEntry.id == e["id"]).first()
+                tpl_row = db.query(models.DocTemplate).filter(models.DocTemplate.id == tpl["id"]).first()
+                text = json.dumps(form_entry_pdf.build_blocks(db, row, tpl_row, tpl_row.field_defs or []))
+                self.assertIn("on 11/02/2026 2:14 PM IST", text)
+            finally:
+                db.close()
+            rows = list(csv.reader(io.StringIO(self.client.get(f"/forms/templates/{tpl['id']}/export.csv").text)))
+            header = rows[0]
+            self.assertEqual(rows[1][header.index("submittedAt")], "11/02/2026 12:44 AM")
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(models.ShiftAssignment).filter(models.ShiftAssignment.id == "forms-ist-rep").delete()
+                db.query(models.Shift).filter(models.Shift.id == "forms-ist").delete()
+                db.commit()
+            finally:
+                db.close()
+
+    def test_a_form_with_entries_cannot_be_deleted_only_archived(self):
+        tpl = self._template()
+        empty = self._template(name="Unused Check")
+        self._submit(tpl["id"], REP)
+        self._as(ADMIN)
+        r = self.client.delete(f"/documents/templates/{tpl['id']}")
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(r.json()["detail"], "This form has entries - archive it instead")
+        self.assertEqual(self.client.delete(f"/documents/templates/{empty['id']}").status_code, 200)
+
+    def test_a_repeat_group_is_named_by_the_one_rule(self):
+        """The screens' groupLabel (forms/formsModel.js): the first member's
+        section, else the group key humanized."""
+        import form_entry_pdf
+        self.assertEqual(form_entry_pdf.group_label("tires", [{"token": "psi", "section": "Tire Checks"}]), "Tire Checks")
+        self.assertEqual(form_entry_pdf.group_label("tires", [{"token": "psi"}]), "Tires")
+        self.assertEqual(form_entry_pdf.group_label("tire_rows", []), "Tire Rows")
+
+    def test_pdf_captions_photos_and_prints_links_only_without_pictures(self):
+        import form_entry_pdf
+        from unittest import mock
+        urls = [STORAGE + "a.jpg", STORAGE + "b.jpg", STORAGE + "c.jpg"]
+        with mock.patch.object(form_entry_pdf, "_images_allowed", return_value=True):
+            blocks = form_entry_pdf._photo_blocks("Photos", urls)
+            text = json.dumps(blocks)
+            self.assertEqual(sum(1 for b in blocks if b["type"] == "image"), 3)
+            self.assertIn("Photo 1 of 3", text)
+            self.assertIn("Photo 3 of 3", text)
+            self.assertNotIn('"text": "' + urls[0], text)
+        with mock.patch.object(form_entry_pdf, "_images_allowed", return_value=False):
+            blocks = form_entry_pdf._photo_blocks("Photos", urls)
+            self.assertFalse(any(b["type"] == "image" for b in blocks))
+            self.assertIn(urls[2], json.dumps(blocks))
+            self.assertNotIn("Photo 1 of 3", json.dumps(blocks))
 
     def test_links_are_stored_on_the_entry(self):
         tpl = self._template()

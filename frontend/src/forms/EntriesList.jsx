@@ -118,9 +118,12 @@ export default function EntriesList({ templates = [], onOpen, selectedId = '', i
         )}
         {filtered && <button type="button" className="secondary-btn" onClick={() => { setFilters(EMPTY); setPage(1); }}>Clear</button>}
         <button type="button" className="secondary-btn" disabled={!filters.template || exporting} onClick={exportCsv}
-          title={filters.template ? 'One row per entry, one column per field' : 'Pick a form first - the export is one form\'s entries'}>
+          aria-describedby={filters.template ? undefined : 'form-entries-export-why'}
+          title={filters.template ? 'One row per entry, one column per field' : undefined}>
           {exporting ? 'Exporting...' : 'Export CSV'}
         </button>
+        {/* Why the button is off, said on the page - a tooltip never shows on a phone or a disabled button. */}
+        {!filters.template && <span id="form-entries-export-why" className="nx-dl-muted" style={{ fontSize: 12, alignSelf: 'center' }}>Pick a form to export - the CSV is one form's entries.</span>}
       </div>
       {exportError && <div role="alert" className="nx-dl-muted" style={{ color: 'hsl(var(--color-red))', marginBottom: 8 }}>{exportError}</div>}
 

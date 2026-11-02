@@ -315,7 +315,8 @@ class DocumentsPackTests(unittest.TestCase):
         self.assertFalse(ent.visible_to(self.db, None, row))
         self.assertEqual(ent.company_of(row), CO_A)
         link = ent.link(row)
-        self.assertEqual((link["view"], link["sub"], link["entryId"]), ("documents", "documents-forms", row.id))
+        self.assertEqual((link["view"], link["sub"], link["entryId"]),
+                         ("documents", f"documents-forms:entry:{row.id}", row.id))
 
     def test_building_on_form_events_takes_a_manager_or_the_documents_grant(self):
         keys = {"form.submitted", "form.reviewed"}

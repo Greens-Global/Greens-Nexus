@@ -8,14 +8,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MapPin } from 'lucide-react';
 import { api } from '../api';
+import { setPendingOpen } from '../lib/pendingOpen';
 import { formatDateTime } from '../lib/datetime';
 import { StatusLabel } from '../components/StatusLabel';
 import { PanelShell, saveBlob } from '../components/DocumentSidePanel';
 import { AttachmentViewer } from '../tasks/components';
 import { TicketComposer, TaskComposer } from './entryMounts';
-import { REVIEW_ACTIONS, entryState, entryTitle, entryBody, entryFiles, formatAnswer, groupBySection, mapsLink } from './formsModel';
+import { REVIEW_ACTIONS, entryState, entryTitle, entryBody, entryFiles, formatAnswer, groupBySection, groupLabel, mapsLink } from './formsModel';
 
 const go = (view, detail) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, ...detail } }));
+// The linked ticket / task opens itself, not just its module - both halves of
+// the bell's handoff (components/NotificationBell.jsx, lib/pendingOpen.js):
+// the note for a module still loading, the event for one already up.
+const openLinked = (kind, id) => {
+  const detail = kind === 'ticket' ? { ticketId: id } : { taskId: id };
+  go(kind === 'ticket' ? 'tickets' : 'tasks', detail);
+  setPendingOpen(kind, id);
+  setTimeout(() => window.dispatchEvent(new CustomEvent(`nexus:open-${kind}`, { detail })), 0);
+};
 
 function Photos({ label, urls, onOpen }) {
   return (
@@ -80,7 +90,7 @@ function Answers({ defs, answers, onOpen }) {
       groups.add(g);
       const members = fields.filter((f) => f.repeat?.group === g);
       members.forEach((m) => known.add(m.token));
-      items.push({ key: `group:${g}`, label: members.map((m) => m.label || m.token).join(' / '), wide: true,
+      items.push({ key: `group:${g}`, label: groupLabel(g, members), wide: true,
         node: <RepeatRows group={g} fields={members} rows={Array.isArray(answers[g]) ? answers[g] : []} onOpen={onOpen} /> });
     }
     return { section, items };
@@ -104,6 +114,15 @@ function Answers({ defs, answers, onOpen }) {
   ));
 }
 
+// The review as the submitter and the reviewer both read it: the note, who
+// set the state and when.
+function ReviewNote({ entry }) {
+  return (
+    <div className="nx-dl-step"><i className={`nx-dl-dot nx-dl-${entryState(entry.status).tone}`} aria-hidden="true" />
+      <div>{entry.reviewNote}<small>{entry.reviewerName || entry.reviewerEmail}{entry.reviewedAt ? ` - ${formatDateTime(entry.reviewedAt)}` : ''}</small></div></div>
+  );
+}
+
 function Review({ entry, onSaved, toastOk, toastErr }) {
   const [status, setStatus] = useState('');
   const [note, setNote] = useState('');
@@ -113,7 +132,7 @@ function Review({ entry, onSaved, toastOk, toastErr }) {
     setBusy(true);
     try {
       const next = await api.reviewFormEntry(entry.id, { status, note: note.trim() });
-      toastOk?.(`${entryState(status).label} - ${entry.submittedByName || entry.submittedBy || 'the submitter'} is told`);
+      toastOk?.(`Marked ${entryState(status).label} - ${entry.submittedByName || entry.submittedBy || 'the submitter'} has been notified`);
       setStatus(''); setNote('');
       await onSaved(next);
     } catch (e) { toastErr?.(e?.message || 'Could not save the review.'); }
@@ -137,10 +156,7 @@ function Review({ entry, onSaved, toastOk, toastErr }) {
           </div>
         </>
       )}
-      {entry.reviewNote && !status && (
-        <div className="nx-dl-step"><i className={`nx-dl-dot nx-dl-${entryState(entry.status).tone}`} aria-hidden="true" />
-          <div>{entry.reviewNote}<small>{entry.reviewerEmail}{entry.reviewedAt ? ` - ${formatDateTime(entry.reviewedAt)}` : ''}</small></div></div>
-      )}
+      {entry.reviewNote && !status && <ReviewNote entry={entry} />}
     </section>
   );
 }
@@ -217,9 +233,9 @@ export default function EntryPanel({ entry: given, onClose, onChanged, toastOk, 
     ['Submitted', formatDateTime(entry.submittedAt)],
     ['Site', entry.workSiteName],
     ['Company', entry.company],
-    ['Form', entry.templateVersion ? `Version ${entry.templateVersion}` : ''],
-    ['From', entry.source === 'phone' ? 'A phone' : entry.source === 'web' ? 'The web' : ''],
-    ['Reviewed', entry.reviewedAt ? `${formatDateTime(entry.reviewedAt)}${entry.reviewerEmail ? ` by ${entry.reviewerEmail}` : ''}` : ''],
+    ['Form Version', entry.templateVersion ? String(entry.templateVersion) : ''],
+    ['Sent From', entry.source === 'phone' ? 'Phone' : entry.source === 'web' ? 'Web' : ''],
+    ['Reviewed', entry.reviewedAt ? `${formatDateTime(entry.reviewedAt)}${entry.reviewerEmail ? ` by ${entry.reviewerName || entry.reviewerEmail}` : ''}` : ''],
   ].filter(([, v]) => v);
 
   return (
@@ -237,8 +253,8 @@ export default function EntryPanel({ entry: given, onClose, onChanged, toastOk, 
       </div>
       {(entry.linkedTicketId || entry.linkedTaskId || entry.linkedAssetId) && (
         <div className="nx-dl-actions" aria-label="Linked records">
-          {entry.linkedTicketId && <button type="button" className="secondary-btn" onClick={() => go('tickets', { ticketId: entry.linkedTicketId })}>Open Ticket</button>}
-          {entry.linkedTaskId && <button type="button" className="secondary-btn" onClick={() => go('tasks', { taskId: entry.linkedTaskId })}>Open Task</button>}
+          {entry.linkedTicketId && <button type="button" className="secondary-btn" onClick={() => openLinked('ticket', entry.linkedTicketId)}>Open Ticket</button>}
+          {entry.linkedTaskId && <button type="button" className="secondary-btn" onClick={() => openLinked('task', entry.linkedTaskId)}>Open Task</button>}
           {entry.linkedAssetId && <button type="button" className="secondary-btn" onClick={() => go('property-asset', { sub: `a:${entry.linkedAssetId}:overview` })}>Open Asset</button>}
         </div>
       )}
@@ -248,7 +264,7 @@ export default function EntryPanel({ entry: given, onClose, onChanged, toastOk, 
 
       {entry.canReview && <Review entry={entry} onSaved={refresh} toastOk={toastOk} toastErr={toastErr} />}
       {!entry.canReview && entry.reviewNote && (
-        <section className="nx-dl-section"><h4>Review</h4><div>{entry.reviewNote}</div></section>
+        <section className="nx-dl-section"><h4>Review</h4><ReviewNote entry={entry} /></section>
       )}
 
       {viewing && <AttachmentViewer att={viewing} onClose={() => setViewing(null)} />}

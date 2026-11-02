@@ -3,18 +3,23 @@
 Rendered through the Documents engine (services.doc_export.render_pdf) on the
 company's default letterhead when one exists - the same page every other
 Documents export uses, so a printed inspection matches a printed letter. The
-page: the form's title, who submitted it and when (MM/DD/YYYY, 12-hour), the
+page: the form's title, who submitted it and when (MM/DD/YYYY, 12-hour, in the
+submitter's zone with its short name - the bell reads in the recipient's, the
+CSV in the exporter's), the
 site, the review state; then each section with its label / value rows, repeat
 groups as a table, photos as thumbnails (read through the signed-URL path a
-private bucket needs - when storage is not configured the URL is printed
-instead), the signature image, and a map link for a location stamp.
+private bucket needs, each captioned "Photo 1 of 3" - when storage is not
+configured the URL is printed instead), the signature image (else its URL),
+and a map link for a location stamp.
 
 `value_text(def, value)` is the one way an answer is written out - the CSV
 export uses it too.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
@@ -28,18 +33,63 @@ THUMB_WIDTH_PT = 180
 
 # ── Text helpers ──────────────────────────────────────────────────────────
 
-def us_datetime(iso: str) -> str:
-    """'11/02/2026 2:14 PM' from an ISO stamp (UTC when it carries a zone);
-    the raw text when it is not a stamp."""
+# The short name a US reader knows ("PT"), whatever the season; any other
+# zone prints its own abbreviation ("IST").
+_US_ZONE_NAMES = {
+    "America/Los_Angeles": "PT", "America/Vancouver": "PT", "America/Tijuana": "PT",
+    "America/Denver": "MT", "America/Phoenix": "MT", "America/Boise": "MT", "America/Edmonton": "MT",
+    "America/Chicago": "CT", "America/Winnipeg": "CT",
+    "America/New_York": "ET", "America/Detroit": "ET", "America/Toronto": "ET",
+    "America/Anchorage": "AKT", "Pacific/Honolulu": "HT",
+}
+
+
+def zone_name(zone: str, local: datetime) -> str:
+    return _US_ZONE_NAMES.get(zone) or local.strftime("%Z")
+
+
+def us_datetime(iso: str, zone: str = "", named: bool = False) -> str:
+    """'11/02/2026 2:14 PM' from an ISO stamp, in the reader's `zone` (an
+    IANA name; stored stamps without an offset are UTC). No zone, or one
+    ZoneInfo cannot read, reads in UTC as before. `named` adds the zone's
+    short name ("2:14 PM PT", "2:14 PM IST"). The raw text when it is not a
+    stamp."""
     if not iso:
         return ""
     try:
         dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
     except ValueError:
         return iso
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc)
-    return f"{dt.strftime('%m/%d/%Y')} {dt.strftime('%I:%M %p').lstrip('0')}"
+    if len(iso) <= 10:   # a bare date has no time to move
+        return dt.strftime("%m/%d/%Y")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    tz, name = timezone.utc, "UTC"
+    if zone:
+        try:
+            tz = ZoneInfo(zone)
+            name = ""
+        except (ZoneInfoNotFoundError, ValueError):
+            zone = ""
+    local = dt.astimezone(tz)
+    text = f"{local.strftime('%m/%d/%Y')} {local.strftime('%I:%M %p').lstrip('0')}"
+    if named:
+        text += f" {name or zone_name(zone, local)}"
+    return text
+
+
+def person_zone(db: Session, email: str) -> str:
+    """The person's own time zone - daily_briefing._person_zone, the rule the
+    ticket emails read (ticket_notify._zone_for): their shift preset's zone,
+    else the company default. '' when it cannot be worked out."""
+    em = (email or "").strip().lower()
+    if not em:
+        return ""
+    try:
+        import daily_briefing
+        return daily_briefing._person_zone(db, em, daily_briefing.get_settings(db)) or ""
+    except Exception:   # noqa: BLE001 - a missing zone reads as UTC, never a failed export
+        return ""
 
 
 def us_date(iso: str) -> str:
@@ -107,6 +157,17 @@ def site_name(db: Session, site_id: str) -> str:
     return s.name if s else ""
 
 
+def group_label(group: str, members: list) -> str:
+    """What a repeat group is called - ONE rule, shared with the screens
+    (frontend/src/forms/formsModel.js groupLabel): its first member's
+    section, else the group key humanized ("tires" -> "Tires", "tire_rows"
+    -> "Tire Rows")."""
+    section = str(((members or [{}])[0] or {}).get("section") or "").strip()
+    if section:
+        return section
+    return " ".join(w[:1].upper() + w[1:].lower() for w in re.split(r"[\s_-]+", str(group or "")) if w)
+
+
 STATUS_WORDS = {"submitted": "Submitted", "reviewed": "Reviewed", "follow_up": "Needs Follow-Up", "closed": "Closed"}
 
 
@@ -143,12 +204,17 @@ def _images_allowed() -> bool:
 
 
 def _photo_blocks(label: str, urls: list) -> list:
+    """Each photo as a thumbnail captioned "Photo 1 of 3"; the URL is printed
+    only when thumbnails cannot be drawn (no storage key)."""
     out = [_para(f"{label}:", True)]
     allowed = _images_allowed()
-    for u in [x for x in urls if isinstance(x, str) and x.strip()][:MAX_THUMBS]:
+    shown = [x for x in urls if isinstance(x, str) and x.strip()][:MAX_THUMBS]
+    for i, u in enumerate(shown, 1):
         if allowed:
             out.append({"type": "image", "src": u, "width": THUMB_WIDTH_PT / 0.75})
-        out.append(_para(u))
+            out.append(_para(f"Photo {i} of {len(shown)}"))
+        else:
+            out.append(_para(u))
     return out
 
 
@@ -167,7 +233,9 @@ def build_blocks(db: Session, entry, tpl: DocTemplate, defs: list) -> list:
     answers = entry.answers if isinstance(entry.answers, dict) else {}
     blocks = [_heading(entry.title or tpl.name, 1)]
     who = person_name(db, entry.submitted_by)
-    line = f"Submitted by {who} on {us_datetime(entry.submitted_at)}"
+    # Times read in the submitter's own zone, named ("2:14 PM PT").
+    zone = person_zone(db, entry.submitted_by)
+    line = f"Submitted by {who} on {us_datetime(entry.submitted_at, zone, named=True)}"
     site = site_name(db, entry.work_site_id)
     if site:
         line += f" at {site}"
@@ -175,7 +243,7 @@ def build_blocks(db: Session, entry, tpl: DocTemplate, defs: list) -> list:
     state = STATUS_WORDS.get(entry.status or "submitted", entry.status or "")
     review = f"Status: {state}"
     if entry.reviewer_email:
-        review += f" by {person_name(db, entry.reviewer_email)} on {us_datetime(entry.reviewed_at)}"
+        review += f" by {person_name(db, entry.reviewer_email)} on {us_datetime(entry.reviewed_at, zone, named=True)}"
     if entry.review_note:
         review += f". Note: {entry.review_note}"
     blocks.append(_para(review))
@@ -203,7 +271,8 @@ def build_blocks(db: Session, entry, tpl: DocTemplate, defs: list) -> list:
                     after.append(_para(f"{d.get('label') or 'Signature'}:", True))
                     if _images_allowed():
                         after.append({"type": "image", "src": v, "width": THUMB_WIDTH_PT / 0.75})
-                    after.append(_para(v))
+                    else:
+                        after.append(_para(v))   # the link only when the picture cannot be drawn
                 continue
             rows.append([_cell([_para(d.get("label") or d["token"], True)]), _cell(_value_blocks(d, v))])
         if rows:
@@ -212,7 +281,7 @@ def build_blocks(db: Session, entry, tpl: DocTemplate, defs: list) -> list:
         for g in groups_here:
             members = by_group[g]
             entries = answers.get(g) if isinstance(answers.get(g), list) else []
-            blocks.append(_para(members[0].get("repeatLabel") or g.replace("_", " ").title(), True))
+            blocks.append(_para(group_label(g, members), True))
             if not entries:
                 blocks.append(_para("No rows"))
                 continue

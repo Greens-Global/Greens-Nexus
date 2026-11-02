@@ -11,14 +11,20 @@ const getDocTemplate = vi.fn();
 const updateDocTemplate = vi.fn();
 const publishDocTemplate = vi.fn();
 const getWorkSites = vi.fn();
+const getPeopleDirectory = vi.fn();
+const getCompanyDepartments = vi.fn();
 vi.mock('../api', () => ({
   api: {
     getDocTemplate: (...a) => getDocTemplate(...a),
     updateDocTemplate: (...a) => updateDocTemplate(...a),
     publishDocTemplate: (...a) => publishDocTemplate(...a),
     getWorkSites: (...a) => getWorkSites(...a),
+    getPeopleDirectory: (...a) => getPeopleDirectory(...a),
+    getCompanyDepartments: (...a) => getCompanyDepartments(...a),
   },
 }));
+const confirm = vi.fn();
+vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirm(...a) } }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, myEmail: 'neil@greensglobal.com' }) }));
 
 const FormBuilder = (await import('./FormBuilder')).default;
@@ -37,6 +43,9 @@ beforeEach(() => {
   updateDocTemplate.mockReset().mockImplementation((id, patch) => Promise.resolve({ ...FORM, ...patch }));
   publishDocTemplate.mockReset().mockResolvedValue({ ...FORM, state: 'published', publishedVersion: 1 });
   getWorkSites.mockReset().mockResolvedValue([{ id: 's1', name: 'Austin' }, { id: 's2', name: 'Temecula' }]);
+  confirm.mockReset().mockResolvedValue(false);
+  getPeopleDirectory.mockReset().mockResolvedValue([{ email: 'neil@greensglobal.com', company: 'co-1' }, { email: 'sam@greensglobal.com', company: 'co-2' }]);
+  getCompanyDepartments.mockReset().mockResolvedValue([{ id: 'd1', name: 'Construction' }, { id: 'd2', name: 'Operations' }]);
 });
 
 const open = () => render(<FormBuilder templateId="f1" onClose={() => {}} toastOk={() => {}} toastErr={() => {}} />);
@@ -51,6 +60,7 @@ describe('Form builder', () => {
     expect(screen.getByText('Number')).toBeTruthy();
     expect(screen.getByText('Yes / No')).toBeTruthy();
     expect(screen.getByText('Required')).toBeTruthy();
+    expect(within(screen.getByLabelText('Who fills it')).getByRole('option', { name: 'Everyone at the Company' })).toBeTruthy();
   });
 
   it('adds a photo field shown only when an earlier answer says so, through the one field editor', async () => {
@@ -87,13 +97,13 @@ describe('Form builder', () => {
     fireEvent.change(within(dialog).getByLabelText('Section'), { target: { value: 'Tires' } });
     fireEvent.change(within(dialog).getByLabelText('Repeat Group'), { target: { value: 'tires' } });
     fireEvent.change(within(dialog).getByLabelText('Repeat up to'), { target: { value: '6' } });
-    fireEvent.change(within(dialog).getByLabelText('Formula'), { target: { value: 'field("odometer") / 1000' } });
+    fireEvent.change(within(dialog).getByLabelText('Formula'), { target: { value: '{Odometer} / 1000' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Tires' })).toBeTruthy());
     saveForm();
     await waitFor(() => expect(updateDocTemplate).toHaveBeenCalled());
     const added = lastPatch().fieldDefs.find((f) => f.token === 'tire_psi');
-    expect(added).toMatchObject({ section: 'Tires', repeat: { group: 'tires', max: 6 }, formula: 'field("odometer") / 1000' });
+    expect(added).toMatchObject({ section: 'Tires', repeat: { group: 'tires', max: 6 }, formula: '{Odometer} / 1000' });
   });
 
   it('moves and removes fields; the order is what is saved', async () => {
@@ -113,6 +123,7 @@ describe('Form builder', () => {
   it('audience: one work site, shown on that site\'s shift cards', async () => {
     open();
     await screen.findByText('Odometer');
+    expect(screen.getByText("A Fill button under each shift - at the form's work site, or on every shift when the form is for the whole company or a department.")).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Who fills it'), { target: { value: 'site' } });
     fireEvent.change(await screen.findByLabelText('Work site'), { target: { value: 's1' } });
     fireEvent.click(screen.getByRole('switch', { name: 'Show On Shift Cards' }));
@@ -130,6 +141,28 @@ describe('Form builder', () => {
     await waitFor(() => expect(lastPatch()).toMatchObject({ audience: 'department', department: 'Construction' }));
   });
 
+  it("audience: one department is picked from the signed-in person's company's list", async () => {
+    open();
+    await screen.findByText('Odometer');
+    fireEvent.change(screen.getByLabelText('Who fills it'), { target: { value: 'department' } });
+    const box = await screen.findByLabelText('Department');
+    await waitFor(() => expect(box.tagName).toBe('SELECT'));
+    expect(getCompanyDepartments).toHaveBeenCalledWith('co-1');
+    expect(within(screen.getByLabelText('Department')).getByRole('option', { name: 'Operations' })).toBeTruthy();
+  });
+
+  it('audience: with no department list the department is typed', async () => {
+    getCompanyDepartments.mockRejectedValue(Object.assign(new Error('403'), { status: 403 }));
+    open();
+    await screen.findByText('Odometer');
+    fireEvent.change(screen.getByLabelText('Who fills it'), { target: { value: 'department' } });
+    const box = await screen.findByLabelText('Department');
+    expect(box.tagName).toBe('INPUT');
+    fireEvent.change(box, { target: { value: 'Yard' } });
+    saveForm();
+    await waitFor(() => expect(lastPatch()).toMatchObject({ audience: 'department', department: 'Yard' }));
+  });
+
   it('Publish releases the form through the template publish', async () => {
     const toastOk = vi.fn();
     render(<FormBuilder templateId="f1" onClose={() => {}} toastOk={toastOk} toastErr={() => {}} />);
@@ -143,7 +176,34 @@ describe('Form builder', () => {
     open();
     await screen.findByText('Odometer');
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
-    expect(await screen.findByTestId('fill-preview')).toBeTruthy();
+    // FillForm is its own sheet, rendered directly in preview mode (no wrapper, no "coming soon").
+    expect(await screen.findByTestId('fill-preview')).toHaveTextContent('preview');
+    expect(screen.queryByText(/Preview is coming/)).toBeNull();
+  });
+
+  it('Back To Forms leaves at once when nothing changed', async () => {
+    const onClose = vi.fn();
+    render(<FormBuilder templateId="f1" onClose={onClose} toastOk={() => {}} toastErr={() => {}} />);
+    await screen.findByText('Odometer');
+    fireEvent.click(screen.getByRole('button', { name: /Back To Forms/ }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('Back To Forms with unsaved edits asks first, and the browser tab asks too', async () => {
+    const onClose = vi.fn();
+    render(<FormBuilder templateId="f1" onClose={onClose} toastOk={() => {}} toastErr={() => {}} />);
+    await screen.findByText('Odometer');
+    fireEvent.change(screen.getByLabelText('Form name'), { target: { value: 'Truck Check' } });
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /Back To Forms/ }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith('Leave without saving this form?', { confirmText: 'Discard Changes' }));
+    expect(onClose).not.toHaveBeenCalled();
+    confirm.mockResolvedValue(true);
+    fireEvent.click(screen.getByRole('button', { name: /Back To Forms/ }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
   it('refuses a template that is not a form', async () => {

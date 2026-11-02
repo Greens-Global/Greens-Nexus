@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isVisible, visibleAnswers, validateAnswers, computeFormulas, isEmptyAnswer, formsForShift, groupDefs } from './formRules';
+import { groupLabel } from './formsModel';
 
 // The client half of the form rules (Forms & Checklists, Neil 11/02/2026):
 // a showIf field that is hidden is neither required nor sent, a repeat group
@@ -116,5 +117,21 @@ describe('formsForShift', () => {
   });
   it('a shift with no known site gets only the company-wide ones', () => {
     expect(formsForShift(forms, { id: 's' }, []).map((f) => f.id)).toEqual(['f1']);
+  });
+});
+
+// ONE name for a repeat group (forms/formsModel.js, mirrored by
+// backend/form_entry_pdf.py group_label): the first member's Section, else
+// the key humanized.
+describe('groupLabel', () => {
+  it("is the first member's section, else the group key humanized", () => {
+    expect(groupLabel('tires', [{ token: 'psi', section: 'Tire Checks', repeat: { group: 'tires' } }])).toBe('Tire Checks');
+    expect(groupLabel('tires', [{ token: 'psi', repeat: { group: 'tires' } }])).toBe('Tires');
+    expect(groupLabel('tire_rows', [])).toBe('Tire Rows');
+    expect(groupLabel('tires', [{ token: 'x', section: 'Other' }, { token: 'psi', section: '', repeat: { group: 'tires' } }])).toBe('Tires');
+  });
+  it('names the group in the required-group message', () => {
+    const defs = [{ token: 'psi', label: 'PSI', type: 'number', required: true, repeat: { group: 'tires' } }];
+    expect(validateAnswers(defs, { tires: [] }).tires).toBe('Add at least one Tires');
   });
 });

@@ -55,4 +55,14 @@ describe('FormsTile', () => {
     fireEvent.click(tile);
     expect(await screen.findByText('Filling t1')).toBeTruthy();
   });
+
+  it('a picker opened before the list arrives says it is loading, never "no forms"', async () => {
+    let answer;
+    formsMine.mockReturnValue(new Promise((r) => { answer = r; }));
+    render(<FormsTile autoOpen={{ id: 'pick', n: 1 }} />);
+    expect(await screen.findByRole('status')).toHaveTextContent('Loading your forms');
+    expect(screen.queryByText('There are no forms for you to fill yet.')).toBeNull();
+    answer(FORMS);
+    expect(await screen.findByText('Vehicle Checks')).toBeTruthy();
+  });
 });

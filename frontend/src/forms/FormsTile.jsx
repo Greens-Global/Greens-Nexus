@@ -11,7 +11,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { ClipboardList, ArrowRight, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { Modal } from '../tasks/components';
-import { ModalLoading } from '../components/AsyncState';
+import { ModalLoading, Spinner } from '../components/AsyncState';
 import { NX, FONT } from '../tasks/theme';
 import { CATEGORY_ORDER, categoryLabel } from './formRules';
 
@@ -29,12 +29,19 @@ export function groupForms(forms) {
   return out;
 }
 
+/** `forms` null = still loading (a deep link can open the picker before the
+ *  list arrives) - a spinner, never the "no forms" sentence. */
 export function FormPicker({ forms, onPick, onClose }) {
-  const groups = groupForms(forms);
+  const loading = forms === null || forms === undefined;
+  const groups = loading ? [] : groupForms(forms);
   return (
     <Modal title="Fill a Form" onClose={onClose} zIndex={4050}>
       <div className="nx-fill" style={{ fontFamily: FONT }}>
-        {!groups.length && <div style={{ fontSize: 13, color: NX.dim, padding: 20, textAlign: 'center' }}>There are no forms for you to fill yet.</div>}
+        {loading ? (
+          <div role="status" style={{ fontSize: 13, color: NX.dim, padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Spinner size="inline" label="Loading your forms" /> Loading your forms
+          </div>
+        ) : !groups.length && <div style={{ fontSize: 13, color: NX.dim, padding: 20, textAlign: 'center' }}>There are no forms for you to fill yet.</div>}
         {groups.map((g) => (
           <div key={g.label} style={{ marginBottom: 18 }}>
             <div style={{ fontSize: 11.5, fontWeight: 700, color: NX.dim, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>{g.label}</div>
@@ -102,7 +109,7 @@ export default function FormsTile({ autoOpen = null, flash = () => {} }) {
   return (
     <>
       {tile}
-      {picker && <FormPicker forms={forms || []} onPick={pick} onClose={() => setPicker(false)} />}
+      {picker && <FormPicker forms={forms} onPick={pick} onClose={() => setPicker(false)} />}
       {filling && (
         <Suspense fallback={<ModalLoading zIndex={4100} />}>
           <FillForm templateId={filling} onClose={() => setFilling('')} onSent={onSent} />

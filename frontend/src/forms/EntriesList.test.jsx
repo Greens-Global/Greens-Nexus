@@ -91,8 +91,12 @@ describe('Entries list', () => {
     await cell('Sam Rivera');
     const btn = screen.getByRole('button', { name: 'Export CSV' });
     expect(btn).toBeDisabled();
+    // The reason is on the page, beside the button, not in a tooltip.
+    expect(screen.getByText("Pick a form to export - the CSV is one form's entries.")).toBeVisible();
+    expect(btn).toHaveAccessibleDescription("Pick a form to export - the CSV is one form's entries.");
     fireEvent.change(screen.getByLabelText('Form'), { target: { value: 'f2' } });
     await waitFor(() => expect(btn).not.toBeDisabled());
+    expect(screen.queryByText("Pick a form to export - the CSV is one form's entries.")).toBeNull();
     fireEvent.click(btn);
     await waitFor(() => expect(formTemplateCsv).toHaveBeenCalledWith('f2', { from: '', to: '', status: '', site: '' }));
   });

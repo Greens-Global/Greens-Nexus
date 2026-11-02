@@ -25,6 +25,7 @@ vi.mock('../api', () => ({
     listPacketDocuments: (...a) => listPacketDocuments(...a),
     // Form entries (Neil, 11/02/2026): the library's Form Entries view and the Forms tab.
     getFormEntries: (...a) => getFormEntries(...a),
+    getFormEntry: (id) => Promise.resolve({ id, title: 'Vehicle Check', status: 'submitted', templateId: '', answers: {} }),
     getWorkSites: () => Promise.reject(new Error('403')),
     getPeopleDirectory: () => Promise.resolve([]),
     searchDocuments: () => Promise.resolve([]),
@@ -98,8 +99,29 @@ describe('Documents module', () => {
     render(<Documents activeSub="documents-forms" onSubChange={() => {}} />);
     expect(await screen.findByRole('button', { name: 'New Form' })).toBeTruthy();
     await waitFor(() => expect(getDocTemplates).toHaveBeenCalled());
+    screen.getAllByRole('button', { name: 'New Form' })[0].click();
+    expect(await screen.findByRole('button', { name: 'Create and Build' })).toBeTruthy();
+    screen.getByRole('button', { name: 'Cancel' }).click();
     screen.getByRole('tab', { name: 'Entries' }).click();
     await waitFor(() => expect(getFormEntries).toHaveBeenCalled());
+  });
+
+  it('the Forms templates table resizes every column, like every list', async () => {
+    getDocTemplates.mockResolvedValueOnce([{ id: 'f1', name: 'Vehicle Check', docType: 'form', state: 'published', status: 'active',
+      category: 'vehicle', audience: 'company', fieldDefs: [], updatedAt: '2026-11-02T10:00:00Z' }]);
+    render(<Documents activeSub="documents-forms" onSubChange={() => {}} />);
+    expect(await screen.findByText('Vehicle Check')).toBeTruthy();
+    for (const name of ['Form', 'Category', 'Status', 'Who Fills It', 'Updated']) {
+      expect(screen.getByRole('columnheader', { name: new RegExp(`^${name}`) })).toBeTruthy();
+    }
+    expect(screen.getAllByRole('separator').length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('a bell or workflow link (documents-forms:entry:<id>) opens that entry beside the Entries list', async () => {
+    render(<Documents activeSub="documents-forms:entry:e9" onSubChange={() => {}} />);
+    expect(await screen.findByRole('tab', { name: 'Entries', selected: true })).toBeTruthy();
+    await waitFor(() => expect(getFormEntries).toHaveBeenCalled());
+    expect(await screen.findByText('Vehicle Check')).toBeTruthy();
   });
 
   it('renders Nexus Sign, including its deep-linked requests sub-tab', () => {

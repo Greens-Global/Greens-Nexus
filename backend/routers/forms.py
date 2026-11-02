@@ -107,6 +107,7 @@ def _ser_entry(e: DocFormEntry, *, names: dict, sites: dict, reach: form_audienc
         "submittedAt": e.submitted_at or "", "source": e.source or "web",
         "status": e.status or "submitted",
         "reviewerEmail": e.reviewer_email or "", "reviewedAt": e.reviewed_at or "",
+        "reviewerName": names.get(_norm(e.reviewer_email), e.reviewer_email or "") if e.reviewer_email else "",
         "reviewNote": e.review_note or "",
         "linkedTicketId": e.linked_ticket_id or "", "linkedTaskId": e.linked_task_id or "",
         "linkedAssetId": e.linked_asset_id or "",
@@ -115,7 +116,7 @@ def _ser_entry(e: DocFormEntry, *, names: dict, sites: dict, reach: form_audienc
 
 
 def _serialize_many(db: Session, rows: list, reach: form_audience.Reach) -> list:
-    names = _names(db, {r.submitted_by for r in rows})
+    names = _names(db, {r.submitted_by for r in rows} | {r.reviewer_email for r in rows if r.reviewer_email})
     sites = _site_names(db, {r.work_site_id for r in rows})
     return [_ser_entry(r, names=names, sites=sites, reach=reach) for r in rows]
 
@@ -321,10 +322,13 @@ def _bell_submitter(db: Session, entry: DocFormEntry, reviewer: str) -> None:
     word = form_entry_pdf.STATUS_WORDS.get(entry.status, entry.status.title())
     title = f"{entry.title} {word}"
     who = form_entry_pdf.person_name(db, reviewer)
-    body = f"{who} marked your {entry.title} from {form_entry_pdf.us_datetime(entry.submitted_at)} as {word}."
+    when = form_entry_pdf.us_datetime(entry.submitted_at, form_entry_pdf.person_zone(db, to))   # the reader's clock
+    body = f"{who} marked your {entry.title} from {when} as {word}."
     if entry.review_note:
         body += f" Note: {entry.review_note}"
-    action = json.dumps({"view": "documents", "sub": "documents-forms", "entryId": entry.id, "label": "Open Entry"})
+    # The sub opens THIS entry beside the list (views/Documents.jsx -> FormsTab).
+    action = json.dumps({"view": "documents", "sub": f"documents-forms:entry:{entry.id}", "entryId": entry.id,
+                         "label": "Open Entry"})
     ref = f"form-entry:{entry.id}"
     row = (db.query(NexusNotification)
            .filter(NexusNotification.type == NOTICE_TYPE, NexusNotification.ref_id == ref,
@@ -427,19 +431,20 @@ META_COLUMNS = ("entryId", "form", "templateVersion", "submittedBy", "submittedB
                 "reviewNote", "linkedTicketId", "linkedTaskId", "linkedAssetId")
 
 
-def _csv_rows(defs: list, entries: list) -> list:
+def _csv_rows(defs: list, entries: list, zone: str = "") -> list:
     """Header + one row per entry: the meta columns, then one column per
     token in form order. A repeat group's token holds its rows' values
-    joined with ' | '; photo URLs are joined with spaces."""
+    joined with ' | '; photo URLs are joined with spaces. Times read in
+    `zone` (the exporter's)."""
     tokens = [d["token"] for d in defs if d.get("token")]
     by_token = {d["token"]: d for d in defs if d.get("token")}
     rows = [list(META_COLUMNS) + tokens]
     for e in entries:
         answers = e["answers"]
         meta = [e["id"], e["title"], e["templateVersion"], e["submittedBy"], e["submittedByName"],
-                form_entry_pdf.us_datetime(e["submittedAt"]), e["workSiteId"], e["workSiteName"], e["shiftId"],
+                form_entry_pdf.us_datetime(e["submittedAt"], zone), e["workSiteId"], e["workSiteName"], e["shiftId"],
                 e["source"], form_entry_pdf.STATUS_WORDS.get(e["status"], e["status"]), e["reviewerEmail"],
-                form_entry_pdf.us_datetime(e["reviewedAt"]), e["reviewNote"], e["linkedTicketId"],
+                form_entry_pdf.us_datetime(e["reviewedAt"], zone), e["reviewNote"], e["linkedTicketId"],
                 e["linkedTaskId"], e["linkedAssetId"]]
         values = []
         for t in tokens:
@@ -476,7 +481,7 @@ def export_csv(tid: str, from_: str = Query("", alias="from"), to: str = "", sta
     entries = _serialize_many(db, rows, reach)
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\r\n")
-    for line in _csv_rows(defs, entries):
+    for line in _csv_rows(defs, entries, form_entry_pdf.person_zone(db, user["email"])):
         writer.writerow(["" if v is None else v for v in line])
     name = f"{tpl.name} entries {date.today().strftime('%m-%d-%Y')}"
     return Response(content=buf.getvalue().encode("utf-8-sig"), media_type="text/csv; charset=utf-8",

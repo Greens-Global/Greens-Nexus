@@ -22,7 +22,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { Camera, Upload, X, MapPin, PenTool, QrCode, Star, Plus, Trash2, Check, RefreshCw, ExternalLink, Asterisk } from 'lucide-react';
 import { api } from '../api';
-import { Modal, DateField } from '../tasks/components';
+import { Modal, DateField, TimeField } from '../tasks/components';
 import TypedFieldInput from '../components/TypedFieldInput';
 import { storeTaskFile, filesFromPaste, dataUrlToFile } from '../tasks/lib';
 import { getPosition } from '../lib/geoPosition';
@@ -34,6 +34,7 @@ import { formatDateTime } from '../lib/datetime';
 import { toText } from '../tasks/formula';
 import { NX, FONT, btn } from '../tasks/theme';
 import { groupDefs, isVisible, visibleAnswers, validateAnswers, computeFormulas, nearestSite } from './formRules';
+import { groupLabel } from './formsModel';
 import { loadDraft, saveDraft, clearDraft, newEntryKey, hasContent, draftNotice } from './formDraft';
 
 // The signature pad is Nexus Sign's (components/ESign.jsx) - loaded when a
@@ -46,7 +47,10 @@ const label = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.ink
 const hint = { fontSize: 11.5, color: NX.dim, marginTop: 4, lineHeight: 1.45 };
 const errStyle = { fontSize: 11.5, color: NX.red, fontWeight: 600, marginTop: 4 };
 const chipBtn = { ...btn('outline'), padding: '8px 12px', fontSize: 12.5 };
-const segBtn = (on) => ({ ...btn('outline'), padding: '9px 18px', fontSize: 13, fontWeight: 700, background: on ? NX.primary : NX.surface, color: on ? '#fff' : NX.ink, borderColor: on ? NX.primary : NX.border });
+// On a phone every tap target is at least 44px tall (a gloved thumb on a site).
+const tap = (phone) => (phone ? { minHeight: 44 } : null);
+const chip = (phone) => ({ ...chipBtn, ...tap(phone) });
+const segBtn = (on, phone) => ({ ...btn('outline'), padding: '9px 18px', fontSize: 13, fontWeight: 700, background: on ? NX.primary : NX.surface, color: on ? '#fff' : NX.ink, borderColor: on ? NX.primary : NX.border, ...tap(phone) });
 
 /** The server's "tires[1].psi" as this screen's error key "tires.1.psi". */
 export const serverTokenKey = (token) => String(token || '').replace(/\[(\d+)\]\./g, '.$1.').replace(/\[(\d+)\]$/, '.$1');
@@ -56,7 +60,7 @@ export const openEntry = (entry) => window.dispatchEvent(new CustomEvent('nexus:
 
 // ── Form-only inputs ──────────────────────────────────────────────────────────
 
-function PhotoField({ value, onChange, entryKey, phone, disabled }) {
+function PhotoField({ value, onChange, entryKey, phone, disabled, label: name = 'Photos', onUploading }) {
   const urls = Array.isArray(value) ? value : [];
   const camRef = useRef(null);
   const fileRef = useRef(null);
@@ -66,17 +70,20 @@ function PhotoField({ value, onChange, entryKey, phone, disabled }) {
       if (!file.type?.startsWith('image/')) continue;
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       setUploads((u) => [...u, { id, name: file.name, progress: 0 }]);
+      onUploading?.(1);   // Send waits for it (FillForm)
       storeTaskFile(file, (p) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, progress: p } : x))), FOLDER(entryKey))
         .then((url) => {
           setUploads((u) => u.filter((x) => x.id !== id));
           if (url) onChange((prev) => [...(Array.isArray(prev) ? prev : []), url]);
         })
-        .catch((e) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, error: e?.message || 'upload failed' } : x))));
+        .catch((e) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, error: e?.message || 'upload failed' } : x))))
+        .finally(() => onUploading?.(-1));
     }
-  }, [entryKey, onChange]);
+  }, [entryKey, onChange, onUploading]);
   const onPaste = (e) => { const fs = filesFromPaste(e); if (fs.length) { e.preventDefault(); add(fs); } };
   return (
-    <div onPaste={onPaste} tabIndex={-1} style={{ }}>
+    // Focusable (Tab, or a click) so Ctrl+V pastes without pressing a button first; .nx-paste-zone rings it.
+    <div onPaste={onPaste} tabIndex={0} className="nx-paste-zone" role="group" aria-label={phone ? name : `${name} - press Ctrl+V to paste a screenshot`}>
       {(urls.length > 0 || uploads.length > 0) && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: 8, marginBottom: 10 }}>
           {urls.map((u, i) => (
@@ -84,8 +91,8 @@ function PhotoField({ value, onChange, entryKey, phone, disabled }) {
               <img src={u} alt={`Photo ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
               {!disabled && (
                 <button type="button" aria-label={`Remove photo ${i + 1}`} onClick={() => onChange(urls.filter((x) => x !== u))}
-                  style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(17,24,39,0.7)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                  <X size={12} />
+                  style={{ position: 'absolute', top: 4, right: 4, width: phone ? 28 : 22, height: phone ? 28 : 22, padding: phone ? 6 : 0, borderRadius: '50%', border: 'none', background: 'rgba(17,24,39,0.7)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                  <X size={phone ? 14 : 12} />
                 </button>
               )}
             </div>
@@ -99,8 +106,8 @@ function PhotoField({ value, onChange, entryKey, phone, disabled }) {
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button type="button" style={chipBtn} disabled={disabled} onClick={() => camRef.current?.click()}><Camera size={14} /> Take a Photo</button>
-        <button type="button" style={chipBtn} disabled={disabled} onClick={() => fileRef.current?.click()}><Upload size={14} /> Upload</button>
+        <button type="button" style={chip(phone)} disabled={disabled} onClick={() => camRef.current?.click()}><Camera size={14} /> Take a Photo</button>
+        <button type="button" style={chip(phone)} disabled={disabled} onClick={() => fileRef.current?.click()}><Upload size={14} /> Upload</button>
       </div>
       {/* capture="environment" opens the rear camera on a phone and is an ordinary picker on a desktop. */}
       <input ref={camRef} type="file" accept="image/*" capture="environment" multiple hidden onChange={(e) => { add(e.target.files); e.target.value = ''; }} />
@@ -110,14 +117,14 @@ function PhotoField({ value, onChange, entryKey, phone, disabled }) {
   );
 }
 
-function GpsField({ value, onChange, workSites, disabled }) {
+function GpsField({ value, onChange, workSites, disabled, phone }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const stamp = async () => {
     setBusy(true); setErr('');
     const pos = await getPosition(GPS_MS);
     setBusy(false);
-    if (!pos) { setErr('Location is off or did not answer - allow location for this site and try again.'); return; }
+    if (!pos) { setErr('Location is off or did not answer. Allow location for Nexus in your browser settings, then tap Stamp My Location again.'); return; }
     const lat = Number(pos.lat), lng = Number(pos.lng);
     const near = nearestSite(workSites, lat, lng);
     onChange({ lat, lng, accuracyM: Number(pos.accuracy_m) || 0, siteName: near?.name || '', siteId: near?.id || '', siteDistanceM: near?.distanceM ?? null, at: new Date().toISOString() });
@@ -132,7 +139,7 @@ function GpsField({ value, onChange, workSites, disabled }) {
           {value.siteName ? <span style={{ color: NX.dim }}>near {value.siteName}{value.siteDistanceM ? ` (${formatDistance(value.siteDistanceM)})` : ''}</span> : null}
         </div>
       )}
-      <button type="button" style={chipBtn} disabled={disabled || busy} onClick={stamp}>
+      <button type="button" style={chip(phone)} disabled={disabled || busy} onClick={stamp}>
         {busy ? <Spinner size="inline" /> : <MapPin size={14} />} {busy ? 'Finding You...' : value ? 'Stamp Again' : 'Stamp My Location'}
       </button>
       {err && <div style={errStyle}>{err}</div>}
@@ -165,7 +172,7 @@ async function decodeQr(file) {
   } finally { URL.revokeObjectURL(url); }
 }
 
-function ScanField({ def, value, onChange, disabled, inputId }) {
+function ScanField({ def, value, onChange, disabled, inputId, phone }) {
   const camRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -185,7 +192,7 @@ function ScanField({ def, value, onChange, disabled, inputId }) {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <input id={inputId} type="text" className="form-input" style={{ flex: 1, minWidth: 0 }} value={value ?? ''} disabled={disabled}
           placeholder="Scan or type the code" onChange={(e) => onChange(e.target.value)} />
-        <button type="button" style={{ ...chipBtn, whiteSpace: 'nowrap' }} disabled={disabled || busy} onClick={() => camRef.current?.click()} aria-label={`Scan a QR Code for ${def.label}`}>
+        <button type="button" style={{ ...chip(phone), whiteSpace: 'nowrap' }} disabled={disabled || busy} onClick={() => camRef.current?.click()} aria-label={`Scan a QR Code for ${def.label}`}>
           {busy ? <Spinner size="inline" /> : <QrCode size={14} />} {busy ? 'Reading...' : 'Scan'}
         </button>
       </div>
@@ -195,13 +202,13 @@ function ScanField({ def, value, onChange, disabled, inputId }) {
   );
 }
 
-function RatingField({ def, value, onChange, disabled }) {
+function RatingField({ def, value, onChange, disabled, phone }) {
   const n = Number(value) || 0;
   return (
     <div role="group" aria-label={def.label} style={{ display: 'flex', gap: 4 }}>
       {[1, 2, 3, 4, 5].map((i) => (
         <button key={i} type="button" aria-label={`${i} of 5`} aria-pressed={n === i} disabled={disabled} onClick={() => onChange(i === n ? 0 : i)}
-          style={{ background: 'none', border: 'none', padding: 4, cursor: disabled ? 'default' : 'pointer', color: i <= n ? '#f59e0b' : NX.border2, display: 'flex' }}>
+          style={{ background: 'none', border: 'none', padding: phone ? 9 : 4, cursor: disabled ? 'default' : 'pointer', color: i <= n ? '#f59e0b' : NX.border2, display: 'flex', alignItems: 'center', ...tap(phone) }}>
           <Star size={26} fill={i <= n ? '#f59e0b' : 'none'} />
         </button>
       ))}
@@ -209,17 +216,17 @@ function RatingField({ def, value, onChange, disabled }) {
   );
 }
 
-function YesNoField({ def, value, onChange, disabled }) {
+function YesNoField({ def, value, onChange, disabled, phone }) {
   const v = value === true || value === 'true' ? true : value === false || value === 'false' ? false : null;
   return (
     <div role="group" aria-label={def.label} style={{ display: 'flex', gap: 8 }}>
-      <button type="button" aria-pressed={v === true} disabled={disabled} style={segBtn(v === true)} onClick={() => onChange(true)}>Yes</button>
-      <button type="button" aria-pressed={v === false} disabled={disabled} style={segBtn(v === false)} onClick={() => onChange(false)}>No</button>
+      <button type="button" aria-pressed={v === true} disabled={disabled} style={segBtn(v === true, phone)} onClick={() => onChange(true)}>Yes</button>
+      <button type="button" aria-pressed={v === false} disabled={disabled} style={segBtn(v === false, phone)} onClick={() => onChange(false)}>No</button>
     </div>
   );
 }
 
-function SignatureField({ value, onChange, entryKey, disabled, signerName }) {
+function SignatureField({ value, onChange, entryKey, disabled, signerName, phone, onUploading }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -228,10 +235,11 @@ function SignatureField({ value, onChange, entryKey, disabled, signerName }) {
     const file = dataUrlToFile(data, `signature-${Date.now()}.png`);
     if (!file) { setErr('The signature could not be saved - try again.'); return; }
     setBusy(true); setErr('');
+    onUploading?.(1);
     storeTaskFile(file, null, FOLDER(entryKey))
       .then((url) => { if (url) onChange(url); else setErr('The signature could not be uploaded - try again.'); })
       .catch((e) => setErr(e?.message || 'The signature could not be uploaded - try again.'))
-      .finally(() => setBusy(false));
+      .finally(() => { setBusy(false); onUploading?.(-1); });
   };
   return (
     <div>
@@ -241,10 +249,10 @@ function SignatureField({ value, onChange, entryKey, disabled, signerName }) {
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button type="button" style={chipBtn} disabled={disabled || busy} onClick={() => setOpen(true)}>
+        <button type="button" style={chip(phone)} disabled={disabled || busy} onClick={() => setOpen(true)}>
           {busy ? <Spinner size="inline" /> : <PenTool size={14} />} {busy ? 'Saving...' : value ? 'Sign Again' : 'Sign'}
         </button>
-        {value && !disabled && <button type="button" style={{ ...btn('ghost'), fontSize: 12 }} onClick={() => onChange('')}>Clear</button>}
+        {value && !disabled && <button type="button" style={{ ...btn('ghost'), fontSize: 12, ...tap(phone) }} onClick={() => onChange('')}>Clear</button>}
       </div>
       {err && <div style={errStyle}>{err}</div>}
       {open && (
@@ -265,13 +273,15 @@ function Field({ def, value, error, onChange, ctx, idKey }) {
   let control;
   let ownLabel = true;    // the control carries the label itself
   switch (def.type) {
-    case 'photo': control = <PhotoField value={value} onChange={onChange} entryKey={ctx.entryKey} phone={ctx.phone} disabled={disabled} />; break;
-    case 'gps': control = <GpsField value={value} onChange={onChange} workSites={ctx.workSites} disabled={disabled} />; break;
-    case 'scan': control = <ScanField def={def} value={value} onChange={onChange} disabled={disabled} inputId={inputId} />; break;
-    case 'rating': control = <RatingField def={def} value={value} onChange={onChange} disabled={disabled} />; break;
-    case 'yesno': control = <YesNoField def={def} value={value} onChange={onChange} disabled={disabled} />; break;
-    case 'signature': control = <SignatureField value={value} onChange={onChange} entryKey={ctx.entryKey} disabled={disabled} signerName={ctx.signerName} />; break;
+    case 'photo': control = <PhotoField value={value} onChange={onChange} entryKey={ctx.entryKey} phone={ctx.phone} disabled={disabled} label={def.label} onUploading={ctx.onUploading} />; break;
+    case 'gps': control = <GpsField value={value} onChange={onChange} workSites={ctx.workSites} disabled={disabled} phone={ctx.phone} />; break;
+    case 'scan': control = <ScanField def={def} value={value} onChange={onChange} disabled={disabled} inputId={inputId} phone={ctx.phone} />; break;
+    case 'rating': control = <RatingField def={def} value={value} onChange={onChange} disabled={disabled} phone={ctx.phone} />; break;
+    case 'yesno': control = <YesNoField def={def} value={value} onChange={onChange} disabled={disabled} phone={ctx.phone} />; break;
+    case 'signature': control = <SignatureField value={value} onChange={onChange} entryKey={ctx.entryKey} disabled={disabled} signerName={ctx.signerName} phone={ctx.phone} onUploading={ctx.onUploading} />; break;
     case 'date': control = <DateField value={value || ''} onChange={(v) => onChange(v || '')} title={def.label} disabled={disabled} style={{ width: '100%' }} />; break;
+    // The 12-hour picker, never the native time box (it follows the computer's region).
+    case 'time': control = <TimeField value={value || ''} onChange={(v) => onChange(v || '')} ariaLabel={def.label} disabled={disabled} step={5} style={{ width: '100%' }} />; break;
     case 'checkbox': ownLabel = false; control = <TypedFieldInput def={def} value={value} onChange={onChange} error={!!error} />; break;
     default: control = <TypedFieldInput def={def} value={value} onChange={onChange} error={!!error} />;
   }
@@ -303,7 +313,7 @@ function Field({ def, value, error, onChange, ctx, idKey }) {
 }
 
 function RepeatGroup({ item, rows, errors, ctx, onRow, onAdd, onRemove, groupError }) {
-  const name = item.defs[0]?.label || item.repeat;
+  const name = groupLabel(item.repeat, item.defs);   // the one rule (forms/formsModel.js)
   const atMax = rows.length >= (item.max || 10);
   return (
     <div style={{ marginBottom: 16 }}>
@@ -312,7 +322,7 @@ function RepeatGroup({ item, rows, errors, ctx, onRow, onAdd, onRemove, groupErr
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: NX.dim }}>{name} {i + 1}</span>
             {!ctx.disabled && (
-              <button type="button" aria-label={`Remove ${name} ${i + 1}`} onClick={() => onRemove(i)} style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12, color: NX.red }}>
+              <button type="button" aria-label={`Remove ${name} ${i + 1}`} onClick={() => onRemove(i)} style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12, color: NX.red, ...tap(ctx.phone) }}>
                 <Trash2 size={13} /> Remove
               </button>
             )}
@@ -324,8 +334,8 @@ function RepeatGroup({ item, rows, errors, ctx, onRow, onAdd, onRemove, groupErr
         </div>
       ))}
       {!ctx.disabled && (
-        <button type="button" style={chipBtn} disabled={atMax} onClick={onAdd} title={atMax ? `Up to ${item.max} here` : undefined}>
-          <Plus size={14} /> Add {name}
+        <button type="button" style={chip(ctx.phone)} disabled={atMax} onClick={onAdd} title={atMax ? `Up to ${item.max} here` : undefined}>
+          <Plus size={14} /> Add Another {name}
         </button>
       )}
       {groupError && <div role="alert" style={errStyle}>{groupError}</div>}
@@ -354,6 +364,10 @@ export default function FillForm({ templateId, template: given = null, preview =
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(null);
   const [site, setSite] = useState(workSiteId || '');
+  // Photos and signatures still uploading - Send waits for them, so an entry
+  // never goes without a picture the person already took.
+  const [uploading, setUploading] = useState(0);
+  const onUploading = useCallback((d) => setUploading((n) => Math.max(0, n + d)), []);
   // The draft offered back - until Continue or Discard nothing is saved over it.
   const [offer, setOffer] = useState(() => { if (preview) return null; const d = loadDraft(tid); return d && hasContent(d.answers) ? d : null; });
   const sending = useRef(false);
@@ -363,6 +377,9 @@ export default function FillForm({ templateId, template: given = null, preview =
   const sections = useMemo(() => groupDefs(defs), [defs]);
   const computed = useMemo(() => computeFormulas(defs, answers), [defs, answers]);
   const sites = tpl?.workSites || [];
+  // A company with one work site: the entry is at it, without a question.
+  const onlySite = sites.length === 1 ? sites[0].id : '';
+  useEffect(() => { if (onlySite) setSite((cur) => cur || onlySite); }, [onlySite]);
 
   // The draft: saved a beat after each change (not while the offer is open,
   // never in a preview, never after the send).
@@ -406,7 +423,7 @@ export default function FillForm({ templateId, template: given = null, preview =
   const discardDraft = () => { clearDraft(tid); setOffer(null); };
 
   const submit = async () => {
-    if (preview || sending.current || sent) return;
+    if (preview || sending.current || sent || uploading > 0) return;
     const errs = validateAnswers(defs, answers);
     if (Object.keys(errs).length) {
       setErrors(errs);
@@ -450,7 +467,7 @@ export default function FillForm({ templateId, template: given = null, preview =
 
   const fillAnother = () => { setSent(null); setAnswers({}); setErrors({}); setBanner(''); setEntryKey(newEntryKey()); };
 
-  const ctx = { answers, computed, entryKey, phone, workSites: sites, disabled: busy || !!sent, signerName };
+  const ctx = { answers, computed, entryKey, phone, workSites: sites, disabled: busy || !!sent, signerName, onUploading };
   const title = tpl?.title || 'Fill a Form';
 
   const footer = sent ? (
@@ -463,8 +480,10 @@ export default function FillForm({ templateId, template: given = null, preview =
   ) : (
     <>
       <button type="button" style={btn('outline')} disabled={busy} onClick={() => onClose?.()}>Cancel</button>
-      <button type="button" style={{ ...btn('primary'), opacity: busy || !tpl ? 0.6 : 1 }} disabled={busy || !tpl} onClick={submit}>
-        {busy ? <><Spinner size="inline" color="#fff" /> Sending...</> : 'Submit'}
+      <button type="button" style={{ ...btn('primary'), opacity: busy || !tpl || uploading ? 0.6 : 1 }} disabled={busy || !tpl || uploading > 0} onClick={submit}>
+        {busy ? <><Spinner size="inline" color="#fff" /> Sending...</>
+          : uploading ? <><Spinner size="inline" color="#fff" /> Waiting for {uploading} photo{uploading === 1 ? '' : 's'}...</>
+          : 'Send'}
       </button>
     </>
   );

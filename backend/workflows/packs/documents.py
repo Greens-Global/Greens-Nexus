@@ -96,7 +96,7 @@ def _hr_contact(db, row) -> list[str]:
 entity("form_entry", label="Form Entry", model=models.DocFormEntry, module=MODULE,
        company=lambda row: row.company or "",
        # Documents > Forms, the entry open beside the list - the same detail the review bell carries.
-       link=lambda row: {"view": "documents", "sub": "documents-forms", "entryId": row.id},
+       link=lambda row: {"view": "documents", "sub": f"documents-forms:entry:{row.id}", "entryId": row.id},
        people={"self": _submitter, "manager": _manager, "reviewer": _reviewer, "hr_contact": _hr_contact},
        people_labels={"self": "Submitter", "reviewer": "Reviewer", "hr_contact": "HR Contact"},
        fields=[

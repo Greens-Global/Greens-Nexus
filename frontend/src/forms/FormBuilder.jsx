@@ -13,17 +13,15 @@ import { api } from '../api';
 import DefineMergeFieldModal from '../components/DefineMergeFieldModal';
 import { Switch } from '../components/settings/SettingsUI';
 import { StatusWord } from '../components/DocumentSidePanel';
-import { Spinner } from '../components/AsyncState';
-import { Modal } from '../tasks/components';
+import { ModalLoading, Spinner } from '../components/AsyncState';
 import { templateStatus } from '../lib/documentLibrary';
+import { dialog } from '../ui/dialog';
+import { useRole } from '../contexts/RoleContext';
 import { AUDIENCES, FORM_CATEGORIES, groupBySection, isForm, sectionsOf, showIfSummary, typeLabel } from './formsModel';
 
-// The fill screen (forms/FillForm.jsx) ships with Task 4. Looked up with a
-// glob so this file builds without it: the glob is empty until the file
-// exists and a lazy loader once it does.
-const fillModules = import.meta.glob('./FillForm.jsx');
-const loadFill = fillModules['./FillForm.jsx'];
-const FillForm = loadFill ? lazy(loadFill) : null;
+// The real fill screen, loaded when Preview opens. It is its own sheet, so
+// Preview renders it directly - no wrapper Modal around it.
+const FillForm = lazy(() => import('./FillForm'));
 
 /** The form as GET /forms/{tid} hands it to the fill screen, from the template row. */
 export const fillPayloadOf = (t, workSites = []) => ({
@@ -31,21 +29,12 @@ export const fillPayloadOf = (t, workSites = []) => ({
   fieldDefs: t.fieldDefs || [], sections: sectionsOf(t.fieldDefs || []), workSites,
 });
 
-/** Preview opens the real fill screen in preview mode - a sheet from the right. */
+/** Preview opens the real fill screen in preview mode - a sheet from the right, nothing sent. */
 export function FormPreview({ template, workSites = [], onClose }) {
   return (
-    <Modal title={`Preview - ${template.name}`} onClose={onClose} zIndex={4100}>
-      {FillForm ? (
-        <Suspense fallback={<div style={{ padding: 30, textAlign: 'center' }}><Spinner size="section" /></div>}>
-          <FillForm template={fillPayloadOf(template, workSites)} preview onClose={onClose} />
-        </Suspense>
-      ) : (
-        <div className="nx-dl-empty nx-fill">
-          <p>Preview is coming with the fill screen.</p>
-          <p className="nx-dl-muted">The form's fields are listed under Build; the phone screen that fills them is on its way.</p>
-        </div>
-      )}
-    </Modal>
+    <Suspense fallback={<ModalLoading zIndex={4100} />}>
+      <FillForm template={fillPayloadOf(template, workSites)} preview onClose={onClose} zIndex={4100} />
+    </Suspense>
   );
 }
 
@@ -68,6 +57,8 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState('');
   const [dragToken, setDragToken] = useState('');
+  const { myEmail } = useRole();
+  const [departments, setDepartments] = useState([]);   // the signed-in person's company's departments
 
   const take = (t) => { setTemplate(t); const d = pick(t); setDraft(d); setSaved(d); };
   useEffect(() => {
@@ -76,11 +67,39 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
     api.getWorkSites().then((r) => { if (live) setSites(Array.isArray(r) ? r : []); }).catch(() => {});
     return () => { live = false; };
   }, [templateId]);
+  // One Department picks from the company's managed list (Settings > Companies >
+  // Departments) - the company being the signed-in person's own, read from the
+  // curated People list. No list (none set up, or not allowed to read it) =
+  // the typed box.
+  useEffect(() => {
+    let live = true;
+    const me = String(myEmail || '').toLowerCase();
+    api.getPeopleDirectory()
+      .then((rows) => {
+        const company = (rows || []).find((p) => String(p.email || '').toLowerCase() === me)?.company;
+        return company ? api.getCompanyDepartments(company) : [];
+      })
+      .then((rows) => { if (live) setDepartments([...new Set((Array.isArray(rows) ? rows : []).map((d) => d?.name).filter(Boolean))]); })
+      .catch(() => { if (live) setDepartments([]); });
+    return () => { live = false; };
+  }, [myEmail]);
 
   const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(saved);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const setDefs = (fn) => setDraft((d) => ({ ...d, fieldDefs: fn(d.fieldDefs) }));
   const sections = useMemo(() => groupBySection(draft?.fieldDefs || []), [draft]);
+  // Unsaved edits are never lost by a stray click: Back To Forms asks, and
+  // closing or reloading the browser tab gets the browser's own question.
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const onUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
+  }, [dirty]);
+  const leave = async () => {
+    if (dirty && !(await dialog.confirm('Leave without saving this form?', { confirmText: 'Discard Changes' }))) return;
+    onClose();
+  };
 
   const save = async () => {
     if (!draft) return null;
@@ -149,7 +168,7 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
   return (
     <div className="nx-form-build" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <button type="button" className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ArrowLeft size={14} /> Back To Forms</button>
+        <button type="button" className="secondary-btn" onClick={leave} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ArrowLeft size={14} /> Back To Forms</button>
         <input className="form-input" aria-label="Form name" value={draft.name} onChange={(e) => set('name', e.target.value)}
           style={{ flex: '1 1 240px', fontSize: 15, fontWeight: 700 }} placeholder="Form name" />
         <StatusWord status={state} />
@@ -177,7 +196,16 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
         {draft.audience === 'department' && (
           <div>
             <label style={label} htmlFor="form-department">Department</label>
-            <input id="form-department" className="form-input" style={{ width: '100%' }} value={draft.department} placeholder="e.g. Construction" onChange={(e) => set('department', e.target.value)} />
+            {departments.length ? (
+              <select id="form-department" className="form-input" style={{ width: '100%' }} value={draft.department} onChange={(e) => set('department', e.target.value)}>
+                <option value="">- Pick a department -</option>
+                {/* A department saved before the list (or renamed since) stays pickable. */}
+                {draft.department && !departments.includes(draft.department) && <option value={draft.department}>{draft.department}</option>}
+                {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            ) : (
+              <input id="form-department" className="form-input" style={{ width: '100%' }} value={draft.department} placeholder="e.g. Construction" onChange={(e) => set('department', e.target.value)} />
+            )}
             <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>Its people fill the form and its managers maintain it.</p>
           </div>
         )}
@@ -195,7 +223,7 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
           <label style={label} htmlFor="form-on-shifts">Show On Shift Cards</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Switch id="form-on-shifts" label="Show On Shift Cards" checked={!!draft.showOnShifts} onChange={(v) => set('showOnShifts', v ? 1 : 0)} />
-            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>A Fill button on the shift card of anyone scheduled at the form's site.</span>
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>A Fill button under each shift - at the form's work site, or on every shift when the form is for the whole company or a department.</span>
           </div>
         </div>
       </section>
