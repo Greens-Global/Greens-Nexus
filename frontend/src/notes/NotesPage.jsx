@@ -582,8 +582,15 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     try {
       const hash = await blobHash(blob);
       if (hash && hash === lastThumb.current) return;
-      const url = await storeTaskFile(new File([blob], 'thumb.png', { type: 'image/png' }), undefined, BOARD_THUMB_FOLDER(note.id));
-      if (url) { lastThumb.current = hash; sync.setFields({ thumbUrl: url }); }
+      // Claimed before the upload, so a second identical picture arriving
+      // while this one is in flight is dropped too; a failed upload gives
+      // the claim back so the next change tries again.
+      const before = lastThumb.current;
+      lastThumb.current = hash;
+      try {
+        const url = await storeTaskFile(new File([blob], 'thumb.png', { type: 'image/png' }), undefined, BOARD_THUMB_FOLDER(note.id));
+        if (url) sync.setFields({ thumbUrl: url }); else lastThumb.current = before;
+      } catch (e) { lastThumb.current = before; throw e; }
     } catch { /* the next change makes another */ } finally { thumbBusy.current = false; }
   };
   // Mark Up Anything (11/02/2026): a board made from a task's or a ticket's
