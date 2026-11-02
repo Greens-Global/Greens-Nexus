@@ -209,7 +209,7 @@ def jobs() -> list[dict]:
         _job("notification_retention", "Notification Retention", "Removes closed notices after 30 days.", "Daily"),
         _job("sign_in_watch", "Sign-In Watch",
              "Removes sign-in sessions idle past the Security limit and sign-ins older than 180 days; the "
-             "new-device notice itself keeps going.", "Daily", "security"),
+             "new-device notice itself keeps going.", "Every 6 hours", "security"),
         _job("changelog_generate", "What's New Drafts", "Drafts What's New from git after each merge.", "Daily"),
         _job("ops_report_schedule", "Ops Report Schedules", "Saved reports emailed weekly or monthly.", "Hourly",
              "operations"),

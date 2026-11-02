@@ -47,6 +47,7 @@ describe('Shifts > Requests - time-off recommendation', () => {
 
   it('shows no chip when there is no recommendation (a request the viewer cannot decide)', () => {
     page([{ ...base, canDecide: false, own: true }]);
+    expect(screen.getByText('Amy Adams')).toBeTruthy();   // the card did render
     expect(screen.queryByText('Check First')).toBeNull();
     expect(screen.queryByText('Recommended: Approve')).toBeNull();
     expect(document.querySelector('.nx-label')).toBeNull();
