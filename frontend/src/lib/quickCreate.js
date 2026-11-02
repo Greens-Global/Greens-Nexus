@@ -46,7 +46,7 @@ export const CREATE_ITEMS = [
   { key: 'item', group: 'Requests', label: 'Request an Item', Icon: Package, module: 'inventory', go: ['inventory', 'catalog'] },
   // Fill a Form (Forms & Checklists, Neil 11/02/2026): Workday's form picker
   // (TimeClock.jsx's "form:pick" deep link; "form:<templateId>" opens one).
-  { key: 'form', group: 'Workday', label: 'Fill a Form', Icon: ClipboardList, module: 'myhr', go: ['timeclock', 'form:pick'] },
+  { key: 'form', group: 'Requests', label: 'Fill a Form', Icon: ClipboardList, module: 'myhr', go: ['timeclock', 'form:pick'] },
   // The Dashboard's Quick Actions offer these to everyone who has a Dashboard.
   { key: 'email', group: 'Outlook', label: 'New Email', Icon: Mail, module: 'dashboard', compose: 'email' },
   { key: 'event', group: 'Outlook', label: 'New Event', Icon: CalendarPlus, module: 'dashboard', compose: 'event' },

@@ -76,7 +76,7 @@ function PhotoField({ value, onChange, entryKey, phone, disabled }) {
   }, [entryKey, onChange]);
   const onPaste = (e) => { const fs = filesFromPaste(e); if (fs.length) { e.preventDefault(); add(fs); } };
   return (
-    <div onPaste={onPaste} tabIndex={-1} style={{ outline: 'none' }}>
+    <div onPaste={onPaste} tabIndex={-1} style={{ }}>
       {(urls.length > 0 || uploads.length > 0) && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: 8, marginBottom: 10 }}>
           {urls.map((u, i) => (
