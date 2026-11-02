@@ -47,6 +47,8 @@ function daysLabel(csv) {
   return on.join(', ') || '-';
 }
 const emailOf = (p) => (p.workEmail || p.work_email || p.email || '').toLowerCase();
+// A zone as the picker names it, for the change-zone question.
+const zoneName = (tz) => zoneOptionLabel(tz);
 const ZonePick = ({ value, onChange, label }) => (
   <select className="form-input" aria-label={label} value={value || 'America/Los_Angeles'} onChange={(e) => onChange(e.target.value)} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px', maxWidth: '100%' }}>
     {Object.entries(ZONE_GROUPS).map(([region, zones]) => (
@@ -152,12 +154,14 @@ function CompanySelect({ value, onChange, companies, label }) {
 // reads as off for these three, on for the rest.
 const OFF_BY_DEFAULT = new Set(['openShifts', 'swaps', 'offers']);
 const SWITCHES = [
-  ['openShifts', 'Staff can request open shifts'], ['swaps', 'Staff can swap shifts with teammates'], ['offers', 'Staff can offer their shifts to teammates'],
-  ['timeOffRequests', 'Staff can request time off'],
-  ['teamSchedules', "Staff can see their group's shifts in My Shifts"],
-  ['teamShiftDetails', "Staff can see the notes, activities and breaks on teammates' shifts"],
-  ['teamTimeOffReasons', 'Staff can see why a teammate is off, and their note'],
+  ['openShifts', 'Staff Can Request Open Shifts'], ['swaps', 'Staff Can Swap Shifts With Teammates'], ['offers', 'Staff Can Offer Their Shifts to Teammates'],
+  ['timeOffRequests', 'Staff Can Request Time Off'],
+  ['teamSchedules', "Staff Can See Their Group's Shifts In My Shifts"],
+  ['teamShiftDetails', "Staff Can See The Notes, Activities And Breaks On Teammates' Shifts"],
+  ['teamTimeOffReasons', 'Staff Can See Why a Teammate Is Off, and Their Note'],
 ];
+// Time off itself (reasons, leave policies, approval) is its own Settings subject (11/02/2026).
+const openLeaveSettings = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'leave' } }));
 // Settings shows the shift settings as several groups (Oct 25: one long card
 // was hard to scan) - `part` picks one; left out, every part shows under its
 // own heading (the panel on its own). The keys say which settings a part
@@ -308,6 +312,15 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
   // boxes, only the boxes wait for it.
   const numNames = numKeys.filter((k) => NUM_LABELS[k] && (hrPlus || !SHIFT_SETTING_PARTS.labor.includes(k))).map((k) => NUM_LABELS[k]);
   const numNote = `Saves ${numNames.length > 2 ? `${numNames.slice(0, -1).join(', ')} and ${numNames[numNames.length - 1]}` : numNames.join(' and ')}. Switches and lists save as you go.`;
+  // The team time zone moves every shift with no shift type (Settings
+  // critique, 11/02/2026): it asks first, naming the old zone and the new.
+  async function changeZone(next) {
+    const was = cfg.timeZone || 'America/Los_Angeles';
+    if (!next || next === was) return;
+    const ok = await dialog.confirm(`Change the team time zone from ${zoneName(was)} to ${zoneName(next)}? Shifts with no shift type will show in the new zone${company ? ` for ${companyName}` : ''}.`,
+      { title: 'Change Team Time Zone?', confirmText: 'Change Time Zone', cancelText: 'Keep Current Zone' });
+    if (ok) save({ timeZone: next });
+  }
   async function useDefaults() {
     const ok = await dialog.confirm(`Drop the shift settings ${companyName} has of its own? It then follows the default settings, and whatever changes there.`, { title: 'Use the Default', confirmText: 'Use the Default' });
     if (!ok) return;
@@ -355,24 +368,28 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                         <MinutesField nested muted={cfg.timeOffRequests === false} label="Short Request (Days)" aria="Short request" unit="days" max={30}
                           value={nums?.timeOffShortDays} fallback={3} onChange={(v) => patchNum({ timeOffShortDays: v })}
                           hint="A request of at most this many working days earns 'Recommended: Approve'." />
+                        <div className="nx-set-note" data-leave-link="">
+                          Time off reasons, leave policies and approval are under Settings &gt; Time Off &amp; Leave.
+                          <button type="button" className="nx-set-inline-link" onClick={openLeaveSettings}>Open Time Off &amp; Leave</button>
+                        </div>
                       </>
                     )}
                   </Fragment>
                 ))}
                 {/* Shifts Phase 3b (Oct 15): staff move their own work. */}
-                <SwitchRow id="shift-releaseShifts" title="People can release a shift to the open pool" checked={cfg.releaseShifts === true} onChange={(on) => save({ releaseShifts: on })} />
-                <SwitchRow id="shift-releaseNeedsApproval" nested title="A manager approves a release" disabled={cfg.releaseShifts !== true}
+                <SwitchRow id="shift-releaseShifts" title="People Can Release a Shift to the Open Pool" checked={cfg.releaseShifts === true} onChange={(on) => save({ releaseShifts: on })} />
+                <SwitchRow id="shift-releaseNeedsApproval" nested title="A Manager Approves a Release" disabled={cfg.releaseShifts !== true}
                   desc="With approval off, a released shift goes to the open pool right away."
                   checked={cfg.releaseNeedsApproval !== false} onChange={(on) => save({ releaseNeedsApproval: on })} />
-                <SwitchRow id="shift-openShiftsAcrossTeams" title="Open shifts can be claimed across teams" desc="Off by default. Turn on per company."
+                <SwitchRow id="shift-openShiftsAcrossTeams" title="Open Shifts Can Be Claimed Across Teams" desc="Off by default. Turn on per company."
                   checked={cfg.openShiftsAcrossTeams === true} onChange={(on) => save({ openShiftsAcrossTeams: on })} />
-                <div className="nx-set-note">Trading (swaps, offers) and open shift requests are off unless turned on here. Every request still needs a manager's approval. Turning one off stops new requests of that kind. A confidential time-off reason is never shown to teammates.</div>
+                <div className="nx-set-note">Trading (swaps, offers) and open shift requests are off unless turned on here. Every request still needs a manager's approval. Turning one off stops new requests of that kind. A confidential time off reason is never shown to teammates.</div>
               </>
             ))}
             {block('basics', 'Schedule Basics', (
               <>
                 <SettingRow title="Team Time Zone" desc="What a shift with no shift type runs on, and what a new shift type starts with."
-                  control={<ZonePick label="Team time zone" value={cfg.timeZone} onChange={(v) => save({ timeZone: v })} />} />
+                  control={<ZonePick label="Team time zone" value={cfg.timeZone} onChange={changeZone} />} />
                 <SettingRow title="Week Starts On" desc="The first column of every schedule grid."
                   control={(
                     <select className="form-input" aria-label="Week starts on" value={cfg.weekStart === 'sunday' ? 'sunday' : 'monday'} onChange={(e) => save({ weekStart: e.target.value })} style={{ width: 'auto', fontSize: 13, padding: '6px 30px 6px 10px' }}>
@@ -390,7 +407,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
               <>
                 <MinutesField label="No-Show Alert" aria="No-show alert" value={nums?.noShowAlertMin} fallback={10} onChange={(v) => patchNum({ noShowAlertMin: v })}
                   hint="Tells the person's manager, their backup manager and the team's schedulers when a shared shift has started, the grace has passed, and this many minutes have gone by with no clock-in. The alert always lands inside the six hours after the start. 0 turns it off." />
-                <SwitchRow id="shift-noShowOnUsualHours" nested title="Alert for usual hours too" checked={cfg.noShowOnUsualHours === true} onChange={(on) => save({ noShowOnUsualHours: on })}
+                <SwitchRow id="shift-noShowOnUsualHours" nested title="Alert for Usual Hours Too" checked={cfg.noShowOnUsualHours === true} onChange={(on) => save({ noShowOnUsualHours: on })}
                   desc="Also alerts for office staff who have usual hours but no shift on the schedule that day. Time off and holidays excuse those." />
                 <MinutesField label="Left Early" aria="Left early" value={nums?.leftEarlyMin} fallback={15} onChange={(v) => patchNum({ leftEarlyMin: v })}
                   hint="Clocking out this many minutes before the shift's end counts as leaving early on the schedule." />
@@ -402,7 +419,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                   value={nums?.timesheetEscalateDays} fallback={2} onChange={(v) => patchNum({ timesheetEscalateDays: v })}
                   hint="Days after a pay period ends before a time sheet still waiting on its approver is sent up to the approver's own manager, or else the company's HR contact. 0 turns it off." />
                 {/* A break that never ended (Oct 20 2026, break_watch.py). */}
-                <MinutesField label="Still on Break Reminder" aria="Still on break reminder" max={240}
+                <MinutesField label="Still On Break Reminder" aria="Still on break reminder" max={240}
                   value={nums?.breakNudgeMin} fallback={60} onChange={(v) => patchNum({ breakNudgeMin: v })}
                   hint="Minutes on a break that has not ended before the person is asked if they are still on break. Their manager hears at twice this. 0 turns it off." />
                 {/* California meal reminder (Charmi + Neil, Oct 20 2026, meal_watch.py). */}
@@ -414,7 +431,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
             {block('overtime', 'Overtime Alerts', (
               <>
                 {/* Live overtime alert (Oct 17 2026, overtime_watch.py). */}
-                <SwitchRow id="shift-otAlertOn" title="Alert managers before overtime" checked={cfg.otAlertOn === true} onChange={(on) => save({ otAlertOn: on })}
+                <SwitchRow id="shift-otAlertOn" title="Alert Managers Before Overtime" checked={cfg.otAlertOn === true} onChange={(on) => save({ otAlertOn: on })}
                   desc="Off unless turned on here. Tells the person's manager and their backup manager once, from the actual punches, when someone clocked in is about to reach overtime." />
                 <MinutesField nested muted={cfg.otAlertOn !== true} label="Daily Overtime Warning" aria="Daily overtime warning" value={nums?.otAlertDailyLeadMin} fallback={30} onChange={(v) => patchNum({ otAlertDailyLeadMin: v })}
                   hint="Minutes before 8 worked hours in a day. People on the California overtime rule only. 0 turns it off." />
@@ -435,7 +452,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
             {block('trail', 'Location Trail', (
               // Location Trail While Clocked In (Oct 20 2026, routers/location_trail.py).
               <SwitchRow id="shift-locationTrailOn" title="Location Trail While Clocked In" checked={cfg.locationTrailOn === true} onChange={(on) => save({ locationTrailOn: on })}
-                desc="Off unless turned on here. When on, Nexus shares each person's location about every 5 minutes while they are clocked in, paused on breaks and stopped at clock out, and only when their browser already allows location. Only managers see live positions and each day's trail, in Workforce Analytics - Location Trail; employees never see a trail, their own included. Tell staff about it in your own policy. A browser cannot share while the phone screen is locked or Nexus is closed, so the trail has gaps then. Points are kept for 90 days." />
+                desc="About every 5 minutes while clocked in, paused on breaks, and only where the browser already allows location. Employees never see a trail, their own included; points are kept for 90 days. Tell staff about it in your own policy." />
             ))}
             {block('rules', 'Rules', (
               <>
@@ -450,13 +467,13 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                   hint="Warns when the hours scheduled in the payroll week, Sunday to Saturday, pass this - whatever day the grid starts on." />
                 <MinutesField label="Most Hours Per Week" aria="Most hours per week" unit="hours" max={100} value={nums?.ruleMaxWeekHours} fallback={0} onChange={(v) => patchNum({ ruleMaxWeekHours: v })}
                   hint="Warns when the hours scheduled in the week shown on the grid pass this. Applies to everyone." />
-                <SwitchRow id="shift-publishReasonRequired" title="Require a reason to share a schedule that has warnings" checked={cfg.publishReasonRequired === true} onChange={(on) => save({ publishReasonRequired: on })}
+                <SwitchRow id="shift-publishReasonRequired" title="Require a Reason to Share a Schedule That Has Warnings" checked={cfg.publishReasonRequired === true} onChange={(on) => save({ publishReasonRequired: on })}
                   desc={`Rule warnings, approved time off and holidays ask for it; a pending request, availability or an overlap only shows. Managers see the reason in the history of the shifts it applies to. A company that does not want to be asked turns this off here${reasonHint}.`} />
               </>
             ))}
             {block('sharing', 'Sharing', (
               <>
-                <SwitchRow id="shift-outlookCalendarOn" title="Add shared shifts to people's Outlook calendars" checked={cfg.outlookCalendarOn === true} onChange={(on) => save({ outlookCalendarOn: on })}
+                <SwitchRow id="shift-outlookCalendarOn" title="Add Shared Shifts to People's Outlook Calendars" checked={cfg.outlookCalendarOn === true} onChange={(on) => save({ outlookCalendarOn: on })}
                   desc="Off unless a company turns it on. Each person can keep shifts out of their own calendar from My Shifts. Turning it off takes the events already added back off people's calendars." />
                 <SettingRow nested muted={cfg.outlookCalendarOn !== true} title="Show In Outlook As" desc="Free keeps people bookable during a shift; Busy blocks the time."
                   control={(
@@ -465,12 +482,12 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                       <option value="busy">Busy</option>
                     </select>
                   )} />
-                <SwitchRow id="shift-confirmRequests" title="Ask people to confirm a shared schedule" checked={cfg.confirmRequests !== false} onChange={(on) => save({ confirmRequests: on })}
+                <SwitchRow id="shift-confirmRequests" title="Ask People to Confirm a Shared Schedule" checked={cfg.confirmRequests !== false} onChange={(on) => save({ confirmRequests: on })}
                   desc="A share then asks each person to confirm in My Shifts; the schedule shows who has, and a manager can nudge the rest." />
                 <div className="nx-set-sync"><CalendarSyncStatus /></div>
               </>
             ))}
-            {!company && !part && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Time-off reasons are under Time &amp; Pay &gt; Time-Off Reasons.</div>}
+            {!company && !part && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Time off reasons are under Settings &gt; Time Off &amp; Leave &gt; Time Off Reasons.</div>}
             {numKeys.length > 0 && (
               <SaveRow dirty={numsDirty} busy={savingNums} onSave={saveNums} onDiscard={resetNums}
                 style={part ? { margin: 0, padding: '12px 18px' } : { marginTop: 2 }}
@@ -551,7 +568,7 @@ const NUM_KEYS = Object.keys(NUM_MAX);
 // What each box is called on screen, for the Save row's note.
 const NUM_LABELS = {
   defaultGraceMin: 'Default Grace', noShowAlertMin: 'No-Show Alert', leftEarlyMin: 'Left Early', earlyPunchAlertMin: 'Early Punch Alert',
-  timesheetEscalateDays: 'Escalate Unapproved Time Sheets', breakNudgeMin: 'Still on Break Reminder', mealReminderMin: 'Meal Reminder',
+  timesheetEscalateDays: 'Escalate Unapproved Time Sheets', breakNudgeMin: 'Still On Break Reminder', mealReminderMin: 'Meal Reminder',
   otAlertDailyLeadMin: 'Daily Overtime Warning', otAlertWeeklyLeadMin: 'Weekly Overtime Warning',
   ruleMinRestHours: 'Minimum Rest', ruleMaxDaysInRow: 'Most Days In A Row', ruleDailyOtHours: 'Daily Overtime After',
   ruleWeeklyOtHours: 'Weekly Overtime After', ruleMaxWeekHours: 'Most Hours Per Week',
@@ -572,7 +589,7 @@ function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes
 }
 
 // Custom time-off reasons (e.g. "Jury Duty") next to the built-in ones.
-// Settings > Time & Pay > Time-Off Reasons (Oct 23; it used to sit inside
+// Settings > Time Off & Leave > Time Off Reasons (Oct 23; it used to sit inside
 // Shift Settings, where a company pick hid it).
 // `company` (Settings' scope picker): that company's own list, over the
 // default for every company; '' edits the default.
@@ -588,7 +605,7 @@ export function TimeOffReasons({ toastOk, toastErr, company = '', onOverride }) 
     return () => { live = false; };
   }, [company]);
   async function save(next, reset = false) {
-    try { const r = await api.timeOffTypesSave(reset ? { custom: [], reset: true } : { custom: next }, company || 'default'); setList(r.custom); setOwn(!!r.hasOverride); setDraft(''); toastOk?.(reset ? 'Back to the default reasons.' : 'Time-off reasons saved.'); }
+    try { const r = await api.timeOffTypesSave(reset ? { custom: [], reset: true } : { custom: next }, company || 'default'); setList(r.custom); setOwn(!!r.hasOverride); setDraft(''); toastOk?.(reset ? 'Back to the default reasons.' : 'Time off reasons saved.'); }
     catch (e) { toastErr?.(e.message || 'Could not save the reasons.'); }
   }
   if (!list) return null;
@@ -603,7 +620,7 @@ export function TimeOffReasons({ toastOk, toastErr, company = '', onOverride }) 
             <button type="button" aria-label={`Remove ${r}`} onClick={() => save(list.filter((x) => x !== r))} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', padding: 2 }}><X size={12} /></button>
           </span>
         ))}
-        <input className="form-input" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="e.g. Jury Duty" aria-label="New time-off reason"
+        <input className="form-input" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="e.g. Jury Duty" aria-label="New time off reason"
           onKeyDown={(e) => { if (e.key === 'Enter') add(); }} style={{ width: 150, fontSize: 12.5, padding: '3px 8px' }} />
         <button type="button" className="secondary-btn" onClick={add} disabled={!draft.trim()} style={{ fontSize: 12 }}>Add Reason</button>
       </div>

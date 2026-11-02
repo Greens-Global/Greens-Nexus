@@ -27,12 +27,16 @@ describe('FederalFormsStatus', () => {
     expect(screen.getAllByText('Current')).toHaveLength(2);
     expect(screen.getByText('Expiring')).toBeTruthy();
     expect(screen.getByText('Expired')).toBeTruthy();
-    // The message carries the date: "Edition <label>. <message>" - the date never reads twice.
-    expect(screen.getByText(/^Edition 01\/20\/25\. The Form I-9 edition in Nexus \(01\/20\/25\) expires on 05\/31\/2027\./)).toBeTruthy();
-    expect(screen.getByText(/^Edition 2026\. Form W-4 \(2026\) is current through 01\/31\/2027\./)).toBeTruthy();
-    expect(screen.queryByText(/- expires 05\/31\/2027/)).toBeNull();
-    // A message with no date keeps "- expires <date>".
-    expect(screen.getByText(/^Edition v2 - expires 06\/30\/2027\. Form X \(v2\) is current\./)).toBeTruthy();
+    // The message carries the edition and the date: neither ever reads twice.
+    expect(screen.getByText(/^The Form I-9 edition in Nexus \(01\/20\/25\) expires on 05\/31\/2027\./)).toBeTruthy();
+    expect(screen.getByText(/^Form W-4 \(2026\) is current through 01\/31\/2027\./)).toBeTruthy();
+    expect(screen.queryByText(/Edition 01\/20\/25\./)).toBeNull();
+    expect(screen.queryByText(/Expires 05\/31\/2027/)).toBeNull();
+    // A message with no date gets "Expires <date>." after it.
+    expect(screen.getByText(/^Form X \(v2\) is current\. Expires 06\/30\/2027\./)).toBeTruthy();
+    // No developer paths in an admin's copy.
+    expect(screen.queryByText(/docs\/Federal-Forms\.md/)).toBeNull();
+    expect(screen.getByText(/A new edition needs a Nexus update - ask your Nexus administrator\./)).toBeTruthy();
     // Government forms link to their source; our own form says so.
     const links = screen.getAllByRole('link', { name: /Source/ });
     expect(links.map(a => a.getAttribute('href'))).toEqual(['https://www.irs.gov/pub/irs-pdf/fw4.pdf', 'https://www.uscis.gov/sites/default/files/document/forms/i-9.pdf']);

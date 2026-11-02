@@ -89,18 +89,25 @@ const saveButton = () => screen.getByRole('button', { name: 'Save' });
 describe('Shift Settings', () => {
   it('saves a switch, the team time zone and the week start', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
-    const swaps = await screen.findByLabelText('Staff can swap shifts with teammates');
+    const swaps = await screen.findByLabelText('Staff Can Swap Shifts With Teammates');
     expect(swaps.checked).toBe(false);
     fireEvent.click(swaps);
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith(expect.objectContaining({ swaps: true }), ''));
     const zone = screen.getByLabelText('Team time zone');
+    // The team time zone asks first, naming both zones; Keep Current Zone saves nothing.
+    confirmAsk.mockResolvedValueOnce(false);
+    const calls = shiftRequestSettingsSaveFor.mock.calls.length;
+    fireEvent.change(zone, { target: { value: ASIA } });
+    await waitFor(() => expect(confirmAsk).toHaveBeenCalledWith(expect.stringMatching(/^Change the team time zone from .+ to .+\? Shifts with no shift type will show in the new zone\.$/), expect.objectContaining({ title: 'Change Team Time Zone?' })));
+    expect(shiftRequestSettingsSaveFor.mock.calls.length).toBe(calls);
+    expect(zone.value).toBe('America/Los_Angeles');
     fireEvent.change(zone, { target: { value: ASIA } });
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: ASIA }), ''));
     fireEvent.change(screen.getByLabelText('Week starts on'), { target: { value: 'sunday' } });
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ weekStart: 'sunday' }), ''));
-    // The time-off reasons are their own Settings group now (Time & Pay, Oct 23).
+    // The time off reasons are their own Settings group now (Time Off & Leave, 11/02/2026).
     expect(screen.queryByText('Jury Duty')).toBeNull();
-    expect(screen.getByText(/Time-off reasons are under Time & Pay/)).toBeTruthy();
+    expect(screen.getByText(/Time off reasons are under Settings > Time Off & Leave/)).toBeTruthy();
     expect(toastOk).toHaveBeenCalledWith('Shift settings saved.');
   });
 
@@ -113,9 +120,9 @@ describe('Shift Settings', () => {
   // approves one, and cross-team claiming - off by default, per company.
   it('saves the release and cross-team switches; the approval switch follows the release switch', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
-    const release = await screen.findByLabelText('People can release a shift to the open pool');
-    const approve = screen.getByLabelText('A manager approves a release');
-    const across = screen.getByLabelText('Open shifts can be claimed across teams');
+    const release = await screen.findByLabelText('People Can Release a Shift to the Open Pool');
+    const approve = screen.getByLabelText('A Manager Approves a Release');
+    const across = screen.getByLabelText('Open Shifts Can Be Claimed Across Teams');
     expect(release.checked).toBe(false);                                        // off by default
     expect(across.checked).toBe(false);
     expect(approve.checked).toBe(true);                                         // approval is the default
@@ -123,14 +130,14 @@ describe('Shift Settings', () => {
     expect(screen.getByText(/Off by default\. Turn on per company\./)).toBeTruthy();
     fireEvent.click(release);
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ releaseShifts: true }), ''));
-    expect(screen.getByLabelText('A manager approves a release').disabled).toBe(false);
-    fireEvent.click(screen.getByLabelText('A manager approves a release'));
+    expect(screen.getByLabelText('A Manager Approves a Release').disabled).toBe(false);
+    fireEvent.click(screen.getByLabelText('A Manager Approves a Release'));
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ releaseNeedsApproval: false }, ''));   // only the key that changed
     fireEvent.click(across);
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ openShiftsAcrossTeams: true }), ''));
-    fireEvent.click(screen.getByLabelText('People can release a shift to the open pool'));
+    fireEvent.click(screen.getByLabelText('People Can Release a Shift to the Open Pool'));
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ releaseShifts: false }), ''));
-    expect(screen.getByLabelText('A manager approves a release').disabled).toBe(true);
+    expect(screen.getByLabelText('A Manager Approves a Release').disabled).toBe(true);
   });
 
   it('shows an error with Retry when the settings cannot load', async () => {
@@ -140,7 +147,7 @@ describe('Shift Settings', () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
     expect(await screen.findByText('The shift settings could not be loaded right now.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByLabelText('Staff can request open shifts')).toBeTruthy();
+    expect(await screen.findByLabelText('Staff Can Request Open Shifts')).toBeTruthy();
   });
 });
 
@@ -304,7 +311,7 @@ describe('Companies', () => {
 
   it('hides the company picker from people who cannot pick', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
-    await screen.findByLabelText('Staff can request open shifts');
+    await screen.findByLabelText('Staff Can Request Open Shifts');
     expect(screen.queryByLabelText('Company')).toBeNull();
     render(<ShiftTypesPanel toastOk={toastOk} toastErr={toastErr} />);
     await screen.findByLabelText('Delete shift type Store');
@@ -323,7 +330,7 @@ describe('Companies', () => {
     await waitFor(() => expect(shiftRequestSettingsGetFor).toHaveBeenLastCalledWith('c1'));
     expect(await screen.findByText('Using the default settings. Changing anything here saves settings for Greens Storage only.')).toBeTruthy();
     expect(screen.queryByText('Use the Default')).toBeNull();
-    fireEvent.click(screen.getByLabelText('Staff can swap shifts with teammates'));
+    fireEvent.click(screen.getByLabelText('Staff Can Swap Shifts With Teammates'));
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith(expect.objectContaining({ swaps: true }), 'c1'));
     expect(await screen.findByText(/Greens Storage has its own settings/)).toBeTruthy();   // the save made an override
     expect(toastOk).toHaveBeenCalledWith('Shift settings saved for Greens Storage.');
@@ -388,7 +395,7 @@ describe('Companies', () => {
     expect(screen.getByText(/always lands inside the six hours after the start\. 0 turns it off\.$/)).toBeTruthy();
     expect(screen.getByText(/counts as leaving early on the schedule/)).toBeTruthy();
     // Usual hours (Oct 15): off unless turned on; saves only that key.
-    const usual = screen.getByLabelText('Alert for usual hours too');
+    const usual = screen.getByLabelText('Alert for Usual Hours Too');
     expect(usual.checked).toBe(false);
     expect(screen.getByText(/office staff who have usual hours but no shift on the schedule/)).toBeTruthy();
     fireEvent.click(usual);
@@ -399,7 +406,7 @@ describe('Companies', () => {
   // times default to 30 and 120 minutes, clamped to 0-240 and 0-480.
   it('saves the overtime alert switch and its two lead times', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
-    const on = await screen.findByLabelText('Alert managers before overtime');
+    const on = await screen.findByLabelText('Alert Managers Before Overtime');
     expect(on.checked).toBe(false);
     const daily = screen.getByLabelText('Daily overtime warning');
     const weekly = screen.getByLabelText('Weekly overtime warning');
@@ -508,7 +515,7 @@ describe('Companies', () => {
     expect(screen.queryByLabelText('Company')).toBeNull();   // nothing to pick
     expect(await screen.findByText('Using the default settings. Changing anything here saves settings for Greens Storage only.')).toBeTruthy();
     expect(localStorage.getItem('shifts.settings.company')).toBe('c1');
-    fireEvent.click(screen.getByLabelText('Staff can swap shifts with teammates'));
+    fireEvent.click(screen.getByLabelText('Staff Can Swap Shifts With Teammates'));
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith({ swaps: true }, 'c1'));
     expect(toastOk).toHaveBeenCalledWith('Shift settings saved for Greens Storage.');
     // A new shift type and a new group land on that company too, with no Company select offered.
@@ -540,12 +547,12 @@ describe('Companies', () => {
     // differs makes an override, one set back to the tenant's value leaves none.
     shiftRequestSettingsSaveFor.mockImplementation(async (patch) => withCompanies({ ...SETTINGS, ...patch, companyId: 'c1', hasOverride: patch.swaps === true }));
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
-    const swaps = await screen.findByLabelText('Staff can swap shifts with teammates');
+    const swaps = await screen.findByLabelText('Staff Can Swap Shifts With Teammates');
     fireEvent.click(swaps);
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith({ swaps: true }, 'c1'));
     expect(shiftRequestSettingsSaveFor.mock.calls[0][0]).toEqual({ swaps: true });   // never the whole form
     expect(await screen.findByText(/Greens Storage has its own settings/)).toBeTruthy();
-    fireEvent.click(screen.getByLabelText('Staff can swap shifts with teammates'));
+    fireEvent.click(screen.getByLabelText('Staff Can Swap Shifts With Teammates'));
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ swaps: false }, 'c1'));
     expect(await screen.findByText(/Using the default settings/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Week starts on'), { target: { value: 'sunday' } });
@@ -557,7 +564,7 @@ describe('Companies', () => {
     const refused = Object.assign(new Error('API error 403'), { status: 403 });
     shiftRequestSettingsGetFor.mockImplementation(async (company) => { if (company) throw refused; return withCompanies({ companyId: '' }); });
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
-    expect(await screen.findByLabelText('Staff can request open shifts')).toBeTruthy();
+    expect(await screen.findByLabelText('Staff Can Request Open Shifts')).toBeTruthy();
     expect(shiftRequestSettingsGetFor).toHaveBeenLastCalledWith('');
     expect(screen.queryByText('The shift settings could not be loaded right now.')).toBeNull();
     expect(localStorage.getItem('shifts.settings.company')).toBe('');
@@ -654,11 +661,11 @@ describe('ShiftSettingsPanel rules', () => {
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ ruleMaxWeekHours: 100 }), ''));
     commit(screen.getByLabelText('Most hours per week'), '-3');
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ ruleMaxWeekHours: 0 }), ''));
-    const box = screen.getByLabelText('Require a reason to share a schedule that has warnings');
+    const box = screen.getByLabelText('Require a Reason to Share a Schedule That Has Warnings');
     expect(box.checked).toBe(false);
     fireEvent.click(box);
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ publishReasonRequired: true }, ''));   // only the key that changed (a sparse company override)
-    expect(screen.getByLabelText('Require a reason to share a schedule that has warnings').checked).toBe(true);
+    expect(screen.getByLabelText('Require a Reason to Share a Schedule That Has Warnings').checked).toBe(true);
   });
 
   it('shows what the API sends and saves nothing for an unchanged value', async () => {
@@ -669,7 +676,7 @@ describe('ShiftSettingsPanel rules', () => {
     expect(screen.getByLabelText('Most days in a row').value).toBe('6');
     expect(screen.getByLabelText('Weekly overtime after').value).toBe('40');
     expect(screen.getByLabelText('Most hours per week').value).toBe('60');
-    expect(screen.getByLabelText('Require a reason to share a schedule that has warnings').checked).toBe(true);
+    expect(screen.getByLabelText('Require a Reason to Share a Schedule That Has Warnings').checked).toBe(true);
     commit(rest, '8');
     commit(rest, '');
     expect(shiftRequestSettingsSaveFor).not.toHaveBeenCalled();
@@ -684,7 +691,7 @@ describe('ShiftSettingsPanel rules', () => {
 describe('ShiftSettingsPanel sharing', () => {
   it('saves the three sharing settings, and Show In Outlook As follows the calendar switch', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
-    const cal = await screen.findByLabelText("Add shared shifts to people's Outlook calendars");
+    const cal = await screen.findByLabelText("Add Shared Shifts to People's Outlook Calendars");
     expect(cal.checked).toBe(false);                                            // off by default (Neil, Oct 15)
     expect(screen.getByLabelText('Show in Outlook as').disabled).toBe(true);
     fireEvent.click(cal);
@@ -694,7 +701,7 @@ describe('ShiftSettingsPanel sharing', () => {
     expect(showAs.value).toBe('free');
     fireEvent.change(showAs, { target: { value: 'busy' } });
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ outlookShowAs: 'busy' }, ''));   // only the key that changed
-    const ask = screen.getByLabelText('Ask people to confirm a shared schedule');
+    const ask = screen.getByLabelText('Ask People to Confirm a Shared Schedule');
     expect(ask.checked).toBe(true);
     fireEvent.click(ask);
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ confirmRequests: false }), ''));
@@ -718,7 +725,7 @@ describe('ShiftSettingsPanel sharing', () => {
     r2.unmount();
     timeCalendarSyncStatus.mockRejectedValue(new Error('API error 403'));
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
-    await screen.findByLabelText('Ask people to confirm a shared schedule');
+    await screen.findByLabelText('Ask People to Confirm a Shared Schedule');
     await waitFor(() => expect(timeCalendarSyncStatus).toHaveBeenCalledTimes(3));
     expect(document.querySelector('[data-calendar-sync]')).toBeNull();
     expect(toastErr).not.toHaveBeenCalled();
@@ -768,7 +775,7 @@ describe('ShiftSettingsPanel parts', () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} company="" part="rules" />);
     expect(await screen.findByLabelText('Most days in a row')).toBeTruthy();
     expect(screen.queryByText('Rules')).toBeNull();
-    expect(screen.queryByLabelText('Staff can swap shifts with teammates')).toBeNull();
+    expect(screen.queryByLabelText('Staff Can Swap Shifts With Teammates')).toBeNull();
     expect(screen.queryByLabelText('Week starts on')).toBeNull();
     expect(screen.queryByLabelText('Location Trail While Clocked In')).toBeNull();
   });

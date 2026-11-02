@@ -13,7 +13,8 @@
 // defaultValue, required, multiline }. `danger:true` styles the confirm button as
 // destructive. `hold:true` (confirm) makes it a press-and-hold button instead
 // (ui/HoldButton.jsx, Neil, Oct 30 2026) for an action that cannot be taken
-// back: `holdMs` (default HOLD_MAJOR_MS), `doneText` ("Deleted"), and
+// back: `holdMs` (default HOLD_MAJOR_MS), `doneText` ("Deleted"), `holdIcon`
+// (a lucide icon for an action that is not a delete; the trash by default), and
 // `onConfirm` - an async action the dialog waits for, staying open with the
 // reason when it throws, so the button finishes only when the server did.
 // `dialog.undo(message, onUndo)` shows a short Undo toast. `required:true` (prompt) disables OK until non-empty;
@@ -293,7 +294,7 @@ function DialogCard() {
           )}
           {item.hold ? (
             <HoldButton label={item.confirmText || 'Delete'} doneLabel={item.doneText || 'Done'} holdMs={item.holdMs || HOLD_MAJOR_MS}
-              clickRuns onConfirm={item.onConfirm} onDone={() => close(true)} />
+              icon={item.holdIcon} clickRuns onConfirm={item.onConfirm} onDone={() => close(true)} />
           ) : (
           <button
             ref={okRef}
