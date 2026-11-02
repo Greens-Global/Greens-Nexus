@@ -521,7 +521,10 @@ def apply_job_role(db: Session, jr: NexusGroup, email: str, by: str) -> str:
     # role said "Marketing Lead". Overwrite deliberately - the M365 sync only
     # backfills an EMPTY job_title, so this assignment survives future syncs;
     # "Push to M365" carries it back to Entra when wanted.
-    if emp and (jr.name or "").strip():
+    # Tiers (Neil, 11/02/2026): an Administrator- or Super Administrator-tier
+    # role is an ACCESS role, not a job - its name ("Super Administrators")
+    # never goes under anyone's name, so their own title stays.
+    if emp and (jr.name or "").strip() and ROLE_LEVEL.get(tier, 1) < ROLE_LEVEL["administrator"]:
         emp.job_title = jr.name.strip()
 
     # Role's default manager/approver: copy onto the person's card ONLY if they

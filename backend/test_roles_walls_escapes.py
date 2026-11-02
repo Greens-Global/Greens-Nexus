@@ -454,5 +454,37 @@ class LevelFourShortcutTests(_Base):
             db.close()
 
 
+class JobTitleStampTests(_Base):
+    """apply_job_role stamps the role's name as the job title only for a job
+    (tiers up to Manager), never for an access role at the Administrator or
+    Super Administrator tier."""
+
+    def _title(self, email):
+        db = self._db()
+        try:
+            return db.get(models.NexusEmployee, f"e-{email}").job_title
+        finally:
+            db.close()
+
+    def test_owner_tier_keeps_the_title_manager_tier_stamps_it(self):
+        from routers import jobroles
+        db = self._db()
+        try:
+            db.query(models.NexusEmployee).filter(models.NexusEmployee.id == f"e-{AEMP}").update({"job_title": "Site Lead"})
+            db.add(models.NexusGroup(id="JResc-super", name="Super Administrators", is_job_role=1, tier="owner"))
+            db.add(models.NexusGroup(id="JResc-admin2", name="Administrators", is_job_role=1, tier="administrator"))
+            db.add(models.NexusGroup(id="JResc-mgr", name="Ops Manager", is_job_role=1, tier="manager", company_id=COA))
+            db.commit()
+            for rid in ("JResc-super", "JResc-admin2"):
+                jobroles.apply_job_role(db, db.get(models.NexusGroup, rid), AEMP, SUPER)
+                db.commit()
+                self.assertEqual(self._title(AEMP), "Site Lead", rid)
+            jobroles.apply_job_role(db, db.get(models.NexusGroup, "JResc-mgr"), AEMP, SUPER)
+            db.commit()
+        finally:
+            db.close()
+        self.assertEqual(self._title(AEMP), "Ops Manager")
+
+
 if __name__ == "__main__":
     unittest.main()
