@@ -95,4 +95,15 @@ describe('board scene', () => {
     const same = applyLook(back, 'sketch');
     expect(same[1]).toBe(back[1]);
   });
+
+  it('never keeps a data: URL as a file (images live in the bucket)', () => {
+    const out = JSON.parse(serializeScene({ elements: [], appState: {}, look: 'clean', filesMeta: {
+      ok: { id: 'ok', mimeType: 'image/png', url: 'https://api/files/view?u=x', created: 1 },
+      inl: { id: 'inl', mimeType: 'image/png', url: 'data:image/png;base64,AAAA', created: 1 },
+      sp: { id: 'sp', mimeType: 'image/png', url: '  DATA:image/png;base64,AAAA', created: 1 },
+    } }));
+    expect(Object.keys(out.files)).toEqual(['ok']);
+    const parsed = parseScene(JSON.stringify({ type: 'nexus-board', elements: [], files: { inl: { id: 'inl', url: 'data:image/png;base64,AA' } } }));
+    expect(parsed.files).toEqual({});
+  });
 });

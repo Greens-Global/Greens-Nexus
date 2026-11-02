@@ -73,6 +73,8 @@ function pruneFiles(files) {
   if (!files || typeof files !== 'object') return out;
   for (const [id, f] of Object.entries(files)) {
     if (!f || typeof f !== 'object' || !f.url) continue;
+    // Never a picture inlined into the scene: images live in the bucket.
+    if (/^\s*data:/i.test(String(f.url))) continue;
     out[id] = { id: f.id || id, mimeType: f.mimeType || 'application/octet-stream', url: String(f.url), created: Number(f.created) || Date.now() };
   }
   return out;

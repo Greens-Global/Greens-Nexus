@@ -58,3 +58,9 @@
 @media (prefers-reduced-motion: reduce) { .nx-board * { transition-duration: 1ms !important; animation-duration: 1ms !important; } }
 /* No library panel (it links to the engine's public hub, which the CSP blocks anyway). */
 .nx-board .excalidraw .default-sidebar-trigger, .nx-board .excalidraw .sidebar-trigger { display: none !important; }
+/* Canvas Background swatches in our menu (the engine's own row is sentence case). */
+.nx-board .nx-board-swatches { display: flex; gap: 6px; padding: 4px 10px 8px; }
+.nx-board .nx-board-swatch {
+  width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--line, rgba(0, 0, 0, .14)); cursor: pointer; padding: 0;
+}
+.nx-board .nx-board-swatch:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
