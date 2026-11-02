@@ -469,6 +469,16 @@ class FormsTests(unittest.TestCase):
             finally:
                 db.close()
 
+    def test_a_form_with_entries_cannot_be_deleted_only_archived(self):
+        tpl = self._template()
+        empty = self._template(name="Unused Check")
+        self._submit(tpl["id"], REP)
+        self._as(ADMIN)
+        r = self.client.delete(f"/documents/templates/{tpl['id']}")
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(r.json()["detail"], "This form has entries - archive it instead")
+        self.assertEqual(self.client.delete(f"/documents/templates/{empty['id']}").status_code, 200)
+
     def test_links_are_stored_on_the_entry(self):
         tpl = self._template()
         e = self._submit(tpl["id"], REP)
