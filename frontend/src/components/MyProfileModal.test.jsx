@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
 
 // Profile (Oct 28 2026): who you are on top, four sections on the left -
 // Appearance first; a task email's "Email Settings" link opens Task Emails.
@@ -154,6 +154,22 @@ describe('Profile - Security (Neil, 11/02/2026)', () => {
     expect(screen.getAllByRole('button', { name: 'Sign Out' })).toHaveLength(1);
     await waitFor(() => expect(screen.getByText('New')).toBeTruthy());
     expect(screen.getAllByText('iOS - Safari').length).toBeGreaterThan(0);
+  });
+
+  it('a device the browser did not name is "Unrecognized Device", and Sign Out says "Signing Out…" while it works', async () => {
+    arm();
+    apiSpies.mySessions = vi.fn(() => Promise.resolve({ sessions: [
+      SESSIONS.sessions[0],
+      { id: 'h3', device: '', location: '', ip: '198.51.100.9', lastSeen: '2026-11-01T12:00:00+00:00', createdAt: '2026-11-01T12:00:00+00:00', current: false },
+    ] }));
+    let release;
+    apiSpies.signOutSession = vi.fn(() => new Promise((r) => { release = r; }));
+    render(<MyProfileModal onClose={() => {}} initialSection="security" />);
+    expect(await screen.findByText('Unrecognized Device')).toBeTruthy();   // Title Case, like every row title
+    fireEvent.click(screen.getByRole('button', { name: 'Sign Out' }));
+    expect(await screen.findByRole('button', { name: 'Signing Out…' })).toBeTruthy();   // the ellipsis character
+    expect(screen.queryByText('Signing Out...')).toBeNull();
+    await act(async () => { release({ signedOut: 1, current: false }); });
   });
 
   it('signs out one device without a dialog, and the others only after the confirm', async () => {

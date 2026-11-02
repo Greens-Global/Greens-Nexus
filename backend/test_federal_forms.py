@@ -208,10 +208,18 @@ class EditionTests(unittest.TestCase):
         s = status("w4", date(2026, 12, 1))
         self.assertEqual(s["state"], "expiring")
         self.assertIn("January", s["message"])
-        # ... and a 2026 W-4 still registered on 01/15/2027 is refused.
+        self.assertEqual(s["message"], "The 2027 Form W-4 is due in January. The 2026 edition in Nexus "
+                                       "can be sent through 01/31/2027.")
+        self.assertEqual(s["expires"], "01/31/2027")
+        # ... January is the grace month (Neil, 11/02/2026): a 2026 W-4 registered
+        # on 01/15/2027 still goes out, and from 02/01/2027 it is refused.
         s = status("w4", date(2027, 1, 15))
+        self.assertEqual(s["state"], "expiring")
+        self.assertEqual(status("w4", date(2027, 1, 31))["state"], "expiring")
+        s = status("w4", date(2027, 2, 1))
         self.assertEqual(s["state"], "expired")
         self.assertIn("2026", s["message"])
+        self.assertIn("01/31/2027", s["message"])
         self.assertIn("expired", s["message"])
         self.assertIn("administrator", s["message"])
         self.assertNotRegex(s["message"], r"\d{4}-\d{2}-\d{2}")   # MM/DD/YYYY, never ISO

@@ -23,9 +23,10 @@ from .registry import FORMS
 
 JOB_KEY = "federal_forms"
 REF_PREFIX = "fedform:"
-# Where the bell lands: Settings > Hiring & Onboarding, where the edition
-# status rows live.
-ACTION = {"view": "admin", "sub": "hiring", "label": "Open Settings"}
+# Where the bell lands: Settings > Hiring & Onboarding > Federal Forms - the
+# group itself (`<subject>:<group>`, AdminConsole's resolveSub), where the
+# edition status rows live.
+ACTION = {"view": "admin", "sub": "hiring:federal-forms", "label": "Open Settings"}
 
 
 def _title(kind: str, st: dict) -> str:

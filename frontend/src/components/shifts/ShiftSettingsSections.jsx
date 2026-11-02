@@ -334,12 +334,12 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                       // Time off recommendation (Neil, 11/02/2026, timeoff_recommend.py): two day counts
                       // behind "Recommended: Approve" - a hint for the manager, never a decision.
                       <>
-                        <MinutesField nested muted={cfg.timeOffRequests === false} label="Time Off Notice" aria="Time off notice" unit="days" max={90}
+                        <MinutesField nested muted={cfg.timeOffRequests === false} label="Time Off Notice (Days)" aria="Time off notice" unit="days" max={90}
                           value={nums?.timeOffNoticeDays} fallback={7} onChange={(v) => patchNum({ timeOffNoticeDays: v })}
-                          hint="A request asked at least this many days ahead is 'Recommended: Approve'. A hint for the manager, never a decision." />
-                        <MinutesField nested muted={cfg.timeOffRequests === false} label="Short Request" aria="Short request" unit="days" max={30}
+                          hint="A request made at least this many days ahead earns 'Recommended: Approve'. A hint for the manager, never a decision." />
+                        <MinutesField nested muted={cfg.timeOffRequests === false} label="Short Request (Days)" aria="Short request" unit="days" max={30}
                           value={nums?.timeOffShortDays} fallback={3} onChange={(v) => patchNum({ timeOffShortDays: v })}
-                          hint="A request of at most this many working days is 'Recommended: Approve'." />
+                          hint="A request of at most this many working days earns 'Recommended: Approve'." />
                       </>
                     )}
                   </Fragment>

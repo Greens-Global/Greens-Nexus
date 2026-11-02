@@ -537,7 +537,7 @@ describe('Board', () => {
     act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); vi.advanceTimersByTime(800); });
     expect(onScene).not.toHaveBeenCalled();
     expect(draft.saveDraft).not.toHaveBeenCalled();
-    expect(screen.getByRole('status')).toHaveTextContent('This board is too large to save - move some of it to a new board');
+    expect(screen.getByRole('status')).toHaveTextContent('This board is too large to save - move some of it to a new board.');
     fakeApi.scene = [el()];
     act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); vi.advanceTimersByTime(800); });
     expect(onScene).toHaveBeenCalledTimes(1);

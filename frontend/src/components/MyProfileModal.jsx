@@ -509,12 +509,12 @@ function SecuritySection({ isMobile }) {
         <SettingCard>
           {sessions.length === 0 && <SettingRow title="No live sign-ins" desc="Sign in on a device and it shows here." muted />}
           {sessions.map((s) => (
-            <SettingRow key={s.id} title={s.device || 'Unrecognized device'}
+            <SettingRow key={s.id} title={s.device || 'Unrecognized Device'}
               desc={_place([s.location, s.ip, s.lastSeen ? `Last seen ${formatDateTime(s.lastSeen)}` : ''])}
               control={s.current ? chip('This Device', CHIP_HERE) : (
                 <button type="button" className="secondary-btn" onClick={() => signOutOne(s)} disabled={busy !== ''}
                   style={{ fontSize: 12.5 }}>
-                  {busy === s.id ? 'Signing Out...' : 'Sign Out'}
+                  {busy === s.id ? 'Signing Out\u2026' : 'Sign Out'}
                 </button>
               )} />
           ))}
@@ -523,7 +523,7 @@ function SecuritySection({ isMobile }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '12px 0 22px' }}>
         <button type="button" className="secondary-btn" onClick={signOutOthers}
           disabled={busy !== '' || others.length === 0} style={{ fontSize: 12.5 }}>
-          {busy === 'others' ? 'Signing Out...' : 'Sign Out Other Devices'}
+          {busy === 'others' ? 'Signing Out\u2026' : 'Sign Out Other Devices'}
         </button>
         {msg && <span role="status" style={{ fontSize: 12.5, color: /Could not/.test(msg) ? 'hsl(var(--color-red))' : 'var(--muted)' }}>{msg}</span>}
       </div>

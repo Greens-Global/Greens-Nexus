@@ -822,10 +822,10 @@ describe('ShiftSettingsPanel time off recommendation', () => {
     expect(notice.value).toBe('7');
     const short = screen.getByLabelText('Short request');
     expect(short.value).toBe('3');
-    expect(screen.getByText('Time Off Notice')).toBeTruthy();
-    expect(screen.getByText('Short Request')).toBeTruthy();
-    expect(screen.getByText("A request asked at least this many days ahead is 'Recommended: Approve'. A hint for the manager, never a decision.")).toBeTruthy();
-    expect(screen.getByText("A request of at most this many working days is 'Recommended: Approve'.")).toBeTruthy();
+    expect(screen.getByText('Time Off Notice (Days)')).toBeTruthy();
+    expect(screen.getByText('Short Request (Days)')).toBeTruthy();
+    expect(screen.getByText("A request made at least this many days ahead earns 'Recommended: Approve'. A hint for the manager, never a decision.")).toBeTruthy();
+    expect(screen.getByText("A request of at most this many working days earns 'Recommended: Approve'.")).toBeTruthy();
     expect(screen.getAllByText('days').length).toBe(2);
     expect(saveButton().disabled).toBe(true);
     fireEvent.change(notice, { target: { value: '120' } });

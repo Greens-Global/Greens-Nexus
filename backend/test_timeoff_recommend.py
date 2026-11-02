@@ -10,6 +10,7 @@ import os
 import tempfile
 import unittest
 from datetime import date, timedelta
+from unittest import mock
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
@@ -66,6 +67,12 @@ class RecommendTests(unittest.TestCase):
 
     def setUp(self):
         self._skip, auth.SKIP_AUTH = auth.SKIP_AUTH, True
+        # The recommendation reads the PERSON's today (timeclock._employee_today:
+        # UTC for someone who has never punched) while these tests count from the
+        # machine's date.today(); from about 4 PM Pacific the two days differ, so
+        # the person's today is pinned to the machine's for the test.
+        self._today = mock.patch.object(tc, "_employee_today", return_value=date.today().isoformat())
+        self._today.start()
         self._prev = os.environ.get("NEXUS_DEV_EMAIL")
         os.environ["NEXUS_DEV_EMAIL"] = MGR
         self.db = database.SessionLocal()
@@ -97,6 +104,7 @@ class RecommendTests(unittest.TestCase):
             os.environ["NEXUS_DEV_EMAIL"] = self._prev
         auth._role_cache.clear()
         auth.SKIP_AUTH = self._skip
+        self._today.stop()
         self.db.close()
 
     # -- helpers --
@@ -165,7 +173,22 @@ class RecommendTests(unittest.TestCase):
         r = self._request("to-week", EMP, mon, mon + timedelta(days=4))     # Mon-Fri
         out = tr.recommend(self.db, r)
         self.assertEqual(out["tone"], "check")
-        self.assertIn("5 working days.", out["reasons"])
+        self.assertIn("5 working days - longer than the usual 3.", out["reasons"])
+        # The company's own short-request length is what the sentence names.
+        sr._store_settings(self.db, {"email": MGR}, sr._settings_key(""), {"timeOffShortDays": 2})
+        self.db.commit()
+        self.assertIn("5 working days - longer than the usual 2.", tr.recommend(self.db, r)["reasons"])
+
+    def test_no_manager_means_no_team_sentence(self):
+        # Omar has no manager, so there is no team to have checked: the
+        # "nobody else is off" line would claim a check never made.
+        self._opening(OTHER, 40)
+        mon = _next_monday(14)
+        r = self._request("to-omar-solo", OTHER, mon, mon)
+        out = tr.recommend(self.db, r)
+        self.assertEqual(out["tone"], "good")
+        self.assertNotIn("Nobody else on the team is off those days.", out["reasons"])
+        self.assertTrue(any("ahead" in x for x in out["reasons"]))
 
     # -- Review Focus 2: holidays and weekends are not working days --
     def test_holiday_and_weekend_in_the_span_count_only_working_days(self):

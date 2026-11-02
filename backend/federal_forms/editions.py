@@ -2,9 +2,10 @@
 
 `status(kind, today)` answers ok / expiring / expired with one sentence.
 The I-9 carries its own expiration (printed on the form); the W-4 is good
-for its calendar year. HR is warned EXPIRING_DAYS ahead (the I-9) or from
-12/01 of the edition year (the W-4, when the IRS publishes the next one), and
-an expired edition is refused at send - never silently sent.
+for its calendar year plus a January grace month (Neil, 11/02/2026). HR is
+warned EXPIRING_DAYS ahead (the I-9) or from 12/01 of the edition year (the
+W-4, when the IRS publishes the next one), and an expired edition is refused
+at send - never silently sent.
 """
 from datetime import date, timedelta
 
@@ -12,12 +13,12 @@ from .registry import FORMS, spec
 
 EXPIRING_DAYS = 60
 
-# The last day a W-4 edition may be sent is 12/31 of its year: a 2026 form
-# registered on 01/15/2027 is refused (plan Review Focus 5). The plan's
-# Interfaces block also floated a January grace month (last valid day 01/31) -
-# flip this to (1, 31) if Neil prefers that reading; the warning from 12/01
-# stays either way.
-W4_LAST_VALID_MONTH_DAY = (12, 31)
+# January is the grace month (Neil, 11/02/2026): the IRS releases the next
+# W-4 in December or January, so a 2026 form may still be sent through
+# 01/31/2027 and is refused from 02/01/2027 (plan Review Focus 5, the
+# Interfaces reading). (12, 31) would end it with its own year; the warning
+# from 12/01 stays either way.
+W4_LAST_VALID_MONTH_DAY = (1, 31)
 W4_WARN_FROM_MONTH_DAY = (12, 1)
 
 

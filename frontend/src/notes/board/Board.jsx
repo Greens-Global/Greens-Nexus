@@ -46,7 +46,7 @@ import { formatDateTime } from '../../lib/datetime';
 const SAVE_MS = 800;
 const THUMB_MS = 3000;
 const LOOK_LABEL = { clean: 'Clean', sketch: 'Sketch' };
-const TOO_LARGE = 'This board is too large to save - move some of it to a new board';
+const TOO_LARGE = 'This board is too large to save - move some of it to a new board.';
 // Canvas Background: the engine's own picker row is sentence case and has no
 // api to open it from our menu, so the menu offers these (the engine's own
 // light swatches; dark mode inverts them like every engine color).

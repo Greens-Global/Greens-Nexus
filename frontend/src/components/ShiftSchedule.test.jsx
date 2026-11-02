@@ -1401,13 +1401,13 @@ describe('Scheduled labor line', () => {
     timeSchedule.mockResolvedValue(data([shift()]));
     timeScheduleLabor.mockResolvedValue({ hours: 312, cost: 7840, currency: 'USD', payHidden: false, peopleWithoutRate: 2, fixedPayPeople: 1, days: [] });
     const { unmount } = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
-    const line = await screen.findByText('Scheduled 312 h · $7,840 · 2 people without a rate · 1 person on fixed pay');
+    const line = (await screen.findByText('Scheduled 312 h · $7,840 · 2 people without a rate · 1 person on fixed pay')).closest('[data-labor-line]');
     expect(line.getAttribute('title')).toBe('Scheduled hours for your team, published and draft shifts together, not counting unpaid breaks, at each person\'s hourly rate for that day. People on fixed pay are counted in the hours, not the cost.');
     expect(timeScheduleLabor).toHaveBeenCalledWith(expect.any(String), expect.any(String));
     unmount();
     timeScheduleLabor.mockResolvedValue({ hours: 8.5, cost: null, currency: 'USD', payHidden: true, peopleWithoutRate: null, fixedPayPeople: null, days: [] });
     const r2 = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
-    const hidden = await screen.findByText('Scheduled 8.5 h');
+    const hidden = (await screen.findByText('Scheduled 8.5 h')).closest('[data-labor-line]');
     expect(hidden.getAttribute('title')).toBe('Scheduled hours for your team, published and draft shifts together, not counting unpaid breaks.');
     r2.unmount();
     timeScheduleLabor.mockResolvedValue({ hours: 0, cost: 0, currency: 'USD', payHidden: false, peopleWithoutRate: 0, fixedPayPeople: 0, days: [] });
@@ -1446,12 +1446,25 @@ describe('Scheduled labor line', () => {
     expect(laborOver({ hours: 1250, cost: null, currency: 'USD', payHidden: true })).toBe(false);
   });
 
-  it('paints the labor line amber with data-labor-over when the schedule is over budget', async () => {
+  it('paints only the budget fragments amber (data-labor-over on the line) when the schedule is over budget', async () => {
     timeSchedule.mockResolvedValue(data([shift()]));
     timeScheduleLabor.mockResolvedValue({ hours: 312, cost: 7840, currency: 'USD', payHidden: false, peopleWithoutRate: 0, fixedPayPeople: 0, days: [],
       budgetVisible: true, budget: { hours: 300, amount: 9000, currency: 'USD' } });
+    const { unmount } = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    const line = await waitFor(() => { const el = document.querySelector('[data-labor-line]'); if (!el) throw new Error('no line yet'); return el; });
+    expect(line.textContent).toBe('Scheduled 312 h of 300 h budget · $7,840 of $9,000 budget');
+    expect(line.getAttribute('data-labor-over')).toBe('');
+    expect(line.style.color).toBe('');                                   // the figures stay muted
+    const budgets = Array.from(line.querySelectorAll('[data-labor-budget]'));
+    expect(budgets.map((b) => b.textContent)).toEqual([' of 300 h budget', ' of $9,000 budget']);
+    budgets.forEach((b) => { expect(b.style.color).toBe('hsl(var(--color-orange))'); expect(b.style.fontWeight).toBe('600'); });
+    unmount();
+    // Under budget: the fragments are there, uncolored, and the line is not marked.
+    timeScheduleLabor.mockResolvedValue({ hours: 312, cost: 7840, currency: 'USD', payHidden: false, peopleWithoutRate: 0, fixedPayPeople: 0, days: [],
+      budgetVisible: true, budget: { hours: 400, amount: 9000, currency: 'USD' } });
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
-    const line = await screen.findByText('Scheduled 312 h of 300 h budget · $7,840 of $9,000 budget');
-    expect(line.closest('[data-labor-line]').getAttribute('data-labor-over')).toBe('');
+    const under = await waitFor(() => { const el = document.querySelector('[data-labor-line]'); if (!el) throw new Error('no line yet'); return el; });
+    expect(under.getAttribute('data-labor-over')).toBeNull();
+    under.querySelectorAll('[data-labor-budget]').forEach((b) => expect(b.style.color).toBe(''));
   });
 });

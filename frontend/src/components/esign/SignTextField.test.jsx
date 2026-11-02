@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import SignTextField from './SignTextField';
 
 // The signer's text box on a PDF page (Nexus Sign). A `format` on the field
@@ -19,17 +19,41 @@ describe('SignTextField', () => {
     fireEvent.change(box, { target: { value: '123456789' } });
     expect(onChange).toHaveBeenCalledWith('123-45-6789');
   });
-  it('shows the live count for a routing number until it is complete', () => {
+  it('shows the live count for a routing number only while the box has focus, until it is complete', () => {
     const f = { ...field, id: 'r', label: 'Routing Number', format: 'routing', sensitive: false };
     const { rerender } = render(<SignTextField field={f} value="12345" onChange={() => {}} style={st} />);
+    expect(screen.queryByText('5 of 9 digits')).toBeNull();               // not focused: no counter
+    fireEvent.focus(screen.getByLabelText('Routing Number'));
     expect(screen.getByText('5 of 9 digits')).toBeTruthy();
     rerender(<SignTextField field={f} value="123456789" onChange={() => {}} style={st} />);
     expect(screen.queryByText(/of 9 digits/)).toBeNull();
+    rerender(<SignTextField field={f} value="1234" onChange={() => {}} style={st} />);
+    expect(screen.getByText('4 of 9 digits')).toBeTruthy();
+    fireEvent.blur(screen.getByLabelText('Routing Number'));
+    expect(screen.queryByText(/of 9 digits/)).toBeNull();
   });
-  it('shows the server message under the box', () => {
+  it('shows the server message under the box, wrapping and never off the page', () => {
     render(<SignTextField field={field} value="123-45-6789" onChange={() => {}} style={st} error="That is not a valid Social Security number." />);
-    expect(screen.getByRole('alert').textContent).toBe('That is not a valid Social Security number.');
+    const note = screen.getByRole('alert');
+    expect(note.textContent).toBe('That is not a valid Social Security number.');
     expect(screen.getByLabelText('Social Security Number').getAttribute('aria-invalid')).toBe('true');
+    expect(note.style.whiteSpace).toBe('normal');
+    expect(note.style.maxWidth).toBe('min(60ch, 100%)');
+    expect(note.style.left).toBe('10%');                                    // left half: under the box's left edge
+    expect(note.style.right).toBe('');
+  });
+  it('a box on the right half of the page anchors its note to the right edge', () => {
+    const right = { ...st, left: '62%', width: '30%' };
+    render(<SignTextField field={field} value="" onChange={() => {}} style={right} error="That is not a valid Social Security number." />);
+    const note = screen.getByRole('alert');
+    expect(note.style.right).toBe('0px');
+    expect(note.style.left).toBe('');
+    expect(note.style.top).toMatch(/^calc\(/);                               // under the box (jsdom folds the calc)
+    cleanup();
+    // Exactly half way is still the left half.
+    render(<SignTextField field={field} value="" onChange={() => {}} style={{ ...st, left: '50%' }} error="Bad." />);
+    expect(screen.getByRole('alert').style.left).toBe('50%');
+    expect(screen.getByRole('alert').style.right).toBe('');
   });
   it('is a plain text box without a format', () => {
     render(<SignTextField field={{ id: 'p', type: 'text', x: 0, y: 0, w: 0.2, h: 0.03 }} value="" onChange={() => {}} style={st} />);

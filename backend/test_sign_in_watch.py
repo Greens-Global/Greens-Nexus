@@ -17,6 +17,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 # A throwaway sqlite of its own, so this file never ALTERs or clears a local
 # greens_nexus.db (CLAUDE.md: one file per process).
@@ -41,6 +42,7 @@ import models  # noqa: E402
 import secret_box  # noqa: E402
 import sign_in_watch  # noqa: E402
 from routers import external_auth as ext_auth  # noqa: E402
+from routers import shift_requests as sr  # noqa: E402
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -79,8 +81,10 @@ class _Base(unittest.TestCase):
         self._skip = auth.SKIP_AUTH
         auth.SKIP_AUTH = True
         self.db = database.SessionLocal()
-        for model in (models.NexusSignIn, models.ServerSession, models.NexusNotification):
+        for model in (models.NexusSignIn, models.ServerSession, models.NexusNotification, models.TimePunch,
+                      models.NexusSetting):
             self.db.query(model).delete(synchronize_session=False)
+        self.db.query(models.NexusEmployee).execution_options(include_deleted=True).delete(synchronize_session=False)
         self.db.commit()
         # Email goes out in a thread after commit; here it is delivered in line
         # and captured, so a test can read what was sent.
@@ -169,10 +173,53 @@ class Notify(_Base):
         self.db.commit()
         return row
 
-    def test_when_text_is_us_format_pacific(self):
-        self.assertEqual(sign_in_watch.when_text("2026-11-02T16:33:00+00:00"), "Mon 11/02/2026 8:33 AM PT")
-        self.assertEqual(sign_in_watch.when_text("2026-07-04T19:05:00+00:00"), "Sat 07/04/2026 12:05 PM PT")
+    def test_when_text_is_us_format_in_the_persons_zone(self):
+        # No zone known: Pacific, said in words - never a bare "PT".
+        self.assertEqual(sign_in_watch.when_text("2026-11-02T16:33:00+00:00"), "Mon 11/02/2026 8:33 AM (Pacific time)")
+        self.assertEqual(sign_in_watch.when_text("2026-07-04T19:05:00+00:00"), "Sat 07/04/2026 12:05 PM (Pacific time)")
         self.assertEqual(sign_in_watch.when_text(""), "")
+        # A known zone prints its own short name.
+        self.assertEqual(sign_in_watch.when_text("2026-11-02T16:33:00+00:00", ZoneInfo("America/Los_Angeles")),
+                         "Mon 11/02/2026 8:33 AM PST")
+        self.assertEqual(sign_in_watch.when_text("2026-07-04T19:05:00+00:00", ZoneInfo("America/Los_Angeles")),
+                         "Sat 07/04/2026 12:05 PM PDT")
+        self.assertEqual(sign_in_watch.when_text("2026-11-02T16:33:00+00:00", ZoneInfo("Asia/Kolkata")),
+                         "Mon 11/02/2026 10:03 PM IST")
+
+    def test_person_zone_reads_the_punch_then_the_country_then_the_saved_shift_zone(self):
+        pz = sign_in_watch.person_zone
+        self.assertIsNone(pz(self.db, ME))                                    # nothing known
+        self.db.add(models.NexusEmployee(id="emp-signin-me", work_email=ME, first_name="Me", last_name="Test",
+                                         status="active", deleted_at="", company="co-in", country="IN"))
+        self.db.commit()
+        self.assertEqual(str(pz(self.db, ME)), "Asia/Kolkata")                # People country
+        self.db.add(models.TimePunch(id="p-signin-1", employee_email=ME, kind="in", at=_ago(hours=2),
+                                     local_date="2026-11-02", tz_offset_min=420))
+        self.db.commit()
+        self.assertEqual(str(pz(self.db, ME)), "America/Los_Angeles")        # the latest punch wins
+        self.db.add(models.TimePunch(id="p-signin-2", employee_email=ME, kind="out", at=_ago(hours=1),
+                                     local_date="2026-11-02", tz_offset_min=-330))
+        self.db.commit()
+        self.assertEqual(str(pz(self.db, ME)), "Asia/Kolkata")
+        # No punch and no country: the company's SAVED shift zone, never the unsaved default.
+        self.db.add(models.NexusEmployee(id="emp-signin-other", work_email=OTHER, first_name="Other", last_name="Test",
+                                         status="active", deleted_at="", company="co-x", country=""))
+        self.db.commit()
+        self.assertIsNone(pz(self.db, OTHER))
+        sr._store_settings(self.db, {"email": ME}, sr._settings_key("co-x"), {"timeZone": "Asia/Kolkata"})
+        self.db.commit()
+        self.assertEqual(str(pz(self.db, OTHER)), "Asia/Kolkata")
+
+    def test_the_notice_is_stamped_in_the_persons_own_zone(self):
+        row = self._new_row()
+        self.db.add(models.TimePunch(id="p-signin-ist", employee_email=ME, kind="in", at=_ago(hours=1),
+                                     local_date="2026-11-02", tz_offset_min=-330))
+        self.db.commit()
+        sign_in_watch.notify_new(self.db, row)
+        self.assertEqual(self._bells()[0].body, "Mon 11/02/2026 10:03 PM IST - Laguna Niguel, CA, US - iOS - Safari. "
+                                                "Not you? Open Profile > Security and sign out other devices.")
+        self.assertIn("10:03 PM IST", self.sent[0][2])
+        self.assertNotIn("Pacific", self.sent[0][2])
 
     def test_one_bell_and_one_email_with_the_facts(self):
         row = self._new_row()
@@ -181,8 +228,8 @@ class Notify(_Base):
         self.assertEqual(len(bells), 1)
         b = bells[0]
         self.assertEqual(b.title, "New Sign-In To Nexus")
-        self.assertEqual(b.body, "Mon 11/02/2026 8:33 AM PT - Laguna Niguel, CA, US - iOS - Safari. "
-                                 "Not you? Open My Profile > Security and sign out other devices.")
+        self.assertEqual(b.body, "Mon 11/02/2026 8:33 AM (Pacific time) - Laguna Niguel, CA, US - iOS - Safari. "
+                                 "Not you? Open Profile > Security and sign out other devices.")
         self.assertEqual(json.loads(b.action)["view"], "profile")
         self.assertEqual(json.loads(b.action)["sub"], "security")
         self.assertEqual(b.recipient, ME)
@@ -190,8 +237,10 @@ class Notify(_Base):
         to, subject, html = self.sent[0]
         self.assertEqual(to, ME)
         self.assertEqual(subject, "New Sign-In To Nexus")
-        for fact in ("11/02/2026", "8:33 AM", "Laguna Niguel, CA, US", "iOS - Safari", "198.51.100.7", "Security"):
+        for fact in ("11/02/2026", "8:33 AM (Pacific time)", "Laguna Niguel, CA, US", "iOS - Safari", "198.51.100.7",
+                     "Open Profile &gt; Security"):
             self.assertIn(fact, html)
+        self.assertNotIn("My Profile", html)                      # the menu is "Profile"
         self.assertNotIn("2026-11-02", html)                      # never a raw ISO date
         sess = self.db.query(models.ServerSession).filter_by(id=row.session_id).first()
         self.assertNotIn(sess.id, html)                           # the session id never leaves the server
@@ -202,8 +251,8 @@ class Notify(_Base):
     def test_unknown_location_is_dropped_from_the_sentence(self):
         row = self._new_row(ip="10.0.0.5")
         sign_in_watch.notify_new(self.db, row)
-        self.assertEqual(self._bells()[0].body, "Mon 11/02/2026 8:33 AM PT - iOS - Safari. "
-                                                "Not you? Open My Profile > Security and sign out other devices.")
+        self.assertEqual(self._bells()[0].body, "Mon 11/02/2026 8:33 AM (Pacific time) - iOS - Safari. "
+                                                "Not you? Open Profile > Security and sign out other devices.")
         self.assertNotIn("Unknown", self.sent[0][2])
 
     def test_each_new_sign_in_gets_its_own_bell(self):

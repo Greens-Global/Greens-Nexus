@@ -42,11 +42,18 @@ describe('Nexus Sign - field formats', () => {
     expect(api.mySignSubmit.mock.calls[0][1].field_values).toEqual({ 'text:SSN': '000-12-3456' });
     expect(await screen.findByRole('alert')).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toBe('That is not a valid Social Security number.');
+    // ... and once more in the pinned Finish bar, so a signer on page 1 of a
+    // 5-page form sees it without finding the field first (a plain repeat, not a second alert).
+    const bar = screen.getByTestId('finish-bar');
+    expect(screen.getByTestId('finish-bar-error').textContent).toBe('That is not a valid Social Security number.');
+    expect(bar.contains(screen.getByTestId('finish-bar-error'))).toBe(true);
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
     expect(toastErr).not.toHaveBeenCalled();
     expect(onDone).not.toHaveBeenCalled();
-    // Typing in that field clears the message.
+    // Typing in that field clears the message - in both places.
     fireEvent.change(box, { target: { value: '123-45-6789' } });
     expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByTestId('finish-bar-error')).toBeNull();
   });
 
   it('still toasts an ordinary refusal', async () => {

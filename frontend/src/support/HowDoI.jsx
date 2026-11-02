@@ -35,10 +35,10 @@ export const HOW_DO_I = [
     answer: 'Open Workday > Purchase Requests > New Purchase Request and say what is needed, why, the estimated cost and a link if you have one. Your manager approves it and accounting orders it; the request shows where it is.',
     action: 'New Purchase Request', run: () => go('myhr', 'purchase:new') },
   { key: 'fix-time', q: 'Fix My Time Sheet', Icon: Timer, module: 'myhr', timeTracked: true,
-    answer: 'Open your Time Sheet, find the day and tap the punch that is missing or wrong to send a fix request with the right time and a note. Your manager approves the change and the day updates when they do.',
+    answer: 'Open your Time Sheet, find the day and use Edit on that row to ask for the right in, out or break time with a note. Your manager approves it and the day updates when they do.',
     action: 'Open My Time Sheet', run: () => go('timeclock', 'timesheet') },
   { key: 'ask-hr', q: 'Ask HR Something Private', Icon: Contact, module: 'myhr',
-    answer: 'Ask HR is private: only the HR contact for your company sees it. Use it for pay, benefits, letters, documents and anything personal. You get a bell when HR answers, and the thread stays between you and HR.',
+    answer: 'Ask HR is private: only HR for your company - the HR contact and administrators - sees it, never your manager or your team. Use it for pay, benefits, letters, documents and anything personal. You get a bell when HR answers.',
     action: 'Open Ask HR', run: () => go('myhr', 'ask-hr') },
   { key: 'access', q: 'Request Access to Something', Icon: KeyRound, ticket: 'access_request',
     answer: 'File an Access Request ticket with the module or system you need and why. IT and the owner of that module approve it, and you are told on the ticket when it is in place.',
@@ -89,7 +89,7 @@ export default function HowDoI({ onTicket }) {
                 <ChevronDown size={16} className="how-do-i-chev" aria-hidden="true" />
               </button>
               <div id={panelId} className="how-do-i-panel" role="region" aria-label={`${n.q} answer`}
-                aria-hidden={!isOpen} inert={isOpen ? undefined : ''}>
+                aria-hidden={!isOpen} inert={!isOpen}>
                 <div className="how-do-i-panel-in">
                   <p className="how-do-i-answer">{n.answer}</p>
                   <button type="button" className="how-do-i-act" onClick={() => act(n)}>{n.action}</button>

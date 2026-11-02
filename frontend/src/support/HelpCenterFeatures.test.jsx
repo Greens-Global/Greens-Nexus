@@ -137,10 +137,16 @@ describe('How Do I...', () => {
     const q = screen.getByRole('button', { name: 'Request Time Off' });
     expect(q.getAttribute('aria-expanded')).toBe('false');
     expect(screen.queryByRole('button', { name: 'Go to Time Off' })).toBeNull();
+    // A closed panel is inert (React 19 boolean - a '' would render nothing), so
+    // its button is not in the tab order; an open one is live.
+    const panel = document.getElementById(q.getAttribute('aria-controls'));
+    expect(panel.hasAttribute('inert')).toBe(true);
     fireEvent.click(q);
     expect(q.getAttribute('aria-expanded')).toBe('true');
+    expect(panel.hasAttribute('inert')).toBe(false);
     expect(screen.getByText(/Open Workday > Time Off/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Go to Time Off' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Go to Time Off' }).closest('[inert]')).toBeNull();
     // Opening another closes the first.
     fireEvent.click(screen.getByRole('button', { name: 'Report a Bug' }));
     expect(q.getAttribute('aria-expanded')).toBe('false');
@@ -159,6 +165,13 @@ describe('How Do I...', () => {
     fireEvent.click(screen.getByRole('button', { name: 'File an Access Request' }));
     expect(onTicket).toHaveBeenCalledWith({ type: 'access_request' });
     window.removeEventListener('nexus:navigate', nav);
+  });
+  it('says who sees Ask HR and how a Time Sheet row is fixed', () => {
+    render(<HowDoI onTicket={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ask HR Something Private' }));
+    expect(screen.getByText('Ask HR is private: only HR for your company - the HR contact and administrators - sees it, never your manager or your team. Use it for pay, benefits, letters, documents and anything personal. You get a bell when HR answers.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Fix My Time Sheet' }));
+    expect(screen.getByText('Open your Time Sheet, find the day and use Edit on that row to ask for the right in, out or break time with a note. Your manager approves it and the day updates when they do.')).toBeTruthy();
   });
   it('hides Fix My Time Sheet from a time-tracking-exempt person', () => {
     role.timeTrackingExempt = true;
