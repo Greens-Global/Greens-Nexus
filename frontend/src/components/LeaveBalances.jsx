@@ -60,21 +60,6 @@ function bucketNames(b) {
   return { ...LABEL, ...Object.fromEntries((b?.extraTypes || []).map(t => [t.id, t.name])) };
 }
 
-// Phase 1C: hint under an extra leave type (bereavement, floating_holiday,
-// jury_duty, parental_leave, comp_time, ...). The backend's balances() payload
-// already carries method / eligibleOn / grant for the lump types, so this is
-// just presentation.
-function extraTypeHint(t) {
-  if (!t) return '';
-  if (t.method === 'none') return 'Not part of your policy.';
-  if (t.method === 'tracked_only') return 'Days you take are logged. No balance to run down.';
-  if (!t.eligible && t.eligibleOn) return `Starts ${day(t.eligibleOn)}.`;
-  if (t.method === 'lump') return t.carriesOver ? 'Granted at the start of each year.' : 'Granted each year. Use it or lose it.';
-  if (t.method === 'per_hour') return 'Earned per hour you work.';
-  if (t.method === 'anniversary') return 'Added on each work anniversary.';
-  if (t.method === 'per_period') return 'Added each pay period.';
-  return '';
-}
 const KIND = { opening: 'Opening Balance', accrual: 'Earned', used: 'Used', adjust: 'Adjustment',
   expire: 'Expired At Year End', carryover: 'Carried Over' };
 
@@ -137,7 +122,7 @@ export function LeaveBalanceCard({ balance }) {
             <div key={k} style={{ border: '1px solid var(--wk-line2)', borderRadius: 12, padding: '11px 13px', background: 'var(--mist)' }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{LABEL[k]}</div>
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', margin: '2px 0' }}>{fmtLeave(x.available, pol)}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{bucketHint(balance, k, pol)}</div>
+              {/* No hint line here - the card shows the numbers only (Neil, 11/02/2026: remove the tooltips). */}
               {(x.upcoming > 0 || x.pending > 0) && (
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                   {x.upcoming > 0 && <>{fmtLeave(x.upcoming, pol)} approved and coming up. </>}
@@ -164,7 +149,6 @@ export function LeaveBalanceCard({ balance }) {
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', margin: '2px 0' }}>
               {t.method === 'tracked_only' ? 'As taken' : fmtLeave(t.available, pol)}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{extraTypeHint(t)}</div>
             {(t.upcoming > 0 || t.pending > 0) && (
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                 {t.upcoming > 0 && <>{fmtLeave(t.upcoming, pol)} approved and coming up. </>}
