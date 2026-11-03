@@ -109,6 +109,9 @@ export function LeaveBalanceCard({ balance }) {
     return <div style={CARD}><SkeletonBlocks count={1} height={54} /></div>;
   }
   if (!balance?.live) return null;      // HR hasn't set balances up yet
+  // US-based contractors are benefit exempt (Visesh, Teams 11/02/2026) -
+  // no paid-leave card at all, instead of zeros they can never earn.
+  if (balance.benefitExempt) return null;
   const pol = balance.policy;
   return (
     <div style={CARD}>
@@ -171,6 +174,9 @@ export function LeaveBalanceCard({ balance }) {
 export function RequestBalanceHint({ balance, type, hours }) {
   const bucket = bucketOf(type, balance);
   if (!balance?.live || !bucket) return null;
+  if (balance.benefitExempt) {
+    return <div style={{ fontSize: 12, color: 'var(--muted)' }}>US contractors are benefit exempt - this time off would be unpaid.</div>;
+  }
   const extra = bucket in LABEL ? null : (balance.extraTypes || []).find(t => t.id === bucket);
   if (!extra && !balance[bucket]) return null;
   if (extra) {
@@ -355,7 +361,8 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
                   <span style={{ flex: '1 1 150px', color: 'var(--muted)', fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={extrasSummary(p, p.policy) || undefined}>{extrasSummary(p, p.policy) || '-'}</span>
                   <span style={{ flex: '0 0 120px', color: 'var(--muted)', fontSize: 12 }}>
-                    {!p.startDate ? 'No start date' : p.sick?.eligible ? 'Eligible' : p.sick?.eligibleOn ? day(p.sick.eligibleOn) : '-'}
+                    {p.benefitExempt ? 'Benefit Exempt'
+                      : !p.startDate ? 'No start date' : p.sick?.eligible ? 'Eligible' : p.sick?.eligibleOn ? day(p.sick.eligibleOn) : '-'}
                   </span>
                 </div>
                 {person === p.email && <PersonDetail email={p.email} onChanged={load} toastOk={toastOk} toastErr={toastErr} />}

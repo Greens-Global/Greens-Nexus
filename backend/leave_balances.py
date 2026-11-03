@@ -387,7 +387,21 @@ def _start(emp) -> date | None:
         return None
 
 
+def benefit_exempt(emp) -> bool:
+    """US-based contractors are benefit exempt (Visesh, Teams 11/02/2026):
+    they never accrue or hold paid-leave balances, whatever a policy's
+    eligible types say - a policy edit can no longer opt them in by
+    accident. "US based" is the person's own country tag; a contractor
+    with no country is not exempted here (tag the country first). India
+    contractors keep their own rules (india_contractor_pay)."""
+    return (emp is not None
+            and (getattr(emp, "employment_type", "") or "") == "contractor"
+            and (getattr(emp, "country", "") or "").strip().upper() == "US")
+
+
 def _eligible_type(emp, pol: dict) -> bool:
+    if benefit_exempt(emp):
+        return False
     return emp is not None and (getattr(emp, "employment_type", "") or "full_time") in (pol.get("eligibleTypes") or [])
 
 
@@ -504,7 +518,10 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
            "policy": {"id": pol["id"], "name": pol["name"], "unit": pol.get("unit", "hours"),
                       "hoursPerDay": pol.get("hoursPerDay", 8), "assigned": pol.get("assigned", False)},
            "startDate": (getattr(emp, "start_date", "") or "") if emp is not None else "",
-           "employmentType": (getattr(emp, "employment_type", "") or "") if emp is not None else ""}
+           "employmentType": (getattr(emp, "employment_type", "") or "") if emp is not None else "",
+           # US-based contractors (Visesh, Teams 11/02/2026): no paid-leave
+           # benefits - the card hides and the HR table says why.
+           "benefitExempt": benefit_exempt(emp)}
     if not cut:
         return out
     today = today or _today(db, email)
@@ -617,7 +634,7 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
                      and (r.kind == "opening" or (r.effective_date or "") >= cut)
                      and (r.effective_date or "") <= today.isoformat()]
         total = sum(float(r.hours or 0) for r in type_rows)
-        type_eligible = emp is not None and (
+        type_eligible = emp is not None and not benefit_exempt(emp) and (
             not (t.get("eligibleTypes") or [])
             or (getattr(emp, "employment_type", "") or "full_time") in (t.get("eligibleTypes") or [])
         )
