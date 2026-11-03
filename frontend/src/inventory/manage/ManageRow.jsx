@@ -1,17 +1,23 @@
-// Item Management - A Manage list row (desktop) and card (phone).
-// Moved out of views/InventoryManagement.jsx unchanged (items split, Nov 2 2026).
+// Item Management - An Inventory table row (desktop) and card (phone).
+// Items redesign (Neil, 11/02/2026): the name opens the item record; the
+// state is the one set of words (StatusLabel); a missing photo is the quiet
+// No Photo placeholder, never a red box.
 import { useRef, useEffect, memo } from 'react';
-import { Camera, Pencil, Trash2, FileText, User } from 'lucide-react';
-import { displayStatus } from '../model/status';
+import { Pencil, Trash2, User } from 'lucide-react';
+import { StatusLabel } from '../../components/StatusLabel';
 import { cleanField } from '../model/fields';
+import { itemWord } from '../model/words';
 import { PhotoThumb } from '../ui/photos';
-import { TypeBadge, StatusBadge, OpStatusBadge } from '../ui/badges';
+import { TypeBadge } from '../ui/badges';
+
+const ICON_BTN = { width: 30, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'var(--card)', border: '1px solid var(--wk-line, var(--line))', borderRadius: 7, color: 'var(--muted)', cursor: 'pointer' };
 
 // ── Manager Manage Tab ────────────────────────────────────────────────────────
 // Memoised rows so toggling ONE checkbox re-renders only that row, not all 360+
 // (selecting an item used to repaint the whole table - visible mouse lag). isSelected
 // is a boolean and every handler is stable, so memo skips the untouched rows.
-export const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
+export const ManageRow = memo(function ManageRow({ item, isSelected, highlight, overdue = false, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
+  const w = itemWord(item, { overdue });
   const ref = useRef(null);
   useEffect(() => { if (highlight && ref.current) ref.current.scrollIntoView({ behavior:'smooth', block:'center' }); }, [highlight]);
   return (
@@ -29,46 +35,36 @@ export const ManageRow = memo(function ManageRow({ item, isSelected, highlight, 
           the table stays calm. "Permanent" only tags the exceptions. */}
       <td style={{ padding:'10px 14px', maxWidth:300 }}>
         <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0 }}>
-          {item.photoUrl
-            ? <PhotoThumb url={item.photoUrl} size={40} onPreview={onPreview} />
-            : (
-              <div style={{ width:40, height:40, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }} title="Missing photo">
-                <Camera size={16} color="hsl(var(--color-red))" />
-              </div>
-            )
-          }
+          <PhotoThumb url={item.photoUrl} size={40} onPreview={onPreview} />
           <div style={{ minWidth:0 }}>
             <div style={{ display:'flex', alignItems:'center', gap:6, minWidth:0 }}>
               {onDetails ? (
-                <button onClick={() => onDetails(item)} title="Open item details"
-                  style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:600, color:'var(--ink)', cursor:'pointer', textAlign:'left', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
-                  onMouseEnter={e => { e.currentTarget.style.color = 'hsl(var(--color-blue))'; e.currentTarget.style.textDecoration = 'underline'; }}
-                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--ink)'; e.currentTarget.style.textDecoration = 'none'; }}>
+                <button onClick={() => onDetails(item)} title="Open the item"
+                  className="it-link"
+                  style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:600, color:'var(--ink)', cursor:'pointer', textAlign:'left', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                   {item.name}
                 </button>
               ) : <span style={{ fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</span>}
-              {item.ownershipType === 'permanent' && (
-                <span style={{ fontSize:10, fontWeight:700, padding:'1px 7px', borderRadius:20, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', flexShrink:0 }}>Permanent</span>
-              )}
             </div>
-            {(cleanField(item.make) || cleanField(item.model)) && (
-              <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {(cleanField(item.make) || cleanField(item.model) || item.ownershipType === 'permanent') && (
+              <div style={{ fontSize:12, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                {item.ownershipType === 'permanent' ? 'Permanent · ' : ''}
                 {[cleanField(item.make), cleanField(item.model), cleanField(item.year)].filter(Boolean).join(' ')}
               </div>
             )}
           </div>
         </div>
       </td>
-      <td style={{ padding:'10px 14px', fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>{item.serialNumber || '-'}</td>
+      <td style={{ padding:'10px 14px', fontSize:12.5, color:'var(--muted)', whiteSpace:'nowrap', fontVariantNumeric:'tabular-nums' }}>{item.serialNumber || '-'}</td>
       <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
-      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.department) || '-'}</td>
-      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.location) || '-'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12.5 }}>{cleanField(item.department) || '-'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12.5 }}>{cleanField(item.location) || '-'}</td>
       {/* One Status cell: lifecycle badge, with the op-status chip beside it only
           when something is actually flagged (lost/dead/…). */}
       <td style={{ padding:'10px 14px' }}>
         <div style={{ display:'flex', alignItems:'center', gap:5, flexWrap:'wrap' }}>
-          <StatusBadge status={displayStatus(item)} item={item} />
-          {item.opStatus && <OpStatusBadge value={item.opStatus} />}
+          <StatusLabel label={w.label} color={w.color} size="sm" />
+          {item.status === 'permanently_assigned' && item.assignedToName && <span style={{ fontSize:12, color:'var(--muted)' }}>{item.assignedToName}</span>}
         </div>
       </td>
       {/* Actions pinned to the right so they stay reachable when the table is wider
@@ -79,25 +75,16 @@ export const ManageRow = memo(function ManageRow({ item, isSelected, highlight, 
           {item.ownershipType === 'permanent' && onAssign && (
             <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
               title={item.assignedToEmail ? `Held by ${item.assignedToName || item.assignedToEmail}${item.location ? ` · at ${item.location}` : ''} - reassign` : item.location ? `At ${item.location} · no person assigned - assign` : 'Assign a person or set a location'}
-              aria-label={item.assignedToEmail ? 'Reassign' : 'Assign'}
-              style={{ width:28, height:28, display:'inline-flex', alignItems:'center', justifyContent:'center', background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, color:'hsl(var(--color-purple))', cursor:'pointer' }}>
-              <User size={13} />
+              aria-label={item.assignedToEmail ? 'Reassign' : 'Assign'} style={ICON_BTN}>
+              <User size={14} />
             </button>
           )}
-          {onDetails && (
-            <button onClick={() => onDetails(item)} title="All details & custom fields" aria-label="Details"
-              style={{ width:28, height:28, display:'inline-flex', alignItems:'center', justifyContent:'center', background:'none', border:'1px solid var(--line)', borderRadius:7, color:'var(--muted)', cursor:'pointer' }}>
-              <FileText size={13} />
-            </button>
-          )}
-          <button onClick={() => onEdit(item)} title="Edit item" aria-label="Edit"
-            style={{ width:28, height:28, display:'inline-flex', alignItems:'center', justifyContent:'center', background:'none', border:'1px solid var(--line)', borderRadius:7, color:'var(--muted)', cursor:'pointer' }}>
-            <Pencil size={13} />
+          <button onClick={() => onEdit(item)} title="Edit item" aria-label={`Edit ${item.name}`} style={ICON_BTN}>
+            <Pencil size={14} />
           </button>
           {canDelete && (
-            <button onClick={() => onDelete(item)} title="Delete item" aria-label="Delete"
-              style={{ width:28, height:28, display:'inline-flex', alignItems:'center', justifyContent:'center', background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, color:'hsl(var(--color-red))', cursor:'pointer' }}>
-              <Trash2 size={13} />
+            <button onClick={() => onDelete(item)} title="Delete item" aria-label={`Delete ${item.name}`} style={ICON_BTN}>
+              <Trash2 size={14} />
             </button>
           )}
         </div>
@@ -106,7 +93,8 @@ export const ManageRow = memo(function ManageRow({ item, isSelected, highlight, 
   );
 });
 
-export const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
+export const ManageCard = memo(function ManageCard({ item, isSelected, highlight, overdue = false, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
+  const w = itemWord(item, { overdue });
   const ref = useRef(null);
   useEffect(() => { if (highlight && ref.current) ref.current.scrollIntoView({ behavior:'smooth', block:'center' }); }, [highlight]);
   return (
@@ -114,13 +102,7 @@ export const ManageCard = memo(function ManageCard({ item, isSelected, highlight
       <div style={{ display:'flex', alignItems:'center', gap:10 }}>
         <input type="checkbox" checked={isSelected} onChange={() => onToggle(item.id)}
           style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
-        {item.photoUrl
-          ? <PhotoThumb url={item.photoUrl} size={44} onPreview={onPreview} />
-          : (
-            <div style={{ width:44, height:44, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }} title="Missing photo">
-              <Camera size={18} color="hsl(var(--color-red))" />
-            </div>
-          )}
+        <PhotoThumb url={item.photoUrl} size={44} onPreview={onPreview} />
         <div style={{ flex:1, minWidth:0 }}>
           <div onClick={onDetails ? () => onDetails(item) : undefined}
             style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', cursor: onDetails ? 'pointer' : 'default' }}>
@@ -130,25 +112,20 @@ export const ManageCard = memo(function ManageCard({ item, isSelected, highlight
             {[item.serialNumber, cleanField(item.make), cleanField(item.model), cleanField(item.location)].filter(Boolean).join(' · ') || '-'}
           </div>
         </div>
-        <StatusBadge status={displayStatus(item)} item={item} />
+        <StatusLabel label={w.label} color={w.color} size="sm" />
       </div>
       <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:10, flexWrap:'wrap' }}>
         <TypeBadge type={item.itemType} />
-        {item.ownershipType === 'permanent' && (
-          <span style={{ fontSize:10, fontWeight:700, padding:'1px 7px', borderRadius:20, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))' }}>Permanent</span>
-        )}
-        {item.opStatus && <OpStatusBadge value={item.opStatus} />}
+        {item.ownershipType === 'permanent' && <span style={{ fontSize:12, color:'var(--muted)' }}>Permanent</span>}
         <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
           {item.ownershipType === 'permanent' && onAssign && (
-            <button className="secondary-btn" onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-              style={{ color:'hsl(var(--color-purple))' }}>
+            <button className="secondary-btn it-btn-sm" onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}>
               {item.assignedToEmail ? 'Reassign' : 'Assign'}
             </button>
           )}
-          {onDetails && <button className="secondary-btn" onClick={() => onDetails(item)}>Details</button>}
-          <button className="secondary-btn" onClick={() => onEdit(item)}>Edit</button>
+          <button className="secondary-btn it-btn-sm" onClick={() => onEdit(item)}>Edit</button>
           {canDelete && (
-            <button className="secondary-btn" onClick={() => onDelete(item)} style={{ color:'hsl(var(--color-red))' }}>Delete</button>
+            <button className="secondary-btn it-btn-sm" onClick={() => onDelete(item)}>Delete</button>
           )}
         </div>
       </div>

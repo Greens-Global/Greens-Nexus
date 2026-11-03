@@ -61,8 +61,8 @@ export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
   const guard = useUnsavedGuard(dirty, onClose, label.trim() ? async () => { await add(); onClose(); } : undefined);
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
+    <div role="dialog" aria-modal="true" className="modal-overlay" style={{ zIndex:4100 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column' }}>
         <div style={{ padding:'20px 24px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Custom Fields</h3>
           <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>

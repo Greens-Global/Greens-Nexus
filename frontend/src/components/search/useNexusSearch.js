@@ -185,7 +185,8 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       if (match(i.name, i.make, i.model, i.itemType, i.location)) itemRows.push({
         key: `item:${i.id}`, Icon: Package, title: i.name,
         detail: [i.itemType, i.location, itemStatusLabel(i)].filter(Boolean).join(' · '),
-        run: () => navigate('inventory', can?.('supervisor') ? 'manage' : 'catalog'),
+        // Opens the item record (Items redesign, 11/02/2026: <tab>@<itemId>).
+        run: () => navigate('inventory', `${isManager ? 'inventory' : 'borrow'}@${i.id}`),
       });
     }
     add('items', 'Items', itemRows);
@@ -198,7 +199,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       if (match(c.itemName, c.requestedBy)) checkoutRows.push({
         key: `checkout:${c.id}`, Icon: ClipboardList, title: c.itemName,
         detail: [c.requestedBy, statusLabel(c.status)].filter(Boolean).join(' · '),
-        run: () => navigate('inventory', isManager ? 'checkouts' : 'myitems'),
+        run: () => navigate('inventory', `${isManager ? 'requests' : 'mystuff'}@${c.itemId}`),
       });
     }
     add('checkouts', 'Checkouts', checkoutRows);

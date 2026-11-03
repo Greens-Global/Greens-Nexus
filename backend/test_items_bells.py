@@ -183,6 +183,43 @@ class OrderBellTests(unittest.TestCase):
         self.assertEqual(receipt, [])
 
 
+class HandOverBellTests(unittest.TestCase):
+    """Review 11/02/2026: the allocator's hand-over bell carries the Hand Over
+    action (it was written with action "" so the button never showed), and an
+    items manager can name a new allocator after offboarding."""
+
+    def setUp(self):
+        self.db = kit.fresh()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.close()
+
+    def test_the_hand_over_bell_has_its_action(self):
+        import json
+        from routers.items import CheckoutStatusUpdate
+        kit.add_item(self.db, "hb-1")
+        kit.add_checkout(self.db, "hb-co", "hb-1", "pending", allocator="")
+        items.update_checkout("hb-co", CheckoutStatusUpdate(status="approved", assigned_allocator_email=kit.ALLOC_A,
+                                                            assigned_allocator_name="Alan"), user=U(kit.MGR_A), db=self.db)
+        bell = kit.bells(self.db, "allocate_request", "hb-co")[0]
+        self.assertEqual(json.loads(bell.action)["kind"], "allocate")
+
+    def test_pick_a_new_allocator(self):
+        import json
+        from routers.items import AllocatorIn
+        kit.add_item(self.db, "hb-2")
+        kit.add_checkout(self.db, "hb-co2", "hb-2", "approved", allocator="")
+        kit.refused(self, 403, items.set_checkout_allocator, "hb-co2", AllocatorIn(allocator_email=kit.ALLOC_A), user=U(kit.EMP_A), db=self.db)
+        out = items.set_checkout_allocator("hb-co2", AllocatorIn(allocator_email=kit.ALLOC_A), user=U(kit.MGR_A), db=self.db)
+        self.assertEqual(out["assignedAllocatorEmail"], kit.ALLOC_A)
+        bell = [n for n in kit.bells(self.db, "allocate_request", "hb-co2") if n.recipient == kit.ALLOC_A][0]
+        self.assertEqual(json.loads(bell.action)["kind"], "allocate")
+        with kit.walls():
+            kit.refused(self, 404, items.set_checkout_allocator, "hb-co2", AllocatorIn(allocator_email=kit.ALLOC_A), user=U(kit.MGR_B), db=self.db)
+
+
+
 def tearDownModule():
     kit.cleanup()
 

@@ -1461,6 +1461,10 @@ def _run_migrations():
             "ALTER TABLE weather_outlook ADD COLUMN place VARCHAR DEFAULT ''",
             "ALTER TABLE weather_advisories ADD COLUMN place VARCHAR DEFAULT ''",
             "ALTER TABLE weather_decisions ADD COLUMN place VARCHAR DEFAULT ''",
+            # Items redesign (Neil, 11/02/2026) - see the Postgres list.
+            "ALTER TABLE item_checkouts ADD COLUMN requested_due_date VARCHAR DEFAULT ''",
+            "ALTER TABLE item_types ADD COLUMN borrowable BOOLEAN",
+            "ALTER TABLE item_types ADD COLUMN max_loan_days INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3495,6 +3499,13 @@ def _run_migrations():
         "ALTER TABLE weather_outlook ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
         "ALTER TABLE weather_advisories ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
         "ALTER TABLE weather_decisions ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
+        # Items redesign (Neil, 11/02/2026): Borrow asks for a return date on a
+        # calendar (the date the borrower picked, item_due.due_date), and each
+        # item type carries a Borrowable switch (NULL = the default) and its
+        # longest loan in days (0 = the 90-day ceiling).
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS requested_due_date VARCHAR DEFAULT ''",
+        "ALTER TABLE item_types ADD COLUMN IF NOT EXISTS borrowable BOOLEAN",
+        "ALTER TABLE item_types ADD COLUMN IF NOT EXISTS max_loan_days INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

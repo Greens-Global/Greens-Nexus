@@ -15,7 +15,7 @@ export function BatchDeleteConfirmModal({ selectedItems, blockedItems, onClose, 
   // the guard. The bigger the batch, the more this matters.
   const armed = confirmText.trim().toUpperCase() === 'DELETE';
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:4200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:16, padding:'28px 28px 20px', width:'100%', maxWidth:460, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh, 640px)', display:'flex', flexDirection:'column' }}>
         <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>Delete {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}?</h3>
         <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>Deleted items move to the recycle bin and can be restored later.</p>

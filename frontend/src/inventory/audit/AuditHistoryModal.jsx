@@ -35,8 +35,8 @@ export function AuditHistoryModal({ item, onClose, onOpenItem }) {
 
   return (
     <div role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && onClose()}
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
-      <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
+      className="modal-overlay" style={{ zIndex:4300 }}>
+      <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column' }}>
         <div style={{ padding:'18px 22px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexShrink:0 }}>
           <div style={{ minWidth:0 }}>
             <h3 style={{ margin:0, fontSize:16, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name || 'Item History'}</h3>

@@ -104,11 +104,12 @@ export function orderActivitySummary(orderItems) {
 // ── Audit Log Panel ───────────────────────────────────────────────────────────
 // Audit rows are stored as NAIVE UTC (no timezone suffix) - parsing them raw
 // makes JS treat them as local time, which is the "wrong timestamps" Sai saw.
-// Force UTC parse, display as California time per Neil.
+// Force the UTC parse, then show it in the VIEWER's own zone, US format
+// (Items redesign, 11/02/2026 - it was always California time).
+export const auditDate = (iso) => new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
 export function fmtAuditStamp(iso) {
   if (!iso) return '';
-  const d = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
-  return formatDateTime(d, '', 'America/Los_Angeles') + ' PT';
+  return formatDateTime(auditDate(iso));
 }
 
 // Audit rows store raw emails and full checkout IDs - display friendly forms:
@@ -180,17 +181,18 @@ export function buildAuditDiffs(rows) {
 }
 
 // ── Activity feed helpers ─────────────────────────────────────────────────────
-// Day bucket for grouping (PT - same zone the timestamps render in). en-CA gives
-// YYYY-MM-DD which both sorts and compares against <input type="date"> values.
+// Day bucket for grouping: YYYY-MM-DD on the viewer's own calendar (the same
+// zone the times render in), which sorts and compares as text.
+const pad2 = (n) => String(n).padStart(2, '0');
+const localKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 export function auditDayKey(iso) {
   if (!iso) return '';
-  const d = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
-  return d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  return localKey(auditDate(iso));
 }
 export function auditDayLabel(key) {
   if (!key) return '';
-  const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
-  const yKey = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  const todayKey = localKey(new Date());
+  const yKey = localKey(new Date(Date.now() - 86400000));
   if (key === todayKey) return 'Today';
   if (key === yKey)     return 'Yesterday';
   const [y, m, d] = key.split('-').map(Number);
@@ -199,8 +201,7 @@ export function auditDayLabel(key) {
 }
 export function auditTime(iso) {
   if (!iso) return '';
-  const d = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
-  return d.toLocaleTimeString('en-US', { timeZone:'America/Los_Angeles', hour:'numeric', minute:'2-digit', hour12:true });
+  return formatTime(auditDate(iso));
 }
 export function auditInitials(email) {
   return (email || '?').split(/[\s@._]+/).filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase() || '?';

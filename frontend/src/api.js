@@ -1104,6 +1104,21 @@ export const api = {
   addItemToCart:       (data)         => req('/items/cart', { method: 'POST', body: JSON.stringify(data) }),
   removeItemFromCart:  (itemId)       => req(`/items/cart/${encodeURIComponent(itemId)}`, { method: 'DELETE' }),
   clearItemCart:       ()             => req('/items/cart', { method: 'DELETE' }),
+  // Items redesign (Neil, 11/02/2026): each type's Borrowable switch and
+  // longest loan; a manager's fix for a stuck checkout; the Recycle Bin's
+  // hold-to-confirm purge; an import that may bring back Recycle Bin items.
+  getItemTypeSettings: ()             => req('/items/types/settings'),
+  updateItemTypeSettings: (name, d)   => req(`/items/types/${encodeURIComponent(name)}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  reconcileItemState:  (itemId, d = {}) => req(`/items/${encodeURIComponent(itemId)}/reconcile-state`, { method: 'POST', body: JSON.stringify(d) }),
+  deleteExpiredItems:  ()             => req('/items/recycle-bin/delete-expired', { method: 'POST', body: JSON.stringify({}) }),
+  importItemsRestoring: (items)       => req('/items/import', { method: 'POST', body: JSON.stringify({ items, restore_deleted: true }) }),
+  // Narrowed to the people who can reach that ITEM's company (Nov 2026).
+  getItemApproversFor:  (itemId)      => cachedGet(`/items/approvers?item_id=${encodeURIComponent(itemId)}`),
+  getItemAllocatorsFor: (itemId)      => cachedGet(`/items/allocators?item_id=${encodeURIComponent(itemId)}`),
+  // The borrower's own calendar (today, first and last return date per item,
+  // in the BORROWER's zone) and Pick a New Allocator (review 11/02/2026).
+  getBorrowWindow:     (itemIds, forEmail = '') => req(`/items/borrow-window?${new URLSearchParams({ item_ids: itemIds.join(','), for_email: forEmail })}`),
+  setCheckoutAllocator: (id, d)       => req(`/items/checkouts/${encodeURIComponent(id)}/allocator`, { method: 'POST', body: JSON.stringify(d) }),
 
   // Requisitions (persisted in Supabase)
   getRequisitions:           ()              => req('/requisitions'),

@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, within } from '@testing-library/react';
 
-// Permanent assignments render-smoke (Nov 2 2026, before the items split):
-// the employee panel and the manager queue with an assignment in every
-// state, and the assign modal open. Key text is pinned so nothing drops.
+// Permanent assignments render-smoke (Items redesign, Neil 11/02/2026): the
+// manager queue with an assignment in every state - the one set of words
+// (Awaiting Acceptance, Active, Return Started, Closed, Declined, Canceled),
+// Cancel / Force Recover held on the row - and the sheets an assignee uses.
+// (The old My Items > Permanent panel is gone: My Stuff lists assignments
+// with the checkouts - inventory/mystuff/MyStuffTab.jsx.)
 
 const NOW = new Date('2026-11-02T15:00:00Z');
 const day = (n) => new Date(NOW.getTime() + n * 86400000).toISOString();
@@ -13,7 +16,7 @@ const a = (o) => ({ assigneeEmail: ME, assigneeName: 'Erin Test', assignedBy: 'M
 const ASSIGNMENTS = [
   a({ id: 'a1', itemId: 'i1', itemName: 'iPhone 15', status: 'pending_acceptance' }),
   a({ id: 'a2', itemId: 'i2', itemName: 'Dell Laptop', status: 'active', acceptedAt: day(-2) }),
-  a({ id: 'a3', itemId: 'i3', itemName: 'Ford Truck', status: 'return_initiated', returnReason: 'dead', acceptedAt: day(-20) }),
+  a({ id: 'a3', itemId: 'i3', itemName: 'Ford Truck', status: 'return_initiated', returnReason: 'dead', returnPhotoUrl: 'https://x.test/r.jpg', acceptedAt: day(-20) }),
   a({ id: 'a4', itemId: 'i4', itemName: 'Badge Printer', status: 'return_initiated', returnReason: 'reassign', nextAssigneeEmail: 'bob@greensglobal.com', nextAssigneeName: 'Bob Field' }),
   a({ id: 'a5', itemId: 'i5', itemName: 'Old Monitor', status: 'closed', acceptedAt: day(-60) }),
   a({ id: 'a6', itemId: 'i6', itemName: 'Spare Keyboard', status: 'declined' }),
@@ -28,179 +31,46 @@ vi.mock('../api', () => {
 });
 vi.mock('./PersonHoverCard', () => ({ default: ({ children }) => children }));
 
-const { MyPermanentPanel, AssignmentsQueue, AssignItemModal } = await import('./Assignments');
+const { AssignmentsQueue, AssignItemModal, AssignmentReturnModal, AcceptReturnModal } = await import('./Assignments');
 
-function keyText(root = document.body) {
-  return [...root.querySelectorAll('h1,h2,h3,h4,h5,button,[role="button"],[role="tab"],th,label')]
-    .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
-}
-const PROBES = ['iPhone 15', 'Dell Laptop', 'Ford Truck', 'Badge Printer', 'Old Monitor', 'Spare Keyboard', 'Tablet', 'Drill',
-  'Erin Test', 'Bob Field', 'Awaiting acceptance', 'Assigned', 'Return in progress', 'Closed', 'Declined', 'Cancelled',
-  'ITEM DEAD', 'ITEM LOST', 'REASSIGNMENT'];
-function probe() {
-  const t = (document.body.textContent || '').replace(/\s+/g, ' ');
-  const out = {};
-  for (const p of PROBES) { const n = t.split(p).length - 1; if (n) out[p] = n; }
-  return out;
-}
-const shot = () => ({ keys: keyText(), seen: probe() });
+const labels = () => [...document.querySelectorAll('.nx-label')].map(l => l.textContent);
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe('Assignments smoke', () => {
-  it('MyPermanentPanel shows every state of my assignments', () => {
-    render(<MyPermanentPanel assignments={ASSIGNMENTS} userEmail={ME} refresh={() => {}} toast={() => {}} />);
-    expect(screen.getByText('iPhone 15')).toBeTruthy();
-    expect(shot()).toMatchInlineSnapshot(`
-      {
-        "keys": [
-          "Decline",
-          "Accept",
-          "Report Dead",
-          "Report Lost",
-          "Return Item",
-          "Return With Photo",
-        ],
-        "seen": {
-          "Assigned": 8,
-          "Awaiting acceptance": 1,
-          "Badge Printer": 1,
-          "Bob Field": 1,
-          "Cancelled": 1,
-          "Closed": 1,
-          "Declined": 1,
-          "Dell Laptop": 1,
-          "Ford Truck": 1,
-          "ITEM DEAD": 1,
-          "Old Monitor": 1,
-          "REASSIGNMENT": 1,
-          "Return in progress": 2,
-          "Spare Keyboard": 1,
-          "Tablet": 1,
-          "iPhone 15": 1,
-        },
-      }
-    `);
-  });
-
-  it('MyPermanentPanel empty', () => {
-    render(<MyPermanentPanel assignments={[]} userEmail={ME} refresh={() => {}} toast={() => {}} />);
-    expect(screen.getByText('No items are permanently assigned to you.')).toBeTruthy();
-  });
-
-  it('AssignmentsQueue, every chip', () => {
+  it('the queue speaks the one set of words and holds Cancel / Force Recover', () => {
     render(<AssignmentsQueue assignments={ASSIGNMENTS} userEmail={ME} refresh={() => {}} toast={() => {}} />);
-    const shots = { live: shot() };
-    for (const [key, label] of [['returns', 'Returns to accept'], ['pending', 'Awaiting acceptance'], ['history', 'History']]) {
-      fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent === label));
-      shots[key] = shot();
-    }
-    expect(shots).toMatchInlineSnapshot(`
-      {
-        "history": {
-          "keys": [
-            "Live (5)",
-            "Returns to accept",
-            "Awaiting acceptance",
-            "History",
-          ],
-          "seen": {
-            "Awaiting acceptance": 1,
-            "Cancelled": 1,
-            "Closed": 1,
-            "Declined": 1,
-            "Erin Test": 3,
-            "Old Monitor": 1,
-            "Spare Keyboard": 1,
-            "Tablet": 1,
-          },
-        },
-        "live": {
-          "keys": [
-            "Live (5)",
-            "Returns to accept",
-            "Awaiting acceptance",
-            "History",
-            "Accept & upload photo",
-            "Cancel",
-            "Force recover",
-            "Force recover",
-            "Force recover",
-            "Force recover",
-          ],
-          "seen": {
-            "Assigned": 2,
-            "Awaiting acceptance": 2,
-            "Badge Printer": 1,
-            "Bob Field": 2,
-            "Dell Laptop": 1,
-            "Drill": 1,
-            "Erin Test": 4,
-            "Ford Truck": 1,
-            "ITEM DEAD": 1,
-            "REASSIGNMENT": 1,
-            "Return in progress": 2,
-            "iPhone 15": 1,
-          },
-        },
-        "pending": {
-          "keys": [
-            "Live (5)",
-            "Returns to accept",
-            "Awaiting acceptance",
-            "History",
-            "Accept & upload photo",
-            "Cancel",
-          ],
-          "seen": {
-            "Awaiting acceptance": 2,
-            "Erin Test": 1,
-            "iPhone 15": 1,
-          },
-        },
-        "returns": {
-          "keys": [
-            "Live (5)",
-            "Returns to accept",
-            "Awaiting acceptance",
-            "History",
-            "Force recover",
-            "Force recover",
-          ],
-          "seen": {
-            "Awaiting acceptance": 1,
-            "Badge Printer": 1,
-            "Bob Field": 1,
-            "Erin Test": 2,
-            "Ford Truck": 1,
-            "ITEM DEAD": 1,
-            "REASSIGNMENT": 1,
-            "Return in progress": 2,
-          },
-        },
-      }
-    `);
+    expect(labels()).toEqual(['Awaiting Acceptance', 'Active', 'Return Started', 'Return Started', 'Active']);
+    expect(screen.getByText(/Reported Dead/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Accept Return/ })).toBeTruthy();       // the dead one has its photo
+    expect(screen.getByRole('button', { name: /^Accept$/ })).toBeTruthy();            // mine, awaiting me
+    expect(screen.getByRole('button', { name: /Cancel the assignment of iPhone 15, press and hold/ })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /Force recover .*, press and hold/ })).toHaveLength(4);
+    fireEvent.click(screen.getByRole('button', { name: /History/ }));
+    expect(labels()).toEqual(['Closed', 'Declined', 'Canceled']);
   });
 
-  it('AssignItemModal open', () => {
-    render(<AssignItemModal item={{ id: 'i9', name: 'Laptop', ownershipType: 'permanent' }} mode="assign" userEmail={ME}
-      locations={['HQ', 'Yard']} onClose={() => {}} onDone={() => {}} toast={() => {}} />);
-    expect(shot()).toMatchInlineSnapshot(`
-      {
-        "keys": [
-          "Assign Laptop",
-          "To a person",
-          "To a location",
-          "ASSIGN TO *",
-          "Select a person",
-          "Skip acceptance - the assignment goes active right away. They're still notified, just not asked to accept.",
-          "Cancel",
-          "Assign",
-        ],
-        "seen": {},
-      }
-    `);
+  it('the assign sheet opens', () => {
+    render(<AssignItemModal item={{ id: 'i9', name: 'Projector', ownershipType: 'permanent' }} userEmail={ME} onClose={() => {}} onDone={() => {}} toast={() => {}} />);
+    const sheet = screen.getByRole('dialog', { name: 'Assign Projector' });
+    expect(within(sheet).getByRole('button', { name: 'To a Person' })).toBeTruthy();
+    expect(within(sheet).getByRole('button', { name: /^Assign$/ })).toBeDisabled();
+  });
+
+  it('a lost permanent item is reported with no photo', () => {
+    render(<AssignmentReturnModal a={ASSIGNMENTS[1]} reason="lost" onClose={() => {}} onDone={() => {}} toast={() => {}} />);
+    expect(screen.queryByText('Return Photo')).toBeNull();
+    const send = screen.getByRole('button', { name: /Report Lost/ });
+    expect(send).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Notes/), { target: { value: 'Left at the site' } });
+    expect(send).not.toBeDisabled();
+  });
+
+  it('retiring a returned item is held; back to stock is a click', () => {
+    render(<AcceptReturnModal a={ASSIGNMENTS[2]} onClose={() => {}} onDone={() => {}} toast={() => {}} />);
+    expect(screen.getByRole('button', { name: /Hold to Retire, press and hold/ })).toBeTruthy();   // dead: Retire is the default
+    fireEvent.click(screen.getByLabelText(/Back to stock/));
+    expect(screen.getByRole('button', { name: /Back to Stock/ })).toBeTruthy();
   });
 });

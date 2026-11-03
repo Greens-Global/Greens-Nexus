@@ -5,7 +5,7 @@ import re
 import threading
 import uuid
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, false as sa_false, or_, func, text as sa_text
@@ -309,7 +309,7 @@ def _validate_photo_url(url: Optional[str], field: str) -> None:
 
 def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
             ref_id: str = "", item_name: str = "", requested_by: str = "",
-            about_email: str = "", company: Optional[str] = None) -> NexusNotification:
+            about_email: str = "", company: Optional[str] = None, action: str = "") -> NexusNotification:
     """One bell row. `requested_by` is a DISPLAY name (shown on the card) -
     the company is stamped from an EMAIL: `company` when the caller knows the
     item's, else the company of `about_email` (the requester / assignee the
@@ -328,7 +328,7 @@ def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
         ref_id=ref_id,
         item_name=item_name,
         requested_by=requested_by,
-        action="",
+        action=action or "",
         actioned=False,
         read_by="",
         company=company or "",
@@ -336,6 +336,11 @@ def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
     )
     db.add(row)
     return row
+
+
+# The Hand Over button on an allocator's bell (the bell opens the Items
+# handover sheet for the checkout - or the whole order - in ref_id).
+_HAND_OVER_ACTION = json.dumps({"kind": "allocate", "label": "Hand Over"})
 
 
 def _bells(db: Session, ntype: str, ref_id: str, recipient=None, title_prefix: str = "") -> list:
@@ -554,6 +559,9 @@ def _checkout_to_dict(c: ItemCheckout, zones=None) -> dict:
         "extensionStatus":         c.extension_status         or "",
         "approverEmail":           c.approver_email           or "",
         "approverName":            c.approver_name            or "",
+        # The return date picked on the calendar (YYYY-MM-DD, the borrower's
+        # zone) - what a request shows before the handover; '' = a days request.
+        "requestedDueDate":        c.requested_due_date       or "",
     }
 
 
@@ -561,6 +569,8 @@ def _checkout_to_dict(c: ItemCheckout, zones=None) -> dict:
 
 class ItemCreate(BaseModel):
     name:           str
+    # Optional (Add Item's Serial field, 11/02/2026): blank = the next GG-#####.
+    serial_number:  Optional[str] = ""
     item_type:      Optional[str] = "Other"
     make:           Optional[str] = ""
     model:          Optional[str] = ""
@@ -660,6 +670,7 @@ def list_items(
         ItemCheckout.days,
         ItemCheckout.allocated_at,
         ItemCheckout.handed_over_at,
+        ItemCheckout.requested_due_date,
     ).filter(
         ItemCheckout.status.in_(_LIVE_CHECKOUT)
     ).all()
@@ -865,12 +876,18 @@ def create_item(body: ItemCreate, response: Response, user: dict = Depends(requi
     # user's catalogue.
     _validate_photo_url(body.photo_url, "photo_url")
     now = datetime.now(timezone.utc).isoformat()
+    # A serial typed on Add Item is the unit's own (a manufacturer's or an
+    # asset tag); it must be free - a clash is a 409 with the reason. Blank =
+    # the next Nexus-assigned GG-#####.
+    own_serial = _clean_field(body.serial_number)[:80]
+    if own_serial:
+        _check_serial_free(db, Item(id=""), own_serial)
     # Retry the rare serial race: two simultaneous adds can compute the same next
     # GG-##### and collide on the unique index. Recompute and retry a few times.
-    for attempt in range(5):
+    for attempt in range(5 if not own_serial else 1):
         item = Item(
             id=str(uuid.uuid4()),
-            serial_number=_fmt_serial(_serial_start(db)),
+            serial_number=own_serial or _fmt_serial(_serial_start(db)),
             company_id=company_of(user, db),   # company wall: stamp creator's company
             name=name,
             item_type=_normalize_type(body.item_type, _type_canon(db)),
@@ -909,6 +926,8 @@ def create_item(body: ItemCreate, response: Response, user: dict = Depends(requi
             return _item_to_dict(item)
         except IntegrityError:
             db.rollback()
+    if own_serial:
+        raise HTTPException(409, f"Serial {own_serial} is already used by another item.")
     raise HTTPException(409, "Could not assign a unique serial number - please try again.")
 
 
@@ -1591,7 +1610,112 @@ def add_item_type(body: ItemTypeIn, user: dict = Depends(require_items_admin), d
     return _type_names(db)
 
 
-@router.delete("/types/{name}")
+# ── Type settings: Borrowable and the longest loan (Neil, 11/02/2026) ────────
+# Borrow lists only the types people can borrow. Each type has a switch; until
+# an admin flips it, a type is borrowable when it has temporary (checkout)
+# items or no items yet, and not when every item of it is permanent (laptops,
+# phones). Its longest loan caps the return date Borrow offers; 0 = the
+# 90-day ceiling every checkout already had.
+
+_LOAN_CEILING_DAYS = 90
+
+
+def _type_row(db: Session, name: str):
+    """The type row for `name`, matched the way type names are kept unique
+    (_type_key: case, spacing and plural folding - "Tool" finds "Tools")."""
+    key = _type_key(name)
+    if not key:
+        return None
+    rows = db.query(ItemType).all()
+    exact = (name or "").strip().lower()
+    return (next((r for r in rows if (r.name or "").strip().lower() == exact), None)
+            or next((r for r in rows if _type_key(r.name) == key), None))
+
+
+def _loan_cap(db: Session, type_name: str) -> int:
+    """The most days a Borrow request may ask for on an item of this type."""
+    row = _type_row(db, type_name)
+    cap = int(getattr(row, "max_loan_days", 0) or 0) if row else 0
+    return min(cap, _LOAN_CEILING_DAYS) if cap > 0 else _LOAN_CEILING_DAYS
+
+
+def _type_borrowable(row, transient: int, permanent: int) -> bool:
+    """The effective switch: the admin's when set, else the default rule."""
+    if row is not None and row.borrowable is not None:
+        return bool(row.borrowable)
+    return transient > 0 or permanent == 0
+
+
+class ItemTypeSettingsIn(BaseModel):
+    borrowable:    Optional[bool] = None   # None = leave as it is
+    use_default:   Optional[bool] = False  # True = back to the default rule
+    max_loan_days: Optional[int] = None    # 0 = no type cap (the 90-day ceiling)
+
+
+def _type_settings(db: Session, user: dict) -> list:
+    """Item types are shared by every company (Neil, 11/02/2026: records
+    every company shares are Super Administrator only), so the default rule
+    reads ALL companies' items - one walled company's stock never decides
+    another's Borrow - while the counts shown are only the caller's own."""
+    import auth
+    _seed_types_if_empty(db)
+    scope = _scope(user, db)
+    every: dict = defaultdict(lambda: [0, 0])    # type key -> [transient, permanent], all companies
+    mine: dict = defaultdict(lambda: [0, 0])     # the same, inside the caller's walls
+    for it in db.query(Item).filter(or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
+        k = _type_key(it.item_type)
+        i = 0 if (it.ownership_type or "transient") == "transient" else 1
+        every[k][i] += 1
+        if _item_ok(it, scope):
+            mine[k][i] += 1
+    can_edit = auth.is_global_admin(user, db)
+    out = []
+    for r in db.query(ItemType).order_by(ItemType.sort_order, ItemType.name).all():
+        t, p = every.get(_type_key(r.name), [0, 0])
+        mt, mp = mine.get(_type_key(r.name), [0, 0])
+        cap = int(r.max_loan_days or 0)
+        out.append({"name": r.name, "borrowable": _type_borrowable(r, t, p),
+                    "borrowableSet": None if r.borrowable is None else bool(r.borrowable),
+                    "maxLoanDays": cap,
+                    "loanCapDays": min(cap, _LOAN_CEILING_DAYS) if cap > 0 else _LOAN_CEILING_DAYS,
+                    "temporaryCount": mt, "permanentCount": mp, "canEdit": can_edit})
+    return out
+
+
+@router.get("/types/settings")
+def list_item_type_settings(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Each type with its Borrowable switch (effective, and the admin's own
+    choice or null), its longest loan and how many items of it the caller can
+    see. Borrow reads it to hide the types people cannot borrow."""
+    return _type_settings(db, user)
+
+
+@router.patch("/types/{name:path}")
+def update_item_type_settings(name: str, body: ItemTypeSettingsIn, user: dict = Depends(get_current_user),
+                              db: Session = Depends(get_db)):
+    # Every company shares the type list - only a Super Administrator (or a
+    # flagged global group) changes its Borrowable switch or longest loan.
+    # {name:path}: a type like "Radios/Phones" is a name, not two segments.
+    import auth
+    if not auth.is_global_admin(user, db):
+        raise HTTPException(403, "Only a Super Administrator can change this.")
+    row = _type_row(db, name)
+    if row is None:
+        raise HTTPException(404, "Item type not found")
+    if body.use_default:
+        row.borrowable = None
+    elif body.borrowable is not None:
+        row.borrowable = bool(body.borrowable)
+    if body.max_loan_days is not None:
+        days = int(body.max_loan_days)
+        if days < 0 or days > _LOAN_CEILING_DAYS:
+            raise HTTPException(400, f"The longest loan is 0 (no cap) to {_LOAN_CEILING_DAYS} days")
+        row.max_loan_days = days
+    db.commit()
+    return _type_settings(db, user)
+
+
+@router.delete("/types/{name:path}")
 def delete_item_type(name: str, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     if name.strip().lower() == "other":
         raise HTTPException(400, "“Other” is the fallback type and can't be removed.")
@@ -1620,6 +1744,9 @@ class CheckoutIn(BaseModel):
     order_id:            Optional[str] = ""
     approver_email:      Optional[str] = ""   # manager who should receive the approval notification
     approver_name:       Optional[str] = ""
+    # The return date picked on Borrow's calendar (YYYY-MM-DD, the borrower's
+    # own zone - Neil, 11/02/2026). When given it sets `days`; see item_due.
+    due_date:            Optional[str] = ""
 
     def validate_days(self):
         if not (1 <= self.days <= 90):
@@ -1705,6 +1832,11 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     if item.ownership_type != "transient":
         raise HTTPException(400, "Only transient items can be checked out")
     _refuse_lost(item)
+    type_row = _type_row(db, item.item_type)
+    if type_row is not None and type_row.borrowable is False and not _is_items_manager(user, db):
+        # Borrowable is what Borrow lists; an items manager may still check
+        # one out (for themselves or for a crew member).
+        raise HTTPException(400, f"{item.item_type} items are not borrowable")
     # Who it is for: anyone may raise a request on someone's behalf (ops staff
     # checking items out for a crew member - Neil), but that person must be a
     # current Nexus person inside the caller's company scope; so must the
@@ -1721,6 +1853,31 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
             raise HTTPException(400, "Pick a manager who looks after this item's company.")
     if item.status != "available":
         raise HTTPException(409, f'"{item.name}" is no longer available - it may have just been taken by someone else')
+
+    # The return date (Neil, 11/02/2026): the date picked on the calendar sets
+    # the loan length - the days from the borrower's today to it - capped by
+    # the type's longest loan. An older client still sends a number of days,
+    # capped the same way.
+    import item_due
+    picked_iso = ""
+    cap = _loan_cap(db, item.item_type)
+    if (body.due_date or "").strip():
+        try:
+            picked = date.fromisoformat(body.due_date.strip()[:10])
+        except ValueError:
+            raise HTTPException(400, "The return date must be a date (YYYY-MM-DD)")
+        tz = item_due.zone_for(db, requester_email)
+        days = item_due.loan_days(picked, tz)
+        if days < 1:
+            raise HTTPException(400, "Pick a return date after today")
+        if days > cap:
+            last = item_due.local_today(tz) + timedelta(days=cap)
+            raise HTTPException(400, f"{item.item_type or 'This item'} can be borrowed for up to {cap} days - "
+                                     f"pick a return date on or before {last.strftime('%m/%d/%Y')}")
+        body.days = days
+        picked_iso = picked.isoformat()
+    elif body.days > cap:
+        raise HTTPException(400, f"{item.item_type or 'This item'} can be borrowed for up to {cap} days")
 
     # Verify no active checkout exists for this item (race condition guard)
     active = db.query(ItemCheckout).filter(
@@ -1765,6 +1922,7 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
         order_id=order_id,
         approver_email=(body.approver_email or "").lower().strip(),
         approver_name=(body.approver_name or "").strip(),
+        requested_due_date=picked_iso,
     )
     db.add(row)
     if initial_status == "pending":
@@ -1814,7 +1972,6 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
                 n.body = notif_body
     db.commit()
     _fire_item_event(server_id, initial_status, row.requested_by_email or "")
-    import item_due
     _tag_item(response, row.item_id)
     return _checkout_to_dict(row, item_due.Zones(db))
 
@@ -2194,10 +2351,12 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                     existing_alloc.title   = alloc_title
                     existing_alloc.body    = alloc_body
                     existing_alloc.read_by = ""
+                    existing_alloc.action  = existing_alloc.action or _HAND_OVER_ACTION
                 else:
                     _notify(db, type="allocate_request", recipient=row.assigned_allocator_email,
                             title=alloc_title, body=alloc_body,
-                            ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
+                            ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by,
+                            action=_HAND_OVER_ACTION)
         else:
             # Solo item (no order) - one notification per action
             if body.status == "approved":
@@ -2209,7 +2368,8 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                     _notify(db, type="allocate_request", recipient=row.assigned_allocator_email,
                             title=f"Hand over: {row.item_name}",
                             body=f"Please hand {row.item_name} over to {row.requested_by}.",
-                            ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+                            ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by,
+                            action=_HAND_OVER_ACTION)
             else:
                 _notify(db, type="rejected", recipient=row.requested_by_email,
                         title=f"Checkout rejected: {row.item_name}",
@@ -2330,8 +2490,11 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
 # ── Extension requests ────────────────────────────────────────────────────────
 
 class ExtensionRequest(BaseModel):
-    days:   int
+    days:   Optional[int] = 1
     reason: Optional[str] = ""
+    # The new return date picked on the calendar (Neil, 11/02/2026); when
+    # given it sets the extra days (the new date minus the current due date).
+    new_due_date: Optional[str] = ""
 
 
 class ExtensionResolve(BaseModel):
@@ -2357,7 +2520,28 @@ def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Dep
         raise HTTPException(400, "An extension request is already awaiting approval")
     if not (body.reason or "").strip():
         raise HTTPException(400, "A reason is required to request an extension")
-    days = max(1, min(90, int(body.days or 1)))
+    import item_due
+    if (body.new_due_date or "").strip():
+        try:
+            new_due = date.fromisoformat(body.new_due_date.strip()[:10])
+        except ValueError:
+            raise HTTPException(400, "The new return date must be a date (YYYY-MM-DD)")
+        current = item_due.due_date(row, item_due.zone_for(db, row.requested_by_email))
+        if current is None:
+            raise HTTPException(400, "This checkout has no due date yet")
+        days = (new_due - current).days
+        if days < 1:
+            raise HTTPException(400, f"Pick a date after the current due date ({current.strftime('%m/%d/%Y')})")
+        if new_due <= item_due.local_today(item_due.zone_for(db, row.requested_by_email)):
+            raise HTTPException(400, "Pick a new return date after today")
+    else:
+        days = max(1, int(body.days or 1))
+    # An extension is the manager-approved exception to the type's longest
+    # loan, so it is held only to the 90-day ceiling for the whole loan.
+    if (row.days or 0) >= _LOAN_CEILING_DAYS:
+        raise HTTPException(400, f"This loan is already at the {_LOAN_CEILING_DAYS}-day limit - ask an items manager to return and re-lend it")
+    if (row.days or 0) + days > _LOAN_CEILING_DAYS:
+        raise HTTPException(400, f"A checkout can run for at most {_LOAN_CEILING_DAYS} days in all")
 
     row.extension_days   = days
     row.extension_reason = (body.reason or "").strip()
@@ -2382,7 +2566,6 @@ def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Dep
 
     db.commit()
     _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
-    import item_due
     _tag_item(response, row.item_id)
     return _checkout_to_dict(row, item_due.Zones(db))
 
@@ -2407,6 +2590,13 @@ def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Dep
 
     ext_days = row.extension_days or 0
     if action == "approve":
+        import item_due
+        if (row.requested_due_date or "").strip():
+            # The picked date moves with the extension (item_due's rule reads it
+            # when the handover came on the day of the request).
+            current = item_due.due_date(row, item_due.zone_for(db, row.requested_by_email))
+            if current is not None:
+                row.requested_due_date = (current + timedelta(days=ext_days)).isoformat()
         row.days = (row.days or 1) + ext_days
         _notify(db, type="extension_approved", recipient=row.requested_by_email,
                 title=f"Extension approved: {row.item_name}",
@@ -2428,6 +2618,71 @@ def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Dep
     for pending_notif in _bells(db, "extension_pending", checkout_id):
         pending_notif.actioned = True
 
+    db.commit()
+    _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
+    import item_due
+    _tag_item(response, row.item_id)
+    return _checkout_to_dict(row, item_due.Zones(db))
+
+
+# ── The borrower's calendar (Items redesign, 11/02/2026) ──────────────────────
+# Borrow's date boxes come from here, not from the viewer's clock: today, the
+# first and the last return date allowed, all in the BORROWER's zone (the
+# person the request is for - the signed-in one, or "Someone Else").
+
+@router.get("/borrow-window")
+def borrow_window(item_ids: str = "", for_email: str = "", user: dict = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    import item_due
+    who = (for_email or "").strip().lower() or _me(user)
+    if who != _me(user):
+        _require_person(db, who, user, "person this request is for")
+    tz = item_due.zone_for(db, who)
+    today = item_due.local_today(tz)
+    scope = _scope(user, db)
+    out = {}
+    ids = [s for s in (item_ids or "").split(",") if s.strip()][:100]
+    for it in db.query(Item).filter(Item.id.in_(ids)).all() if ids else []:
+        if not _item_ok(it, scope) or it.deleted_at:
+            continue
+        cap = _loan_cap(db, it.item_type)
+        out[it.id] = {"first": (today + timedelta(days=1)).isoformat(),
+                      "last": (today + timedelta(days=cap)).isoformat(), "capDays": cap,
+                      "available": it.status == "available" and (it.op_status or "") != "lost"}
+    return {"today": today.isoformat(), "zone": tz, "for": who, "items": out}
+
+
+# ── Pick a New Allocator (Items redesign, 11/02/2026) ─────────────────────────
+# Offboarding leaves an approved checkout with nobody to hand it over (the
+# allocator_needed bell). An items manager names the new allocator here; the
+# old bell is actioned and the new allocator is belled with Hand Over.
+
+class AllocatorIn(BaseModel):
+    allocator_email: str
+    allocator_name:  Optional[str] = ""
+
+
+@router.post("/checkouts/{checkout_id}/allocator")
+def set_checkout_allocator(checkout_id: str, body: AllocatorIn, user: dict = Depends(get_current_user),
+                           db: Session = Depends(get_db), response: Response = None):
+    if not _is_items_manager(user, db):
+        raise HTTPException(403, "Only an items manager picks who hands it over")
+    row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).with_for_update().first()
+    if not row:
+        raise HTTPException(404, "Checkout not found")
+    _wall_item_id(row.item_id, user, db)
+    if row.status != "approved":
+        raise HTTPException(409, "Only an approved checkout waiting for its handover gets a new allocator")
+    email = (body.allocator_email or "").strip().lower()
+    if not email:
+        raise HTTPException(400, "Pick who should hand it over")
+    _require_person(db, email, user, "allocator")
+    row.assigned_allocator_email = email
+    row.assigned_allocator_name = (body.allocator_name or "").strip() or _display_name(db, email)
+    _action_notif(db, "allocator_needed", row.id)
+    _notify(db, type="allocate_request", recipient=email, title=f"Hand over: {row.item_name}",
+            body=f"Please hand {row.item_name} over to {row.requested_by}.",
+            ref_id=row.id, item_name=row.item_name, requested_by=row.requested_by, action=_HAND_OVER_ACTION)
     db.commit()
     _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
     import item_due
@@ -3654,6 +3909,8 @@ def items_audit_log(
     q:      Optional[str] = None,
     limit:  int = 100,
     offset: int = 0,
+    start:  Optional[str] = None,   # ISO instant, inclusive - the viewer's local midnight
+    end:    Optional[str] = None,   # ISO instant, exclusive
     user: dict = Depends(require_items_admin),
     db: Session = Depends(get_db),
 ):
@@ -3682,6 +3939,20 @@ def items_audit_log(
             AuditLog.action.contains(needle),
             AuditLog.resource_id.contains(needle),
         ))
+    # The date filter runs here, not on the page the browser holds (Nov 2026):
+    # the screen sends the bounds of the days picked in the viewer's own zone.
+    # Stored timestamps are UTC ISO strings, so the bounds are compared as UTC.
+    for bound, op in ((start, "ge"), (end, "lt")):
+        if not (bound or "").strip():
+            continue
+        try:
+            at = datetime.fromisoformat(bound.strip().replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(400, "start / end must be ISO date-times")
+        at = (at if at.tzinfo else at.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).isoformat()
+        query = query.filter(AuditLog.timestamp >= at if op == "ge" else AuditLog.timestamp < at)
+    limit = max(1, min(int(limit or 100), 500))
+    offset = max(0, int(offset or 0))
     total = query.count()
     rows  = query.order_by(AuditLog.timestamp.desc()).offset(offset).limit(limit).all()
     return {

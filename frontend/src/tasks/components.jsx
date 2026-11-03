@@ -587,8 +587,9 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
 // displays as it is; it just cannot be moved to another past day.
 // `repeat`: { on, label, render({ back, close }) } adds a Repeat button to the
 // calendar's footer that opens the caller's repeat controls in its place.
-export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false, max = '', repeat = null }) {
-  const min = noPast ? localTodayISO() : '';
+export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false, max = '', repeat = null, min: minDate = '' }) {
+  // `min` (YYYY-MM-DD, Items return dates 11/02/2026): the earliest pickable day; noPast is today.
+  const min = minDate && (!noPast || minDate > localTodayISO()) ? minDate : noPast ? localTodayISO() : '';
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
   const btnRef = useRef(null);

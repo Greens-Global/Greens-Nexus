@@ -1,118 +1,98 @@
 // Item Management - Return an item (condition, photo).
-// Moved out of views/InventoryManagement.jsx unchanged (items split, Nov 2 2026).
-import { useState, useRef } from 'react';
-import { RotateCcw, Camera } from 'lucide-react';
+// A sheet from the right (Items redesign, Neil 11/02/2026). A lost item has
+// nothing to photograph, so Lost needs no photo - only where it was last seen
+// (it used to be stuck behind the photo requirement). The photo taken at the
+// handover shows beside the return photo, so the condition is judged on
+// evidence.
+import { useState } from 'react';
+import { RotateCcw } from 'lucide-react';
 import { Spinner } from '../../components/AsyncState';
-import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
-import UnsavedChangesPrompt from '../../components/UnsavedChangesPrompt';
-import { FL } from '../ui/styles';
-import { imageFromPaste } from '../ui/upload';
+import { PhotoPick } from '../ui/photos';
+import { ItemSheet, LABEL, HINT, ERROR } from '../ui/Sheet';
 
-// ── Return Modal ───────────────────────────────────────────────────────────────
-// Explicit return condition (Neil / P1-13): an enum replaces the backend's old
-// damage-keyword sniffing (which auto-retired items on "undamaged"/"not broken").
-const RETURN_CONDITIONS = [
-  { v:'ok',      label:'Good' },
-  { v:'damaged', label:'Damaged' },
-  { v:'lost',    label:'Lost' },
+// Explicit return condition (P1-13): the server uses this enum, never the note.
+export const RETURN_CONDITIONS = [
+  { v: 'ok',      label: 'Good' },
+  { v: 'damaged', label: 'Damaged' },
+  { v: 'lost',    label: 'Lost' },
 ];
-export function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
-  const [file,          setFile]          = useState(null);
-  const [preview,       setPreview]       = useState('');
+
+export function ConditionPicker({ value, onChange }) {
+  return (
+    <div role="radiogroup" aria-label="Condition" style={{ display: 'flex', gap: 8 }}>
+      {RETURN_CONDITIONS.map(({ v, label }) => {
+        const sel = value === v;
+        return (
+          <button key={v} type="button" role="radio" aria-checked={sel} onClick={() => onChange(v)}
+            style={{ flex: 1, padding: '9px 6px', borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+              border: `1px solid ${sel ? 'var(--wk-brand)' : 'var(--wk-line, var(--line))'}`,
+              background: sel ? 'var(--wk-brand-tint)' : 'var(--card)', color: sel ? 'var(--wk-brand)' : 'var(--ink)' }}>
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false, zIndex }) {
+  const [photo,         setPhoto]         = useState(null);   // { file, preview, name }
   const [conditionNote, setConditionNote] = useState('');
   const [condition,     setCondition]     = useState('ok');
   const [submitting,    setSubmitting]    = useState(false);
-  const fileRef = useRef(null);
+  const [error,         setError]         = useState('');
 
-  function handleFile(f) {
-    if (!f) return;
-    setFile(f);
-    const reader = new FileReader();
-    reader.onload = e => setPreview(e.target.result);
-    reader.readAsDataURL(f);
-  }
+  const lost = condition === 'lost';
+  const needPhoto = !photoOptional && !lost;
+  const needNote = lost;
+  const ready = (!needPhoto || !!photo?.file) && (!needNote || !!conditionNote.trim());
+  const handoverPhoto = checkout.receiptPhotoUrl || checkout.checkoutPhotoUrl || '';
 
   function submit() {
-    if ((!file && !photoOptional) || submitting) return;
-    setSubmitting(true);
-    // `condition` drives the backend's retire/lost handling; the note stays free-text.
-    Promise.resolve(onSubmit({ file, photoName: file?.name || '', conditionNote, condition }))
-      .catch(() => {})
-      .finally(() => setSubmitting(false));
+    if (!ready || submitting) return;
+    setSubmitting(true); setError('');
+    Promise.resolve(onSubmit({ file: lost ? null : (photo?.file || null), photoName: lost ? '' : (photo?.file?.name || ''), conditionNote: conditionNote.trim(), condition }))
+      .then(() => onClose?.())
+      .catch(err => { setError(err?.message || 'Could not confirm the return - please try again.'); setSubmitting(false); });
   }
 
-  const dirty = !!file || conditionNote.trim() !== '' || condition !== 'ok';
-  const canSave = !!file || photoOptional;
-  const guard = useUnsavedGuard(dirty, onClose, canSave ? submit : undefined);
+  const dirty = !!photo?.file || conditionNote.trim() !== '' || condition !== 'ok';
 
   return (
-    <div role="dialog" aria-modal="true"
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && !submitting && guard.requestClose()}>
-      <div tabIndex={0} style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', outline:'none' }}
-        onPaste={e => { const f = imageFromPaste(e); if (f) { e.preventDefault(); handleFile(f); } }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Return Item</h3>
-        <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
-          Returning <strong>{checkout.itemName}</strong>. {photoOptional ? 'A photo is optional for this item.' : 'A photo of the item is required.'}
-        </p>
-
-        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          <div>
-            <label style={FL}>RETURN PHOTO {photoOptional
-              ? <span style={{ fontSize:11, fontWeight:400 }}>(optional)</span>
-              : <span style={{ color:'hsl(var(--color-red))' }}>*</span>}</label>
-            <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
-            {preview ? (
-              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <img src={preview} alt="Return photo" style={{ width:72, height:72, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)' }} />
-                <button type="button" className="secondary-btn" style={{ fontSize:12 }} onClick={() => fileRef.current?.click()}>Replace</button>
-              </div>
-            ) : (
-              <button type="button" onClick={() => fileRef.current?.click()}
-                style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:`2px dashed ${photoOptional ? 'var(--line)' : 'hsla(var(--color-red),0.4)'}`, background: photoOptional ? 'var(--mist)' : 'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
-                <Camera size={15} /> Take / upload photo
-              </button>
+    <ItemSheet title={`Return ${checkout.itemName}`} onClose={onClose} zIndex={zIndex}
+      isDirty={dirty} onSave={ready ? submit : undefined}
+      footer={<>
+        <button className="secondary-btn" onClick={onClose} disabled={submitting}>Cancel</button>
+        <button className="primary-btn" disabled={!ready || submitting} onClick={submit}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          {submitting ? <><Spinner size={14} /> Returning…</> : <><RotateCcw size={14} /> {lost ? 'Report Lost' : 'Confirm Return'}</>}
+        </button>
+      </>}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div>
+          <span style={LABEL}>Condition</span>
+          <ConditionPicker value={condition} onChange={setCondition} />
+          {lost && <p style={HINT}>No photo needed. An items manager will see it marked Lost; it cannot be borrowed again until it is found.</p>}
+        </div>
+        {!lost && (
+          <div style={{ display: 'grid', gridTemplateColumns: handoverPhoto ? 'minmax(0, 1fr) 120px' : 'minmax(0, 1fr)', gap: 14, alignItems: 'start' }}>
+            <PhotoPick label="Return Photo" required={needPhoto} value={photo} onChange={setPhoto} />
+            {handoverPhoto && (
+              <figure style={{ margin: 0 }}>
+                <span style={LABEL}>At Handover</span>
+                <img src={handoverPhoto} alt="At handover" style={{ width: 120, height: 90, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line)' }} />
+              </figure>
             )}
-            <p style={{ fontSize:11, color:'var(--muted)', margin:'6px 0 0' }}>or press Ctrl+V to paste a screenshot</p>
           </div>
-          {/* Explicit condition (P1-13) - the backend uses this instead of sniffing the note. */}
-          <div>
-            <label style={FL}>CONDITION</label>
-            <div style={{ display:'flex', gap:8 }}>
-              {RETURN_CONDITIONS.map(({ v, label }) => {
-                const sel = condition === v;
-                return (
-                  <button key={v} type="button" onClick={() => setCondition(v)}
-                    style={{ flex:1, padding:'8px 6px', borderRadius:9, fontSize:12.5, fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif',
-                      border:`1px solid ${sel ? (v === 'ok' ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))') : 'var(--line)'}`,
-                      background: sel ? (v === 'ok' ? 'hsla(var(--color-green),0.1)' : 'hsla(var(--color-red),0.08)') : 'var(--card)',
-                      color: sel ? (v === 'ok' ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))') : 'var(--muted)' }}>
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <label style={FL}>CONDITION NOTES <span style={{ fontSize:11, fontWeight:400 }}>(optional - note any damage)</span></label>
-            <textarea rows={3} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
-              placeholder="e.g. Minor scuff on handle, otherwise good condition"
-              value={conditionNote} onChange={e => setConditionNote(e.target.value)} />
-          </div>
+        )}
+        <div>
+          <label style={LABEL} htmlFor="return-note">{lost ? 'Where Was It Last Seen?' : 'Condition Notes'}{!needNote && <span style={{ fontWeight: 500, color: 'var(--muted)' }}> (optional)</span>}</label>
+          <textarea id="return-note" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13.5 }}
+            placeholder={lost ? 'e.g. Left at the Austin site on 10/30/2026' : 'e.g. Minor scuff on the handle, otherwise good'}
+            value={conditionNote} onChange={e => setConditionNote(e.target.value)} />
         </div>
-
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={submitting}>Cancel</button>
-          <button className="primary-btn" disabled={(!file && !photoOptional) || submitting}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:130, justifyContent:'center' }} onClick={submit}>
-            {submitting ? <><Spinner size={14} /> Returning…</> : <><RotateCcw size={14} /> Confirm return</>}
-          </button>
-        </div>
+        {error && <p style={ERROR}>{error}</p>}
       </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
-          onSave={canSave ? guard.saveAndClose : undefined} saving={guard.saving || submitting} />
-      )}
-    </div>
+    </ItemSheet>
   );
 }

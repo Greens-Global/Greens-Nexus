@@ -78,8 +78,8 @@ export function OverdueAlertModal({ checkouts, onClose, toast }) {
   const dirty = note.trim() !== '';
   const guard = useUnsavedGuard(dirty, onClose, sendable.length ? handleSend : undefined);
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'min(90dvh, 720px)', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
+    <div role="dialog" aria-modal="true" className="modal-overlay" style={{ zIndex:4100 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column' }}>
         <div style={{ padding:'20px 24px 16px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <div style={{ width:36, height:36, borderRadius:10, background:'hsla(var(--color-orange),0.12)', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -151,8 +151,8 @@ export function OverdueAlertModal({ checkouts, onClose, toast }) {
         <div style={{ padding:'14px 24px', borderTop:'1px solid var(--line)', display:'flex', gap:10, alignItems:'center', flexShrink:0 }}>
           <div style={{ marginLeft:'auto', display:'flex', gap:10 }}>
             <button className="secondary-btn" onClick={onClose} disabled={sending}>Cancel</button>
-            <button onClick={handleSend} disabled={sending || !sendable.length}
-              style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-orange))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (sending || !sendable.length) ? 0.55 : 1 }}>
+            <button className="primary-btn" onClick={handleSend} disabled={sending || !sendable.length}
+              style={{ display:'inline-flex', alignItems:'center', gap:7 }}>
               {sending ? <Spinner size={14} /> : <Send size={14} />}
               Send to {sendable.length || '…'}
             </button>
