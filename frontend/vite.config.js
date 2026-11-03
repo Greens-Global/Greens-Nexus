@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { nxSrcVitePlugin } from './scripts/nxsrc-plugin.mjs'
+import { stampHtml } from './scripts/stamp-assets.mjs'
 
 // Build Mode (Oct 24 2026). Dev builds stamp every host JSX element that has a
 // handler or an aria / role attribute with data-nx-src="<fileId>:line:col"
@@ -135,10 +136,7 @@ const stampUnhashedAssets = () => ({
       for (const rel of entries) {
         const file = join(dir, rel);
         const html = await readFile(file, 'utf8');
-        const stamped = html.replace(
-          /((?:src|href)=")(?!https?:|\/\/|data:|\/assets\/)([^"?#]+\.(?:js|css))"/g,
-          `$1$2?v=${BUILD_ID}"`,
-        );
+        const stamped = stampHtml(html, BUILD_ID);
         if (stamped !== html) await writeFile(file, stamped);
       }
     },

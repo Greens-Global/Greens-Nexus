@@ -12,6 +12,8 @@ function nextPrompt() {
   });
 }
 const tick = () => new Promise(r => setTimeout(r, 0));
+// Back moves the address before popstate fires; jsdom's mocked go() does not.
+const movedTo = (path) => window.history.replaceState(window.history.state, '', path);
 
 describe('guardPopstate', () => {
   it('applies the move when nothing is unsaved', () => {
@@ -24,6 +26,7 @@ describe('guardPopstate', () => {
   it('steps back to the entry by depth (Forward history kept), asks; Keep Editing stays, Discard goes on', async () => {
     window.history.replaceState({ depth: 3 }, '', '/admin-console/pay');
     rememberEntry();
+    movedTo('/tasks');   // the browser has already moved the address
     setInlineDirty('settings', true, { labels: ['Pay Rules'], save: null });
     const push = vi.spyOn(window.history, 'pushState');
     const go = vi.spyOn(window.history, 'go').mockImplementation(() => {});
@@ -55,6 +58,7 @@ describe('guardPopstate', () => {
   it('a second Back while the question is open only puts the entry back - one Discard, one step', async () => {
     window.history.replaceState({ depth: 3 }, '', '/admin-console/pay');
     rememberEntry();
+    movedTo('/tasks');   // the browser has already moved the address
     setInlineDirty('settings', true, { labels: ['Pay Rules'] });
     const go = vi.spyOn(window.history, 'go').mockImplementation(() => {});
     const apply = vi.fn();
@@ -77,6 +81,7 @@ describe('guardPopstate', () => {
   it('an entry without a depth is pushed back instead', async () => {
     window.history.replaceState(null, '', '/admin-console/pay');
     rememberEntry();
+    movedTo('/tasks');   // the browser has already moved the address
     setInlineDirty('settings', true, { labels: ['Pay Rules'] });
     const push = vi.spyOn(window.history, 'pushState');
     vi.spyOn(window.history, 'go').mockImplementation(() => {});
@@ -111,5 +116,16 @@ describe('guardPopstate', () => {
     expect(unsavedSummary().discard).toBeTypeOf('function');
     document.body.innerHTML = '<div class="modal-overlay" data-nx-dirty="1"></div>';
     expect(unsavedSummary()).toEqual({ labels: [], save: null, discard: null });
+  });
+
+  it('a pop that keeps the path (a popup closing on Back) never asks', () => {
+    window.history.replaceState({ depth: 3 }, '', '/pdf-tools');
+    rememberEntry();
+    setInlineDirty('settings', true, { labels: ['Pay Rules'] });
+    const go = vi.spyOn(window.history, 'go').mockImplementation(() => {});
+    const apply = vi.fn();
+    expect(guardPopstate({ state: { depth: 2 } }, apply)).toBe(true);
+    expect(apply).toHaveBeenCalled();
+    expect(go).not.toHaveBeenCalled();
   });
 });
