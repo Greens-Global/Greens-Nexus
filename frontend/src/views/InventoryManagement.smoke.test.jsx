@@ -74,7 +74,8 @@ vi.mock('../api', () => {
 
 const mod = await import('./InventoryManagement');
 const InventoryManagement = mod.default;
-const { EmployeeView, AddItemModal } = mod;
+const { AddItemModal } = mod;
+const { EmployeeView } = await import('../inventory/EmployeeView');
 const { MyCheckoutsPanel } = await import('../inventory/checkout/MyCheckoutsPanel');
 const { ManagerCheckoutsTab } = await import('../inventory/checkout/ManagerCheckoutsTab');
 
