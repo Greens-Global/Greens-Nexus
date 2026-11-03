@@ -63,6 +63,11 @@ function excalidrawLocaleStub() {
   };
 }
 
+// Chunk groups (see codeSplitting below). REACT_CORE is claimed first so no
+// other vendor group can take React (or the shared helpers) along with it.
+const REACT_CORE = /[\\/]node_modules[\\/](react|react-dom|scheduler|react-is|use-sync-external-store|clsx|tiny-invariant|eventemitter3)[\\/]|^\0vite\/preload-helper/;
+// The editor and Markdown packages, kept out of the vendor-react catch-all.
+const EDITOR_AND_MARKDOWN = /[\\/]node_modules[\\/](@tiptap|prosemirror-[a-z-]+|orderedmap|rope-sequence|w3c-keyname|linkifyjs|react-markdown|remark-[a-z-]+|micromark[a-z-]*|mdast-[a-z-]+|hast-[a-z-]+|unist-[a-z-]+|unified|vfile[a-z-]*|property-information|space-separated-tokens|comma-separated-tokens|html-url-attributes|devlop|bail|trough|extend|is-plain-obj|decode-named-character-reference|character-entities[a-z-]*|ccount|escape-string-regexp|markdown-table|longest-streak|zwitch|trim-lines|style-to-js|style-to-object|inline-style-parser|estree-util-[a-z-]+|@ungap)[\\/]/;
 
 // Build identity. Every deploy path supplies a commit sha somewhere:
 //   - the wrangler workflows pass VITE_BUILD_ID explicitly,
@@ -190,7 +195,21 @@ export default defineConfig(({ command }) => ({
         assetFileNames: `assets/[name]-${CACHE_NS}-[hash][extname]`,
         // Split vendors into separate cached chunks — same approach as Amazon, Netflix, etc.
         // Each chunk loads in parallel and is cached independently by the browser.
-        manualChunks(id) {
+        //
+        // Two groups (11/03/2026, bundle headroom). The first, higher priority,
+        // holds React itself, the handful of tiny libraries React-based
+        // packages share with it, and Vite's preload helper. Rolldown's groups
+        // take a captured module's dependencies with them, and with all of
+        // this in the one function below whichever group got there first kept
+        // them: recharts captured react / react-dom (vendor-charts, 435 KB,
+        // then shipped on FIRST PAINT because every chunk imports React), and
+        // exifr captured the preload helper (vendor-exif, 74 KB, on first
+        // paint because every lazy import uses the helper). A higher-priority
+        // group claims them before any other group can. Measured: first paint
+        // 2,844 KB -> 2,340 KB, total unchanged.
+        codeSplitting: { groups: [
+          { name: 'vendor-react-core', test: REACT_CORE, priority: 1 },
+          { name(id) {
           // The whiteboard engine (Notes boards, Neil 11/02/2026) has NO manual
           // chunk on purpose. It is reached only by the import() in
           // notes/board/engine/index.js (the adapter, engine/excalidraw.jsx,
@@ -255,8 +274,15 @@ export default defineConfig(({ command }) => ({
           // in the catch-all they pushed vendor-react past its 1000KB budget).
           if (/[\\/]node_modules[\\/](yjs|y-prosemirror|y-protocols|lib0)[\\/]/.test(id)
             || /@tiptap[\\/](extension-collaboration|y-tiptap)/.test(id)) return undefined;
+          // The rich-text editor (TipTap / ProseMirror: Notes, the KB editor,
+          // task descriptions, the document builder) and the Markdown renderer
+          // (react-markdown and its parser) are reached only from lazy views
+          // and import()s, so they stay out of the catch-all and ride those
+          // lazy chunks (11/03/2026: about 600 KB off first paint).
+          if (EDITOR_AND_MARKDOWN.test(id)) return undefined;
           if (id.includes('node_modules'))            return 'vendor-react';
-        },
+        } },
+        ] },
       },
     },
   },
