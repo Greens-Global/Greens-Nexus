@@ -129,18 +129,26 @@ def upload_my_photo(file: UploadFile = File(...),
     )
     if not resp.is_success:
         raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    old = e.photo_url or ""
     e.photo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
     e.updated_at = _now()
     db.commit()
+    import avatar_files   # the replaced photo leaves storage (11/02/2026)
+    avatar_files.forget(db, old, e.id)
     return _profile_dict(e, db)
 
 
 @router.delete("/profile/photo")
 def remove_my_photo(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     e = _me(db, user["email"])
+    old = e.photo_url or ""
     e.photo_url = ""
     e.updated_at = _now()
     db.commit()
+    # "Profile photo removed" means removed: the picture leaves the public
+    # avatars bucket too (11/02/2026, avatar_files.py).
+    import avatar_files
+    avatar_files.forget(db, old, e.id)
     return _profile_dict(e, db)
 
 

@@ -14,6 +14,8 @@
 //                                   2026; the id stays - it is the stored access grant)
 //   people          -> hr          (the module is called People; /people/... opens it,
 //                                   the address it writes stays /hr - Oct 29 2026)
+import { legacyItemsSub } from '../inventory/model/routes';
+
 export const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr', insights: 'bi', bi: 'bi',
   team: 'shifts', shifts: 'shifts', 'help-center': 'support', support: 'support', credentials: 'credvault', credvault: 'credvault', people: 'hr' };
 export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday', bi: 'insights', shifts: 'team', support: 'help-center', credvault: 'credentials' };
@@ -27,6 +29,25 @@ export function purchaseRedirect(view, sub) {
   if (view === 'purchase') return { view: 'myhr', sub: sub === 'new' ? 'purchase:new' : 'purchase' };
   if (view === 'inventory' && sub === 'purchasereqs') return { view: 'myhr', sub: 'purchase' };
   return null;
+}
+
+// Item Management's pre-redesign subs (Neil, 11/02/2026): /itemmanagement/
+// checkouts, /catalog, /manage... land on the new tabs. Mapped HERE, where
+// every address and every in-app navigation is resolved, so the old address
+// is replaced - never pushed and then rewritten, which made Back loop
+// between the two. null = not an old Items address.
+export function itemsRedirect(view, sub) {
+  if (view !== 'inventory' || !sub) return null;
+  const next = legacyItemsSub(sub);
+  return next ? { view, sub: next } : null;
+}
+
+// An item's own link (Items phase 4, QR tags, Neil 11/02/2026):
+// /itemmanagement/item/<id> - also /inventory/item/<id> - is the Items sub
+// "item/<id>", which the address writer turns back into the same path. The
+// rest of the link rules live in inventory/scan/itemLink.js. null = not one.
+export function itemLinkSub(view, segs) {
+  return view === 'inventory' && segs?.[1] === 'item' && segs?.[2] ? `item/${segs[2]}` : null;
 }
 
 // The address the app writes for its state. On the FIRST write - the app

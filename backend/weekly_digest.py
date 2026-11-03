@@ -395,7 +395,7 @@ def render(first_name: str, today: date, sections: dict, greeting: str, logo_url
                               title="Weekly Digest", date_label=week_of, intro=_intro(sections),
                               footer=footer, order=ORDER, expanded=True,
                               cta_label="Open My Briefing", cta_path="/briefing",
-                              notes={TEAM_SECTION: _team_note(sections)})
+                              notes={TEAM_SECTION: _team_note(sections)}, stop_kind="weekly_digest")
 
 
 # ── Outlook card ──────────────────────────────────────────────────────────
@@ -479,6 +479,10 @@ def send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, today: date, l
     # links that act as this person - unless the only recipient is them.
     actions = mode != "test" or _only_for(emp, list(cfg.get("test_recipients") or []))
     sections, subject, html = compose(db, emp, cfg, today, local_now, actions=actions)
+    # Stopped from the email's own link or Profile (email_optout.py).
+    import email_optout
+    if mode == "live" and email_optout.is_out(db, emp.work_email, "weekly_digest"):
+        sections = {}
     sent_at = ""
     if mode in ("test", "live") and sections:
         to = [emp.work_email] if mode == "live" else list(cfg.get("test_recipients") or [])

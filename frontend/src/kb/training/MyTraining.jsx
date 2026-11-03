@@ -11,6 +11,14 @@ import { Chip, SectionHead, Stat, TrainingChip } from '../components/Chips';
 import { useToast, errText } from '../components/Toast';
 import { goKb, fmtDate, trainingColor, plural } from '../lib';
 import MyCompliance from './MyCompliance';
+import ProgressTrack from '../../ui/ProgressTrack';
+
+// The track's state for one course card: red while it is overdue (or an
+// expired completion), green once completed, else the live accent.
+export function courseTrackState(c) {
+  if (c?.days_overdue) return 'overdue';
+  return c?.my_status === 'Completed' ? 'done' : 'live';
+}
 
 export function CourseRow({ c, onOpen }) {
   const open = () => (onOpen ? onOpen(c) : goKb('course', c.id));
@@ -20,7 +28,7 @@ export function CourseRow({ c, onOpen }) {
       <div className="kb-grow">
         <div className="kb-title">{c.title} <span className="kb-meta" style={{ fontWeight: 400 }}>{c.code ? `· ${c.code}` : ''}</span></div>
         <div className="kb-meta" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span className="kb-progress" style={{ width: 120 }}><i style={{ width: `${c.my_pct}%` }} /></span>
+          <ProgressTrack size="sm" value={(c.my_pct || 0) / 100} state={courseTrackState(c)} label={`${c.title} progress`} style={{ width: 120 }} />
           <span>{c.my_pct}%</span>
           {c.due_date && <span>· {c.days_overdue ? `${c.days_overdue} days overdue` : `due ${fmtDate(c.due_date)}`}</span>}
           <span>· about {plural(c.est_minutes, 'minute')}</span>
@@ -102,7 +110,7 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
                 <div className="kb-main">
                   <section className="kb-card">
                     <SectionHead title="To Do" count={todo.filter((t) => t.overdue).length} sub={todo.length ? `${todo.length} to go` : ''} right={<span className="kb-meta">{pct}% done</span>} />
-                    <div className="kb-progress" style={{ marginBottom: 10 }}><i style={{ width: `${pct}%` }} /></div>
+                    <ProgressTrack value={pct / 100} state={todo.some((t) => t.overdue) ? 'overdue' : undefined} label="Training to do" valueText={`${pct}% done`} style={{ marginBottom: 10 }} />
                     {todo.length === 0 && <div className="kb-empty">You are all caught up. Courses, plans and policies you are given show up here, overdue first.</div>}
                     {todo.map((t) => (t.kind === 'course'
                       ? <CourseRow key={`c:${t.id}`} c={t.item} />
@@ -118,7 +126,7 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
                   {data.plans.map((p) => (
                     <section key={p.id} className="kb-card">
                       <SectionHead title={p.name} sub={`${p.done} of ${p.total} done${p.due_date ? ` · due ${fmtDate(p.due_date)}` : ''}`} right={p.completed_at ? <Chip color="#1e7b4e">Completed</Chip> : p.days_overdue ? <Chip color="#dc2626">{p.days_overdue} days overdue</Chip> : null} />
-                      <div className="kb-progress" style={{ marginBottom: 10 }}><i style={{ width: `${p.total ? Math.round(100 * p.done / p.total) : 0}%` }} /></div>
+                      <ProgressTrack value={p.completed_at ? 1 : (p.total ? p.done / p.total : 0)} state={p.completed_at ? 'done' : p.days_overdue ? 'overdue' : undefined} label={`${p.name} progress`} valueText={`${p.done} of ${p.total} done`} style={{ marginBottom: 10 }} />
                       {p.items.map((it) => (
                         <div key={`${it.kind}:${it.id}`} className="kb-row link" onClick={() => goKb(it.kind === 'course' ? 'course' : 'page', it.id)}>
                           <Chip color={it.kind === 'course' ? '#1e7b4e' : '#7c3aed'}>{it.kind === 'course' ? 'Course' : 'Policy'}</Chip>

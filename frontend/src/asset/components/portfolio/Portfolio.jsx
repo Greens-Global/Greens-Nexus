@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { LayoutGrid, List, MapPin, Search, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { CATEGORIES, TYPES, deriveCategory, deriveType, cityRegion, typeLabel, stateAbbrev, stateSearchHaystack, assetRank } from '../../lib/portfolioCards.js';
 import { STAGE_FILTER_OPTIONS, baseStage } from '../../lib/stages.js';
@@ -6,6 +6,7 @@ import { EmptyState } from '../shared/EmptyState.jsx';
 import { PortfolioMap } from './PortfolioMap.jsx';
 import { TileCard } from './TileCard.jsx';
 import { ListTable } from './ListTable.jsx';
+import { fleetFactsFor } from '../../lib/fleetCards.js';
 // NOTE: ListRow/ListGroupRow (from ./ListRow.jsx) are NOT used below. In the original app, List
 // view always renders ListTable (see the `viewMode === 'list'` branch), and the card-row variant
 // (ListRow/ListGroupRow) is only reachable from a code path that's unconditionally shadowed by
@@ -32,6 +33,9 @@ const filterPillStyle = {
   fontSize: '0.78rem', color: 'var(--text-secondary)', flexShrink: 0, whiteSpace: 'nowrap',
 };
 
+// A stable empty parcel list, so a memoized TileCard is not re-rendered for a fresh [].
+const NO_PARCELS = [];
+
 const VIEW_TABS = [
   ['tile', 'Tiles', LayoutGrid],
   ['list', 'List', List],
@@ -55,7 +59,7 @@ const VIEW_TABS = [
  * intentional (lets you see full-portfolio breakdowns while narrowing your view) rather than a
  * bug, but flagging it here since it's easy to "fix" by accident while touching this code.
  */
-export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serverOk, metrics = {} }) {
+export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serverOk, metrics = {}, store = null, selectedId = null }) {
   const [stageFilter, setStageFilter] = useState('');
   const [regionFilter, setRegionFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -63,6 +67,9 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
   const [search, setSearch] = useState('');
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState(1);
+  // The fleet cards' facts (next service, odometer, last change), worked out once per store
+  // instead of per card per render (a search keystroke re-renders the grid).
+  const fleetFacts = useMemo(() => fleetFactsFor(props, store || {}), [props, store]);
 
   const all = props.slice();
   if (!all.length) {
@@ -159,7 +166,7 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
   const renderTiles = () =>
     topLevelAssets.map((asset) => {
       const secondaries = childrenOf(asset.id);
-      return <TileCard key={asset.id} pr={asset} openProperty={openProperty} secondaries={secondaries} metric={metrics[asset.id]} />;
+      return <TileCard key={asset.id} pr={asset} openProperty={openProperty} secondaries={secondaries.length ? secondaries : NO_PARCELS} metric={metrics[asset.id]} fleet={fleetFacts[asset.id] || null} selected={asset.id === selectedId} />;
     });
 
   return (

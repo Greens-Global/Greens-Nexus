@@ -8,9 +8,12 @@
 //    own sidebar entry (System group) - drops the "back to Nexus" link and the
 //    full-bleed background, and switches to the app's own theme variables so
 //    it follows light/dark mode like every other module.
-// Plain static content either way, no API calls.
+// Content comes from the caller: Terms is static, the Privacy Policy is the
+// server's inventory (PrivacyPolicy.jsx). A section may carry `extra` (a
+// table or a status chip drawn under its paragraphs, or above them with
+// `extraFirst`), and `before` is drawn above the first section.
 
-export default function PolicyDoc({ title, updated, sections, embedded = false }) {
+export default function PolicyDoc({ title, updated, sections, embedded = false, before = null }) {
   const wrapStyle = embedded
     ? { fontFamily: "'Inter',sans-serif", color: 'var(--ink, #111827)' }
     : { minHeight: '100dvh', background: '#f6f7f9', fontFamily: "'Figtree','Inter',sans-serif", color: '#323338' };
@@ -22,11 +25,13 @@ export default function PolicyDoc({ title, updated, sections, embedded = false }
       <div style={{ maxWidth: 720, margin: '0 auto', padding: embedded ? '0 0 40px' : '48px 24px 80px' }}>
         {!embedded && <a href="/" style={{ fontSize: 13, fontWeight: 600, color: '#676879', textDecoration: 'none' }}>&larr; Back to Nexus</a>}
         <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-.02em', margin: embedded ? '0 0 4px' : '20px 0 4px' }}>{title}</h1>
-        <p style={{ fontSize: 13, color: mutedColor, margin: '0 0 32px' }}>Last updated: {updated}</p>
+        {updated ? <p style={{ fontSize: 13, color: mutedColor, margin: '0 0 32px' }}>Last updated: {updated}</p> : <div style={{ height: 24 }} />}
+        {before}
         {sections.map(s => (
           <div key={s.h} style={{ marginBottom: 26 }}>
             <h2 style={{ fontSize: 15.5, fontWeight: 800, margin: '0 0 8px' }}>{s.h}</h2>
-            {s.p.map((para, i) => (
+            {s.extraFirst && s.extra}
+            {(s.p || []).map((para, i) => (
               <p key={i} style={{ fontSize: 14, lineHeight: 1.65, color: bodyColor, margin: '0 0 10px' }}>{para}</p>
             ))}
             {s.list && (
@@ -36,6 +41,7 @@ export default function PolicyDoc({ title, updated, sections, embedded = false }
                 ))}
               </ul>
             )}
+            {!s.extraFirst && s.extra}
           </div>
         ))}
       </div>

@@ -202,6 +202,22 @@ export function formatMonthYear(v, fallback = '') {
   return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(d);
 }
 
+// The greeting's date line  ->  "Monday, November 2nd" (Neil, 11/02/2026:
+// the month is never abbreviated there); day-first people read
+// "Monday, 2 November".
+const ordinal = (n) => {
+  const t = n % 100;
+  if (t >= 11 && t <= 13) return `${n}th`;
+  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
+};
+export function formatDayLong(v, fallback = '') {
+  const d = toDate(v);
+  if (!d) return fallback;
+  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(d);
+  const month = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(d);
+  return dayFirst() ? `${weekday}, ${d.getDate()} ${month}` : `${weekday}, ${month} ${ordinal(d.getDate())}`;
+}
+
 // Month and day - the cue a day header needs across a month boundary  ->  "Sep 29"
 // ("29 Sep" for day-first people)
 export function formatMonthDay(v, fallback = '') {

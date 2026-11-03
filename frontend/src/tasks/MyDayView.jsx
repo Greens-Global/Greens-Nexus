@@ -20,22 +20,19 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import DictateButton from '../components/DictateButton';
 import AddSeveralModal from './AddSeveralModal';
 import { pastedTaskList } from './batchPaste';
+import ProgressTrack from '../ui/ProgressTrack';
 
 const card = { background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12 };
 
 function Progress({ done, total, isMobile }) {
   if (!total) return null;
-  const pct = Math.round((done / total) * 100);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, width: isMobile ? '100%' : 'auto' }}>
       <span data-testid="myday-progress" style={{ fontSize: 12.5, fontWeight: 600, color: done === total ? NX.green : NX.dim, whiteSpace: 'nowrap' }}>
         {done === total ? 'All done for today' : progressLabel(done, total)}
       </span>
-      <div role="progressbar" aria-label="My Day progress" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}
-        aria-valuetext={progressLabel(done, total)}
-        style={{ flex: isMobile ? 1 : 'none', width: isMobile ? 'auto' : 140, height: 4, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
-        <div className="nx-md-bar" style={{ width: `${pct}%`, height: '100%', borderRadius: 999, background: NX.green }} />
-      </div>
+      <ProgressTrack size="sm" value={done / total} label="My Day progress" valueText={progressLabel(done, total)}
+        style={{ flex: isMobile ? 1 : 'none', width: isMobile ? 'auto' : 140 }} />
     </div>
   );
 }

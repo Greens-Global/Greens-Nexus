@@ -3,6 +3,7 @@ import { ShieldCheck, Check } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 import { PolicyText, formatPolicyVersion } from '../lib/policyText';
+import { setCrisisCountry } from './CrisisSupportCard';
 
 // ── Sign-in company-policy & monitoring acknowledgment ────────────────────────
 // Standing, portal-wide gate: the first time a person signs in - and again when
@@ -36,6 +37,7 @@ export default function PolicyGate({ children }) {
     return api.policyStatus()
       .then(r => {
         if (!live()) return;
+        setCrisisCountry(r?.country);   // the crisis support card's resource list
         if (r?.accepted === false && r.body && r.version) {
           setPolicy({ title: r.title || 'Company Policies', body: r.body, version: r.version });
           setState('gate');

@@ -762,6 +762,15 @@ MAX_ATTEMPTS = 3
 STALE_SENDING = timedelta(minutes=30)
 
 
+def _stop_url() -> str:
+    """The email's one-click Stop These Emails link (email_optout.py)."""
+    try:
+        import email_optout
+        return email_optout.stop_url("ticket_weekly_report")
+    except Exception:
+        return ""
+
+
 def weekly_choice(db: Session, email: str):
     """The person's own stored choice: True / False, or None when unset."""
     row = db.get(models.NexusPersonPref, (email or "").strip().lower())
@@ -992,7 +1001,7 @@ def render_email(report: dict, first_name: str, base_url: str, logo_url: str = "
       <a href="{escape(url)}" style="display:inline-block;background:{brand};color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open Ticket Reports</a>
     </td></tr>
     <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
-      You get this every Monday because you supervise the service desk or turned it on yourself. To stop it, turn off Weekly Email on the Tickets &gt; Reports tab.{th.footer_lines()}
+      You get this every Monday because you supervise the service desk or turned it on yourself. To stop it, turn off Weekly Email on the Tickets &gt; Reports tab, or <a href="{escape(_stop_url())}" style="color:#6b7280">Stop These Emails</a>.{th.footer_lines()}
     </td></tr>
   </table>
 </div>"""

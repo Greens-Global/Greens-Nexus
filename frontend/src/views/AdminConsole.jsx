@@ -2070,7 +2070,7 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
 
   const scopeSwitch = (
     <div className={`nx-set-scope${company ? ' is-company' : ''}`}>
-      <Building2 size={14} style={{ color: company ? 'var(--nx-own)' : 'var(--muted)', flexShrink: 0 }} aria-hidden="true" />
+      <Building2 size={14} style={{ color: company ? 'var(--wk-live)' : 'var(--muted)', flexShrink: 0 }} aria-hidden="true" />
       <span className="nx-set-scope-label" aria-hidden="true">Applies To</span>
       <select className="form-input" aria-label="Applies To" value={company} onChange={e => pickScope(e.target.value)}>
         <option value="">Every Company</option>

@@ -7,6 +7,7 @@ import { HeaderOverflowTabs, TabGroupButton, useHeaderTabs } from "./ModuleTabs"
 import TabInk from "./TabInk";
 import MyProfileModal from "./MyProfileModal";
 import QuickCreate from "./QuickCreate";   // the "+" Create menu (Oct 29 2026)
+import { readStopEmail, setPendingEmailStop } from "../lib/emailStop";
 
 // ?emailSettings=1 - the "Email Settings" link in task emails; it opens
 // Profile on its Email Settings section (Neil, Oct 13 2026). Read when this
@@ -20,6 +21,10 @@ function _profileLinkFromUrl() {
   if (typeof window === 'undefined') return '';
   const q = new URLSearchParams(window.location.search);
   if (q.get('emailSettings') === '1') return 'email';
+  // ?stopEmail=<kind>: a digest's "Stop These Emails" link (11/02/2026,
+  // lib/emailStop.js) - Profile opens on the email section and turns it off.
+  const stop = readStopEmail(window.location.search);
+  if (stop) { setPendingEmailStop(stop); return 'email'; }
   const section = q.get('profile') || '';
   return /^[a-z]+$/.test(section) ? section : '';
 }
@@ -29,8 +34,8 @@ function takeProfileLink() {
   const section = PROFILE_LINK;
   PROFILE_LINK = '';
   const q = new URLSearchParams(window.location.search);
-  if (q.has('emailSettings') || q.has('profile')) {
-    q.delete('emailSettings'); q.delete('profile');
+  if (q.has('emailSettings') || q.has('profile') || q.has('stopEmail')) {
+    q.delete('emailSettings'); q.delete('profile'); q.delete('stopEmail');
     const rest = q.toString();
     window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
   }
@@ -492,14 +497,14 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
       <div style={{
         position: 'sticky', top: 56, zIndex: 105, display: 'flex', alignItems: 'center',
         justifyContent: 'center', gap: 10, padding: '7px 16px',
-        background: 'hsla(var(--color-orange), 0.16)', borderBottom: '1px solid hsla(var(--color-orange), 0.4)',
+        background: 'linear-gradient(var(--wk-live-tint), var(--wk-live-tint)) var(--wk-card)', borderBottom: '1px solid var(--wk-live-line)',
         fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--ink)', flexWrap: 'wrap', textAlign: 'center',
       }}>
-        <UserCog size={13} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
+        <UserCog size={13} style={{ color: 'var(--wk-live)', flexShrink: 0 }} />
         <span>You're acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}) - actions you take are attributed to them.</span>
         <button onClick={handleExitActAs} disabled={actAsStopping}
           style={{
-            background: 'hsl(var(--color-orange))', color: '#fff', border: 'none', borderRadius: 6,
+            background: 'var(--wk-live-ink)', color: 'var(--wk-live-on)', border: 'none', borderRadius: 6,
             padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: actAsStopping ? 'default' : 'pointer',
             fontFamily: 'inherit', flexShrink: 0,
           }}>

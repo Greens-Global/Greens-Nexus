@@ -7,6 +7,7 @@
 import { daysUntil } from './format.js';
 import { inferAssetKind } from './vehicleFields.js';
 import { snapMap } from './assetMetrics.js';
+import { nextService } from './nextService.js';
 
 /**
  * One flat list entry:
@@ -81,7 +82,11 @@ export function collectCriticalDates(store) {
     } else {
       // Vehicles/equipment: registration + next-service-due instead of tax/loan.
       push(p.id, 'Registration', 'Registration Expiration', snap['registration expiration']);
-      push(p.id, 'Service', 'Next Service Due', p.nextServiceDate || snap['next service due']);
+      // ONE entry per asset, from the one next-service rule (lib/nextService.js): the newest
+      // service row's target (older, superseded rows' due dates no longer count), else the
+      // asset's own fields. A mileage-only target has no date, so it is not a critical date.
+      const service = nextService(p, store);
+      if (service && service.dueDate) push(p.id, 'Service', 'Next Service Due', service.dueDate, service.serviceType);
     }
   });
 
@@ -101,9 +106,6 @@ export function collectCriticalDates(store) {
   );
   (store.maintenance || []).forEach((x) =>
     push(x.propertyId, 'Maintenance', 'Follow-up Due', x.nextDue, x.system || x.description)
-  );
-  (store.vservice || []).forEach((x) =>
-    push(x.propertyId, 'Service', 'Service Due', x.nextDue, x.type)
   );
 
   out.sort((a, b) => a.days - b.days);

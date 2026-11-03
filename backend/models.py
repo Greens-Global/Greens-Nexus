@@ -619,6 +619,10 @@ class ItemCheckout(Base):
     extension_status         = Column(String, default="")   # '' | 'pending' (cleared on resolve)
     approver_email           = Column(String, default="")   # manager picked at checkout - only they get the approval notification
     approver_name            = Column(String, default="")
+    # The return date the borrower picked on the calendar (YYYY-MM-DD in their
+    # own zone, Neil 11/02/2026). '' = an older request that asked for a number
+    # of days. item_due.due_date reads it - see the rule there.
+    requested_due_date       = Column(String, default="")
 
 
 class ItemCartEntry(Base):
@@ -1170,6 +1174,13 @@ class ItemType(Base):
     sort_order = Column(Integer, default=0)
     created_by = Column(String, default="")
     created_at = Column(String, default="")
+    # Borrowable (Neil, 11/02/2026): does this type show in Borrow? NULL = the
+    # default - on for a type people check out, off for a permanent-only type
+    # (routers/items._type_borrowable). An admin's switch stores True / False.
+    borrowable    = Column(Boolean, nullable=True)
+    # The longest loan a Borrow request may ask for, in days (0 = the 90-day
+    # ceiling every checkout already had).
+    max_loan_days = Column(Integer, default=0)
 
 
 class KbDocument(Base):
@@ -6707,6 +6718,11 @@ class NexusPersonPref(Base):
     # no email when training is only DUE SOON. Overdue training and policies
     # to sign always email; the bell always rings. ALTER lines in main.py.
     kb_due_soon_email = Column(Integer, default=1)
+    # Digest emails this person stopped (the legal compliance pass,
+    # 11/02/2026, email_optout.py): comma-separated kinds, '' = none. Set by
+    # the one-click link in the email or Profile > Email Settings. ALTER
+    # lines in main.py.
+    email_optouts = Column(String, default="")
 
 
 class TaskAutomationRun(Base):

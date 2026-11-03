@@ -955,8 +955,11 @@ h1,h2,h3,h4,h5,h6,
 .hud-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left var(--transition-fast); }
 .hud-switch.is-on { background: hsl(var(--color-purple)); }
 .hud-switch.is-on::after { left: 14px; }
-.hud-acting { margin: 2px 4px 4px; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px; border: 1px solid hsla(var(--color-orange), .4); background: hsla(var(--color-orange), .09); color: hsl(var(--color-orange)); }
-.hud-exit { margin-left: auto; background: hsl(var(--color-orange)); color: #fff; border: none; border-radius: 6px; padding: 4px 10px; font: 700 11.5px 'Inter', sans-serif; cursor: pointer; }
+/* Act As is a live mode: the live accent (see "Live accent" in the Work OS block).
+   Text is --wk-live-ink (5.29:1 light, 4.67:1 on the tint); Exit is the one solid
+   live chip, --wk-live-on on --wk-live-ink (5.29:1 light, 8.22:1 dark). */
+.hud-acting { margin: 2px 4px 4px; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--wk-live-line); background: var(--wk-live-tint); color: var(--wk-live-ink); }
+.hud-exit { margin-left: auto; background: var(--wk-live-ink); color: var(--wk-live-on); border: none; border-radius: 6px; padding: 4px 10px; font: 700 11.5px 'Inter', sans-serif; cursor: pointer; }
 .hud-exit:disabled { cursor: default; opacity: .7; }
 .hud-person-text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .hud-person-text b { font-size: 12.5px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2653,7 +2656,7 @@ html { overflow-x: hidden; }
   /* 6+ actions: drop to a tighter label so everything stays readable */
   .mobile-nav-actions .mobile-nav-item:first-child:nth-last-child(n+6),
   .mobile-nav-actions .mobile-nav-item:first-child:nth-last-child(n+6) ~ .mobile-nav-item {
-    font-size: 9.5px;
+    font-size: 11px;   /* never under 11px (Items redesign, 11/02/2026) */
   }
   .mobile-nav-menu {
     flex: 0 0 auto;
@@ -4071,6 +4074,74 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   --wk-brand-tint:#f5ead0;   /* amber wash for active states */
   --wk-shadow:    0 4px 12px rgba(64,55,30,.06);
   --wk-shadow-hov:0 8px 20px rgba(64,55,30,.10);
+}
+
+/* ── Live accent (Neil, 11/02/2026; mock https://claude.ai/artifact/PwncxMck8YaSkFkQ8hmTHE) ──
+   Green stays the brand (primary buttons, the active nav item, links, the N
+   tile, anything done). Orange means ONE thing: in progress / now - a running
+   shift, progress that is still moving, the current-time marker, a live mode
+   the person switched on (Act As, a company picked in Settings > Applies To).
+   Fills, outlines, bars and icons only. NEVER a button fill (the one solid is
+   the Act As Exit chip, on --wk-live-ink), NEVER a warning (warnings stay a
+   yellow background + icon, and orange never sits on yellow), NEVER small
+   body text (the rare orange label is --wk-live-ink), NEVER a count badge.
+   The one progress bar for new work is ui/ProgressTrack.jsx.
+
+     --wk-live       bars, outlines, icons, the now line (non-text, 3:1 floor)
+     --wk-live-ink   the ONLY live color allowed for text (4.5:1 floor)
+     --wk-live-tint  a soft wash: the today column, a live-mode pill
+     --wk-live-line  a soft outline around a tint
+     --wk-live-on    text on a solid --wk-live-ink fill (the Act As Exit only)
+
+   A company whose brand color is itself orange / red (lib/brandAccent.js,
+   liveCollides) gets the same family in cobalt, written by the injected brand
+   stylesheet, so brand and live never collide. The category tints
+   (--wk-orange, .dk-chip--orange, .dk-pill--orange, .card-orange, the docs
+   tips' --color-orange) are status / category colors, NOT the live accent -
+   leave them be.
+
+   Contrast (WCAG 2.x relative luminance, measured 11/02/2026):
+   Light   #ED631A on #ffffff card 3.28, on #f6f7fb canvas 3.06, on the
+           legacy #f4f5f7 paper 3.01 - the mock's #EE6A24 (same hue, 2 points
+           lighter) was 3.12 / 2.92 and failed on the canvas, so this is the
+           lightest step of that hue that clears 3:1 on both. A live fill
+           sitting ON the live tint is 2.90 - give it an edge (the ink, a
+           ring) rather than relying on the fill. #B8480F on #ffffff 5.29, on
+           the tint 4.67; #ffffff on #B8480F 5.29.
+   Dark    #FF7A33 on #161b27 card 6.62, on #0d1117 page 7.28; #FF9A5C on
+           #161b27 8.22, on the tint over the card 6.69; #161b27 on #FF9A5C 8.22.
+   Warm    the cobalt-theme orange is muddy on the amber wash (2.74) and fails
+           on the cream canvas (2.81), so Warm sand runs one step deeper:
+           #D9581A on #fffdf9 card 3.86, #f2ede3 canvas 3.36, #f5ead0 amber
+           wash 3.28, its own tint 3.20; #A8400C on card 6.07, canvas 5.29,
+           amber wash 5.16, tint 5.04. The tint is a peach (#FBE4D5, hue 24)
+           so it never reads as the amber wash (#f5ead0, hue 43).
+   Cobalt  (brand collision) #2b45e1 on #ffffff 6.91, on its tint 5.87,
+           #ffffff on it 6.91; dark #7086ff on #161b27 5.36, #9aabff 7.90,
+           #161b27 on #9aabff 7.90. */
+:root {
+  --wk-live:      #ed631a;
+  --wk-live-ink:  #b8480f;
+  --wk-live-tint: #fdeee5;
+  --wk-live-line: #f6c3a6;
+  --wk-live-on:   #ffffff;
+}
+[data-theme="dark"] {
+  --wk-live:      #ff7a33;
+  --wk-live-ink:  #ff9a5c;
+  --wk-live-tint: rgba(255,122,51,.14);
+  --wk-live-line: rgba(255,122,51,.45);
+  --wk-live-on:   #161b27;
+}
+/* Warm sand is a light world only; dark keeps the dark values above. More
+   specific than the injected brand stylesheet's :root on purpose - Warm's
+   brand is near-black, so its live accent never needs the cobalt fallback. */
+:root[data-wktheme="warm"]:not([data-theme="dark"]) {
+  --wk-live:      #d9581a;
+  --wk-live-ink:  #a8400c;
+  --wk-live-tint: #fbe4d5;
+  --wk-live-line: #efbe9f;
+  --wk-live-on:   #ffffff;
 }
 
 /* Warm theme - floating card stack (Lisso concept, owner request Jul 28).
@@ -6171,9 +6242,7 @@ body:has(.docs-root) { overflow-x: clip; }
 .docs-toc-item:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; border-radius: 4px; }
 
 /* Implementation Guide */
-.impl-bar { width: 100%; border-radius: 999px; background: color-mix(in srgb, var(--muted) 18%, transparent); overflow: hidden; }
-.impl-bar > div { height: 100%; border-radius: 999px; background: var(--wk-brand, #2b45e1); transition: width .25s; }
-.impl-bar > div.complete { background: var(--docs-ok); }
+.impl-track { width: 100%; }   /* the bars are ui/ProgressTrack (live accent, 11/02/2026) */
 .impl-rail-progress { padding: 4px 10px 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
 .impl-rail-progress-text { font-size: 12.5px; font-weight: 600; color: var(--ink); margin-bottom: 8px; font-variant-numeric: tabular-nums; }
 .impl-err { color: #b45309; font-weight: 600; }
@@ -6188,8 +6257,8 @@ body:has(.docs-root) { overflow-x: clip; }
 .impl-tl-item.complete .impl-tl-count { color: var(--docs-ok); }
 .impl-tl-item.active { background: var(--docs-tint); }
 .impl-progress-fact { display: flex; align-items: center; gap: 10px; padding-top: 4px; }
-.impl-progress-fact .impl-bar { flex: 1; }
-.impl-progress-fact span { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.impl-progress-fact .impl-track, .impl-phase-prog .impl-track { flex: 1; min-width: 48px; }
+.impl-progress-fact > span { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .impl-audience { margin: 10px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--muted); }
 .impl-split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 40px; align-items: start; }
 .impl-main { min-width: 0; }
@@ -6267,7 +6336,7 @@ body:has(.docs-root) { overflow-x: clip; }
 }
 @media (prefers-reduced-motion: reduce) {
   .docs-howto-panel { animation: none; }
-  .docs-howto-chev, .impl-bar > div { transition: none; }
+  .docs-howto-chev { transition: none; }
 }
 
 /* Documentation: a section reached from a help search is outlined briefly. */
@@ -6598,7 +6667,7 @@ body:has(.docs-root) { overflow-x: clip; }
 .m-dim { opacity: .78; transition: opacity var(--m-panel) ease-out; }
 .m-undim { opacity: 1; transition: opacity var(--m-panel) ease-out; }
 .m-today-glow [data-today]::after { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0;
-  background: color-mix(in srgb, var(--wk-brand) 12%, transparent); animation: m-glow 1.5s ease-out 1 both; }
+  background: color-mix(in srgb, var(--wk-live) 12%, transparent); animation: m-glow 1.5s ease-out 1 both; }
 .m-roll { display: inline-flex; overflow: hidden; vertical-align: bottom; }
 .m-roll > span { display: inline-block; }
 .m-roll-up > span { animation: m-roll-up var(--m-base) var(--m-ease) both; }
@@ -7305,13 +7374,11 @@ body:has(.nx-finish-bar) { overflow-x: clip; }
 }
 /* Tasks > My Day (Oct 22 2026, tasks/MyDayView.jsx): a row's drag handle and
    Remove button show on hover or keyboard focus where there is a mouse;
-   always there on touch, where nothing hovers. The progress bar eases. */
+   always there on touch, where nothing hovers. The progress bar is ui/ProgressTrack. */
 @media (hover: hover) and (pointer: fine) {
   .nx-md-row .nx-md-reveal { opacity: 0; transition: opacity 0.12s ease; }
   .nx-md-row:hover .nx-md-reveal, .nx-md-row:focus-within .nx-md-reveal { opacity: 1; }
 }
-.nx-md-bar { transition: width 0.3s ease; }
-@media (prefers-reduced-motion: reduce) { .nx-md-bar { transition: none; } }
 
 /* Accounting: the standard table view (10/23 meeting, item 01) - a heading's
    name opens its menu, the funnel its value list (shown on hover, or always
@@ -7336,10 +7403,11 @@ th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visibl
    panel 5980 - above every modal (4000-4600) and menu (5000); the screen
    recorder's pill (6000) stays reachable. Everything is restored on off. */
 .bm-root { font-family: 'Inter', sans-serif; color: var(--ink); }
-.bm-chip { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px 0 9px; border-radius: 999px; border: 1px solid hsla(var(--color-orange), .45);
-  background: hsla(var(--color-orange), .12); color: hsl(var(--color-orange)); font: 700 12px 'Inter', sans-serif; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
-.bm-chip:hover { background: hsla(var(--color-orange), .2); }
-.bm-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--color-orange)); animation: pulse 1.4s ease-in-out infinite; }
+/* Build Mode on is a live mode: the live accent (text on --wk-live-ink, 4.67:1 on the tint). */
+.bm-chip { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px 0 9px; border-radius: 999px; border: 1px solid var(--wk-live-line);
+  background: var(--wk-live-tint); color: var(--wk-live-ink); font: 700 12px 'Inter', sans-serif; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.bm-chip:hover { border-color: var(--wk-live); }
+.bm-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wk-live); animation: pulse 1.4s ease-in-out infinite; }
 .bm-overlay { position: fixed; inset: 0; z-index: 5900; touch-action: none; user-select: none; -webkit-user-select: none; }
 .bm-hover { position: fixed; z-index: 5901; pointer-events: none; border: 1.5px solid #2563eb; background: rgba(37,99,235,.06); border-radius: 3px; box-sizing: border-box; }
 .bm-hover-label { position: absolute; left: -1.5px; background: #2563eb; color: #fff; font: 600 11px 'Inter', sans-serif; padding: 2px 7px; border-radius: 4px; white-space: nowrap; max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
@@ -7702,7 +7770,9 @@ label.nx-set-row-main { cursor: pointer; }
 .nx-set-scope { display: inline-flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .nx-set-scope-label { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .nx-set-scope select { border: none; background-color: transparent; font-size: 13px; font-weight: 600; padding: 5px 30px 5px 6px; min-width: 0; max-width: 260px; box-shadow: none; }
-.nx-set-scope.is-company { border-color: hsl(var(--color-orange)); background: hsla(var(--color-orange), .06); }
+/* A company picked in Applies To is a live mode: the live accent. The wash is a
+   3% mix, not --wk-live-tint, so the muted "Applies To" label keeps 4.5:1. */
+.nx-set-scope.is-company { border-color: var(--wk-live); background: color-mix(in srgb, var(--wk-live) 3%, var(--card)); }
 .nx-set-scope-clear { border: none; background: none; cursor: pointer; color: var(--muted); display: inline-flex; padding: 4px; border-radius: 6px; }
 .nx-set-scope-clear:hover { color: var(--ink); background: var(--paper); }
 
@@ -7718,8 +7788,8 @@ label.nx-set-row-main { cursor: pointer; }
 .nx-set-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .7; }
 .nx-set-badge.is-own { color: hsl(var(--color-orange)); background: hsla(var(--color-orange), .08); border-color: hsla(var(--color-orange), .35); }
 .nx-set-diff { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); padding: 10px 14px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); margin: -4px 0 24px; }
-.nx-set-diff.is-own { border-color: color-mix(in srgb, var(--nx-own) 38%, transparent); background: color-mix(in srgb, var(--nx-own) 5%, var(--card)); }
-.nx-set-diff button { background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: hsl(var(--color-orange)); }
+.nx-set-diff.is-own { border-color: var(--wk-live-line); background: color-mix(in srgb, var(--wk-live) 3%, var(--card)); }
+.nx-set-diff button { background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: var(--wk-live-ink); }
 .nx-set-diff button:hover { text-decoration: underline; }
 .nx-set-list { display: flex; flex-direction: column; }
 .nx-set-list-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 18px; border: none; background: transparent; cursor: pointer; font: inherit; text-align: left; color: var(--ink); }
@@ -7743,11 +7813,13 @@ label.nx-set-row-main { cursor: pointer; }
   .nx-set-group-body.is-flush { padding: 0; }
   .nx-set-list-item { padding: 12px 14px; }
 }
-/* "This company has its own" - an orange dark enough to read as text (4.5:1). */
+/* "This company has its own" - an orange dark enough to read as text (4.5:1).
+   --nx-own is an "own value" / attention status (the badge, unsaved-changes and
+   refused notices in several panels), NOT the live accent - the Applies To pill
+   and the "different here" bar moved to --wk-live (11/02/2026). */
 :root { --nx-own: hsl(24, 85%, 34%); }
 [data-theme="dark"] { --nx-own: hsl(32, 92%, 64%); }
-.nx-set-badge.is-own, .nx-set-diff button { color: var(--nx-own); }
-.nx-set-scope.is-company { border-color: var(--nx-own); }
+.nx-set-badge.is-own { color: var(--nx-own); }
 .nx-set-inline-link { background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: var(--wk-brand); }
 .nx-set-inline-link:hover { text-decoration: underline; }
 .nx-set-diff .nx-set-inline-link { color: var(--wk-brand); }
@@ -8687,3 +8759,205 @@ body:has(.apv-phone) { overflow-x: clip; }
 .nx-perf-score-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 14px; padding: 10px 0; border-top: 1px solid var(--line); align-items: center; }
 .nx-perf-score-bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .nx-perf-score-bar > span { display: block; height: 100%; border-radius: 2px; transition: width .3s; }
+
+/* Shift track on the clock surfaces (Neil, 11/02/2026, components/ShiftTrack.jsx;
+   the bar itself is the Progress track block below). The Workday Time Clock card
+   carries the full track (ends, marker, note); the sidebar chip and the phone
+   sheet a slim one under the head; the dashboard header pill a hairline along
+   its bottom edge, so the pill keeps its size and its one line. */
+.wd-shift-track { min-width: 0; }
+.sbclock-track { margin: -3px 2px 0; }
+.dk-session-chip.has-track { position: relative; }
+.dk-session-track { position: absolute; left: 14px; right: 14px; bottom: 2px; pointer-events: none; }
+.dk-session-track .nx-track.is-sm { --nx-track-h: 3px; }
+
+/* Progress track (Neil, 11/02/2026, ui/ProgressTrack.jsx) - the one progress
+   bar for new work. Filled part solid in the state's color, the rest a dashed
+   track on --wk-line; the note's <b> takes the state's text-safe ink
+   (--wk-live-ink 5.29:1, --ok-fg 5.02:1, --bad-fg 4.83:1 on white). The width
+   moves only when motion is allowed. */
+.nx-track { --nx-track-fill: var(--wk-live); --nx-track-ink: var(--wk-live-ink); --nx-track-h: 6px; --nx-track-dot: 12px; --nx-track-ring: 3px;
+  display: grid; gap: 6px; min-width: 0; }
+.nx-track.is-sm { --nx-track-h: 4px; --nx-track-dot: 10px; --nx-track-ring: 2px; gap: 5px; }
+.nx-track.is-done { --nx-track-fill: var(--wk-green); --nx-track-ink: var(--ok-fg); }
+.nx-track.is-overdue { --nx-track-fill: var(--wk-red); --nx-track-ink: var(--bad-fg); }
+.nx-track.is-idle { --nx-track-fill: var(--wk-dim); --nx-track-ink: var(--wk-ink); }
+.nx-track-ends { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--wk-dim); font-variant-numeric: tabular-nums; }
+.nx-track-bar { position: relative; height: var(--nx-track-h); border-radius: 999px;
+  background: repeating-linear-gradient(90deg, var(--wk-line) 0 6px, transparent 6px 10px); }
+.nx-track-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--nx-track-fill); }
+.nx-track-marker { position: absolute; top: 50%; width: var(--nx-track-dot); height: var(--nx-track-dot); margin-left: calc(var(--nx-track-dot) / -2);
+  transform: translateY(-50%); border-radius: 50%; background: var(--wk-card); border: var(--nx-track-ring) solid var(--nx-track-fill); box-sizing: border-box; }
+.nx-track-note { font-size: 12.5px; color: var(--wk-dim); line-height: 1.45; }
+.nx-track-note b, .nx-track-note strong { color: var(--nx-track-ink); font-weight: 600; }
+@media (prefers-reduced-motion: no-preference) {
+  .nx-track-fill { transition: width var(--dur-lg) var(--ease-out); }
+  .nx-track-marker { transition: left var(--dur-lg) var(--ease-out); }
+}
+/* A warning beside a progress track (HrChecklists WarnNote): the house
+   warning look - the yellow --warn-bg wash, --warn-fg text and an icon - so on
+   a card with a track, orange means only "in progress". */
+.nx-warn-note { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 5px; vertical-align: middle;
+  background: var(--warn-bg); color: var(--warn-fg); font-size: 12px; font-weight: 600; line-height: 1.4; }
+.nx-warn-note svg { flex-shrink: 0; }
+.nx-warn-note.is-block { display: flex; align-items: flex-start; padding: 6px 10px; border-radius: 8px; font-size: 12.5px; }
+.nx-warn-note.is-block svg { margin-top: 2px; }
+
+/* The now marker (Neil, 11/02/2026, components/shifts/nowLine.js) - the live
+   accent on a time axis: a 2px --wk-live line at the current time down every
+   track of the Shifts Day view, and its "2:14 PM" label (--wk-live-ink on the
+   tint, 4.67:1 light) in a 20px row of its own at the foot of the hour header
+   (ScheduleDay's NOW_ROW padding), under the hour words, so it never covers
+   them however short the header is; near either end it stays inside the
+   track. Today's column header is the tint + a 2px underline (TODAY_HEAD in
+   nowLine.js). The line never animates: it moves once a minute and just
+   repositions, so reduced motion needs nothing. */
+.nx-now-line { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--wk-live); pointer-events: none; z-index: 1; }
+.nx-now-label { position: absolute; bottom: 3px; transform: translateX(-50%); z-index: 2; pointer-events: none; white-space: nowrap;
+  padding: 1px 5px; border-radius: 4px; line-height: 13px; font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--wk-live-ink); background: linear-gradient(var(--wk-live-tint), var(--wk-live-tint)), var(--card); box-shadow: 0 0 0 1px var(--wk-live-line); }
+
+/* ── Item Management (Items redesign, Neil 11/02/2026; plan
+   https://claude.ai/artifact/PdnHYdRUodkwrPLdKvRXbj) ─────────────────────
+   One calm module: rows and tiles on white cards, the one set of words
+   (StatusLabel), brand buttons, orange only for what is out right now (the
+   In Use track), red only for overdue. Labels never under 11px. */
+.it-page { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.it-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.it-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.01em; color: var(--ink); }
+.it-sub { margin: 4px 0 0; font-size: 13.5px; color: var(--muted); }
+.it-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.it-search { flex: 1 1 260px; min-width: 200px; margin: 0; }
+.it-select { height: 36px; padding: 0 30px 0 10px !important; line-height: 34px; font-size: 13px; width: auto; min-width: 140px; }
+.it-select.is-on { border-color: var(--wk-brand); background: var(--wk-brand-tint); font-weight: 600; }
+.it-select-wrap { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.it-toolbar-meta { margin-left: auto; font-size: 12.5px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.it-btn-sm { font-size: 12.5px !important; padding: 6px 12px !important; display: inline-flex !important; align-items: center; gap: 5px; white-space: nowrap; }
+.it-link:hover { color: var(--wk-brand) !important; text-decoration: underline; }
+
+.it-chips { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.it-chips::-webkit-scrollbar { display: none; }
+.it-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--wk-line, var(--line));
+  background: var(--card); color: var(--ink); font-size: 13px; font-weight: 600; line-height: 1.2; font-family: inherit; cursor: pointer; white-space: nowrap; transition: background .15s, border-color .15s; }
+.it-chip:hover { background: var(--wk-hover); }
+.it-chip.is-on { border-color: var(--wk-brand); background: var(--wk-brand-tint); color: var(--wk-brand); }
+.it-chip-n { font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.it-chip.is-on .it-chip-n { color: inherit; }
+.it-chip.is-overdue .it-chip-n { color: var(--bad-fg); }
+
+.it-group { display: flex; flex-direction: column; gap: 8px; }
+.it-group-h { display: flex; align-items: center; gap: 8px; margin: 4px 2px 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+.it-group-toggle { background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; text-align: left; }
+.it-count { font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.it-group[aria-label="Overdue"] .it-group-h span:first-child { color: var(--bad-fg); }
+
+.it-list { background: var(--card); border: 1px solid var(--wk-line2, var(--line)); border-radius: 12px; box-shadow: var(--wk-shadow); overflow: hidden; }
+.it-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--wk-line2, var(--line)); min-width: 0; }
+.it-list > .it-row:first-child { border-top: none; }
+.it-row.is-compact, .it-row.is-quiet { padding: 9px 16px; }
+.it-row[data-group="overdue"] { box-shadow: inset 3px 0 0 var(--wk-red); }
+.it-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; background: none; border: none; padding: 0; text-align: left; cursor: pointer; font-family: inherit; color: inherit; }
+.it-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.it-row-title { font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it-row-sub { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it-row-main:hover .it-row-title { color: var(--wk-brand); }
+.it-row-status { flex-shrink: 0; }
+.it-row-acts { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.it-row-note { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.it-row-chev { color: var(--wk-faint, var(--muted)); flex-shrink: 0; }
+.it-menu-item { display: block; width: 100%; text-align: left; padding: 8px 10px; border: none; border-radius: 7px; background: none; color: var(--ink); font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; }
+.it-menu-item:hover, .it-menu-item:focus-visible { background: var(--wk-hover); }
+.it-order-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 11px 16px; background: var(--wk-hover, var(--mist)); }
+
+.it-empty { text-align: center; padding: 48px 20px; border: 1px dashed var(--wk-line, var(--line)); border-radius: 12px; background: var(--card); }
+.it-empty-ico { width: 40px; height: 40px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: var(--wk-brand-tint); color: var(--wk-brand); margin-bottom: 10px; }
+.it-empty-title { font-size: 15px; font-weight: 600; color: var(--ink); }
+.it-empty-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.it-more { margin: 4px auto; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--wk-line, var(--line)); background: var(--card); color: var(--ink); font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; display: block; }
+.it-more:hover { background: var(--wk-hover); }
+
+/* Borrow tiles */
+.it-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 14px; }
+.it-tile { background: var(--card); border: 1px solid var(--wk-line2, var(--line)); border-radius: 12px; box-shadow: var(--wk-shadow); overflow: hidden; display: flex; flex-direction: column; transition: box-shadow .15s, transform .15s; min-width: 0; }
+.it-tile:hover { box-shadow: var(--wk-shadow-hov); transform: translateY(-1px); }
+.it-tile-photo { display: block; width: 100%; aspect-ratio: 4 / 3; border: none; padding: 0; background: var(--mist); cursor: pointer; overflow: hidden; }
+.it-tile-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.it-tile.is-out .it-tile-photo img { filter: saturate(.55); opacity: .85; }
+.it-tile-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.it-tile-name { background: none; border: none; padding: 0; text-align: left; cursor: pointer; font-size: 14px; font-weight: 600; line-height: 1.3; font-family: inherit; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it-tile-name:hover { color: var(--wk-brand); }
+.it-tile-meta { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it-tile-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; min-height: 30px; }
+.it-tile-note { font-size: 12px; color: var(--muted); }
+
+/* The one cart bar - sticky, the page reserves its height */
+.it-borrow { display: flex; flex-direction: column; gap: 14px; }
+/* Fixed to the window, centered; .has-cart reserves room under the last row. */
+.it-borrow.has-cart { padding-bottom: 92px; }
+.it-cartbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; width: min(760px, calc(100% - 32px)); z-index: 170;
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px 12px 16px; box-sizing: border-box;
+  background: var(--card); border: 1px solid var(--wk-line, var(--line)); border-radius: 14px; box-shadow: 0 10px 32px rgba(29,33,57,.18); }
+.it-cartbar-ico { width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: var(--wk-brand-tint); color: var(--wk-brand); flex-shrink: 0; }
+.it-cartbar-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.it-cartbar-text strong { font-size: 14px; color: var(--ink); }
+.it-cartbar-text span { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Inventory */
+.it-inventory { display: flex; flex-direction: column; gap: 14px; }
+.it-segment { display: inline-flex; gap: 4px; padding: 4px; border-radius: 10px; background: var(--wk-hover, var(--mist)); border: 1px solid var(--wk-line2, var(--line)); align-self: flex-start; max-width: 100%; overflow-x: auto; }
+.it-segment button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 7px; border: none; background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; }
+.it-segment button.is-on { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.it-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0 0 16px; }
+.it-kpi { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--wk-line2, var(--line));
+  background: var(--card); box-shadow: var(--wk-shadow); text-align: left; cursor: pointer; font-family: inherit; color: var(--ink); min-width: 0; }
+.it-kpi:disabled { cursor: default; opacity: 1; }
+.it-kpi:not(:disabled):hover { box-shadow: var(--wk-shadow-hov); }
+.it-kpi.is-on { border-color: var(--wk-brand); box-shadow: 0 0 0 1px var(--wk-brand) inset; }
+.it-kpi-label { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.it-kpi-value { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.it-kpi.is-overdue .it-kpi-value { color: var(--bad-fg); }
+.it-kpi-sub { font-size: 12px; color: var(--muted); }
+
+/* The item record */
+.it-record { display: flex; flex-direction: column; gap: 22px; }
+.it-record-hero { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: start; }
+.it-record-photo { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; border: 1px solid var(--wk-line2, var(--line)); padding: 0; background: var(--mist); cursor: zoom-in; }
+.it-record-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.it-record-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px 18px; padding: 16px 0; border-top: 1px solid var(--wk-line2, var(--line)); border-bottom: 1px solid var(--wk-line2, var(--line)); }
+.it-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.it-timeline li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--wk-line2, var(--line)); }
+.it-timeline li:first-child { border-top: none; padding-top: 0; }
+.it-tl-when { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 1px; }
+.it-tl-photo { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; background: none; border: none; padding: 0; cursor: zoom-in; font-family: inherit; }
+.it-tl-photo img { width: 120px; height: 90px; object-fit: cover; border-radius: 8px; border: 1px solid var(--wk-line2, var(--line)); }
+.it-tl-photo span { font-size: 12px; color: var(--muted); }
+
+.it-tabs { margin-top: -4px; border-bottom: 1px solid var(--wk-line2, var(--line)); }
+.it-tabs .module-tabs-inline { margin: 0; border-bottom: none; }
+@media (max-width: 900px) {
+  .it-cartbar { bottom: calc(74px + env(safe-area-inset-bottom)); }
+  .it-borrow.has-cart { padding-bottom: 140px; }
+  .it-tabs { display: none; }   /* the bottom bar is the tabs on a phone */
+}
+@media (max-width: 640px) {
+  .it-page { gap: 12px; }
+  .it-title { font-size: 19px; }
+  .it-sub { display: none; }
+  .it-search { flex-basis: 100%; }
+  .it-select { flex: 1 1 140px; min-width: 0; font-size: 16px; }
+  .it-toolbar-meta { margin-left: 0; }
+  .it-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .it-tile-body { padding: 8px 10px 10px; }
+  .it-row { flex-wrap: wrap; padding: 12px 14px; }
+  .it-row-main { flex-basis: 100%; }
+  .it-row-acts { margin-left: auto; }
+  .it-row-chev { display: none; }
+  .it-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .it-record-hero { grid-template-columns: minmax(0, 1fr); }
+  .it-record-photo { max-width: 260px; }
+  .it-timeline li { grid-template-columns: 84px minmax(0, 1fr); }
+  .it-tl-photo img { width: 96px; height: 72px; }
+  .it-cartbar { gap: 10px; padding: 10px 10px 10px 12px; }
+  .it-cartbar-ico { display: none; }
+  .it-cartbar .primary-btn { padding: 9px 12px; font-size: 13px; }
+}

@@ -43,7 +43,7 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 
 | Area | Owner | Files |
 |---|---|---|
-| Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
+| Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/inventory/`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
 | Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/property_assets.py`, property models/tables |
 
 Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
@@ -289,6 +289,18 @@ keep the diff minimal.
   page margins (`html.nx-fullscreen` in style.css), remembered per module in
   this browser, computers only. The header stays (it carries the module's
   tabs). Give another module the same button, never a second mode.
+- **Live accent (Neil, 11/02/2026, DESIGN.md "Live accent"):** green stays
+  the brand (primary buttons, active nav, links, the N tile, anything done);
+  orange means "in progress / now" only - a running shift, progress still
+  moving, the current-time marker, a live mode switched on (Act As, a
+  company picked in Settings > Applies To). Use the `--wk-live` family in
+  style.css (`--wk-live` for bars / outlines / icons, `--wk-live-ink` for the
+  rare orange text, `--wk-live-tint` / `--wk-live-line`), never a hand-picked
+  orange. Orange is never a button, never a warning (warnings stay yellow +
+  icon, orange never on yellow), never small body text, never a count badge.
+  A company whose brand is orange / red gets the family in cobalt
+  (`liveCollides` in `lib/brandAccent.js`) - read the tokens and it comes for
+  free. `ui/ProgressTrack.jsx` is the only progress bar for new work.
 
 ## Domain rules
 
@@ -308,7 +320,7 @@ keep the diff minimal.
   → `/myhr/directory`), never M365/GAL-derived lists. Backend approver/allocator
   endpoints filter role-holders against `nexus_employees`.
 - Every image-upload widget must accept Ctrl+V clipboard paste (see
-  `imageFromPaste` in `InventoryManagement.jsx` / `filesFromPaste` in
+  `imageFromPaste` in `inventory/ui/upload.js` / `filesFromPaste` in
   `tasks/lib.js` for the pattern) with an "or press Ctrl+V…" hint.
 - Time Clock paid leave: a punch pair whose job category says Sick / Vacation
   (matched by `_leave_class` in `timeclock.py`: "Sick Day", "PTO", "Annual

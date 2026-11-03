@@ -1468,7 +1468,7 @@ export const DOCS = [
         steps: [
           'Deleting a live asset moves it to Trash - nothing is erased.',
           'Open Trash from the portfolio\'s more menu to restore it.',
-          'Delete Forever works only from Trash. The Activity Log keeps its history either way.',
+          'Delete Forever works only from Trash. It removes the asset and its records; uploaded photos and files stay in storage, and the Activity Log keeps its history either way.',
         ],
       },
     ],

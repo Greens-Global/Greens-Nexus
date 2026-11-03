@@ -30,6 +30,7 @@ os.environ["NEXUS_DEV_EMAIL"] = "sagar@greensglobal.com"
 from fastapi import FastAPI                              # noqa: E402
 from fastapi.testclient import TestClient               # noqa: E402
 
+import auth  # noqa: E402
 import daily_briefing                                    # noqa: E402
 import database                                          # noqa: E402
 import models                                            # noqa: E402
@@ -155,6 +156,9 @@ class SinceOnRowsTests(_Case):
         self.assertNotIn("since", row)
         self.assertNotIn("createdAt", daily_briefing._page_row(self.db, row, {}))
         # An extension ask stamps no time of its own, so its row has none either.
+        # Extensions reach an ITEMS MANAGER (the Approvals rule - Nov 2026).
+        self.db.merge(models.NexusRole(email=ME, role="manager"))
+        auth._role_cache.pop(ME, None)
         self.db.add(models.ItemCheckout(id=gen_id(), item_id="i1", item_name="Drill", requested_by="Amy Lee",
                                         requested_by_email=AMY, raised_by="Amy Lee", status="allocated",
                                         created_at=T1, extension_status="pending", extension_days=2))

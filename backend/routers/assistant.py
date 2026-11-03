@@ -37,6 +37,12 @@ class AskIn(BaseModel):
 
 @router.post("/ask")
 def ask(body: AskIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Crisis support (11/02/2026): a message that expresses suicidal intent or
+    # self-harm gets the crisis resources and NO generated answer. Nothing is
+    # logged, stored or counted for it (crisis_support.py).
+    import crisis_support
+    if crisis_support.detect(body.message or ""):
+        return {"conversation_id": body.conversation_id, "reply": "", "crisis": crisis_support.payload(crisis_support.country_of(db, user["email"]))}
     if not ai_assistant.configured():
         raise HTTPException(503, "The assistant is not configured on this environment (ANTHROPIC_API_KEY is not set)")
     message = (body.message or "").strip()

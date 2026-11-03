@@ -7,6 +7,7 @@ import PageRow from '../components/PageCard';
 import RequestPageModal from '../components/RequestPageModal';
 import { SearchBox } from './Home';
 import { PAGE_TYPES, goKb, fmtDate } from '../lib';
+import { detectCrisis, showCrisisSupport } from '../../lib/crisisSupport';
 
 export default function SearchResults({ query, me }) {
   const asking = query.startsWith('?');
@@ -31,8 +32,20 @@ export default function SearchResults({ query, me }) {
   useEffect(() => {
     if (!asking) { setAnswer(null); return undefined; }
     let live = true;
+    // Crisis support (11/02/2026): no answer for a question that expresses
+    // suicidal intent or self-harm - the resources card instead. The server
+    // makes the same check (crisis_support.py).
+    if (detectCrisis(q)) {
+      setAskBusy(false); setAnswer({ answer: '', sources: [], crisis: true });
+      showCrisisSupport();
+      return () => { live = false; };
+    }
     setAskBusy(true); setAnswer(null); setVote('');
-    api.kbAsk(q).then((a) => { if (live) setAnswer(a); }).catch((e) => { if (live) setAnswer({ answer: '', sources: [], offline: true, error: e.message }); }).finally(() => { if (live) setAskBusy(false); });
+    api.kbAsk(q).then((a) => {
+      if (!live) return;
+      if (a?.crisis) showCrisisSupport({ resources: a.crisis.resources });
+      setAnswer(a?.crisis ? { answer: '', sources: [], crisis: true } : a);
+    }).catch((e) => { if (live) setAnswer({ answer: '', sources: [], offline: true, error: e.message }); }).finally(() => { if (live) setAskBusy(false); });
     return () => { live = false; };
   }, [asking, q]);
 
@@ -81,7 +94,10 @@ export default function SearchResults({ query, me }) {
               {!answer.grounded && <div className="kb-meta" style={{ marginTop: 8 }}>Nexus was not sure the pages cover this. Read the sources before you act on it.</div>}
             </>
           )}
-          {!askBusy && answer && !answer.answer && (
+          {!askBusy && answer?.crisis && (
+            <div style={{ fontSize: 14, lineHeight: 1.6 }}>If you are thinking about suicide or hurting yourself, you are not alone. In the US call or text 988; in India call Tele-MANAS at 14416. In an emergency call 911 (US) or 112 (India).</div>
+          )}
+          {!askBusy && answer && !answer.crisis && !answer.answer && (
             <div className="kb-meta">{answer.offline ? (answer.error || 'Nexus is not available right now. The search results below still work.') : 'The published pages do not answer this.'}
               {' '}<a href="#req" onClick={(e) => { e.preventDefault(); setRequest(true); }}>Request a page for it</a>.</div>
           )}

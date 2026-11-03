@@ -228,7 +228,7 @@ def kpis(scope: str = "self", tz_offset_min: int = 0, user: dict = Depends(get_c
         # "Completed" matched nothing and counted done tasks as open.
         safe("open_tasks", lambda: db.query(M.Task).filter(M.Task.completed == False).count())  # noqa: E712
         safe("pending_requisitions", lambda: db.query(M.Requisition).filter(M.Requisition.status == "pending_manager").count())
-        safe("pending_inventory", lambda: db.query(M.ItemCheckout).filter(M.ItemCheckout.status == "pending").count())
+        safe("pending_inventory", lambda: _inventory_pending(db, user).count())
         safe("open_purchases", lambda: db.query(M.PurchaseRequest).filter(M.PurchaseRequest.status == "pending").count())
         safe("my_checkouts", lambda: db.query(M.ItemCheckout).filter(
             M.ItemCheckout.requested_by_email == email,
@@ -492,7 +492,7 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
                 "stats": [
                     {"key": "pending_requisitions", "label": "Requisitions to Approve", "value": req_q.count(), "tone": "warning"},
                     {"key": "open_purchases", "label": "Open Purchases", "value": db.query(M.PurchaseRequest).filter(M.PurchaseRequest.status == "pending").count(), "tone": "warning"},
-                    {"key": "pending_inventory", "label": "Inventory Requests", "value": db.query(M.ItemCheckout).filter(M.ItemCheckout.status == "pending").count(), "tone": "warning"},
+                    {"key": "pending_inventory", "label": "Inventory Requests", "value": _inventory_pending(db, user).count(), "tone": "warning"},
                 ],
                 "breakdown": [],
             }
@@ -761,6 +761,15 @@ DRILLABLE = {
 }
 
 
+def _inventory_pending(db: Session, user: dict):
+    """Checkout requests waiting for approval, inside the caller's company
+    wall - the Item Management rule (routers.items.walled_item_rows), so
+    the Insights count, its drill-down and the Approvals badge agree."""
+    from routers.items import walled_item_rows
+    q = db.query(models.ItemCheckout).filter(models.ItemCheckout.status == "pending")
+    return walled_item_rows(q, models.ItemCheckout, db, user)
+
+
 def _by_person(db, emails: list, title: str) -> dict:
     names = {(e.work_email or "").lower(): (e.display_name or e.work_email)
              for e in db.query(models.NexusEmployee.work_email, models.NexusEmployee.display_name).all()}
@@ -877,7 +886,7 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
             return {"kind": "by_person", "title": "Open Purchases by Department",
                     "rows": [{"label": k, "value": v} for k, v in items][:25], "total": sum(counts.values())}
         if metric == "pending_inventory":
-            rows = db.query(M.ItemCheckout).filter(M.ItemCheckout.status == "pending").all()
+            rows = _inventory_pending(db, user).all()
             return _by_person(db, [r.requested_by_email for r in rows], "Inventory Requests by Employee")
         raise HTTPException(404, "No breakdown for this metric")
 

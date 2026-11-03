@@ -1,7 +1,7 @@
 /* Knowledge Base (Oct 2026 rebuild). Scoped under .kb so nothing leaks.
    Tokens follow the app: Inter body, Figtree headings, --nx-* surfaces (dark
    mode flips them), the sidebar's green as the module accent. */
-.kb { --kb-green: #1e7b4e; --kb-green-soft: #e3f1e8; --kb-ink: var(--nx-ink, #0f172a); --kb-dim: var(--nx-dim, #64748b);
+.kb { --kb-green: #1e7b4e; --kb-green-soft: color-mix(in srgb, var(--kb-green) 12%, var(--kb-card)); --kb-ink: var(--nx-ink, #0f172a); --kb-dim: var(--nx-dim, #64748b);
       --kb-line: var(--nx-border, rgba(0,0,0,.08)); --kb-card: var(--nx-surface, #fff); --kb-paper: var(--nx-canvas, #f4f5f7);
       --kb-hover: var(--wk-hover, #f5f6f8); color: var(--kb-ink); font-size: 14px; line-height: 1.45; min-width: 0; }
 .kb * { box-sizing: border-box; }
@@ -179,7 +179,8 @@
 .kb .kb-diff-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .kb .kb-lesson { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
 .kb .kb-lesson:hover { background: var(--kb-hover); }
-.kb .kb-lesson.on { background: var(--kb-green-soft); border-color: #cfe6d8; }
+/* The selected lesson: a green wash mixed over the card, so it stays a soft tint under the light ink of dark mode too (was a fixed light green, white text on it in dark - 11/02/2026). */
+.kb .kb-lesson.on { background: var(--kb-green-soft); border-color: color-mix(in srgb, var(--kb-green) 30%, var(--kb-line)); }
 .kb .kb-lesson .num { width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--kb-line); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--kb-dim); flex: 0 0 auto; }
 .kb .kb-lesson .num.done { background: var(--kb-green); border-color: var(--kb-green); color: #fff; }
 .kb .kb-option { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--kb-line); border-radius: 10px; cursor: pointer; font-size: 14.5px; }
