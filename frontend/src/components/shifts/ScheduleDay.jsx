@@ -100,12 +100,9 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
           <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', borderLeft: '1px solid var(--line)' }}>
             {HOURS.map((h) => <div key={h} style={{ padding: '8px 4px', fontSize: 10.5, color: 'var(--muted)', fontWeight: 700 }}>{formatHHMM(`${String(h).padStart(2, '0')}:00`).replace(':00', '')}</div>)}
             {nowAt && (
-              <>
-                <span className="nx-now-line" style={{ left: nowLeft }} aria-hidden="true" />
-                <span className="nx-now-label" data-now-label="" style={{ left: nowLeft }}>
-                  <span className="dk-sr-only">Now </span>{nowAt.label}
-                </span>
-              </>
+              <span className="nx-now-label" data-now-label="" style={{ left: `clamp(32px, ${nowLeft}, calc(100% - 32px))` }}>
+                <span className="dk-sr-only">Now </span>{nowAt.label}
+              </span>
             )}
           </div>
         </div>
