@@ -492,14 +492,14 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
       <div style={{
         position: 'sticky', top: 56, zIndex: 105, display: 'flex', alignItems: 'center',
         justifyContent: 'center', gap: 10, padding: '7px 16px',
-        background: 'hsla(var(--color-orange), 0.16)', borderBottom: '1px solid hsla(var(--color-orange), 0.4)',
+        background: 'linear-gradient(var(--wk-live-tint), var(--wk-live-tint)) var(--wk-card)', borderBottom: '1px solid var(--wk-live-line)',
         fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--ink)', flexWrap: 'wrap', textAlign: 'center',
       }}>
-        <UserCog size={13} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
+        <UserCog size={13} style={{ color: 'var(--wk-live)', flexShrink: 0 }} />
         <span>You're acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}) - actions you take are attributed to them.</span>
         <button onClick={handleExitActAs} disabled={actAsStopping}
           style={{
-            background: 'hsl(var(--color-orange))', color: '#fff', border: 'none', borderRadius: 6,
+            background: 'var(--wk-live-ink)', color: 'var(--wk-live-on)', border: 'none', borderRadius: 6,
             padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: actAsStopping ? 'default' : 'pointer',
             fontFamily: 'inherit', flexShrink: 0,
           }}>
