@@ -108,6 +108,9 @@ def _project_view(db: Session, p, user: dict) -> dict:
                         "startOn": tp.start_on or "", "dueOn": tp.due_on or ""},
         "tasks": [_task_row(t, names) for t in rows],
         "punchSectionId": sec.id if sec else "",
+        "sections": [{"id": s.id, "name": s.name or "", "position": s.position or 0}
+                     for s in sorted(db.query(models.TaskSection).filter(models.TaskSection.project_id == tp.id).all(),
+                                     key=lambda s: (s.position or 0, s.name or ""))],
         "verifiedStatusId": ver.id if ver else "",
         "lookAheadIds": [t.id for t in ahead],
         "milestoneIds": [t.id for t in sorted((t for t in rows if t.is_milestone),
