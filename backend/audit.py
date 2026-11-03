@@ -48,10 +48,40 @@ def _describe(method: str, path: str, body_fields: dict = None) -> tuple[str, st
 
     # ── Items (individual-unit system) ───────────────────────────────────────
     if resource == "items":
+        # Nov 2026: every Items POST below used to fall through to "Added item"
+        # (assignment steps, reconcile, bulk assign, the cart, item types) and
+        # extensions logged as "Checked out item" with no id. The labels avoid
+        # the words added / updated / edited / imported, which mark an event
+        # that carries ITEM FIELDS (the Activity feed and audit-undo read
+        # those). An item id these paths do not carry comes back on the
+        # response as X-Item-Id (see _write_change).
+        tail = parts[3] if len(parts) > 3 else ""
+        tail2 = parts[4] if len(parts) > 4 else ""
         if rid == "checkouts":
             checkout_id = sub if sub else ""
+            if method == "POST" and tail == "extension" and tail2 == "resolve":
+                return f"Decided extension on checkout {checkout_id}".strip(), checkout_id
+            if method == "POST" and tail == "extension":
+                return f"Asked for more days on checkout {checkout_id}".strip(), checkout_id
             if method == "POST":   return "Checked out item", ""
             if method == "PATCH":  return f"Updated checkout {checkout_id}".strip(), checkout_id
+        if rid == "assignments" and sub and method == "POST":
+            label = {"accept": "Accepted assignment", "decline": "Declined assignment",
+                     "initiate-return": "Started return of assignment",
+                     "accept-return": "Checked in return of assignment",
+                     "cancel": "Recovered assignment"}.get(tail)
+            if label:
+                return f"{label} {sub}", ""
+        if rid == "cart":
+            if method == "POST":   return "Put item in cart", ""
+            if method == "DELETE": return ("Took item out of cart", sub) if sub else ("Emptied cart", "")
+        if rid == "types":
+            if method == "POST":   return "New item type", ""
+            if method == "DELETE": return f"Removed item type {sub}".strip(), ""
+        if rid == "bulk-assign":          return "Assigned multiple items to a person", ""
+        if rid == "bulk-assign-location": return "Moved multiple items to a location", ""
+        if rid == "recycle-bin":          return "Deleted expired items forever", ""
+        if sub == "reconcile-state":      return _fmt("Reconciled item state"), rid
         if rid == "import":        return "Imported items (CSV)", ""
         # Bulk + sub-action POSTs were ALL mislabeled "Added item" - name them.
         if rid == "bulk-update":   return "Edited multiple items", ""
@@ -407,7 +437,7 @@ def _write_denied(request: Request, path: str, method: str, resource: str,
 
 def _write_change(request: Request, path: str, method: str, resource: str,
                   status: int, created_id: str, body_fields: dict, ip: str,
-                  stamp: str, ctx=None) -> None:
+                  stamp: str, ctx=None, item_id: str = "") -> None:
     """The ordinary audit row for a successful change. Same threading rule
     as _write_denied. `ctx` is the request's audit_capture context: who
     auth.get_current_user resolved (real person + Act As target, so no second
@@ -424,10 +454,17 @@ def _write_change(request: Request, path: str, method: str, resource: str,
         # response (X-Created-Id) so the row records WHICH record was added.
         if not resource_id:
             resource_id = created_id
+        # Item Management steps whose path names a checkout or an assignment,
+        # not the item, say which item on the response (X-Item-Id) so the row
+        # threads into that item's history (Nov 2026).
+        if not resource_id and item_id:
+            resource_id = item_id
         user_email = (ctx.actor if ctx is not None and ctx.actor else "") or _extract_email(request)
 
         details = {"path": path, "method": method, "status": status}
         details.update(body_fields)
+        if item_id:
+            details["item_id"] = item_id
 
         ops = [(t, op) for t, op, _rid, _label in (ctx.tables if ctx is not None else [])]
         module = module_for_resource(resource, action)
@@ -550,7 +587,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 await asyncio.to_thread(_write_change, request, path, method, resource,
                                         response.status_code,
                                         response.headers.get("x-created-id", ""),
-                                        body_fields, ip, stamp, ctx)
+                                        body_fields, ip, stamp, ctx,
+                                        response.headers.get("x-item-id", ""))
             except Exception:
                 pass
 
