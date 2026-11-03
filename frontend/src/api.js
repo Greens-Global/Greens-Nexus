@@ -975,6 +975,12 @@ export const api = {
   getJobRoles:       ()                  => req('/jobroles'),
   createJobRole:     (body)              => req('/jobroles', { method: 'POST', body: JSON.stringify(body) }),
   updateJobRole:     (id, body)          => req(`/jobroles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  // A role's job description file - a PDF, or a Word file the server converts (Nov 3 2026).
+  uploadRoleJdFile:  (id, file)          => { const fd = new FormData(); fd.append('file', file); return req(`/jobroles/${id}/jd-file`, { method: 'POST', body: fd, timeoutMs: 180_000 }); },
+  removeRoleJdFile:  (id)                => req(`/jobroles/${id}/jd-file`, { method: 'DELETE' }),
+  roleJdFilePdf:     (id)                => reqBlob(`/jobroles/${id}/jd-file`),
+  getJdSources:      ()                  => req('/jobroles/jd-sources'),
+  copyRoleJd:        (id, fromId)        => req(`/jobroles/${id}/jd-copy`, { method: 'POST', body: JSON.stringify({ from_role_id: fromId }) }),
   deleteJobRole:     (id)                => req(`/jobroles/${id}`, { method: 'DELETE' }),
   assignJobRole:     (id, email, reason) => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email, reason }) }),
   unassignJobRole:   (id, email, reason) => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email, reason }) }),
@@ -2517,6 +2523,7 @@ export const api = {
   patchPacketValues:   (eid, data) => req(`/hr/life-events/${eid}/values`, { method: 'PATCH', body: JSON.stringify(data) }),
   regeneratePacket:    (eid) => req(`/hr/life-events/${eid}/regenerate`, { method: 'POST' }),
   packetDocumentPdf:   (eid, did) => reqBlob(`/hr/life-events/${eid}/documents/${did}/pdf`),
+  offerJdFilePdf:      (eid)      => reqBlob(`/hr/life-events/${eid}/jd-file`),
   verifyAndSendPacket: (eid, data) => req(`/hr/life-events/${eid}/verify-and-send`, { method: 'POST', body: JSON.stringify(data) }),
   // Ask the candidate for their details again - a fresh link, the old one dead.
   reopenPacketIntake:  (eid) => req(`/hr/life-events/${eid}/reopen-intake`, { method: 'POST' }),

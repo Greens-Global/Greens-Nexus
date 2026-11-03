@@ -20,6 +20,7 @@ import { capabilityText } from '../lib/moduleCapabilities';
 import GuidedTour from '../components/GuidedTour';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { PersonSelect, Modal as SheetModal } from '../tasks/components';
+import RoleHiringDocs from '../components/RoleHiringDocs';
 import TeamsTargetPicker, { EMPTY_TEAMS_TARGET, teamsTargetLabel } from '../components/TeamsTargetPicker';
 import { registerTour } from '../lib/tours';
 
@@ -596,6 +597,11 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={sectLabel}>Time Sheet approver (default manager)</div>
                   <ApproverPicker role={selected} people={people} nameOf={nameOf}
                     onSaved={loadRoles} toastOk={toastOk} toastErr={toastErr} />
+                  {/* A shared role's job description goes with its offers in every company (Pranshu, 11/03/2026). */}
+                  {embedded && !selected.company_id && (
+                    <RoleHiringDocs key={selected.id} role={selected} toastOk={toastOk} toastErr={toastErr}
+                      onSaved={saved => setJobRoles(list => (list || []).map(x => (x.id === saved.id ? { ...x, ...saved } : x)))} />
+                  )}
                   <div style={sectLabel}>People with this role · {filterOn
                     ? `${(selected.members || []).filter(inFilter).length} of ${selected.member_count}`
                     : selected.member_count}</div>

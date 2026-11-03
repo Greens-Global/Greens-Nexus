@@ -1298,6 +1298,7 @@ def _run_migrations():
             "ALTER TABLE hr_packet_settings ADD COLUMN archived_at VARCHAR DEFAULT ''",
             "ALTER TABLE hr_packet_settings ADD COLUMN archived_by VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN duty_versions JSON DEFAULT '[]'",
+            "ALTER TABLE nexus_groups ADD COLUMN jd_file JSON DEFAULT '{}'",
             # Board card previews + a saved Board view's columns (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE tasks ADD COLUMN card_preview VARCHAR DEFAULT ''",
             "ALTER TABLE task_saved_views ADD COLUMN board_columns VARCHAR DEFAULT ''",
@@ -3160,6 +3161,8 @@ def _run_migrations():
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS archived_at VARCHAR DEFAULT ''",
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS archived_by VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS duty_versions JSONB DEFAULT '[]'::jsonb",
+        # A role's job description file (Nov 3 2026): models.NexusGroup.jd_file.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS jd_file JSONB DEFAULT '{}'::jsonb",
         # Board card previews (Oct 22 2026): models.Task.card_preview - what a
         # board card shows ("" = Automatic). A saved Board view's columns:
         # models.TaskSavedView.board_columns ("" = Status). Additive only.

@@ -27,7 +27,7 @@ into a company while any member belongs elsewhere.
 """
 import json
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -99,6 +99,7 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
         "default_manager_email": (getattr(jr, "default_manager_email", "") or ""),
         "job_description": getattr(jr, "job_description", "") or "",
         "hiring_docs": _ser_hiring_docs(db, getattr(jr, "hiring_docs", None) or []),
+        "jd_file": _ser_jd_file(getattr(jr, "jd_file", None)),
         "teams": _teams_target(jr),
         "company_id": (jr.company_id or ""),
         "created_by": jr.created_by,
@@ -344,6 +345,154 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
     db.add(jr)
     db.commit()
     return _serialize(jr, db)
+
+
+def _ser_jd_file(f) -> dict:
+    """What a screen may know of the role's job description file - never the path."""
+    f = f if isinstance(f, dict) else {}
+    if not f.get("path"):
+        return {}
+    return {k: f.get(k) for k in ("name", "pages", "size", "uploadedAt", "uploadedBy")}
+
+
+def jd_pdf_from_upload(name: str, blob: bytes) -> tuple:
+    """(pdf bytes, page count) for an uploaded job description: a PDF as it
+    is, a Word file through the same exact converter Nexus Sign uses
+    (services/docx_convert - never a re-flow). Raises HTTPException."""
+    import io
+    from routers.esign import _MAX_PDF_BYTES
+    low = (name or "").lower()
+    if not blob:
+        raise HTTPException(400, "That file is empty.")
+    if low.endswith(".doc"):
+        raise HTTPException(400, 'Old .doc files are not supported - open it in Word, "Save As" .docx or PDF, and upload that.')
+    if low.endswith(".docx"):
+        import services.docx_convert as docx_convert
+        if len(blob) > 40 * 1024 * 1024:
+            raise HTTPException(413, "That Word file is too large - save it as PDF in Word and upload the PDF.")
+        if not docx_convert.available()["ok"]:
+            raise HTTPException(501, "Word files cannot be converted on this server yet - save it as PDF in Word "
+                                     "(File - Save As - PDF) and upload the PDF.")
+        try:
+            blob = docx_convert.convert(blob, name)
+        except Exception as e:     # noqa: BLE001 - the converter's own failure, said plainly
+            print(f"[jobroles] job description docx conversion failed: {type(e).__name__}: {e}")
+            raise HTTPException(502, "That Word file could not be converted - save it as PDF in Word and upload the PDF.")
+    elif not low.endswith(".pdf"):
+        raise HTTPException(400, "Upload the job description as a PDF or a Word (.docx) file.")
+    if len(blob) > _MAX_PDF_BYTES:
+        raise HTTPException(413, "Keep the job description under 15 MB.")
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(blob))
+        if reader.is_encrypted:
+            raise ValueError("encrypted")
+        pages = len(reader.pages)
+        if pages == 0:
+            raise ValueError("no pages")
+    except Exception:
+        raise HTTPException(400, "This PDF can't be used - it may be damaged or password-protected.")
+    return blob, pages
+
+
+def _role_for_edit(db: Session, user: dict, jr_id: str) -> NexusGroup:
+    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
+    if not jr:
+        raise HTTPException(status_code=404, detail="Job role not found")
+    _guard_existing_role(user, db, jr)
+    return jr
+
+
+def _has_jd(r: NexusGroup) -> bool:
+    return bool((r.job_description or "").strip() or (r.jd_file or {}).get("path"))
+
+
+@router.get("/jd-sources")
+def jd_sources(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Roles whose job description can be copied (Pranshu, 11/03/2026: the same
+    role in another company): every role the caller can see that has typed
+    duties or a file, with its company's name ('' = shared)."""
+    scope = company_scope(user, db)
+    names = {e.id: e.name for e in db.query(HrEntity).all()}
+    out = []
+    for r in db.query(NexusGroup).filter(NexusGroup.is_job_role == 1).order_by(NexusGroup.name).all():  # noqa: E712
+        cid = (r.company_id or "").strip()
+        if (scope is not None and cid and cid not in scope) or not _has_jd(r):
+            continue
+        f = r.jd_file or {}
+        out.append({"id": r.id, "name": r.name, "companyId": cid, "companyName": names.get(cid, "") if cid else "",
+                    "file": f.get("name", "") if f.get("path") else "",
+                    "hasDuties": bool((r.job_description or "").strip())})
+    return out
+
+
+class JdCopyIn(BaseModel):
+    from_role_id: str
+
+
+@router.post("/{jr_id}/jd-copy")
+def copy_jd(jr_id: str, body: JdCopyIn, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Copy another role's job description - its typed duties AND its file -
+    onto this one, replacing what it had. The file is shared by path: a
+    stored job description file is never deleted, so removing it from one
+    role never takes it from the other."""
+    jr = _role_for_edit(db, user, jr_id)
+    src = db.query(NexusGroup).filter(NexusGroup.id == body.from_role_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
+    scope = company_scope(user, db)
+    if src is None or src.id == jr.id or (scope is not None and (src.company_id or "") and src.company_id not in scope):
+        raise HTTPException(404, "That role was not found.")
+    if not _has_jd(src):
+        raise HTTPException(400, f"{src.name} has no job description to copy.")
+    f = src.jd_file or {}
+    jr.job_description = src.job_description or ""
+    jr.jd_file = dict(f) if f.get("path") else {}
+    db.commit()
+    return _serialize(jr, db)
+
+
+@router.post("/{jr_id}/jd-file")
+def upload_jd_file(jr_id: str, file: UploadFile = File(...), user: dict = Depends(require_administrator),
+                   db: Session = Depends(get_db)):
+    """The role's job description as a file (Neil, 11/03/2026): stored as a PDF
+    in the private HR documents bucket and sent after the offer letter
+    instead of the typed duties. A replaced file is kept - an offer already
+    made points at its own copy."""
+    import uuid
+    from routers.esign import _DOC_BUCKET, _storage_put
+    jr = _role_for_edit(db, user, jr_id)
+    name = (file.filename or "job-description.pdf").strip()[:160]
+    pdf, pages = jd_pdf_from_upload(name, file.file.read())
+    path = f"esign/role-jd/{jr.id}/{uuid.uuid4()}.pdf"
+    if not _storage_put(_DOC_BUCKET, path, pdf, "application/pdf").is_success:
+        raise HTTPException(502, "Could not store the file - try again in a minute.")
+    jr.jd_file = {"path": path, "name": name, "pages": pages, "size": len(pdf),
+                  "uploadedAt": datetime.now(timezone.utc).isoformat(), "uploadedBy": (user.get("email") or "").lower()}
+    db.commit()
+    return _serialize(jr, db)
+
+
+@router.delete("/{jr_id}/jd-file")
+def remove_jd_file(jr_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Back to the typed duties. The stored file stays (offers made with it keep it)."""
+    jr = _role_for_edit(db, user, jr_id)
+    jr.jd_file = {}
+    db.commit()
+    return _serialize(jr, db)
+
+
+@router.get("/{jr_id}/jd-file")
+def view_jd_file(jr_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """The role's job description file, as it will be sent."""
+    from routers.esign import _DOC_BUCKET, _storage_fetch
+    jr = _role_for_edit(db, user, jr_id)
+    f = jr.jd_file or {}
+    if not f.get("path"):
+        raise HTTPException(404, "This role has no job description file.")
+    got = _storage_fetch(_DOC_BUCKET, f["path"])
+    if not got.is_success:
+        raise HTTPException(502, "Could not open the file - try again in a minute.")
+    return Response(content=got.content, media_type="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="job-description.pdf"'})
 
 
 @router.put("/{jr_id}")
