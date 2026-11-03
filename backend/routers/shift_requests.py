@@ -166,8 +166,11 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              "mealReminderMin": 270,
              # Early punch alert (Neil, 11/02/2026, early_punch.py): a clock-in
              # more than this many minutes before the expected start tells
-             # the manager. The punch is always recorded; 0 = off.
-             "earlyPunchAlertMin": 0,
+             # the manager - a quiet bell, never priority - and the Time Clock
+             # asks the person to confirm before an early clock-in. The punch
+             # is always recorded; 0 = off. Default 10 (Neil, Teams
+             # 11/02/2026: a 10-minute grace before the shift).
+             "earlyPunchAlertMin": 10,
              # Weekly labor budget (Neil, 11/02/2026): hours and amount per
              # week, shown on the shift planner to HR++ only (hr_access.py -
              # the company's HR contact, administrators, a Full People grant;

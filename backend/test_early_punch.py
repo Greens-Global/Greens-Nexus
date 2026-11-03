@@ -133,11 +133,42 @@ class EarlyPunchTests(unittest.TestCase):
                 .filter(models.NexusNotification.recipient == em, models.NexusNotification.ref_id == ref).all())
 
     # ── the check ───────────────────────────────────────────────────────
-    def test_off_by_default_no_bell(self):
-        self.assertEqual(shift_requests.get_settings(self.db, ENT)["earlyPunchAlertMin"], 0)
-        self.assertIsNone(self._check(AMY, early_min=45))
+    def test_ten_minute_grace_by_default_and_off_at_zero(self):
+        """Neil (Teams, 11/02/2026): the window is 10 minutes out of the box -
+        a punch inside it says nothing, one past it bells. A company that
+        sets 0 turns the whole thing off."""
+        self.assertEqual(shift_requests.get_settings(self.db, ENT)["earlyPunchAlertMin"], 10)
+        self.assertIsNone(self._check(AMY, early_min=8))
         self.assertEqual(self._bells(MGR), [])
+        self._setting(earlyPunchAlertMin=0)
+        self.assertIsNone(self._check(BOB, early_min=45))
         self.assertEqual(self.db.query(models.NexusNotification).count(), 0)
+
+    def test_status_carries_the_early_warning_hint(self):
+        """GET /timeclock/status tells the client today's expected start and
+        the window (Neil, Teams 11/02/2026), so the Time Clock asks before an
+        early clock-in. Null for someone with no expected start, with the
+        setting at 0, and after the first clock-in of the day."""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self.db.add(models.ScheduledShift(id="s-today", employee_email=AMY, work_date=today,
+                                          start_hhmm="23:00", end_hhmm="23:30", published=1, group_id=GROUP,
+                                          shift_id=PRESET, timezone=TZ, created_by=MGR))
+        self.db.commit()
+        os.environ["NEXUS_DEV_EMAIL"] = AMY
+        w = self.client.get("/timeclock/status").json()["earlyWarning"]
+        self.assertEqual((w["shiftStart"], w["warnBeforeMin"]), ("23:00", 10))
+        self.assertTrue(w["shiftStartUtc"].endswith("Z"))
+        os.environ["NEXUS_DEV_EMAIL"] = LONER
+        self.assertIsNone(self.client.get("/timeclock/status").json()["earlyWarning"], "no expected start")
+        os.environ["NEXUS_DEV_EMAIL"] = AMY
+        self.db.add(models.TimePunch(id="p-status-in", employee_email=AMY, kind="in",
+                                     at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+                                     local_date=today, tz_offset_min=0, created_at="", created_by=AMY))
+        self.db.commit()
+        self.assertIsNone(self.client.get("/timeclock/status").json()["earlyWarning"], "already clocked in today")
+        self.db.query(models.TimePunch).filter(models.TimePunch.id == "p-status-in").delete()
+        self._setting(earlyPunchAlertMin=0)
+        self.assertIsNone(self.client.get("/timeclock/status").json()["earlyWarning"], "0 = off")
 
     def test_early_in_bells_manager_once_and_groups_second_person(self):
         self._setting(earlyPunchAlertMin=15)

@@ -869,6 +869,21 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         return;
       }
     }
+    // Early clock-in confirm (Neil, Teams 11/02/2026): more than the
+    // company's window (default 10 min) before today's shift start, ask
+    // before anything else. Never blocks - the server takes any punch, and
+    // the manager gets a quiet bell once an early one lands.
+    if (kind === 'in' && status?.earlyWarning?.shiftStartUtc) {
+      const w = status.earlyWarning;
+      const minsEarly = Math.floor((new Date(w.shiftStartUtc).getTime() - Date.now()) / 60000);
+      if (minsEarly > (Number(w.warnBeforeMin) || 0)) {
+        const when = formatHHMM(w.shiftStart, 'its scheduled time');
+        const ok = await dialog.confirm(
+          `You're clocking in early - your shift starts at ${when}, about ${minsEarly} minutes from now. Clock in anyway?`,
+          { title: 'Early Clock-In', confirmText: 'Clock In Anyway', cancelText: 'Not Yet' });
+        if (!ok) return;
+      }
+    }
     // Role-flagged people (Neil, Aug 25: field workers who cannot type) skip
     // every message prompt - the punch goes straight through.
     if (status?.bodExempt) {
