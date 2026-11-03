@@ -1472,7 +1472,10 @@ def delete_register(kind: str, row_id: str, user: dict = Depends(get_current_use
 
 
 # ── Weekly reports ───────────────────────────────────────────────────────────
-def report_to_dict(r: models.ConstructionWeeklyReport, names: dict = None) -> dict:
+def report_to_dict(r: models.ConstructionWeeklyReport, names: dict = None, with_cost: bool = False) -> dict:
+    """`with_cost`: the reader passes _may_see_cost - the change orders' dollar
+    lines are shown (construction_report.money_sections), else counts only."""
+    import construction_report
     return {
         "approvedByName": (names or {}).get((r.approved_by or "").lower(), ""),
         # Written by the model, or assembled from the logs without it.
@@ -1481,7 +1484,7 @@ def report_to_dict(r: models.ConstructionWeeklyReport, names: dict = None) -> di
         "weekEnd": r.week_end or "", "title": r.title or "",
         "status": r.status or "draft", "version": r.version or 1,
         "supersedesId": _nz(r.supersedes_id),
-        "sections": r.sections or {}, "sectionOrder": r.section_order or [],
+        "sections": construction_report.money_sections(r, with_cost), "sectionOrder": r.section_order or [],
         "stats": r.stats or {}, "risks": r.risks or [],
         "recommendations": r.recommendations or [],
         "executiveSummary": r.executive_summary or "",
@@ -1508,7 +1511,8 @@ def list_reports(project_id: str, user: dict = Depends(get_current_user),
     if not _may_review(db, user, p):
         rows = [r for r in rows if r.status == "published"]
     names = construction_company.people_names(db, {r.approved_by or "" for r in rows})
-    return [report_to_dict(r, names) for r in
+    cost = _may_see_cost(db, user, p)
+    return [report_to_dict(r, names, with_cost=cost) for r in
             sorted(rows, key=lambda r: (r.week_start, r.version), reverse=True)]
 
 
@@ -1561,9 +1565,9 @@ def generate_report(project_id: str, body: dict,
              .order_by(models.ConstructionWeeklyReport.version.desc()).first())
         if r is None:
             raise HTTPException(409, "This week's report changed while it was drafting - try again.")
-        return report_to_dict(r)
+        return report_to_dict(r, with_cost=_may_see_cost(db, user, p))
     db.refresh(r)
-    return report_to_dict(r)
+    return report_to_dict(r, with_cost=_may_see_cost(db, user, p))
 
 
 def _report(db, report_id):
@@ -1626,7 +1630,7 @@ def update_report(report_id: str, body: dict, user: dict = Depends(get_current_u
                   detail=", ".join(sorted(edits)) or "fields")
     db.commit()
     db.refresh(r)
-    return report_to_dict(r)
+    return report_to_dict(r, with_cost=_may_see_cost(db, user, p))
 
 
 @router.post("/reports/{report_id}/publish")
@@ -1641,7 +1645,7 @@ def publish_report(report_id: str, background_tasks: BackgroundTasks,
     if not _may_review(db, user, p):
         raise HTTPException(403, "Only a project manager can publish a report.")
     if r.status == "published":
-        return report_to_dict(r)
+        return report_to_dict(r, with_cost=_may_see_cost(db, user, p))
     now = now_iso()
     r.status, r.approved_by, r.approved_at, r.published_at = "published", user["email"], now, now
     r.modified_at = now
@@ -1663,7 +1667,7 @@ def publish_report(report_id: str, background_tasks: BackgroundTasks,
     # then waiting on Graph is not something the manager who pressed Publish
     # should sit through, and a mail failure must never un-publish a report.
     background_tasks.add_task(construction_notify.deliver_published_report, r.id)
-    return report_to_dict(r)
+    return report_to_dict(r, with_cost=_may_see_cost(db, user, p))
 
 
 @router.get("/reports/{report_id}/pdf")
@@ -1695,7 +1699,8 @@ def report_pdf(report_id: str, user: dict = Depends(get_current_user),
     import construction_pdf
     try:
         import construction_report
-        pdf = construction_pdf.build(r, p, media, logs, pairs=construction_report.report_pairs(db, r))
+        pdf = construction_pdf.build(r, p, media, logs, pairs=construction_report.report_pairs(db, r),
+                                     with_cost=_may_see_cost(db, user, p))
     except Exception as e:
         raise HTTPException(502, f"Could not render the PDF: {str(e)[:200]}")
     safe = "".join(c for c in (r.title or "weekly-report") if c.isalnum() or c in " -_").strip() or "weekly-report"

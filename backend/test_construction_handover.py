@@ -177,8 +177,11 @@ class ChangeOrders(Base):
         r = self.client.post(f"/construction/change-orders/{co['id']}/send-back", json={"note": "Price the labor"})
         self.assertEqual(r.json()["status"], "draft")
         self.as_(MGR_A)
-        self.client.patch(f"/construction/change-orders/{co['id']}", json={"approver_email": ""})
-        self.assertEqual(self.client.post(f"/construction/change-orders/{co['id']}/send", json={}).json()["status"], "sent")
+        # Review M3: once asked, the approver cannot be taken off; a send asks again.
+        self.assertEqual(self.client.patch(f"/construction/change-orders/{co['id']}", json={"approver_email": ""}).status_code, 409)
+        self.assertEqual(self.client.post(f"/construction/change-orders/{co['id']}/send", json={}).json()["status"], "awaiting_approval")
+        self.as_(MGR_A2)
+        self.assertEqual(self.client.post(f"/construction/change-orders/{co['id']}/approve").json()["status"], "sent")
         req = self.db.query(models.HrSignRequest).one()
         esign._link_hook("declined", self.db, req, None, "Too high")
         self.db.commit()
@@ -271,6 +274,102 @@ class Closeout(Base):
         self.assertEqual(self.client.get("/construction/projects/pa/closeout").status_code, 404)
         self.assertEqual(self.client.post("/construction/projects/pa/closeout", json={}).status_code, 404)
 
+
+
+class ReviewFixes(Base):
+    """The 11/03/2026 code review: H1, M2-M7, L9-L12."""
+
+    def test_h1_report_dollars_only_for_readers_who_may_see_money(self):
+        import construction_notify
+        import construction_report
+        self._co()
+        self.db.add(models.ConstructionChangeOrder(id="co-s", project_id="pa", number="CO-009", title="Signed one",
+                                                   amount=900, status="signed", deleted_at=""))
+        self.db.commit()
+        r = construction_report.generate(self.db, self.fresh(models.ConstructionProject, "pa"), "2026-11-02", MGR_A,
+                                         use_ai=False)
+        r.status = "published"
+        self.db.commit()
+        stored = r.sections["change_orders"]["text"]
+        self.assertNotIn("$", stored)
+        self.assertIn("Approved changes: 1 signed; pending: 1", stored)
+        self.as_(MGR_A)
+        rep = self.client.get("/construction/projects/pa/reports").json()[0]
+        self.assertIn("+$4,200.00", rep["sections"]["change_orders"]["text"])
+        self.assertNotIn("cost_exposure", rep)
+        self.as_(CREW)
+        rep = self.client.get("/construction/projects/pa/reports").json()[0]
+        self.assertNotIn("$", rep["sections"]["change_orders"]["text"])
+        import construction_pdf
+        seen = {}
+        with mock.patch.object(construction_pdf, "build", side_effect=lambda *a, **kw: seen.update(kw) or b"%PDF"):
+            self.assertEqual(self.client.get(f"/construction/reports/{r.id}/pdf").status_code, 200)
+        self.assertFalse(seen["with_cost"])
+        p = self.fresh(models.ConstructionProject, "pa")
+        self.assertEqual(construction_notify.cost_readers(self.db, p, [MGR_A, CREW, "investor@fund.com"]), {MGR_A})
+
+    def test_m2_the_approver_must_review_and_see_money(self):
+        self._ticket()
+        self.as_(MGR_A)
+        r = self.client.post("/construction/projects/pa/change-orders", json={"field_ticket_id": "ft-phone-0001", "amount": 1,
+                                                                              "approver_email": CREW})
+        self.assertEqual(r.status_code, 422)
+
+    def test_m3_a_draft_edit_clears_an_approval(self):
+        co = self._co()
+        c = self.fresh(models.ConstructionChangeOrder, co["id"])
+        c.approved_by, c.approved_at = MGR_A2, iso()
+        self.db.commit()
+        self.client.patch(f"/construction/change-orders/{co['id']}", json={"amount": 5000})
+        self.assertEqual(self.fresh(models.ConstructionChangeOrder, co["id"]).approved_at, "")
+
+    def test_m4_the_crew_sees_the_labor_total_only(self):
+        self._ticket(labor=[{"email": CREW, "name": "Crew Person", "hours": 5}, {"email": CREW2, "name": "Crew2", "hours": 3}])
+        self.as_(CREW2)
+        t = self.client.get("/construction/projects/pa/changes").json()["fieldTickets"][0]
+        self.assertEqual(t["labor"], [{"email": "", "name": "Crew", "hours": 8.0}])
+        self.as_(MGR_A)
+        self.assertEqual(len(self.client.get("/construction/projects/pa/changes").json()["fieldTickets"][0]["labor"]), 2)
+
+    def test_m6_one_envelope_however_many_sends(self):
+        co = self._co()
+        self.assertEqual(self.client.post(f"/construction/change-orders/{co['id']}/send", json={}).json()["status"], "sent")
+        self.assertEqual(self.client.post(f"/construction/change-orders/{co['id']}/send", json={}).status_code, 409)
+        self.assertEqual(self.db.query(models.HrSignRequest).count(), 1)
+        from routers.construction_handover import _claim_co
+        from fastapi import HTTPException
+        c = self.fresh(models.ConstructionChangeOrder, co["id"])
+        with self.assertRaises(HTTPException):
+            _claim_co(self.db, c, "draft", "sending")       # a second tap that lost the race
+
+    def test_l10_void_closes_the_approvers_bell(self):
+        co = self._co(approver_email=MGR_A2)
+        self.client.post(f"/construction/change-orders/{co['id']}/send", json={})
+        self.client.post(f"/construction/change-orders/{co['id']}/void", json={"note": "Wrong job"})
+        self.db.expire_all()
+        b = self.db.query(models.NexusNotification).filter_by(recipient=MGR_A2, ref_id=f"co:{co['id']}").one()
+        self.assertEqual((b.title, bool(b.actioned)), ("Change Order Voided", True))
+
+    def test_l11_a_signed_ticket_is_voided_by_a_reviewer_only(self):
+        self._ticket()
+        self.as_(CREW)
+        self.assertEqual(self.client.post("/construction/field-tickets/ft-phone-0001/void").status_code, 403)
+        self.as_(MGR_A)
+        self.assertEqual(self.client.post("/construction/field-tickets/ft-phone-0001/void").json()["status"], "void")
+
+    def test_l12_signing_moves_nothing_unless_the_change_order_was_sent(self):
+        job = self.fresh(models.ConstructionProject, "pa")
+        job.contract_value = 1000
+        self.db.commit()
+        co = self._co()
+        self.client.post(f"/construction/change-orders/{co['id']}/send", json={})
+        req = self.db.query(models.HrSignRequest).one()
+        c = self.fresh(models.ConstructionChangeOrder, co["id"])
+        c.status = "void"
+        self.db.commit()
+        esign._link_hook("completed", self.db, req)
+        self.db.commit()
+        self.assertEqual(self.fresh(models.ConstructionProject, "pa").contract_value, 1000)
 
 if __name__ == "__main__":
     import unittest

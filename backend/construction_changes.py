@@ -77,11 +77,16 @@ def next_number(db: Session, model, project_id: str, prefix: str) -> str:
     return f"{prefix}-{top + 1:03d}"
 
 
-def ticket_to_dict(t, names: dict | None = None) -> dict:
+def ticket_to_dict(t, names: dict | None = None, full_labor: bool = True) -> dict:
+    """`full_labor` False (a reader who is not a job reviewer): the labor is
+    one total line, never each person's hours."""
     names = names or {}
+    labor = list(t.labor or [])
+    if not full_labor and labor:
+        labor = [{"email": "", "name": "Crew", "hours": t.labor_hours or 0}]
     return {
         "id": t.id, "projectId": t.project_id, "number": t.number or "", "workDate": t.work_date or "",
-        "description": t.description or "", "labor": list(t.labor or []), "laborHours": t.labor_hours or 0,
+        "description": t.description or "", "labor": labor, "laborHours": t.labor_hours or 0,
         "laborFromPunches": bool(t.labor_from_punches), "materials": list(t.materials or []),
         "photoUrls": list(t.photo_urls or []), "customerName": t.customer_name or "",
         "customerEmail": t.customer_email or "", "signatureUrl": t.signature_url or "",
@@ -308,7 +313,8 @@ def _tell_owners(db: Session, job, co, title: str, body: str) -> None:
 
 def on_completed(db: Session, req) -> None:
     co, job = _co_for(db, req)
-    if co is None or job is None or co.status == "signed":
+    # Only a change order out for signature is signed (review L12).
+    if co is None or job is None or co.status != "sent":
         return
     co.status, co.signed_at, co.modified_at = "signed", now(), now()
     apply(db, job, co)

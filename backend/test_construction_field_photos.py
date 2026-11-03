@@ -170,8 +170,12 @@ class WeeklyReport(Base):
         s = r.sections
         self.assertIn("Status: Late", s["job_health"]["text"])
         self.assertIn("Crew-days from Time Clock punches: 1 (8.0 hours)", s["job_health"]["text"])
-        self.assertIn("CO-001 Extra footing - +$4,200.00 (Signed, 11/03/2026, +2 days)", s["change_orders"]["text"])
-        self.assertIn("Approved changes: +$4,200.00; pending: +$900.00", s["change_orders"]["text"])
+        # Stored counts only (review H1); the dollars only for a reader who may see money.
+        self.assertIn("CO-001 Extra footing (Signed, 11/03/2026, +2 days)", s["change_orders"]["text"])
+        self.assertNotIn("$", s["change_orders"]["text"])
+        money = construction_report.money_sections(r, True)["change_orders"]["text"]
+        self.assertIn("CO-001 Extra footing - +$4,200.00 (Signed, 11/03/2026, +2 days)", money)
+        self.assertIn("Approved changes: +$4,200.00; pending: +$900.00", money)
         self.assertIn("Weather delays: 3 hours", s["weather_and_delays"]["text"])
         self.assertIn("Material delays: 1 hours", s["weather_and_delays"]["text"])
         self.assertIn("RFI# 7- Beam depth (Open, 17 days open, overdue since 10/27/2026)", s["rfis_and_submittals"]["text"])

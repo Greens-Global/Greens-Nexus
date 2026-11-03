@@ -1628,7 +1628,7 @@ def _construction_change_orders(db: Session, user: dict, ctx: dict) -> list:
     Awaiting Approval - Neil, 11/03/2026, phase 3), on jobs they may still
     read. Approved or sent back on the job's Changes tab (the approve call
     sends the Nexus Sign envelope)."""
-    from routers.construction import _may_read
+    from routers.construction import _may_read, _may_review, _may_see_cost
     me = _me(user)
     if not me:
         return []
@@ -1639,7 +1639,8 @@ def _construction_change_orders(db: Session, user: dict, ctx: dict) -> list:
     out = []
     for c in rows:
         p = jobs.get(c.project_id)
-        if p is None or not _may_read(db, user, p):
+        # The amount is shown: only to an approver who may still see money (review M2).
+        if p is None or not _may_read(db, user, p) or not _may_review(db, user, p) or not _may_see_cost(db, user, p):
             continue
         who = (c.created_by or "").lower()
         amount = f"{'-' if (c.amount or 0) < 0 else ''}${abs(c.amount or 0):,.2f}"

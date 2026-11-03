@@ -92,8 +92,11 @@ def job_changes(job_id: str, user: dict = Depends(get_current_user), db: Session
     money = _may_see_cost(db, user, p)
     cos = db.query(C).filter(C.project_id == p.id, C.deleted_at == "").order_by(C.created_at.desc()).all() if money else []
     names = _names(db, [t.created_by for t in tickets] + [c.created_by for c in cos] + [c.approver_email for c in cos])
+    full = _may_review(db, user, p)
     return {
-        "fieldTickets": [cc.ticket_to_dict(t, names) for t in tickets],
+        # Each person's hours only for a job reviewer (review M4): the crew
+        # sees one total line - the hours-only rule of the labor tab.
+        "fieldTickets": [cc.ticket_to_dict(t, names, full_labor=full) for t in tickets],
         "changeOrders": [cc.co_to_dict(c, names) for c in cos],
         "totals": cc.totals(cos) if money else None,
         "contractValue": (p.contract_value or 0.0) if money else None,
@@ -269,6 +272,8 @@ def void_field_ticket(ticket_id: str, user: dict = Depends(get_current_user), db
     t, p = _ticket(db, ticket_id, user)
     if (t.created_by or "").lower() != _me(user) and not _may_review(db, user, p):
         raise HTTPException(403, "Only its writer or a job manager can void this field ticket.")
+    if t.status == "signed" and not _may_review(db, user, p):
+        raise HTTPException(403, "The customer signed this one - only a job manager can void it.")
     if t.status == "priced":
         raise HTTPException(409, "This field ticket is on a change order - void the change order instead.")
     t.status, t.modified_at = "void", cc.now()
@@ -327,8 +332,13 @@ def _apply_co(db, user, p, c, data: dict) -> None:
             import task_automation
             _check_people(db, user, [em])
             ap = task_automation._person_user(db, em)
-            if not ap or not _may_read(db, ap, p):
-                raise HTTPException(422, "The approver must be able to open this job.")
+            # Review M2: the approver reads the amount, so they must be a job
+            # reviewer who may see the contract value.
+            if not ap or not _may_review(db, ap, p) or not _may_see_cost(db, ap, p):
+                raise HTTPException(422, "The approver must be a manager of this job who can see its money.")
+        # Review M3: once an approver was asked, the pricer cannot take them off.
+        if not em and (c.approver_email or "") and _approval_asked(db, c):
+            raise HTTPException(409, "This change order already went to its approver - it needs their approval.")
         c.approver_email = em
     if data.get("signer_name") is not None:
         c.signer_name = " ".join(data["signer_name"].split())[:120]
@@ -401,8 +411,29 @@ def update_change_order(co_id: str, body: COBody, user: dict = Depends(get_curre
     data = body.model_dump(exclude_unset=True)
     data.pop("field_ticket_id", None)
     _apply_co(db, user, p, c, data)
+    # Review M3: a changed draft is not what anyone approved.
+    c.approved_by, c.approved_at = "", ""
     c.modified_at = cc.now()
     return _finish(idem, db, user, cc.co_to_dict(c))
+
+
+def _approval_asked(db, c) -> bool:
+    A = models.ConstructionActivity
+    return db.query(A.id).filter(A.entity_kind == "change_order", A.entity_id == c.id,
+                                 A.type == "approval_asked").first() is not None
+
+
+def _claim_co(db, c, frm: str, to: str, **values) -> None:
+    """Move a change order on only if it is still `frm` - one conditional
+    UPDATE (review M6): two Send / Approve taps never make two envelopes."""
+    C = models.ConstructionChangeOrder
+    n = (db.query(C).filter(C.id == c.id, C.status == frm)
+         .update({"status": to, "modified_at": cc.now(), **values}, synchronize_session=False))
+    if n != 1:
+        db.rollback()
+        raise HTTPException(409, "This change order changed a moment ago - reload it.")
+    db.commit()
+    db.refresh(c)
 
 
 def _ready_to_send(c) -> None:
@@ -429,14 +460,17 @@ def send_change_order(co_id: str, body: COBody = None, user: dict = Depends(get_
         _apply_co(db, user, p, c, data)
     _ready_to_send(c)
     if c.approver_email and not c.approved_at:
-        c.status, c.modified_at = "awaiting_approval", cc.now()
+        db.flush()
+        _claim_co(db, c, "draft", "awaiting_approval")
         cc.ask_approval(db, p, c)
         cc._activity(db, p, c, "approval_asked", _me(user), f"asked {c.approver_email} to approve {c.number}")
         return _finish(idem, db, user, cc.co_to_dict(c))
-    db.commit()
+    db.flush()
+    _claim_co(db, c, "draft", "sending")
     try:
         cc.send_for_signature(db, user, p, c)
     except RuntimeError as e:
+        _claim_co(db, c, "sending", "draft")
         raise HTTPException(502, str(e))
     c = db.get(models.ConstructionChangeOrder, co_id)
     return _finish(idem, db, user, cc.co_to_dict(c))
@@ -458,7 +492,9 @@ def approve_change_order(co_id: str, user: dict = Depends(get_current_user), db:
         raise HTTPException(403, "This change order is waiting on someone else.")
     if c.status != "awaiting_approval":
         raise HTTPException(409, "This change order is not waiting for approval.")
-    c.approved_by, c.approved_at = _me(user), cc.now()
+    if not _may_review(db, user, p) or not _may_see_cost(db, user, p):
+        raise HTTPException(403, "Only a manager of this job who can see its money can approve it.")
+    _claim_co(db, c, "awaiting_approval", "sending", approved_by=_me(user), approved_at=cc.now())
     cc._bell(db, p, c, c.approver_email, "Change Order Approved",
              f"You approved {c.number} {c.title} on {p.name}. It went to {c.signer_name} for signature.", done=True)
     cc._activity(db, p, c, "approved", _me(user), f"approved {c.number}")
@@ -466,6 +502,7 @@ def approve_change_order(co_id: str, user: dict = Depends(get_current_user), db:
     try:
         cc.send_for_signature(db, user, p, c)
     except RuntimeError as e:
+        _claim_co(db, c, "sending", "awaiting_approval", approved_by="", approved_at="")
         raise HTTPException(502, str(e))
     c = db.get(models.ConstructionChangeOrder, co_id)
     return _finish(idem, db, user, cc.co_to_dict(c))
@@ -484,6 +521,7 @@ def send_back_change_order(co_id: str, body: DecideBody, user: dict = Depends(ge
     if not note:
         raise HTTPException(422, "Say what should change before it is sent again.")
     c.status, c.decline_reason, c.modified_at = "draft", note, cc.now()
+    c.approved_by, c.approved_at = "", ""
     cc._bell(db, p, c, c.approver_email, "Change Order Sent Back", f"You sent {c.number} back: {note}", done=True)
     if c.created_by:
         cc._bell(db, p, c, c.created_by, "Change Order Sent Back",
@@ -507,6 +545,9 @@ def void_change_order(co_id: str, body: DecideBody, user: dict = Depends(get_cur
     reason = (body.note or "").strip()[:300] or "voided by the job manager"
     cc.void_envelope(db, c, _me(user), reason)
     c.status, c.modified_at = "void", cc.now()
+    import construction_notify
+    construction_notify.close_bells(db, ref_id=f"co:{c.id}", family=cc.CO_FAMILY, kind="change_order",
+                                    title="Change Order Voided", body=f"{c.number} {c.title} on {p.name} was voided.")
     if c.field_ticket_id:
         t = cc.find_ticket(db, c.field_ticket_id)
         if t is not None and t.status == "priced":

@@ -213,6 +213,20 @@ def _money(v) -> str:
     return f"{'-' if v < 0 else '+'}${abs(v):,.2f}"
 
 
+def money_sections(report, with_cost: bool) -> dict:
+    """The report's sections for one reader: with_cost (routers.construction.
+    _may_see_cost) gets the change orders' dollar lines in place of the
+    stored counts-only text - unless a manager edited that section."""
+    sections = dict(report.sections or {})
+    if not with_cost:
+        return sections
+    m = next((x for x in (report.cost_exposure or []) if isinstance(x, dict) and x.get("kind") == "change_orders"), None)
+    sec = sections.get("change_orders")
+    if m and sec and (sec.get("text") or "") == (m.get("plain") or ""):
+        sections["change_orders"] = {**sec, "text": m.get("money") or sec.get("text"), "ai_text": m.get("money") or sec.get("ai_text")}
+    return sections
+
+
 def report_pairs(db, report) -> list:
     """[(pair, before, after)] for the pairs a report keeps, both photos live."""
     out = []
@@ -502,8 +516,13 @@ def assemble(db, project, data: dict, ai: dict) -> dict:
         (f"{pc.get('open', 0)} open, {pc.get('done', 0)} done, {pc.get('verified', 0)} verified "
          f"({pc.get('total', 0)} in all)") if pc.get("total") else "None currently.", [])
 
+    # Money is per reader (review H1, 11/03/2026): the STORED text carries
+    # counts and days only - a crew member reads published reports. The
+    # dollar version of the same lines is kept in `cost_exposure` (never in
+    # report_to_dict) and swapped in by money_sections() for a reader who may
+    # see the contract value.
     cos = sorted(data.get("changeOrders") or [], key=lambda c: c.number or "")
-    co_lines = []
+    plain, money = [], []
     for c in cos:
         if c.status == "void":
             continue
@@ -512,13 +531,20 @@ def assemble(db, project, data: dict, ai: dict) -> dict:
             bits.append(_us(c.signed_at))
         if c.schedule_impact_days:
             bits.append(f"{c.schedule_impact_days:+d} day{'s' if abs(c.schedule_impact_days) != 1 else ''}")
-        co_lines.append(f"{c.number or 'CO'} {c.title or 'Change Order'} - {_money(c.amount)} ({', '.join(bits)})")
+        head = f"{c.number or 'CO'} {c.title or 'Change Order'}"
+        plain.append(f"{head} ({', '.join(bits)})")
+        money.append(f"{head} - {_money(c.amount)} ({', '.join(bits)})")
+    signed_n = len([c for c in cos if c.status == "signed"])
+    pending_n = len([c for c in cos if c.status in ("draft", "awaiting_approval", "sent")])
     signed = sum(c.amount or 0 for c in cos if c.status == "signed")
     pending = sum(c.amount or 0 for c in cos if c.status in ("draft", "awaiting_approval", "sent"))
-    if co_lines:
-        co_lines.append(f"Approved changes: {_money(signed)}; pending: {_money(pending)}")
-    s["change_orders"] = _section("\n".join(co_lines) or "None currently.",
+    if plain:
+        plain.append(f"Approved changes: {signed_n} signed; pending: {pending_n}")
+        money.append(f"Approved changes: {_money(signed)}; pending: {_money(pending)}")
+    s["change_orders"] = _section("\n".join(plain) or "None currently.",
                                   [{"type": "change_order", "id": c.id} for c in cos])
+    data["changeOrderMoney"] = {"plain": "\n".join(plain) or "None currently.",
+                                "money": "\n".join(money) or "None currently."}
 
     d = data.get("delays") or {}
     import construction_field
@@ -591,6 +617,9 @@ def generate(db, project, week_start: str, actor_email: str, use_ai: bool = True
     r.daily_log_ids = [l.id for l in data["logs"]]
     r.media_ids = [m.id for m in data["media"]]
     r.pair_ids = [pr.id for pr in data.get("pairs") or []]
+    # The change orders' dollar lines, for readers who may see money only.
+    keep = [x for x in (r.cost_exposure or []) if not (isinstance(x, dict) and x.get("kind") == "change_orders")]
+    r.cost_exposure = keep + [{"kind": "change_orders", **(data.get("changeOrderMoney") or {})}]
     r.milestone_ids = [m.id for m in data["milestones"]]
     r.rfi_ids = [x.id for x in data["rfis"]]
     r.submittal_ids = [x.id for x in data["submittals"]]
