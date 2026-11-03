@@ -534,11 +534,14 @@ export default function TimeclockWidget() {
   // Off the clock the line reads like the live one ("since 4:30 PM"), never
   // a sentence that has to be cropped; nothing yet today reads as such.
   const offSince = mine.lastOutLabel.startsWith('Last clocked out at ') ? mine.lastOutLabel.replace('Last clocked out at ', 'since ') : mine.lastOutLabel;
-  const vm = !live ? { state: mine.state, sinceLabel: offSince } : {
+  // Today's shift track (lib/shiftTrack.js, via deriveMyTime) travels with
+  // the view-model, so the sidebar chip and the phone sheet draw it.
+  const vm = !live ? { state: mine.state, sinceLabel: offSince, track: mine.track } : {
     state: mine.state,
     timer: fmtHM(onBreak ? Math.floor(elapsedSec / 60) : mine.todayMin),
     todayMin: mine.todayMin,
     targetMin: shiftMin || 480,
+    track: mine.track,
     sinceLabel: mine.sinceLabel,
     lost: lostOut, note, busy, breakBusy,
     capture: browserCaptures ? {

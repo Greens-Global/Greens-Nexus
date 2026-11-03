@@ -11,6 +11,8 @@ import TimesheetsToReview from '../components/TimesheetsToReview';
 import { reasonLook, REQUEST_TIMEOFF_TYPES } from '../lib/timeOffReasons';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
+import ShiftTrack from '../components/ShiftTrack';
+import { shiftTrack, shiftSpan, clockedInForShift } from '../lib/shiftTrack';
 import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
 import TimeSheetAdvances, { useTimeSheetAdvances } from '../components/TimeSheetAdvances';
@@ -1207,6 +1209,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     };
   })();
   const tone = onBreak ? 'break' : clockedIn ? 'in' : 'out';
+  // Today's shift track (lib/shiftTrack.js - the same math as the sidebar
+  // chip and My Time), moved by this screen's own one-second tick.
+  const shiftTrackNow = shiftTrack({
+    shift: status?.todayShift, state: tone, now, workedMin: workedToday, stale: staleShift,
+    worked: tone === 'out' && clockedInForShift(days, shiftSpan(status?.todayShift)),
+  });
   // Today's shift for Overview's Hours tile (Oct 2 - it sits beside this
   // week's hours rather than as a grey line under the greeting). null while
   // loading, so the tile never claims "no shift" before it knows.
@@ -1317,6 +1325,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                   </div>
                   {last && !staleShift && <div style={{ marginTop: 6 }}><GeoChip p={last} /></div>}
                 </div>
+                {/* Today's shift, start to end, a ringed marker at now (Neil,
+                    11/02/2026): orange while clocked in, green once done,
+                    nothing with no shift today. */}
+                <ShiftTrack track={shiftTrackNow} className="wd-shift-track" />
                 {onBreak && (
                   <div style={{ display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 10,
                     background: showAllowance && breakLeftMin < 0 ? 'hsla(var(--color-red),0.1)' : 'rgba(180,83,9,0.09)',
