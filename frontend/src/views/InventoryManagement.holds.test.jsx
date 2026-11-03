@@ -8,7 +8,8 @@ import { act, render, screen, fireEvent, cleanup, waitFor } from '@testing-libra
 
 vi.mock('../contexts/InventoryContext', () => ({ useInventory: () => ({}) }));
 vi.mock('../contexts/NotificationContext', () => ({ useNotifications: () => ({ addNotification: vi.fn(), notifications: [] }) }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, canAccessModule: () => true, loading: false, myGrantedModules: new Map(), myEmail: 'erin@greensglobal.com' }) }));
+const role = { canDelete: true };
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, canAccessModule: (m, r, l) => (m === 'inventory' && r === 'owner' && l === 'full' ? role.canDelete : true), loading: false, myGrantedModules: new Map(), myEmail: 'erin@greensglobal.com' }) }));
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [] }) }));
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [] }), useItemApprovers: () => ({ data: [] }) }));
 const calls = {
@@ -25,7 +26,7 @@ const { ManageTypesModal, CustomFieldsAdminModal } = await import('./InventoryMa
 const { DialogHost } = await import('../ui/dialog');
 const { HOLD_RECORD_MS } = await import('../ui/HoldButton');
 
-afterEach(() => { cleanup(); vi.useRealTimers(); Object.values(calls).forEach((f) => f.mockClear()); });
+afterEach(() => { cleanup(); vi.useRealTimers(); role.canDelete = true; Object.values(calls).forEach((f) => f.mockClear()); });
 
 const hold = async (el) => {
   fireEvent.pointerDown(el, { button: 0, pointerId: 1 });
@@ -65,6 +66,13 @@ describe('Custom Fields', () => {
     expect(calls.deleteItemCustomField).toHaveBeenCalledWith('f1');
     await act(async () => { vi.advanceTimersByTime(700); });
     expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('shows no Delete to a manager or Inventory editor (the route answers them 403)', () => {
+    role.canDelete = false;
+    render(<CustomFieldsAdminModal fields={fields} onClose={() => {}} onChanged={() => {}} toast={() => {}} />);
+    expect(screen.queryByRole('button', { name: /Delete the Asset Tag field/ })).toBeNull();
+    expect(screen.getByText(/Only a Super Administrator or someone with Full Inventory access/)).toBeTruthy();
   });
 
   it('a refused delete rewinds with the reason', async () => {

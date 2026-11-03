@@ -36,6 +36,7 @@ import RootErrorBoundary from './components/RootErrorBoundary'
 import { Spinner } from './components/AsyncState'
 import DialogGuard from './components/DialogGuard'
 import { DialogHost } from './ui/dialog'
+import CrisisSupportHost from './components/CrisisSupportCard'
 import { installErrorReporter } from './lib/errorReporter'
 import { registerServiceWorker } from './lib/pwa'
 import { BFF_MODE, bffBootstrap } from './bffAuth'
@@ -125,6 +126,7 @@ function renderApp() {
             <App />
             <DialogHost />
             <DialogGuard />
+            <CrisisSupportHost />
           </MsalProvider>
         </QueryClientProvider>
       </RootErrorBoundary>

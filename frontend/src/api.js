@@ -1110,6 +1110,21 @@ export const api = {
   addItemToCart:       (data)         => req('/items/cart', { method: 'POST', body: JSON.stringify(data) }),
   removeItemFromCart:  (itemId)       => req(`/items/cart/${encodeURIComponent(itemId)}`, { method: 'DELETE' }),
   clearItemCart:       ()             => req('/items/cart', { method: 'DELETE' }),
+  // Items redesign (Neil, 11/02/2026): each type's Borrowable switch and
+  // longest loan; a manager's fix for a stuck checkout; the Recycle Bin's
+  // hold-to-confirm purge; an import that may bring back Recycle Bin items.
+  getItemTypeSettings: ()             => req('/items/types/settings'),
+  updateItemTypeSettings: (name, d)   => req(`/items/types/${encodeURIComponent(name)}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  reconcileItemState:  (itemId, d = {}) => req(`/items/${encodeURIComponent(itemId)}/reconcile-state`, { method: 'POST', body: JSON.stringify(d) }),
+  deleteExpiredItems:  ()             => req('/items/recycle-bin/delete-expired', { method: 'POST', body: JSON.stringify({}) }),
+  importItemsRestoring: (items)       => req('/items/import', { method: 'POST', body: JSON.stringify({ items, restore_deleted: true }) }),
+  // Narrowed to the people who can reach that ITEM's company (Nov 2026).
+  getItemApproversFor:  (itemId)      => cachedGet(`/items/approvers?item_id=${encodeURIComponent(itemId)}`),
+  getItemAllocatorsFor: (itemId)      => cachedGet(`/items/allocators?item_id=${encodeURIComponent(itemId)}`),
+  // The borrower's own calendar (today, first and last return date per item,
+  // in the BORROWER's zone) and Pick a New Allocator (review 11/02/2026).
+  getBorrowWindow:     (itemIds, forEmail = '') => req(`/items/borrow-window?${new URLSearchParams({ item_ids: itemIds.join(','), for_email: forEmail })}`),
+  setCheckoutAllocator: (id, d)       => req(`/items/checkouts/${encodeURIComponent(id)}/allocator`, { method: 'POST', body: JSON.stringify(d) }),
 
   // Requisitions (persisted in Supabase)
   getRequisitions:           ()              => req('/requisitions'),
@@ -1657,6 +1672,11 @@ export const api = {
   // Sign-in company-policy & monitoring acknowledgment
   policyStatus:      ()          => req('/policy/status'),
   policyAccept:      (version)   => req('/policy/accept', { method: 'POST', body: JSON.stringify({ version }) }),
+  // Privacy Policy built from backend/privacy_inventory.py (signed in: + contact, services in use, admin notes)
+  privacyNoticeMe:   ()          => req('/policy/privacy-notice/me'),
+  // Digest emails: your own switches; the email's Stop These Emails link lands here (email_optout.py)
+  getMyEmailOptouts: ()          => req('/roles/me/email-optouts'),
+  setMyEmailOptout:  (kind, on)  => req('/roles/me/email-optouts', { method: 'PUT', body: JSON.stringify({ kind, on }) }),
 
   // ── Customizable dashboards (drag-and-drop widget layouts) ──
   dashViews:      (target)     => req(`/dashboards/views?target=${encodeURIComponent(target)}`),
@@ -3500,3 +3520,13 @@ api.shiftRequestSettingsResetKeys = (company, keys) => req(`/timeclock/shift-req
 // The companies again, past the 2-minute cache: Settings asks once when an
 // address names a company it does not know (someone may have just added it).
 api.getEntitiesFresh = () => req('/hr/entities');
+// Items QR tags + phone scan (Items phase 4, Neil 11/02/2026; routers/items.py):
+// the item a scanned tag or a typed serial names (walled - 404 outside the
+// caller's companies), and what a printed tag needs for each id.
+api.getItemByCode = (code) => req(`/items/by-code?code=${encodeURIComponent(code || '')}`);
+api.getItemTags = (ids) => req('/items/tags', { method: 'POST', body: JSON.stringify({ ids: ids || [] }) });
+// On the Schedule (Neil, 11/03/2026, backend shift_roster.py): a person switched
+// off never appears in scheduling; off turns their shifts from today on into open
+// slots and answers their ids, which the Undo hands back to put them on the person.
+api.setOnSchedule = (email, on) => req('/timeclock/schedule/on-schedule', { method: 'PUT', body: JSON.stringify({ email, on: !!on }) });
+api.undoOffSchedule = (email, shiftIds) => req('/timeclock/schedule/on-schedule/undo', { method: 'POST', body: JSON.stringify({ email, shiftIds: shiftIds || [] }) });

@@ -79,7 +79,7 @@ export default function CubbyTasksSettings({ toastOk, toastErr }) {
       <SettingCard>
         <SwitchRow id="cubby-tasks-on" title="Bring Cubby Tasks Into Nexus" checked={!!s.on} onChange={flipOn}
           disabled={!canEdit || busy === 'on'}
-          desc="After each Cubby sync (every 15 minutes), every open Cubby task becomes a task in the facility's project below, linked to Cubby. A task assigned to people in Cubby goes to those people; one assigned to a group, or to nobody, goes to the project for the facility manager. Tasks made in Nexus never go to Cubby.">
+          desc="After each Cubby sync (every 15 minutes), every open Cubby task becomes a task in the facility's project below, linked to Cubby. A task assigned to people in Cubby goes to those people; one assigned to a group, or to nobody, goes to the project for the facility manager. Notes typed on the task in Cubby arrive as comments. Tasks made in Nexus never go to Cubby.">
           {s.on && !s.warehouseConfigured && (
             <p className="ops-note" role="status" style={{ margin: 0, color: 'var(--warn-fg)' }}>
               This server is not connected to Cubby&apos;s reporting warehouse (CUBBY_BQ_CREDENTIALS_JSON), which is where Cubby says

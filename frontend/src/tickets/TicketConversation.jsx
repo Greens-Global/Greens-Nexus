@@ -59,7 +59,7 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
   const del = async (c) => {
-    const ok = await appDialog.confirm(`Delete this ${c.internal ? 'internal note' : 'comment'}? It cannot be brought back.`,
+    const ok = await appDialog.confirm(`Delete this ${c.internal ? 'internal note' : 'comment'}? It cannot be brought back. Pictures it showed are kept with the ticket's records.`,
       { title: c.internal ? 'Delete Internal Note' : 'Delete Comment', confirmText: 'Delete', danger: true });
     if (!ok) return;
     try { await api.deleteTicketComment(c.id); }

@@ -5,7 +5,7 @@ import { render, screen, fireEvent, cleanup, within } from '@testing-library/rea
 // Department, Company - and external users are an option on the chart
 // ("External Users", off by default, remembered per device) with a clear
 // External designation on their card and their own company on the company
-// line. Their reporting line is edited like anyone else's.
+// line. The side panel only shows; the record edits.
 
 const PEOPLE = [
   { id: 'e1', firstName: 'Val', lastName: 'Top', workEmail: 'val@x.com', managerEmail: '', status: 'active',
@@ -69,24 +69,29 @@ describe('Org chart externals and four-line cards', () => {
     expect(localStorage.getItem('nx-orgchart-externals')).toBe('true');       // remembered per device
   }, 20000);
 
-  it('the option is remembered, and an external edits like anyone else - with their own company as text', async () => {
+  // The side panel is read only (Neil, 11/03/2026): changes are made on the
+  // record, which Open Record opens on its Job tab.
+  const rowValue = (label) => screen.getByText(label, { selector: 'span' }).nextElementSibling.textContent;
+  it('the option is remembered, and an external shows their own company - read only, with Open Record', async () => {
     localStorage.setItem('nx-orgchart-externals', 'true');
-    await renderChart();
+    const onSubChange = vi.fn();
+    const { default: HR } = await import('./HR');
+    render(<HR activeSub="hr-org" onSubChange={onSubChange} />);
+    await screen.findByText('Val Top');
     fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));   // seeded view folds the second level once it has reports
     // A tap = pointer down on the card, pointer up with no movement.
     fireEvent.pointerDown(cardOf('Jane Doe'), { clientX: 10, clientY: 10, button: 0 });
     fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
-    const panel = screen.getByText('Reports to').closest('div');
-    expect(within(panel).getByDisplayValue('Acme Construction')).toBeTruthy();
-    expect(within(panel).getByRole('button', { name: /^Reports To:/ }).textContent).toContain('Mia Mid');
-    fireEvent.change(within(panel).getByDisplayValue('Acme Construction'), { target: { value: 'Acme Builders' } });
-    fireEvent.click(screen.getByRole('button', { name: /Save changes/ }));
-    const saved = calls.find(([k]) => k === 'updateEmployee');
-    expect(saved[1][0]).toBe('x1');
-    expect(saved[1][1].external_company).toBe('Acme Builders');
+    expect(rowValue('Reports To')).toContain('Mia Mid');
+    expect(rowValue('Company')).toBe('Acme Construction');
+    expect(screen.queryByRole('button', { name: /Save changes/i })).toBeNull();
+    expect(screen.queryByDisplayValue('Acme Construction')).toBeNull();   // nothing to type into
+    fireEvent.click(screen.getByRole('button', { name: /Open Record/ }));
+    expect(onSubChange).toHaveBeenCalledWith('hr-people');
+    expect(calls.some(([k]) => k === 'updateEmployee')).toBe(false);
   }, 20000);
 
-  it('the company filter keeps an external with the company they report into; an internal save carries no outside company', async () => {
+  it('the company filter keeps an external with the company they report into; an internal shows its company by name', async () => {
     localStorage.setItem('nx-orgchart-externals', 'true');
     await renderChart();
     fireEvent.change(screen.getByDisplayValue('All companies'), { target: { value: 'co1' } });
@@ -94,26 +99,18 @@ describe('Org chart externals and four-line cards', () => {
     expect(screen.getByText('Jane Doe')).toBeTruthy();                       // reports into Greens Co
     fireEvent.pointerDown(cardOf('Mia Mid'), { clientX: 10, clientY: 10, button: 0 });
     fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
-    const panel = screen.getByText('Reports to').closest('div');
-    expect(within(panel).queryByDisplayValue('Acme Construction')).toBeNull();   // entity picker, not free text
-    fireEvent.change(within(panel).getByDisplayValue('Lead'), { target: { value: 'Senior Lead' } });
-    fireEvent.click(screen.getByRole('button', { name: /Save changes/ }));
-    const saved = calls.find(([k]) => k === 'updateEmployee');
-    expect(saved[1][1].job_title).toBe('Senior Lead');
-    expect('external_company' in saved[1][1]).toBe(false);
+    expect(rowValue('Company')).toBe('Greens Co');
+    expect(rowValue('Job Title')).toBe('Lead');
+    expect(screen.getByText('Direct Reports (1)')).toBeTruthy();
   }, 20000);
 
-  it('with the option off, an internal who reports to an external keeps that manager selectable', async () => {
+  it('with the option off, an internal who reports to an external still shows that manager', async () => {
     PEOPLE[1].managerEmail = 'jane@acme.com';   // Mia reports to Jane
     try {
       await renderChart();
       fireEvent.pointerDown(cardOf('Mia Mid'), { clientX: 10, clientY: 10, button: 0 });
       fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
-      const panel = screen.getByText('Reports to').closest('div');
-      const trigger = within(panel).getByRole('button', { name: /^Reports To:/ });
-      expect(trigger.textContent).toContain('Jane Doe');
-      fireEvent.click(trigger);
-      expect(within(screen.getByRole('listbox')).getByText('Jane Doe')).toBeTruthy();
+      expect(rowValue('Reports To')).toContain('Jane');
     } finally { PEOPLE[1].managerEmail = 'val@x.com'; }
   }, 20000);
 });

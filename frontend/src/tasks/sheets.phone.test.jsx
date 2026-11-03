@@ -538,6 +538,16 @@ describe('Back closes the top sheet on a phone', () => {
     expect(window.history.length).toBe(start);
     expect(window.history.state.nxSheet).toBeUndefined();
   });
+
+  it('a sheet the address opens (backToClose={false}) leaves Back to the address', () => {
+    // Items' record (inventory@<id>, item/<id>): App's history already closes
+    // it; an entry of its own made Back reopen it from the address.
+    setViewport(true);
+    const start = window.history.length;
+    render(<Modal title="Record" onClose={() => {}} backToClose={false}><p>r</p></Modal>);
+    expect(window.history.length).toBe(start);
+    expect(window.history.state.nxSheet).toBeUndefined();
+  });
 });
 
 describe('focus and landscape touch screens', () => {

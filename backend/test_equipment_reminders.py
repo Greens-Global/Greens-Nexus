@@ -110,7 +110,10 @@ class OverdueCheckoutTests(_ScanBase):
         item_id, co_id = f"{P}-item-{uuid.uuid4().hex[:6]}", f"{P}-co-{uuid.uuid4().hex[:6]}"
         self.db.add(models.Item(id=item_id, name="Eqrem Drill", department=DEPT, ownership_type="transient",
                                 status="checked_out"))
-        handover = datetime.combine(TODAY - timedelta(days=days), datetime.min.time(), tzinfo=timezone.utc)
+        # Noon UTC: the same calendar day in California and in India, so the
+        # borrower's local due date (item_due) is TODAY wherever they are.
+        handover = datetime.combine(TODAY - timedelta(days=days), datetime.min.time(),
+                                    tzinfo=timezone.utc).replace(hour=12)
         self.db.add(models.ItemCheckout(
             id=co_id, item_id=item_id, item_name="Eqrem Drill", requested_by="Eqrem Borrower",
             requested_by_email=BORROWER, raised_by="Eqrem Borrower", department="Other", days=days,

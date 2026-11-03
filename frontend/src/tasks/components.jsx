@@ -162,7 +162,7 @@ export function useEscapeLayer(onEscape, active = true) {
 // `footer` may be a function `(close) => node`: `close(...args)` plays the
 // same exit the X does, then calls onClose(...args) - for a footer button
 // (Done, Cancel, a submit) that should leave the way the X leaves.
-export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000 }) {
+export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000, backToClose = true }) {
   // Phones get a full-screen sheet, the shape the task drawer already uses
   // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
   // is the LARGE viewport (browser chrome hidden), so 7vh of padding plus an
@@ -201,7 +201,11 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   const entering = useSheetEntering(sheet);
   // The phone's Back button closes this sheet, not the screen behind it -
   // asking the same unsaved-work questions the X button asks.
-  useBackToClose(followViewport, () => {
+  // `backToClose={false}`: a sheet the ADDRESS opens (Items' record,
+  // inventory@<id> / item/<id>) already closes on Back through App's own
+  // history - a second entry of its own made Back reopen it from the address
+  // (release smoke, 11/02/2026).
+  useBackToClose(followViewport && backToClose, () => {
     if (confirmClose) { setConfirmClose(false); return; }
     if (isDirty && !isBypassing()) { setConfirmClose(true); return; }
     if (overlayRef.current?.hasAttribute('data-nx-dirty')) {
@@ -587,8 +591,9 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
 // displays as it is; it just cannot be moved to another past day.
 // `repeat`: { on, label, render({ back, close }) } adds a Repeat button to the
 // calendar's footer that opens the caller's repeat controls in its place.
-export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false, max = '', repeat = null }) {
-  const min = noPast ? localTodayISO() : '';
+export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false, max = '', repeat = null, min: minDate = '' }) {
+  // `min` (YYYY-MM-DD, Items return dates 11/02/2026): the earliest pickable day; noPast is today.
+  const min = minDate && (!noPast || minDate > localTodayISO()) ? minDate : noPast ? localTodayISO() : '';
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
   const btnRef = useRef(null);

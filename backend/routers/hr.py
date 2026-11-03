@@ -97,6 +97,7 @@ class EmployeeIn(BaseModel):
     personal:        Optional[dict] = None
     compliance:      Optional[dict] = None
     notes:           Optional[str] = ""
+    on_schedule:     Optional[bool] = True   # On the Schedule (11/03/2026, shift_roster.py)
 
 
 class EmployeeUpdate(BaseModel):
@@ -258,6 +259,7 @@ def _serialize(e: NexusEmployee, db: Session = None, tiers: dict = None) -> dict
         # date, days left, whether it is ending. The list re-reads it with
         # each company's own reminder window; the profile card has the rest.
         "probation":      _probation_summary(e),
+        "onSchedule":     getattr(e, "on_schedule", 1) is None or int(getattr(e, "on_schedule", 1) or 0) != 0,
     }
 
 
@@ -397,6 +399,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         personal=body.personal or {},
         compliance=_norm_compliance(body.compliance),
         notes=body.notes or "",
+        on_schedule=0 if body.on_schedule is False else 1,
         created_by=user["email"],
         created_at=now,
         updated_at=now,
@@ -429,11 +432,11 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     if scope is not None and body.company is not None and body.company.strip() not in scope:
         raise HTTPException(403, "You can't move someone to a company outside your People access")
     _validate(body.employment_type, body.status, body.identity_type)
-    # Offboarding goes through the status change (POST /employees/{eid}/status),
-    # which requires the termination date and runs the leaver steps (Neil,
-    # Teams 11/02/2026) - the generic profile save must not slip past it.
+    # Offboarding goes through Offboard (POST /employees/{eid}/offboard), which
+    # requires the termination date and runs the leaver steps (Neil, Teams
+    # 11/02/2026) - the generic profile save must not slip past it.
     if body.status == "offboarded" and (row.status or "") != "offboarded":
-        raise HTTPException(400, "Use the status change to offboard - it records the termination date.")
+        raise HTTPException(400, OFFBOARD_ONLY)
     if body.first_name is not None and not body.first_name.strip():
         raise HTTPException(400, "first_name cannot be empty")
     fields = body.model_dump(exclude_unset=True)
@@ -1573,11 +1576,60 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
     _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first(), hr_scope(user, db))
     if row.kind in ("paystub", "settlement") and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
-    httpx.request("DELETE", f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{row.storage_path}",
-                  headers=_storage_headers(), timeout=30)
+    # The file goes first and the row only once it is gone (11/02/2026, the
+    # legal pass): a failed storage delete used to drop the row anyway and
+    # leave the document in the bucket with nothing pointing at it. A file
+    # another record still uses (a signed envelope's sealed PDF filed on the
+    # person's Documents tab, a duplicate row) stays: only this row goes.
+    if row.storage_path and not _hr_doc_path_shared(db, row.storage_path, row.id):
+        try:
+            resp = httpx.request("DELETE", f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{row.storage_path}",
+                                 headers=_storage_headers(), timeout=30)
+        except httpx.HTTPError:
+            raise HTTPException(503, "The file could not be deleted from storage right now. Try again in a moment.")
+        if not (resp.is_success or resp.status_code == 404 or _storage_not_found(resp)):
+            raise HTTPException(503, "The file could not be deleted from storage right now. Try again in a moment.")
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+
+# Every hr-docs column that can name the same object as an HrDocument row.
+_HR_DOC_PATH_REFS = (
+    ("hr_documents", "storage_path"), ("hr_sign_requests", "final_pdf_path"),
+    ("hr_sign_requests", "pdf_storage_path"), ("hr_sign_documents", "storage_path"),
+    ("hr_sign_uploads", "storage_path"), ("hr_sign_drafts", "file_path"),
+    ("hr_mailbox_exports", "storage_path"),
+)
+
+
+def _hr_doc_path_shared(db: Session, path: str, doc_id: str) -> bool:
+    """Does any record other than HrDocument `doc_id` use this hr-docs path?
+    One query; on any error the answer is yes - the file is kept."""
+    from sqlalchemy import text as _text
+    parts = []
+    for table, col in _HR_DOC_PATH_REFS:
+        extra = " AND id <> :doc_id" if table == "hr_documents" else ""
+        parts.append(f"SELECT 1 AS hit FROM {table} WHERE {col} = :path{extra}")
+    try:
+        return db.execute(_text(" UNION ALL ".join(parts) + " LIMIT 1"),
+                          {"path": path, "doc_id": doc_id}).first() is not None
+    except Exception:
+        db.rollback()
+        return True
+
+
+def _storage_not_found(resp) -> bool:
+    """Supabase storage answers a missing object with HTTP 400 and a body that
+    says not found; any other 400 (or a 401 / 403) is a real refusal."""
+    if resp.status_code != 400:
+        return False
+    try:
+        body = resp.text or ""
+    except Exception:
+        return False
+    low = body.lower()
+    return "not_found" in low or "not found" in low or '"404"' in low
 
 
 # ── Paystubs - HrDocument rows with kind="paystub", hr_comp-gated ────────────
@@ -2299,9 +2351,12 @@ def upload_photo(eid: str, file: UploadFile = File(...),
     )
     if not resp.is_success:
         raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    old = emp.photo_url or ""
     emp.photo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
     emp.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
+    import avatar_files   # the replaced photo leaves storage (11/02/2026)
+    avatar_files.forget(db, old, emp.id)
     db.refresh(emp)
     return _serialize(emp, db=db)
 
@@ -5427,6 +5482,9 @@ def _graph_remove_all_licenses(token: str, m365_id: str) -> str:
     return f"{removed} released" if removed else "none to release"
 
 
+OFFBOARD_ONLY = "Use Offboard to mark someone Left - it records the termination date and runs the leaver steps."
+
+
 @router.post("/employees/{eid}/status")
 def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
@@ -5435,21 +5493,29 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     _assert_scope(row, hr_scope(user, db))
     if body.status not in _STATUSES:
         raise HTTPException(400, f"status must be one of {_STATUSES}")
+    # One way to leave (Neil, 11/03/2026): becoming Left happens ONLY through
+    # Offboard (hr_life_events.send_separation -> apply_separation_now, today
+    # or on the last day), which records the termination date and runs every
+    # leaver step below exactly once. A person already Left may still come
+    # here to re-run a mailbox / license step (did_change is False then).
+    if body.status == "offboarded" and (row.status or "") != "offboarded":
+        raise HTTPException(400, OFFBOARD_ONLY)
     return apply_status_change(db, row, body, user["email"])
 
 
 def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, actor: str) -> dict:
     """The whole status change - the log entry, and for a leaver: items
     force-returned, tasks handed over, M365 sign-in blocked / sessions ended /
-    licenses freed / mailbox export, Nexus sessions ended. Commits. The
-    endpoint above and Offboard (hr_life_events.py - now, or on the last day)
-    both come here, so an offboarding is the same whichever way it runs."""
+    licenses freed / mailbox export, Nexus sessions ended. Commits. Offboard
+    (hr_life_events.apply_separation_now - now, or on the last day) is the
+    ONLY caller that makes someone Left; the endpoint above refuses that and
+    only changes the other statuses (or re-runs an M365 step on a leaver)."""
     now = datetime.now(timezone.utc).isoformat()
     did_change = body.status != row.status
     # An offboarding always carries the termination date (Neil, Teams
     # 11/02/2026: "Make sure on offboarded people there is a termination
     # date"). The Offboard flow (hr_life_events) validates its last day
-    # before it ever gets here; this covers the direct status pill too.
+    # before it ever gets here; this is the backstop for any other caller.
     if did_change and body.status == "offboarded":
         eff = (body.effectiveDate or "").strip()[:10]
         try:

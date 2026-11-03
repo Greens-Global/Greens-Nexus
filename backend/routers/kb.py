@@ -534,6 +534,12 @@ def ask(body: AskIn, user: dict = Depends(get_current_user), db: Session = Depen
     q = (body.question or "").strip()
     if not q:
         raise HTTPException(422, "Ask something")
+    # Crisis support (11/02/2026): a message that expresses suicidal intent or
+    # self-harm gets the crisis resources and NO generated answer. Nothing is
+    # logged, stored or counted for it (crisis_support.py).
+    import crisis_support
+    if crisis_support.detect(q):
+        return {"answer": "", "sources": [], "grounded": False, "offline": False, "crisis": crisis_support.payload(crisis_support.country_of(db, user["email"]))}
     pub = _published(db, user)
     res = kb_search.search(db, pub, q, limit=5)
     by_id = {d.id: d for d in pub}

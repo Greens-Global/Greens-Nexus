@@ -18,12 +18,15 @@ from sqlalchemy import event, func, inspect
 
 AUTO = "department"
 # The person fields that decide whether they belong to a department's group.
-_WATCHED = ("department", "status", "company", "deleted_at", "work_email")
+_WATCHED = ("department", "status", "company", "deleted_at", "work_email", "on_schedule")
 
 
 def _active(e) -> bool:
-    # The schedule's own rule (timeclock._is_active_emp): active, not deleted.
-    return bool(e.work_email) and (e.status or "active").lower() == "active" and not (e.deleted_at or "")
+    # The schedule's own rule (shift_roster.on_schedule): active, not deleted,
+    # On the Schedule. Switched off = the department's automatic row goes and
+    # comes back with the switch; hand-added memberships are never touched.
+    import shift_roster
+    return shift_roster.on_schedule(e)
 
 
 def in_department(g, e) -> bool:

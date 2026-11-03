@@ -3,6 +3,7 @@
 // screenshots and attachments in storage, and Live in Production.
 // ChangelogView.jsx and changelogExtras.jsx compose these; the server side
 // is backend/routers/changelog_lifecycle.py.
+import { crisisCheck } from '../lib/crisisSupport';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, CheckCircle2, Lightbulb, Paperclip, Download, Upload, X, Trash2, CalendarX, Compass,
@@ -100,6 +101,8 @@ export function RequestThread({ row, nameOf = (e) => e, onBeforeOpen }) {
     const text = draft.trim();
     if (!text || posting) return;
     setPosting(true); setError('');
+    // Crisis support (11/02/2026): resources card first; the message still goes out.
+    await crisisCheck(text);
     try { await api.addChangelogRequestComment(row.id, text); setDraft(''); await load(); }
     catch (e) { setError(e?.message || 'Could not post the comment.'); } finally { setPosting(false); }
   };
@@ -164,6 +167,8 @@ export function MyRequestsDialog({ onClose, onOpenEntry, nameOf }) {
   const send = async () => {
     if (!note.trim()) return;
     setSending(true); setError('');
+    // Crisis support (11/02/2026): resources card first; the message still goes out.
+    await crisisCheck(note);
     try {
       await api.raiseChangelogRequest({ note: note.trim(), module: module.trim() });
       setNote(''); setModule('');

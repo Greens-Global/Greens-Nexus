@@ -315,6 +315,11 @@ def log_miss(db: Session, q: str, results: int, user_email: str, source: str = "
     q = (q or "").strip()[:200]
     if not q or results >= floor:
         return
+    # Never keep words that express suicidal intent or self-harm (crisis
+    # support, 11/02/2026): the one choke point for every search log.
+    import crisis_support
+    if crisis_support.detect(q):
+        return
     source = source or "kb"
     day = datetime.now(timezone.utc).date().isoformat()
     import auth

@@ -12,11 +12,18 @@ Sign-In Policy). The title, text and version live in NexusSetting key
     {"published": {"title", "body", "version", "publishedAt", "publishedBy"},
      "draft":     {"title", "body", "savedAt", "savedBy"} | null}
 
-With no row saved, the published policy is DEFAULT_POLICY below - word for
-word the text PolicyGate.jsx used to hardcode, at the version everyone already
-accepted (2026-07-21), so this change re-prompts nobody. Saving a draft never
-touches the version; only Publish New Version does, and that re-prompts
-everyone at their next sign-in.
+With no row saved, the published policy is DEFAULT_POLICY below. Until
+11/02/2026 that was word for word the text PolicyGate.jsx used to hardcode, at
+version 2026-07-21. The legal compliance pass (11/02/2026) added a notice at
+collection (what is collected, why, how long, not sold, the Privacy Policy
+link) and a location section to the default text WITHOUT changing the version
+(Neil, 11/02/2026: "Update text, no re-accept") - nobody is asked to accept
+again; people on the default simply read the fuller text. A saved policy is never
+overwritten: when it lacks a REQUIRED_SECTIONS heading, GET /policy/config
+says `outOfDate` and the Settings panel offers the new default as a draft for
+the administrator to review and publish. Saving a draft never touches the
+version; only Publish New Version does, and that re-prompts everyone at their
+next sign-in.
 
 The body is plain text with a tiny markdown subset ("## " headings, "- "
 bullets, blank-line paragraphs). The frontend renders it as React text nodes,
@@ -46,9 +53,16 @@ SETTINGS_KEY = "signin_policy_config"
 TITLE_MAX = 200
 BODY_MAX = 20_000
 
-# The version everyone accepted before the policy became editable. Kept as the
-# default so deploying this re-prompts nobody.
+# The default's version: the one everyone accepted before the policy became
+# editable. The legal pass's added sections (notice at collection, location)
+# keep it on purpose - Neil, 11/02/2026: "Update text, no re-accept". Do not
+# bump it for a text change without his say.
 POLICY_VERSION = "2026-07-21"
+
+# Headings a sign-in policy must carry (the legal compliance pass). A saved
+# policy without one is reported Out of Date to administrators - never
+# rewritten. Matched case-insensitively against its "## " lines.
+REQUIRED_SECTIONS = ("Employee monitoring", "Location", "Notice at collection")
 
 DEFAULT_POLICY = {
     "title": "Company Policies & Monitoring",
@@ -60,9 +74,24 @@ DEFAULT_POLICY = {
         "## Employee monitoring (please read)\n"
         "On company-managed devices, while you are clocked in, Nexus may capture periodic "
         "screenshots of your work screen(s), record which applications and window titles are "
-        "active, and measure your overall activity level. This is to verify worked time and "
+        "active, and measure your overall activity level; a manager may also open a live view of "
+        "the screen during that time. This is to verify worked time and "
         "support performance review. It does NOT capture your keystrokes, and it stops when you "
         "clock out. Capture never runs on a personal device unless you explicitly share your screen.\n\n"
+        "## Location\n"
+        "When a punch screen asks for your location, your device's position is recorded with the punch "
+        "and checked against the work site's area (a punch outside it is flagged, never blocked). "
+        "Continuous location is collected only through the field app, only after you consent in it, and "
+        "only while you are clocked in.\n\n"
+        "## Notice at collection\n"
+        "Nexus collects personal information about you: identifiers and account details, employment and "
+        "HR records, pay, tax and bank details, time records, location, work monitoring, sign-in and "
+        "device records, and what you create or upload. It is used to run your employment and the "
+        "organization's operations, to pay you, for security, and to keep the records the law requires. "
+        "It is kept as long as the law and your organization's records schedule require, and it is not "
+        "sold or shared for advertising. The Privacy Policy lists every category, purpose, retention "
+        "period and service provider, explains the AI features (off unless your organization turns "
+        "them on), and says how to use your privacy rights.\n\n"
         "## How the data is used\n"
         "Monitoring data is visible to your manager and HR for time-verification, performance, and "
         "payroll purposes, and is retained per company policy. It is not sold or shared outside the "
@@ -94,6 +123,24 @@ def _load(db: Session) -> dict:
     published = {**DEFAULT_POLICY, **{k: v for k, v in pub.items() if k in DEFAULT_POLICY and v}}
     draft = raw.get("draft") if isinstance(raw.get("draft"), dict) else None
     return {"published": published, "draft": draft}
+
+
+def missing_sections(body: str) -> list:
+    """The REQUIRED_SECTIONS headings a policy body lacks."""
+    heads = [ln[3:].strip().lower() for ln in (body or "").splitlines() if ln.startswith("## ")]
+    return [r for r in REQUIRED_SECTIONS if not any(h.startswith(r.lower()) for h in heads)]
+
+
+def out_of_date(cfg: dict) -> dict | None:
+    """A SAVED published policy missing a required section -> what to tell
+    the administrator; None when it is complete or the default is in use."""
+    pub = cfg["published"]
+    if not pub.get("publishedAt"):
+        return None   # the default text, always complete
+    missing = missing_sections(pub.get("body", ""))
+    if not missing:
+        return None
+    return {"missing": missing, "defaultVersion": POLICY_VERSION}
 
 
 def get_config(db: Session) -> dict:
@@ -167,11 +214,18 @@ def policy_status(user: dict = Depends(get_current_user), db: Session = Depends(
            .filter(PolicyAcknowledgment.email == user["email"].lower(),
                    PolicyAcknowledgment.version == pub["version"])
            .first())
+    import crisis_support
     return {"version": pub["version"],
             "title": pub["title"],
             "body": pub["body"],
             "accepted": row is not None,
-            "acceptedAt": row.accepted_at if row else ""}
+            "acceptedAt": row.accepted_at if row else "",
+            # The person's country (US / IN / ''), for the crisis support
+            # card's resource list (crisis_support.py). Carried on this call,
+            # which every app load makes anyway, so showing the card never
+            # needs a request of its own - nothing on the server can tell a
+            # card was shown.
+            "country": crisis_support.country_of(db, user["email"])}
 
 
 class AcceptIn(BaseModel):
@@ -218,7 +272,13 @@ def my_acknowledgments(user: dict = Depends(get_current_user), db: Session = Dep
 @router.get("/config")
 def admin_get_config(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     cfg = get_config(db)
-    return {"published": cfg["published"], "draft": cfg["draft"]}
+    # outOfDate / default: the Settings panel's "Out of Date" notice and its
+    # "Start a Draft From the New Default" (the saved text is never touched).
+    return {"published": cfg["published"], "draft": cfg["draft"], "outOfDate": out_of_date(cfg),
+            "default": {"title": DEFAULT_POLICY["title"], "body": DEFAULT_POLICY["body"],
+                        "version": POLICY_VERSION},
+            # Shown to administrators only: the default text is a draft for counsel review.
+            "counselReview": True}
 
 
 @router.put("/draft")

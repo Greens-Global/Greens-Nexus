@@ -63,9 +63,12 @@
   X-Frame-Options: SAMEORIGIN
   Referrer-Policy: strict-origin-when-cross-origin
   # microphone=(self) not (): ticket/QA "Screen + narration" recordings capture
-  # mic audio; a blanket deny silently produced voiceless recordings. Camera
-  # stays denied - nothing in Nexus uses it.
-  Permissions-Policy: camera=(), microphone=(self), geolocation=(self)
+  # mic audio; a blanket deny silently produced voiceless recordings.
+  # camera=(self) not () (11/02/2026): Item Management's Scan reads QR tags
+  # from the live camera (getUserMedia, inventory/scan/); with camera=() the
+  # browser refuses it before the person is ever asked. Nexus pages only -
+  # no frame from another origin gets the camera.
+  Permissions-Policy: camera=(self), microphone=(self), geolocation=(self)
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
 
 # The HTML entry must always revalidate so a deploy's new asset hashes are picked

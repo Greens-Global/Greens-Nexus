@@ -7,6 +7,7 @@ import { SigningDoc } from '../components/ESign';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { Spinner } from '../components/AsyncState';
+import { prefersReducedMotion } from '../lib/motion';
 
 // ── Nexus Sign - public signing page, /sign/{token} ───────────────────────────
 // Renders OUTSIDE the MSAL gate (external signers have no login); the URL token
@@ -272,8 +273,10 @@ export default function PublicSign({ token }) {
     <div style={{ textAlign: 'center', padding: '30px 10px' }}>
       {done === 'declined'
         ? <XCircle size={40} style={{ color: 'hsl(350,65%,48%)', marginBottom: 12 }} />
-        : <CheckCircle size={44} style={{ color: 'hsl(142,60%,35%)', marginBottom: 12, animation: 'nexus-sign-pop .45s ease-out' }} />}
-      <style>{'@keyframes nexus-sign-pop{0%{transform:scale(.4);opacity:0}60%{transform:scale(1.12)}100%{transform:scale(1);opacity:1}}'}</style>
+        : <CheckCircle size={44} style={{ color: 'hsl(142,60%,35%)', marginBottom: 12,
+          // A crisp arrival, no bounce (motion pass, 11/03/2026): --dur-md on --ease-out.
+          animation: prefersReducedMotion() ? 'none' : 'nexus-sign-done 220ms cubic-bezier(.16,1,.3,1)' }} />}
+      <style>{'@keyframes nexus-sign-done{from{transform:scale(.86);opacity:0}}'}</style>
       <h2 style={{ fontSize: 19, margin: '0 0 8px', fontWeight: 800 }}>
         {done === 'declined' ? 'Declined'
           : done === 'signed-final' ? 'Fully Executed'

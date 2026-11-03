@@ -25,6 +25,7 @@ import { formatTime } from '../../lib/datetime';
 // The open shift's math is shared with the Time Clock tile so the two never
 // disagree about today (Oct 14).
 import { openSession } from './punchMath.js';
+import { trackFor } from '../../lib/shiftTrack.js';
 
 const STATUS_POLL_MS = 60000;
 
@@ -73,7 +74,12 @@ export function deriveMyTime({ status, now = new Date() }) {
   const actions = allowed.filter(k => PUNCH_LABEL[k]).map(k => ({ kind: k, label: PUNCH_LABEL[k], primary: k === 'in' || k === 'out' }));
   // Today's closed segments plus the live session (paused on a break).
   const todayMin = (status?.days?.[todayKey]?.workedMin || 0) + (session ? session.workedMin : 0);
-  return { exempt, state, stateLabel, since, sinceLabel, lastOutLabel, actions, todayMin, stale };
+  // Today's shift track (Neil, 11/02/2026; lib/shiftTrack.js): the expected
+  // start -> end from the status payload's todayShifts (backend shift_expect),
+  // null with no shift today - every surface reading this view model draws
+  // the same track.
+  const track = trackFor({ status, state, now, stale });
+  return { exempt, state, stateLabel, since, sinceLabel, lastOutLabel, actions, todayMin, stale, track };
 }
 
 // The one punch a single-button tile offers: on a break, End Break (coming

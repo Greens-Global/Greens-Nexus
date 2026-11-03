@@ -28,7 +28,7 @@ import { useTimeStatus } from '../lib/useTimeStatus';
 import { SessionChip } from './SessionChip';
 import { deriveMyTime } from './essentials/usePunchClock.jsx';
 import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
-import { formatDate, formatMonthDay, formatTimeIn, formatWeekday, greetingFor } from '../lib/datetime';
+import { formatDate, formatDayLong, formatTimeIn, formatWeekday, greetingFor } from '../lib/datetime';
 import { ModalLoading, LoadingState } from '../components/AsyncState';
 import { useNotifications } from '../contexts/NotificationContext.jsx';
 import { MoreRow } from './listParts.jsx';
@@ -131,7 +131,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
 
   const greeting = greetingFor(now);
   // "Wednesday, Oct 14" - through the shared date helpers (lib/datetime.js).
-  const dateLine = `${formatWeekday(now)}, ${formatMonthDay(now)}`;
+  const dateLine = formatDayLong(now);
 
   return (
     <div className="dk-head dk-rise" style={{ '--i': 0 }}>

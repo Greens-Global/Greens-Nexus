@@ -29,18 +29,10 @@ if db.query(models.PurchaseRequest).count() == 0:
     ]
     db.add_all(reqs)
 
-if db.query(models.Review).count() == 0:
-    reviews = [
-        models.Review(name='John Smith', property='Harbor View Condos', platform='Google', date='2 hours ago', rating=5, comment="Excellent service and professional team! The quality of construction is outstanding. We moved in last month and couldn't be happier with our new home.", replied=False, ai_reply="Thank you so much for your wonderful review, John! We're thrilled to hear you're enjoying your new home at Harbor View Condos.", badge='New Review', badge_color='red', is_new=True),
-        models.Review(name='Jane Doe', property='Downtown Complex', platform='Google', date='1 day ago', rating=4, comment='Great experience overall. The team was responsive and professional.', replied=False, ai_reply="Thank you for your feedback, Jane! We're glad you had a positive experience.", badge='AI Reply Suggested', badge_color='gray', is_new=False),
-        models.Review(name='Marcus Brody', property='Downtown Commercial Complex', platform='Google', date='5 days ago', rating=3, comment='The construction noise at the downtown project starts a bit too early.', replied=False, ai_reply='Thank you for your feedback, Marcus. We apologize for any inconvenience caused by construction noise.', badge='', badge_color='', is_new=False),
-        models.Review(name='Sarah Jenkins', property='Oakridge Subdivision Phase 1', platform='Google', date='2 hours ago', rating=5, comment='Greens Nexus did an outstanding job developing our retail complex.', replied=True, reply_text='Thank you Sarah! It was a pleasure working with you on this project.'),
-        models.Review(name='David Vance', property='Onsite Development Site-B', platform='Google', date='1 day ago', rating=4, comment='Excellent build quality on our custom home.', replied=True, reply_text="We appreciate the feedback, David! Our onsite teams always strive to maintain clear communication."),
-        models.Review(name='Amir Al-Mansoori', property='North Industrial Warehouse', platform='Google', date='2 days ago', rating=5, comment='Professional real estate developers who know the local market inside out.', replied=True, reply_text='Thank you Amir! Navigating local permits is one of our specialties.'),
-        models.Review(name='Elena Rostova', property='Downtown Office Renovation', platform='Google', date='1 week ago', rating=4, comment='Very satisfied with our office renovation project.', replied=True, reply_text="Thank you for the review, Elena! We are glad you are happy with the renovation."),
-        models.Review(name='Robert Chen', property='Harbor View Residential', platform='Google', date='1 week ago', rating=5, comment='Greens Nexus project management is stellar.', replied=True, reply_text='Thank you Robert! Safety and efficiency are our core values.'),
-    ]
-    db.add_all(reviews)
+# No sample reviews (11/02/2026, the legal compliance pass): made-up five-star
+# "Google" reviews that named the product read as real endorsements (the FTC
+# rule on fake reviews). Real reviews come only from a connected Google
+# Business Profile (routers/marketing_gbp.py).
 
 if db.query(models.MarketingCampaign).count() == 0:
     campaigns = [

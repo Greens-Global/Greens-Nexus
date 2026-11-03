@@ -32,6 +32,7 @@ import { SkeletonBlocks, Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { Modal, DateField, ChipMultiSelect } from '../tasks/components';
 import { COUNTRIES, countryName } from '../lib/countries';
+import ProgressTrack from '../ui/ProgressTrack';
 
 // Work OS tokens (style.css --wk-*), so the light themes and dark mode come
 // for free. Status colors carry meaning only: red = late, orange = due soon,
@@ -111,27 +112,53 @@ function ownerText(s) {
   return null;
 }
 
-function ProgressBar({ done, total, segments }) {
-  const pct = total ? Math.round((done / total) * 100) : 0;
+// The track's state for one checklist (live accent, 11/02/2026): green when
+// every step is closed, red while a step is past its due date, gray when the
+// checklist was cancelled, else the live accent.
+export function checklistTrackState({ done, total, overdue, status }) {
+  if (status === 'cancelled') return 'idle';
+  if (status === 'done' || (total > 0 && done >= total)) return 'done';
+  return overdue > 0 ? 'overdue' : 'live';
+}
+
+// The phases (in checklist order) that hold an open step past its due date -
+// "Behind: Day One, Week One" under the bar.
+export function behindPhases(items = []) {
+  const out = [];
+  items.forEach(s => {
+    const name = s.phase || 'Steps';
+    if (s.overdue && !isClosed(s) && !out.includes(name)) out.push(name);
+  });
+  return out;
+}
+
+function ProgressBar({ done, total, overdue = 0, status }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-      <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Checklist progress"
-        style={{ flex: 1, display: 'flex', gap: 3, height: 8, minWidth: 80 }}>
-        {(segments && segments.length ? segments : [{ done, total }]).map((g, i) => (
-          <div key={i} style={{ flex: Math.max(g.total, 1), background: 'var(--wk-line2)', borderRadius: 4, overflow: 'hidden' }}>
-            <div style={{ width: `${g.total ? (g.done / g.total) * 100 : 0}%`, height: '100%', background: 'var(--wk-green)', transition: 'width .3s cubic-bezier(.16,1,.3,1)' }} />
-          </div>
-        ))}
-      </div>
+      <ProgressTrack value={total ? done / total : 0} state={checklistTrackState({ done, total, overdue, status })}
+        label="Checklist progress" valueText={`${done} of ${total} done${overdue > 0 ? `, ${overdue} overdue` : ''}`}
+        style={{ flex: 1, minWidth: 80 }} />
       <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--wk-dim)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{done} of {total} Done</span>
     </div>
+  );
+}
+
+// A warning on a checklist card or row (live accent, 11/02/2026): the house
+// warning look - the yellow wash, its text color and an icon - never orange,
+// which on these cards means only "in progress" (the progress track).
+export function WarnNote({ children, block = false }) {
+  return (
+    <span className={`nx-warn-note${block ? ' is-block' : ''}`}>
+      <AlertTriangle size={12} aria-hidden="true" />
+      <span>{children}</span>
+    </span>
   );
 }
 
 function Avatar({ name, empty }) {
   return (
     <span aria-hidden="true" style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9.5, fontWeight: 700,
-      background: empty ? 'transparent' : 'var(--wk-brand-tint)', color: empty ? 'var(--wk-orange)' : 'var(--wk-brand)', border: empty ? '1.5px dashed var(--wk-orange)' : 'none' }}>
+      background: empty ? 'var(--warn-bg)' : 'var(--wk-brand-tint)', color: empty ? 'var(--warn-fg)' : 'var(--wk-brand)', border: empty ? '1.5px dashed var(--warn-fg)' : 'none' }}>
       {empty ? '?' : initials(name)}
     </span>
   );
@@ -186,7 +213,7 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
     { label: 'Nexus People', people: people.filter(p => !roleSet.has(p.email)) },
   ];
 
-  const dueColor = late ? 'var(--wk-red)' : soon ? 'var(--wk-orange)' : 'var(--wk-dim)';
+  const dueColor = late ? 'var(--wk-red)' : soon ? 'var(--warn-fg)' : 'var(--wk-dim)';
   return (
     <div style={{ borderRadius: 8, background: open ? 'var(--wk-hover)' : 'transparent', transition: 'background .15s', opacity: busy ? 0.6 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', minHeight: 44 }}>
@@ -216,7 +243,7 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flex: '0 1 190px', minWidth: 0, fontSize: 12.5, color: 'var(--wk-dim)' }}>
             <Avatar name={step.ownerName || step.ownerEmail} empty={!step.ownerEmail} />
             <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {ownerText(step) || <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>Unassigned</span>}
+              {ownerText(step) || <WarnNote>Unassigned</WarnNote>}
               <span style={{ color: 'var(--wk-faint)' }}> · {step.ownerRoleLabel}</span>
             </span>
           </span>
@@ -345,11 +372,11 @@ function PhaseBlock({ phase, isLast, state, defaultOpen, renderStep }) {
 // --- One checklist ---------------------------------------------------------
 
 function Stat({ label, value, tone }) {
-  const color = tone === 'red' ? 'var(--wk-red)' : tone === 'orange' ? 'var(--wk-orange)' : tone === 'green' ? 'var(--wk-green)' : 'var(--wk-ink)';
+  const color = tone === 'red' ? 'var(--wk-red)' : tone === 'warn' ? 'var(--warn-fg)' : tone === 'green' ? 'var(--wk-green)' : 'var(--wk-ink)';
   return (
     <div style={{ display: 'grid', gap: 1, minWidth: 70 }}>
       <span style={{ fontSize: 20, fontWeight: 700, color: value ? color : 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>{value}</span>
-      <span style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{label}</span>
+      {tone === 'warn' && value ? <WarnNote>{label}</WarnNote> : <span style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{label}</span>}
     </div>
   );
 }
@@ -370,6 +397,7 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
     });
     return out;
   }, [cl.items]);
+  const behind = behindPhases(cl.items);
   const currentIdx = phasesAll.findIndex(p => p.steps.some(s => !isClosed(s)));
   const match = s => filter === 'all' ? true : filter === 'open' ? !isClosed(s) : filter === 'overdue' ? s.overdue : (me && ownsStep(s, me) && !isClosed(s));
   const phases = phasesAll.map(p => ({ ...p, steps: p.steps.filter(match) })).filter(p => p.steps.length);
@@ -425,7 +453,7 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
             <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', marginTop: 2 }}>
               {cl.anchorDate
                 ? <>{cl.audit ? 'Audit from' : look.anchor} {formatDate(cl.anchorDate)}{cl.status === 'open' && anchorDays !== null ? ` · ${anchorDays === 0 ? 'today' : anchorDays > 0 ? `in ${anchorDays} days` : `${-anchorDays} days ago`}` : ''}</>
-                : <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>{ANCHOR_LABEL[cl.kind]} not set yet</span>}
+                : <WarnNote>{ANCHOR_LABEL[cl.kind]} not set yet</WarnNote>}
               {cl.exitType ? ` · ${EXIT_LABEL[cl.exitType] || cl.exitType}` : ''}
             </div>
           </div>
@@ -436,12 +464,17 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
             style={{ ...ghostBtn, padding: 6 }}>{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
         </div>
         <div style={{ marginTop: 14 }}>
-          <ProgressBar done={cl.done} total={cl.total} segments={phasesAll.map(p => ({ done: p.steps.filter(isClosed).length, total: p.steps.length }))} />
+          <ProgressBar done={cl.done} total={cl.total} overdue={cl.overdue} status={cl.status} />
+          {/* The bar is one track now; this line keeps "which phase is behind"
+              in view, collapsed or open. */}
+          {cl.status === 'open' && behind.length > 0 && (
+            <div data-behind="" style={{ marginTop: 6, fontSize: 12.5, color: 'var(--bad-fg)', fontWeight: 600 }}>Behind: {behind.join(', ')}</div>
+          )}
         </div>
         {cl.status === 'open' && (
           <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', marginTop: 14 }}>
             <Stat label="Overdue" value={cl.overdue} tone="red" />
-            <Stat label="Due This Week" value={weekDue} tone="orange" />
+            <Stat label="Due This Week" value={weekDue} tone="warn" />
             <Stat label="Steps Left" value={cl.total - cl.done} />
             {me && <Stat label="Yours" value={mine} />}
           </div>
@@ -452,14 +485,14 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
             <span>Task: <b style={{ color: 'var(--wk-ink)', fontWeight: 600 }}>{cl.task.title}</b>{' '}
               {cl.task.projectName
                 ? <>in {cl.task.projectName}{cl.task.sectionName ? `, section ${cl.task.sectionName}` : ''}</>
-                : <span style={{ color: 'var(--wk-orange)' }}>- not in a project yet; pick one in Settings &gt; Hiring &amp; Onboarding, with the company picked, &gt; Checklists &gt; Where Checklist Tasks Go</span>}
+                : <WarnNote>Not in a project yet; pick one in Settings &gt; Hiring &amp; Onboarding, with the company picked, &gt; Checklists &gt; Where Checklist Tasks Go</WarnNote>}
             </span>
             <button onClick={() => openTask(cl.task.id)} style={{ ...ghostBtn, padding: '3px 8px', fontSize: 12 }}>Open Task</button>
           </div>
         )}
         {cl.kind === 'onboarding' && !cl.anchorDate && cl.status === 'open' && (
-          <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--wk-orange)', display: 'flex', gap: 6, alignItems: 'center' }}>
-            <AlertTriangle size={13} /> Add a start date to the profile - most due dates count from it.
+          <div style={{ marginTop: 12 }}>
+            <WarnNote block>Add a start date to the profile - most due dates count from it.</WarnNote>
           </div>
         )}
       </div>
@@ -561,7 +594,7 @@ function StartForm({ employee, meta, onStarted, onClose, toastErr }) {
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.55, maxWidth: '70ch' }}>
         {kind === 'onboarding' && (employee.startDate ? 'Steps count from the start date on the profile and move with it when it changes.' : 'No start date on the profile yet - steps will get their dates once it is added.')}
-        {kind === 'offboarding' && 'Start it the day notice is received. Steps already past their date are due today. This changes nothing in Microsoft 365 - Left still happens from Change Status.'}
+        {kind === 'offboarding' && 'Start it the day notice is received. Steps already past their date are due today. This changes nothing in Microsoft 365 - Left happens only through Offboard, which records the termination date.'}
         {kind === 'inactive' && 'Inactive itself changes nothing in Microsoft 365, so the access steps are listed for IT.'}
         {kind === 'promotion' && "Steps count from the day the new role takes effect, and the role's own steps are added. A signed promotion letter starts this checklist by itself."}
       </div>
@@ -778,7 +811,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
             <button onClick={() => { setKind('all'); setFocus(''); }} style={ghostBtn}><X size={12} /> {focus === 'overdue' ? 'Overdue only' : focus === 'mine' ? 'Waiting on you' : KIND_LABEL_OF(kind)}</button>
           )}
           {unassigned > 0 && focus !== 'unassigned' && (
-            <button onClick={() => pickFocus('unassigned')} style={{ ...ghostBtn, color: 'var(--wk-orange)', borderColor: 'var(--wk-orange)' }}>{unassigned} Unassigned Step{unassigned === 1 ? '' : 's'}</button>
+            <button onClick={() => pickFocus('unassigned')} style={{ ...ghostBtn, color: 'var(--warn-fg)', background: 'var(--warn-bg)', borderColor: 'var(--warn-fg)' }}><AlertTriangle size={12} aria-hidden="true" /> {unassigned} Unassigned Step{unassigned === 1 ? '' : 's'}</button>
           )}
           {companiesInUse.length > 1 && (
             <select value={company} onChange={e => setCompany(e.target.value)} aria-label="Company" style={{ ...inputStyle, padding: '6px 8px' }}>
@@ -793,7 +826,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
             <span className="dk-chip dk-chip--brand" style={{ width: 40, height: 40 }}><ListChecks /></span>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>No one is joining or leaving right now</div>
             <div style={{ fontSize: 13, color: 'var(--wk-dim)', maxWidth: 440, lineHeight: 1.5 }}>
-              Mark a candidate Hired in Hiring to start an onboarding checklist, or change someone&apos;s status to Left or Inactive to start offboarding or leave.
+              Mark a candidate Hired in Hiring to start an onboarding checklist, Offboard someone to start offboarding, or change their status to Inactive to start leave.
             </div>
           </div>
         ) : !shown.length ? (
@@ -830,7 +863,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
               </span>
               {/* Progress */}
               <span style={{ flex: '1 1 150px', minWidth: 120 }}>
-                <ProgressBar done={r.done} total={r.total} />
+                <ProgressBar done={r.done} total={r.total} overdue={r.overdue} />
               </span>
               {/* Next step */}
               <span style={{ display: 'grid', gap: 2, flex: '1.4 1 240px', minWidth: 0 }}>
@@ -839,7 +872,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
                     <span style={{ fontSize: 11.5, color: 'var(--wk-faint)', fontWeight: 600 }}>Next Step</span>
                     <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.next.title}</span>
                     <span style={{ fontSize: 12, color: r.next.overdue ? 'var(--wk-red)' : 'var(--wk-dim)', fontWeight: r.next.overdue ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {r.next.ownerName || r.next.ownerEmail || <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>Unassigned</span>} ({r.next.ownerRoleLabel})
+                      {r.next.ownerName || r.next.ownerEmail || <WarnNote>Unassigned</WarnNote>} ({r.next.ownerRoleLabel})
                       {r.next.dueDate ? ` · ${relDue(nextDays)}` : ''}
                     </span>
                   </>

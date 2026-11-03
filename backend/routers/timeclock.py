@@ -1051,6 +1051,23 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     has_eod = (db.query(TimeBod)
                .filter(TimeBod.employee_email == email, TimeBod.kind == "eod",
                        TimeBod.local_date == local_today).first()) if _open else None
+    # Today's expected shift (Neil, 11/02/2026: the clock's shift track) from
+    # the ONE rule, shift_expect - a published placement, else the usual-hours
+    # preset on its working days; a weather-cancelled day or no schedule is
+    # None, and the client draws no track. today_shift.lookup caches it per
+    # person and workday for a minute (this route is polled every 20-25 s)
+    # and reads it in a savepoint; the early clock-in hint below shares its
+    # expected_start. A hint only: a failure leaves it null.
+    _exp_dd = None
+    _exp = None
+    _today = {"shifts": [], "shift": None}
+    try:
+        import today_shift
+        _exp_dd = date.fromisoformat(local_today)
+        _today = today_shift.lookup(db, email, _exp_dd)
+        _exp = _today.get("exp")
+    except Exception as e:   # a hint only - never fail the clock for it
+        print(f"[timeclock] today's shift skipped for {email}: {e}")
     # Early clock-in confirm (Neil, Teams 11/02/2026): clocking in more than
     # earlyPunchAlertMin minutes (default 10) before today's expected start
     # makes the client ask "clock in anyway?" before it sends the punch. The
@@ -1058,15 +1075,14 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     # manager once it lands. Only before the first clock-in of the workday;
     # no expected start (no shift, no preset, weather-cancelled) = no ask.
     early_warning = None
-    if has_in is None:
+    if has_in is None and _exp_dd is not None:
         try:
             import early_punch
             import shift_expect
             from routers.shift_requests import settings_for
             _thr = int(settings_for(db, email).get(early_punch.SETTING, 0) or 0)
             if _thr > 0:
-                _dd = date.fromisoformat(local_today)
-                _exp = shift_expect.expected_start(db, email, _dd)
+                _dd = _exp_dd
                 _start = shift_expect.start_utc(_dd, _exp)
                 if _start is not None:
                     early_warning = {"shiftStartUtc": _start.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1094,6 +1110,15 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         # {shiftStartUtc, shiftStart, warnBeforeMin} before the first clock-in
         # of a day with an expected start, else null (see above).
         "earlyWarning": early_warning,
+        # Today's expected shift for the clock's shift track (start -> end,
+        # orange while clocked in): {start, end (HH:MM in the shift's zone),
+        # startUtc, endUtc, source: scheduled | preset, date (its work date)},
+        # or null when nothing is expected (see above). todayShifts: every
+        # shift around the workday (a split shift's placements, yesterday's
+        # overnight one, a midnight one about to start) - the browser picks
+        # the one to draw as time moves; todayShift is that pick right now.
+        "todayShift": _today.get("shift"),
+        "todayShifts": _today.get("shifts") or [],
         # Role-flagged people skip EVERY message prompt (BOD, EOD, break start/
         # end) - punches go straight through (Neil, Aug 25).
         "bodExempt": _bod_ex,
@@ -6416,20 +6441,36 @@ def _is_active_emp(e) -> bool:
 
 
 def _active_people(db: Session) -> dict:
-    """{email: NexusEmployee} for everyone who can be scheduled."""
+    """{email: NexusEmployee} for everyone who can be scheduled - active AND
+    switched On the Schedule (shift_roster.on_schedule, Neil 11/03/2026)."""
+    import shift_roster
+    return {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all()
+            if shift_roster.on_schedule(e)}
+
+
+def _plain_active_people(db: Session) -> dict:
+    """{email: NexusEmployee} for everyone ACTIVE in People, on the schedule
+    or not - schedulers and weather deciders (an off-schedule manager still
+    runs schedules)."""
     return {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all()
             if e.work_email and _is_active_emp(e)}
 
 
-def _check_people(db: Session, emails, what: str = "") -> set:
-    """400 unless every email is an ACTIVE person in People. Returns the set."""
+def _check_people(db: Session, emails, what: str = "", roster: bool = True) -> set:
+    """400 unless every email is an ACTIVE person in People - and, with
+    `roster`, On the Schedule. Returns the set."""
     out = {str(e or "").strip().lower() for e in emails if str(e or "").strip()}
     if not out:
         return out
-    active = _active_people(db)
+    active = _plain_active_people(db)
     bad = sorted(e for e in out if e not in active)
     if bad:
         raise HTTPException(400, f"Not in the People list{what}: {', '.join(bad)}")
+    if roster:
+        import shift_roster
+        off = sorted(e for e in out if not shift_roster.is_switched_on(active[e]))
+        if off:
+            raise HTTPException(400, f"Off the schedule{what}: {', '.join(off)}. Put them back on the schedule first.")
     return out
 
 
@@ -6714,7 +6755,7 @@ def _clean_deciders(db: Session, emails: list, existing: list = ()) -> str:
     out = list(dict.fromkeys(e.strip().lower() for e in emails if e and e.strip()))
     kept = set(existing or ())
     added = [em for em in out if em not in kept]
-    _check_people(db, added, " (weather deciders)")
+    _check_people(db, added, " (weather deciders)", roster=False)
     for em in added:
         if level_for(em, db) < SHIFT_MANAGE_LEVEL:
             raise HTTPException(400, WEATHER_DECIDER_DENIED.format(who=em))
@@ -6859,15 +6900,19 @@ def _apply_teams_binding(g, body: "GroupIn") -> None:
 
 def _clean_schedulers(db: Session, emails: list) -> str:
     out = list(dict.fromkeys(e.strip().lower() for e in emails if e and e.strip()))
-    _check_people(db, out)
+    _check_people(db, out, roster=False)   # an off-schedule manager still schedules
     return json.dumps(out)
 
 
-def _clean_members(db: Session, emails: list) -> list:
+def _clean_members(db: Session, emails: list, existing=()) -> list:
     """Group membership is for ACTIVE people in People (Oct 2) - an inactive
-    or deleted person on a team put an empty row on every grid."""
+    or deleted person on a team put an empty row on every grid. A NEW member
+    must also be On the Schedule (11/03/2026); one already on the team who was
+    taken off it stays a member - the membership is kept while they are off."""
     out = list(dict.fromkeys(e.strip().lower() for e in emails if e and e.strip()))
-    _check_people(db, out)
+    kept = {(e or "").lower() for e in existing or ()}
+    _check_people(db, [em for em in out if em in kept], roster=False)
+    _check_people(db, [em for em in out if em not in kept])
     return out
 
 
@@ -6910,7 +6955,8 @@ def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require
         new_company = _company_for_new(db, user, body.company_id)
         _require_company_manage(user, db, new_company, "Moving a shift group to that company")
         g.company_id = new_company
-    members = _clean_members(db, body.members)
+    members = _clean_members(db, body.members, [m.employee_email for m in db.query(ShiftGroupMember)
+                                                .filter(ShiftGroupMember.group_id == group_id).all()])
     if body.name.strip():
         g.name = body.name.strip()[:80]
     _apply_teams_binding(g, body)
@@ -6949,9 +6995,9 @@ def change_group_members(group_id: str, body: GroupMembersIn, user: dict = Depen
         raise HTTPException(404, "Team not found")
     if not _group_editable(db, user, g):
         raise HTTPException(403, "Only this team's manager or an administrator can change who is on it.")
-    add = _clean_members(db, body.add)
     have = {(m.employee_email or "").lower() for m in
             db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).all()}
+    add = _clean_members(db, body.add, have)
     for em in add:
         if em not in have:
             db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=group_id, employee_email=em))
@@ -7513,7 +7559,13 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     all_people = {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all() if e.work_email}
     names = {em: ((e.display_name or "").strip() or f"{e.first_name} {e.last_name}".strip())
              for em, e in all_people.items()}
-    people = {em: e for em, e in all_people.items() if _is_active_emp(e)}
+    import shift_roster
+    people = {em: e for em, e in all_people.items() if shift_roster.on_schedule(e)}
+    # Active but switched off (11/03/2026): no row, listed at the grid's foot.
+    off_schedule = [{"email": em, "name": names.get(em, em),
+                     "canEdit": can_write and (write_scope is None or em in write_scope)}
+                    for em, e in sorted(all_people.items(), key=lambda kv: names.get(kv[0], kv[0]).lower())
+                    if _is_active_emp(e) and not shift_roster.is_switched_on(e) and (scope is None or em in scope)]
     if scope is None:
         emails = sorted(people.keys(), key=lambda em: names.get(em, em).lower())
     else:
@@ -7681,6 +7733,7 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
             "lastPublishedAt": (last.get("at") or "") if can_write else "",
             "unsharedCount": sum(unshared_by_date.values()),
             "unsharedByDate": unshared_by_date,
+            "offSchedule": off_schedule,
             # Shift settings and groups are company-wide switches
             # (_require_unscoped_team): offered only to those who can save them.
             # write_scope, not scope - every manager now READS everyone.
@@ -7971,7 +8024,8 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
     late = []
     members = []
     if group_ids:
-        exempt = time_tracking_exempt_emails(db)
+        import shift_roster
+        exempt = time_tracking_exempt_emails(db) | shift_roster.off_emails(db)   # off the schedule: not on the strip
         members = sorted({(m.employee_email or "").lower() for m in db.query(ShiftGroupMember)
                           .filter(ShiftGroupMember.group_id.in_(group_ids)).all()} - exempt - {""})
         last = {}
@@ -8069,8 +8123,11 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
         # schedule shows (Visesh, Sep 30: "there are no people pictures").
         photos = {(e.work_email or "").lower(): getattr(e, "photo_url", "") or "" for e in everyone}
         members_by_group = {}
+        import shift_roster
+        off_sched = shift_roster.off_emails(db)   # off the schedule: hidden from the team grid
         for m in db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id.in_(group_ids)).all():
-            members_by_group.setdefault(m.group_id, []).append((m.employee_email or "").lower())
+            if (m.employee_email or "").lower() not in off_sched:
+                members_by_group.setdefault(m.group_id, []).append((m.employee_email or "").lower())
         all_members = sorted({em for ems in members_by_group.values() for em in ems if em})
         defaults = {}
         for asg in db.query(ShiftAssignment).filter(ShiftAssignment.employee_email.in_(all_members)).all():
@@ -8174,19 +8231,28 @@ class ScheduledShiftIn(BaseModel):
     jobsite: Optional[str] = None      # where it is worked (jobsites.py); '' = the team's site; None = leave as is
 
 
-def _check_person_in_scope(db: Session, user: dict, em: str) -> None:
-    """A real email must be an ACTIVE person in People and inside the
-    caller's team; '' (an open shift) passes."""
-    if not em:
-        return
+def _scope_reaches(db: Session, user: dict, em: str):
+    """The write reach of a schedule change for one person: 403 outside the
+    caller's team, else their People row (None when there is none)."""
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
-    emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == em).first()
+    return db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == em).first()
+
+
+def _check_person_in_scope(db: Session, user: dict, em: str) -> None:
+    """A real email must be an ACTIVE person in People, On the Schedule and
+    inside the caller's team; '' (an open shift) passes."""
+    if not em:
+        return
+    emp = _scope_reaches(db, user, em)
     if not emp:
         raise HTTPException(400, "That person is not in the People list.")
     if not _is_active_emp(emp):
         raise HTTPException(400, "That person is not active in People.")
+    import shift_roster
+    if not shift_roster.on_schedule(emp):
+        raise HTTPException(400, "That person is off the schedule. Put them back on the schedule first.")
 
 
 def _placement_tz(body_tz, preset, team_tz: str) -> str:
@@ -8294,6 +8360,135 @@ def assign_open_shift(sched_id: str, body: AssignOpenIn,
     return _sched_dict(assigned, {preset.id: preset} if preset else {}, team_tz=_team_tz(db))
 
 
+# ── On the Schedule (Neil, 11/03/2026, shift_roster.py) ──────────────────────
+
+class OnScheduleIn(BaseModel):
+    email: str
+    on: bool
+
+
+class OnScheduleUndoIn(BaseModel):
+    email: str
+    shiftIds: List[str] = []
+
+
+OFF_SCHEDULE_REASON = "Taken off the schedule"
+
+
+def _on_schedule_target(db: Session, user: dict, email: str):
+    """The person whose switch is changing, or 404 / 403. Allowed for whoever
+    may schedule them (the reach of adding a shift for them - the schedule
+    write scope - without the active / on-schedule test) OR may edit them in
+    People (the People editor grant and its company scope, as PATCH
+    /hr/employees checks it)."""
+    em = (email or "").strip().lower()
+    emp = (db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == em).first()) if em else None
+    if emp is None:
+        raise HTTPException(404, "That person is not in the People list.")
+    if can_manage_shifts(user):
+        try:
+            sched_user = require_schedule_write(user, db)   # carries a group scheduler's members
+            _scope_reaches(db, sched_user, em)
+            return emp
+        except HTTPException:
+            pass
+    if int(user.get("level", 0)) >= _LEVELS["administrator"] or \
+            _module_level(user["email"], "hr", db) >= _MODULE_LEVEL_RANK["editor"]:
+        from auth import hr_scope
+        from routers.hr import _in_scope
+        scope = hr_scope(user, db)
+        if scope is None or _in_scope(emp, scope):
+            return emp
+    raise HTTPException(403, "You can't change whether this person is on the schedule.")
+
+
+def _audit_on_schedule(db: Session, user: dict, emp, on: bool, opened: int) -> None:
+    """The person's field-level history, the way People audits a profile
+    change (routers/hr.update_employee)."""
+    db.add(AuditLog(timestamp=_now_iso(), user_email=user["email"], user_role=str(user.get("role") or ""),
+                    action="Changed employee fields", resource_type="employee", resource_id=emp.id,
+                    details=json.dumps({"employee": emp.work_email,
+                                        "changes": {"on_schedule": ["0" if on else "1", "1" if on else "0"]},
+                                        "openedShifts": opened})[:4000]))
+
+
+@router.put("/schedule/on-schedule")
+def set_on_schedule(body: OnScheduleIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Turn a person's On the Schedule switch (Neil, 11/03/2026). Off: their
+    shifts from today on (the team's today, shared or not) become open slots
+    of the same team in this one transaction, each logged, their Outlook
+    events queued for removal. Their team memberships stay. On: the flag only.
+    No bells, no emails."""
+    import shift_roster
+    import shift_calendar
+    emp = _on_schedule_target(db, user, body.email)
+    em = (emp.work_email or "").lower()
+    actor = (user.get("email") or "").lower()
+    was_on = shift_roster.is_switched_on(emp)
+    if body.on:
+        emp.on_schedule = 1
+        emp.updated_at = _now_iso()
+        if not was_on:
+            _audit_on_schedule(db, user, emp, True, 0)
+        db.commit()
+        return {"email": em, "on": True}
+    from routers.shift_requests import settings_for as _sr_settings_for
+    import shift_expect
+    tz = _sr_settings_for(db, em).get("timeZone") or _DEFAULT_TEAM_TZ
+    today = datetime.now(timezone.utc).astimezone(shift_expect.zone(tz)).date().isoformat()
+    rows = (db.query(ScheduledShift)
+            .filter(func.lower(ScheduledShift.employee_email) == em, ScheduledShift.work_date >= today)
+            .order_by(ScheduledShift.work_date, ScheduledShift.start_hhmm).with_for_update().all())
+    opened = []
+    for r in rows:
+        before = shift_log.snapshot(r)
+        # An unshared edit was the old owner's - it must not publish onto the slot.
+        r.employee_email, r.open_slots, r.pending_json = "", 1, ""
+        r.created_by = actor   # the slot is the scheduler's who opened it (_open_row_mine)
+        shift_log.record(db, "released", {"id": r.id, "email": em, "date": r.work_date}, actor,
+                         before=before, after=shift_log.snapshot(r), reason=OFF_SCHEDULE_REASON)
+        opened.append(r.id)
+    if opened:
+        shift_calendar.enqueue(db, opened)   # the old owner's Outlook events come off
+    emp.on_schedule = 0
+    emp.updated_at = _now_iso()
+    if was_on or opened:
+        _audit_on_schedule(db, user, emp, False, len(opened))
+    db.commit()
+    return {"email": em, "on": False, "openedShiftIds": opened, "openedCount": len(opened)}
+
+
+@router.post("/schedule/on-schedule/undo")
+def undo_off_schedule(body: OnScheduleUndoIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Undo Take Off the Schedule: the person is back On, and each listed
+    shift that is STILL an open slot goes back to them. A slot someone has
+    since filled, changed into another person's or removed is skipped."""
+    import shift_calendar
+    emp = _on_schedule_target(db, user, body.email)
+    em = (emp.work_email or "").lower()
+    actor = (user.get("email") or "").lower()
+    import shift_roster
+    if not shift_roster.is_switched_on(emp):
+        _audit_on_schedule(db, user, emp, True, 0)
+    emp.on_schedule = 1
+    emp.updated_at = _now_iso()
+    ids = list(dict.fromkeys(str(x) for x in (body.shiftIds or []) if x))[:2000]
+    rows = (db.query(ScheduledShift).filter(ScheduledShift.id.in_(ids)).with_for_update().all()) if ids else []
+    restored = []
+    for r in rows:
+        if (r.employee_email or "").strip() or int(r.open_slots or 0) < 1:
+            continue
+        before = shift_log.snapshot(r)
+        r.employee_email, r.open_slots = em, 0
+        shift_log.record(db, "assigned", r, actor, before=before, after=shift_log.snapshot(r),
+                         reason="Put back on the schedule")
+        restored.append(r.id)
+    if restored:
+        shift_calendar.enqueue(db, restored)
+    db.commit()
+    return {"restored": len(restored), "skipped": len(ids) - len(restored), "restoredIds": restored}
+
+
 class BulkScheduleIn(BaseModel):
     shift_id:   Optional[str] = ""          # preset -> its start/end/name
     start_hhmm: Optional[str] = ""          # override when there's no preset
@@ -8337,7 +8532,7 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
     shifts (unless overwrite). Team-scoped: only people the caller can already
     see are touched."""
     scope = _visible_emails(db, user)
-    named = _check_people(db, body.emails)   # a named person must be ACTIVE in People (Oct 2)
+    named = _check_people(db, body.emails, roster=False)   # a named person must be ACTIVE in People (Oct 2)
     emails = set(named)
     gid = (body.group_id or "").strip()
     if gid:
@@ -8348,9 +8543,13 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
                    if m.employee_email}
     if scope is not None:
         emails &= set(scope)          # never schedule outside the caller's team
-    emails &= set(_active_people(db))   # a team's inactive members are skipped
+    import shift_roster
+    off_skipped = len(emails & shift_roster.off_emails(db))   # off the schedule (11/03/2026)
+    emails &= set(_active_people(db))   # a team's inactive and off-schedule members are skipped
     emails = {e for e in emails if e}
     if not emails:
+        if off_skipped:
+            raise HTTPException(400, "Everyone selected is off the schedule.")
         raise HTTPException(400, "No people selected (or none in your team).")
 
     try:
@@ -8441,6 +8640,7 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
     db.commit()
     return {"created": created, "replaced": replaced, "skipped": skipped,
             "timeoffSkipped": timeoff_skipped, "holidaySkipped": holiday_skipped,
+            "offScheduleSkipped": off_skipped,
             "people": len(emails), "dates": len(dates)}
 
 
@@ -8587,6 +8787,9 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
     presets = {p.id: p for p in db.query(Shift).all()}
     sources = [(_sched_dict(r, presets, effective=True), r) for r in rows]   # what the scheduler sees
     active = _active_people(db)
+    import shift_roster
+    _off = shift_roster.off_emails(db)
+    off_skipped = len({src["email"] for src, _ in sources if src["email"] in _off})   # people off the schedule
     sources = [(src, r) for src, r in sources if not src["email"] or src["email"] in active]
     # An open shift is copied only into a team that still has open shifts on (Oct 28).
     open_on = {g.id for g in db.query(ShiftGroup).all() if _open_shifts_on(g)}
@@ -8658,7 +8861,8 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
     timeoff_copied = _copy_timeoff(db, user, body, s0, s1, span, repeats) if body.include_timeoff else 0
     db.commit()
     return {"created": created, "replaced": replaced, "skipped": skipped, "timeoffSkipped": timeoff_skipped,
-            "holidaySkipped": holiday_skipped, "timeoffCopied": timeoff_copied, "targetStart": lo, "targetEnd": hi}
+            "holidaySkipped": holiday_skipped, "timeoffCopied": timeoff_copied, "targetStart": lo, "targetEnd": hi,
+            "offScheduleSkipped": off_skipped}
 
 
 class ClearScheduleIn(BaseModel):
@@ -9030,6 +9234,8 @@ def import_schedule(body: ImportIn, user: dict = Depends(require_schedule_write)
         raise HTTPException(400, f"Import at most {_IMPORT_MAX} shifts at a time.")
     scope = _visible_emails(db, user)
     active = _active_people(db)
+    import shift_roster
+    off_sched = shift_roster.off_emails(db)
     presets, by_key = {}, {}
     for p in db.query(Shift).all():
         presets[p.id] = p
@@ -9059,6 +9265,8 @@ def import_schedule(body: ImportIn, user: dict = Depends(require_schedule_write)
         try:
             em = (r.email or "").strip().lower()
             if em and em not in active:
+                if em in off_sched:
+                    raise ValueError(f"{em} is off the schedule.")
                 raise ValueError(f"{em} is not in the People list.")
             if em and scope is not None and em not in scope:
                 raise ValueError(f"{em} is outside your team.")

@@ -14,6 +14,19 @@ Nexus task, linked by Cubby's task id (cubby_task_links; the task carries
     to Cubby (Neil: "100 items will instantly pop in Cubby"). Only Cubby's own
     fields are refreshed from Cubby - title, description, due date - and
     whatever Nexus adds (comments, files, subtasks, more people) stays here.
+    A note typed on the task in Cubby (Sagar, 11/03/2026: "get the notes
+    also") arrives as a comment stamped "[Cubby · Name · date]" from
+    the warehouse's manager_notes (NOTES_LOOKBACK_DAYS back; append-only
+    there, so an edit or delete in Cubby never follows), each once
+    (link.note_ids); a note newer than the link bells the task's people
+    like any comment, older ones land quietly. Nexus comments never go
+    to Cubby.
+  * WHAT CUBBY DID IS CUBBY'S. The tasks are created and refreshed AS the
+    facility project's owner (a task needs a creator on its side of the
+    company wall), but the owner is not put on the task as a collaborator
+    and a date Cubby set or moved is recorded as Cubby's ("by Cubby (in
+    Cubby)"), never as the owner's (Sagar, 11/03/2026: every Cubby task
+    showed the owner as a collaborator and "date changed by" him).
   * WHERE it lands. A task assigned to people in Cubby goes to those people,
     in the facility's project; one assigned to a group (every automated task
     is assigned to the "Operations" group) or to nobody goes to the facility's
@@ -66,6 +79,7 @@ TAG = "Cubby"
 AUTO_TAG = "Automated"
 CUBBY_ACTOR = "cubby@nexus"            # the history actor for what Cubby did
 WAREHOUSE_LOOKBACK_DAYS = 14           # completions older than this are found through the API
+NOTES_LOOKBACK_DAYS = 14               # Cubby notes older than this never become comments
 PUSH_MAX_ATTEMPTS = 12                 # a push Cubby keeps refusing stops after this many minutes
 PUSH_EVERY_SEC = 60
 PUSH_FIRST_DELAY_SEC = 240
@@ -277,6 +291,26 @@ def _warehouse() -> tuple[dict, dict, str]:
     return tasks, staff, ""
 
 
+def _warehouse_notes() -> tuple[dict, str]:
+    """(notes by Cubby task id, oldest first; note). Its own call so a notes
+    problem never costs the assignees. Never raises."""
+    import cubby_warehouse
+    if not cubby_warehouse.configured():
+        return {}, "warehouse not connected"
+    since = datetime.now(timezone.utc) - timedelta(days=NOTES_LOOKBACK_DAYS)
+    try:
+        rows = cubby_warehouse.note_rows(since)
+    except cubby_warehouse.WarehouseError as e:
+        return {}, str(e)[:300]
+    except Exception as e:  # noqa: BLE001
+        return {}, f"warehouse: {type(e).__name__}"
+    out: dict = {}
+    for r in rows:
+        out.setdefault(str(r.get("task_id") or ""), []).append(r)
+    out.pop("", None)
+    return out, ""
+
+
 def cubby_status(task_id: str) -> str:
     """What Cubby says a task is now: OPEN / COMPLETED / ARCHIVED, or GONE.
     A search-only call (cubby._post); raises cubby.CubbyError."""
@@ -350,12 +384,14 @@ def _sync(db, cfg: dict, facility_ids) -> dict:
     projects = {p.id: p for p in db.query(models.TaskProject)
                 .filter(models.TaskProject.id.in_(list(set(cfg["projects"].values())) or [""])).all()}
     wh_tasks, staff, wh_note = _warehouse()
+    wh_notes, notes_note = _warehouse_notes()
     people_cache: dict = {}
     open_rows = _open_rows(db, facility_ids)
     links = {l.task_id: l for l in db.query(models.CubbyTaskLink).all()}
     s = {"at": at, "status": "ok", "facilities": len(facility_ids), "open": len(open_rows),
          "created": 0, "updated": 0, "reassigned": 0, "completedFromCubby": 0, "reopenedFromCubby": 0,
-         "unmapped": {}, "noCreator": [], "unmatchedPeople": {}, "errors": [], "warehouse": wh_note or "ok"}
+         "notes": 0, "unmapped": {}, "noCreator": [], "unmatchedPeople": {}, "errors": [],
+         "warehouse": wh_note or "ok", "notesWarehouse": notes_note or "ok"}
 
     def fail(what: str, e: Exception) -> None:
         db.rollback()
@@ -398,6 +434,9 @@ def _sync(db, cfg: dict, facility_ids) -> dict:
                 link = _create(db, user, project, tid, data, fields, emails, missing, fac_names.get(fid, fid), wh)
                 links[tid] = link
                 s["created"] += 1
+                t = db.query(models.Task).filter(models.Task.id == link.nexus_task_id).first()
+                if t is not None:
+                    s["notes"] += _post_notes(db, user, link, t, wh_notes.get(tid) or [])
                 continue
             t = db.query(models.Task).filter(models.Task.id == link.nexus_task_id).first()
             cubby_changed = (data.get("updatedAt") or "") != (link.cubby_updated_at or "")
@@ -421,6 +460,7 @@ def _sync(db, cfg: dict, facility_ids) -> dict:
                 s["updated"] += 1
             if wh is not None and _reassign(db, user, link, t, emails, missing):
                 s["reassigned"] += 1
+            s["notes"] += _post_notes(db, user, link, t, wh_notes.get(tid) or [])
             link.status = "OPEN"
             if link.push_status == "COMPLETED" and not bool(t.completed):
                 link.push_status = ""            # Cubby and Nexus agree again
@@ -469,7 +509,7 @@ def _sync(db, cfg: dict, facility_ids) -> dict:
 
     if s["errors"]:
         s["status"] = "partial"
-    print(f"[cubby-tasks] {s['status']}: {s['created']} created, {s['updated']} updated, "
+    print(f"[cubby-tasks] {s['status']}: {s['created']} created, {s['updated']} updated, {s['notes']} note(s), "
           f"{s['completedFromCubby']} completed from Cubby, {len(s['errors'])} error(s)")
     return s
 
@@ -477,6 +517,50 @@ def _sync(db, cfg: dict, facility_ids) -> dict:
 def _project_of(db, t):
     import models
     return db.query(models.TaskProject).filter(models.TaskProject.id == t.project_id).first() if t.project_id else None
+
+
+def _date_is_cubbys(t) -> None:
+    """The due_history entry the Tasks module just wrote in the owner's name
+    was Cubby's doing: say so (dueHistory.js reads `by` and `source`)."""
+    hist = list(t.due_history) if isinstance(t.due_history, list) else []
+    if hist and isinstance(hist[-1], dict):
+        hist[-1] = {**hist[-1], "by": CUBBY_ACTOR, "source": "cubby"}
+        hist[-1].pop("undo", None)        # nothing of the owner's to put back
+        t.due_history = hist
+
+
+def _not_a_collaborator(t, email: str, before: list | None = None) -> None:
+    """Take the run-as person back off the followers the Tasks module put
+    them on (it subscribes whoever creates or assigns). `before` = the
+    followers before the change: someone who chose to follow in Nexus stays."""
+    me = (email or "").lower()
+    if before is not None and me in [e.lower() for e in before]:
+        return
+    t.follower_emails = [e for e in (t.follower_emails or []) if e.lower() != me]
+
+
+def _post_notes(db, user: dict, link, t, notes: list[dict]) -> int:
+    """Cubby's notes on this task as comments, each once. Returns how many
+    were posted. A note newer than the link bells like a typed comment;
+    older ones (the backfill when a task is first linked) land quietly."""
+    from routers.task_util import create_comment
+    seen = set(link.note_ids or [])
+    posted = 0
+    for n in notes:
+        nid = str(n.get("id") or "")
+        if not nid or nid in seen:
+            continue
+        who = (n.get("manager_name") or "").strip() or "Cubby"
+        day = (n.get("created_at") or "")[:10]
+        body = f"[Cubby · {who}{' · ' + day if day else ''}]\n{n['message']}"
+        fresh = (n.get("created_at") or "") > (link.created_at or "")
+        create_comment(db, t, actor_email=CUBBY_ACTOR, body=body, notify=fresh)
+        seen.add(nid)
+        posted += 1
+    if posted:
+        link.note_ids = sorted(seen)
+        db.commit()
+    return posted
 
 
 def _cubby_note(db, t, detail: str) -> None:
@@ -512,6 +596,8 @@ def _create(db, user: dict, project, tid: str, data: dict, fields: dict, emails:
         t.cubby_task_id = tid
         link.nexus_task_id = t.id
         db.add(link)
+        _not_a_collaborator(t, user["email"])
+        _date_is_cubbys(t)
         _cubby_note(db, t, f"Imported from Cubby ({where}) - {who}{extra}")
 
     tasks_router._create_task(body, _Now(), user, db, before_commit=before_commit, check_people=True,
@@ -539,6 +625,8 @@ def _refresh_fields(db, user: dict, t, data: dict) -> bool:
     setattr(t, FROM_CUBBY, True)
     try:
         tasks_router.update_task(t.id, tasks_router.TaskUpdate(**upd), _Now(), user, db)
+        if "due_on" in upd:
+            _date_is_cubbys(t)
         _cubby_note(db, t, "Updated from Cubby: " + ", ".join(
             {"title": "title", "description": "description", "due_on": "due date"}[k] for k in upd))
         db.commit()
@@ -563,8 +651,10 @@ def _reassign(db, user: dict, link, t, emails: list[str], missing: list[str]) ->
     if set(nxt) == set(current):
         return False
     setattr(t, FROM_CUBBY, True)
+    followers_before = list(t.follower_emails or [])
     try:
         tasks_router.update_task(t.id, tasks_router.TaskUpdate(assignee_emails=nxt), _Now(), user, db)
+        _not_a_collaborator(t, user["email"], followers_before)
         note = "Assignment changed in Cubby"
         if missing:
             note += f" - assigned there to {', '.join(missing)}, who {'has' if len(missing) == 1 else 'have'} no Nexus account"
@@ -690,13 +780,14 @@ async def cubby_task_push_loop():
 
 def link_for_task(db, nexus_task_id: str) -> dict | None:
     """The drawer's "From Cubby" row."""
+    import cubby
     import models
     link = db.query(models.CubbyTaskLink).filter(models.CubbyTaskLink.nexus_task_id == nexus_task_id).first()
     if link is None:
         return None
     fac = db.query(models.CubbyFacility).filter(models.CubbyFacility.facility_id == link.facility_id).first()
     return {
-        "cubbyTaskId": link.task_id, "facilityId": link.facility_id,
+        "cubbyTaskId": link.task_id, "facilityId": link.facility_id, "url": cubby.task_url(link.task_id),
         "facilityName": (fac.name if fac else "") or link.facility_id,
         "unitName": link.unit_name or "", "status": link.status or "OPEN",
         "assignedNames": list(link.assigned_names or []), "groupNames": list(link.group_names or []),

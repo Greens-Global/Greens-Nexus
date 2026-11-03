@@ -21,8 +21,8 @@ const QUICK_ADD_CONFIG = Object.fromEntries(
 
 /** Returns a plain-text representation of a cell for sorting/searching: prefer the "main"
  *  renderer, then "mono", then "plain" - chip-only columns (status badges) have nothing to sort by. */
-function cellText(col, row) {
-  const v = col.main ? col.main(row) : col.mono ? col.mono(row) : col.plain ? col.plain(row) : '';
+function cellText(col, row, active) {
+  const v = col.main ? col.main(row, active) : col.mono ? col.mono(row, active) : col.plain ? col.plain(row, active) : '';
   return v == null ? '' : String(v);
 }
 
@@ -126,8 +126,8 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
     sortCol == null
       ? recordType.sort
       : (a, b) => {
-          const at = cellText(recordType.cols[sortCol], a);
-          const bt = cellText(recordType.cols[sortCol], b);
+          const at = cellText(recordType.cols[sortCol], a, active);
+          const bt = cellText(recordType.cols[sortCol], b, active);
           const an = parseFloat(at.replace(/[^0-9.-]/g, ''));
           const bn = parseFloat(bt.replace(/[^0-9.-]/g, ''));
           const cmp = !isNaN(an) && !isNaN(bn) && /\d/.test(at) && /\d/.test(bt) ? an - bn : at.localeCompare(bt);
@@ -350,7 +350,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                         {recordType.cols.map((col, ci) => {
                           const chip = col.chip ? col.chip(row) : null;
                           const sub = col.main && col.sub ? col.sub(row) : null;
-                          const text = cellText(col, row).trim();
+                          const text = cellText(col, row, active).trim();
                           // A cell with nothing to say shows "-" on a desktop; the phone card
                           // drops it (asset-styles td[data-empty]) instead of printing "SCOPE -".
                           const empty = col.chip ? !chip : (text === '' || text === '-') && !sub;
@@ -359,15 +359,15 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                             {!leadColumn && ci === 0 && row._nested && <CornerDownRight size={13} style={{ color: 'var(--text-secondary)', marginRight: 4, verticalAlign: '-2px' }} />}
                             {col.main ? (
                               <>
-                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{col.main(row) || '-'}</div>
+                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{col.main(row, active) || '-'}</div>
                                 {sub ? <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 1 }}>{sub}</div> : null}
                               </>
                             ) : col.mono ? (
-                              <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: '0.8rem' }}>{col.mono(row)}</span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: '0.8rem' }}>{col.mono(row, active)}</span>
                             ) : col.chip ? (
                               chip
                             ) : (
-                              <span>{col.plain(row)}</span>
+                              <span>{col.plain(row, active)}</span>
                             )}
                           </td>
                           );

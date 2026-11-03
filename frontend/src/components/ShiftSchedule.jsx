@@ -163,6 +163,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   const [panel, setPanel] = useState(null);        // { cell: { email, date, existing, groupId }, mode }
   const [menu, setMenu] = useState(null);          // { x, y, email, date, groupId, shift }
   const [personMenu, setPersonMenu] = useState(null);
+  const [showOff, setShowOff] = useState(false);   // the off-the-schedule list at the grid's foot
   const [details, setDetails] = useState(null);
   const [copied, setCopied] = useState(null);
   // Excel-style selection (Neil and Charmi, Oct 28 2026: "it should be just
@@ -812,7 +813,29 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
     else if (action === 'timeoff') setPanel({ cell: { email: m.emp.email, date: start }, mode: 'timeoff' });
     else if (action === 'usual') setUsual(m.emp.email, arg);
     else if (action === 'fill') fillUsual([m.emp.email], m.emp.name);
+    else if (action === 'offSchedule') takeOffSchedule(m.emp);
   }
+  // On the Schedule (Neil, 11/03/2026): off = the person leaves every part of
+  // scheduling and their shifts from today on become open slots; the Undo
+  // puts those slots back on them. Their team memberships are kept.
+  async function takeOffSchedule(emp) {
+    const today = todayIso();
+    const n = (data?.scheduled || []).filter((s) => s.email === emp.email && s.date >= today && !s.pendingDelete).length;
+    // Only the loaded weeks are counted here, so the count is "in view"; the
+    // server's toast after it gives the full number.
+    const tail = !n ? `Any shifts they have from ${formatDate(today)} on become open slots.`
+      : `Their shifts from ${formatDate(today)} on become open slots (${n} in view).`;
+    const ok = await dialog.confirm(`Take ${emp.name} off the schedule? ${tail} You can put them back any time.`,
+      { title: 'Take Off the Schedule', confirmText: 'Take Off' });
+    if (!ok) return;
+    run(() => api.setOnSchedule(emp.email, false), {
+      ok: (r) => `${emp.name} is off the schedule.${r?.openedCount ? ` ${r.openedCount === 1 ? '1 shift is' : `${r.openedCount} shifts are`} now open.` : ''}`,
+      fail: 'Could not take them off the schedule.',
+      undo: (r) => () => api.undoOffSchedule(emp.email, r?.openedShiftIds || []),
+    });
+  }
+  const putBackOnSchedule = (p) => run(() => api.setOnSchedule(p.email, true),
+    { ok: `${p.name} is back on the schedule.`, fail: 'Could not put them back on the schedule.' });
   const openMenu = (e, ctx) => {
     if (!canManage) return;
     e.preventDefault(); e.stopPropagation();
@@ -1380,10 +1403,10 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       ) : view === 'day' ? (
         <ScheduleDay single={single} date={start} sections={sections} shifts={shown} openCells={openCells} notes={notes} weather={weather} canManage={managing} offOn={offOn} holOn={holOn}
           copied={copied} prefs={prefs} rowEditable={rowEditable} shiftEditable={shiftEditable} dragId={drag?.id} on={gridOn}
-          dragProps={dragProps} dropProps={dropProps} dropStyle={dropStyle} clickable={clickable} />
+          dragProps={dragProps} dropProps={dropProps} dropStyle={dropStyle} clickable={clickable} teamZone={teamZone} />
       ) : view === 'month' ? (
         <ScheduleMonth days={days} shifts={shown.filter((s) => s.email)} openShifts={shown.filter((s) => !s.email)} timeoff={data.timeoff || []}
-          holidayDates={holidayDates} holidayNames={holidayNames} notes={notes} visibleEmails={visibleEmails} names={names} people={empByEmail} weekStart={weekStart} onOpenDay={openDay} />
+          holidayDates={holidayDates} holidayNames={holidayNames} notes={notes} visibleEmails={visibleEmails} names={names} people={empByEmail} weekStart={weekStart} onOpenDay={openDay} teamZone={teamZone} />
       ) : groupBy === 'shift' ? (
         <ShiftTypeWeek days={days} shifts={shown} presets={presets} names={names} teamZone={teamZone}
           onOpen={(s) => openShiftEditor(s, s.email, s.date)} />
@@ -1399,6 +1422,29 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
           actualOf={actuals ? actualOf : null} confirmOf={managing && confirmations ? confirmOf : null} />
       )}
       </div>
+      )}
+      {data && (data.offSchedule || []).length > 0 && (
+        <div data-off-schedule="" style={{ marginTop: 8, fontSize: 12.5, color: 'var(--muted)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span>{data.offSchedule.length === 1 ? '1 person is' : `${data.offSchedule.length} people are`} off the schedule -</span>
+            <button type="button" aria-expanded={showOff} onClick={() => setShowOff((v) => !v)}
+              style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 2 }}>
+              {showOff ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {showOff && (
+            <div role="list" aria-label="Off the Schedule" style={{ marginTop: 6 }}>
+              {data.offSchedule.map((p) => (
+                <div role="listitem" key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderTop: '1px solid var(--line)' }}>
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                  {managing && p.canEdit !== false && (
+                    <button type="button" className="secondary-btn" disabled={busy} onClick={() => putBackOnSchedule(p)} style={{ fontSize: 12 }}>Put Back</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
       {data && teamZoneLabel && (
         <div data-zone-note="" style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>

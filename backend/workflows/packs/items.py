@@ -23,11 +23,10 @@ Item Management grant / administrator. `may_use`: the Item Management
 """
 from __future__ import annotations
 
-from datetime import timedelta
 
 import models
 from workflows.catalog import F, entity, event, list_source
-from workflows.packs._people import (attach_property, emails, has_grant, is_admin, parse_dt, person_company,
+from workflows.packs._people import (attach_property, emails, has_grant, is_admin, person_company,
                                      person_manager)
 
 MODULE = "items"
@@ -45,14 +44,14 @@ ASSIGNMENT_STATUSES = [
 
 # ── derived attributes ───────────────────────────────────────────────────────
 def _due_date(co) -> str:
-    start = parse_dt(co.handed_over_at or co.allocated_at or co.created_at)
-    if start is None:
-        return ""
-    try:
-        days = int(co.days or 0)
-    except (TypeError, ValueError):
-        days = 0
-    return (start + timedelta(days=days)).date().isoformat()
+    """item_due - the one clock: handover + days, as a date in the
+    borrower's own time zone."""
+    import item_due
+    from sqlalchemy.orm import object_session
+    db = object_session(co)
+    tz = item_due.zone_for(db, co.requested_by_email) if db is not None else ""
+    d = item_due.due_date(co, tz)
+    return d.isoformat() if d is not None else ""
 
 
 attach_property(models.ItemCheckout, "wf_due_date", _due_date)
@@ -197,16 +196,20 @@ event("item_assignment.field_changed", entity="item_assignment", label="Assignme
 def overdue_checkouts(db, ctx, params) -> list:
     """Allocated checkouts whose due date (handover plus days) is before
     today; in the run's company when it has one."""
-    from datetime import date as _date
-    today = (getattr(ctx, "today", None) or _date.today()).isoformat()
+    import item_due
+    fixed_today = getattr(ctx, "today", None)
     rows = (db.query(models.ItemCheckout).filter(models.ItemCheckout.status == "allocated")
             .order_by(models.ItemCheckout.handed_over_at, models.ItemCheckout.id).all())
     cid = (getattr(ctx, "company_id", "") or "")
     memo: dict = {}
+    zones = item_due.Zones(db)          # one zone lookup per borrower, not per row
     out = []
     for r in rows:
-        due = r.wf_due_date
-        if not due or due >= today:
+        # The due date and "today" both in the borrower's own zone (item_due).
+        tz = zones.get(r.requested_by_email)
+        due = item_due.due_date(r, tz)
+        today = fixed_today or item_due.local_today(tz)
+        if due is None or due >= today:
             continue
         if cid:
             em = (r.requested_by_email or "").lower()
