@@ -1,8 +1,9 @@
 // Items phase 4 - QR tags and phone scan (Neil, 11/02/2026). The whole
 // integration surface; everything else in this folder is internal.
 //
-// MOUNT (once, inside the Items view - today views/InventoryManagement.jsx):
-//   <ItemScanHost activeSub onSubChange userEmail userName isManager toast renderItem? />
+// MOUNT (once, inside the Items view - today views/InventoryManagement.jsx,
+// with renderItem = the item record, inventory/record/ItemRecord.jsx):
+//   <ItemScanHost activeSub onSubChange userEmail userName isManager toast renderItem? closeSub? />
 //     Opens the item an "item/<id>" sub names (a QR tag, a shared link,
 //     openItemById), the scanner and the tag sheet. `renderItem` lets the
 //     item record sheet draw a found item: renderItem({ item, view, close,
@@ -21,8 +22,12 @@
 //
 // ROUTE: /itemmanagement/item/<id> (lib/routes.js itemLinkSub -> sub "item/<id>";
 //   /inventory/item/<id> and a bell's "item:<id>" sub land the same).
-// SERVER: GET /items/by-code?code= (walled, 404 outside the caller's
-//   companies), POST /items/tags { ids } (items admins) - routers/items.py.
+// SERVER: GET /items/by-code?code= (walled IN every query, 404 outside the
+//   caller's companies, 409 { choices } when a loose serial fits several,
+//   the same activity fields as GET /items), POST /items/tags { ids } (items
+//   admins; { tags, publicBase } - the QR codes carry publicBase, the app's
+//   public address, and a scanned item link from any host is the item) -
+//   routers/items.py.
 // CHUNKS: ScannerSheet and TagSheet are lazy; jsqr (vendor-jsqr) loads only
 //   without BarcodeDetector, qrcode (vendor-qr) only with the tag sheet.
 //   scripts/check-bundle-size.mjs fails if either reaches first paint.

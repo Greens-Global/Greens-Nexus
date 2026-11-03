@@ -10,6 +10,7 @@ const calls = { getItemTags: vi.fn() };
 vi.mock('../../api', () => ({ api: { getItemTags: (...a) => calls.getItemTags(...a) } }));
 
 const { default: TagSheet, TagLabel } = await import('./TagSheet');
+const { useEscapeLayer } = await import('../../tasks/components');
 const { paginateTags, perPage, TAG_LAYOUTS, PAGE } = await import('./tagLayout');
 const realQr = async () => { const m = await import('qrcode'); return m.default || m; };
 
@@ -104,6 +105,44 @@ describe('the tag sheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalled();
     print.mockRestore();
+  });
+
+  it('QR codes carry the app\'s public address from the server, else this tab\'s origin (review M1)', async () => {
+    const seen = [];
+    const fakeQr = async () => ({ create: (text) => { seen.push(text); return { modules: { size: 21, get: () => false } }; } });
+    calls.getItemTags.mockResolvedValue({ tags: rows(1), publicBase: 'https://nexus.greensglobal.com' });
+    render(<TagSheet items={rows(1)} onClose={() => {}} loadQr={fakeQr} />);
+    await waitFor(() => expect(seen).toEqual(['https://nexus.greensglobal.com/itemmanagement/item/it-0']));
+    cleanup();
+    seen.length = 0;
+    calls.getItemTags.mockResolvedValue({ tags: rows(1), publicBase: '' });
+    render(<TagSheet items={rows(1)} onClose={() => {}} loadQr={fakeQr} />);
+    await waitFor(() => expect(seen).toEqual([`${window.location.origin}/itemmanagement/item/it-0`]));
+  });
+
+  it('Escape closes the tag sheet only, never the record under it; focus goes in and comes back (review L3)', async () => {
+    calls.getItemTags.mockResolvedValue(rows(1));
+    const underClose = vi.fn();
+    const onClose = vi.fn();
+    function Under() { useEscapeLayer(underClose); return <button type="button">Print Tag</button>; }
+    const under = render(<Under />);
+    const opener = screen.getByRole('button', { name: 'Print Tag' });
+    opener.focus();
+    const sheet = render(<TagSheet items={rows(1)} onClose={onClose} loadQr={realQr} />);
+    expect(document.activeElement).toBe(screen.getByLabelText('Tag sheet options'));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(underClose).not.toHaveBeenCalled();
+    sheet.unmount();
+    expect(document.activeElement).toBe(opener);
+    under.unmount();
+  });
+
+  it('lets the body flow again when it prints from a scroll-locked sheet (review L4)', async () => {
+    calls.getItemTags.mockResolvedValue(rows(1));
+    render(<TagSheet items={rows(1)} onClose={() => {}} loadQr={realQr} />);
+    const css = Array.from(document.querySelectorAll('style')).map((s) => s.textContent).join('\n');
+    expect(css).toMatch(/body\.nx-printing-tags \{ position: static !important; top: auto !important;[^}]*overflow: visible !important/);
   });
 
   it('still prints the tags when the company names cannot be loaded', async () => {

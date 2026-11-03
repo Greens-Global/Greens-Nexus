@@ -657,11 +657,18 @@ def list_items(
     _scope = auth.company_scope(user, db)
     if _scope is not None:
         items = [i for i in items if auth.company_ok(getattr(i, "company_id", ""), _scope)]
+    return _items_with_activity(db, items)
 
+
+def _items_with_activity(db: Session, items, only_ids=None) -> list:
+    """Item dicts with their live checkout activity - the ONE enrichment GET
+    /items and GET /items/by-code share (Items phase 4 review L7), so a
+    scanned item offers exactly the actions its list row would. `only_ids`
+    narrows the checkout read to those items (one scanned item)."""
     # Enrich each item with live checkout activity so ALL users (not just
     # managers who see every checkout) know when an item is taken or under
     # review - prevents submitting a cart that will 409 at the server.
-    active_cos = db.query(
+    active_q = db.query(
         ItemCheckout.item_id,
         ItemCheckout.requested_by,
         ItemCheckout.requested_by_email,
@@ -673,7 +680,10 @@ def list_items(
         ItemCheckout.requested_due_date,
     ).filter(
         ItemCheckout.status.in_(_LIVE_CHECKOUT)
-    ).all()
+    )
+    if only_ids is not None:
+        active_q = active_q.filter(ItemCheckout.item_id.in_(list(only_ids)))
+    active_cos = active_q.all()
     active_map = {row.item_id: row for row in active_cos}
 
     import item_due
@@ -4198,14 +4208,36 @@ def _live_items_q(db: Session):
     return db.query(Item).filter(or_(Item.deleted_at.is_(None), Item.deleted_at == ""))
 
 
+def _walled(q, scope, company_col=None):
+    """`q` narrowed to the caller's companies IN the query (review L5) - the
+    same rule as auth.company_ok: scope None admits everything, otherwise only
+    rows whose company is in the scope (an untagged row is never admitted)."""
+    if scope is None:
+        return q
+    col = company_col if company_col is not None else Item.company_id
+    return q.filter(col.in_(sorted(scope)))
+
+
+class SeveralItemsMatch(Exception):
+    """A loose serial that fits more than one item the caller may see."""
+    def __init__(self, choices):
+        super().__init__("several")
+        self.choices = choices
+
+
 def resolve_item_code(db: Session, code: str, scope=None):
     """(Item, how) for a scanned or typed code - an item link, an item id or a
-    serial - or (None, "") when nothing matches. `scope` (company_scope) only
-    narrows the loose serial match below; callers still wall what comes back."""
+    serial - or (None, "") when nothing matches. Every query is walled by
+    `scope` (company_scope) itself, so a match outside the caller's
+    companies is never even read. A loose serial that fits several items
+    raises SeveralItemsMatch with the choices (review L6)."""
     from urllib.parse import unquote, urlsplit
     raw = (code or "").strip()[:512]
     if not raw:
         return None, ""
+
+    def live():
+        return _walled(_live_items_q(db), scope)
     is_url = "://" in raw
     path = raw
     if is_url:
@@ -4215,29 +4247,44 @@ def resolve_item_code(db: Session, code: str, scope=None):
             path = ""
     m = _ITEM_LINK_RE.search(path) if path.startswith("/") else None
     if m:
-        found = _live_items_q(db).filter(Item.id == unquote(m.group(1))).first()
+        found = live().filter(Item.id == unquote(m.group(1))).first()
         return (found, "link") if found else (None, "")
     if is_url:
         return None, ""   # another site's link is never a serial
-    found = _live_items_q(db).filter(Item.id == raw).first()
+    found = live().filter(Item.id == raw).first()
     if found:
         return found, "id"
-    found = _live_items_q(db).filter(func.lower(Item.serial_number) == raw.lower()).first()
+    found = live().filter(func.lower(Item.serial_number) == raw.lower()).first()
     if found:
         return found, "serial"
-    # The printed serial typed by hand: "gg 42", "GG00042" and "42" all mean GG-00042.
+    # The printed serial typed by hand: "gg 42", "GG00042" and "42" all mean
+    # GG-00042 - tried before the loose match below.
     digits = re.fullmatch(r"(?:gg)?\s*-?\s*0*(\d{1,9})", raw, re.IGNORECASE)
     if digits:
         want = _fmt_serial(int(digits.group(1))).lower()
-        found = _live_items_q(db).filter(func.lower(Item.serial_number) == want).first()
+        found = live().filter(func.lower(Item.serial_number) == want).first()
         if found:
             return found, "serial"
-    # An old or outside serial read with different spacing or dashes.
+    # An old or outside serial read with different spacing or dashes. Only
+    # the id, serial and company of the caller's own items are read here.
     key = _compact(raw)
     if len(key) >= 3:
-        for it in _live_items_q(db).filter(Item.serial_number.isnot(None), Item.serial_number != "").all():
-            if _compact(it.serial_number) == key and _item_ok(it, scope):
-                return it, "serial"
+        rows = _walled(
+            db.query(Item.id, Item.serial_number, Item.company_id)
+              .filter(or_(Item.deleted_at.is_(None), Item.deleted_at == ""))
+              .filter(Item.serial_number.isnot(None), Item.serial_number != ""),
+            scope).all()
+        ids = [r.id for r in rows if _compact(r.serial_number) == key]
+        if len(ids) > 1:
+            several = live().filter(Item.id.in_(ids[:20])).order_by(Item.serial_number, Item.name).all()
+            raise SeveralItemsMatch([
+                {"id": it.id, "name": it.name, "serialNumber": it.serial_number or "", "location": it.location or ""}
+                for it in several
+            ])
+        if ids:
+            found = live().filter(Item.id == ids[0]).first()
+            if found:
+                return found, "serial"
     return None, ""
 
 
@@ -4253,12 +4300,15 @@ def _company_names(db: Session, ids) -> dict:
 def item_by_code(code: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The item a scanned tag or a typed serial names, walled like GET /items."""
     scope = _scope(user, db)
-    item, how = resolve_item_code(db, code, scope)
+    try:
+        item, how = resolve_item_code(db, code, scope)
+    except SeveralItemsMatch as many:
+        raise HTTPException(409, {"message": "Several items match - pick one", "choices": many.choices})
     if item is None or not _item_ok(item, scope):
         raise HTTPException(404, "No item you can see matches that code")
     mine = company_of(user, db)
     names = _company_names(db, [item.company_id or "", mine])
-    d = _item_to_dict(item)
+    d = _items_with_activity(db, [item], only_ids=[item.id])[0]
     d["companyName"] = names.get(item.company_id or "", "") or names.get(mine, "")
     d["matchedBy"] = how
     return d
@@ -4272,14 +4322,18 @@ class ItemTagsIn(BaseModel):
 def item_tags(body: ItemTagsIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     """What a printed tag needs for each item (name, serial and the company name -
     white-label: the item's company, else the printer's own), in the order
-    asked and walled; an id outside the caller's companies is left off."""
+    asked and walled; an id outside the caller's companies is left off.
+    `publicBase` is the address every QR code carries (review M1): the app's
+    public URL, so a tag printed from a preview or a local tab still opens
+    Nexus; empty on a local server, where the sheet uses its own origin."""
     ids = list(dict.fromkeys(i for i in (body.ids or []) if i))
     if len(ids) > _TAG_MAX:
         raise HTTPException(400, f"Print at most {_TAG_MAX} tags at a time")
+    base = _tag_public_base()
     if not ids:
-        return []
+        return {"tags": [], "publicBase": base}
     scope = _scope(user, db)
-    rows = {i.id: i for i in _live_items_q(db).filter(Item.id.in_(ids)).all() if _item_ok(i, scope)}
+    rows = {i.id: i for i in _walled(_live_items_q(db).filter(Item.id.in_(ids)), scope).all()}
     mine = company_of(user, db)
     names = _company_names(db, [r.company_id or "" for r in rows.values()] + [mine])
     out = []
@@ -4292,4 +4346,15 @@ def item_tags(body: ItemTagsIn, user: dict = Depends(require_items_admin), db: S
             "itemType": it.item_type or "", "location": it.location or "",
             "companyName": names.get(it.company_id or "", "") or names.get(mine, ""),
         })
-    return out
+    return {"tags": out, "publicBase": base}
+
+
+def _tag_public_base() -> str:
+    """The Nexus frontend's public address for QR tags: NEXUS_APP_URL, else the
+    Azure-derived one (app_url.app_url). A local server (neither set) sends
+    "" - its guess would be a localhost port the tag cannot reach anyway."""
+    import os
+    import app_url
+    if not (os.getenv("NEXUS_APP_URL", "").strip() or os.getenv("WEBSITE_SITE_NAME", "").strip()):
+        return ""
+    return app_url.app_url()

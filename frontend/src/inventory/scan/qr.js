@@ -9,7 +9,7 @@ import { itemUrl } from './itemLink';
 
 const loadQrDefault = () => import('qrcode').then((m) => m.default || m);
 
-/** The text a tag's QR code carries: the item's own link on this app's origin. */
+/** The text a tag's QR code carries: the item's own link on the app's public address. */
 export function qrPayload(id, origin) {
   return itemUrl(id, origin);
 }

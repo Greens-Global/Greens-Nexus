@@ -14,6 +14,7 @@ import { Printer, X, AlertCircle } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../../components/AsyncState';
 import { useBackToClose } from '../../lib/useBackToClose';
+import { useEscapeLayer } from '../../tasks/components';
 import { TAG_LAYOUTS, DEFAULT_LAYOUT, layoutOf, perPage, paginateTags, PAGE } from './tagLayout';
 import { createQrMaker, qrPayload } from './qr';
 
@@ -37,6 +38,10 @@ const PRINT_CSS = `
 @media print {
   @page { size: letter portrait; margin: 0; }
   html, body { background: #fff !important; }
+  /* A phone prints from inside a sheet that holds the page still
+     (lib/useScrollLock pins body with position fixed + a negative top):
+     let the body flow again for the print, or the sheets print cut off. */
+  body.nx-printing-tags { position: static !important; top: auto !important; left: auto !important; right: auto !important; width: auto !important; overflow: visible !important; }
   body.nx-printing-tags > *:not(.nx-tag-print) { display: none !important; }
   body.nx-printing-tags .nx-tag-print { position: static !important; display: block !important; background: #fff !important; }
   /* style.css's other print views hide "body *" by visibility - the sheets opt back in. */
@@ -84,32 +89,44 @@ export function TagLabel({ tag, layout, index, qr }) {
   );
 }
 
-export default function TagSheet({ items, onClose, origin = window.location.origin, loadQr }) {
+// `origin` (tests) pins the address the QR codes carry; otherwise it is the
+// app's public address from POST /items/tags (`publicBase`, review M1), and
+// this tab's own origin only when the server did not send one.
+export default function TagSheet({ items, onClose, origin = '', loadQr }) {
   const ids = useMemo(() => (items || []).map((i) => i.id), [items]);
   const [tags, setTags] = useState(null);         // null = loading
+  const [publicBase, setPublicBase] = useState('');
   const [note, setNote] = useState('');
   const [qrs, setQrs] = useState({});              // id -> { size, path }
   const [layout, setLayout] = useState(readLayout);
   const [startAt, setStartAt] = useState(1);
   const [zoom, setZoom] = useState(1);
   const canvasRef = useRef(null);
+  const toolbarRef = useRef(null);
 
   useBackToClose(true, onClose);
+  // Escape closes only this layer (the topmost), never the record beneath (review L3).
+  useEscapeLayer(() => onClose?.());
   useEffect(() => {
     document.body.classList.add('nx-printing-tags');
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => { document.body.classList.remove('nx-printing-tags'); window.removeEventListener('keydown', onKey); };
-  }, [onClose]);
+    return () => document.body.classList.remove('nx-printing-tags');
+  }, []);
+  // Focus moves into the toolbar on open and back to what opened it on close.
+  useEffect(() => {
+    const back = document.activeElement;
+    toolbarRef.current?.focus?.();
+    return () => { try { if (back && document.contains(back)) back.focus?.(); } catch { /* gone */ } };
+  }, []);
   useEffect(() => { try { localStorage.setItem(LAYOUT_KEY, layout); } catch { /* private mode */ } }, [layout]);
 
   // The tag rows (names, serials, company names) from the server, walled.
   useEffect(() => {
     let live = true;
     api.getItemTags(ids)
-      .then((rows) => {
+      .then((res) => {
         if (!live) return;
-        const list = Array.isArray(rows) ? rows : [];
+        const list = Array.isArray(res) ? res : (Array.isArray(res?.tags) ? res.tags : []);
+        setPublicBase(Array.isArray(res) ? '' : String(res?.publicBase || ''));
         setTags(list);
         const left = ids.length - list.length;
         setNote(left > 0 ? `${left} item${left !== 1 ? 's were' : ' was'} left off - outside your companies, or deleted.` : '');
@@ -123,6 +140,7 @@ export default function TagSheet({ items, onClose, origin = window.location.orig
   }, [ids]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // QR codes, made here once the library has loaded.
+  const base = origin || publicBase || window.location.origin;
   useEffect(() => {
     if (!tags || !tags.length) return undefined;
     let live = true;
@@ -130,12 +148,12 @@ export default function TagSheet({ items, onClose, origin = window.location.orig
       if (!live) return;
       const next = {};
       for (const t of tags) {
-        try { next[t.id] = make(qrPayload(t.id, origin)); } catch { /* an unprintable id stays blank */ }
+        try { next[t.id] = make(qrPayload(t.id, base)); } catch { /* an unprintable id stays blank */ }
       }
       setQrs(next);
     }).catch(() => { if (live) setNote('The QR codes could not be made - reload the page and try again.'); });
     return () => { live = false; };
-  }, [tags, origin, loadQr]);
+  }, [tags, base, loadQr]);
 
   // Fit the sheets to a narrow window (a phone): the screen preview only.
   useEffect(() => {
@@ -157,7 +175,7 @@ export default function TagSheet({ items, onClose, origin = window.location.orig
   return createPortal(
     <div className="nx-tag-print" role="dialog" aria-modal="true" aria-label="Print Tags">
       <style>{PRINT_CSS}</style>
-      <div className="nx-tag-toolbar">
+      <div className="nx-tag-toolbar" ref={toolbarRef} tabIndex={-1} aria-label="Tag sheet options">
         <div style={{ minWidth: 0, marginRight: 'auto' }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>Print Tags</div>
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>

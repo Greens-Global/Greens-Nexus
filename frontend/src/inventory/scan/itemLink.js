@@ -1,9 +1,11 @@
 // Items phase 4 (QR tags + phone scan, Neil 11/02/2026) - the item's own link.
 //
 // Every item has a stable address: /itemmanagement/item/<id>. It is what a
-// printed QR tag carries (on the app's own origin, nothing else in it: the
-// link needs a sign-in and the server walls the item, so no secret token is
-// needed) and what the address bar reads while the item is open. Inside the
+// printed QR tag carries (on the app's PUBLIC address - POST /items/tags
+// sends it, so a tag printed from a preview or a local tab still points at
+// Nexus - and nothing else in it: the link needs a sign-in and the server
+// walls the item, so no secret token is needed) and what the address bar
+// reads while the item is open. Inside the
 // app it travels as the Items sub "item/<id>" - App.jsx's parsePath turns the
 // two path segments into that one sub, and the address writer turns it back
 // into the same path, so the link survives a refresh, Back and a share.
@@ -46,20 +48,22 @@ const PATH_RE = /^\/(?:itemmanagement|inventory)\/item[/:]([^/?#]+)\/?$/i;
 
 /**
  * What a scanned or typed code means, before anything is looked up:
- *   { kind: 'item', id }    - a Nexus item link on THIS app's origin
- *   { kind: 'foreign', url } - some other link (another site, or a Nexus page that is not an item)
+ *   { kind: 'item', id }    - a Nexus item link (/itemmanagement/item/<id>) on ANY host
+ *   { kind: 'foreign', url } - some other link (a page that is not an item link)
  *   { kind: 'code', code }   - plain text: a serial, an old tag, an item id
  *   { kind: 'empty' }
+ * Any host is safe (review M1, 11/02/2026): a tag printed on dev, a preview
+ * or the prod address must all scan, and the app never opens the scanned
+ * URL - only the id travels, through the walled GET /items/by-code.
  */
-export function parseScannedCode(text, origin = (typeof window !== 'undefined' ? window.location.origin : '')) {
+export function parseScannedCode(text) {
   const raw = String(text ?? '').trim();
   if (!raw) return { kind: 'empty' };
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
     let u;
     try { u = new URL(raw); } catch { return { kind: 'foreign', url: raw }; }
-    const sameOrigin = origin && u.origin === new URL(origin).origin;
-    const m = PATH_RE.exec(u.pathname);
-    if (sameOrigin && m) {
+    const m = /^https?:$/i.test(u.protocol) ? PATH_RE.exec(u.pathname) : null;
+    if (m) {
       let id = m[1];
       try { id = decodeURIComponent(id); } catch { /* keep the raw segment */ }
       return { kind: 'item', id };

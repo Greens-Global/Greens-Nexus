@@ -7,7 +7,10 @@
 // network: the CSP is self only.
 
 const NATIVE_FORMATS = ['qr_code', 'code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'data_matrix'];
-const FRAME_MAX = 720;   // the long side jsqr reads - plenty for a tag held in the frame
+// The long side jsqr reads: ~480px is plenty for a tag held in the frame and
+// keeps an older iPhone cool (review L8); printed tags are dark on white, so
+// jsqr never tries the inverted image either.
+const FRAME_MAX = 480;
 
 const loadJsQRDefault = () => import('jsqr').then((m) => m.default || m);
 
@@ -54,7 +57,7 @@ export async function createDecoder({ win = typeof window !== 'undefined' ? wind
       if (canvas.height !== ch) canvas.height = ch;
       ctx.drawImage(source, 0, 0, cw, ch);
       const img = ctx.getImageData(0, 0, cw, ch);
-      const hit = jsQR(img.data, cw, ch, { inversionAttempts: 'attemptBoth' });
+      const hit = jsQR(img.data, cw, ch, { inversionAttempts: 'dontInvert' });
       return hit?.data || '';
     },
   };

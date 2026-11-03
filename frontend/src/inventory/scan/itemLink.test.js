@@ -69,8 +69,16 @@ describe('what a scanned code means', () => {
     expect(parseScannedCode(`${ORIGIN}/itemmanagement/item:7f3a-1?x=1`, ORIGIN)).toEqual({ kind: 'item', id: '7f3a-1' });
   });
 
-  it('another site, or a Nexus page that is not an item, is foreign', () => {
-    expect(parseScannedCode('https://evil.example/itemmanagement/item/7f3a-1', ORIGIN).kind).toBe('foreign');
+  it('an item link printed on ANY host is the item (review M1: dev, a preview, prod)', () => {
+    // Safe: only the id travels, through the walled GET /items/by-code; the
+    // scanned URL is never opened.
+    expect(parseScannedCode('https://dev.nexus.greensglobal.com/itemmanagement/item/7f3a-1')).toEqual({ kind: 'item', id: '7f3a-1' });
+    expect(parseScannedCode('http://localhost:5173/inventory/item/7f3a-1')).toEqual({ kind: 'item', id: '7f3a-1' });
+    expect(parseScannedCode('ftp://files.example/itemmanagement/item/7f3a-1').kind).toBe('foreign');
+  });
+
+  it('a page that is not an item link is foreign', () => {
+    expect(parseScannedCode('https://evil.example/some/page').kind).toBe('foreign');
     expect(parseScannedCode(`${ORIGIN}/tasks/mine`, ORIGIN).kind).toBe('foreign');
     expect(parseScannedCode('http://[bad', ORIGIN).kind).toBe('foreign');
   });

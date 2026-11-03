@@ -31,10 +31,11 @@ describe('the decoder', () => {
     expect(d.kind).toBe('fallback');
     const video = { videoWidth: 1280, videoHeight: 720 };
     expect(await d.decode(video)).toBe('GG-00042');
-    // Downscaled to 720 on the long side before reading.
-    expect([canvas.width, canvas.height]).toEqual([720, 405]);
-    expect(ctx.drawImage).toHaveBeenCalledWith(video, 0, 0, 720, 405);
-    expect(jsQR).toHaveBeenCalledWith(expect.any(Uint8ClampedArray), 720, 405, { inversionAttempts: 'attemptBoth' });
+    // Downscaled to 480 on the long side and read the right way round only
+    // (review L8: cooler on an older iPhone; printed tags are dark on white).
+    expect([canvas.width, canvas.height]).toEqual([480, 270]);
+    expect(ctx.drawImage).toHaveBeenCalledWith(video, 0, 0, 480, 270);
+    expect(jsQR).toHaveBeenCalledWith(expect.any(Uint8ClampedArray), 480, 270, { inversionAttempts: 'dontInvert' });
   });
 
   it('falls back to jsqr when the native detector cannot read QR codes', async () => {

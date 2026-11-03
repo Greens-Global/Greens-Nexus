@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { resolveScannedCode, findLocalItem, searchItems } from './resolve';
+import { resolveScannedCode, findLocalItem, searchItems, ggSerial } from './resolve';
 
 // Items phase 4: a scanned or typed code is matched to the screen's own
 // items first, then the server (GET /items/by-code, walled - 404 outside
@@ -48,9 +48,37 @@ describe('code resolution', () => {
     expect(r).toEqual({ status: 'error', message: 'Network down' });
   });
 
-  it('another site\'s link and an empty code never reach the server', async () => {
+  it('an item link from another host is looked up by its id alone (review M1)', async () => {
+    const fetchByCode = vi.fn(async () => { throw notFound(); });
+    expect((await resolveScannedCode('https://dev.nexus.example.com/itemmanagement/item/it-a', { items: ITEMS, fetchByCode })).item.id).toBe('it-a');
+    expect(await resolveScannedCode('https://elsewhere.example/itemmanagement/item/x9', { items: ITEMS, fetchByCode })).toEqual({ status: 'denied', id: 'x9' });
+    expect(fetchByCode).toHaveBeenCalledWith('x9');
+  });
+
+  it('a loose serial that fits several items asks the person to pick (review L6)', async () => {
+    const twins = [...ITEMS, { id: 'it-old2', name: 'Old Ladder Two', serialNumber: 'AT-7781X' }];
     const fetchByCode = vi.fn();
-    expect((await resolveScannedCode('https://evil.example/itemmanagement/item/it-a', { items: ITEMS, origin: ORIGIN, fetchByCode })).status).toBe('foreign');
+    const r = await resolveScannedCode('at7781x', { items: twins, fetchByCode });
+    expect(r.status).toBe('several');
+    expect(r.items.map((i) => i.id)).toEqual(['it-old', 'it-old2']);
+    expect(fetchByCode).not.toHaveBeenCalled();
+    // ...and the server's 409 with its choices reads the same.
+    const choices = [{ id: 's1', name: 'A' }, { id: 's2', name: 'B' }];
+    const r2 = await resolveScannedCode('zz 1', { items: ITEMS, fetchByCode: async () => { throw Object.assign(new Error('Several items match - pick one'), { status: 409, body: { message: 'x', choices } }); } });
+    expect(r2).toEqual({ status: 'several', items: choices, code: 'zz 1' });
+  });
+
+  it('the GG-digits expansion wins over a loose match (review L6)', async () => {
+    expect(ggSerial('gg 42')).toBe('GG-00042');
+    expect(ggSerial('42')).toBe('GG-00042');
+    expect(ggSerial('AT-1')).toBe('');
+    const odd = [...ITEMS, { id: 'it-42', name: 'Odd Tag', serialNumber: '4-2' }];
+    expect((await resolveScannedCode('42', { items: odd })).item.id).toBe('it-a');
+  });
+
+  it('a page that is not an item link and an empty code never reach the server', async () => {
+    const fetchByCode = vi.fn();
+    expect((await resolveScannedCode('https://evil.example/some/page', { items: ITEMS, origin: ORIGIN, fetchByCode })).status).toBe('foreign');
     expect((await resolveScannedCode('   ', { items: ITEMS, origin: ORIGIN, fetchByCode })).status).toBe('empty');
     expect(fetchByCode).not.toHaveBeenCalled();
   });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeAll } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, act, within } from '@testing-library/react';
 
 // Items phase 4: the live camera scanner, with the camera, the decoder and
 // the server mocked. A code that names an item opens it and the camera goes
@@ -144,6 +144,40 @@ describe('the scanner', () => {
     await waitFor(() => expect(start).toHaveBeenCalledTimes(2));
   });
 
+  it('a tab hidden during a lookup pauses, and coming back scans afresh (review M2)', async () => {
+    const c = fakeStream();
+    const start = vi.fn(async () => c.stream);
+    let answer;
+    const fetchByCode = vi.fn(() => new Promise((res) => { answer = res; }));
+    const onFound = vi.fn();
+    render(<ScannerSheet items={ITEMS} onFound={onFound} onClose={() => {}}
+      deps={{ support: 'ok', startCamera: start, createDecoder: decoderReturning('GG-77777'), fetchByCode }} />);
+    expect(await screen.findByText(/Finding the item/)).toBeInTheDocument();
+    const vis = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(await screen.findByText('The camera is paused')).toBeInTheDocument();
+    // The lookup that was running answers late - ignored, nothing opens.
+    await act(async () => { answer({ id: 'late', name: 'Late Item' }); });
+    expect(onFound).not.toHaveBeenCalled();
+    vis.mockReturnValue('visible');
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    await waitFor(() => expect(start).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('Point the camera at the QR tag on the item')).toBeInTheDocument();
+  });
+
+  it('several items match a loose serial: pick one (review L6)', async () => {
+    const twins = [{ id: 't1', name: 'Old Ladder', serialNumber: 'AT 7781-X' }, { id: 't2', name: 'Old Ladder Two', serialNumber: 'AT-7781X' }];
+    const onFound = vi.fn();
+    render(<ScannerSheet items={twins} onFound={onFound} onClose={() => {}} deps={{ support: 'unsupported' }} />);
+    fireEvent.click(screen.getAllByRole('button', { name: /Type a Serial/ })[0]);
+    fireEvent.change(screen.getByLabelText('Serial or Item Name'), { target: { value: 'at7781x' } });
+    fireEvent.click(screen.getByRole('button', { name: /Find/ }));
+    expect(await screen.findByText('Several Items Match - Pick One')).toBeInTheDocument();
+    const list = screen.getByRole('list', { name: 'Items that match' });
+    fireEvent.click(within(list).getByText('Old Ladder Two'));
+    expect(onFound).toHaveBeenCalledWith(twins[1]);
+  });
+
   it('iPhone Safari: no BarcodeDetector, jsqr reads the frame', async () => {
     expect(window.BarcodeDetector).toBeUndefined();
     const jsQR = vi.fn(() => ({ data: `${ORIGIN}/itemmanagement/item/it-a` }));
@@ -156,6 +190,7 @@ describe('the scanner', () => {
     render(<ScannerSheet items={ITEMS} onFound={onFound} onClose={() => {}}
       deps={{ support: 'ok', startCamera: async () => stream, createDecoder: () => createDecoder({ loadJsQR: async () => jsQR }) }} />);
     await waitFor(() => expect(onFound).toHaveBeenCalledWith(ITEMS[0]));
-    expect(jsQR).toHaveBeenCalledWith(expect.any(Uint8ClampedArray), 640, 480, { inversionAttempts: 'attemptBoth' });
+    // ~480px on the long side, never inverted (review L8).
+    expect(jsQR).toHaveBeenCalledWith(expect.any(Uint8ClampedArray), 480, 360, { inversionAttempts: 'dontInvert' });
   });
 });

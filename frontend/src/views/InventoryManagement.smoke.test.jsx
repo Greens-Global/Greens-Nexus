@@ -65,6 +65,8 @@ const apiData = {
   getItemTypeSettings: async () => [{ name: 'Devices', borrowable: false }, { name: 'Equipment', borrowable: true }],
   getItemsAuditLog: async () => ({ rows: [], total: 0 }),
   getTicketAiStatus: async () => ({ keyConfigured: false }),
+  // Items phase 4: an item the list does not hold is outside the person's companies.
+  getItemByCode: async () => { throw Object.assign(new Error('No item you can see matches that code'), { status: 404 }); },
 };
 vi.mock('../api', () => {
   const api = new Proxy({}, { get: (_, k) => apiData[k] || vi.fn(async () => []) });
@@ -237,5 +239,63 @@ describe('Item Management smoke - Add Item', () => {
     expect(screen.getByLabelText(/Serial/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Save and Add Another' })).toBeTruthy();
     expect(screen.queryByText(/Find a product photo/i)).toBeNull();   // AI is off
+  });
+});
+
+describe('Item Management smoke - QR tags and item links (Items phase 4)', () => {
+  const recordOpen = (name) => [...document.querySelectorAll('.it-record')].length > 0 && body().includes(name);
+
+  it('an item link opens the record over Borrow for an item that is not mine; Close lands on Borrow', async () => {
+    const onSubChange = renderAt('item/i6');
+    await waitFor(() => expect(recordOpen('Pressure Washer')).toBe(true));
+    expect(screen.getByRole('heading', { name: 'Borrow' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Add to Cart/ })).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Close' }).at(-1));
+    await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('borrow'));
+  });
+
+  it('an item that is with me opens over My Stuff, with its own actions', async () => {
+    renderAt('item/i2');
+    await waitFor(() => expect(recordOpen('Ford Truck')).toBe(true));
+    expect(screen.getByRole('heading', { name: 'My Stuff' })).toBeTruthy();
+    expect(within(document.querySelector('.it-record')).getAllByRole('button', { name: /Start Return/ }).length).toBe(1);
+  });
+
+  it('an item outside my companies is the calm no-access state, never blank', async () => {
+    renderAt('item/elsewhere');
+    expect(await screen.findByText('You Do Not Have Access to This Item')).toBeTruthy();
+  });
+
+  it('items admins: the link opens over Inventory, the record has Print Tag', async () => {
+    role.manager = true;
+    renderAt('item/i6');
+    await waitFor(() => expect(recordOpen('Pressure Washer')).toBe(true));
+    expect(screen.getByRole('heading', { name: 'Inventory' })).toBeTruthy();
+    const got = [];
+    const on = (e) => got.push(e.detail);
+    window.addEventListener('nexus:items-print-tags', on);
+    fireEvent.click(within(document.querySelector('.it-record')).getByRole('button', { name: /Print Tag/ }));
+    window.removeEventListener('nexus:items-print-tags', on);
+    expect(got[0].items.map((i) => i.id)).toEqual(['i6']);
+  });
+
+  it('items admins: Print Tags (n) on the Inventory selection', async () => {
+    role.manager = true;
+    renderAt('inventory');
+    await screen.findByText('Available to Borrow');
+    const boxes = await waitFor(() => {
+      const b = [...document.querySelectorAll('.it-page input[type="checkbox"]')];
+      expect(b.length).toBeGreaterThan(2);
+      return b;
+    });
+    fireEvent.click(boxes[1]);
+    fireEvent.click(boxes[2]);
+    const btn = await screen.findByRole('button', { name: /Print Tags \(2\)/ });
+    const got = [];
+    const on = (e) => got.push(e.detail);
+    window.addEventListener('nexus:items-print-tags', on);
+    fireEvent.click(btn);
+    window.removeEventListener('nexus:items-print-tags', on);
+    expect(got[0].items).toHaveLength(2);
   });
 });

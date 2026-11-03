@@ -10,23 +10,41 @@
 
 import { parseScannedCode } from './itemLink';
 
+// The printed serial typed by hand: "gg 42", "GG00042" and "42" all mean
+// GG-00042 - tried BEFORE the loose match (review L6), as the server does.
+const GG_RE = /^(?:gg)?\s*-?\s*0*(\d{1,9})$/i;
+export function ggSerial(raw) {
+  const m = GG_RE.exec(String(raw || '').trim());
+  return m ? `GG-${m[1].padStart(5, '0')}` : '';
+}
+
 export function compactCode(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-/** The item in `items` a parsed code names, or null. */
-export function findLocalItem(items, parsed) {
+/** Every item in `items` a parsed code names: one for an exact match, several
+ *  only when a loose serial (other spacing or dashes) fits more than one. */
+export function findLocalItems(items, parsed) {
   const list = Array.isArray(items) ? items : [];
-  if (!parsed) return null;
-  if (parsed.kind === 'item') return list.find((i) => i.id === parsed.id) || null;
-  if (parsed.kind !== 'code') return null;
+  if (!parsed) return [];
+  const one = (i) => (i ? [i] : []);
+  if (parsed.kind === 'item') return one(list.find((i) => i.id === parsed.id));
+  if (parsed.kind !== 'code') return [];
   const raw = parsed.code.trim();
   const lower = raw.toLowerCase();
+  const exact = list.find((i) => i.id === raw) || list.find((i) => (i.serialNumber || '').toLowerCase() === lower);
+  if (exact) return [exact];
+  const gg = ggSerial(raw).toLowerCase();
+  const expanded = gg ? list.find((i) => (i.serialNumber || '').toLowerCase() === gg) : null;
+  if (expanded) return [expanded];
   const key = compactCode(raw);
-  return list.find((i) => i.id === raw)
-    || list.find((i) => (i.serialNumber || '').toLowerCase() === lower)
-    || (key.length >= 3 ? list.find((i) => i.serialNumber && compactCode(i.serialNumber) === key) : null)
-    || null;
+  return key.length >= 3 ? list.filter((i) => i.serialNumber && compactCode(i.serialNumber) === key) : [];
+}
+
+/** The ONE item in `items` a parsed code names, or null (none, or several). */
+export function findLocalItem(items, parsed) {
+  const hits = findLocalItems(items, parsed);
+  return hits.length === 1 ? hits[0] : null;
 }
 
 /**
@@ -34,21 +52,28 @@ export function findLocalItem(items, parsed) {
  *   { status: 'found', item, via: 'local' | 'server' }
  *   { status: 'denied', id }        - a Nexus item link the person may not see
  *   { status: 'unknown', code }     - no item matches
+ *   { status: 'several', items }    - a loose serial that fits more than one item: pick one
  *   { status: 'foreign', url }      - a link that is not a Nexus item tag
  *   { status: 'empty' }
  *   { status: 'error', message }    - the server could not be asked
  */
-export async function resolveScannedCode(text, { items = [], origin, fetchByCode } = {}) {
-  const parsed = parseScannedCode(text, origin);
+export async function resolveScannedCode(text, { items = [], fetchByCode } = {}) {
+  const parsed = parseScannedCode(text);
   if (parsed.kind === 'empty') return { status: 'empty' };
   if (parsed.kind === 'foreign') return { status: 'foreign', url: parsed.url };
-  const local = findLocalItem(items, parsed);
-  if (local) return { status: 'found', item: local, via: 'local' };
+  const local = findLocalItems(items, parsed);
+  if (local.length === 1) return { status: 'found', item: local[0], via: 'local' };
+  if (local.length > 1) return { status: 'several', items: local, code: parsed.code };
   if (!fetchByCode) return parsed.kind === 'item' ? { status: 'denied', id: parsed.id } : { status: 'unknown', code: parsed.code };
   try {
     const item = await fetchByCode(parsed.kind === 'item' ? parsed.id : parsed.code);
     if (item && item.id) return { status: 'found', item, via: 'server' };
   } catch (e) {
+    // 409: the server's loose match fit several items (GET /items/by-code).
+    if (e?.status === 409) {
+      const choices = Array.isArray(e?.body?.choices) ? e.body.choices : [];
+      if (choices.length) return { status: 'several', items: choices, code: parsed.code };
+    }
     if (e?.status !== 404) return { status: 'error', message: e?.message || 'Nexus could not be reached - try again.' };
   }
   return parsed.kind === 'item' ? { status: 'denied', id: parsed.id } : { status: 'unknown', code: parsed.code };

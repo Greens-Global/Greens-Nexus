@@ -102,7 +102,10 @@ export default function ScannerSheet({ items = [], onFound, onClose, deps = {} }
   // The tab goes to the background: put the camera away; back again: resume.
   useEffect(() => {
     const onVis = () => {
-      if (document.visibilityState === 'hidden') { stopAll(); if (phase === 'live' || phase === 'starting') setPhase('paused'); }
+      // A lookup in flight is dropped too (stopAll moves runId on, so its
+      // answer is ignored) and it pauses - returning starts a clean scan
+      // instead of "Finding the item..." forever (review M2).
+      if (document.visibilityState === 'hidden') { stopAll(); if (phase === 'live' || phase === 'starting' || phase === 'resolving') setPhase('paused'); }
       else if (phase === 'paused' && wantCamera.current) begin();
     };
     document.addEventListener('visibilitychange', onVis);
@@ -171,7 +174,7 @@ export default function ScannerSheet({ items = [], onFound, onClose, deps = {} }
         </div>
       </div>
 
-      {phase === 'result' && result && <ScanResult result={result} onAgain={support === 'ok' ? scanAgain : null} onType={toManual} />}
+      {phase === 'result' && result && <ScanResult result={result} onAgain={support === 'ok' ? scanAgain : null} onType={toManual} onPick={(i) => onFound?.(i)} />}
 
       {phase === 'camera-error' && (
         <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 2px' }}>
@@ -216,7 +219,7 @@ export default function ScannerSheet({ items = [], onFound, onClose, deps = {} }
               ))}
             </div>
           )}
-          {result && <ScanResult result={result} onAgain={null} onType={null} />}
+          {result && <ScanResult result={result} onAgain={null} onType={null} onPick={(i) => { stopAll(); onFound?.(i); }} />}
         </div>
       )}
     </Modal>
@@ -224,7 +227,27 @@ export default function ScannerSheet({ items = [], onFound, onClose, deps = {} }
 }
 
 /** What a code that did not open an item says. Exported for the tests. */
-export function ScanResult({ result, onAgain, onType }) {
+export function ScanResult({ result, onAgain, onType, onPick }) {
+  if (result.status === 'several') {
+    // A loose serial that fits more than one item: the person picks (review L6).
+    const list = (result.items || []).slice(0, 8);
+    return (
+      <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '6px 2px' }}>
+        <div style={{ fontSize: 15.5, fontWeight: 700, color: NX.ink }}>Several Items Match - Pick One</div>
+        <div style={{ fontSize: 13.5, color: NX.dim, lineHeight: 1.5 }}>{`More than one item has a serial like "${String(result.code || result.raw || '').slice(0, 80)}".`}</div>
+        <div role="list" aria-label="Items that match" style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
+          {list.map((i) => (
+            <button key={i.id} type="button" role="listitem" onClick={() => onPick?.(i)}
+              style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '11px 12px', background: NX.surface, border: 'none', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter, sans-serif', minHeight: 44 }}>
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink }}>{i.name || 'Item'}</span>
+              <span style={{ fontSize: 12, color: NX.dim }}>{[i.serialNumber, i.location].filter(Boolean).join(' - ')}</span>
+            </button>
+          ))}
+        </div>
+        {onAgain && <div><button type="button" style={btn('outline')} onClick={onAgain}><ScanLine size={14} /> Scan Again</button></div>}
+      </div>
+    );
+  }
   const t = result.status === 'denied'
     ? { icon: <Lock size={19} />, title: 'You Do Not Have Access to This Item', body: 'This tag is for an item outside your company, or one that was deleted. If you think you should see it, ask whoever manages your items.' }
     : result.status === 'foreign'
