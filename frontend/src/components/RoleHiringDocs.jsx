@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, Save, FileText, Upload, Eye, EyeOff } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
+import { dialog } from '../ui/dialog';
 import { Spinner } from './AsyncState';
 
 const lbl = { display: 'block', fontSize: 12, fontWeight: 700, margin: '14px 0 6px' };
@@ -104,9 +105,33 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
   const [templates, setTemplates] = useState(null);
   const [busy, setBusy] = useState(false);
   const [jdMode, setJdMode] = useState(role.jd_file?.name ? 'file' : 'type');
+  const [sources, setSources] = useState([]);           // roles whose job description can be copied here
   useEffect(() => {
     api.getDocTemplates({ status: 'active' }).then(r => setTemplates(Array.isArray(r) ? r : (r?.templates || []))).catch(() => setTemplates([]));
+    api.getJdSources().then(r => setSources(Array.isArray(r) ? r : [])).catch(() => setSources([]));
   }, []);
+  // Copy From Another Role (Pranshu, 11/03/2026): the same role in another company comes first.
+  const sourceLabel = s => `${s.name} - ${s.companyName || 'Shared'}`;
+  const copyOptions = useMemo(() => {
+    const same = s => (s.name || '').trim().toLowerCase() === (role.name || '').trim().toLowerCase();
+    return sources.filter(s => s.id !== role.id).sort((a, b) => (same(b) - same(a)) || sourceLabel(a).localeCompare(sourceLabel(b)));
+  }, [sources, role.id, role.name]);
+  async function copyFrom(id) {
+    const src = copyOptions.find(s => s.id === id);
+    if (!src) return;
+    const has = duties.trim() || (role.job_description || '').trim() || role.jd_file?.name;
+    if (has && !await dialog.confirm(`Replace ${role.name}'s job description with the one from ${sourceLabel(src)}?`,
+      { title: 'Copy Job Description', confirmText: 'Replace' })) return;
+    setBusy(true);
+    try {
+      const saved = await api.copyRoleJd(role.id, id);
+      onSaved?.(saved);
+      setDuties(saved.job_description || '');
+      setJdMode(saved.jd_file?.name ? 'file' : 'type');
+      toastOk(`Copied the job description from ${sourceLabel(src)}.`);
+    } catch (e) { toastErr(e?.message || 'Could not copy the job description.'); }
+    setBusy(false);
+  }
   const byId = useMemo(() => Object.fromEntries((templates || []).map(t => [t.id, t])), [templates]);
   const dirty = duties !== (role.job_description || '')
     || JSON.stringify(docs) !== JSON.stringify((role.hiring_docs || []).map(d => ({ templateId: d.templateId, replaces: d.replaces || '' })));
@@ -130,9 +155,18 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
       <div style={{ ...hint, marginTop: 0, marginBottom: 10 }}>
         Goes out with every offer for this role, after the offer letter, with a box the candidate ticks to say they read it.
       </div>
-      <div role="radiogroup" aria-label="Job description" style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-        <button type="button" role="radio" aria-checked={jdMode === 'type'} style={pill(jdMode === 'type')} onClick={() => setJdMode('type')}>Type It</button>
-        <button type="button" role="radio" aria-checked={jdMode === 'file'} style={pill(jdMode === 'file')} onClick={() => setJdMode('file')}>Upload A File</button>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <div role="radiogroup" aria-label="Job description" style={{ display: 'flex', gap: 6 }}>
+          <button type="button" role="radio" aria-checked={jdMode === 'type'} style={pill(jdMode === 'type')} onClick={() => setJdMode('type')}>Type It</button>
+          <button type="button" role="radio" aria-checked={jdMode === 'file'} style={pill(jdMode === 'file')} onClick={() => setJdMode('file')}>Upload A File</button>
+        </div>
+        {copyOptions.length > 0 && (
+          <select aria-label="Copy job description from" className="form-input" value="" disabled={busy}
+            onChange={e => copyFrom(e.target.value)} style={{ marginLeft: 'auto', flex: '0 1 300px', minWidth: 0, fontSize: 12.5 }}>
+            <option value="">Copy From Another Role</option>
+            {copyOptions.map(s => <option key={s.id} value={s.id}>{sourceLabel(s)}{s.file ? ` (${s.file})` : ''}</option>)}
+          </select>
+        )}
       </div>
       {jdMode === 'file' ? <JdFile role={role} onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} /> : (
         <>

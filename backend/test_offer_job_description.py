@@ -164,6 +164,24 @@ class RoleFileTests(unittest.TestCase):
         self.assertEqual(r.json()["jd_file"], {})
         self.assertIn(frozen["path"], self.store)                    # a replaced file is kept for offers made with it
 
+    def test_copy_from_the_same_role_in_another_company(self):
+        db = database.SessionLocal()
+        db.add(models.NexusGroup(id="jr-sup-b", name="Site Supervisor", is_job_role=1, tier="employee", company_id="co-b"))
+        db.add(models.NexusGroup(id="jr-empty", name="Clerk", is_job_role=1, tier="employee"))
+        db.commit()
+        db.close()
+        self.client.post("/jobroles/jr-sup/jd-file", files={"file": ("JD.pdf", pdf_of(1), "application/pdf")})
+        sources = self.client.get("/jobroles/jd-sources").json()
+        self.assertEqual([(s["id"], s["file"], s["hasDuties"]) for s in sources], [("jr-sup", "JD.pdf", True)])
+        r = self.client.post("/jobroles/jr-sup-b/jd-copy", json={"from_role_id": "jr-sup"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["job_description"], r.json()["jd_file"]["name"]), ("Runs the site.", "JD.pdf"))
+        # Each role keeps its own pointer - removing the file from one leaves the other's.
+        self.client.delete("/jobroles/jr-sup/jd-file")
+        self.assertEqual(self.client.get("/jobroles/jr-sup-b/jd-file").status_code, 200)
+        self.assertEqual(self.client.post("/jobroles/jr-sup-b/jd-copy", json={"from_role_id": "jr-empty"}).status_code, 400)
+        self.assertEqual(self.client.post("/jobroles/jr-sup-b/jd-copy", json={"from_role_id": "nope"}).status_code, 404)
+
     def test_refuses_what_is_not_a_job_description_file(self):
         for name, blob in (("jd.doc", b"x"), ("jd.png", b"x"), ("jd.pdf", b"not a pdf"), ("jd.pdf", b"")):
             r = self.client.post("/jobroles/jr-sup/jd-file", files={"file": (name, blob, "application/octet-stream")})

@@ -403,6 +403,53 @@ def _role_for_edit(db: Session, user: dict, jr_id: str) -> NexusGroup:
     return jr
 
 
+def _has_jd(r: NexusGroup) -> bool:
+    return bool((r.job_description or "").strip() or (r.jd_file or {}).get("path"))
+
+
+@router.get("/jd-sources")
+def jd_sources(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Roles whose job description can be copied (Pranshu, 11/03/2026: the same
+    role in another company): every role the caller can see that has typed
+    duties or a file, with its company's name ('' = shared)."""
+    scope = company_scope(user, db)
+    names = {e.id: e.name for e in db.query(HrEntity).all()}
+    out = []
+    for r in db.query(NexusGroup).filter(NexusGroup.is_job_role == 1).order_by(NexusGroup.name).all():  # noqa: E712
+        cid = (r.company_id or "").strip()
+        if (scope is not None and cid and cid not in scope) or not _has_jd(r):
+            continue
+        f = r.jd_file or {}
+        out.append({"id": r.id, "name": r.name, "companyId": cid, "companyName": names.get(cid, "") if cid else "",
+                    "file": f.get("name", "") if f.get("path") else "",
+                    "hasDuties": bool((r.job_description or "").strip())})
+    return out
+
+
+class JdCopyIn(BaseModel):
+    from_role_id: str
+
+
+@router.post("/{jr_id}/jd-copy")
+def copy_jd(jr_id: str, body: JdCopyIn, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Copy another role's job description - its typed duties AND its file -
+    onto this one, replacing what it had. The file is shared by path: a
+    stored job description file is never deleted, so removing it from one
+    role never takes it from the other."""
+    jr = _role_for_edit(db, user, jr_id)
+    src = db.query(NexusGroup).filter(NexusGroup.id == body.from_role_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
+    scope = company_scope(user, db)
+    if src is None or src.id == jr.id or (scope is not None and (src.company_id or "") and src.company_id not in scope):
+        raise HTTPException(404, "That role was not found.")
+    if not _has_jd(src):
+        raise HTTPException(400, f"{src.name} has no job description to copy.")
+    f = src.jd_file or {}
+    jr.job_description = src.job_description or ""
+    jr.jd_file = dict(f) if f.get("path") else {}
+    db.commit()
+    return _serialize(jr, db)
+
+
 @router.post("/{jr_id}/jd-file")
 def upload_jd_file(jr_id: str, file: UploadFile = File(...), user: dict = Depends(require_administrator),
                    db: Session = Depends(get_db)):

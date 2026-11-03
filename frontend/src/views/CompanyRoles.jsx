@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Pencil, Trash2, UserPlus, X, Copy, ArrowRight, ListChecks } from 'lucide-react';
+import { Plus, Pencil, Trash2, UserPlus, X, Copy, ArrowRight, ListChecks, FileText } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
@@ -29,6 +29,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
   const [assignFor, setAssignFor] = useState(null);
   const [tab, setTab] = useState('access');   // the selected role's panel: 'access' | 'hiring' | 'checklists'
   const [stepsFor, setStepsFor] = useState(null);   // a shared role open in the checklist modal
+  const [jdFor, setJdFor] = useState(null);         // a shared role open in the job description modal
   const [stepCounts, setStepCounts] = useState({});   // roleId -> {kind: steps}
   const { data: dir } = usePeopleDirectory();
   const nameOf = useNameResolver();
@@ -268,6 +269,11 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', fontSize: 12 }}>
                       <ListChecks size={13} /> Checklists
                     </button>
+                    <button className="secondary-btn" onClick={() => setJdFor(r)}
+                      title="The job description sent after the offer letter, in every company"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', fontSize: 12 }}>
+                      <FileText size={13} /> Job Description
+                    </button>
                     {/* The wrapper carries the tooltip: a disabled button gets no hover events. */}
                     <span title={blocker || `Only people at ${entity.name} will be offered this role.`}>
                       <button className="secondary-btn" disabled={!!blocker} onClick={() => moveHere(r)}
@@ -307,6 +313,13 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
           <p style={{ margin: '0 0 14px', fontSize: 12.5, color: 'var(--muted)' }}>A shared role&apos;s steps apply in every company that uses it.</p>
           <RoleStepsEditor roleId={stepsFor.id} roleName={stepsFor.name}
             toastOk={toastOk} toastErr={toastErr} onCounts={setCountsFor(stepsFor.id)} />
+        </Modal>
+      )}
+      {jdFor && (
+        <Modal title={`${jdFor.name} - Job Description`} onClose={() => setJdFor(null)} minHeight="60vh">
+          <p style={{ margin: '0 0 6px', fontSize: 12.5, color: 'var(--muted)' }}>A shared role&apos;s job description goes with its offers in every company.</p>
+          <RoleHiringDocs role={(roles || []).find(x => x.id === jdFor.id) || jdFor} toastOk={toastOk} toastErr={toastErr}
+            onSaved={saved => setRoles(list => (list || []).map(x => (x.id === saved.id ? { ...x, ...saved } : x)))} />
         </Modal>
       )}
       {assignFor && (

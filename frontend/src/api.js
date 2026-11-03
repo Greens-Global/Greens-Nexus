@@ -979,6 +979,8 @@ export const api = {
   uploadRoleJdFile:  (id, file)          => { const fd = new FormData(); fd.append('file', file); return req(`/jobroles/${id}/jd-file`, { method: 'POST', body: fd, timeoutMs: 180_000 }); },
   removeRoleJdFile:  (id)                => req(`/jobroles/${id}/jd-file`, { method: 'DELETE' }),
   roleJdFilePdf:     (id)                => reqBlob(`/jobroles/${id}/jd-file`),
+  getJdSources:      ()                  => req('/jobroles/jd-sources'),
+  copyRoleJd:        (id, fromId)        => req(`/jobroles/${id}/jd-copy`, { method: 'POST', body: JSON.stringify({ from_role_id: fromId }) }),
   deleteJobRole:     (id)                => req(`/jobroles/${id}`, { method: 'DELETE' }),
   assignJobRole:     (id, email, reason) => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email, reason }) }),
   unassignJobRole:   (id, email, reason) => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email, reason }) }),
