@@ -1012,7 +1012,10 @@ function RentRoll({ view, filters = null, rows, span, figures, year, thisMonth, 
                       title={`${off ? 'Not due this month' : dash ? 'Not in force' : st.label} - received ${money(c.received)} of ${money(c.expected)}${credit ? ` - ${credit}` : ''}${c.note ? ` - ${c.note}` : ''}`}
                       style={{ width: '100%', border: 'none', borderRadius: 6, cursor: 'pointer', font: 'inherit', fontVariantNumeric: 'tabular-nums', padding: '3px 6px', textAlign: 'right', background: dash ? 'transparent' : st.bg, color: dash ? 'var(--text-muted)' : st.fg, fontWeight: ['short', 'unpaid', 'late'].includes(c.status) ? 700 : 400, fontStyle: c.status === 'covered' ? 'italic' : undefined }}>
                       {dash ? '-' : c.status === 'covered' ? whole(c.received + (c.covered || 0)) : c.status === 'upcoming' || c.status === 'due' || c.status === 'unknown' ? whole(c.expected) : whole(c.received)}{c.note ? '*' : ''}
-                      {c.covered ? <sup data-testid="covered-mark" aria-hidden="true" style={{ marginLeft: 1, fontSize: '0.6rem', color: 'var(--ok-fg, #15803d)' }}>c</sup> : null}
+                      {/* 10/29 (Neil: the bare "c" was "not intuitive"): a small
+                          return arrow - the money came back from another month's
+                          payment - with its own words on hover. */}
+                      {c.covered ? <sup data-testid="covered-mark" aria-hidden="true" title="Settled by another month's payment" style={{ marginLeft: 1, fontSize: '0.62rem', color: 'var(--ok-fg, #15803d)' }}>&#8617;</sup> : null}
                     </button>
                   </td>
                 )];
@@ -1066,7 +1069,7 @@ function RentRoll({ view, filters = null, rows, span, figures, year, thisMonth, 
       </div>
       <Pager {...paged} />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-        <span>A paid month shows what came in; a month not yet paid shows what is expected. * has a note. Click a month for the detail and its journal entries. A dash is a month the lease is not in force (or, for a source that is not monthly, a month it does not fall due). A payment above what a month expects settles the oldest open month first: that month reads Covered, and a small c marks a month part or wholly settled that way. Balance is expected less received; a credit (in parentheses) is a prepayment. Total and Balance open the ledger lines. The colors filter the rows above the table.</span>
+        <span>A paid month shows what came in; a month not yet paid shows what is expected. * has a note. Click a month for the detail and its journal entries. A dash is a month the lease is not in force (or, for a source that is not monthly, a month it does not fall due). A payment above what a month expects settles the oldest open month first: that month reads Covered, and a small &#8617; marks a month part or wholly settled that way (hover it for the payment that covered it). Balance is expected less received; a credit (in parentheses) is a prepayment. Total and Balance open the ledger lines. The colors filter the rows above the table.</span>
       </div>
     </div>
   );
