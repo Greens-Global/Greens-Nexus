@@ -238,10 +238,37 @@ function _bootPause(ms) {
   });
 }
 
+// Field offline (Neil, 11/03/2026; docs/Offline.md): who was signed in on
+// this browser last time - email and name only, nothing that signs anyone in
+// - so the app shell can open with NO signal and show what the phone kept
+// (lib/offline/store.js keys every saved dataset by this person). Cleared by
+// sign-out (bffLogout wipes localStorage) and by a 401 at boot. The session
+// cookie stays the only proof of identity: every request still needs it, and
+// once there is signal a dead session goes to sign-in as before.
+const OFFLINE_ME_KEY = 'nexus:offline-me';
+function _rememberForOffline(me) {
+  try { localStorage.setItem(OFFLINE_ME_KEY, JSON.stringify({ email: me.email, name: me.name || '' })); } catch { /* storage blocked */ }
+}
+function _offlineMe() {
+  try {
+    const me = JSON.parse(localStorage.getItem(OFFLINE_ME_KEY) || 'null');
+    return me && typeof me.email === 'string' && me.email ? { email: me.email, name: me.name || '', offline: true } : null;
+  } catch { return null; }
+}
+function _bootOffline() {
+  const me = _offlineMe();
+  if (!me) return false;
+  _me = me;
+  installSyntheticAccount(me);
+  return true;
+}
+
 export async function bffBootstrap({ onWaiting } = {}) {
   // Retry across a backend blip (deploy/restart) so a TRANSIENT failure never
   // bounces a logged-in user to the sign-in screen. Only a real 401 (genuinely
   // signed out) returns false immediately; 5xx/network keep retrying.
+  // With no signal at all the app opens on what this phone kept (above).
+  if (typeof navigator !== 'undefined' && navigator.onLine === false && _bootOffline()) return true;
   const started = Date.now();
   for (let i = 0; ; i++) {
     const wait = i < BOOT_DELAYS_MS.length ? BOOT_DELAYS_MS[i] : 10_000;
@@ -264,6 +291,7 @@ export async function bffBootstrap({ onWaiting } = {}) {
           // Remembered for the NEXT sign-in: passed as login_hint so Entra
           // preselects this account instead of showing the picker.
           try { localStorage.setItem('nexus:lastEmail', _me.email); } catch { /* storage blocked */ }
+          _rememberForOffline(_me);
           // Signed in successfully - any leftover logout markers are stale.
           clearSignedOutMarker();
           // Shared PC: drop a previous user's cached MSAL account/tokens BEFORE we
@@ -280,7 +308,10 @@ export async function bffBootstrap({ onWaiting } = {}) {
         }
         return false;   // 200 but no identity -> treat as anonymous
       }
-      if (res.status === 401) return false;   // genuinely signed out -> login screen
+      if (res.status === 401) {               // genuinely signed out -> login screen
+        try { localStorage.removeItem(OFFLINE_ME_KEY); } catch { /* storage blocked */ }
+        return false;
+      }
       if (res.status === 403) {
         // Signed in to Microsoft fine, but Nexus refused the ACCOUNT (external
         // allowlist, Aug 17: a tenant guest who isn't enrolled/active). Not a
@@ -293,7 +324,14 @@ export async function bffBootstrap({ onWaiting } = {}) {
         return false;
       }
       // 5xx / other -> backend still coming up, keep retrying
-    } catch { /* network error or a try that ran out its time -> backend unreachable, keep retrying */ }
+    } catch (e) {
+      // Network error or a try that ran out its time -> backend unreachable,
+      // keep retrying. No connection at all (the request never left: a
+      // TypeError, not our own timeout) twice running, or the browser saying
+      // it is offline, opens the app on what this phone kept instead.
+      const noSignal = (typeof navigator !== 'undefined' && navigator.onLine === false) || (e?.name !== 'AbortError' && i >= 1);
+      if (noSignal && _bootOffline()) return true;
+    }
     finally { clearTimeout(tid); }
   }
 }
