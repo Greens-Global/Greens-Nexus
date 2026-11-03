@@ -203,7 +203,7 @@
   "views/HR.jsx": {
     "type=\"date\"": 7
   },
-  "views/InventoryManagement.jsx": {
+  "inventory/audit/AuditLogPanel.jsx": {
     "type=\"date\"": 2
   },
   "inventory/checkout/MyCheckoutsPanel.jsx": {
