@@ -1290,13 +1290,14 @@ export function projectIdFromUrl() {
  * original author survives even when the Asana account has no matching Nexus
  * email (import falls back to author_email "asana-sync"). Pull that name out
  * so it can be shown as the real author instead of a raw fallback string, and
- * drop the bracket line from the rendered body so it isn't shown twice. */
+ * drop the bracket line from the rendered body so it isn't shown twice.
+ * Notes typed in Cubby arrive the same way, "[Cubby · Name · date]" (cubby_tasks.py). */
 export function parseImportedAuthor(body) {
   const s = body || '';
-  const m = /^\[Asana · ([^·\]]+?)(?:\s*·\s*(\d{4}-\d{2}-\d{2}))?\]\n?/.exec(s);
+  const m = /^\[(?:Asana|Cubby) · ([^·\]]+?)(?:\s*·\s*(\d{4}-\d{2}-\d{2}))?\]\n?/.exec(s);
   if (m) return { name: m[1].trim(), date: m[2] || '', text: s.slice(m[0].length) };
   // Rich bodies wrap the same stamp in markup: "<p><em>[Asana · Name]</em></p>".
-  const h = /^\s*<p>\s*<em>\s*\[Asana · ([^·\]]+?)(?:\s*·\s*(\d{4}-\d{2}-\d{2}))?\]\s*<\/em>\s*<\/p>/i.exec(s);
+  const h = /^\s*<p>\s*<em>\s*\[(?:Asana|Cubby) · ([^·\]]+?)(?:\s*·\s*(\d{4}-\d{2}-\d{2}))?\]\s*<\/em>\s*<\/p>/i.exec(s);
   if (h) return { name: h[1].trim(), date: h[2] || '', text: s.slice(h[0].length) };
   return null;
 }

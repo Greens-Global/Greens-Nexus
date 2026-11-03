@@ -162,6 +162,15 @@ def _tenant_url(customer_id: str) -> str:
     return f"{APP_URL}/tenants/{customer_id}" if customer_id else ""
 
 
+def task_url(task_id: str) -> str:
+    """Where to look for a task in Cubby (the chip on a Nexus task that came
+    from Cubby, cubby_tasks.link_for_task). Cubby's own task page is keyed by
+    a numeric id its API and warehouse never return (11/03/2026:
+    /tasks/my/<api id> just shows the list), so this is the All Tasks list,
+    not the task - the chip says "Find in Cubby"."""
+    return f"{APP_URL}/tasks/all" if task_id else ""
+
+
 def summarize_facility(fac: dict, raw: dict, rules: dict | None = None) -> dict:
     """One facility's figures. `rules` (ops_unit_classes.load()) says which
     pricing groups are mailboxes and which records are not units at all;
