@@ -2597,7 +2597,7 @@ async function runBatchReRequest(cos, { reason, approverEmail, approverName, day
 }
 
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
-const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onBatchReRequest, onReturnAll, onRequestExtension, assignments = [], refreshAssignments, toast, activeSub, photoOptionalIds = new Set() }) {
+export const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onBatchReRequest, onReturnAll, onRequestExtension, assignments = [], refreshAssignments, toast, activeSub, photoOptionalIds = new Set() }) {
   const mine = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
@@ -3458,7 +3458,7 @@ function SortableTh({ label, colKey, sort, onSort }) {
 }
 
 // ── Employee View ─────────────────────────────────────────────────────────────
-const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, initiateHandover, confirmReceipt, toast, showManage = false, onEnterManage }) {
+export const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, initiateHandover, confirmReceipt, toast, showManage = false, onEnterManage }) {
   const { assignments, refreshAssignments } = useAssignments();
   const { can } = useRole();
   // Supervisors (level 2) are ALLOCATORS, not managers: they don't approve, but
@@ -6707,7 +6707,7 @@ function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
 }
 
 // ── Manager Checkouts Tab ─────────────────────────────────────────────────────
-const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast, onSendAlert, assignments = [], refreshAssignments, prefilter, activeSub }) {
+export const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast, onSendAlert, assignments = [], refreshAssignments, prefilter, activeSub }) {
   const [segment, setSegment] = useState('checkouts'); // 'checkouts' | 'assignments'
   // When a perm_return notification deep-links here, jump the Assignments queue
   // straight to its "Returns to Accept" filter. ts forces re-trigger on repeats.
