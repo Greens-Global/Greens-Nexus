@@ -203,19 +203,8 @@
   "views/HR.jsx": {
     "type=\"date\"": 7
   },
-  "inventory/audit/AuditLogPanel.jsx": {
-    "type=\"date\"": 2
-  },
-  "inventory/checkout/MyCheckoutsPanel.jsx": {
-    "type=\"date\"": 2
-  },
   "inventory/manage/ItemDetailsPanel.jsx": {
     "type={...date...}": 1
-  },
-  "inventory/model/auditFeed.js": {
-    "type=\"date\"": 1,
-    "toLocaleDateString(": 3,
-    "toLocaleTimeString(": 1
   },
   "views/IT.jsx": {
     "toLocaleTimeString(": 2
