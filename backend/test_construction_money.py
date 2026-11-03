@@ -26,7 +26,7 @@ Pins:
     code with no lines on the entity saves with a warning;
   * purchase requests and reimbursements take an optional job the requester
     may read - another company's job and an archived job are refused;
-  * change orders read through job_changes(): [] with no table.
+  * change orders read through job_changes() from construction_change_orders.
 
 The accounting app is replaced by a recorder - nothing leaves the machine.
 
@@ -394,59 +394,40 @@ class MoneyTests(JobsBase):
         self.assertEqual(self.client.get("/construction/spend-jobs").json()["jobs"], [])
 
     # ── Changes ──────────────────────────────────────────────────────────
-    def test_changes_are_empty_without_the_table(self):
-        real = getattr(models, "ConstructionChangeOrder", None)
-        models.ConstructionChangeOrder = None
-        try:
-            self.assertEqual(construction_money.job_changes(self.db, "pa"), [])
-            models.ConstructionChangeOrder = _ChangeOrderNoTable
-            self.assertEqual(construction_money.job_changes(self.db, "pa"), [])
-        finally:
-            models.ConstructionChangeOrder = real
-
-    def test_changes_feed_budget_and_forecast_when_present(self):
-        real = getattr(models, "ConstructionChangeOrder", None)
-        _ChangeOrder.__table__.create(bind=self.db.get_bind(), checkfirst=True)
-        self.db.query(_ChangeOrder).delete()
-        for status, amount in (("approved", 5000), ("pending", 1200), ("rejected", 999), ("draft", 50)):
-            self.db.add(_ChangeOrder(id=str(uuid.uuid4()), project_id="pa", status=status, amount=amount, title="CO"))
-        self.db.add(_ChangeOrder(id=str(uuid.uuid4()), project_id="pb", status="approved", amount=7, title="Other job"))
+    def test_changes_are_empty_with_no_change_orders(self):
+        self.db.query(models.ConstructionChangeOrder).filter_by(project_id="pa").delete()
         self.db.commit()
-        models.ConstructionChangeOrder = _ChangeOrder
-        try:
-            self.as_(MGR_A)
-            body = self.money().json()
-        finally:
-            models.ConstructionChangeOrder = real
+        self.assertEqual(construction_money.job_changes(self.db, "pa"), [])
+
+    def test_changes_feed_budget_and_forecast_from_change_orders(self):
+        """Phase 3's construction_change_orders: Signed = approved, Awaiting
+        Approval and Sent = pending; draft, declined, void and deleted ones
+        and another job's never count."""
+        CO = models.ConstructionChangeOrder
+        self.db.query(CO).filter(CO.project_id.in_(["pa", "pb"])).delete(synchronize_session=False)
+        rows = (("signed", 5000, ""), ("awaiting_approval", 700, ""), ("sent", 500, ""),
+                ("draft", 50, ""), ("declined", 999, ""), ("void", 3000, ""),
+                ("signed", 4444, "2026-11-01T00:00:00"))
+        for i, (status, amount, deleted) in enumerate(rows):
+            self.db.add(CO(id=str(uuid.uuid4()), project_id="pa", number=f"CO-{i + 1:03d}", title="CO",
+                           status=status, amount=amount, deleted_at=deleted))
+        self.db.add(CO(id=str(uuid.uuid4()), project_id="pb", number="CO-001", status="signed", amount=7,
+                       title="Other job", deleted_at=""))
+        self.db.commit()
+        got = construction_money.job_changes(self.db, "pa")
+        self.assertEqual([(c["number"], c["status"], c["state"], c["amount"]) for c in got],
+                         [("CO-001", "signed", "approved", 5000.0), ("CO-002", "awaiting_approval", "pending", 700.0),
+                          ("CO-003", "sent", "pending", 500.0)])
+        self.as_(MGR_A)
+        body = self.money().json()
         self.assertEqual(body["budget"]["amount"], 65000.0)
         self.assertEqual((body["changes"]["approved"], body["changes"]["pending"]), (5000.0, 1200.0))
-        self.assertEqual(len(body["changes"]["rows"]), 2)
+        self.assertEqual(len(body["changes"]["rows"]), 3)
         # max(65,000 + 1,200, 51,300 + 0)
         self.assertEqual(body["forecast"], 66200.0)
         self.assertEqual(body["variance"], -1200.0)
-
-
-# A stand-in for phase 3's change orders: job_changes reads whatever model
-# models.ConstructionChangeOrder names, by project_id, status and amount.
-from sqlalchemy import Column, Float, MetaData, String  # noqa: E402
-from sqlalchemy.orm import declarative_base  # noqa: E402
-
-_TestBase = declarative_base(metadata=MetaData())
-
-
-class _ChangeOrder(_TestBase):
-    __tablename__ = "test_money_change_orders"
-    id = Column(String, primary_key=True)
-    project_id = Column(String)
-    status = Column(String)
-    amount = Column(Float)
-    title = Column(String)
-
-
-class _ChangeOrderNoTable(_TestBase):
-    __tablename__ = "test_money_change_orders_absent"
-    id = Column(String, primary_key=True)
-    project_id = Column(String)
+        self.db.query(CO).filter(CO.project_id.in_(["pa", "pb"])).delete(synchronize_session=False)
+        self.db.commit()
 
 
 if __name__ == "__main__":

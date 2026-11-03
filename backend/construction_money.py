@@ -44,8 +44,9 @@ accounting calls are routers/construction_money.py.
            may already be in Actual). A claim still with its approver is the
            employee's and never shown here. Purchase requests carry no
            amount: counted, not summed.
-  CHANGES  phase 3's change orders, read through job_changes(), which answers
-           [] while that table does not exist - this branch stands alone.
+  CHANGES  phase 3's change orders (construction_change_orders), read
+           through job_changes(): Signed = approved, Awaiting Approval / Sent =
+           pending; draft, declined and void left out.
   FORECAST worked out, the standard estimate at completion: the larger of the
            budget with its pending changes (it already holds the approved
            ones) and actual + requested-not-billed. A worked-out figure
@@ -55,7 +56,6 @@ from __future__ import annotations
 
 import re
 
-from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 import models
@@ -189,51 +189,26 @@ def cost_by_project(rows: list, chart: dict | None = None) -> dict:
     return out
 
 
-# ── Change orders (phase 3) ─────────────────────────────────────────────────
-APPROVED_CHANGE = {"approved", "signed", "executed", "accepted"}
-PENDING_CHANGE = {"pending", "submitted", "priced", "sent", "in_review", "awaiting_signature", "pending_approval", "open"}
-
-
-def _change_amount(r) -> float:
-    for k in ("amount", "cost_amount", "price", "total", "value"):
-        v = getattr(r, k, None)
-        if isinstance(v, (int, float)):
-            return round(float(v), 2)
-    cents = getattr(r, "amount_cents", None)
-    return round(float(cents) / 100, 2) if isinstance(cents, (int, float)) else 0.0
+# ── Change orders (phase 3, construction_models.ConstructionChangeOrder) ───
+# Signed through Nexus Sign = approved (signing is what moves the contract);
+# waiting on the internal approver or sent for the owner's signature =
+# pending. Draft, declined and void change orders are left out.
+APPROVED_CHANGE = {"signed"}
+PENDING_CHANGE = {"awaiting_approval", "sent"}
 
 
 def job_changes(db: Session, project_id: str) -> list:
-    """The job's change orders as [{id, title, status, state: approved|pending,
-    amount}] - read only, from phase 3's table when it exists, [] when it
-    does not (this branch stands alone). Rejected, void and draft change
-    orders are left out."""
-    model = getattr(models, "ConstructionChangeOrder", None)
-    if model is None:
-        return []
-    try:
-        if not inspect(db.get_bind()).has_table(model.__tablename__):
-            return []
-        col = getattr(model, "project_id", None) or getattr(model, "job_id", None)
-        if col is None:
-            return []
-        q = db.query(model).filter(col == project_id)
-        if hasattr(model, "deleted_at"):
-            q = q.filter(model.deleted_at == "")
-        rows = q.all()
-    except Exception as e:   # noqa: BLE001 - a table of another shape never breaks Money
-        print(f"[construction-money] change orders for {project_id}: {e}")
-        return []
-    out = []
-    for r in rows:
-        status = str(getattr(r, "status", "") or "").lower()
-        state = "approved" if status in APPROVED_CHANGE else "pending" if status in PENDING_CHANGE else ""
-        if not state:
-            continue
-        out.append({"id": getattr(r, "id", ""), "title": getattr(r, "title", "") or getattr(r, "name", "") or "",
-                    "number": getattr(r, "number", None) or getattr(r, "code", "") or "",
-                    "status": status, "state": state, "amount": _change_amount(r)})
-    return out
+    """The job's change orders as [{id, number, title, status, state:
+    approved|pending, amount}] - read only, from construction_change_orders
+    (phase 3, routers/construction_handover.py owns every write)."""
+    co = models.ConstructionChangeOrder
+    rows = (db.query(co)
+            .filter(co.project_id == project_id, co.deleted_at == "",
+                    co.status.in_(APPROVED_CHANGE | PENDING_CHANGE))
+            .order_by(co.number, co.created_at).all())
+    return [{"id": r.id, "title": r.title or "", "number": r.number or "",
+             "status": r.status, "state": "approved" if r.status in APPROVED_CHANGE else "pending",
+             "amount": round(float(r.amount or 0.0), 2)} for r in rows]
 
 
 # ── Spend tagged to the job in Nexus ────────────────────────────────────────
