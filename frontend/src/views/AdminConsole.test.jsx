@@ -73,7 +73,10 @@ vi.mock('./BrandingPoliciesSettings', () => ({
   SignInPolicyPanel: () => <div>Sign-in policy panel</div>,
 }));
 vi.mock('../components/shifts/ShiftSettingsSections', () => ({
-  ShiftSettingsPanel: ({ company, part }) => <div>Shift settings panel{part ? ` ${part}` : ''}{company ? ` ${company}` : ''}</div>,
+  ShiftSettingsPanel: ({ company, part, onOpenLeave }) => (
+    <div>Shift settings panel{part ? ` ${part}` : ''}{company ? ` ${company}` : ''}
+      {onOpenLeave && <button onClick={onOpenLeave}>Open Time Off & Leave</button>}</div>
+  ),
   ShiftTypesPanel: () => <div>Shift types panel</div>,
   ShiftGroupsPanel: () => <div>Groups panel</div>,
   TimeOffReasons: () => <div>Time-off reasons panel</div>,
@@ -149,16 +152,16 @@ describe('AdminConsole', () => {
     render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
     expect(screen.getByRole('heading', { name: 'Companies', level: 3 })).toBeInTheDocument();
     expect(await find('Company list')).toBeInTheDocument();
-    // Holiday Policies (Oct 29 2026) sit beside the list at Every company.
-    expect(screen.getByRole('region', { name: 'Holiday Policies' })).toBeInTheDocument();
-    expect(await find('Holiday policies panel')).toBeInTheDocument();
+    // Holiday Policies moved to Time Off & Leave (11/02/2026): the list is
+    // the lone group, so it renders bare and the rail lists no jump links -
+    // "Companies" is said once, not three times.
+    expect(screen.queryByRole('region', { name: 'Holiday Policies' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Companies', level: 4 })).not.toBeInTheDocument();
+    expect(within(rail()).queryByRole('group', { name: 'Companies settings' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Applies To')).toHaveValue('');
     const names = within(rail()).getAllByRole('button').filter(b => b.classList.contains('nx-set-rail-item')).map(b => b.textContent);
-    // Companies has two groups at Every company, so the rail lists them as jump links.
-    expect(within(within(rail()).getByRole('group', { name: 'Companies settings' })).getAllByRole('button').map(b => b.textContent))
-      .toEqual(['Companies', 'Holiday Policies']);
     expect(names).toEqual(['Companies', 'Locations', 'People & Access', 'Security', 'Branding & Email', 'Emails & Reminders',
-      'Tickets', 'Time & Pay', 'Workforce Analytics', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Performance', 'Items & Equipment', 'Operations', 'Workflows']);
+      'Tickets', 'Time & Pay', 'Time Off & Leave', 'Workforce Analytics', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Performance', 'Items & Equipment', 'Operations', 'Workflows']);
     expect(screen.queryByText('For every company')).not.toBeInTheDocument();
   });
 
@@ -168,9 +171,49 @@ describe('AdminConsole', () => {
     ['global-timeclock', 'Time & Pay'], ['global-branding', 'Branding & Email'], ['global-hiring', 'Hiring & Onboarding'],
     ['global-shifts', 'Shifts & Scheduling'], ['access', 'People & Access'], ['global-access', 'People & Access'],
     ['nonsense', 'Companies'],
+    // The leave groups and Holiday Policies moved (11/02/2026): their old links land on Time Off & Leave.
+    ['pay', 'Time & Pay'], ['pay:leave-policies', 'Time Off & Leave'], ['pay:time-off-reasons', 'Time Off & Leave'],
+    ['pay:leave-year-end', 'Time Off & Leave'], ['pay:timeoff-approval', 'Time Off & Leave'],
+    ['companies:holiday-policies', 'Time Off & Leave'], ['pay:payroll-readiness', 'Time & Pay'],
   ])('lands the old "%s" link on %s', (sub, heading) => {
     render(<AdminConsole activeSub={sub} onSubChange={() => {}} />);
     expect(screen.getByRole('heading', { name: heading, level: 3 })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['pay:leave-policies', 'Leave Policies', ''],
+    ['pay:time-off-reasons@c1', 'Time Off Reasons', 'c1'],
+    ['pay:timeoff-approval@c2', 'Time Off Approval', 'c2'],
+    ['pay:leave-year-end@c1', 'Leave Year-End', 'c1'],
+    ['companies:holiday-policies', 'Holiday Policies', ''],
+  ])('lands "%s" on its group in Time Off & Leave, with the company kept', async (sub, group, company) => {
+    render(<AdminConsole activeSub={sub} onSubChange={() => {}} />);
+    expect(screen.getByRole('heading', { name: 'Time Off & Leave', level: 3 })).toBeInTheDocument();
+    // (A company's panels mount once the company list has it.)
+    expect(await screen.findByRole('region', { name: group }, { timeout: 5000 })).toHaveAttribute('data-highlight', 'true');
+    await waitFor(() => expect(screen.getByLabelText('Applies To')).toHaveValue(company));
+  });
+
+  it('has Time Off & Leave with the leave groups and Holiday Policies, in order; Time & Pay keeps the pay groups', async () => {
+    const { rerender } = render(<AdminConsole activeSub="leave" onSubChange={() => {}} />);
+    const links = within(rail()).getByLabelText('Time Off & Leave settings');
+    expect(within(links).getAllByRole('button').map(b => b.textContent))
+      .toEqual(['Leave Policies', 'Time Off Reasons', 'Time Off Approval', 'Leave Year-End', 'Holiday Policies']);
+    expect(await find('Leave policies panel')).toBeInTheDocument();
+    expect(await find('Holiday policies panel')).toBeInTheDocument();
+
+    rerender(<AdminConsole activeSub="pay" onSubChange={() => {}} />);
+    expect(within(within(rail()).getByLabelText('Time & Pay settings')).getAllByRole('button').map(b => b.textContent))
+      .toEqual(['Pay Rules', 'Payroll Export Codes', 'Shift Differentials & Call-Back Pay', 'India Contractor Policy', 'Payroll Readiness', 'California Minimum Wage', 'Intacct Nightly Sync']);
+
+    // With a company picked: its own time off reasons, year end and approval;
+    // the organization-wide groups are one line of links.
+    rerender(<AdminConsole activeSub="leave@c1" onSubChange={() => {}} />);
+    for (const t of ['Time Off Reasons', 'Time Off Approval', 'Leave Year-End']) expect(screen.getByRole('heading', { name: t })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Leave Policies' })).not.toBeInTheDocument();
+    const also = screen.getByText('Set for every company:').parentElement;
+    expect(within(also).getByRole('button', { name: 'Leave Policies' })).toBeInTheDocument();
+    expect(within(also).getByRole('button', { name: 'Holiday Policies' })).toBeInTheDocument();
   });
 
   it('opens Tools from an old actas link', async () => {
@@ -263,9 +306,16 @@ describe('AdminConsole', () => {
       expect(within(rail()).queryByRole('button', { name })).not.toBeInTheDocument();
     }
     cleanup();
+    // Holiday Policies live under Time Off & Leave since 11/02/2026; the
+    // company list, now Companies' lone group, renders bare.
+    // For them it is the subject's one group at Every company, so it renders bare.
+    render(<AdminConsole activeSub="leave" onSubChange={() => {}} />);
+    expect(screen.getByRole('heading', { name: 'Time Off & Leave', level: 3 })).toBeInTheDocument();
+    expect(await find('Holiday policies panel')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Leave Policies' })).not.toBeInTheDocument();
+    cleanup();
     render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
-    expect(screen.getByRole('region', { name: 'Holiday Policies' })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Companies' })).toBeInTheDocument();
+    expect(await find('Company list')).toBeInTheDocument();
     cleanup();
     render(<AdminConsole activeSub="locations" onSubChange={() => {}} />);
     expect(await find('Site list')).toBeInTheDocument();
@@ -277,7 +327,7 @@ describe('AdminConsole', () => {
     asRole('manager', { grants: { hr: 'editor' }, hrScope: ['c1'], manageCompanies: ['c1'] });
     render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
     expect(within(rail()).getByRole('button', { name: 'Shifts & Scheduling' })).toBeInTheDocument();
-    expect(screen.getByText(/set per company for you - pick one in the Scope box/)).toBeInTheDocument();
+    expect(screen.getByText(/set per company for you - pick one in Applies To/)).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Shift Types' })).not.toBeInTheDocument();
     cleanup();
     render(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
@@ -605,8 +655,13 @@ describe('AdminConsole', () => {
     expect(await within(screen.getByRole('region', { name: /Shift Differentials/ })).findAllByText('Off')).toHaveLength(2);
     fireEvent.click(within(codes).getByRole('button', { name: /Greens India/ }));
     expect(onSubChange).toHaveBeenLastCalledWith('pay:payroll-export-codes@c2');
-    // A layered setting keeps its default editor and says who has their own.
-    expect(await within(screen.getByRole('region', { name: 'Pay Rules' })).findByText('Every company follows this default.', {}, { timeout: 5000 })).toBeInTheDocument();
+    // A layered setting keeps its default editor; with no company of its own
+    // under it, no footer repeats "every company follows this default".
+    const rules = screen.getByRole('region', { name: 'Pay Rules' });
+    expect(within(rules).getByText('Every Company · Companies Can Change')).toBeInTheDocument();
+    await new Promise(r => setTimeout(r, 50));
+    expect(rules.querySelector('[data-company-overrides]')).toBeNull();
+    expect(screen.queryByText('Every company follows this default.')).not.toBeInTheDocument();
   });
 
   it('says what a picked company does differently in the subject, with jump links', async () => {
@@ -615,8 +670,8 @@ describe('AdminConsole', () => {
     const line = (await screen.findByText(/Different for Greens Global/, {}, { timeout: 5000 })).parentElement;
     fireEvent.click(within(line).getByRole('button', { name: 'Payroll Export Codes' }));
     expect(within(within(rail()).getByLabelText('Time & Pay settings')).getByRole('button', { name: 'Payroll Export Codes' })).toHaveAttribute('aria-current', 'location');
-    // Its own group's chip says so too: a per-company setting reads Custom, not Overridden.
-    expect(within(screen.getByRole('region', { name: 'Payroll Export Codes' })).getByText('Custom')).toBeInTheDocument();
+    // Its own group's chip says so too, in the one vocabulary: Own Settings.
+    expect(within(screen.getByRole('region', { name: 'Payroll Export Codes' })).getByText('Own Settings')).toBeInTheDocument();
   });
 
   it('picks a company in the scope box and shows its own faces', async () => {
@@ -686,10 +741,12 @@ describe('AdminConsole', () => {
 
   it('brings the strays home: readiness, minimum wage, leave, time-off reasons, Intacct, letterheads, property rules, unit rules, ratings (phase 3)', async () => {
     const { rerender } = render(<AdminConsole activeSub="pay" onSubChange={() => {}} />);
-    for (const t of ['Pay Rules', 'Payroll Readiness', 'California Minimum Wage', 'Leave Policies', 'Time-Off Reasons', 'Intacct Nightly Sync']) {
+    for (const t of ['Pay Rules', 'Payroll Readiness', 'California Minimum Wage', 'Intacct Nightly Sync']) {
       expect(screen.getByRole('heading', { name: t })).toBeInTheDocument();
     }
     expect(await find('Readiness panel')).toBeInTheDocument();
+    rerender(<AdminConsole activeSub="leave" onSubChange={() => {}} />);
+    for (const t of ['Leave Policies', 'Time Off Reasons']) expect(screen.getByRole('heading', { name: t })).toBeInTheDocument();
     expect(await find('Time-off reasons panel')).toBeInTheDocument();
 
     rerender(<AdminConsole activeSub="pay@c1" onSubChange={() => {}} />);
@@ -728,7 +785,7 @@ describe('AdminConsole', () => {
 
     fireEvent.change(box, { target: { value: 'notifications' } });
     expect(await screen.findByText('Ticket Manager')).toBeInTheDocument();
-    expect(screen.getByText('Task Notifications')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Task Notifications' })).toBeInTheDocument();
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 
     fireEvent.change(box, { target: { value: 'geofence' } });
@@ -743,8 +800,81 @@ describe('AdminConsole', () => {
 
     fireEvent.change(box, { target: { value: 'nothing like this' } });
     expect(screen.getByText(/No settings match/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Search Every Company' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Clear Filter' }));
     expect(screen.getByRole('heading', { name: 'Companies', level: 3 })).toBeInTheDocument();
+  });
+
+  it('matches at word starts, finds groups by the words inside them, and marks the words found', () => {
+    render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
+    const box = screen.getByLabelText('Filter settings');
+    // "late" is Late (Schedule Basics' grace), never every "template".
+    fireEvent.change(box, { target: { value: 'late' } });
+    expect(screen.getByRole('region', { name: 'Schedule Basics' })).toBeInTheDocument();
+    for (const t of ['Email Signature', 'HR Letters', 'Hiring Documents']) expect(screen.queryByRole('region', { name: t })).not.toBeInTheDocument();
+    // Overtime finds the pay groups as well as the shift alerts.
+    fireEvent.change(box, { target: { value: 'overtime' } });
+    for (const t of ['Pay Rules', 'Payroll Export Codes', 'Payroll Readiness', 'Overtime Alerts']) expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
+    // PTO, vacation and sick find the leave groups.
+    for (const q of ['pto', 'vacation', 'sick']) {
+      fireEvent.change(box, { target: { value: q } });
+      for (const t of ['Leave Policies', 'Time Off Reasons', 'Leave Year-End', 'Time Off Approval']) expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
+    }
+    // Words typed together find the groups that have them together: "time
+    // off" is the leave groups, not Pay Rules' "time clock ... off by default".
+    // The words found are marked in the result titles.
+    fireEvent.change(box, { target: { value: 'time off' } });
+    expect(screen.queryByRole('region', { name: 'Pay Rules' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Requests & Visibility' })).toBeInTheDocument();
+    const title = within(screen.getByRole('region', { name: 'Time Off Reasons' })).getByRole('heading', { level: 4 });
+    expect([...title.querySelectorAll('mark')].map(m => m.textContent)).toEqual(['Time', 'Off']);
+    expect(title).toHaveTextContent('Time Off Reasons');
+  });
+
+  it('with a company picked and nothing matching, says so for the company and offers Search Every Company', async () => {
+    const onSubChange = vi.fn();
+    const { rerender } = render(<AdminConsole activeSub="leave@c1" onSubChange={onSubChange} />);
+    await waitFor(() => expect(screen.getByLabelText('Applies To')).toHaveValue('c1'));
+    fireEvent.change(screen.getByLabelText('Filter settings'), { target: { value: 'leave policies' } });
+    expect(screen.getByText('No settings match "leave policies" for Greens Global.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Search Every Company' }));
+    expect(onSubChange).toHaveBeenLastCalledWith('leave');
+    // The words stay: the same search runs at Every company.
+    rerender(<AdminConsole activeSub="leave" onSubChange={onSubChange} />);
+    expect(screen.getByLabelText('Filter settings')).toHaveValue('leave policies');
+    expect(screen.getByRole('region', { name: 'Leave Policies' })).toBeInTheDocument();
+  });
+
+  it('offers no Search Every Company to someone walled to some companies (they see fewer there)', async () => {
+    asRole('supervisor', { grants: { hr: 'editor' }, hrScope: ['c1'] });
+    render(<AdminConsole activeSub="leave@c1" onSubChange={() => {}} />);
+    await waitFor(() => expect(screen.getByLabelText('Applies To')).toHaveValue('c1'));
+    fireEvent.change(screen.getByLabelText('Filter settings'), { target: { value: 'nothing like this' } });
+    expect(screen.getByText(/No settings match "nothing like this" for Greens Global/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Search Every Company' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear Filter' })).toBeInTheDocument();
+  });
+
+  it('reads a typed hyphen as a space, and "mail" finds the email groups', () => {
+    render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
+    const box = screen.getByLabelText('Filter settings');
+    fireEvent.change(box, { target: { value: 'time-off' } });
+    for (const t of ['Time Off Reasons', 'Time Off Approval']) expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: 'no-show' } });
+    expect(screen.getByRole('region', { name: 'Attendance' })).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: 'mail' } });
+    for (const t of ['Email Appearance', 'Task Notifications', 'Daily Briefing', 'Weekly Digest', 'HR & Compliance Reminders']) {
+      expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
+    }
+  });
+
+  it('links Requests & Visibility to Time Off & Leave through the shell, keeping the company', async () => {
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="shifts@c1" onSubChange={onSubChange} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Time Off & Leave' }, { timeout: 5000 }));
+    expect(onSubChange).toHaveBeenLastCalledWith('leave@c1');
+    // Only the Requests slice carries it.
+    expect(screen.getAllByRole('button', { name: 'Open Time Off & Leave' })).toHaveLength(1);
   });
 
   it('opens on a list of the subjects on phones, and a subject has a way back', async () => {
@@ -787,12 +917,19 @@ describe('AdminConsole walls', () => {
   it('opens the pay and shift settings per company for a walled Administrator, never at Every company', async () => {
     asRole('administrator', { hrScope: ['c1'], manageCompanies: ['c1'], companyWalled: true });
     const { rerender } = render(<AdminConsole activeSub="pay" onSubChange={() => {}} />);
-    for (const t of ['Pay Rules', 'India Contractor Policy', 'Time-Off Approval', 'Leave Year-End', 'Leave Policies', 'California Minimum Wage']) {
+    for (const t of ['Pay Rules', 'India Contractor Policy', 'California Minimum Wage']) {
+      expect(screen.queryByRole('region', { name: t })).not.toBeInTheDocument();
+    }
+    // The leave groups moved to Time Off & Leave (11/02/2026) with their walls.
+    rerender(<AdminConsole activeSub="leave" onSubChange={() => {}} />);
+    for (const t of ['Time Off Approval', 'Leave Year-End', 'Time Off Reasons', 'Leave Policies']) {
       expect(screen.queryByRole('region', { name: t })).not.toBeInTheDocument();
     }
     rerender(<AdminConsole activeSub="pay@c1" onSubChange={() => {}} />);
     expect(await screen.findByRole('region', { name: 'Pay Rules' }, { timeout: 5000 })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Time-Off Approval' })).toBeInTheDocument();
+    rerender(<AdminConsole activeSub="leave@c1" onSubChange={() => {}} />);
+    expect(await screen.findByRole('region', { name: 'Time Off Approval' }, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Leave Year-End' })).toBeInTheDocument();
     rerender(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
     expect(await find('Shift settings panel basics c1')).toBeInTheDocument();
     // HR++ inside their reach: the labor budget is theirs for their company.

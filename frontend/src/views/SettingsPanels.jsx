@@ -15,7 +15,8 @@ import { SERVICE_AREAS } from '../tickets/ticketMeta';
 import UnitClasses from '../operations/UnitClasses';
 import { RatingsList } from '../components/TimeInsights';
 
-const LBL = { fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 };
+// The house label (DESIGN.md: 12px, normal case, no tracking).
+const LBL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 };
 
 // ── Tickets > Property Rules ─────────────────────────────────────────────────
 // Which tickets must name a property: by service area (a fixed list,
@@ -61,7 +62,7 @@ export function TicketPropertyRulesPanel({ toastOk, toastErr }) {
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-        A ticket in one of these service areas, or on one of these help topics, has to name the property it is about before it can be submitted. Suggest Property Links then proposes a property for older tickets, and a person approves each one.
+        A ticket in a service area or help topic picked below must name its property before it can be submitted. Suggest Property Links proposes one for older tickets, and a person approves each.
       </p>
       <div>
         <span style={LBL}>Service Areas That Need a Property</span>
@@ -112,7 +113,7 @@ export function AppRatingsPanel() {
   return (
     <div>
       <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-        Every application and website seen on a company computer, rated productive, neutral or unproductive. One rating for all of Nexus. Something not rated counts as neutral.
+        One rating for all of Nexus. Anything not rated yet counts as neutral.
       </p>
       <RatingsList seed={[]} />
     </div>

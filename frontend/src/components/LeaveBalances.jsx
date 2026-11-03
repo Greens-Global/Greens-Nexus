@@ -323,7 +323,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
         </Section>
       )}
       {data.canSetup && (
-        <div style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 10px' }}>The policies themselves are under Settings &gt; Time &amp; Pay &gt; Leave Policies.</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 10px' }}>The policies themselves are under Settings &gt; Time Off &amp; Leave &gt; Leave Policies.</div>
       )}
 
       {data.cutover && (
@@ -607,7 +607,8 @@ function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
                   years:
                   <input className="form-input" type="number" value={t.hoursPerYear} aria-label="Hours a year" onChange={e => upd(i, x => { x.vacation.tiers[k].hoursPerYear = e.target.value; return x; })} style={{ fontSize: 12, width: 80 }} />
                   hours a year
-                  <button onClick={() => upd(i, x => { x.vacation.tiers.splice(k, 1); return x; })} aria-label="Remove tier" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={12} /></button>
+                  <button type="button" onClick={() => upd(i, x => { x.vacation.tiers.splice(k, 1); return x; })} aria-label={`Remove the tier after ${t.fromYears || 0} years`} title="Remove Tier"
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', width: 28, height: 28, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}><X size={14} /></button>
                 </div>
               ))}
               <button className="secondary-btn" onClick={() => upd(i, x => { x.vacation.tiers = [...(x.vacation.tiers || []), { fromYears: 1, hoursPerYear: 40 }]; return x; })} style={{ fontSize: 11.5, justifySelf: 'start', display: 'inline-flex', gap: 5, alignItems: 'center' }}><Plus size={11} /> Add Tier</button>
@@ -623,7 +624,7 @@ function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
   );
 }
 
-// Settings > Time & Pay > Leave Policies (Oct 23): the policy library HR >
+// Settings > Time Off & Leave > Leave Policies (Oct 23; Time & Pay until 11/02/2026): the policy library HR >
 // Leave used to hold in an accordion. The start date stays with the import on
 // HR > Leave; this shows it.
 export function LeaveSetup({ toastOk, toastErr }) {
@@ -653,6 +654,6 @@ export function LeaveSetup({ toastOk, toastErr }) {
 
 const CARD = { background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' };
 const HD = { fontSize: 14, fontWeight: 700, color: 'var(--ink)' };
-const LBL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.03em' };
+const LBL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const FIELD = { display: 'grid', gap: 4, minWidth: 0 };
 const ROW = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', fontSize: 12.5, flexWrap: 'wrap' };

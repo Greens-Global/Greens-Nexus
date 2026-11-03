@@ -11,7 +11,7 @@ import { formatDate } from '../lib/datetime';
 // an India company, off for a company in any other country) and Policy
 // Starts (11/01/2026 by default - a month that starts before it keeps the old
 // rules, so October is never re-priced). At "Every company" the default
-// Policy Starts; a company picked in Scope gets its own switch and date.
+// Policy Starts; a company picked in Applies To gets its own switch and date.
 // The server (india_contractor_pay.py) does every calculation.
 export default function IndiaContractorPolicySettings({ toastOk, toastErr, company = '', onOverride }) {
   const [data, setData] = useState(null);
@@ -61,14 +61,21 @@ export default function IndiaContractorPolicySettings({ toastOk, toastErr, compa
           desc={`Contractors on monthly pay who work in India: credits by hours (full day at 8, half at 4), the month-end reconciliation that recovers missing days from extra hours, and Extra Time at 1.35x for hours they claim with a note. Replaces the automatic weekend pay for them. ${byDefault ? (india || !data.companyCountry ? 'On by default for this company.' : 'Off by default - this company is not in India.') : 'Set for this company.'}`}
           onChange={(on) => save({ mode: on ? 'on' : 'off', startDate: data.startDate }, on ? 'India Contractor Policy turned on.' : 'India Contractor Policy turned off.')} />
       ) : (
-        <SettingRow title="India Contractor Policy"
-          desc="On by default for every company in India (and for a company with no country, where each contractor's own country decides); off for a company anywhere else. Pick a company in Scope to turn it on or off there." />
+        // At Every company there is no switch to show - the group's own title
+        // already names the policy, so this is one line of description.
+        <div className="nx-set-row">
+          <span className="nx-set-row-desc" style={{ display: 'block', maxWidth: 'none' }}>
+            On by default for every company in India (and for a company with no country, where each contractor&apos;s own country decides); off for a company anywhere else. Pick a company in Applies To to turn it on or off there.
+          </span>
+        </div>
       )}
       <SettingRow htmlFor="india-contractor-policy-start" title="Policy Starts"
         desc={`Months that start on or after this day are priced by the policy; earlier months keep the old rules, and a finalized month never changes. Default ${formatDate(data.defaultStart || '2026-11-01')}.`}
         control={(
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <DateField value={start} onChange={(v) => setStart(v || '')} title="Policy Starts" disabled={busy} />
+            {/* Boxed like every other Settings control (a bare DateField read bigger and unboxed). */}
+            <DateField value={start} onChange={(v) => setStart(v || '')} title="Policy Starts" disabled={busy} placeholder="MM/DD/YYYY"
+              style={{ minWidth: 140, padding: '6px 10px', fontSize: 13, border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', boxSizing: 'border-box' }} />
             {busy && <Spinner size={14} />}
           </span>
         )}>

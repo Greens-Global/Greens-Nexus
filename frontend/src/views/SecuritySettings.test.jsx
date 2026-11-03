@@ -21,6 +21,7 @@ vi.mock('../api', () => ({
 }));
 
 const SecuritySettings = (await import('./SecuritySettings')).default;
+const { dialog } = await import('../ui/dialog');
 
 const int = (value, min, max, unit, source = 'default', extra = {}) => ({
   value, source, default: value, type: 'int', locked: false, hasEnv: false, envValue: null,
@@ -67,10 +68,10 @@ describe('SecuritySettings', () => {
     render(<SecuritySettings />);
     await screen.findByText('Sessions');
     expect(screen.getByText('Guest Sign-In')).toBeTruthy();
-    expect(screen.getByText('Set by server config')).toBeTruthy();
+    expect(screen.getByText('Set by Server Config')).toBeTruthy();
     expect(screen.getByText('Saved')).toBeTruthy();
     expect(screen.getByText('Allowed: 15 to 480 minutes')).toBeTruthy();
-    expect(screen.getByText('Save Changes').closest('button').disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /^Save$/ }).disabled).toBe(true);
 
     expect(screen.queryByText('Re-Authentication for Sensitive Actions')).toBeNull();
     expect(screen.queryByLabelText('Require Re-Authentication')).toBeNull();
@@ -85,9 +86,9 @@ describe('SecuritySettings', () => {
     const input = await screen.findByLabelText('Act As Session Length');
     fireEvent.change(input, { target: { value: '600' } });
     expect(screen.getByText('Must be 15 to 480 minutes.')).toBeTruthy();
-    expect(screen.getByText('Save Changes').closest('button').disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /^Save$/ }).disabled).toBe(true);
     fireEvent.change(input, { target: { value: '60' } });
-    const save = screen.getByText('Save Changes').closest('button');
+    const save = screen.getByRole('button', { name: /^Save$/ });
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
     // No boolean toggle is shown any more, so nothing can weaken sign-in -
@@ -101,7 +102,7 @@ describe('SecuritySettings', () => {
     await screen.findByText('Sessions');
     fireEvent.click(screen.getByLabelText('Reset Act As Session Length to Default'));
     expect(screen.getByLabelText('Act As Session Length').value).toBe('240');
-    fireEvent.click(screen.getByText('Save Changes'));
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(updateSecuritySettings).toHaveBeenCalledWith({ actAsMinutes: null }, false));
   });
 
@@ -110,7 +111,103 @@ describe('SecuritySettings', () => {
     render(<SecuritySettings />);
     await screen.findByText('You can view these settings. Only a Super Administrator can change them.');
     expect(screen.getByLabelText('Act As Session Length').disabled).toBe(true);
-    expect(screen.queryByText('Save Changes')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Save$/ })).toBeNull();
+  });
+
+  it('asks before lowering the idle limit (it signs people out), and saves a raise without asking', async () => {
+    getSecuritySettings.mockResolvedValue(payload(true, { webSessionIdleDays: int(14, 1, 30, 'days', 'saved', { default: 30 }) }));
+    const confirm = vi.spyOn(dialog, 'confirm').mockResolvedValue(false);
+    render(<SecuritySettings />);
+    const input = await screen.findByLabelText('Web Session Idle Limit');
+    fireEvent.change(input, { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(confirm.mock.calls[0][0]).toMatch(/from 14 to 7 days signs out/);
+    expect(updateSecuritySettings).not.toHaveBeenCalled();
+
+    confirm.mockClear();
+    fireEvent.change(input, { target: { value: '21' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(updateSecuritySettings).toHaveBeenCalledWith({ webSessionIdleDays: 21 }, false));
+    expect(confirm).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('says a value in seconds the way people say it', async () => {
+    getSecuritySettings.mockResolvedValue(payload(true, { vaultOtpUnlockSec: int(900, 60, 1800, 'seconds') }));
+    render(<SecuritySettings />);
+    expect(await screen.findByText('seconds (15 minutes)')).toBeTruthy();
+  });
+
+  // One switch behavior everywhere (Neil, 11/02/2026): a switch saves on
+  // click, alone, with an Undo toast; a typed number stays the Save row's
+  // draft; a failed save puts the switch back; turning one off asks first.
+  const SWITCH_GROUPS = [{ title: 'Sign-In', desc: 'Test group.', fields: [
+    { key: 'stepupEnforce', label: 'Require Re-Sign-In', desc: 'Test switch.' },
+    { key: 'webSessionIdleDays', label: 'Web Session Idle Limit', desc: 'Test number.' },
+  ] }];
+
+  it('a switch saves on click with an Undo, while a typed number stays a draft', async () => {
+    getSecuritySettings.mockResolvedValue(payload(true, { stepupEnforce: bool(false) }));
+    updateSecuritySettings.mockImplementation(async (values) => payload(true, { stepupEnforce: bool(!!values.stepupEnforce, 'saved') }));
+    const undo = vi.spyOn(dialog, 'undo').mockImplementation(() => {});
+    const confirm = vi.spyOn(dialog, 'confirm').mockResolvedValue(true);
+    render(<SecuritySettings groups={SWITCH_GROUPS} />);
+    fireEvent.change(await screen.findByLabelText('Web Session Idle Limit'), { target: { value: '20' } });
+    fireEvent.click(screen.getByRole('switch', { name: 'Require Re-Sign-In' }));
+    await waitFor(() => expect(updateSecuritySettings).toHaveBeenCalledWith({ stepupEnforce: true }, false));
+    expect(confirm).not.toHaveBeenCalled();   // turning a safety switch ON never asks
+    await waitFor(() => expect(undo).toHaveBeenCalled());
+    expect(undo.mock.calls[0][0]).toBe('Require Re-Sign-In turned on.');
+    expect(screen.getByRole('switch', { name: 'Require Re-Sign-In' })).toBeChecked();
+    // The typed number was not sent with it, and is still waiting for Save.
+    expect(screen.getByLabelText('Web Session Idle Limit')).toHaveValue(20);
+    expect(screen.getByRole('button', { name: /^Save$/ }).disabled).toBe(false);
+    // Undo writes the old value back (turning it off - the server is told it was confirmed).
+    await undo.mock.calls[0][1]();
+    expect(updateSecuritySettings).toHaveBeenLastCalledWith({ stepupEnforce: false }, true);
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Require Re-Sign-In' })).not.toBeChecked());
+    undo.mockRestore(); confirm.mockRestore();
+  });
+
+  it('turning a switch off asks first; a failed save puts it back', async () => {
+    getSecuritySettings.mockResolvedValue(payload(true, { stepupEnforce: bool(true, 'saved') }));
+    const confirm = vi.spyOn(dialog, 'confirm').mockResolvedValueOnce(false).mockResolvedValue(true);
+    const toastErr = vi.fn();
+    render(<SecuritySettings groups={SWITCH_GROUPS} toastErr={toastErr} />);
+    const sw = await screen.findByRole('switch', { name: 'Require Re-Sign-In' });
+    fireEvent.click(sw);   // Keep It On
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(confirm.mock.calls[0][0]).toMatch(/weakens sign-in security/);
+    expect(updateSecuritySettings).not.toHaveBeenCalled();
+    expect(sw).toBeChecked();
+    updateSecuritySettings.mockRejectedValueOnce(new Error('Only a Super Administrator can change this.'));
+    fireEvent.click(sw);   // Turn Off - and the server refuses
+    await waitFor(() => expect(updateSecuritySettings).toHaveBeenCalledWith({ stepupEnforce: false }, true));
+    await waitFor(() => expect(toastErr).toHaveBeenCalledWith('Only a Super Administrator can change this.'));
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Require Re-Sign-In' })).toBeChecked());
+    confirm.mockRestore();
+  });
+
+  // A leave prompt's Save and Leave (in Settings or DialogGuard's) calls the
+  // group's save; lowering the idle limit then asks through dialog.confirm,
+  // which stacks over the prompt. Either answer settles the save - Keep
+  // Editing resolves false (the prompt stays), Lower the Limit saves.
+  it('Save and Leave settles either way when the idle-limit question is asked', async () => {
+    const { GroupDirtyContext, makeGroupReporter } = await import('../lib/groupDirty');
+    let saves = [];
+    const reporter = makeGroupReporter((d, s) => { saves = d ? s : []; });
+    getSecuritySettings.mockResolvedValue(payload(true, { webSessionIdleDays: int(14, 1, 30, 'days', 'saved') }));
+    render(<GroupDirtyContext.Provider value={reporter}><SecuritySettings /></GroupDirtyContext.Provider>);
+    fireEvent.change(await screen.findByLabelText('Web Session Idle Limit'), { target: { value: '7' } });
+    await waitFor(() => expect(saves.length).toBe(1));
+    const confirm = vi.spyOn(dialog, 'confirm').mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await expect(saves[0]()).resolves.toBe(false);
+    expect(updateSecuritySettings).not.toHaveBeenCalled();
+    await expect(saves[0]()).resolves.toBe(true);
+    expect(updateSecuritySettings).toHaveBeenCalledWith({ webSessionIdleDays: 7 }, false);
+    expect(confirm).toHaveBeenCalledTimes(2);
+    confirm.mockRestore();
   });
 
   it('shows a retry instead of a blank screen when loading fails', async () => {

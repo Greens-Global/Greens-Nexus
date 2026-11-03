@@ -46,8 +46,8 @@
 // organization default a company may override - and the screen shows the
 // scope instead of guessing it from a tab. A rail of SUBJECTS on the left
 // (Companies, Locations, People & Access, Security, Branding & Email, Emails &
-// Reminders, Tickets, Time & Pay, Workforce Analytics, Shifts & Scheduling,
-// Hiring & Onboarding, Items & Equipment, Operations), a SCOPE picker at the
+// Reminders, Tickets, Time & Pay, Time Off & Leave, Workforce Analytics, Shifts &
+// Scheduling, Hiring & Onboarding, Items & Equipment, Operations), a SCOPE picker at the
 // top ("Every company" or one company), and under each subject its setting
 // GROUPS, all open - no accordions, nothing behind a click. Picking a company
 // shows each subject's company face (the old Company Settings tabs, spread
@@ -62,7 +62,10 @@
 // company's face; 'tools' and 'audit' are the other tabs. Every old key still
 // lands: 'settings' / 'global' -> Companies, 'global-<category>' -> the
 // subject that category became (LEGACY_SUBJECTS), 'company' -> Companies,
-// 'access' -> People & Access, 'actas' -> Tools.
+// 'access' -> People & Access, 'actas' -> Tools. A group always lands on the
+// subject it lives in now, so '<old subject>:<group>' links still find a
+// group that moved (11/02/2026: the leave groups and Holiday Policies moved to
+// Time Off & Leave - 'pay:leave-policies' and 'companies:holiday-policies' land there).
 //
 // Act As and the Microsoft 365 sync are actions, not settings, so they sit
 // on the Tools tab (views/SettingsTools.jsx). Every panel is the same
@@ -82,6 +85,7 @@ import {
   Target,
   Workflow,
   CalendarDays,
+  CalendarOff,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -241,6 +245,12 @@ const SUBJECTS = [
   // Time Clock pay rules (Charmi, Sep 30): moved off the timecard's Options popover.
   { key: 'pay', section: 'work',        label: 'Time & Pay',          Icon: Clock, faces: 'both',
     desc: 'The rules every time sheet and payroll run follow.' },
+  // Time Off & Leave (Neil, 11/02/2026): the leave groups out of Time & Pay and
+  // the Holiday Policies out of Companies. `order` sets the groups' order on
+  // the page without moving them in GROUPS.
+  { key: 'leave', section: 'work',      label: 'Time Off & Leave',    Icon: CalendarOff, faces: 'both',
+    desc: 'Leave policies, time off reasons and approval, the leave year end and holidays.',
+    order: ['leave-policies', 'time-off-reasons', 'timeoff-approval', 'leave-year-end', 'holiday-policies'] },
   { key: 'analytics', section: 'work',  label: 'Workforce Analytics', Icon: MonitorDot, faces: 'both',
     desc: 'App ratings, the location trail and what each company captures.' },
   { key: 'shifts', section: 'work',     label: 'Shifts & Scheduling', Icon: CalendarClock, faces: 'both',
@@ -298,10 +308,10 @@ const GROUPS = [
     keywords: 'company profile legal name country tax id ein gstin signatory manager hr contact invoice recipients address phone logo social links email domains notes departments department head holiday calendar holidays weather calls rain' },
   // Holiday policies (Neil, Oct 29 2026): named holiday sets applied to one or
   // more companies; each company's Holiday Calendar can skip or change one.
-  { id: 'holiday-policies', subject: 'companies', face: 'org', scope: 'org', icon: CalendarDays, title: 'Holiday Policies',
+  { id: 'holiday-policies', subject: 'leave', face: 'org', scope: 'org', icon: CalendarDays, title: 'Holiday Policies',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true, anyScope: true },
     sub: 'Named sets of holidays and how weekend holidays are observed, applied to one or more companies. A company can skip or change any holiday for itself.',
-    keywords: 'holidays holiday policy calendar federal presidents day independence day weekend observed india gazetted restricted diwali apply companies' },
+    keywords: 'holidays holiday policy calendar federal presidents day independence day weekend observed india gazetted restricted diwali apply companies time off days off leave' },
   // Locations
   { id: 'work-sites', subject: 'locations', face: 'org', scope: 'org', icon: MapPinned, title: 'Location Library',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true, anyScope: true },
@@ -344,7 +354,7 @@ const GROUPS = [
   { id: 'email-appearance', subject: 'branding', face: 'org', scope: 'org', icon: Mail, title: 'Email Appearance',
     needs: { role: 'administrator', orgWide: true },
     sub: 'One logo, accent color and footer for every email Nexus sends: tasks, tickets, Nexus Sign, invitations and welcome emails.',
-    keywords: 'email template logo header footer accent color address preview notifications' },
+    keywords: 'mail email template logo header footer accent color address preview notifications' },
   { id: 'letterheads', subject: 'branding', face: 'org', scope: 'org', icon: FileText, title: 'Letterheads',
     needs: { role: 'administrator' },
     sub: 'The letterheads documents and letters print on, and which one is the default.',
@@ -352,36 +362,36 @@ const GROUPS = [
   { id: 'email-signature', subject: 'branding', face: 'both', scope: 'company', icon: Signature, title: 'Email Signature',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in Profile.',
-    keywords: 'template sign-off logo sender override shared inbox branding' },
+    keywords: 'mail template sign-off logo sender override shared inbox branding' },
   // Emails & Reminders
   { id: 'task-notifications', subject: 'emails', face: 'org', scope: 'org', icon: Bell, title: 'Task Notifications',
     needs: { role: 'manager' },
     sub: 'The mailbox task emails come from, due-date reminders, how updates are batched into one email, and how email replies are posted.',
-    keywords: 'email mailbox reminders overdue batch replies delivery log tasks notifications' },
+    keywords: 'mail email mailbox reminders overdue batch replies delivery log tasks notifications' },
   { id: 'daily-briefing', subject: 'emails', face: 'org', scope: 'org', icon: Mail, title: 'Daily Briefing',
     needs: { role: 'administrator' },
     sub: 'A daily summary email for each employee. Send it to everyone, or to a few test recipients first.',
-    keywords: 'digest summary email morning test recipients' },
+    keywords: 'mail digest summary email morning test recipients' },
   { id: 'weekly-digest', subject: 'emails', face: 'org', scope: 'org', icon: Mail, title: 'Weekly Digest',
     needs: { role: 'administrator' },
     sub: "A Monday email listing each employee's overdue tasks with their due dates, sent before their shift. Send it to everyone, or to a few test recipients first.",
-    keywords: 'weekly digest summary email overdue tasks due dates extend monday shift test recipients' },
+    keywords: 'mail weekly digest summary email overdue tasks due dates extend monday shift test recipients' },
   { id: 'workforce-scorecard', subject: 'emails', face: 'org', scope: 'org', icon: Mail, title: 'Workforce Scorecard',
     needs: { role: 'administrator' },
     sub: 'A weekly email to managers scoring each hourly person\'s punched hours against their expected hours (US 8h, India 9h, or their shift) - who worked, who was short, who was absent.',
-    keywords: 'workforce analytics scorecard attendance hours expected worked absent late weekly manager email shift standard day india hourly test recipients' },
+    keywords: 'mail workforce analytics scorecard attendance hours expected worked absent late weekly manager email shift standard day india hourly test recipients' },
   { id: 'hr-reminders', subject: 'emails', face: 'org', scope: 'org', icon: CalendarClock, title: 'HR & Compliance Reminders',
     needs: { role: 'administrator', grant: ['hr', 'full'] },
     sub: 'Choose how many days ahead HR is warned about visa and right-to-work expiry, contract ends, new starters, expiring documents and unsigned signature requests.',
-    keywords: 'hr people visa right to work immigration expiry expiring contract end new starter onboarding document compliance e-sign signature chase nudge reminder days before alerts timing bell' },
+    keywords: 'mail hr people visa right to work immigration expiry expiring contract end new starter onboarding document compliance e-sign signature chase nudge reminder days before alerts timing bell' },
   { id: 'equipment-reminders', subject: 'emails', face: 'org', scope: 'org', icon: CalendarClock, title: 'Equipment Reminders',
     needs: { role: 'administrator', grant: ['inventory', 'full'] },
     sub: 'Chase items that are checked out past their due date, and choose how early asset managers are warned about warranties, inspections, registration, insurance and service.',
-    keywords: 'items inventory checkout overdue return late borrower asset property vehicle equipment warranty inspection registration insurance service manager reminder days before alerts timing bell' },
+    keywords: 'mail items inventory checkout overdue return late borrower asset property vehicle equipment warranty inspection registration insurance service manager reminder days before alerts timing bell' },
   { id: 'kb-reminders', subject: 'emails', face: 'org', scope: 'org', icon: CalendarClock, title: 'Training Reminders',
     needs: { role: 'administrator', grant: ['sop', 'full'] },
     sub: 'Turn the Knowledge Base training reminders, policy-signing reminders and Monday digests on or off, or keep them in the notification bell without an email.',
-    keywords: 'knowledge base kb sop training course policy sign acknowledge overdue due reminder digest manager owner email bell off' },
+    keywords: 'mail knowledge base kb sop training course policy sign acknowledge overdue due reminder digest manager owner email bell off' },
   // Tickets - one group, seven tabs (Pranshu, Sep 26: routing, ticket email
   // and SLAs are one subject to an admin). Its first tab loads the desk's
   // settings (require_ticket_supervisor + the manager tier), so it opens for a
@@ -399,11 +409,11 @@ const GROUPS = [
   { id: 'timeclock-policy', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Pay Rules', flush: true,
     needs: { role: 'administrator', tenant: true },
     sub: 'Punch rounding (off by default), the auto-lunch deduction and California paid rest breaks - the default for every time sheet, and each company\'s own.',
-    keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california time sheet' },
+    keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california time sheet hours overtime' },
   { id: 'payroll-export-codes', subject: 'pay', face: 'both', scope: 'company', icon: FileText, title: 'Payroll Export Codes',
     needs: { role: 'administrator' },
     sub: 'The payroll item name each pay class carries in the QuickBooks IIF and the Intacct payroll memo, and the QuickBooks company name, per company.',
-    keywords: 'payroll export codes earnings codes payroll items quickbooks iif intacct memo company name pay class' },
+    keywords: 'payroll export codes earnings codes payroll items quickbooks iif intacct memo company name pay class overtime double time regular sick vacation' },
   { id: 'pay-premiums', subject: 'pay', face: 'both', scope: 'company', icon: Clock, title: 'Shift Differentials & Call-Back Pay',
     needs: { role: 'administrator' },
     sub: 'Extra pay per hour at night, on weekends or at certain sites, and a minimum paid time when someone is called back - per company, off by default.',
@@ -416,27 +426,29 @@ const GROUPS = [
   { id: 'payroll-readiness', subject: 'pay', face: 'both', scope: 'layered', icon: ClipboardList, title: 'Payroll Readiness', flush: true,
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'What counts as a big change or an unusual week when checking who is ready for payroll - a default, and each company\'s own.',
-    keywords: 'payroll readiness thresholds percent hours big change unusual week export check flags' },
+    keywords: 'payroll readiness thresholds percent hours big change unusual week export check flags overtime' },
   { id: 'ca-min-wage', subject: 'pay', face: 'org', scope: 'org', icon: Clock, title: 'California Minimum Wage',
     needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
     sub: 'The state minimum wage the California review checks pay rates against; it also prices the split-shift premium.',
     keywords: 'california minimum wage ca review split shift premium pay rate' },
-  { id: 'leave-policies', subject: 'pay', face: 'org', scope: 'org', icon: CalendarClock, title: 'Leave Policies',
+  // Time Off & Leave (11/02/2026) - these four stay here in the list; the
+  // subject's `order` sets where each shows.
+  { id: 'leave-policies', subject: 'leave', face: 'org', scope: 'org', icon: CalendarClock, title: 'Leave Policies',
     needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
     sub: 'The vacation and sick policies people are assigned - hours earned per hour worked, caps and carry-over.',
-    keywords: 'leave policies vacation sick accrual balance hours earned per hour start date cutover pto carry over' },
-  { id: 'time-off-reasons', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Time-Off Reasons',
+    keywords: 'leave policies vacation sick accrual balance hours earned per hour start date cutover pto paid time off carry over time off' },
+  { id: 'time-off-reasons', subject: 'leave', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Time Off Reasons',
     needs: { role: 'manager', grant: ['hr', 'editor'], people: true, tenant: true },
     sub: 'The reasons staff can pick when requesting time off, beyond the built-in Vacation, Sick, Personal, Unpaid, 1/2 Day and Other.',
-    keywords: 'time off reasons request jury duty bereavement custom' },
-  { id: 'leave-year-end', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Leave Year-End', flush: true,
+    keywords: 'time off reasons request jury duty bereavement custom pto vacation sick personal unpaid half day leave' },
+  { id: 'leave-year-end', subject: 'leave', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Leave Year-End', flush: true,
     needs: { role: 'administrator', grant: ['hr', 'full'], people: true, tenant: true },
     sub: 'What happens to unused vacation and sick time when the leave year ends - Use It Or Lose It by default, or carry everything or up to a cap. California vacation never expires (required by law).',
     keywords: 'leave year end carry over carryover rollover cap use it or lose it expire forfeit vacation sick pto anniversary calendar california labor code 227.3' },
-  { id: 'timeoff-approval', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Time-Off Approval', flush: true,
+  { id: 'timeoff-approval', subject: 'leave', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Time Off Approval', flush: true,
     needs: { role: 'administrator', grant: ['hr', 'full'], people: true, tenant: true },
-    sub: 'Whether a time-off request needs HR\'s approval after the manager\'s - per company, off by default.',
-    keywords: 'time off approval second approval by hr two level manager leave request awaiting hr' },
+    sub: 'Whether a time off request needs HR\'s approval after the manager\'s - per company, off by default.',
+    keywords: 'time off approval second approval by hr two level manager leave request awaiting hr pto vacation sick' },
   { id: 'intacct-nightly', subject: 'pay', face: 'both', scope: 'company', icon: FileText, title: 'Intacct Nightly Sync',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Which companies have their employee codes filled in from Intacct once a night, and how the last run went.',
@@ -591,6 +603,22 @@ const GROUPS = [
     keywords: 'workflows automation pause switch ceilings digest webhooks' },
 ];
 const GROUP_META = Object.fromEntries(GROUPS.map(g => [g.id, g]));
+// The groups in page order: a subject with an `order` lists its groups in
+// that order; every other group keeps its place in GROUPS.
+const SUBJECT_ORDER = Object.fromEntries(SUBJECTS.filter(s => s.order).map(s => [s.key, s.order]));
+const ORDERED_GROUPS = (() => {
+  const out = [];
+  const done = new Set();
+  for (const g of GROUPS) {
+    const o = SUBJECT_ORDER[g.subject];
+    if (!o) { out.push(g); continue; }
+    if (done.has(g.subject)) continue;
+    done.add(g.subject);
+    const rank = (x) => (o.includes(x.id) ? o.indexOf(x.id) : o.length);
+    out.push(...GROUPS.filter(x => x.subject === g.subject).sort((a, b) => rank(a) - rank(b)));
+  }
+  return out;
+})();
 
 // Who may open a group (Oct 23): each group's `needs` says what its save
 // route demands, so the rail, the filter and the page show nothing the
@@ -667,28 +695,59 @@ function hrPlusFor({ can, hrScope, hrTeam, myGrantedModules, hrContactFor }, com
   return (wide && (!limited || hrScope.includes(company))) || contact.includes(company);
 }
 
-// Every word typed has to appear somewhere in the group's title,
-// description, keywords or subject name.
+// Every word typed has to start a word somewhere in the group's title,
+// description, keywords or subject name (11/02/2026: at word starts, so
+// "late" finds Late and lateness, never every "template").
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const wordStart = (w) => new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(w)}`, 'iu');
+const searchWords = (needle) => needle.split(/\s+/).filter(Boolean);
+const groupHay = (g) => `${g.title} ${g.sub} ${g.keywords} ${SUBJECTS.find(s => s.key === g.subject)?.label || ''}`;
 function groupMatches(g, needle) {
-  const subject = SUBJECTS.find(s => s.key === g.subject)?.label || '';
-  const hay = `${g.title} ${g.sub} ${g.keywords} ${subject}`.toLowerCase();
-  return needle.split(/\s+/).filter(Boolean).every(w => hay.includes(w));
+  const hay = groupHay(g);
+  return searchWords(needle).every(w => wordStart(w).test(hay));
+}
+// Several words typed: the groups that have them together, as a phrase
+// ("time off", not "time clock ... off by default"). When none do, every
+// group with all the words anywhere is a match.
+function phraseMatches(list, needle) {
+  const words = searchWords(needle);
+  if (words.length < 2) return list;
+  const re = new RegExp(`(^|[^\\p{L}\\p{N}])${words.map(escapeRe).join('[\\s\\-]+')}`, 'iu');
+  const together = list.filter(g => re.test(groupHay(g)));
+  return together.length ? together : list;
+}
+
+// A result's title with the typed words marked where they start a word.
+function Marked({ text, words }) {
+  if (!words?.length || typeof text !== 'string') return text;
+  const re = new RegExp(`(^|[^\\p{L}\\p{N}])(${words.map(escapeRe).join('|')})`, 'giu');
+  const out = [];
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    const start = m.index + m[1].length;
+    if (start > last) out.push(text.slice(last, start));
+    out.push(<mark key={start} className="nx-set-mark">{m[2]}</mark>);
+    last = start + m[2].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
 }
 
 // What a group's scope chip says. `company` is the picked company's name
 // ('' at "Every company"); `override` is what a layered panel reported
 // (true: the company has its own; false: inherited; undefined: unknown).
+// One set of words for where a value comes from (11/02/2026): Every Company,
+// Every Company · Companies Can Change, Per Company - and with a company
+// picked, Own Settings (its own) or Default (the default, or the built-in).
 function scopeLabel(scope, company, override) {
   if (company) {
-    // A per-company setting has no default to inherit: it is the company's
-    // own (Custom) or still the built-in one (Default).
-    if (override === true) return scope === 'company' ? 'Custom' : 'Overridden';
-    if (override === false) return scope === 'company' ? 'Default' : 'Inherited';
+    if (override === true) return 'Own Settings';
+    if (override === false) return 'Default';
     return company;
   }
   if (scope === 'company') return 'Per Company';
-  if (scope === 'layered') return 'All Companies · Overridable';
-  return 'All Companies';
+  if (scope === 'layered') return 'Every Company · Companies Can Change';
+  return 'Every Company';
 }
 
 // Where a group's value comes from, as a quiet badge; orange when the picked
@@ -705,7 +764,7 @@ function ScopeChip({ scope, company, override }) {
 // subject header already names it); `flush` lets a panel built of rows
 // (SettingsUI) run edge to edge; `highlight` marks the group a link pointed
 // at (sub '<subject>:<group>'). The title takes focus on a jump.
-function Group({ id, title, sub, scope, company, override, bare = false, flush = false, highlight = false, footer = null, children }) {
+function Group({ id, title, sub, scope, company, override, bare = false, flush = false, highlight = false, marks = null, footer = null, children }) {
   const ref = useRef(null);
   // A link to a group lands on it - and stays on it while the panels above
   // finish loading and push it down (they are lazy), until the person
@@ -744,7 +803,7 @@ function Group({ id, title, sub, scope, company, override, bare = false, flush =
       {!bare && (
         <div className="nx-set-group-head">
           <div className="nx-set-group-head-text">
-            <h4 tabIndex={-1}>{title}</h4>
+            <h4 tabIndex={-1}><Marked text={title} words={marks} /></h4>
             {sub && <p>{sub}</p>}
           </div>
           <ScopeChip scope={scope} company={company} override={override} />
@@ -870,10 +929,12 @@ function CompanyOverrides({ entities, stateOf, onPick, lead = 'Companies with th
   const own = entities.filter(en => states[en.id].own);
   const failed = entities.filter(en => states[en.id].failed).length;
   const failedNames = entities.filter(en => states[en.id].failed).map(en => en.name);
+  // Nobody differs: nothing to say (11/02/2026 - the same line under every
+  // group read as noise); the badge already says companies can change it.
+  if (own.length === 0 && !failed) return null;
   return (
     <div className="nx-set-note" data-company-overrides="">
       <Building2 size={13} />
-      {own.length === 0 && !failed && 'Every company follows this default.'}
       {own.length > 0 && (
         <>
           {lead}
@@ -1270,8 +1331,8 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
         <>
           {!company && (
             <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Company</label>
-              <select className="form-input" style={{ width: '100%', maxWidth: 320 }} value={companyId} onChange={e => pickCompany(e.target.value)}>
+              <label htmlFor="sig-company" className="nx-set-label">Company</label>
+              <select id="sig-company" className="form-input" style={{ width: '100%', maxWidth: 320 }} value={companyId} onChange={e => pickCompany(e.target.value)}>
                 {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
               </select>
             </div>
@@ -1293,16 +1354,12 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
                         border: selected ? '2px solid hsl(var(--color-green))' : '1px solid var(--line)',
                         background: 'var(--card)', position: 'relative',
                       }}>
-                      <button type="button" title={`Preview ${t.label} full-size`}
-                        onClick={e => { e.stopPropagation(); setZoomTemplate(t); }}
-                        style={{
-                          position: 'absolute', top: 6, right: 6, background: 'var(--card)',
-                          border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer',
-                          display: 'flex', padding: 4, color: 'var(--muted)', zIndex: 1,
-                        }}>
-                        <Eye size={13} />
+                      <button type="button" title={`Preview ${t.label} full-size`} aria-label={`Preview ${t.label} full-size`}
+                        className="nx-set-icon-btn" onClick={e => { e.stopPropagation(); setZoomTemplate(t); }}
+                        style={{ position: 'absolute', top: 6, right: 6, zIndex: 1 }}>
+                        <Eye size={14} />
                       </button>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 6, minHeight: 28, paddingRight: 34, display: 'flex', alignItems: 'center', gap: 4 }}>
                         {t.label}
                         {selected && <Check size={12} style={{ color: 'hsl(var(--color-green))' }} />}
                       </div>
@@ -1317,10 +1374,8 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
       )}
 
       {!company && <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--line)' }}>
-        <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-          Sender Template Overrides
-        </label>
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>
+        <div className="nx-set-label" style={{ fontSize: 13, color: 'var(--ink)' }}>Sender Template Overrides</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
           A custom signature for specific email addresses, such as a shared inbox or someone who needs a different layout. Overrides apply in every company, and every field is entered here rather than taken from the directory.
           {overridesLocked && <> Only a Super Administrator can change this.</>}
         </div>
@@ -1328,23 +1383,21 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
           {overrides.map((grp, idx) => (
             <div key={grp.id || idx} style={{ textAlign: 'left', padding: 10, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', position: 'relative' }}>
               {!overridesLocked && <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4, zIndex: 1 }}>
-                <button type="button" title="Edit" onClick={() => setOverrideModal(idx)}
-                  style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'var(--muted)' }}>
-                  <Pencil size={13} />
+                <button type="button" title="Edit" aria-label={`Edit ${grp.label || grp.emails?.[0] || 'override'}`} className="nx-set-icon-btn" onClick={() => setOverrideModal(idx)}>
+                  <Pencil size={14} />
                 </button>
-                <button type="button" title="Remove" onClick={() => removeOverride(idx)}
-                  style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'hsl(var(--color-red))' }}>
-                  <Trash2 size={13} />
+                <button type="button" title="Remove" aria-label={`Remove ${grp.label || grp.emails?.[0] || 'override'}`} className="nx-set-icon-btn" style={{ color: 'hsl(var(--color-red))' }} onClick={() => removeOverride(idx)}>
+                  <Trash2 size={14} />
                 </button>
               </div>}
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', marginBottom: 4, paddingRight: 50, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 4, paddingRight: 64, minHeight: 28, display: 'flex', alignItems: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {grp.label || grp.emails?.[0] || 'Untitled'}
               </div>
-              <div style={{ fontSize: 10.5, color: 'var(--muted)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {(grp.emails || []).join(', ') || 'No addresses yet'}
               </div>
               {grp.previewHtml ? <SignaturePaper html={grp.previewHtml} /> : (
-                <div style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>Not saved yet</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>Not saved yet</div>
               )}
             </div>
           ))}
@@ -1505,7 +1558,7 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
   }
 
   const inputStyle = { width: '100%' };
-  const labelStyle = { fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 5 };
+  const labelStyle = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 };
   const rowKeys = reconcileOrder(fieldOrder, customFields.length);
 
   return (
@@ -1630,9 +1683,8 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
           <div>
             <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
               Preview
-              <button type="button" title="Preview full-size" onClick={() => setZoomed(true)}
-                style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 3, color: 'var(--muted)' }}>
-                <Eye size={12} />
+              <button type="button" title="Preview full-size" aria-label="Preview full-size" className="nx-set-icon-btn" onClick={() => setZoomed(true)}>
+                <Eye size={14} />
               </button>
             </label>
             <SignaturePaper html={previewHtml} height={90} scale={0.85} />
@@ -1708,14 +1760,15 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
   const who = { ...role, desk };
   const narrow = useIsMobile('(max-width: 900px)');
   const [query, setQuery] = useState('');
-  const needle = query.trim().toLowerCase();
+  // A hyphen typed is a space ("time-off" finds Time Off); word starts still match "no-show".
+  const needle = query.trim().toLowerCase().replace(/-+/g, ' ').trim();
   // What this person may open (mayOpen, from each group's `needs`): a
   // subject is in the rail when one of its groups opens somewhere; the groups
   // on the page are the ones that open at this scope - a company-only group
   // at "Every company" opens if it opens for some company, since picking the
   // company is the next click.
   const subjects = SUBJECTS.filter(s => GROUPS.some(g => g.subject === s.key && mayOpen(g, who, undefined)));
-  const groups = GROUPS.filter(g => mayOpen(g, who, g.face === 'company' && !company ? undefined : company));
+  const groups = ORDERED_GROUPS.filter(g => mayOpen(g, who, g.face === 'company' && !company ? undefined : company));
 
   const entity = company ? entities.find(e => e.id === company) : null;
   const companyName = entity?.name || '';
@@ -1736,7 +1789,7 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
     return org.length ? org : own.filter(g => g.face === 'company');
   };
   const searchable = company ? groups.filter(g => g.face !== 'org') : groups;
-  const matches = needle ? searchable.filter(g => groupMatches(g, needle)) : null;
+  const matches = needle ? phraseMatches(searchable.filter(g => groupMatches(g, needle)), needle) : null;
   const counts = matches ? matches.reduce((m, g) => ({ ...m, [g.subject]: (m[g.subject] || 0) + 1 }), {}) : null;
 
   // Every group with unsaved changes (lib/groupDirty.js: a form says so
@@ -1782,7 +1835,8 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
   useEffect(() => () => onDirtyChange?.(false, null), [onDirtyChange]);
   const [pending, setPending] = useState(null);
   const [saving, setSaving] = useState(false);
-  const go = useCallback((target) => { setQuery(''); setPending(null); onNavigate(target); }, [onNavigate]);
+  // `keepQuery`: the move is the search itself (Search Every Company).
+  const go = useCallback((target) => { if (!target?.keepQuery) setQuery(''); setPending(null); onNavigate(target); }, [onNavigate]);
   // Where the person already is (same subject and scope, and on a phone the
   // same page): nothing unmounts, so there is nothing to ask - clear the
   // filter, and land on the group when one is named.
@@ -1900,7 +1954,7 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
   }
   function renderGroupBody(g) {
     const id = g.id;
-    const chrome = { bare: id === bareId, highlight: id === group, company: companyName, flush: !!g.flush };
+    const chrome = { bare: id === bareId, highlight: id === group, company: companyName, flush: !!g.flush, marks: matches ? searchWords(needle) : null };
     const key = `${id}-${company}`;
     const pickFor = (cid) => nav({ subject: g.subject, group: id, company: cid });
     // A per-company setting at "Every company": the companies and where each stands.
@@ -1915,9 +1969,17 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
     const footer = g.scope === 'layered' && !company && COMPANY_STATE[id]
       ? <CompanyOverrides entities={entities} stateOf={COMPANY_STATE[id]} onPick={pickFor} lead={OWN_LINE[id]} /> : null;
     const layered = { report, footer };
-    // The shift settings, one slice per group.
+    // The shift settings, one slice per group. Requests links to Time Off &
+    // Leave only for someone a leave group opens for (mayOpen, via `subjects`).
     if (g.part) {
-      return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} part={g.part} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      // mayOpen at the scope it lands on: this company's leave groups, else
+      // (none of them open here) Every company's - never an empty page.
+      const leaveAt = (cid) => GROUPS.some(x => x.subject === 'leave' && (cid ? x.face !== 'org' : x.face !== 'company') && mayOpen(x, who, cid));
+      const leaveCompany = leaveAt(company) ? company : (company && leaveAt('') ? '' : null);
+      const onOpenLeave = g.part === 'requests' && leaveCompany !== null
+        ? () => nav({ subject: 'leave', group: '', company: leaveCompany })
+        : undefined;
+      return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} part={g.part} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} onOpenLeave={onOpenLeave} />;
     }
     // A company-only group at "Every company": pick the company first.
     if (g.face === 'company' && !company) {
@@ -1954,7 +2016,8 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
       case 'equipment-reminders':  return <LazyPanelSection key={key} id={id} Panel={EquipmentReminderSettings} chrome={chrome} />;
       case 'kb-reminders':         return <LazyPanelSection key={key} id={id} Panel={KbReminderSettings} chrome={chrome} />;
       case 'item-types':           return <ItemSettingsSection key={key} chrome={chrome} toast={toast} />;
-      case 'sign-in-sessions':     return <LazyPanelSection key={key} id={id} Panel={SecuritySettings} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      // Built of rows since 11/02/2026, so edge to edge like the other row panels.
+      case 'sign-in-sessions':     return <LazyPanelSection key={key} id={id} Panel={SecuritySettings} chrome={{ ...chrome, flush: true }} toastOk={toastOk} toastErr={toastErr} />;
       case 'brand-color':          return <LazyPanelSection key={key} id={id} Panel={BrandColorPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'email-appearance':     return <LazyPanelSection key={key} id={id} Panel={EmailAppearancePanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'signin-policy':        return <LazyPanelSection key={key} id={id} Panel={SignInPolicyPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
@@ -2010,7 +2073,7 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
       <Building2 size={14} style={{ color: company ? 'var(--nx-own)' : 'var(--muted)', flexShrink: 0 }} aria-hidden="true" />
       <span className="nx-set-scope-label" aria-hidden="true">Applies To</span>
       <select className="form-input" aria-label="Applies To" value={company} onChange={e => pickScope(e.target.value)}>
-        <option value="">Every company</option>
+        <option value="">Every Company</option>
         {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
       </select>
       {company && (
@@ -2061,7 +2124,7 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
   // A subject with nothing to show at this scope: for someone whose access
   // is limited to some companies, Every company holds nothing of theirs.
   const nothingHere = Array.isArray(who.hrScope) && !company
-    ? 'These settings are set per company for you - pick one in the Scope box.'
+    ? 'These settings are set per company for you - pick one in Applies To.'
     : 'Nothing to set here.';
 
   const head = matches ? (
@@ -2104,7 +2167,17 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
             <>
               <Search size={20} style={{ marginBottom: 8, opacity: 0.6 }} aria-hidden="true" />
               <div style={{ marginBottom: 12 }}>No settings match "{query.trim()}"{company ? ` for ${companyName}` : ''}.</div>
-              <button className="secondary-btn" onClick={() => setQuery('')}>Clear Filter</button>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                {/* With a company picked only its own settings are searched;
+                    the rest are one click away, the words kept - except for
+                    someone walled to some companies, who sees fewer there. */}
+                {company && !Array.isArray(who.hrScope) && (
+                  <button className="primary-btn" onClick={() => nav({ subject: activeSubject?.key || 'companies', group: '', company: '', keepQuery: true })}>
+                    Search Every Company
+                  </button>
+                )}
+                <button className="secondary-btn" onClick={() => setQuery('')}>Clear Filter</button>
+              </div>
             </>
           ) : nothingHere}
         </div>
@@ -2115,7 +2188,7 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
       <div>
         {[...sections.flatMap(({ s, items }) => [
           matches && (
-            <h3 key={`head-${s.key}`} style={{ margin: '4px 0 12px', fontSize: 12, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h3 key={`head-${s.key}`} className="nx-set-results-head">
               <s.Icon size={13} aria-hidden="true" /> {s.label}
             </h3>
           ),
@@ -2273,8 +2346,11 @@ function resolveSub(sub) {
   const left = at >= 0 ? sub.slice(0, at) : sub;
   const company = at >= 0 ? sub.slice(at + 1) : '';
   const [subject, group = ''] = left.split(':');
+  // A group that moved subject (the leave groups, Holiday Policies) lands
+  // where it lives now, whatever subject the old link named.
+  if (GROUP_META[group]) return settings(GROUP_META[group].subject, group, company);
   if (!SUBJECT_KEYS.has(subject)) return settings('companies');
-  return settings(subject, GROUP_META[group] ? group : '', company);
+  return settings(subject, '', company);
 }
 function buildSub({ subject, group = '', company = '', home = false }) {
   if (home) return company ? `settings@${company}` : 'settings';
@@ -2344,7 +2420,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
   // rest of a wide monitor and forced a lot of scrolling on the bigger
   // embedded panels (Pranshu, Sep 9).
   return (
-    <div style={{ fontFamily: 'Inter, sans-serif' }}>
+    <div className="nx-settings" style={{ fontFamily: 'Inter, sans-serif' }}>
       {/* Icon-chip page title (Work OS grammar), matching every other module's
           .view-header instead of a bespoke h1 (Pranshu, Sep 12). */}
       {/* On a desktop the header already names the page and carries its tabs (Oct 25). */}
@@ -2568,7 +2644,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   return (
     <div>
       <PolicyCard id="rounding" title="Punch Rounding" busy={held('rounding')} enabled={rounding.enabled} foot={foot('rounding', cfg.rounding)}
-        desc={`Round every clock-in and clock-out to the nearest ${rounding.nearestMin || 5} minutes before computing hours (SwipeClock's model; the raw times stay on record and can be shown on the time sheet). Off by default - turn it on only if the company has a rounding policy.`}
+        desc={`Round every clock-in and clock-out to the nearest ${rounding.nearestMin || 5} minutes before computing hours (the raw times stay on record and can be shown on the time sheet). Off by default - turn it on only if the company has a rounding policy.`}
         onToggle={on => toggle('rounding', on)}>
         <PolicyNumber label="Nearest" min={1} max={30} value={rounding.nearestMin} onChange={v => edit('rounding', { nearestMin: v })} />
       </PolicyCard>
@@ -2586,7 +2662,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
         <PolicyNumber label="Flag breaks over" min={15} max={600} value={breakPolicy.longBreakMin} onChange={v => edit('breakPolicy', { longBreakMin: v })} />
       </PolicyCard>
       <SaveRow dirty={dirty} busy={busy} saveDisabled={!!switching} onSave={save} onDiscard={reset} style={{ margin: 0, padding: '12px 18px' }}
-        note={`Switches save as you click them; Save writes the minutes${company ? ' as this company\'s own' : ''}.`} />
+        note={`Switches save as you click them; Save writes the minutes${company ? ' as this company\'s own' : ''}. Hours are worked out with the current rules, so a change also shows on time sheets already finalized (they keep their pay rate and overtime rule) - change them between pay periods.`} />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-// Settings > Companies > Holiday Policies, the Every Company face (Neil, Oct
+// Settings > Time Off & Leave > Holiday Policies, the Every Company face (Neil, Oct
 // 29 2026): named sets of holidays and their weekend rule, each applied to
 // one or more companies. Assigning is live - editing a policy updates every
 // company it applies to; a company skips or changes a holiday for itself on

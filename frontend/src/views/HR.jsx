@@ -3693,7 +3693,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>AUTHORIZED SIGNATORY (PERSON)</label>
                   <PersonSelect value={(f.signatory_email || '').toLowerCase() || null} onChange={v => set('signatory_email', v || '')}
-                    people={dirPickRows(people)} placeholder="Not set" noneLabel="Not Set"
+                    people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set"
                     ariaLabel="Authorized Signatory (Person)" style={PICK_BOX} />
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs HR packets for the company when a packet's signing order says Authorized Signatory.</div>
                   {f.signatory_email && f.signatory.trim() && personName(f.signatory_email)
@@ -3732,7 +3732,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>HR CONTACT</label>
                   <PersonSelect value={(f.hr_contact_email || '').toLowerCase() || null} onChange={v => set('hr_contact_email', v || '')}
-                    people={dirPickRows(people)} placeholder="Not set" noneLabel="Not Set"
+                    people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set"
                     ariaLabel="HR Contact" style={PICK_BOX} />
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's time sheet after the employee and manager, and finalizes it for payroll.</div>
                 </div>
@@ -3873,7 +3873,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
         <div style={{ width: 220, flexShrink: 0 }}>
           <PersonSelect disabled={groupMgrBusy} value={(groupMgr || '').toLowerCase() || null}
             onChange={v => { if ((v || '') !== (groupMgr || '').toLowerCase()) saveGroupMgr(v || ''); }}
-            people={dirPickRows(people)} placeholder="Not set" noneLabel="Not Set"
+            people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set"
             ariaLabel="Group Manager" style={{ ...PICK_BOX, fontSize: 12.5 }} />
         </div>
       </div>}

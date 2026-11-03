@@ -642,7 +642,10 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
  *  "9:00 AM" - a native <input type="time"> follows the computer's region and
  *  shows 21:00 on an Indian laptop. Quarter-hour steps; a saved value off that
  *  grid is kept as an option, so opening a form never changes it. */
-export function TimeField({ value, onChange, style, ariaLabel = 'Time', disabled, step = 15, placeholder = 'Pick a time' }) {
+// `emptyLabel`: the box may be left empty - its blank option ("No Window")
+// is always there, so a time can be cleared again. Without it the blank
+// option shows only until a time is picked, as before.
+export function TimeField({ value, onChange, style, ariaLabel = 'Time', disabled, step = 15, placeholder = 'Pick a time', emptyLabel }) {
   const v = /^\d{2}:\d{2}$/.test(value || '') ? value : '';
   const opts = [];
   for (let m = 0; m < 1440; m += step) opts.push(`${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`);
@@ -650,7 +653,7 @@ export function TimeField({ value, onChange, style, ariaLabel = 'Time', disabled
   return (
     <select value={v} onChange={(e) => onChange(e.target.value)} aria-label={ariaLabel} disabled={disabled}
       style={{ ...inputStyle, cursor: disabled ? 'default' : 'pointer', ...style }}>
-      {!v && <option value="">{placeholder}</option>}
+      {emptyLabel ? <option value="">{emptyLabel}</option> : !v && <option value="">{placeholder}</option>}
       {opts.map((o) => <option key={o} value={o}>{formatHHMM(o)}</option>)}
     </select>
   );

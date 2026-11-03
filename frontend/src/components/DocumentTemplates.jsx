@@ -205,7 +205,7 @@ export function LetterheadsPanel({ toastOk, toastErr }) {
             {l.logoPath ? <img src={l.logoPath} alt="" style={{ height: 36, maxWidth: '100%', objectFit: 'contain', marginBottom: 8 }} /> : null}
             <div style={{ fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
               {l.name}
-              {l.isDefault && <span style={{ padding: '1px 7px', borderRadius: 10, fontSize: 10, fontWeight: 800, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.12)' }}>Default</span>}
+              {l.isDefault && <span className="nx-set-badge">Default</span>}
             </div>
             {l.address && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{l.address}</div>}
             {isAdmin && (

@@ -1,10 +1,10 @@
 // Leave year end and the second approval level (Neil, Oct 27 2026) - the
 // rules live in backend/leave_year_end.py and routers/timeclock.py.
-//   LeaveYearEndSettings   - Settings > Time & Pay > Leave Year-End: per
+//   LeaveYearEndSettings   - Settings > Time Off & Leave > Leave Year-End: per
 //                            bucket Use It Or Lose It (the default) / Carry
 //                            Everything / Carry Up To a cap, and the leave
 //                            year. Layered: the default, or one company's own.
-//   TimeOffApprovalSettings - Settings > Time & Pay > Time-Off Approval: the
+//   TimeOffApprovalSettings - Settings > Time Off & Leave > Time Off Approval: the
 //                            Second Approval By HR switch, per company.
 //   LeaveYearEndPreview    - People > Time > Time Off (HR): what a company's
 //                            next year end will do, or what the last one did
@@ -167,7 +167,7 @@ export function TimeOffApprovalSettings({ toastOk, toastErr, company = '', onOve
   return (
     <SettingCard>
       <SwitchRow id={`timeoff-second-hr-${company || 'default'}`} title="Second Approval By HR" disabled={busy}
-        desc="After the manager approves, a time-off request waits for HR (the company's HR contact, an administrator or Full HR access) before it is approved. The employee sees Awaiting HR Approval. Off by default."
+        desc="After the manager approves, a time off request waits for HR (the company's HR contact, an administrator or Full HR access) before it is approved. The employee sees Awaiting HR Approval. Off by default."
         checked={!!cfg.secondHr} onChange={(on) => save({ secondHr: on })} />
       {company && cfg.hasOverride && (
         <div className="nx-set-note">
@@ -261,7 +261,7 @@ export function LeaveYearEndPreview({ toastOk, toastErr }) {
         {period === 'next'
           ? 'Projected from today\'s balances - what is earned and used before the year ends changes it.'
           : 'What the last year end wrote, and anything still owed (a pay period finalized after it settles as a correction). The daily run applies it for 45 days after the year ends.'}
-        {closes.length > 0 && ` Closes ${closes.map(day).join(', ')}.`} Change the rule in Settings &gt; Time &amp; Pay &gt; Leave Year-End.
+        {closes.length > 0 && ` Closes ${closes.map(day).join(', ')}.`} Change the rule in Settings &gt; Time Off &amp; Leave &gt; Leave Year-End.
       </div>
       {err ? <ErrorBanner message={err} onRetry={load} />
         : data === undefined ? <SkeletonBlocks count={3} height={30} borderRadius={8} />

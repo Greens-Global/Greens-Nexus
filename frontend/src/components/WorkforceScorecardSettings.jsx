@@ -26,7 +26,7 @@ import { useGroupDirty } from '../lib/groupDirty';
 import SaveRow from './SaveRow';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
-const hint = { fontSize: 11.5, color: NX.faint, marginTop: 4 };
+const hint = { fontSize: 11.5, color: NX.dim, marginTop: 4 };
 const MODES = [
   { key: 'off', label: 'Off', hint: 'Builds and logs each manager’s scorecard on the send day, but never sends mail.' },
   { key: 'test', label: 'Test', hint: 'Builds every manager’s real scorecard, but sends each one to the test recipients below.' },
@@ -129,9 +129,9 @@ export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
   useGroupDirty(dirty, save);
 
   if (!can('administrator')) {
-    return <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>Administrator access is required to view Workforce Scorecard settings.</div>;
+    return <div style={{ padding: 40, textAlign: 'center', color: NX.dim, fontSize: 13.5 }}>Administrator access is required to view Workforce Scorecard settings.</div>;
   }
-  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
+  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.dim }}>{err}</div> : <LoadingState />;
 
   const std = cfg.standards || {};
   const setDays = (code, days) => saveStandards({ ...std, [code]: { ...(std[code] || NEW_STANDARD), days } }, 'Working days');
@@ -142,7 +142,7 @@ export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
         <Trophy size={18} style={{ color: NX.dim }} />
         <div style={{ fontSize: 18, fontWeight: 700 }}>Workforce Scorecard</div>
       </div>
-      <div style={{ fontSize: 12.5, color: NX.faint, marginBottom: 14 }}>
+      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14 }}>
         A weekly email to managers scoring each hourly person's punched hours against their expected hours - who worked,
         who was short, who was absent - for the last full week. Who receives it is decided by the Workforce Scorecard grant in
         Roles &amp; Access (Viewer = their direct reports, Editor = their whole reporting line, Full = the whole company); the settings here decide when and how.
@@ -159,7 +159,7 @@ export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
       {tab === 'settings' && (
       <>
       {notice && (
-        <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? NX.green : NX.red }}>{notice.text}</div>
+        <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>{notice.text}</div>
       )}
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Mode</label>
@@ -173,7 +173,7 @@ export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
                 onChange={() => pickMode(m.key)} style={{ marginTop: 3 }} />
               <span>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.label}</div>
-                <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>{m.hint}</div>
+                <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{m.hint}</div>
               </span>
             </label>
           ))}
@@ -219,7 +219,7 @@ export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
       <div style={{ marginBottom: 16, fontSize: 13 }}>
         <label style={fieldLabel}>Who Is Scored</label>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          {[['hourly', 'Hourly staff'], ['fixed', 'Salaried staff who punch (fixed pay)']].map(([k, lab]) => (
+          {[['hourly', 'Hourly Staff'], ['fixed', 'Salaried Staff Who Punch (Fixed Pay)']].map(([k, lab]) => (
             <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
               <input type="checkbox" checked={(cfg.payTypes || []).includes(k)}
                 onChange={(e) => {
@@ -238,7 +238,7 @@ export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
           working days and the country list save at once, like the switches above. */}
       <div style={{ borderTop: `1px solid ${NX.border}`, paddingTop: 16 }}>
       <div style={{ marginBottom: 16, fontSize: 13 }}>
-        <label style={fieldLabel}>Standard Day (when nobody scheduled the person)</label>
+        <label style={fieldLabel}>Standard Day (When Nobody Scheduled the Person)</label>
         <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
           {Object.keys(std).sort((a, b) => (a === 'default') - (b === 'default') || a.localeCompare(b)).map((code) => (
             <div key={code} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: `1px solid ${NX.border2}`, flexWrap: 'wrap' }}>
@@ -251,8 +251,8 @@ export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
                   const on = days.includes(i + 1);
                   return (
                     <button key={d} type="button" aria-pressed={on} title={d} onClick={() => setDays(code, on ? days.filter((x) => x !== i + 1) : [...days, i + 1].sort())}
-                      style={{ ...btn('ghost'), width: 30, padding: 0, justifyContent: 'center', fontSize: 11.5, fontWeight: 700,
-                        border: `1px solid ${on ? NX.blue : NX.border}`, color: on ? NX.blue : NX.faint, background: on ? 'var(--wk-brand-tint)' : 'transparent' }}>
+                      style={{ ...btn('ghost'), width: 32, minHeight: 28, padding: 0, justifyContent: 'center', fontSize: 11.5, fontWeight: 700,
+                        border: `1px solid ${on ? NX.blue : NX.border}`, color: on ? NX.blue : NX.dim, background: on ? 'var(--wk-brand-tint)' : 'transparent' }}>
                       {d.slice(0, 2)}
                     </button>
                   );
@@ -366,7 +366,7 @@ function TestSend({ testRecipients }) {
         Builds this manager's real scorecard for the last full week and sends it to {testRecipients.length ? testRecipients.join(', ') : 'you'}, whatever
         the mode or day. The manager must already hold the grant. Nothing is logged and nobody else is emailed.
       </div>
-      {result && <div role="status" style={{ fontSize: 12.5, marginTop: 8, fontWeight: 600, color: result.ok ? NX.green : NX.red }}>{result.text}</div>}
+      {result && <div role="status" style={{ fontSize: 12.5, marginTop: 8, fontWeight: 600, color: result.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>{result.text}</div>}
     </div>
   );
 }
@@ -378,12 +378,12 @@ function Recipients() {
   if (rows === null) return <LoadingState compact />;
   return (
     <div>
-      <div style={{ fontSize: 12.5, color: NX.faint, marginBottom: 10 }}>
+      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 10 }}>
         Who the next send goes to, and what each one covers. Change it by granting or removing Workforce Scorecard on a job role or access group, or with the company-wide list in Settings.
       </div>
       {err && <div style={{ fontSize: 12.5, color: NX.red, marginBottom: 8 }}>{err}</div>}
       {rows.length === 0 ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>Nobody holds the Workforce Scorecard grant yet.</div>
+        <div style={{ fontSize: 13, color: NX.dim, padding: 16, textAlign: 'center' }}>Nobody holds the Workforce Scorecard grant yet.</div>
       ) : (
         <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
           {rows.map((r) => (
@@ -404,9 +404,9 @@ function Recipients() {
 }
 
 function statusOf(row) {
-  if (row.sentAt) return { label: 'Sent', color: NX.green, Icon: CheckCircle2 };
-  if (row.mode === 'off') return { label: 'Off (Scan Only)', color: NX.faint, Icon: MinusCircle };
-  if (!row.peopleCount) return { label: 'Nobody to Score', color: NX.faint, Icon: MinusCircle };
+  if (row.sentAt) return { label: 'Sent', color: 'var(--nx-tag-green-fg)', Icon: CheckCircle2 };
+  if (row.mode === 'off') return { label: 'Off (Scan Only)', color: NX.dim, Icon: MinusCircle };
+  if (!row.peopleCount) return { label: 'Nobody to Score', color: NX.dim, Icon: MinusCircle };
   return { label: 'Send Failed', color: NX.red, Icon: XCircle };
 }
 
@@ -462,10 +462,10 @@ function DeliveryLog() {
           placeholder="Filter by manager email…" style={{ ...inputStyle, width: 260, maxWidth: '100%' }} />
         <button style={btn('ghost')} onClick={() => { setOffset(0); load(); }} title="Refresh" aria-label="Refresh"><RefreshCw size={14} /></button>
         {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
-        {note && <span role="status" style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>{note}</span>}
+        {note && <span role="status" style={{ fontSize: 12.5, color: 'var(--nx-tag-green-fg)', fontWeight: 600 }}>{note}</span>}
       </div>
       {rows === null ? <LoadingState compact /> : rows.length === 0 ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>No scorecard sends logged yet.</div>
+        <div style={{ fontSize: 13, color: NX.dim, padding: 16, textAlign: 'center' }}>No scorecard sends logged yet.</div>
       ) : (
         <>
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
@@ -476,8 +476,8 @@ function DeliveryLog() {
                   <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.managerEmail}>{r.managerEmail}</span>
                   <span style={{ color: NX.dim, flexShrink: 0 }} title="Week starting">{formatDate(r.weekStart)}</span>
-                  <span style={{ color: NX.faint, flexShrink: 0, width: 50, textTransform: 'capitalize' }}>{r.mode}</span>
-                  <span style={{ color: NX.faint, flexShrink: 0 }}>{SCOPE_WORD[r.scope] || 'direct reports'} - {r.peopleCount} people, {r.absentCount} absent, {r.belowCount} below</span>
+                  <span style={{ color: NX.dim, flexShrink: 0, width: 50, textTransform: 'capitalize' }}>{r.mode}</span>
+                  <span style={{ color: NX.dim, flexShrink: 0 }}>{SCOPE_WORD[r.scope] || 'direct reports'} - {r.peopleCount} people, {r.absentCount} absent, {r.belowCount} below</span>
                   <span style={{ color: meta.color, fontWeight: 600, flexShrink: 0, width: 120 }}>{meta.label}</span>
                   <button onClick={() => resend(r)} disabled={resendingId === r.id} title="Sends this manager's scorecard right now"
                     style={{ ...btn('ghost'), flexShrink: 0, fontSize: 11.5, padding: '4px 8px', opacity: resendingId === r.id ? 0.5 : 1 }}>
@@ -490,7 +490,7 @@ function DeliveryLog() {
           {total > LOG_LIMIT && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, paddingTop: 14 }}>
               <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - LOG_LIMIT))} style={{ ...btn('ghost'), opacity: offset === 0 ? 0.4 : 1 }}>← Prev</button>
-              <span style={{ fontSize: 12, color: NX.faint }}>Page {currentPage} of {totalPages}</span>
+              <span style={{ fontSize: 12, color: NX.dim }}>Page {currentPage} of {totalPages}</span>
               <button disabled={offset + LOG_LIMIT >= total} onClick={() => setOffset(offset + LOG_LIMIT)} style={{ ...btn('ghost'), opacity: offset + LOG_LIMIT >= total ? 0.4 : 1 }}>Next →</button>
             </div>
           )}

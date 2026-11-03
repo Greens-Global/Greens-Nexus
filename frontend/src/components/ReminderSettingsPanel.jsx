@@ -18,6 +18,7 @@ import { X, Plus, RotateCcw, Save, Info } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from './AsyncState';
 import { formatDateTime } from '../lib/datetime';
 import { NX, FONT, btn } from '../tasks/theme';
+import { Switch } from './settings/SettingsUI';
 
 const MAX_DAY = 365;
 const MAX_ENTRIES = 10;
@@ -42,15 +43,9 @@ function normalize(cfg) {
 const inputStyle = (w) => ({ width: w, padding: '4px 8px', borderRadius: 8, border: `1px solid ${NX.border}`, fontSize: 12.5,
   fontFamily: FONT, color: NX.ink, background: NX.surface, boxSizing: 'border-box' });
 
+// The Settings switch (components/settings/SettingsUI.jsx).
 function Toggle({ on, onChange, disabled, label }) {
-  return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={onChange}
-      style={{ width: 38, height: 22, borderRadius: 999, border: 'none', padding: 2, flexShrink: 0,
-        background: on ? NX.green : NX.border, cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.55 : 1, display: 'flex', justifyContent: on ? 'flex-end' : 'flex-start' }}>
-      <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.2)' }} />
-    </button>
-  );
+  return <Switch checked={on} disabled={disabled} label={label} onChange={() => onChange()} />;
 }
 
 // One editable list of days: chips with a remove button, plus a small
@@ -76,7 +71,7 @@ function DayChips({ label, days, min, format, onChange, disabled, rowTitle }) {
       <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 6 }}>{label}</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
         {days.length === 0 && (
-          <span style={{ fontSize: 12, color: NX.faint }}>No days picked.</span>
+          <span style={{ fontSize: 12, color: NX.dim }}>No days picked.</span>
         )}
         {days.map(n => (
           <span key={n} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 6px 3px 10px',
@@ -86,8 +81,8 @@ function DayChips({ label, days, min, format, onChange, disabled, rowTitle }) {
             {!disabled && (
               <button type="button" aria-label={`Remove ${format(n)} from ${rowTitle}`}
                 onClick={() => onChange(days.filter(d => d !== n))}
-                style={{ display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', border: 'none',
-                  background: 'transparent', color: NX.faint, cursor: 'pointer', padding: 0 }}>
+                style={{ display: 'grid', placeItems: 'center', width: 24, height: 24, margin: '-3px -3px -3px 0', borderRadius: '50%', border: 'none',
+                  background: 'transparent', color: NX.dim, cursor: 'pointer', padding: 0 }}>
                 <X size={12} />
               </button>
             )}
@@ -136,7 +131,7 @@ function ReminderRow({ row, value, onChange, disabled }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13.5, fontWeight: 700, color: NX.ink }}>{row.title}</div>
           <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{row.what}</div>
-          <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>{row.who}</div>
+          <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{row.who}</div>
         </div>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: NX.dim }}>
           {on ? 'On' : 'Off'}
@@ -163,7 +158,7 @@ function ReminderRow({ row, value, onChange, disabled }) {
         </div>
       )}
       {!on && (
-        <div style={{ fontSize: 12, color: NX.faint, marginTop: 8 }}>Off - nobody is reminded about this.</div>
+        <div style={{ fontSize: 12, color: NX.dim, marginTop: 8 }}>Off - nobody is reminded about this.</div>
       )}
     </div>
   );
@@ -240,12 +235,12 @@ export default function ReminderSettingsPanel({ load: loadFn, save: saveFn, rows
             style={{ ...btn('ghost'), opacity: atDefaults ? 0.55 : 1 }}>
             <RotateCcw size={13} /> Reset to Defaults
           </button>
-          {dirty && !msg && <span style={{ fontSize: 12, color: NX.amber }}>You have unsaved changes.</span>}
-          {msg && <span role="status" style={{ fontSize: 12, color: msg.ok ? NX.green : NX.red }}>{msg.text}</span>}
+          {dirty && !msg && <span style={{ fontSize: 12, color: 'var(--nx-own)' }}>You have unsaved changes.</span>}
+          {msg && <span role="status" style={{ fontSize: 12, color: msg.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>{msg.text}</span>}
         </div>
       )}
       {state.updatedAt && (
-        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 10 }}>
+        <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 10 }}>
           Last changed by {state.updatedBy} on {formatDateTime(state.updatedAt)}.
         </div>
       )}
