@@ -91,9 +91,14 @@ def gather(db, project, week_start: str) -> dict:
              .filter(models.ConstructionMedia.daily_log_id.in_(log_ids or [""]),
                      models.ConstructionMedia.deleted_at == "",
                      models.ConstructionMedia.duplicate_of == "").all()) if log_ids else []
-    milestones = (db.query(models.ConstructionMilestone)
-                  .filter(models.ConstructionMilestone.project_id == project.id,
-                          models.ConstructionMilestone.deleted_at == "").all())
+    # Milestones come from the job's task project once it has one (Neil,
+    # 11/03/2026 - construction_tasks; the old rows were moved in and kept).
+    import construction_tasks
+    milestones = construction_tasks.task_milestones(db, project)
+    if milestones is None:
+        milestones = (db.query(models.ConstructionMilestone)
+                      .filter(models.ConstructionMilestone.project_id == project.id,
+                              models.ConstructionMilestone.deleted_at == "").all())
     rfis = (db.query(models.ConstructionRfi)
             .filter(models.ConstructionRfi.project_id == project.id,
                     models.ConstructionRfi.deleted_at == "").all())

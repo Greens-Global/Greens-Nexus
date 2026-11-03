@@ -976,6 +976,126 @@
     {
       "dates": [
         {
+          "key": "log_date",
+          "label": "Day",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "job",
+          "label": "Job",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "log_date",
+          "label": "Day",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Draft",
+              "value": "draft"
+            },
+            {
+              "label": "In Review",
+              "value": "submitted"
+            },
+            {
+              "label": "In Review (Read)",
+              "value": "processed"
+            },
+            {
+              "label": "Sent Back",
+              "value": "needs_info"
+            },
+            {
+              "label": "Approved",
+              "value": "approved"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "author_email",
+          "label": "Filed By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "crew_size",
+          "label": "Crew Size",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "hours_worked",
+          "label": "Hours Worked",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "weather",
+          "label": "Weather",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "notes_raw",
+          "label": "Notes",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "reviewed_by",
+          "label": "Reviewed By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "review_note",
+          "label": "Review Note",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "submitted_at",
+          "label": "Submitted At",
+          "type": "datetime",
+          "visibility": "all"
+        }
+      ],
+      "key": "daily_log",
+      "label": "Daily Log",
+      "module": "construction",
+      "people": [
+        {
+          "key": "author",
+          "label": "Filed By"
+        },
+        {
+          "key": "reviewer",
+          "label": "Reviewed By"
+        },
+        {
+          "key": "manager",
+          "label": "Job Managers"
+        },
+        {
+          "key": "crew",
+          "label": "Crew"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
           "key": "start_date",
           "label": "Start Date",
           "yearly": false
@@ -1976,6 +2096,152 @@
     {
       "dates": [
         {
+          "key": "start_on",
+          "label": "Start",
+          "yearly": false
+        },
+        {
+          "key": "target_finish_on",
+          "label": "Target Finish",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "name",
+          "label": "Job",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "code",
+          "label": "Code",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "job_type",
+          "label": "Job Type",
+          "options": [
+            {
+              "label": "Work Order",
+              "value": "work_order"
+            },
+            {
+              "label": "Project",
+              "value": "project"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Active",
+              "value": "active"
+            },
+            {
+              "label": "On Hold",
+              "value": "on_hold"
+            },
+            {
+              "label": "Complete",
+              "value": "complete"
+            },
+            {
+              "label": "Archived",
+              "value": "archived"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "phase",
+          "label": "Phase",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "percent_complete",
+          "label": "Percent Complete",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "address",
+          "label": "Address",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "property_id",
+          "label": "Property",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "company_id",
+          "label": "Company",
+          "options": "companies",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "start_on",
+          "label": "Start",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "target_finish_on",
+          "label": "Target Finish",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "manager_emails",
+          "label": "Job Managers",
+          "type": "people",
+          "visibility": "all"
+        },
+        {
+          "key": "worker_emails",
+          "label": "Crew",
+          "type": "people",
+          "visibility": "all"
+        },
+        {
+          "key": "created_at",
+          "label": "Created At",
+          "type": "datetime",
+          "visibility": "all"
+        }
+      ],
+      "key": "job",
+      "label": "Job",
+      "module": "construction",
+      "people": [
+        {
+          "key": "manager",
+          "label": "Job Managers"
+        },
+        {
+          "key": "crew",
+          "label": "Crew"
+        },
+        {
+          "key": "creator",
+          "label": "Created By"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
           "key": "needed_by",
           "label": "Needed By",
           "yearly": false
@@ -2412,6 +2678,102 @@
     {
       "dates": [
         {
+          "key": "due_on",
+          "label": "Response Due",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "job",
+          "label": "Job",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "number",
+          "label": "Number",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "subject",
+          "label": "Subject",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Open",
+              "value": "open"
+            },
+            {
+              "label": "Answered",
+              "value": "answered"
+            },
+            {
+              "label": "Closed",
+              "value": "closed"
+            },
+            {
+              "label": "Void",
+              "value": "void"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "ball_in_court",
+          "label": "Ball In Court",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "responder_email",
+          "label": "Responder",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "due_on",
+          "label": "Response Due",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "answered_on",
+          "label": "Answered On",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "schedule_impact_days",
+          "label": "Schedule Impact (Days)",
+          "type": "number",
+          "visibility": "all"
+        }
+      ],
+      "key": "rfi",
+      "label": "RFI",
+      "module": "construction",
+      "people": [
+        {
+          "key": "responder",
+          "label": "Responder"
+        },
+        {
+          "key": "manager",
+          "label": "Job Managers"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
           "key": "paid_on",
           "label": "Paid On",
           "yearly": false
@@ -2769,6 +3131,110 @@
         {
           "key": "missing",
           "label": "People Not In"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "due_on",
+          "label": "Due",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "job",
+          "label": "Job",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "number",
+          "label": "Number",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "spec_section",
+          "label": "Spec Section",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Pending",
+              "value": "pending"
+            },
+            {
+              "label": "Submitted",
+              "value": "submitted"
+            },
+            {
+              "label": "Approved",
+              "value": "approved"
+            },
+            {
+              "label": "Approved As Noted",
+              "value": "approved_as_noted"
+            },
+            {
+              "label": "Revise and Resubmit",
+              "value": "revise_resubmit"
+            },
+            {
+              "label": "Rejected",
+              "value": "rejected"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "revision",
+          "label": "Revision",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "approver_email",
+          "label": "Approver",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "due_on",
+          "label": "Due",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "returned_on",
+          "label": "Returned On",
+          "type": "date",
+          "visibility": "all"
+        }
+      ],
+      "key": "submittal",
+      "label": "Submittal",
+      "module": "construction",
+      "people": [
+        {
+          "key": "approver",
+          "label": "Approver"
+        },
+        {
+          "key": "manager",
+          "label": "Job Managers"
         }
       ]
     },
@@ -3580,6 +4046,26 @@
       "volume": "normal"
     },
     {
+      "changes": [
+        "status"
+      ],
+      "entity": "daily_log",
+      "group": "Construction",
+      "key": "daily_log.reviewed",
+      "label": "Daily Log Is Reviewed",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "daily_log",
+      "group": "Construction",
+      "key": "daily_log.submitted",
+      "label": "Daily Log Is Submitted",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
       "changes": [],
       "entity": "employee",
       "group": "People",
@@ -3737,6 +4223,37 @@
       "volume": "normal"
     },
     {
+      "changes": [],
+      "entity": "job",
+      "group": "Construction",
+      "key": "job.created",
+      "label": "Job Is Created",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "phase"
+      ],
+      "entity": "job",
+      "group": "Construction",
+      "key": "job.phase_changed",
+      "label": "Job Phase Changes",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "job",
+      "group": "Construction",
+      "key": "job.status_changed",
+      "label": "Job Status Changes",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
       "changes": [
         "status"
       ],
@@ -3821,6 +4338,26 @@
       "changes": [
         "status"
       ],
+      "entity": "rfi",
+      "group": "Construction",
+      "key": "rfi.answered",
+      "label": "RFI Is Answered",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "rfi",
+      "group": "Construction",
+      "key": "rfi.opened",
+      "label": "RFI Is Opened",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
       "entity": "salary_advance",
       "group": "Salary Advances",
       "key": "salary_advance.decided",
@@ -3880,6 +4417,17 @@
       "key": "shift.shared",
       "label": "Shift Is Shared",
       "module": "shifts",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "submittal",
+      "group": "Construction",
+      "key": "submittal.decided",
+      "label": "Submittal Is Decided",
+      "module": "construction",
       "volume": "normal"
     },
     {

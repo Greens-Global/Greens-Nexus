@@ -1472,6 +1472,14 @@ def _run_migrations():
             "ALTER TABLE construction_projects ADD COLUMN time_zone VARCHAR DEFAULT ''",
             "ALTER TABLE construction_daily_logs ADD COLUMN tags JSON DEFAULT '[]'",
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_construction_reports_week_version ON construction_weekly_reports (project_id, week_start, version)",
+            # The Job, connected (Neil, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE construction_projects ADD COLUMN job_type VARCHAR DEFAULT 'project'",
+            "ALTER TABLE construction_projects ADD COLUMN task_project_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_milestones ADD COLUMN migrated_task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_rfis ADD COLUMN responder_email VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_submittals ADD COLUMN approver_email VARCHAR DEFAULT ''",
+            "ALTER TABLE time_punches ADD COLUMN jobsite VARCHAR DEFAULT ''",
+            "ALTER TABLE doc_form_entries ADD COLUMN linked_project_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2000,6 +2008,7 @@ def _run_migrations():
         "ALTER TABLE construction_rfis ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_submittals ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_activity ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_job_links ENABLE ROW LEVEL SECURITY",
         # New table (Sept 2026): create_all made it with RLS off, same gap as
         # every table above - close it here, not in a checklist someone forgets.
         "ALTER TABLE ticket_teams_message ENABLE ROW LEVEL SECURITY",
@@ -3530,6 +3539,24 @@ def _run_migrations():
         # One weekly report per project, week and version - two workers (or two
         # Generate clicks) never both write the same version (review, 11/03/2026).
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_construction_reports_week_version ON construction_weekly_reports (project_id, week_start, version)",
+        # The Job, connected (Neil, 11/03/2026, plan phase 2): a job's type
+        # (work_order | project - every older job is a project), its task
+        # project (schedule, milestones, punch), the task milestone each old
+        # construction milestone became (construction_tasks.migrate_milestones),
+        # the Nexus person who owes an RFI's answer / decides a submittal (the
+        # Approvals inbox), and the jobsite a punch was made at (stamped at
+        # punch-in from that person-day's shift placement - never `category`,
+        # which the leave rule reads). models.ConstructionProject /
+        # ConstructionMilestone / ConstructionRfi / ConstructionSubmittal / TimePunch.
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS job_type VARCHAR DEFAULT 'project'",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS task_project_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_milestones ADD COLUMN IF NOT EXISTS migrated_task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_rfis ADD COLUMN IF NOT EXISTS responder_email VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_submittals ADD COLUMN IF NOT EXISTS approver_email VARCHAR DEFAULT ''",
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS jobsite VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_time_punches_jobsite ON time_punches (jobsite)",
+        # ... and the construction job a form entry was filed for. models.DocFormEntry.
+        "ALTER TABLE doc_form_entries ADD COLUMN IF NOT EXISTS linked_project_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4344,6 +4371,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] construction company backfill skipped: {e}")
+    # The Job, connected (Neil, 11/03/2026): each construction milestone moves
+    # into its job's task project once (construction_tasks.migrate_milestones -
+    # idempotent on construction_milestones.migrated_task_id; the old rows stay).
+    try:
+        import construction_tasks
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            n = construction_tasks.migrate_all(db)
+            if n:
+                print(f"[startup] construction: moved {n} milestone(s) into their jobs' task projects")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] construction milestone move skipped: {e}")
 
 
 @asynccontextmanager
@@ -5465,3 +5507,5 @@ from routers import pdf_tools as pdf_tools_router  # noqa: E402 - writes audit_l
 app.include_router(pdf_tools_router.router)  # PDF Tools: who did what - one Audit Log row per action, never the file (Neil, 11/02/2026)
 from routers import privacy_notice as privacy_notice_router  # noqa: E402 - reads only, no new table
 app.include_router(privacy_notice_router.router)  # Privacy Policy built from privacy_inventory.py: public /policy/privacy-notice + signed-in /me (legal compliance pass, 11/02/2026)
+from routers import construction_jobs as construction_jobs_router  # noqa: E402 - construction_job_links: create_all + explicit RLS line
+app.include_router(construction_jobs_router.router)  # Construction: the Job, connected - schedule and punch (Tasks), Start Job (Tickets), crew and hours, forms, equipment, property, search (Neil, 11/03/2026)

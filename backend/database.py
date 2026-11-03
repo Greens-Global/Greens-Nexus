@@ -108,6 +108,18 @@ _wf_observer.wire(SessionLocal)
 import shift_group_departments as _shift_group_departments  # noqa: E402
 _shift_group_departments.wire(SessionLocal)
 
+# A job completed resolves its open linked tickets; a ticket reopened puts a
+# Complete job back to Active - whichever path moved it (Neil, 11/03/2026,
+# construction_ticket_sync.py).
+import construction_ticket_sync as _construction_ticket_sync  # noqa: E402
+_construction_ticket_sync.wire(SessionLocal)
+
+# A new IN punch is stamped with the jobsite of that person-day's shift
+# placement (time_punches.jobsite - never category), whichever path wrote it,
+# so a job's labor hours come from the Time Clock (construction_labor.py).
+import construction_labor as _construction_labor  # noqa: E402
+_construction_labor.wire(SessionLocal)
+
 
 class Base(DeclarativeBase):
     pass

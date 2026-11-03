@@ -96,6 +96,18 @@ class ConstructionProject(Base):
     # company's team zone (construction_company.zone_of). Weekly report weeks
     # and a log's date are cut in this zone.
     time_zone          = Column(String, default="")
+    # Job types on the one record (Neil, 11/03/2026, plan phase 2 "The Job,
+    # Connected"): a `work_order` (a maintenance fix that needs a crew,
+    # materials or more than a day - often started from a ticket) or a
+    # `project` (a build). Size decides which sections the Job page shows;
+    # every older row is a project.
+    job_type           = Column(String, default="project")
+    # The job's task project (Tasks module) - its schedule, milestones,
+    # dependencies, punch list and look-ahead. A COLUMN, not a link table:
+    # a job has exactly one, every Job read needs it, and a join for one
+    # value buys nothing. '' = none yet (stamped from the job type's
+    # template the first time the job's schedule is opened or at create).
+    task_project_id    = Column(String, default="", index=True)
 
 
 class ConstructionDailyLog(Base):
@@ -383,6 +395,11 @@ class ConstructionMilestone(Base):
     created_at     = Column(String, default="")
     modified_at    = Column(String, default="")
     deleted_at     = Column(String, default="")
+    # Milestones moved into the job's task project (11/03/2026): the task
+    # milestone (Task.is_milestone) this row became. The row and the table
+    # are kept as the record; '' = not moved yet. construction_tasks.
+    # migrate_milestones is idempotent on this column.
+    migrated_task_id = Column(String, default="", index=True)
 
 
 class ConstructionRfi(Base):
@@ -404,6 +421,10 @@ class ConstructionRfi(Base):
     answered_on   = Column(String, default="")
     cost_impact          = Column(Float, default=0.0)
     schedule_impact_days = Column(Integer, default=0)
+    # The Nexus person who owes the answer (11/03/2026) - what puts an RFI in
+    # their Approvals inbox ("RFI responses due to me"). Ball In Court stays
+    # the party in words (the architect, the GC); '' = no one named.
+    responder_email = Column(String, default="", index=True)
     created_at    = Column(String, default="")
     modified_at   = Column(String, default="")
     deleted_at    = Column(String, default="")
@@ -426,6 +447,9 @@ class ConstructionSubmittal(Base):
     due_on        = Column(String, default="")
     returned_on   = Column(String, default="")
     document_urls = Column(JSON, default=list)
+    # The Nexus person who decides it (11/03/2026) - a submittal awaiting
+    # their decision is in their Approvals inbox. '' = no one named.
+    approver_email = Column(String, default="", index=True)
     created_at    = Column(String, default="")
     modified_at   = Column(String, default="")
     deleted_at    = Column(String, default="")
@@ -447,3 +471,31 @@ class ConstructionActivity(Base):
     detail      = Column(String, default="")
     before      = Column(JSON, default=dict)   # only for edits to published content
     after       = Column(JSON, default=dict)
+
+
+class ConstructionJobLink(Base):
+    """What a Job is connected to in the modules that own the work (Neil,
+    11/03/2026, plan phase 2): ONE link table owned by Construction, so no
+    other module's table grows a construction column.
+
+      kind       ref_id                 owner of the thing
+      ticket     task_tickets.id        Tickets - the job's source ticket(s)
+      checkout   item_checkouts.id      Items - equipment out to the job
+
+    A link is never deleted: `ended_at` closes it (a checkout returned to a
+    different job, an unlinked ticket) so the history of what the job used
+    stays. `id` may be made by the phone (idempotent create - the offline
+    outbox resends it). Unique by (project_id, kind, ref_id) in practice:
+    the routes look the pair up first.
+
+    Form entries do NOT live here: DocFormEntry already carries its own link
+    (forms.py's /entries/{id}/link), which a job reuses."""
+    __tablename__ = "construction_job_links"
+    id          = Column(String, primary_key=True)
+    project_id  = Column(String, nullable=False, index=True)
+    kind        = Column(String, nullable=False, index=True)   # ticket | checkout
+    ref_id      = Column(String, nullable=False, index=True)
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    ended_at    = Column(String, default="")
+    note        = Column(String, default="")
