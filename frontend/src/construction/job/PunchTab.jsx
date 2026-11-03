@@ -146,12 +146,14 @@ export default function PunchTab({ project }) {
           ))}
         </div>
         <span style={{ flex: 1 }} />
-        <label htmlFor="punch-who" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Show</label>
-        <select id="punch-who" className="form-input" value={who} onChange={(e) => setWho(e.target.value)} style={{ width: 200 }}>
-          <option value="">Everyone</option>
-          {me && <option value={me}>Mine</option>}
-          {assignees.filter((a) => a.email !== me).map((a) => <option key={a.email} value={a.email}>{a.name}</option>)}
-        </select>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <label htmlFor="punch-who" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Show</label>
+          <select id="punch-who" className="form-input" value={who} onChange={(e) => setWho(e.target.value)} style={{ width: 180 }}>
+            <option value="">Everyone</option>
+            {me && <option value={me}>Mine</option>}
+            {assignees.filter((a) => a.email !== me).map((a) => <option key={a.email} value={a.email}>{a.name}</option>)}
+          </select>
+        </span>
         <a href={`/tasks/projects?project=${encodeURIComponent(view.taskProject.id)}`} className="secondary-btn"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', fontSize: '0.82rem', textDecoration: 'none' }}>
           Open in Tasks <ExternalLink size={12} />

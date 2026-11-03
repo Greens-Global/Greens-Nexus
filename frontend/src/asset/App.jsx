@@ -969,14 +969,15 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         <AssetOverview asset={active} store={store} onTab={navigate} onGoTo={goToLogEntry}
           onEdit={(field) => { if (field) setHighlight({ tab: 'property', section: '', field: String(field).toLowerCase(), item: '', at: Date.now() }); editGuard.startEdit?.(); }} />
       )}
+      {/* The property's construction Jobs, right under the overview cards. */}
+      {view === 'property' && active && !editState.editing && inferAssetKind(active) === 'property' && (
+        <PropertyJobs property={active} />
+      )}
       {view === 'property' && active && (
         <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} />
       )}
       {view === 'property' && active && inferAssetKind(active) === 'property' && (
         <PropertyLoans property={active} onSaveEntityCode={(code) => setEntityCode(active.id, code)} />
-      )}
-      {view === 'property' && active && inferAssetKind(active) === 'property' && (
-        <PropertyJobs property={active} />
       )}
 
       {['warranties', 'inspections', 'documents', 'vdocs', 'utilities', 'ahj', 'vendors', 'odometer'].map((coll) => (

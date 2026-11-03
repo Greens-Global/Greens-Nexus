@@ -151,7 +151,7 @@ function NewProjectModal({ onClose, onCreated }) {
         <form onSubmit={save} style={{ padding: '22px 24px 20px' }}>
           <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>New Job</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>
-            A jobsite. With no managers picked you are its manager, so you can review logs straight away.
+            A work order or a project at a jobsite. With no managers picked you are its manager, so you can review logs straight away.
           </p>
           {error && <ErrorBanner message={error} onRetry={() => setError('')} />}
           <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -267,6 +267,7 @@ function ProjectCard({ p, onOpen }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px 8px', minWidth: 0, flexWrap: 'wrap' }}>
               {/* The name wraps rather than cuts off - on a phone it is the whole point of the card. */}
               <strong style={{ fontSize: '1.05rem', fontFamily: "'Plus Jakarta Sans', sans-serif", overflowWrap: 'anywhere', minWidth: 0 }}>{p.name}</strong>
+              {p.jobType === 'work_order' && <StatusLabel size="sm" label={JOB_TYPE.work_order.label} color={JOB_TYPE.work_order.color} />}
               {p.phase && <StatusLabel size="sm" label={p.phase} color={TONE.slate} />}
               <StatusChip project={p} />
             </div>
@@ -361,8 +362,8 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
 
   const list = (
     <div style={CARD} key="list">
-      <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Projects</h3>
-      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Late and at-risk jobs first. Open one for its schedule, team and weather.</p>
+      <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Jobs</h3>
+      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Late and at-risk jobs first. Open one for its schedule, punch list, crew and weather.</p>
       {data === null ? (
         <SkeletonBlocks count={3} height={110} borderRadius={8} />
       ) : projects.length === 0 ? (

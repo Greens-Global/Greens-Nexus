@@ -13,7 +13,7 @@ import { SkeletonBlocks } from './AsyncState';
 import { StatusLabel } from './StatusLabel';
 import { formatDate } from '../lib/datetime';
 
-const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', padding: '14px 16px', marginTop: 16 };
+const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', padding: '14px 16px', margin: '16px 0' };
 const HEALTH = { late: ['Late', '#dc2626'], at_risk: ['At Risk', '#ca8a04'], on_track: ['On Track', '#16a34a'], complete: ['Complete', '#2563eb'] };
 const TYPE = { work_order: 'Work Order', project: 'Project' };
 const open = (id) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'ops', sub: `project:${id}` } }));

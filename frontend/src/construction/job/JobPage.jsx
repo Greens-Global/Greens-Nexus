@@ -127,7 +127,7 @@ function Overview({ project, onTab }) {
                 <Line left={<>{formatDate(data.lastLog.logDate, data.lastLog.logDate)}{data.lastLog.authorName ? ` - ${data.lastLog.authorName}` : ''}</>}
                   right={<StatusLabel size="sm" label={(LOG_STATUS[data.lastLog.status] || LOG_STATUS.submitted).label} color={(LOG_STATUS[data.lastLog.status] || LOG_STATUS.submitted).color} />} />
                 {(data.lastLog.crewSize > 0 || data.lastLog.hoursWorked > 0) && (
-                  <div style={quiet}>{[data.lastLog.crewSize ? plural(data.lastLog.crewSize, 'person') : '', data.lastLog.hoursWorked ? `${data.lastLog.hoursWorked} h` : ''].filter(Boolean).join(' · ')}</div>
+                  <div style={quiet}>{[data.lastLog.crewSize ? `${data.lastLog.crewSize} ${data.lastLog.crewSize === 1 ? 'person' : 'people'}` : '', data.lastLog.hoursWorked ? `${data.lastLog.hoursWorked} h` : ''].filter(Boolean).join(' · ')}</div>
                 )}
               </>
             ) : <div style={quiet}>No daily log filed yet.</div>}
@@ -145,7 +145,7 @@ function Overview({ project, onTab }) {
             <Card icon={Ticket} title={data.tickets.length > 1 ? 'Source Tickets' : 'Source Ticket'} testId="tickets">
               {data.tickets.map((t) => (
                 <Line key={t.id} left={<>{t.code ? `${t.code} · ` : ''}{t.subject}</>}
-                  right="Open" onClick={() => { go('tickets'); openNotificationTarget({ ticketId: t.id }); }} />
+                  right="Open Ticket" onClick={() => { go('tickets'); openNotificationTarget({ ticketId: t.id }); }} />
               ))}
               {data.tickets[0].requesterEmail && (
                 <div style={quiet}>Requested by {personName(data.tickets[0].requesterEmail, names)}</div>
