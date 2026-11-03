@@ -57,6 +57,27 @@ class OffboardingTests(unittest.TestCase):
         self.assertEqual(told, {kit.EMP_A2, kit.MGR_A})
         self.assertEqual(db.get(models.Item, "it-p").status, "available")
 
+    def test_a_leaving_allocator_hands_the_handover_back_to_the_desk(self):
+        db = self.db
+        kit.add_item(db, "it-9")
+        kit.add_checkout(db, "co-9", "it-9", "approved", requester=kit.EMP_A2, allocator=kit.ALLOC_A)
+        items._notify(db, type="allocate_request", recipient=kit.ALLOC_A, title="Hand over: Item it-9",
+                      body="", ref_id="co-9")
+        db.commit()
+        out = items.force_return_person(db, kit.ALLOC_A, kit.MGR_A)
+        db.commit()
+        self.assertEqual(out, {"checkouts": 0, "assignments": 0})       # nothing of their own
+        co = db.get(models.ItemCheckout, "co-9")
+        self.assertEqual((co.status, co.assigned_allocator_email), ("approved", ""))
+        self.assertTrue(all(n.actioned for n in kit.bells(db, "allocate_request", "co-9")))
+        ask = [n for n in kit.bells(db, "allocator_needed", "co-9") if not n.actioned]
+        self.assertEqual([(n.recipient, n.company) for n in ask], [("", kit.COA)])
+        # An items manager hands it over: the ask clears.
+        items.update_checkout("co-9", items.CheckoutStatusUpdate(status="allocated", checkout_photo_url=kit.PHOTO),
+                              user=U(kit.MGR_A), db=db)
+        db.flush()
+        self.assertTrue(all(n.actioned for n in kit.bells(db, "allocator_needed", "co-9")))
+
 
 def tearDownModule():
     kit.cleanup()

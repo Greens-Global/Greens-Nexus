@@ -80,6 +80,14 @@ class RecycleBinTests(unittest.TestCase):
         kit.add_item(self.db, "gone-b", kit.COB, deleted_at=old)
         kit.add_item(self.db, "recent", deleted_at="2099-01-01T10:00:00+00:00")
         kit.add_checkout(self.db, "co-h", "gone-hist", "returned")
+        # Linked from a ticket, and the fulfilled item of a purchase request.
+        kit.add_item(self.db, "gone-ticket", deleted_at=old)
+        kit.add_item(self.db, "gone-pr", deleted_at=old)
+        self.db.add(models.TicketItemLink(id="tl-1", ticket_id="t-1", item_id="gone-ticket"))
+        self.db.add(models.Requisition(id="rq-1", employee_name="Erin", employee_email=kit.EMP_A, employee_dept="Ops",
+                                          item="Saw", created_at="2026-01-01T10:00:00", updated_at="2026-01-01T10:00:00",
+                                          fulfilled_item_id="gone-pr"))
+        self.db.commit()
 
     def tearDown(self):
         self.db.rollback()
@@ -88,16 +96,16 @@ class RecycleBinTests(unittest.TestCase):
     def test_opening_the_bin_deletes_nothing(self):
         items.list_deleted_items(user=U(kit.OWNER), db=self.db)
         self.db.expire_all()
-        self.assertEqual(self.db.query(models.Item).count(), 4)
+        self.assertEqual(self.db.query(models.Item).count(), 6)
 
     def test_deleting_forever_is_explicit_keeps_history_and_stays_inside_the_wall(self):
         with kit.walls():
             boss = U(kit.OWNER) | {"level": 4}          # an Administrator of company A: walled
             out = items.delete_expired_forever(user=boss, db=self.db)
-        self.assertEqual(out, {"deleted": 1, "kept": 1})
+        self.assertEqual(out, {"deleted": 1, "kept": 3})
         self.db.expire_all()
         left = {i.id for i in self.db.query(models.Item).all()}
-        self.assertEqual(left, {"gone-hist", "gone-b", "recent"})
+        self.assertEqual(left, {"gone-hist", "gone-ticket", "gone-pr", "gone-b", "recent"})
 
 
 def tearDownModule():

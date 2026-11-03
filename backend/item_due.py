@@ -16,11 +16,13 @@ The rules:
     both), else `created_at` for a row that never recorded either.
     Approval delay never eats into the borrower's days.
   * due = start + `days` (approved extensions are already added to `days`).
-  * The due DATE is the calendar date of that instant in the BORROWER's own
-    time zone: their Shift preset's zone, else their company's team zone
-    (Settings > Shifts & Scheduling), else America/Los_Angeles - the same
-    fallback chain shift_expect uses. "Today" for an overdue count is read
-    in the same zone.
+  * The due DATE is the handover's calendar date in the BORROWER's own time
+    zone plus `days` calendar days - counted in dates, so a DST change in
+    between never moves it. The zone: their Shift preset's, else their
+    company's team zone (Settings > Shifts & Scheduling), else
+    America/Los_Angeles - the same fallback chain shift_expect uses. "Today"
+    for an overdue count is read in the same zone.
+  * dueAt (the instant) stays start + days, for "available in N days".
 
 The return date (Neil, 11/02/2026): Borrow asks for a return DATE on a
 calendar instead of a number of days. The request stores the date picked
@@ -28,10 +30,10 @@ calendar instead of a number of days. The request stores the date picked
 date minus the day the request was made. The due date is then:
   * the date picked, when the item changes hands on or before the day the
     request was made (the usual same-day handover);
-  * otherwise the same loan length counted from the handover - start +
-    `days`, as above - so an item handed over three days late is still lent
-    for the length the borrower asked for and never comes back due the day
-    after it was handed over.
+  * otherwise the same loan length counted from the handover - the handover
+    date + `days`, as above - so an item handed over three days late is still
+    lent for the length the borrower asked for and never comes back due the
+    day after it was handed over.
 An approved extension moves the picked date by the days it adds.
 """
 from __future__ import annotations
@@ -68,16 +70,19 @@ def due_at(co) -> Optional[datetime]:
     start = _parse(start_iso(co))
     if start is None:
         return None
-    try:
-        days = int(getattr(co, "days", 0) or 0)
-    except (TypeError, ValueError):
-        days = 0
-    return (start + timedelta(days=days)).astimezone(timezone.utc)
+    return (start + timedelta(days=_days(co))).astimezone(timezone.utc)
 
 
 def _zone(tz: str):
     import shift_expect
     return shift_expect.zone(tz or "")
+
+
+def _days(co) -> int:
+    try:
+        return int(getattr(co, "days", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def requested_date(co) -> Optional[date]:
@@ -92,20 +97,20 @@ def requested_date(co) -> Optional[date]:
 
 
 def due_date(co, tz: str = "") -> Optional[date]:
-    """The due date in zone `tz` (the borrower's - see zone_for), by the
-    module's rules: the picked return date when the handover came on or
-    before the day of the request, else the loan length from the handover."""
-    at = due_at(co)
-    if at is None:
+    """The due date in zone `tz` (the borrower's - see zone_for): the picked
+    return date when the handover came on or before the day of the request,
+    else the local handover date plus `days` days (DST-safe - dates, not
+    24-hour steps)."""
+    start = _parse(start_iso(co))
+    if start is None:
         return None
     z = _zone(tz)
     picked = requested_date(co)
     if picked is not None:
-        start = _parse(start_iso(co))
         asked = _parse(getattr(co, "created_at", ""))
-        if start is not None and asked is not None and start.astimezone(z).date() <= asked.astimezone(z).date():
+        if asked is not None and start.astimezone(z).date() <= asked.astimezone(z).date():
             return picked
-    return at.astimezone(z).date()
+    return start.astimezone(z).date() + timedelta(days=_days(co))
 
 
 def loan_days(picked: date, tz: str = "", now: Optional[datetime] = None) -> int:
@@ -124,11 +129,20 @@ def local_today(tz: str = "", now: Optional[datetime] = None) -> date:
 
 def zone_for(db, email: str) -> str:
     """The borrower's IANA zone: their Shift preset's zone (it holds on their
-    days off too), else their company's team zone (shift_expect.team_tz)."""
+    days off too), else their company's team zone, else the tenant's, else
+    America/Los_Angeles.
+
+    Read straight from the tables (models only) - never through
+    routers.shift_requests: this also runs INSIDE a session flush (the
+    Workflows observer computes `due_date` there), and importing that router
+    mid-flush registers session listeners while SQLAlchemy is iterating them
+    ("deque mutated during iteration" - seen Nov 2026). The team zone is the
+    `timeZone` key of the Shifts settings rows routers.shift_requests.get_settings
+    layers (`shift_requests_config:<company>` over `shift_requests_config`);
+    test_items_due_dates pins that the two agree."""
     em = (email or "").strip().lower()
     try:
         import models
-        import shift_expect
         from sqlalchemy import func
         if em:
             assign = (db.query(models.ShiftAssignment.shift_id)
@@ -138,20 +152,37 @@ def zone_for(db, email: str) -> str:
                 tz = ((preset[0] if preset else "") or "").strip()
                 if tz and _valid(tz):
                     return tz
-        import sys
-        if "routers.shift_requests" not in sys.modules:
-            # Never IMPORT the Shifts settings router from here: this runs inside
-            # a session flush too (the Workflows observer computes `due_date`
-            # there), and importing a module that registers session listeners
-            # mid-flush breaks the flush. The API imports every router at
-            # startup, so in the app this branch is never taken - only a
-            # script or a test that never loaded Shifts reads the default.
-            return shift_expect.DEFAULT_TEAM_TZ
-        company = shift_expect.companies_of(db, [em]).get(em, "") if em else ""
-        return shift_expect.team_tz(db, company)
+        company = ""
+        if em:
+            row = (db.query(models.NexusEmployee.company)
+                   .filter(func.lower(models.NexusEmployee.work_email) == em).first())
+            company = ((row[0] if row else "") or "").strip()
+        keys = ([f"{SHIFT_SETTINGS_KEY}:{company}"] if company else []) + [SHIFT_SETTINGS_KEY]
+        for key in keys:
+            tz = _saved_zone(db, key)
+            if tz:
+                return tz
     except Exception:   # noqa: BLE001 - a zone that cannot be worked out reads as the default
-        import shift_expect
-        return shift_expect.DEFAULT_TEAM_TZ
+        pass
+    return DEFAULT_TZ
+
+
+SHIFT_SETTINGS_KEY = "shift_requests_config"    # routers.shift_requests._SETTINGS_KEY
+DEFAULT_TZ = "America/Los_Angeles"              # shift_expect.DEFAULT_TEAM_TZ
+
+
+def _saved_zone(db, key: str) -> str:
+    import json
+    import models
+    row = db.query(models.NexusSetting.value).filter(models.NexusSetting.key == key).first()
+    if not row or not row[0]:
+        return ""
+    try:
+        saved = json.loads(row[0])
+    except (TypeError, ValueError):
+        return ""
+    tz = str((saved or {}).get("timeZone") or "").strip() if isinstance(saved, dict) else ""
+    return tz if tz and _valid(tz) else ""
 
 
 def _valid(tz: str) -> bool:

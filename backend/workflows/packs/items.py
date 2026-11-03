@@ -196,16 +196,20 @@ event("item_assignment.field_changed", entity="item_assignment", label="Assignme
 def overdue_checkouts(db, ctx, params) -> list:
     """Allocated checkouts whose due date (handover plus days) is before
     today; in the run's company when it has one."""
-    from datetime import date as _date
-    today = (getattr(ctx, "today", None) or _date.today()).isoformat()
+    import item_due
+    fixed_today = getattr(ctx, "today", None)
     rows = (db.query(models.ItemCheckout).filter(models.ItemCheckout.status == "allocated")
             .order_by(models.ItemCheckout.handed_over_at, models.ItemCheckout.id).all())
     cid = (getattr(ctx, "company_id", "") or "")
     memo: dict = {}
+    zones = item_due.Zones(db)          # one zone lookup per borrower, not per row
     out = []
     for r in rows:
-        due = r.wf_due_date
-        if not due or due >= today:
+        # The due date and "today" both in the borrower's own zone (item_due).
+        tz = zones.get(r.requested_by_email)
+        due = item_due.due_date(r, tz)
+        today = fixed_today or item_due.local_today(tz)
+        if due is None or due >= today:
             continue
         if cid:
             em = (r.requested_by_email or "").lower()

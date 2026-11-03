@@ -1269,6 +1269,11 @@ def _assignment_returns(db: Session, user: dict, ctx: dict) -> list:
             continue
         if wall is not None and a.item_id not in wall:
             continue
+        if a.return_reason == "reassign" and not (a.return_photo_url or "").strip():
+            # A manager's Reassign the holder has not returned yet: accept-return
+            # refuses it until the photo comes (or a manager uses Recover), so it
+            # is not waiting on anyone's decision here.
+            continue
         why = _RETURN_WORD.get(a.return_reason or "normal", (a.return_reason or "").title())
         who = (a.assignee_email or "").lower()
         out.append(row("assignment_return", a.id, person_email=who, person_name=a.assignee_name or _name(db, ctx, who),
