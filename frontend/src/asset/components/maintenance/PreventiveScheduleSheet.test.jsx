@@ -58,13 +58,14 @@ describe('PreventiveScheduleSheet', () => {
 
   it('edits an existing schedule in place', async () => {
     const svc = { id: 's1', kind: 'floating', subject: 'Roof Check', departmentId: 'd-fac', recurrenceUnit: 'day', recurrenceEvery: 90,
-      nextDue: '', waitingOnCompletion: true, checklist: ['Walk the roof'], leadDays: 0, active: true };
+      nextDue: '', waitingOnCompletion: true, checklist: ['Walk the roof'], leadDays: 0, active: true, rev: '2026-11-03T10:00:00Z' };
     render(<PreventiveScheduleSheet propertyId="gst" svc={svc} onClose={() => {}} />);
     await screen.findByText('Next Due (after the open ticket)');
     fireEvent.click(screen.getByRole('button', { name: 'Save Schedule' }));
     await waitFor(() => expect(updateMaintenanceService).toHaveBeenCalled());
     const body = updateMaintenanceService.mock.calls[0][2];
-    expect(body).toMatchObject({ kind: 'floating', recurrence_unit: 'day', recurrence_every: 90, checklist: ['Walk the roof'] });
+    // The revision it was read with rides along - a stale editor is a 409 (review M1).
+    expect(body).toMatchObject({ kind: 'floating', recurrence_unit: 'day', recurrence_every: 90, checklist: ['Walk the roof'], rev: '2026-11-03T10:00:00Z' });
     expect('next_due' in body).toBe(false);          // waiting on the open ticket: no date sent
   });
 });

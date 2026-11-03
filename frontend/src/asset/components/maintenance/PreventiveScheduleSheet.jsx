@@ -78,7 +78,7 @@ export default function PreventiveScheduleSheet({ propertyId, svc = null, onClos
     if (missing) { setErr(missing); return; }
     setBusy(true); setErr('');
     try {
-      if (svc) await api.updateMaintenanceService(propertyId, svc.id, body());
+      if (svc) await api.updateMaintenanceService(propertyId, svc.id, { ...body(), rev: svc.rev || '' });
       else await api.createPmSchedule(propertyId, body());
       onSaved?.();
     } catch (e) { setErr(e?.message || 'The schedule did not save.'); setBusy(false); }

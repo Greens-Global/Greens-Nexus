@@ -328,6 +328,7 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
               <StatusBadge tone={s.active ? 'green' : 'mut'}>{s.active ? (s.kind ? s.scheduleLabel : s.recurrenceLabel) : 'Stopped'}</StatusBadge>
               {s.openCount > 0 && <StatusLabel label={`${s.openCount} Open`} color="#64748b" size="sm" />}
               {s.overdueCount > 0 && <StatusLabel label={`${s.overdueCount} Overdue`} color="#dc2626" size="sm" />}
+              {s.attentionLabel && <StatusLabel label={s.attentionLabel} color="#b45309" size="sm" />}
             </div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
               {s.kind ? scheduleLine(s) : <>{s.system} · from {s.parentCodeLabel}{s.active ? ` · Next service ${formatDate(s.nextDue)}` : ''}</>}
@@ -335,11 +336,14 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
             </div>
           </div>
           {data?.canManage && (<>
+            {/* A meter jump held for a person (review, 11/03/2026). */}
+            {s.attention === 'reading' && <button className="secondary-btn" disabled={busy === s.id}
+              onClick={() => act(s.id, () => api.updateMaintenanceService(propertyId, s.id, { confirm_reading: true, rev: s.rev }))}>Confirm Reading</button>}
             {s.active && !s.waitingOnCompletion && !(s.kind && s.kind !== 'calendar' && s.openCount > 0) && <button className="secondary-btn" disabled={busy === s.id}
               onClick={() => act(s.id, () => api.openMaintenanceServiceNow(propertyId, s.id))}>Open Ticket Now</button>}
             <button className="secondary-btn" onClick={() => (s.kind ? setScheduling(s) : setEditing(s))}>{s.active ? 'Edit Schedule' : 'Restart'}</button>
             {s.active && <button className="secondary-btn" disabled={busy === s.id}
-              onClick={() => act(s.id, () => api.updateMaintenanceService(propertyId, s.id, { active: false }))}>Stop</button>}
+              onClick={() => act(s.id, () => api.updateMaintenanceService(propertyId, s.id, { active: false, ...(s.kind ? { rev: s.rev } : {}) }))}>Stop</button>}
           </>)}
         </div>
         <div style={{ overflowX: 'auto' }}>

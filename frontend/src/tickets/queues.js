@@ -36,9 +36,17 @@ const dayOf = (now) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
-/** A live preventive ticket whose due day has passed. */
+/** A ticket a preventive schedule filed: its schedule AND its due day (a
+ *  child of a service set from a ticket has only serviceId and stays out). */
+const isPreventive = (t) => !!t.serviceId && !!t.pmDueOn;
+
+/** A live preventive ticket whose due day has passed - the server's answer
+ *  (`pmOverdue`, on the company's own calendar); the browser's date only for
+ *  a row that arrived without it. */
 export function preventiveOverdue(t, now = Date.now()) {
-  return isLive(t) && !!t.serviceId && !!t.pmDueOn && t.pmDueOn < dayOf(now);
+  if (!isLive(t) || !isPreventive(t)) return false;
+  if (typeof t.pmOverdue === 'boolean') return t.pmOverdue;
+  return t.pmDueOn < dayOf(now);
 }
 export const DEFAULT_QUEUE = 'needs_reply';
 const WAITING_STATES = ['waiting_user', 'waiting_vendor', 'on_hold', 'waiting'];
@@ -89,7 +97,7 @@ export function queueMatches(key, t, ctx = {}) {
     case 'route': return !!ctx.onDesk && t.approvalStatus === 'pending' && !t.approverId;
     case 'approve': return !!me && t.approvalStatus === 'pending' && lower(t.approverId) === me;
     case 'raised': return !!me && lower(t.requesterId) === me;
-    case 'preventive': return isLive(t) && !!t.serviceId;
+    case 'preventive': return isLive(t) && isPreventive(t);
     default: return false;
   }
 }

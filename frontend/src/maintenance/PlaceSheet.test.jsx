@@ -52,6 +52,17 @@ describe('PlaceSheet', () => {
     expect(await screen.findByText(/Ticket #14 is with the team/)).toBeTruthy();
   });
 
+  it('shows a stranger only that something is open (review M4)', async () => {
+    getMaintenancePlace.mockImplementationOnce(() => Promise.resolve({
+      ...PLACE, asset: null, canStart: false,
+      tickets: [{ id: 'open-1', codeLabel: '', subject: 'Open Request', status: 'open', priority: '', preventive: false, pmDueOn: '', overdue: false, propertyName: '', equipmentName: '', unit: '', canOpen: false, generic: true }],
+    }));
+    render(<PlaceSheet propertyId="gst" onClose={() => {}} />);
+    expect(await screen.findByText('Open Request')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Start Work/ })).toBeNull();
+    expect(screen.queryByText('Oil change')).toBeNull();
+  });
+
   it('says so when the place is not one the person may see', async () => {
     getMaintenancePlace.mockImplementationOnce(() => Promise.reject(Object.assign(new Error('nope'), { status: 404 })));
     render(<PlaceSheet propertyId="vault" onClose={() => {}} />);

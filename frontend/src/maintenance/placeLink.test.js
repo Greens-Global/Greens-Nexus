@@ -51,6 +51,14 @@ describe('the Preventive queue', () => {
     expect(counts.preventive).toBe(2);
     expect(counts.preventiveOverdue).toBe(1);
   });
+
+  it("takes the server's overdue answer and leaves ticket-born services out", () => {
+    // The server says on the company's calendar (review M3) - not the browser's date.
+    expect(preventiveOverdue({ ...live, pmOverdue: false }, now)).toBe(false);
+    expect(preventiveOverdue({ ...live, pmDueOn: '2026-12-01', pmOverdue: true }, now)).toBe(true);
+    // A child of a service set from a ticket has serviceId only (review L3).
+    expect(queueMatches('preventive', { status: 'open', serviceId: 'svc', pmDueOn: '' }, { now })).toBe(false);
+  });
 });
 
 describe('schedule presets', () => {
