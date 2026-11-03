@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shiftTrack, trackNote, trackNoteText, fmtSpan, shiftSpan, clockedInForShift } from './shiftTrack';
+import { shiftTrack, trackNote, trackNoteText, fmtSpan, shiftSpan, clockedInForShift, pickShift, trackFor, shiftsOf } from './shiftTrack';
 
 // The shift track's math (Neil, 11/02/2026): where now sits between today's
 // expected start and end, the state's color and the line under the bar.
@@ -54,10 +54,10 @@ describe('shiftTrack', () => {
   });
 
   it('clocked out after working the shift: green and full once it is over, paused gray before', () => {
-    const done = t('out', '17:30', { worked: true, workedMin: 508 });
+    const done = t('out', '17:30', { worked: true });
     expect(done).toMatchObject({ kind: 'done', state: 'done', value: 1, marker: false });
-    expect(trackNoteText(done, fmt)).toBe('Shift complete - 8h 28m worked');
-    const stopped = t('out', '16:20', { worked: true, workedMin: 400 });
+    expect(trackNoteText(done, fmt)).toBe('Shift complete');   // no worked figure: the Time Sheet rounds
+    const stopped = t('out', '16:20', { worked: true });
     expect(stopped).toMatchObject({ kind: 'stopped', state: 'idle', marker: false, leftMin: 40 });
     expect(trackNoteText(stopped, fmt)).toBe("Clocked out · 40m left in today's shift");
   });
@@ -75,6 +75,62 @@ describe('shiftTrack', () => {
     const tr = shiftTrack({ shift: night, state: 'in', now: new Date('2026-11-03T02:00:00Z') });
     expect(tr.value).toBe(0.5);
     expect(trackNoteText(tr, fmt)).toBe("4h 00m left in today's shift");
+  });
+});
+
+describe('review fixes (11/02/2026)', () => {
+  it('clocked out before the shift started (in early, out again): the start, not the hours left', () => {
+    const tr = t('out', '08:00', { worked: true });
+    expect(tr).toMatchObject({ kind: 'upcoming', state: 'idle', value: 0 });
+    expect(trackNoteText(tr, fmt)).toBe('Your shift starts at 09:00');
+  });
+
+  const sp = (s, e, date = '2026-11-02') => ({ startUtc: `${s}Z`, endUtc: `${e}Z`, date });
+  const AM = sp('2026-11-02T08:00:00', '2026-11-02T12:00:00');
+  const PM = sp('2026-11-02T16:00:00', '2026-11-02T20:00:00');
+  const inAt = (iso) => ({ d: { punches: [{ kind: 'in', at: iso }] } });
+
+  it('pickShift: running, then one starting within four hours, then the last ended, then the next', () => {
+    expect(pickShift([AM, PM], at('09:00'), { state: 'in' })).toBe(AM);
+    expect(pickShift([PM, AM], at('17:00'), { state: 'in' })).toBe(PM);
+    expect(pickShift([AM, PM], at('13:00'), { state: 'out' })).toBe(PM);
+    expect(pickShift([AM, PM], at('21:00'), { state: 'in' })).toBe(PM);
+    expect(pickShift([AM], at('03:00'), { state: 'out' })).toBe(AM);
+    expect(pickShift([], at('09:00'), { state: 'in' })).toBeNull();
+    expect(pickShift([{ startUtc: 'x' }], at('09:00'), { state: 'in' })).toBeNull();
+  });
+
+  it('a split shift: the second placement reads as its own shift, not "past your shift end"', () => {
+    const status = { todayShifts: [AM, PM], days: inAt('2026-11-02T15:55:00') };
+    const tr = trackFor({ status, state: 'in', now: at('17:00') });
+    expect(tr.start.toISOString()).toBe('2026-11-02T16:00:00.000Z');
+    expect(trackNoteText(tr, fmt)).toBe("3h 00m left in today's shift");
+  });
+
+  it("an overnight shift: still drawn at 00:30 for a late person, and Shift complete after the 06:00 clock-out", () => {
+    const night = sp('2026-11-01T22:00:00', '2026-11-02T06:00:00', '2026-11-01');
+    const tonight = sp('2026-11-02T22:00:00', '2026-11-03T06:00:00');
+    expect(trackFor({ status: { todayShifts: [night], days: {} }, state: 'out', now: new Date('2026-11-02T00:30:00Z') }))
+      .toMatchObject({ kind: 'started', state: 'idle' });
+    const done = trackFor({ status: { todayShifts: [night, tonight], days: inAt('2026-11-01T21:58:00') }, state: 'out', now: at('06:05') });
+    expect(done).toMatchObject({ kind: 'done', state: 'done' });
+    expect(done.end.toISOString()).toBe('2026-11-02T06:00:00.000Z');
+  });
+
+  it('clocking in at 23:50 for a midnight shift picks the upcoming one, not the one that ended', () => {
+    const day = sp('2026-11-02T14:00:00', '2026-11-02T18:00:00');
+    const midnight = sp('2026-11-03T00:00:00', '2026-11-03T08:00:00', '2026-11-03');
+    const tr = trackFor({ status: { todayShifts: [day, midnight], days: {} }, state: 'in', now: at('23:50') });
+    expect(tr).toMatchObject({ kind: 'early', state: 'live' });
+    expect(tr.start.toISOString()).toBe('2026-11-03T00:00:00.000Z');
+  });
+
+  it('trackFor falls back to the single todayShift, and draws nothing without one', () => {
+    expect(shiftsOf({ todayShift: SHIFT })).toEqual([SHIFT]);
+    expect(shiftsOf({ todayShifts: [], todayShift: null })).toEqual([]);
+    expect(trackFor({ status: { todayShift: SHIFT }, state: 'in', now: at('12:44') })).toMatchObject({ kind: 'mid' });
+    expect(trackFor({ status: {}, state: 'in', now: at('12:44') })).toBeNull();
+    expect(trackFor({ status: { todayShift: SHIFT }, state: 'unknown', now: at('12:44') })).toBeNull();
   });
 });
 

@@ -44,10 +44,10 @@ describe('<ShiftTrack />', () => {
   });
 
   it('a finished shift is green with no marker', () => {
-    const { container } = render(<ShiftTrack track={track('out', 17, 30, { worked: true, workedMin: 508 })} />);
+    const { container } = render(<ShiftTrack track={track('out', 17, 30, { worked: true })} />);
     expect(container.querySelector('.nx-track').className).toContain('is-done');
     expect(container.querySelector('.nx-track-marker')).toBeNull();
-    expect(container.querySelector('.nx-track-note').textContent).toBe('Shift complete - 8h 28m worked');
+    expect(container.querySelector('.nx-track-note').textContent).toBe('Shift complete');
   });
 
   it('slim: no ends and no line, the line moves to the title', () => {
@@ -93,16 +93,21 @@ describe('the dashboard header chip', () => {
     expect(chip.querySelector('.dk-session-track .nx-track').className).toContain('is-live');
     expect(chip.querySelector('.nx-track-marker')).toBeNull();
     expect(chip.getAttribute('title')).toBe("Open Time Clock - 4h 16m left in today's shift");
+    // A button hides its children from a screen reader: the name carries the track.
+    expect(chip.getAttribute('aria-label')).toBe("Clocked In · 3:44 - 4h 16m left in today's shift");
+    expect(screen.getByRole('button', { name: "Clocked In · 3:44 - 4h 16m left in today's shift" })).toBe(chip);
     expect(chip.textContent).toBe('Clocked In · 3:44');
   });
 
   it('done: green; no shift: no track and the plain title', () => {
-    render(<SessionChip mine={mine('out', track('out', 17, 30, { worked: true, workedMin: 480 }))} onOpen={() => {}} />);
+    render(<SessionChip mine={mine('out', track('out', 17, 30, { worked: true }))} onOpen={() => {}} />);
     expect(screen.getByRole('button').querySelector('.nx-track').className).toContain('is-done');
+    expect(screen.getByRole('button').getAttribute('aria-label')).toBe('Clocked Out · Open Time Clock - Shift complete');
     cleanup();
     render(<SessionChip mine={mine('in', null)} onOpen={() => {}} />);
     const chip = screen.getByRole('button');
     expect(chip.querySelector('.nx-track')).toBeNull();
     expect(chip.getAttribute('title')).toBe('Open Time Clock');
+    expect(chip.hasAttribute('aria-label')).toBe(false);   // its own words name it, as before
   });
 });

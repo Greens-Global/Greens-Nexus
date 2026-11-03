@@ -1054,21 +1054,18 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     # Today's expected shift (Neil, 11/02/2026: the clock's shift track) from
     # the ONE rule, shift_expect - a published placement, else the usual-hours
     # preset on its working days; a weather-cancelled day or no schedule is
-    # None, and the client draws no track. Read once, shared with the early
-    # clock-in hint below. A hint only: a failure leaves it null.
+    # None, and the client draws no track. today_shift.lookup caches it per
+    # person and workday for a minute (this route is polled every 20-25 s)
+    # and reads it in a savepoint; the early clock-in hint below shares its
+    # expected_start. A hint only: a failure leaves it null.
     _exp_dd = None
     _exp = None
-    today_shift = None
+    _today = {"shifts": [], "shift": None}
     try:
-        import shift_expect
+        import today_shift
         _exp_dd = date.fromisoformat(local_today)
-        _exp = shift_expect.expected_start(db, email, _exp_dd)
-        _s, _e = shift_expect.start_utc(_exp_dd, _exp), shift_expect.end_utc(_exp_dd, _exp)
-        if _s is not None and _e is not None and _e > _s:
-            today_shift = {"start": _exp.get("start") or "", "end": _exp.get("end") or "",
-                           "startUtc": _s.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                           "endUtc": _e.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                           "source": _exp.get("source") or "", "date": local_today}
+        _today = today_shift.lookup(db, email, _exp_dd)
+        _exp = _today.get("exp")
     except Exception as e:   # a hint only - never fail the clock for it
         print(f"[timeclock] today's shift skipped for {email}: {e}")
     # Early clock-in confirm (Neil, Teams 11/02/2026): clocking in more than
@@ -1115,9 +1112,13 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         "earlyWarning": early_warning,
         # Today's expected shift for the clock's shift track (start -> end,
         # orange while clocked in): {start, end (HH:MM in the shift's zone),
-        # startUtc, endUtc, source: scheduled | preset, date (the workday)},
-        # or null when nothing is expected today (see above).
-        "todayShift": today_shift,
+        # startUtc, endUtc, source: scheduled | preset, date (its work date)},
+        # or null when nothing is expected (see above). todayShifts: every
+        # shift around the workday (a split shift's placements, yesterday's
+        # overnight one, a midnight one about to start) - the browser picks
+        # the one to draw as time moves; todayShift is that pick right now.
+        "todayShift": _today.get("shift"),
+        "todayShifts": _today.get("shifts") or [],
         # Role-flagged people skip EVERY message prompt (BOD, EOD, break start/
         # end) - punches go straight through (Neil, Aug 25).
         "bodExempt": _bod_ex,

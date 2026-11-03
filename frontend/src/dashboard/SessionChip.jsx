@@ -17,10 +17,15 @@ export function SessionChip({ mine, onOpen }) {
   if (!mine || mine.exempt || mine.state === 'unknown') return null;
   const on = mine.state === 'in' || mine.state === 'break';
   const trackText = trackNoteText(mine.track, formatTime);
+  // A button's children are presentational, so the track's progressbar text
+  // never reaches a screen reader from inside it - the name carries it.
+  const said = mine.state === 'break' ? `On Break · ${fmtHM(mine.todayMin)}`
+    : on ? `Clocked In · ${fmtHM(mine.todayMin)}` : 'Clocked Out · Open Time Clock';
   return (
     <button
       className={`dk-session-chip${on ? ' dk-session-chip--on' : ''}${mine.track ? ' has-track' : ''}`}
       onClick={onOpen}
+      aria-label={trackText ? `${said} - ${trackText}` : undefined}
       title={trackText ? `Open Time Clock - ${trackText}` : 'Open Time Clock'}
       style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
     >

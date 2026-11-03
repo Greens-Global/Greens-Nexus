@@ -107,7 +107,7 @@ describe('deriveMyTime', () => {
       status: clockedOutStatus({ todayShift, days: { [TODAY]: { workedMin: 480, punches: [{ kind: 'in', at: stamp(minsAgo(148)) }] } } }),
       now: new Date(2026, 9, 8, 16, 30),
     }).track;
-    expect(done).toMatchObject({ kind: 'done', state: 'done', workedMin: 480 });
+    expect(done).toMatchObject({ kind: 'done', state: 'done' });
     expect(deriveMyTime({ status: clockedInStatus({ todayShift, staleOpenShift: true, allowed: ['in'] }), now: NOW }).track).toBeNull();
   });
 
