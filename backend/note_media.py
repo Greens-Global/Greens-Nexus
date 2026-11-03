@@ -7,21 +7,24 @@ live in the private task-files bucket under `notes/` (voice and video at
 `notes/boards/<noteId>/`). Before this, Delete Forever removed the note's rows
 and left every one of those objects in storage.
 
-`purge(db, note_id, urls)` runs AFTER the note's rows are deleted and
-committed. It deletes an object only when:
+`purge(db, note_id, texts)` runs AFTER the note's rows are deleted and
+committed - from a background task (`purge_later`), so Delete Forever answers
+at once. It deletes an object only when:
   * it is under `notes/` in task-files (nothing else is ever touched), and
-  * no other row still points at it - another note or note version (a
-    copied note, a pasted picture), a task or ticket attachment (Mark Up's
-    "Attach to <source>" files the PNG under the board's folder), a task or
-    ticket description or a comment.
+  * no other row still points at it - one UNION ALL query over every column
+    that can hold a stored file's link (_REFS): another note or version (a
+    copied note, a pasted picture, a board's source), a task or ticket
+    attachment (Mark Up's "Attach to <source>" files the PNG under the board's
+    folder), task and ticket descriptions and pictures, comments, Knowledge
+    Base pages and comments, announcements, What's New entries and comments,
+    assistant messages and form answers. On any query error the file stays.
 A file still in use elsewhere stays. A failed delete is left as it is (an
 orphan, never a broken record).
 
 Only on the deployed API (leader.is_deployed_worker): a laptop's database
 does not know what the shared bucket's other rows point at, so a laptop
 never deletes live storage - the same rule as every other storage delete.
-The route that calls this is a plain `def` (FastAPI's threadpool), so the
-blocking storage calls never sit on the event loop.
+The background task runs in FastAPI's threadpool, never on the event loop.
 """
 import re
 from urllib.parse import quote, unquote
@@ -52,28 +55,35 @@ def paths_in(*texts) -> set:
     return out
 
 
-# (table, column) pairs that can hold a stored file's URL.
+# (table, column) pairs that can hold a stored file's URL - anywhere a link
+# to a note's picture or recording can be pasted, attached or kept. JSON
+# columns are read as text (CAST), so one LIKE works on SQLite and Postgres.
 _REFS = (
-    ("nexus_notes", "body"), ("nexus_notes", "scene"), ("nexus_notes", "thumb_url"),
+    ("nexus_notes", "body"), ("nexus_notes", "scene"), ("nexus_notes", "thumb_url"), ("nexus_notes", "source"),
     ("nexus_note_versions", "body"), ("nexus_note_versions", "scene"),
-    ("task_attachments", "url"), ("tasks", "description"), ("task_tickets", "description"),
-    ("task_comments", "body"),
+    ("task_attachments", "url"), ("tasks", "description"), ("task_comments", "body"),
+    ("task_tickets", "description"), ("task_tickets", "images"),
+    ("kb_documents", "body"), ("kb_documents", "blocks"), ("kb_comments", "text"),
+    ("nexus_announcements", "body"), ("nexus_announcements", "image_url"), ("nexus_announcements", "file_url"),
+    ("task_changelog_entries", "payload"), ("task_changelog_comments", "body"),
+    ("ai_messages", "content"), ("doc_form_entries", "answers"),
 )
 
 
+def _refs_sql() -> str:
+    return " UNION ALL ".join(
+        f"SELECT 1 AS hit FROM {t} WHERE CAST({c} AS TEXT) LIKE :p" for t, c in _REFS) + " LIMIT 1"
+
+
 def still_used(db, path: str) -> bool:
-    """Does any row still point at this object? The note being deleted is
-    already gone, so any hit is someone else's."""
-    like = f"%{path}%"
-    for table, col in _REFS:
-        try:
-            hit = db.execute(text(f"SELECT 1 FROM {table} WHERE {col} LIKE :p LIMIT 1"), {"p": like}).first()
-        except Exception:
-            db.rollback()
-            return True      # cannot tell: keep the file
-        if hit:
-            return True
-    return False
+    """Does any row still point at this object? One query over every _REFS
+    column. The note being deleted is already gone, so any hit is someone
+    else's. On any error the answer is yes - the file stays."""
+    try:
+        return db.execute(text(_refs_sql()), {"p": f"%{path}%"}).first() is not None
+    except Exception:
+        db.rollback()
+        return True
 
 
 def _list_folder(url: str, headers: dict, folder: str) -> set:
@@ -120,3 +130,16 @@ def purge(db, note_id: str, texts) -> int:
         if r.is_success or r.status_code == 404:
             gone += 1
     return gone
+
+
+def purge_later(note_id: str, texts) -> None:
+    """The background task Delete Forever schedules: its own session, never
+    raises (a file left behind is only an orphan)."""
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        purge(db, note_id, texts)
+    except Exception as e:  # noqa: BLE001
+        print(f"[notes] file cleanup after delete failed: {type(e).__name__}")
+    finally:
+        db.close()

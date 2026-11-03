@@ -87,7 +87,7 @@ from datetime import datetime, timedelta, timezone
 from html import escape, unescape
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -850,7 +850,8 @@ def restore_note(note_id: str, user: dict = Depends(get_current_user), db: Sessi
 
 
 @router.delete("/{note_id}", status_code=204)
-def delete_note_forever(note_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_note_forever(note_id: str, background_tasks: BackgroundTasks,
+                        user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = _me(user)
     n, can = _get_or_404(db, note_id, me)
     if can != "owner":
@@ -868,11 +869,9 @@ def delete_note_forever(note_id: str, user: dict = Depends(get_current_user), db
     db.query(models.NexusNotePresence).filter(models.NexusNotePresence.note_id == n.id).delete()
     db.delete(n)
     db.commit()
+    # After the response, in the threadpool: the request never waits on storage.
     import note_media
-    try:
-        note_media.purge(db, note_id, texts)
-    except Exception as e:  # noqa: BLE001 - the note is deleted; a file left behind is only an orphan
-        print(f"[notes] file cleanup after delete failed: {type(e).__name__}")
+    background_tasks.add_task(note_media.purge_later, note_id, texts)
 
 
 # ── sharing ────────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ storage call fails.
 
 Run on its own: `python -m pytest test_note_media.py` (one file per process -
 see CLAUDE.md)."""
+import json
 import os
 import unittest
 import uuid
@@ -136,6 +137,45 @@ class PurgeTests(unittest.TestCase):
         self.assertNotIn("notes/boards/x/3-thumb.png", self.deleted)    # a task attachment
         self.assertEqual(self.listed, [f"notes/boards/{nid}"])
         self.assertIn(f"notes/boards/{nid}/old-thumb.png", self.deleted)  # the board's own folder
+
+    def test_links_kept_anywhere_else_keep_the_file(self):
+        # A note's picture pasted into an announcement, a ticket's pictures
+        # and a Knowledge Base page (review, 11/02/2026).
+        ann, tkt, kb = (f"notes/{n}-pasted.png" for n in (11, 12, 13))
+        nid = self._note("".join(f'<img src="{BASE}{p}">' for p in (ann, tkt, kb)) + f'<img src="{BASE}notes/14-own.png">')
+        db = database.SessionLocal()
+        ids = [uuid.uuid4().hex for _ in range(3)]
+        try:
+            db.add(models.Announcement(id=ids[0], title="t", body=f'<img src="{BASE}{ann}">', author_email=OWNER))
+            db.add(models.TaskTicket(id=ids[1], subject="s", images=[f"{BASE}{tkt}"]))
+            db.add(models.KbDocument(id=ids[2], title="k", blocks=json.dumps([{"type": "image", "url": f"{BASE}{kb}"}])))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            self.assertEqual(self.client.delete(f"/notes/{nid}").status_code, 204)
+            for p in (ann, tkt, kb):
+                self.assertNotIn(p, self.deleted)
+            self.assertIn("notes/14-own.png", self.deleted)
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(models.Announcement).filter(models.Announcement.id == ids[0]).delete()
+                db.query(models.TaskTicket).filter(models.TaskTicket.id == ids[1]).delete()
+                db.query(models.KbDocument).filter(models.KbDocument.id == ids[2]).delete()
+                db.commit()
+            finally:
+                db.close()
+
+    def test_a_reference_check_that_errors_keeps_the_file(self):
+        orig = note_media._refs_sql
+        note_media._refs_sql = lambda: "SELECT 1 FROM no_such_table WHERE x LIKE :p"
+        try:
+            nid = self._note(f'<audio src="{BASE}notes/1-voice.webm"></audio>')
+            self.assertEqual(self.client.delete(f"/notes/{nid}").status_code, 204)
+            self.assertEqual([d for d in self.deleted if d.startswith("notes/1-")], [])
+        finally:
+            note_media._refs_sql = orig
 
     def test_a_laptop_never_deletes_live_storage(self):
         note_media._deployed = lambda: False
