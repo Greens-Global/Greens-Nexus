@@ -294,8 +294,10 @@ class ApproverTests(_Base):
     def test_request_approval_obeys_the_company_wall(self):
         t = self.file(type="access_request")
         self.walls_on()
-        r = self.as_(ADMIN2).post(f"/task-tickets/{t['id']}/request-approval", json={"approver_email": APPROVER})
-        self.assertEqual(r.status_code, 404)
+        # Another company's Administrator passes the tickets wall (hotfix
+        # 11/04/2026), but the approver must still be inside the ticket's company.
+        r = self.as_(ADMIN2).post(f"/task-tickets/{t['id']}/request-approval", json={"approver_email": ADMIN2})
+        self.assertEqual(r.status_code, 422)
         # An approver from another company could never open or decide it.
         r = self.as_(ADMIN1).post(f"/task-tickets/{t['id']}/request-approval", json={"approver_email": ADMIN2})
         self.assertEqual(r.status_code, 422)
@@ -373,10 +375,10 @@ class CompanyWallTests(_Base):
                                                   requester_email=REQ, created_at=now_iso()))
         self.db.commit()
         c = self.as_(ADMIN2)
-        log = c.get("/task-tickets/notify/log").json()
-        self.assertEqual([r["ticketId"] for r in log["rows"]], [t2.id])
-        self.assertEqual(log["total"], 1)
-        self.assertEqual([r["ticketId"] for r in c.get("/task-tickets/notify/teams-log").json()], [t2.id])
+        log = c.get("/task-tickets/notify/log").json()  # hotfix 11/04/2026: an Administrator sees every company's tickets
+        self.assertEqual(sorted(r["ticketId"] for r in log["rows"]), sorted([t1.id, t2.id]))
+        self.assertEqual(log["total"], 2)
+        self.assertEqual(sorted(r["ticketId"] for r in c.get("/task-tickets/notify/teams-log").json()), sorted([t1.id, t2.id]))
         self.assertEqual(len(self.as_(GA).get("/task-tickets/notify/log").json()["rows"]), 2)
 
 

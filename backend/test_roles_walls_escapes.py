@@ -552,14 +552,14 @@ class LevelFourShortcutTestsMore(_Base):
         self._as(SUPER)
         self.assertIn("bo@partner.example", {r["email"] for r in self.client.get("/external-users").json()})
 
-    def test_desk_supervisor_only_within_their_companies(self):
+    def test_desk_supervisor_in_every_company(self):
         import ticket_roles
         db = self._db()
         try:
             admin = {"email": ADMIN_A, "level": 4}
             self.assertEqual(ticket_roles.ticket_role(admin, db, company=COA), ticket_roles.SUPERVISOR)
-            self.assertEqual(ticket_roles.ticket_role(admin, db, company=COB), ticket_roles.REQUESTER)
-            self.assertFalse(ticket_roles.can_delete(admin, db, company=COB))
+            self.assertEqual(ticket_roles.ticket_role(admin, db, company=COB), ticket_roles.SUPERVISOR)  # hotfix 11/04/2026: an Administrator sees every company's tickets
+            self.assertTrue(ticket_roles.can_delete(admin, db, company=COB))
             self.assertTrue(ticket_roles.can_delete(admin, db, company=COA))
             self.assertEqual(ticket_roles.ticket_role({"email": SUPER, "level": 5}, db, company=COB),
                              ticket_roles.SUPERVISOR)

@@ -166,7 +166,7 @@ class WallRuleTests(_Base):
         self._as(SUPER)
         self.assertEqual(self.client.get(f"/hr/employees/e-{BEMP}/documents").status_code, 200)
 
-    def test_level_4_gets_404_on_company_b_ticket_walls_off(self):
+    def test_level_4_opens_company_b_ticket_walls_off(self):
         db = self._db()
         try:
             db.add(models.TaskTicket(id="tkt-tiers-a", code="tkt-tiers-a", subject="A", company_id=COA,
@@ -177,7 +177,7 @@ class WallRuleTests(_Base):
         finally:
             db.close()
         self._as(ADMIN_A)
-        self.assertEqual(self.client.get("/task-tickets/tkt-tiers-b/comments").status_code, 404)
+        self.assertEqual(self.client.get("/task-tickets/tkt-tiers-b/comments").status_code, 200)  # hotfix 11/04/2026: an Administrator sees every company's tickets
         self.assertEqual(self.client.get("/task-tickets/tkt-tiers-a/comments").status_code, 200)
         self._as(SUPER)
         self.assertEqual(self.client.get("/task-tickets/tkt-tiers-b/comments").status_code, 200)
