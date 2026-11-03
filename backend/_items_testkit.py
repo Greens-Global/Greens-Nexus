@@ -77,7 +77,8 @@ def user(email: str) -> dict:
 _TABLES = (models.ItemCheckout, models.ItemAssignment, models.Item, models.NexusNotification,
            models.AuditLog, models.NexusEmployee, models.NexusRole, models.ItemCartEntry,
            models.NexusGroup, models.NexusGroupMember, models.NexusAccessScope,
-           models.ShiftAssignment, models.Shift)
+           models.ShiftAssignment, models.Shift, models.TicketItemLink, models.Requisition,
+           models.NexusSetting)
 
 
 def fresh():
@@ -92,6 +93,7 @@ def fresh():
         db.add(models.NexusRole(email=email, role=role))
     db.commit()
     cache.module_grants.invalidate()
+    auth._role_cache.clear()
     cache.role_holders.invalidate()
     return db
 

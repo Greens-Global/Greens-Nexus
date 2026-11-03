@@ -317,21 +317,25 @@ def _collaborator_emails(t: "models.Task") -> set:
 
 
 def _item_action_rows(db: Session, email: str, is_manager: bool) -> list:
-    """Read-only against models.ItemCheckout / models.ItemAssignment - mirrors
-    the same "query the shared table directly" pattern _red_rows already uses
-    for Task/TimeOffRequest, without touching routers/items.py (Visesh's
-    file). Status vocab + responsible-party fields confirmed against
-    items.py's own _notify call sites (approver_email / assigned_allocator_email
-    / requested_by_email / assignee_email)."""
+    """Read-only against models.ItemCheckout / models.ItemAssignment. The
+    rows that are the reader's own (to hand over, to confirm, to accept) are
+    queried directly; the approval to address is walled with Item
+    Management's rule (routers.items.walled_item_rows) and the extensions
+    come from the Approvals source itself, so the briefing never disagrees
+    with the Approvals badge (Nov 2026 review). `is_manager` is kept for the
+    caller's signature; the items-manager rule decides now."""
     # Every row here is a physical handover, a photo requirement, or an
     # allocator pick (per CLAUDE.md's "photos are evidence" rule) - none of
     # that can be a one-click email action, so these stay "Open in Nexus"
     # only. Module tag drives the email's per-module accordion grouping.
     rows = []
     items_url = f"{app_url()}/itemmanagement"
-    for c in (db.query(models.ItemCheckout)
-              .filter(models.ItemCheckout.status == "pending",
-                      models.ItemCheckout.approver_email == email).all()):
+    me = _items_user(db, email)
+    from routers.items import walled_item_rows
+    for c in walled_item_rows(db.query(models.ItemCheckout)
+                              .filter(models.ItemCheckout.status == "pending",
+                                      models.ItemCheckout.approver_email == email),
+                              models.ItemCheckout, db, me).all():
         rows.append({"title": f"Approve Checkout: {c.item_name}",
                      "detail": f"Requested by {c.requested_by}", "url": items_url, "module": "items",
                      **_since(c.created_at)})
@@ -354,15 +358,29 @@ def _item_action_rows(db: Session, email: str, is_manager: bool) -> list:
         rows.append({"title": f"Accept Assignment: {a.item_name}",
                      "detail": f"Assigned by {a.assigned_by}", "url": items_url, "module": "items",
                      **_since(a.created_at)})
-    if is_manager:
-        for c in (db.query(models.ItemCheckout)
-                  .filter(models.ItemCheckout.extension_status == "pending").all()):
-            # No `since`: the extension ask stamps no time of its own and the
-            # checkout's created_at is the original request, not this wait.
-            rows.append({"title": f"Approve Extension: {c.item_name}",
-                         "detail": f"{c.requested_by} requested {c.extension_days} more day(s)",
-                         "url": items_url, "module": "items"})
+    # Extensions to decide: exactly the Approvals source (approvals_inbox:
+    # an items manager, inside the company wall, never their own ask), so the
+    # briefing and the Approvals badge agree (review, Nov 2026). `is_manager`
+    # (has reports) no longer decides it - the items-manager rule does.
+    import approvals_inbox
+    for r in approvals_inbox._item_extensions(db, me, {}):
+        # No `since`: the extension ask stamps no time of its own and the
+        # checkout's created_at is the original request, not this wait.
+        rows.append({"title": f"Approve Extension: {_fact(r, 'Item')}",
+                     "detail": f"{r['person']['name']} requested {_fact(r, 'More Days')} more day(s)",
+                     "url": items_url, "module": "items"})
     return rows
+
+
+def _items_user(db: Session, email: str) -> dict:
+    """The briefing reader as Item Management sees them (email + tier), for
+    the company wall and the items-manager rule."""
+    import auth
+    return {"email": email, "level": auth.level_for(email, db)}
+
+
+def _fact(row: dict, label: str) -> str:
+    return next((f.get("value", "") for f in row.get("facts") or [] if f.get("label") == label), "")
 
 
 def _ticket_url(*, ticket_id: str, for_requester: bool) -> str:
@@ -821,14 +839,14 @@ def _item_needs_to_know_rows(db: Session, email: str, since_iso: str, is_manager
         rows.append({"title": f"Checkout {c.status.title()}: {c.item_name}",
                      "detail": (c.reject_reason or "No reason given") if c.status == "rejected" else "Awaiting handover",
                      "url": items_url, "module": "items"})
-    if is_manager:
-        # No fixed approver field for a return confirmation - items.py's
-        # perm_return notification broadcasts the same way (recipient="").
-        for a in (db.query(models.ItemAssignment)
-                  .filter(models.ItemAssignment.status == "return_initiated").all()):
-            rows.append({"title": f"Return Pending Confirmation: {a.item_name}",
-                         "detail": f"{a.assignee_name or a.assignee_email} initiated a return",
-                         "url": items_url, "module": "items"})
+    # Returns to check in: exactly the Approvals source (approvals_inbox:
+    # an items manager, inside the company wall, never their own return, and
+    # not a Reassign the holder has not returned yet) - review, Nov 2026.
+    import approvals_inbox
+    for r in approvals_inbox._assignment_returns(db, _items_user(db, email), {}):
+        rows.append({"title": f"Return Pending Confirmation: {_fact(r, 'Item')}",
+                     "detail": f"{r['person']['name']} initiated a return",
+                     "url": items_url, "module": "items"})
     return rows
 
 

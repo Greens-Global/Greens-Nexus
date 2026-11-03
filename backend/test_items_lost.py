@@ -15,7 +15,7 @@ import unittest
 
 import models
 from routers import items
-from routers.items import (AssignmentCreate, AssignmentReturnAccept, AssignmentReturnInit, BulkAssignPersonIn,
+from routers.items import (AssignmentAccept, AssignmentCreate, AssignmentReturnAccept, AssignmentReturnInit, BulkAssignPersonIn,
                            CartAddBody, CheckoutIn, CheckoutStatusUpdate, ItemUpdate)
 
 U = kit.user
@@ -56,6 +56,21 @@ class LostItemTests(unittest.TestCase):
         kit.refused(self, 400, items.update_checkout, "co-2",
                     CheckoutStatusUpdate(status="approved", assigned_allocator_email=kit.ALLOC_A),
                     user=U(kit.MGR_A), db=self.db)
+
+    def test_a_lost_item_is_not_handed_over_received_or_accepted(self):
+        kit.add_item(self.db, "it-3", op_status="lost")
+        kit.add_checkout(self.db, "co-3", "it-3", "approved")
+        kit.refused(self, 400, items.update_checkout, "co-3", CheckoutStatusUpdate(status="pending_receipt"),
+                    user=U(kit.ALLOC_A), db=self.db)
+        self.db.rollback()
+        kit.add_item(self.db, "it-4", op_status="lost")
+        kit.add_checkout(self.db, "co-4", "it-4", "pending_receipt")
+        kit.refused(self, 400, items.update_checkout, "co-4",
+                    CheckoutStatusUpdate(status="allocated", receipt_photo_url=kit.PHOTO), user=U(kit.EMP_A), db=self.db)
+        self.db.rollback()
+        kit.add_item(self.db, "it-5", ownership="permanent", op_status="lost")
+        kit.add_assignment(self.db, "A5", "it-5", "pending_acceptance")
+        kit.refused(self, 400, items.accept_assignment, "A5", AssignmentAccept(), user=U(kit.EMP_A), db=self.db)
 
     def test_a_lost_permanent_item_is_not_assigned(self):
         kit.add_item(self.db, "it-p", ownership="permanent", op_status="lost")
