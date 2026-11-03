@@ -35,6 +35,10 @@ TABLES = (
     "TaskProjectTemplate", "TaskPortfolio", "TaskActivity", "TaskChecklistItem", "TaskTicket",
     "TaskAttachment", "TaskComment", "TimePunch", "ScheduledShift", "DocFormEntry", "DocTemplate",
     "ItemCheckout", "WorkflowEvent",
+    # Field and Closeout (phase 3, 11/03/2026)
+    "ConstructionPhotoPair", "ConstructionPunchMeta", "ConstructionFieldTicket", "ConstructionChangeOrder",
+    "ConstructionCloseoutRecord", "PropertyRecord", "PropertyActivityLog", "PropertyWorkspaceMeta", "Item",
+    "HrSignRequest", "HrSignParty", "HrSignEvent", "NexusIdempotencyKey", "NexusGroup", "NexusGroupMember",
 )
 
 

@@ -4537,6 +4537,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] construction weather loop skipped: {e}")
         try:
+            # Field and Closeout (Neil, 11/03/2026): the morning "yesterday's
+            # daily log is missing" bell, once per job and day, never for a
+            # day a Weather Call cancelled. See construction_field.field_loop.
+            from construction_field import field_loop as construction_field_loop
+            _tasks.append(_a.create_task(construction_field_loop()))
+        except Exception as e:
+            print(f"[startup] construction field loop skipped: {e}")
+        try:
             # Shifts Phase 1 (Oct 2026): the no-show scan - every minute, one
             # bell per manager / scheduler per team-day for anyone not clocked
             # in past start + grace + the company's noShowAlertMin, closed
@@ -5552,3 +5560,7 @@ from routers import privacy_notice as privacy_notice_router  # noqa: E402 - read
 app.include_router(privacy_notice_router.router)  # Privacy Policy built from privacy_inventory.py: public /policy/privacy-notice + signed-in /me (legal compliance pass, 11/02/2026)
 from routers import construction_jobs as construction_jobs_router  # noqa: E402 - construction_job_links: create_all + explicit RLS line
 app.include_router(construction_jobs_router.router)  # Construction: the Job, connected - schedule and punch (Tasks), Start Job (Tickets), crew and hours, forms, equipment, property, search (Neil, 11/03/2026)
+from routers import construction_field as construction_field_router  # noqa: E402 - photo pairs / punch meta: create_all + explicit RLS lines
+app.include_router(construction_field_router.router)  # Construction: the self-drafting daily log, the photo timeline, before and after, Mark Up, the photo report (Neil, 11/03/2026, phase 3)
+from routers import construction_handover as construction_handover_router  # noqa: E402 - field tickets / change orders / closeout records: create_all + explicit RLS lines
+app.include_router(construction_handover_router.router)  # Construction: field tickets, change orders through Nexus Sign, closeout to Asset Management and Items (Neil, 11/03/2026, phase 3)

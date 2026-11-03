@@ -194,6 +194,7 @@ def _meta(db: Session, job, task_id: str):
     if m is None:
         m = models.ConstructionPunchMeta(task_id=task_id, project_id=job.id, modified_at=_now())
         db.add(m)
+        db.flush()   # autoflush is off: the next lookup in this request must find it
     return m
 
 

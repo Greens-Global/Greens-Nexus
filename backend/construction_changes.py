@@ -319,7 +319,7 @@ def on_completed(db: Session, req) -> None:
     try:
         import workflows
         workflows.emit(db, "change_order.signed", subject=co, actor="",
-                       extra={"job_id": job.id, "amount": co.amount, "schedule_impact_days": co.schedule_impact_days})
+                       extra={"job_id": job.id, "schedule_impact_days": co.schedule_impact_days})
     except Exception as e:   # noqa: BLE001 - an automation never costs a signature
         print(f"[construction-changes] emit: {e}")
 

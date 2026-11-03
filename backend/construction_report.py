@@ -202,7 +202,7 @@ def _punch(db, project) -> dict:
 
 def _days_open(r, today: str) -> int:
     try:
-        since = date.fromisoformat((r.submitted_on or r.created_at or "")[:10])
+        since = date.fromisoformat((getattr(r, "submitted_on", "") or getattr(r, "created_at", "") or "")[:10])
         return max(0, (date.fromisoformat(today[:10]) - since).days)
     except ValueError:
         return 0
@@ -445,8 +445,9 @@ def assemble(db, project, data: dict, ai: dict) -> dict:
         if (r.status or "open") == "open":
             age = _days_open(r, today)
             bits = [st, f"{age} day{'s' if age != 1 else ''} open"]
-            if r.due_on:
-                bits.append(("overdue since " if r.due_on < today[:10] else "due ") + _us(r.due_on))
+            due = getattr(r, "due_on", "") or ""
+            if due:
+                bits.append(("overdue since " if due < today[:10] else "due ") + _us(due))
             return f"{head} ({', '.join(bits)})"
         return f"{head} ({st})"
     rfi_lines = [_rfi_line(r) for r in live]
@@ -493,6 +494,8 @@ def assemble(db, project, data: dict, ai: dict) -> dict:
         lines.append(f"Crew-days from Time Clock punches: {st.get('crewDaysPunched', 0)} "
                      f"({st.get('hoursPunched', 0)} hours)")
         s["job_health"] = _section("\n".join(lines), [{"type": "milestone", "id": m.id} for m in data["milestones"]])
+    else:
+        s["job_health"] = _section("None currently.", [])
 
     pc = data.get("punch") or {}
     s["punch_list"] = _section(
@@ -530,7 +533,7 @@ def assemble(db, project, data: dict, ai: dict) -> dict:
             dl.append(f"{_us(x['date'])}: {construction_field.DELAY_LABEL.get(x['cause'], x['cause'])}, "
                       f"{x['hours']:g} hours{note}")
     s["weather_and_delays"] = _section("\n".join(dl) or "No delays logged.",
-                                       [{"type": "log", "id": lg.id} for lg in data["logs"] if (lg.delays or [])])
+                                       [{"type": "log", "id": lg.id} for lg in data["logs"] if (getattr(lg, "delays", None) or [])])
     return s
 
 

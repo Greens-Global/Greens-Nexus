@@ -14,6 +14,10 @@ transaction (`_emit`):
   rfi.opened             create_register("rfis")
   rfi.answered           update_register("rfis") into Answered
   submittal.decided      update_register("submittals") into a decision
+  change_order.signed    construction_changes.on_completed - the owner or
+                         client signed a change order in Nexus Sign (phase 3,
+                         11/03/2026). Its amount is NOT a field (the money
+                         rule above); the days it moves the finish are.
 
 `visible_to` is the module's own reach (routers.construction._may_read: the
 job's people, or a manager inside the job's company); a job's company is its
@@ -120,6 +124,7 @@ def _creator(db, row) -> list[str]:
 attach_property(models.ConstructionDailyLog, "wf_job_name", _job_name)
 attach_property(models.ConstructionRfi, "wf_job_name", _job_name)
 attach_property(models.ConstructionSubmittal, "wf_job_name", _job_name)
+attach_property(models.ConstructionChangeOrder, "wf_job_name", _job_name)
 
 
 # ── entities ─────────────────────────────────────────────────────────────────
@@ -211,6 +216,31 @@ entity("submittal", label="Submittal", model=models.ConstructionSubmittal, modul
        visible_to=_visible)
 
 
+CO_STATUSES = [("draft", "Draft"), ("awaiting_approval", "Awaiting Approval"), ("sent", "Sent"),
+               ("signed", "Signed"), ("declined", "Declined"), ("void", "Void")]
+CO_REASONS = [("owner_request", "Owner Request"), ("unforeseen", "Unforeseen Condition"),
+              ("design", "Design Change"), ("code", "Code Requirement"), ("other", "Other")]
+
+entity("change_order", label="Change Order", model=models.ConstructionChangeOrder, module=MODULE,
+       company=_child_company,
+       link=lambda row: _job_link(row, "changes"),
+       people={"creator": _creator, "approver": _approver, "manager": _managers},
+       people_labels={"creator": "Written By", "approver": "Approver", "manager": "Job Managers"},
+       fields=[
+           F("job", "Job", "text", path="wf_job_name"),
+           F("number", "Number", "text"),
+           F("title", "Title", "text"),
+           F("reason", "Reason", "select", options=CO_REASONS),
+           F("status", "Status", "select", options=CO_STATUSES),
+           F("schedule_impact_days", "Schedule Impact (Days)", "number"),
+           F("signer_name", "Signed By", "text"),
+           F("signed_at", "Signed At", "datetime"),
+       ],
+       dates=[],
+       label_of=lambda row: f"Change Order {row.number or ''} {row.title or ''}".strip(),
+       visible_to=_visible)
+
+
 # ── events ───────────────────────────────────────────────────────────────────
 SAMPLE_JOB = {"name": "Gate Motor Repair - Escondido", "code": "", "job_type": "work_order", "status": "active",
               "phase": "", "percent_complete": 0, "address": "25260 N Centre City Pkwy, Escondido, CA 92026",
@@ -224,6 +254,9 @@ SAMPLE_LOG = {"job": "Temecula Phase 2 - Building C", "log_date": "2026-11-03", 
 SAMPLE_RFI = {"job": "Temecula Phase 2 - Building C", "number": "RFI-014", "subject": "Beam depth at grid C-4",
               "status": "open", "ball_in_court": "Architect", "responder_email": "marcus.ruiz@greensglobal.com",
               "due_on": "2026-11-10", "answered_on": "", "schedule_impact_days": 0}
+SAMPLE_CO = {"job": "Temecula Phase 2 - Building C", "number": "CO-003", "title": "Extra footing at grid D-2",
+             "reason": "unforeseen", "status": "signed", "schedule_impact_days": 2, "signer_name": "Dana Owens",
+             "signed_at": "2026-11-05T18:20:00+00:00"}
 SAMPLE_SUBMITTAL = {"job": "Temecula Phase 2 - Building C", "number": "SUB-031", "title": "Roof membrane",
                     "spec_section": "07 54 00", "status": "approved_as_noted", "revision": 1,
                     "approver_email": "marcus.ruiz@greensglobal.com", "due_on": "2026-11-08",
@@ -261,3 +294,5 @@ event("submittal.decided", entity="submittal", label="Submittal Is Decided", mod
       changes=("status",), may_use=may_use,
       sample=_full(SAMPLE_SUBMITTAL, changes={"status": {"from": "submitted", "to": "approved_as_noted"}},
                    actor="marcus.ruiz@greensglobal.com"))
+event("change_order.signed", entity="change_order", label="Change Order Is Signed", module=MODULE, group="Construction",
+      may_use=may_use, sample=_full(SAMPLE_CO, extra={"job_id": "temecula-c", "schedule_impact_days": 2}))

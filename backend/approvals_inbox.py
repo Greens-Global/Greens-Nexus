@@ -1621,6 +1621,40 @@ def _construction_submittals(db: Session, user: dict, ctx: dict) -> list:
     return out
 
 
+@source("construction_change_order", "Change Orders", "work")
+def _construction_change_orders(db: Session, user: dict, ctx: dict) -> list:
+    """Change orders waiting on the caller's internal approval before they go
+    to the owner or client (construction_change_orders.approver_email,
+    Awaiting Approval - Neil, 11/03/2026, phase 3), on jobs they may still
+    read. Approved or sent back on the job's Changes tab (the approve call
+    sends the Nexus Sign envelope)."""
+    from routers.construction import _may_read
+    me = _me(user)
+    if not me:
+        return []
+    C, P = models.ConstructionChangeOrder, models.ConstructionProject
+    rows = db.query(C).filter(C.approver_email == me, C.status == "awaiting_approval", C.deleted_at == "").all()
+    jobs = {p.id: p for p in db.query(P).filter(P.id.in_(sorted({c.project_id for c in rows}) or [""]),
+                                                 P.deleted_at == "").all()}
+    out = []
+    for c in rows:
+        p = jobs.get(c.project_id)
+        if p is None or not _may_read(db, user, p):
+            continue
+        who = (c.created_by or "").lower()
+        amount = f"{'-' if (c.amount or 0) < 0 else ''}${abs(c.amount or 0):,.2f}"
+        out.append(row("construction_change_order", c.id, person_email=who,
+                       person_name=_name(db, ctx, who) if who else "",
+                       title=" - ".join(x for x in ("Change Order", c.number or "", c.title or "") if x),
+                       detail=f"{amount} on {p.name}. Approve it to send it to {c.signer_name or 'the owner'} for signature.",
+                       created_at=c.modified_at or c.created_at, actions=(a_open("Review"),),
+                       link={"view": "ops", "sub": f"project:{p.id}:changes"},
+                       facts=(("Job", p.name or ""), ("Amount", amount),
+                              ("Schedule Impact", f"{c.schedule_impact_days:+d} days" if c.schedule_impact_days else ""),
+                              ("Signer", c.signer_name or ""), ("Reason", (c.reason or "").replace("_", " ").title()))))
+    return out
+
+
 # ── People: HR packets to verify (hr_packet_docs.py) ─────────────────────────
 
 def _packet_verifier(db: Session, ev, setting, cache: dict) -> str:

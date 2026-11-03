@@ -941,6 +941,124 @@
       "dates": [],
       "fields": [
         {
+          "key": "job",
+          "label": "Job",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "number",
+          "label": "Number",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "reason",
+          "label": "Reason",
+          "options": [
+            {
+              "label": "Owner Request",
+              "value": "owner_request"
+            },
+            {
+              "label": "Unforeseen Condition",
+              "value": "unforeseen"
+            },
+            {
+              "label": "Design Change",
+              "value": "design"
+            },
+            {
+              "label": "Code Requirement",
+              "value": "code"
+            },
+            {
+              "label": "Other",
+              "value": "other"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Draft",
+              "value": "draft"
+            },
+            {
+              "label": "Awaiting Approval",
+              "value": "awaiting_approval"
+            },
+            {
+              "label": "Sent",
+              "value": "sent"
+            },
+            {
+              "label": "Signed",
+              "value": "signed"
+            },
+            {
+              "label": "Declined",
+              "value": "declined"
+            },
+            {
+              "label": "Void",
+              "value": "void"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "schedule_impact_days",
+          "label": "Schedule Impact (Days)",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "signer_name",
+          "label": "Signed By",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "signed_at",
+          "label": "Signed At",
+          "type": "datetime",
+          "visibility": "all"
+        }
+      ],
+      "key": "change_order",
+      "label": "Change Order",
+      "module": "construction",
+      "people": [
+        {
+          "key": "creator",
+          "label": "Written By"
+        },
+        {
+          "key": "approver",
+          "label": "Approver"
+        },
+        {
+          "key": "manager",
+          "label": "Job Managers"
+        }
+      ]
+    },
+    {
+      "dates": [],
+      "fields": [
+        {
           "key": "name",
           "label": "Name",
           "type": "text",
@@ -4043,6 +4161,15 @@
       "key": "candidate.stage_changed",
       "label": "Candidate Moves Stage",
       "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "change_order",
+      "group": "Construction",
+      "key": "change_order.signed",
+      "label": "Change Order Is Signed",
+      "module": "construction",
       "volume": "normal"
     },
     {

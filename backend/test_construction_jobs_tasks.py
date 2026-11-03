@@ -160,7 +160,11 @@ class Punch(JobsBase):
         self.as_(MGR_A)
         self.assertEqual(self.client.post("/construction/punch/p-1/verify", json={"verified": True}).status_code, 409)
         self.as_(CREW2)
-        self.assertEqual(self.client.post("/construction/punch/p-1/done", json={"done": True}).status_code, 200)
+        # Done needs a photo of the finished work (11/03/2026, phase 3).
+        self.assertEqual(self.client.post("/construction/punch/p-1/done", json={"done": True}).status_code, 422)
+        photo = {"url": "data:image/png;base64,iVBORw0KGgo=", "mime_type": "image/png", "size_bytes": 8}
+        self.assertEqual(self.client.post("/construction/punch/p-1/done",
+                                          json={"done": True, "photo": photo}).status_code, 200)
         self.assertEqual(self.client.post("/construction/punch/p-1/verify", json={"verified": True}).status_code, 403)
         self.as_(MGR_A)
         v = self.client.post("/construction/punch/p-1/verify", json={"verified": True})

@@ -42,9 +42,13 @@ def _data(**kw):
 
 class SectionSetTests(unittest.TestCase):
     def test_the_four_sections_of_the_sample(self):
-        self.assertEqual([k for k, _ in cr.SECTIONS],
+        """The sample's four lead; the real-health sections (11/03/2026,
+        phase 3) follow them, all assembled from rows."""
+        self.assertEqual([k for k, _ in cr.SECTIONS][:4],
                          ["summary_of_progress", "rfis_and_submittals",
                           "cost_exposures", "critical_milestones"])
+        self.assertEqual([k for k, _ in cr.SECTIONS][4:],
+                         ["job_health", "punch_list", "change_orders", "weather_and_delays"])
 
     def test_only_the_progress_summary_is_model_written(self):
         """A milestone date or an RFI number restated by a model is a
@@ -70,8 +74,24 @@ class AssembleTests(unittest.TestCase):
             rfis=[_rfi("33-RIML", "Grease Interceptor Change")],
             submittals=[_sub("131100-1-RIML", "Pool Equipment")]), {})
         lines = s["rfis_and_submittals"]["text"].split("\n")
-        self.assertEqual(lines[0], "RFI# 33-RIML- Grease Interceptor Change")
+        # An open RFI carries its status and age (11/03/2026, phase 3).
+        self.assertTrue(lines[0].startswith("RFI# 33-RIML- Grease Interceptor Change (Open, "), lines[0])
+        self.assertIn("days open", lines[0])
         self.assertEqual(lines[1], "Submittal-131100-1-RIML-Pool Equipment")
+
+    def test_open_rfis_lead_oldest_first_with_overdue_said(self):
+        today = "2026-11-10"
+        old = _rfi("1", "Old")
+        old.submitted_on, old.due_on = "2026-10-01", "2026-10-15"
+        new = _rfi("2", "New")
+        new.submitted_on = "2026-11-08"
+        done = _rfi("3", "Done", status="answered")
+        d = _data(rfis=[done, new, old])
+        d["today"] = today
+        lines = cr.assemble(None, types.SimpleNamespace(name="P"), d, {})["rfis_and_submittals"]["text"].split("\n")
+        self.assertEqual(lines[0], "RFI# 1- Old (Open, 40 days open, overdue since 10/15/2026)")
+        self.assertEqual(lines[1], "RFI# 2- New (Open, 2 days open)")
+        self.assertEqual(lines[2], "RFI# 3- Done (Answered)")
 
     def test_a_void_rfi_is_not_printed(self):
         s = cr.assemble(None, types.SimpleNamespace(name="P"), _data(
