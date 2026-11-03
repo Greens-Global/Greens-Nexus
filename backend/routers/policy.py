@@ -16,8 +16,9 @@ With no row saved, the published policy is DEFAULT_POLICY below. Until
 11/02/2026 that was word for word the text PolicyGate.jsx used to hardcode, at
 version 2026-07-21. The legal compliance pass (11/02/2026) added a notice at
 collection (what is collected, why, how long, not sold, the Privacy Policy
-link) and a location section, at version 2026-11-02 - so an organization
-still on the default is asked to accept once more. A saved policy is never
+link) and a location section to the default text WITHOUT changing the version
+(Neil, 11/02/2026: "Update text, no re-accept") - nobody is asked to accept
+again; people on the default simply read the fuller text. A saved policy is never
 overwritten: when it lacks a REQUIRED_SECTIONS heading, GET /policy/config
 says `outOfDate` and the Settings panel offers the new default as a draft for
 the administrator to review and publish. Saving a draft never touches the
@@ -52,11 +53,11 @@ SETTINGS_KEY = "signin_policy_config"
 TITLE_MAX = 200
 BODY_MAX = 20_000
 
-# The default's version. 2026-07-21 was the text everyone accepted before the
-# policy became editable; 2026-11-02 added the notice at collection and the
-# location section (the legal compliance pass) - organizations on the default
-# accept once more, the way any new version works.
-POLICY_VERSION = "2026-11-02"
+# The default's version: the one everyone accepted before the policy became
+# editable. The legal pass's added sections (notice at collection, location)
+# keep it on purpose - Neil, 11/02/2026: "Update text, no re-accept". Do not
+# bump it for a text change without his say.
+POLICY_VERSION = "2026-07-21"
 
 # Headings a sign-in policy must carry (the legal compliance pass). A saved
 # policy without one is reported Out of Date to administrators - never

@@ -1,8 +1,8 @@
 """Editable sign-in policy (Sep 26, 2026).
 
 Proves the default carries the required sections (the 11/02/2026 legal pass
-added the notice at collection and location, at a new version - the one
-re-prompt it causes is deliberate), that a saved policy missing a required
+added the notice at collection and location WITHOUT a new version - Neil:
+"Update text, no re-accept"), that a saved policy missing a required
 section is reported Out of Date and never rewritten, that saving a draft never
 changes the version, that
 publishing does and re-prompts, that an acceptance is always of the version on
@@ -89,10 +89,11 @@ class PolicyConfigTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         return r.json()
 
-    def test_default_carries_the_required_sections_at_a_new_version(self):
+    def test_default_carries_the_required_sections_without_a_reaccept(self):
+        # Neil, 11/02/2026: "Update text, no re-accept" - the fuller default
+        # keeps the version everyone already accepted.
         s = self._status()
-        self.assertEqual(s["version"], policy.POLICY_VERSION)
-        self.assertNotEqual(s["version"], "2026-07-21")
+        self.assertEqual(s["version"], "2026-07-21")
         self.assertEqual(s["title"], "Company Policies & Monitoring")
         self.assertIn("Employee monitoring", s["body"])
         self.assertIn("does NOT capture your keystrokes", s["body"])
@@ -100,7 +101,7 @@ class PolicyConfigTests(unittest.TestCase):
         self.assertIn("## Location", s["body"])
         self.assertEqual(policy.missing_sections(s["body"]), [])
         self.assertNotIn("\u2014", s["body"])   # no em dashes
-        # Someone who accepted only the old text is asked once more.
+        # Someone who accepted before is not asked again.
         db = database.SessionLocal()
         try:
             db.add(models.PolicyAcknowledgment(id="pcfg-old", email=ADMIN, version="2026-07-21",
@@ -108,8 +109,6 @@ class PolicyConfigTests(unittest.TestCase):
             db.commit()
         finally:
             db.close()
-        self.assertFalse(self._status()["accepted"])
-        self.client.post("/policy/accept", json={"version": policy.POLICY_VERSION})
         self.assertTrue(self._status()["accepted"])
 
     def test_default_in_use_is_never_out_of_date(self):
