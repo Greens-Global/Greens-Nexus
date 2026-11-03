@@ -1487,6 +1487,7 @@ def report_to_dict(r: models.ConstructionWeeklyReport, names: dict = None) -> di
         "executiveSummary": r.executive_summary or "",
         "managerNotes": r.manager_notes or "",
         "dailyLogIds": r.daily_log_ids or [], "mediaIds": r.media_ids or [],
+        "pairIds": list(getattr(r, "pair_ids", None) or []),
         "pdfUrl": r.pdf_url or "", "generatedAt": r.generated_at or "",
         "approvedBy": r.approved_by or "", "publishedAt": r.published_at or "",
     }
@@ -1611,6 +1612,14 @@ def update_report(report_id: str, body: dict, user: dict = Depends(get_current_u
                         models.ConstructionMedia.project_id == r.project_id,
                         models.ConstructionMedia.deleted_at == "").all()}
         r.media_ids = [i for i in wanted if i in mine]
+    if "pair_ids" in (body or {}):
+        # Before / after pairs (11/03/2026): this job's live pairs only.
+        wanted = [i for i in (body.get("pair_ids") or []) if isinstance(i, str)]
+        mine = {x.id for x in db.query(models.ConstructionPhotoPair.id)
+                .filter(models.ConstructionPhotoPair.id.in_(wanted or [""]),
+                        models.ConstructionPhotoPair.project_id == r.project_id,
+                        models.ConstructionPhotoPair.deleted_at == "").all()}
+        r.pair_ids = [i for i in wanted if i in mine]
     r.modified_at = now
     _log_activity(db, project_id=p.id, entity_kind="report", entity_id=r.id,
                   type="edited", actor_email=user["email"],
