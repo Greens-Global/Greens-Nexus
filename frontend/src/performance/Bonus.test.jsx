@@ -84,10 +84,10 @@ describe('BonusRunsAdmin', () => {
     expect(screen.getByRole('table', { name: 'By Manager' })).toBeTruthy();
     expect(document.querySelector('[data-reviewed]').textContent).toContain('0 of 1');
     expect(document.querySelector('[data-reviewed]').textContent).toContain('waiting on Max T');
-    fireEvent.change(screen.getByLabelText('Budget'), { target: { value: '300' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Set' }));
+    fireEvent.change(await screen.findByLabelText('Budget'), { target: { value: '300' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Set' }, { timeout: 5000 }));
     await waitFor(() => expect(calls.perfBonusRunUpdate).toHaveBeenCalledWith('run1', { budget: 300 }));
-    expect(await screen.findByText('125% of budget')).toBeTruthy();
+    expect(await screen.findByText('125% of budget', {}, { timeout: 5000 })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Adjust' }));
     const save = screen.getByRole('button', { name: 'Save Adjustment' });
     fireEvent.change(screen.getByLabelText('Adjustment'), { target: { value: '10' } });

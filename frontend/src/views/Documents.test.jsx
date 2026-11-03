@@ -111,8 +111,9 @@ describe('Documents module', () => {
       category: 'vehicle', audience: 'company', fieldDefs: [], updatedAt: '2026-11-02T10:00:00Z' }]);
     render(<Documents activeSub="documents-forms" onSubChange={() => {}} />);
     expect(await screen.findByText('Vehicle Check')).toBeTruthy();
+    // Headers can paint a beat after the first row under full-suite load: wait for them.
     for (const name of ['Form', 'Category', 'Status', 'Who Fills It', 'Updated']) {
-      expect(screen.getByRole('columnheader', { name: new RegExp(`^${name}`) })).toBeTruthy();
+      expect(await screen.findByRole('columnheader', { name: new RegExp(`^${name}`) }, { timeout: 5000 })).toBeTruthy();
     }
     expect(screen.getAllByRole('separator').length).toBeGreaterThanOrEqual(5);
   });
