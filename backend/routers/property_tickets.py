@@ -656,3 +656,43 @@ def _open_preventive_now(db: Session, user: dict, svc, background_tasks) -> dict
         maintenance_services.run_after(bt)
     return {"ticketId": made["id"], "code": made.get("code") or "", "nextDue": svc.next_due or None}
 
+
+@router.get("/property-assets/{property_id}/schedule-options")
+def schedule_options(property_id: str, user: dict = Depends(require_asset_read), db: Session = Depends(get_db)):
+    """What the schedule editor offers: the teams that may sit on a property
+    (inside the caller's company wall), the topics about a place, the
+    vehicles and equipment with their readings, and whether the caller may
+    name an assignee (the service desk only, as at ticket intake)."""
+    import ticket_property_link
+    import ticket_roles
+    import ticket_taxonomy
+    prop = _require_manage(db, user, property_id)
+    scope = auth.company_scope(user, db)
+    ents = {e.id: e.name for e in db.query(models.HrEntity).all()}
+    depts = [{"id": d.id, "name": d.name or "", "companyId": d.company_id or "",
+              "companyName": ents.get(d.company_id or "", "")}
+             for d in db.query(models.HrDepartment).all()
+             if auth.company_ok(d.company_id or "", scope) and property_links.department_takes_property(db, d.id)]
+    topics, seen = [], set()
+    for g in ticket_taxonomy.get_config(db).get("helpTopics") or []:
+        for tp in g.get("topics") or []:
+            name = str((tp or {}).get("name") or "").strip()
+            if (tp or {}).get("area") in property_links.PROPERTY_AREAS and name and name.lower() not in seen:
+                seen.add(name.lower())
+                topics.append({"name": name, "area": tp.get("area")})
+    equipment = []
+    for a in db.query(models.PropertyAsset).all():
+        kind = property_links.asset_kind(a)
+        if kind not in ("vehicle", "equipment") or not property_links.viewable(a, user) or (a.payload or {}).get("deleted"):
+            continue
+        field = "odometer" if kind == "vehicle" else "hours"
+        reading = maintenance_services.asset_reading(db, a, field)
+        equipment.append({"id": a.id, "name": property_links.display_name(a), "kind": kind, "meterField": field,
+                          "reading": reading,
+                          "readingLabel": maintenance_services.meter_label(field, reading) if reading is not None else ""})
+    return {"property": {"id": prop.id, "name": property_links.display_name(prop)},
+            "departments": sorted(depts, key=lambda d: (d["companyName"].lower(), d["name"].lower())),
+            "topics": topics, "equipment": sorted(equipment, key=lambda e: e["name"].lower()),
+            "units": ticket_property_link.unit_options(db, prop),
+            "canAssign": ticket_roles.can_assign(user, db)}
+

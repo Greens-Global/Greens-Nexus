@@ -116,7 +116,7 @@ describe('Property Maintenance with tickets', () => {
 
   it('a recurring service lists the original and every child with date, cost and total per currency', async () => {
     render(<PropertyMaintenanceSection {...props} />);
-    fireEvent.click(await screen.findByRole('tab', { name: /Recurring Services/ }));
+    fireEvent.click(await screen.findByRole('tab', { name: /Preventive Maintenance/ }));
     expect(screen.getByText('Every Year')).toBeTruthy();
     expect(screen.getByText('(Original)')).toBeTruthy();
     expect(screen.getByText('Ticket #140')).toBeTruthy();

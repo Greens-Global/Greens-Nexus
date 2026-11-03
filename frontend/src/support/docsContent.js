@@ -1460,7 +1460,17 @@ export const DOCS = [
           'Click Add to Maintenance Record. The form is filled in from the ticket: service date, system, work performed, vendor and cost. Attach the invoice (or press Ctrl+V to paste it) and add notes.',
           'There is no status - adding it closes the ticket and it joins the Maintenance Log and Total Spend.',
           'On the original ticket you can set Next Service Due and how often it repeats (one time, or every so many weeks, months or years). You are reminded 15 days before; if nobody opens the ticket by the due date, one opens automatically with the same details, and the next date is scheduled.',
-          'Recurring Services shows each service: the original ticket and every ticket it opened underneath, with date and cost and a total. Edit the schedule, Stop it, or Open Ticket Now to start early.',
+          'Preventive Maintenance shows each service: the original ticket and every ticket it opened underneath, with date and cost and a total. Edit the schedule, Stop it, or Open Ticket Now to start early.',
+        ],
+      },
+      {
+        title: 'Set Up Preventive Maintenance',
+        steps: [
+          'Open the property > Maintenance > Preventive Maintenance and click New Schedule.',
+          'Name it, then pick how it repeats: Fixed Dates (every month on the 1st, weekly on Monday, quarterly), After Each Completion (the next one is due a set time after the last ticket is done), or By Meter (a vehicle\'s odometer or an equipment\'s hour meter, read from its record).',
+          'Pick the team that does the work, the topic, the checklist steps and how many days early the ticket opens. The service desk can also name who each ticket goes to.',
+          'Each time one comes due, one ticket is filed for the team at the property, with the checklist and the due date. Closing it adds it to the Maintenance Log. An overdue ticket shows in red here and in the Tickets desk\'s Preventive queue.',
+          'Print Tags prints a QR tag for the site and for each piece of equipment its schedules name. Scanning one on a phone shows the open tickets there and a Report a Problem button.',
         ],
       },
       {
@@ -1476,7 +1486,7 @@ export const DOCS = [
       { name: 'Portfolio', desc: 'Every asset you may see, as Tiles, a List or a Map, filtered by category, type, stage and region. The Needs Attention band on top counts Need Data and Flagged, and its chips open those lists in place.' },
       { name: 'Overview', desc: 'The asset\'s health in three cards - Needs Attention, Data Gaps and Recent Activity - then Details, its full spec sheet (parcel and zoning, units, financials, loans, insurance and title for a property; make, model and home base for a vehicle or equipment).' },
       { name: 'Records', desc: 'A property\'s Warranties, Inspections, Documents, Utilities, AHJ (Authority Having Jurisdiction), Vendors and Permits; a vehicle\'s or equipment\'s Service, Odometer and Documents - one segment each. Warranties show Current, Due Soon, Expired or Lapsed.' },
-      { name: 'Maintenance', desc: 'Properties: Needs Action (resolved tickets waiting for the asset manager), Open Tickets, Closed Tickets and Recurring Services for every ticket raised for the property and its parcels, the Maintenance Log with Total Spend, and Recommended Maintenance. With units set up (Set Up Units), the log can be scoped to one unit or Common Areas. A ticket closed as Duplicate or Won\'t Fix is listed under Closed Without Work.' },
+      { name: 'Maintenance', desc: 'Properties: Needs Action (resolved tickets waiting for the asset manager), Open Tickets, Closed Tickets and Preventive Maintenance (schedules that file tickets on their own, with what is overdue) for every ticket raised for the property and its parcels, the Maintenance Log with Total Spend, and Recommended Maintenance. With units set up (Set Up Units), the log can be scoped to one unit or Common Areas. A ticket closed as Duplicate or Won\'t Fix is listed under Closed Without Work.' },
       { name: 'Timeline', desc: 'A property\'s milestones and their status, searchable on their own.' },
       { name: 'Private', desc: 'Mark Private (company officers only) hides an asset from everyone but the officers; Make Public shows it again.' },
       { name: 'Files', desc: 'Photos and documents are uploaded straight to private storage and open through a signed link; paste an image with Ctrl+V.' },

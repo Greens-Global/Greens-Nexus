@@ -125,7 +125,7 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
             : count(0)}</>)}
           {tabBtn('open', `Open Tickets${count(data?.open?.length || 0)}`)}
           {tabBtn('closed', `Closed Tickets${count(data?.history?.length || 0)}`)}
-          {tabBtn('services', `Recurring Services${count(data?.services?.length || 0)}`)}
+          {tabBtn('services', <>Preventive Maintenance{data?.preventive?.overdue > 0 ? <span style={{ marginLeft: 6, padding: '1px 7px', borderRadius: 999, background: 'hsl(var(--color-red))', color: '#fff', fontSize: '0.72rem' }}>{data.preventive.overdue}</span> : count(data?.services?.length || 0)}</>)}
         </div>
         {tab === 'log' && (
           <button type="button" className="secondary-btn" onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen}

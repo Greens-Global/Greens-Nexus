@@ -252,6 +252,15 @@ class PreventiveTests(unittest.TestCase):
         self.assertEqual(svc["checklist"], ["Change the filter", "Check the drain"])
         self.assertEqual(view["preventive"], {"open": 1, "overdue": 1})
 
+    def test_the_editor_offers_property_teams_and_equipment_readings(self):
+        out = P.schedule_options("gst", user=ADMIN, db=self.db)
+        self.assertEqual([d["id"] for d in out["departments"]], ["d-fac"])          # HR never; c2 walled off
+        readings = {e["id"]: e["readingLabel"] for e in out["equipment"]}
+        self.assertEqual(readings, {"lift": "120 h", "truck": "41,000 mi"})
+        self.assertTrue(out["canAssign"])
+        with self.assertRaises(HTTPException):
+            P.schedule_options("gst", user=PLAIN, db=self.db)
+
     # ── overdue per site ──
     def test_the_roll_up_counts_overdue_per_property_and_company_and_tells_workflows_once(self):
         sid = self._schedule(next_due=iso(0))
