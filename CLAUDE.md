@@ -356,8 +356,10 @@ keep the diff minimal.
   empty leaves Tasks on the left; phones stay Tasks, Updates, Bookmarks.
 - **The Tickets desk is queues, not tiles** (Neil, 10/31/2026): the main
   page's tabs (`tickets/queues.js`, in this order: Needs Reply, Unassigned,
-  Mine, Due Soon, Waiting, All Open, Done, then To Route / To Approve when
-  non-empty, then the person's saved views, then Raised by Me, then "+ View")
+  Mine, Due Soon, Waiting, All Open, Done, then To Route / To Approve /
+  Preventive when non-empty (Preventive, 11/03/2026: the live tickets a
+  preventive schedule filed, its count the overdue ones in red when any),
+  then the person's saved views, then Raised by Me, then "+ View")
   are filter presets over the tickets TasksContext holds, counted over the
   WHOLE workspace (no count pill on Done, All Open or Raised by Me). The
   server's `needsReply` flag on every `GET /task-tickets` row (`_needs_reply`
@@ -925,6 +927,33 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   the verify lists: https://claude.ai/artifact/MZR3srrjuzCQQYHTMERgNU .
 - Equipment and vehicles pair with Item Management (`AddItemModal`) - do not
   build a second warranty/serial system there.
+- **Preventive maintenance (Neil, 11/03/2026, Construction plan phase 5).**
+  Tickets ARE the work orders - no second queue. A preventive schedule is a
+  `property_maintenance_services` row with `kind` calendar / floating /
+  meter (`''` = the old service set from a resolved ticket), set under the
+  property's Maintenance > Preventive Maintenance and run by the SAME daily
+  scan (`maintenance_services.run_daily`, reminders_loop, switch
+  `maintenance_services`) - never a second scheduler. Each occurrence files
+  ONE ticket through `tickets.file_ticket` as whoever last saved the
+  schedule; `property_maintenance_occurrences` (unique schedule + due key)
+  is the idempotency key. A preventive ticket carries `service_id`,
+  `pm_due_on` (Overdue) and `equipment_asset_id`; closing it by any path
+  writes its maintenance record and moves a floating schedule on
+  (`maintenance_pm_sync.py`). Meter readings are read from the asset's
+  record (`odometer` + the odometer / vservice logs, `hours`), never typed
+  twice. Scan to Request: site / equipment tags are `/tickets/place/<p>[/<a>]`
+  (`maintenance/placeLink.js`), recognized by the ONE Items scanner and
+  printed by the Items TagSheet; `routers/maintenance.py` holds the place
+  sheet, Report a Problem, the walled roll-up and Workday's My Work.
+  Review rules (11/03/2026): the ticket's company is the TEAM's
+  (`file_ticket(trusted_company=)`, the team must be the property's
+  company); a preventive ticket = `service_id` AND `pm_due_on` (a
+  ticket-born service keeps its old behavior); a schedule save carries its
+  `rev`; an occurrence already filed rolls the schedule on; the NEWEST meter
+  reading counts (a drop rebases, a jump past 3 intervals waits for Confirm
+  Reading); every date is the company's team-zone day
+  (`maintenance_services.local_today` / `TodayCache`); resolving a
+  preventive ticket by ANY path needs a photo (`require_finish_photo`).
 
 ## Gotchas
 

@@ -29,6 +29,7 @@ import { filesFromPaste } from '../tasks/lib';
 import { setPendingOpen } from '../lib/pendingOpen';
 import FormsTile from '../forms/FormsTile';
 import { offlineRead } from '../lib/offline/read';
+import MyWorkTile from '../maintenance/MyWorkTile';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -593,6 +594,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
             <PurchaseRequestTile onOpen={onOpenPurchase || (() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'purchase' } })))} />
             {/* Fill a Form (Forms & Checklists, Neil 11/02/2026): the forms this person may fill, in the fill sheet. Shows only when there is one. `openForm` is the "form:<id>" / "form:pick" deep link. */}
             <FormsTile autoOpen={openForm} flash={flash} />
+            {/* My Work (Construction plan phase 5, Neil 11/03/2026): a technician's maintenance tickets, preventive first - Start, Done with a photo, Scan a Tag. Shows only when there is work. */}
+            <MyWorkTile />
             </div>
           </div>
         </>

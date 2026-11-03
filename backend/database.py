@@ -124,6 +124,10 @@ _construction_ticket_sync.wire(SessionLocal)
 # so a job's labor hours come from the Time Clock (construction_labor.py).
 import construction_labor as _construction_labor  # noqa: E402
 _construction_labor.wire(SessionLocal)
+# A preventive maintenance ticket closed by any path writes its maintenance
+# record and moves a floating schedule on (11/03/2026, maintenance_pm_sync.py).
+import maintenance_pm_sync as _maintenance_pm_sync  # noqa: E402
+_maintenance_pm_sync.wire(SessionLocal)
 
 
 class Base(DeclarativeBase):

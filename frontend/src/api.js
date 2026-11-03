@@ -2361,6 +2361,18 @@ export const api = {
   addMaintenanceRecord:   (id, ticketId, body) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/maintenance-record`, { method: 'POST', body: JSON.stringify(body) }),
   updateMaintenanceService: (id, serviceId, body) => req(`/property-assets/${encodeURIComponent(id)}/services/${encodeURIComponent(serviceId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   openMaintenanceServiceNow: (id, serviceId) => req(`/property-assets/${encodeURIComponent(id)}/services/${encodeURIComponent(serviceId)}/open-now`, { method: 'POST' }),
+  // Preventive maintenance (Construction plan phase 5, 11/03/2026): schedules
+  // on the property, and the field side (backend/routers/maintenance.py).
+  createPmSchedule:       (id, body) => req(`/property-assets/${encodeURIComponent(id)}/schedules`, { method: 'POST', body: JSON.stringify(body) }),
+  getPmScheduleOptions:   (id) => req(`/property-assets/${encodeURIComponent(id)}/schedule-options`),
+  getMaintenanceRollup:   () => req('/maintenance/rollup'),
+  getMaintenancePlace:    (propertyId, assetId = '') => req(`/maintenance/place/${encodeURIComponent(propertyId)}${assetId ? `?asset=${encodeURIComponent(assetId)}` : ''}`),
+  reportPlaceProblem:     (propertyId, body) => req(`/maintenance/place/${encodeURIComponent(propertyId)}/report`, { method: 'POST', body: JSON.stringify(body) }),
+  getMyMaintenanceWork:   () => req('/maintenance/my-work'),
+  startMaintenanceWork:   (ticketId) => req(`/maintenance/tickets/${encodeURIComponent(ticketId)}/start`, { method: 'POST' }),
+  finishMaintenanceWork:  (ticketId, body) => req(`/maintenance/tickets/${encodeURIComponent(ticketId)}/done`, { method: 'POST', body: JSON.stringify(body) }),
+  tickMaintenanceStep:    (ticketId, label, done) => req(`/maintenance/tickets/${encodeURIComponent(ticketId)}/checklist`, { method: 'POST', body: JSON.stringify({ label, done }) }),
+  getPlaceTags:           (propertyId) => req('/maintenance/tags', { method: 'POST', body: JSON.stringify({ property_id: propertyId }) }),
   // Marketing > Google Ads, read-only (backend/routers/marketing_ads.py).
   getAdsStatus: () => req('/marketing/ads/status'),
   startAdsConnect: () => req('/marketing/ads/oauth/start', { method: 'POST' }),

@@ -275,6 +275,10 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "source": _nz(getattr(t, "source", "")),
             # Confidential desk (Oct 27 2026): "hr" = an Ask HR request.
             "confidentialDesk": _nz(getattr(t, "confidential_desk", "")),
+            # Preventive maintenance (11/03/2026, maintenance_services.py):
+            # the day a preventive ticket is due, and the equipment it is about.
+            "pmDueOn": _nz(getattr(t, "pm_due_on", "")),
+            "equipmentAssetId": _nz(getattr(t, "equipment_asset_id", "")),
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
 
 
@@ -647,6 +651,9 @@ class TicketBody(BaseModel):
     # Mark an Issue on the Map (Charmi, Oct 20 2026): the spot on the
     # property's site map - checked and stored by ticket_map_spot.py.
     map_spot: Optional[dict] = None
+    # Scan to Request (11/03/2026): the vehicle / equipment asset at the
+    # property this is about - checked by maintenance_services.check_equipment.
+    equipment_asset_id: Optional[str] = ""
 
 
 class TicketUpdate(BaseModel):
@@ -1025,6 +1032,8 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     public_latest = _latest_comments(db, internal_ok=False, ticket_ids=ids)
     any_latest = _latest_comments(db, internal_ok=True, ticket_ids=ids) if desk else public_latest
     out = []
+    import maintenance_services   # the Preventive queue's Overdue, on each company's calendar
+    pm_today = maintenance_services.TodayCache(db)
     for t in rows:
         d = ticket_to_dict(t)
         sees = _sees_internal(db, t, user, desk)
@@ -1034,6 +1043,7 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
         # The desk's Needs Reply queue (Neil, 10/31/2026) - from the PUBLIC
         # thread for everyone, so an internal note never reads as an answer.
         d["needsReply"] = _needs_reply(t, public_latest.get(t.id))
+        d["pmOverdue"] = maintenance_services.pm_overdue(t, pm_today)
         out.append(_for_viewer(db, t, user, d))
     return out
 
@@ -1192,7 +1202,8 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
 
 
 def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict, db: Session,
-                arrived_by: str = "", whats_new: dict | None = None, confidential_desk: str = "") -> dict:
+                arrived_by: str = "", whats_new: dict | None = None, confidential_desk: str = "",
+                server_fields=None, trusted_company: str = "") -> dict:
     """Everything POST /task-tickets does - THE way a ticket is created, so
     one that arrives by email (ticket_inbound.py, `source="email"`) goes
     through the same checks, approval gate, default assignee, SLA, receipts
@@ -1203,7 +1214,12 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     `confidential_desk` ("hr" - hr_tickets.file_ask_hr, never the payload):
     an Ask HR request (ticket_confidential.py). It files into the requester's
     company's HR desk - no approval gate, the company's HR contact as its
-    default assignee, HR (not the service desk) told when nobody holds it."""
+    default assignee, HR (not the service desk) told when nobody holds it.
+
+    `server_fields(t)` (server code only, never a route's payload): called on
+    the new row before it is written, so server-owned columns - a preventive
+    ticket's schedule and due day (maintenance_services.file_preventive) -
+    land in the same transaction as the ticket."""
     if confidential_desk and confidential_desk not in ticket_confidential.DESKS:
         raise HTTPException(422, "Unknown confidential desk.")
     # The ticket's channel is named `arrived_by` here only because `source`
@@ -1235,9 +1251,14 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
                                              _has_desk_grant(user, db))
     import ticket_map_spot   # Mark an Issue on the Map: checked before anything is written
     spot = ticket_map_spot.clean(db, body.map_spot, prop)
+    import maintenance_services   # Scan to Request: the equipment, checked before anything is written
+    equipment = maintenance_services.check_equipment(db, user, body.equipment_asset_id, prop)
     prop_manager = property_links.manager_email(db, prop) if prop is not None else ""
     # Same never-trust-the-client-alone posture requester_email just got above.
-    company_id = _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
+    # `trusted_company` (server code only - a preventive schedule's team company,
+    # maintenance_services.file_preventive): the company the server already
+    # decided, never re-derived from the run-as person (review H1).
+    company_id = trusted_company or _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
     from routers import ticket_items   # Equipment: validated before anything is written
     linked_items = ticket_items.check_items(db, user, body.item_ids, ticket_company=company_id,
                                             requester_email=(body.requester_email or user["email"]))
@@ -1278,6 +1299,7 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
         t.property_asset_id, t.property_name = prop.id, property_links.display_name(prop)
         t.property_locked = 1 if body.property_locked else 0
         t.property_unit = unit
+        t.equipment_asset_id = equipment
     # Approval gate, decided by the TYPE's admin switch (requiresApproval in the
     # ticket taxonomy, read at this moment) and never trusted from the client, so a
     # caller cannot post approval_status="approved" to skip it.
@@ -1297,6 +1319,8 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     if t.assignee_email and t.status == "open":
         ticket_sla.set_status(t, "in_progress")   # born assigned = already being worked (see update_ticket)
     ticket_sla.sync(t)   # awaiting approval = the SLA clock waits too
+    if server_fields is not None:
+        server_fields(t)
     db.add(t)
     log_activity(db, type="created", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
@@ -1805,6 +1829,10 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     if (data.get("status") in ("resolved", "closed") and t.status not in ("resolved", "closed")
             and not (note or "").strip()):
         raise HTTPException(400, "Describe the resolution - what was done to fix it - before resolving this ticket.")
+    # A preventive ticket is resolved with a photo of the finished work, on
+    # every path - the drawer, a bulk edit, My Work (maintenance_services).
+    import maintenance_services
+    maintenance_services.require_finish_photo(db, t, data)
     if "resolution_note" in data:
         data["resolution_note"] = (data["resolution_note"] or "").strip()[:2000]
     # Work does not start before the sign-off. Assigning a ticket that is still
