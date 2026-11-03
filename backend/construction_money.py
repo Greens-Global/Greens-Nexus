@@ -242,13 +242,17 @@ def requested_not_billed(spend: dict, currency: str = "USD") -> dict:
 
 
 def worked_out(*, actual: float | None, budget: float, committed: float, approved: float, pending: float) -> dict:
-    """The figures worked out from the others - never posted, never drillable."""
-    act = float(actual or 0)
+    """The figures worked out from the others - never posted, never drillable.
+    With no actual from the books (the job is not mapped, or the books could
+    not be read) nothing is worked out: a forecast without the actual would
+    read as a job that has spent nothing."""
+    if actual is None:
+        return {"forecast": None, "variance": None, "percentSpent": None, "overBudget": False}
+    act = float(actual)
     forecast = round(act + committed + pending, 2)
-    out = {"forecast": forecast, "variance": round(budget - forecast, 2) if budget else None,
-           "percentSpent": round(act / budget, 4) if budget and actual is not None else None,
-           "overBudget": bool(budget) and actual is not None and (act + committed) > budget}
-    return out
+    return {"forecast": forecast, "variance": round(budget - forecast, 2) if budget else None,
+            "percentSpent": round(act / budget, 4) if budget else None,
+            "overBudget": bool(budget) and (act + committed) > budget}
 
 
 def budget_of(p, approved_changes: float) -> dict:

@@ -177,6 +177,8 @@ class MoneyTests(JobsBase):
         self.assertFalse(body["mapped"])
         self.assertIsNone(body["actual"])
         self.assertIsNone(body["percentSpent"])
+        self.assertIsNone(body["forecast"])
+        self.assertIsNone(body["variance"])
         self.assertFalse(any(p.endswith("/buckets") for p, _ in self.calls))
 
     def test_tagged_requests_are_requested_not_billed_and_flag_over_budget(self):

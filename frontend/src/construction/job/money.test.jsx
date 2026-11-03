@@ -29,6 +29,7 @@ const { default: JobTagSelect } = await import('../../components/JobTagSelect');
 const { jobTabs } = await import('../lib/job');
 const { healthFacts } = await import('../lib/health');
 const { spendTrack, usd } = await import('../lib/money');
+const { parseConstructionSub } = await import('../lib/navigation');
 
 const job = {
   id: 'j1', name: 'Sample Build', jobType: 'project', status: 'active', percentComplete: 40, canEdit: true,
@@ -78,6 +79,10 @@ describe('Who sees Money', () => {
     expect(jobTabs('project').some((t) => t.key === 'money')).toBe(false);
     expect(jobTabs('project', { money: true }).map((t) => t.key)).toEqual(['overview', 'schedule', 'punch', 'field', 'rfis', 'money', 'closeout']);
     expect(jobTabs('work_order', { money: true }).map((t) => t.label)).toEqual(['Overview', 'Tasks', 'Field', 'Money', 'Closeout']);
+  });
+
+  it('the Money tab rides in the URL', () => {
+    expect(parseConstructionSub('project:j1:money').jobTab).toBe('money');
   });
 
   it('a manager with access gets the tab and the Overview line', async () => {

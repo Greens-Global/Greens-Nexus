@@ -36,7 +36,7 @@ function Figure({ label, value, hint, onDrill, testId, tone }) {
       <span style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{label}</span>
       {onDrill && value != null ? (
         <button type="button" className="acct-drill" onClick={onDrill} title="See the ledger lines behind this amount" aria-label={`Ledger lines behind ${label}`}
-          style={{ fontSize: '1.2rem', fontWeight: 700, textAlign: 'left', padding: 0, width: 'fit-content', color: tone || undefined }}>{text}</button>
+          style={{ border: 'none', background: 'none', margin: 0, padding: 0, fontFamily: 'inherit', cursor: 'pointer', fontSize: '1.2rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', textAlign: 'left', width: 'fit-content', color: tone || 'var(--text-primary)', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 4 }}>{text}</button>
       ) : (
         <span style={{ fontSize: '1.2rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: tone || 'var(--text-primary)' }}>{text}</span>
       )}
@@ -131,7 +131,7 @@ export default function MoneyTab({ project, money, onEdit }) {
           <Figure testId="budget" label="Budget" value={m.budget?.amount || null}
             hint={m.budget?.amount ? `The job's contract value${m.budget.approvedChanges ? ' plus approved changes' : ''}. Not in the books by Project-Job.` : 'Set a contract value on Edit Job.'} />
           <Figure testId="committed" label="Requested, Not Yet Billed" value={m.committed?.amount ?? 0}
-            hint={`Reimbursements tagged to this job and not paid yet${m.committed?.purchaseRequests ? `; ${m.committed.purchaseRequests} purchase request${m.committed.purchaseRequests === 1 ? '' : 's'} carry no amount` : ''}.`} />
+            hint={`Reimbursements tagged to this job and not paid yet${m.committed?.purchaseRequests ? `; ${m.committed.purchaseRequests === 1 ? '1 open purchase request carries' : `${m.committed.purchaseRequests} open purchase requests carry`} no amount` : ''}.`} />
           <Figure testId="actual" label="Actual to Date" value={actual ? actual.amount : null}
             hint={actual ? 'Posted cost on this Project-Job. Open it for the ledger lines.' : 'Read from the books once the job is mapped.'}
             onDrill={actual ? () => open('Actual to Date', actualQueries(m)) : null} />
