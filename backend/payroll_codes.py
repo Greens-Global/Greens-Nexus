@@ -10,6 +10,7 @@ company with no map, reads the default. Every export names a pay class
 through `codebook` / `earnings_code` - never a literal.
 """
 import json
+import re
 
 from sqlalchemy.orm import Session
 
@@ -204,3 +205,72 @@ def save_qb_company_name(db: Session, company_id: str, name, by: str) -> str:
     row.updated_by = by
     db.commit()
     return name
+
+
+# ── QuickBooks company create time (Charmi, 11/03/2026) ──────────────────────
+# The TIMERHDR line's COMPANYCREATETIME. QuickBooks' Timer Activities import
+# checks the file against the company file's own number - with a mismatch
+# (the 0 this file used to carry) it can refuse every row, which is exactly
+# what Charmi hit ("File not imported", 94 of 94 failed). The number comes
+# off a Timer Lists export of her QuickBooks company file (File > Utilities >
+# Export > Timer Lists - the last field of its TIMERHDR line). Saved per
+# company beside the QuickBooks Company Name, so the Payroll screen's
+# download needs nothing typed; the Import Hub's own field still overrides.
+QB_CREATE_TIME_KEY = "quickbooks_company_create_times"
+_CREATE_TIME = re.compile(r"^[0-9]{1,12}$")
+
+
+def clean_create_time(value) -> str:
+    """Digits only (1-12 of them); anything else is ''."""
+    s = str(value or "").strip()
+    return s if _CREATE_TIME.fullmatch(s) else ""
+
+
+def _qb_create_times(db: Session) -> dict:
+    row = db.query(NexusSetting).filter(NexusSetting.key == QB_CREATE_TIME_KEY).first()
+    try:
+        raw = json.loads(row.value) if row and row.value else {}
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): clean_create_time(v) for k, v in raw.items() if clean_create_time(v)}
+
+
+def qb_create_time_override(db: Session, company_id: str) -> str:
+    """HR's saved COMPANYCREATETIME for one company ('' = none)."""
+    return _qb_create_times(db).get(company_id or "", "")
+
+
+def qb_create_time(db: Session, company_ids) -> str:
+    """The TIMERHDR create time for a file holding these companies' people:
+    one company -> its saved number; several or none -> '' (the file keeps
+    the 0 it always carried)."""
+    ids = {c for c in (company_ids or ()) if c}
+    if len(ids) != 1:
+        return ""
+    (cid,) = ids
+    return qb_create_time_override(db, cid)
+
+
+def save_qb_create_time(db: Session, company_id: str, value, by: str) -> str:
+    """Save (or, blank, clear) one company's COMPANYCREATETIME. A non-blank
+    value that is not 1-12 digits is refused. Commits; returns the number as
+    stored ('' = cleared)."""
+    company_id = company_id or ""
+    s = str(value or "").strip()
+    if s and not _CREATE_TIME.fullmatch(s):
+        raise ValueError("The QuickBooks create time is digits only - copy it off the TIMERHDR line of a Timer Lists export.")
+    stored = _qb_create_times(db)
+    if s:
+        stored[company_id] = s
+    else:
+        stored.pop(company_id, None)
+    row = db.query(NexusSetting).filter(NexusSetting.key == QB_CREATE_TIME_KEY).first()
+    if not row:
+        row = NexusSetting(key=QB_CREATE_TIME_KEY)
+        db.add(row)
+    row.value = json.dumps(stored, sort_keys=True)
+    row.updated_by = by
+    db.commit()
+    return s

@@ -117,7 +117,8 @@ class IifExportTests(unittest.TestCase):
             db.query(models.HrWorkSite).filter(models.HrWorkSite.id == SITE).delete(synchronize_session=False)
             db.query(models.HrEntity).filter(models.HrEntity.id.in_((CO_A, CO_B))).delete(synchronize_session=False)
             db.query(models.NexusSetting).filter(models.NexusSetting.key.in_(
-                ("payroll_earnings_codes", "quickbooks_company_names"))).delete(synchronize_session=False)
+                ("payroll_earnings_codes", "quickbooks_company_names",
+                 "quickbooks_company_create_times"))).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -207,6 +208,51 @@ class IifExportTests(unittest.TestCase):
                          "TIMERHDR\t8\t0\tIIF Alpha Builders\tN\tY\t1234567890")
         for bad in ("12ab", "1%0A2", "1234567890123", ""):
             self.assertEqual(self._lines(f"&company={CO_A}&finalized_only=false&create_time={bad}")[1], HEADER_A, bad)
+
+    def test_saved_create_time_fills_the_header(self):
+        """Charmi, 11/03/2026: her import failed every row - the Payroll
+        screen's download carried COMPANYCREATETIME 0. The number saved on
+        Payroll Export Codes now fills it; an explicit create_time still
+        wins; digits only at save; blank clears; per company."""
+        r = self.client.put("/timeclock/payroll/export-codes",
+                            json={"company": CO_A, "codes": {}, "quickbooksCreateTime": "1361233702"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["quickbooksCreateTime"], "1361233702")
+        self.assertEqual(self._lines(f"&company={CO_A}&finalized_only=false")[1],
+                         "TIMERHDR\t8\t0\tIIF Alpha Builders\tN\tY\t1361233702")
+        # An explicit number (the Import Hub field) still overrides the saved one.
+        self.assertEqual(self._lines(f"&company={CO_A}&finalized_only=false&create_time=42")[1],
+                         "TIMERHDR\t8\t0\tIIF Alpha Builders\tN\tY\t42")
+        # Another company, and a file spanning several, keep the 0.
+        self.assertEqual(self._lines(f"&company={CO_B}&finalized_only=false")[1],
+                         "TIMERHDR\t8\t0\tIIF Bravo Homes\tN\tY\t0")
+        self.assertEqual(self._lines("&finalized_only=false")[1], "TIMERHDR\t8\t0\tGreens Global\tN\tY\t0")
+        # Digits only; saving codes without the field leaves it; blank clears.
+        self.assertEqual(self.client.put("/timeclock/payroll/export-codes",
+                                         json={"company": CO_A, "codes": {}, "quickbooksCreateTime": "12ab"}).status_code, 400)
+        self.client.put("/timeclock/payroll/export-codes", json={"company": CO_A, "codes": {"regular": "REG"}})
+        self.assertEqual(self.client.get(f"/timeclock/payroll/export-codes?company={CO_A}").json()["quickbooksCreateTime"],
+                         "1361233702")
+        self.client.put("/timeclock/payroll/export-codes", json={"company": CO_A, "codes": {}, "quickbooksCreateTime": ""})
+        self.assertEqual(self._lines(f"&company={CO_A}&finalized_only=false")[1], HEADER_A)
+
+    def test_one_persons_iif(self):
+        """Charmi, Teams 11/03/2026: the download should also work on one
+        employee. `email` keeps that person's card, the file is named after
+        them, and the header is their company's."""
+        r = self._get(f"&email={PAT}&finalized_only=false")
+        self.assertIn("Pat Test", r.text)
+        self.assertNotIn("Quinn Test", r.text)
+        self.assertEqual(r.text.split("\r\n")[1], HEADER_A)          # Pat's company, no company param needed
+        self.assertIn("filename=timeclock-2026-09-13-to-2026-09-26-iif.pat-DRAFT.iif",
+                      r.headers["content-disposition"])
+        # Finalized-only still rules the per-person file.
+        self.assertNotIn("Pat Test", self._get(f"&email={PAT}").text)
+        self._finalize(PAT)
+        self.assertIn("Pat Test", self._get(f"&email={PAT}").text)
+        # The company filter and the person must agree.
+        self.assertEqual(self.client.get(
+            f"/timeclock/export.iif?start={START}&end={END}&company={CO_B}&email={PAT}").status_code, 404)
 
     # ── Company name ────────────────────────────────────────────────────────
     def test_company_name_is_the_exports_company(self):

@@ -2951,7 +2951,8 @@ _IIF_PAY_CLASSES = (("regMin", "regular"), ("otMin", "overtime"), ("dtMin", "dou
 
 
 @router.get("/export.iif")
-def export_iif(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
+def export_iif(start: str = "", end: str = "", company: str = "", email: str = "",
+               approved_only: bool = False,
                finalized_only: bool = True, create_time: str = "",
                user: dict = Depends(require_team_read_pay),
                _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
@@ -2974,12 +2975,22 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
     COMPANYNAME is the export's company (payroll_codes.qb_company_name: HR's
     QuickBooks Company Name, else the company's name); a file spanning
     several companies keeps "Greens Global".
+    `email` (Charmi, Teams 11/03/2026) keeps ONE person's time card - the
+    Payroll screen's per-employee download; the person must be inside the
+    caller's scope (and the company filter, when both are given).
     `create_time` (Charmi, 10/27 call item 02) is COMPANYCREATETIME: the
     number on the TIMERHDR line of a Timer Lists export from her QuickBooks
-    company file, which QuickBooks' Timer Activities import can check the
-    file against. Digits only; anything else (or none) keeps the 0 this file
-    always carried."""
+    company file, which QuickBooks' Timer Activities import checks the file
+    against. Digits only. When it is absent the company's saved number
+    (Payroll Export Codes - payroll_codes.qb_create_time) fills it, so the
+    Payroll screen's download needs nothing typed; with neither, the file
+    keeps the 0 it always carried."""
     scope = _export_scope(db, user, company)
+    email_q = (email or "").strip().lower()
+    if email_q:
+        if scope is not None and email_q not in scope:
+            raise HTTPException(404, "Person not found")
+        scope = {email_q}
     rows = _team_rows(db, start, end, only_emails=scope)
     if approved_only:
         ok = _approved_emails(db, rows, start, end)
@@ -2999,8 +3010,10 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
     def _clean(s: str) -> str:
         return (s or "").replace("\t", " ").replace("\r", " ").replace("\n", " ").strip()
 
-    created = (create_time or "").strip()
-    created = created if re.fullmatch(r"[0-9]{1,12}", created) else "0"
+    created = payroll_codes.clean_create_time(create_time)
+    # No number passed: the export's company's saved one (Payroll Export
+    # Codes), so Charmi sets it once instead of typing it per download.
+    created = created or payroll_codes.qb_create_time(db, co_ids) or "0"
     lines = [
         "!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME",
         f"TIMERHDR\t8\t0\t{qb_company}\tN\tY\t{created}",
@@ -3033,7 +3046,8 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
                 lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job_c}\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t{bill_c}")
     body = "\r\n".join(lines) + "\r\n"
     # Time not yet finalized is a preview - named so nobody imports it by mistake.
-    fname = f"timeclock-{start or 'all'}-to-{end or 'now'}{'' if finalized_only else '-DRAFT'}.iif"
+    who = f"-{re.sub(r'[^A-Za-z0-9._-]', '', email_q.split('@')[0])}" if email_q else ""
+    fname = f"timeclock-{start or 'all'}-to-{end or 'now'}{who}{'' if finalized_only else '-DRAFT'}.iif"
     return PlainTextResponse(body, media_type="application/octet-stream",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
 
@@ -10314,7 +10328,11 @@ def _export_codes_out(db: Session, company: str) -> dict:
             # saved name ('' = none), and what the file uses without one.
             "quickbooksCompanyName": payroll_codes.qb_company_override(db, company),
             "quickbooksCompanyDefault": payroll_codes.qb_company_default(db, company),
-            "quickbooksCompanyMaxLength": payroll_codes.QB_COMPANY_MAX_LEN}
+            "quickbooksCompanyMaxLength": payroll_codes.QB_COMPANY_MAX_LEN,
+            # The TIMERHDR's COMPANYCREATETIME (Charmi, 11/03/2026) - off a
+            # Timer Lists export of her QuickBooks company file. '' = none;
+            # the IIF then carries 0 and QuickBooks may refuse the import.
+            "quickbooksCreateTime": payroll_codes.qb_create_time_override(db, company)}
 
 
 @router.get("/payroll/export-codes")
@@ -10328,6 +10346,8 @@ class ExportCodesIn(BaseModel):
     codes: dict = {}
     # None = leave the saved QuickBooks company name alone; '' clears it.
     quickbooksCompanyName: Optional[str] = None
+    # None = leave the saved COMPANYCREATETIME alone; '' clears it (Charmi, 11/03/2026).
+    quickbooksCreateTime: Optional[str] = None
 
 
 @router.put("/payroll/export-codes")
@@ -10338,7 +10358,9 @@ def set_export_codes(body: ExportCodesIn, user: dict = Depends(require_administr
     company = _export_codes_company(db, user, body.company)
     try:
         payroll_codes.save_codes(db, company, body.codes if isinstance(body.codes, dict) else {}, user["email"])
-    except ValueError as e:      # two pay classes under one name
+        if body.quickbooksCreateTime is not None:
+            payroll_codes.save_qb_create_time(db, company, body.quickbooksCreateTime, user["email"])
+    except ValueError as e:      # two pay classes under one name, or a bad create time
         raise HTTPException(400, str(e))
     if body.quickbooksCompanyName is not None:
         payroll_codes.save_qb_company_name(db, company, body.quickbooksCompanyName, user["email"])
