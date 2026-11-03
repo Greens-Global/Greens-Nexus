@@ -20,7 +20,8 @@ workflow notifications do not email today, so neither do these.
 
 WHO GETS WHAT
   Overdue checkout (allocated transient item past its due date, due date =
-  handover + checkout days + approved extensions, as items.py computes it):
+  handover + checkout days + approved extensions, in the BORROWER's own time
+  zone - item_due, the one clock items.py reads too):
     - the borrower (requested_by_email), on the due date (optional) and then
       every N days while overdue, up to a maximum;
     - from day `notifyOwnerAfterDays` on, the same reminders also go to the
@@ -41,7 +42,7 @@ WHO GETS WHAT
 """
 import json
 import uuid
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timezone, date
 
 import equipment_reminder_config as erc
 import job_switch
@@ -76,8 +77,10 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _today() -> date:
-    return datetime.now(timezone.utc).date()
+def _today(tz: str = "") -> date:
+    """Today in zone `tz` (the borrower's - item_due.zone_for)."""
+    import item_due
+    return item_due.local_today(tz)
 
 
 def _us(d: date) -> str:
@@ -200,15 +203,12 @@ def asset_manager_email(prop, props: dict, people: _People, _depth: int = 0) -> 
 
 
 # ── Overdue checkouts ───────────────────────────────────────────────────────
-def checkout_due_date(co):
-    """Due date of an allocated checkout - same clock as items.list_items:
-    handover (not request) + days (approved extensions are already added)."""
-    start_iso = co.allocated_at or co.handed_over_at or co.created_at
-    try:
-        start = datetime.fromisoformat(str(start_iso).replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return None
-    return (start + timedelta(days=int(co.days or 0))).date()
+def checkout_due_date(co, tz: str = ""):
+    """Due date of an allocated checkout in zone `tz` - item_due, the one
+    clock: from the handover (not the request, not the receipt) + days
+    (approved extensions are already added)."""
+    import item_due
+    return item_due.due_date(co, tz)
 
 
 def overdue_fires(cfg: dict, days_over: int):
@@ -243,13 +243,19 @@ def run_overdue_checkouts(db, cfg: dict = None) -> int:
     cfg = (cfg or erc.get_config(db))["overdue"]
     if not cfg.get("enabled"):
         return 0
-    today = _today()
-    today_s = today.isoformat()
+    import item_due
+    zones = item_due.Zones(db)
     sent = 0
     for co in db.query(ItemCheckout).filter(ItemCheckout.status == "allocated").all():
-        due = checkout_due_date(co)
+        # Due date and today both read in the borrower's own zone (Nov 2026 -
+        # both were UTC dates, a day off for California evenings and India
+        # mornings).
+        tz = zones.get(co.requested_by_email)
+        due = checkout_due_date(co, tz)
         if due is None:
             continue
+        today = _today(tz)
+        today_s = today.isoformat()
         days_over = (today - due).days
         n = overdue_fires(cfg, days_over)
         if n is None:

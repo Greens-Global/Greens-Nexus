@@ -23,11 +23,10 @@ Item Management grant / administrator. `may_use`: the Item Management
 """
 from __future__ import annotations
 
-from datetime import timedelta
 
 import models
 from workflows.catalog import F, entity, event, list_source
-from workflows.packs._people import (attach_property, emails, has_grant, is_admin, parse_dt, person_company,
+from workflows.packs._people import (attach_property, emails, has_grant, is_admin, person_company,
                                      person_manager)
 
 MODULE = "items"
@@ -45,14 +44,14 @@ ASSIGNMENT_STATUSES = [
 
 # ── derived attributes ───────────────────────────────────────────────────────
 def _due_date(co) -> str:
-    start = parse_dt(co.handed_over_at or co.allocated_at or co.created_at)
-    if start is None:
-        return ""
-    try:
-        days = int(co.days or 0)
-    except (TypeError, ValueError):
-        days = 0
-    return (start + timedelta(days=days)).date().isoformat()
+    """item_due - the one clock: handover + days, as a date in the
+    borrower's own time zone."""
+    import item_due
+    from sqlalchemy.orm import object_session
+    db = object_session(co)
+    tz = item_due.zone_for(db, co.requested_by_email) if db is not None else ""
+    d = item_due.due_date(co, tz)
+    return d.isoformat() if d is not None else ""
 
 
 attach_property(models.ItemCheckout, "wf_due_date", _due_date)
