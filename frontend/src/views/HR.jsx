@@ -6,35 +6,32 @@ import PacketReview from '../components/PacketReview';
 import SendFederalFormMenu from '../components/SendFederalFormMenu';
 import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
-import { ProbationBadge, ProbationCard } from '../components/HrProbation';
+import { ProbationBadge } from '../components/HrProbation';
 import MailboxExportResult from '../components/MailboxExportResult';
 import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
 import CandidateFormModal from '../components/HiringCandidateForm';
 import {
-  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check, TrendingUp, LogOut,
-  ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
-  CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
-  Building2, Trash2, MapPinned, Wallet, Receipt, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw, ArrowLeftRight,
-  ChevronDown, Globe, Globe2, Link2, ExternalLink,
-  ListChecks, RefreshCw, Hourglass, ListPlus, BarChart3,
-  Target,
+  Users, Plus, Search, X, Mail, Briefcase, Check, TrendingUp, LogOut,
+  ChevronLeft, Network, UserPlus, Pencil, FileText,
+  CheckCircle, ChevronRight, History, CalendarDays, Camera,
+  Building2, Trash2, Wallet, Receipt, Lock, Contact,
+  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
+  ChevronDown, Link2, ExternalLink,
+  ListChecks, RefreshCw, Hourglass, BarChart3,
+  Target, CalendarClock, Package,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
-import { currencyOptions, moneyPrefix } from '../asset/lib/currency';
+import { currencyOptions } from '../asset/lib/currency';
 import { formatDistance, metersToFeet, feetToMeters } from '../lib/distance';
-import { timeTrackingText } from '../lib/timeTracking';
-import { useNameResolver } from '../lib/useNameResolver';
 import { dialog } from '../ui/dialog';
 import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
 import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading } from '../components/AsyncState';
-import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import { Switch } from '../components/settings/SettingsUI';
 import { setPendingOpen } from '../lib/pendingOpen';
@@ -57,23 +54,29 @@ import { divisionColor as divColorFor } from '../components/orgchart/tree';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
-import MealWaiverCard from '../components/MealWaiverCard';
-import { COUNTRIES, countryName } from '../lib/countries';
+import { COUNTRIES } from '../lib/countries';
 import WorkSiteAddressMap from '../components/WorkSiteAddressMap';
 import WorkSiteLinkPanel from '../components/WorkSiteLinkPanel';
 import { googleMapsUrl } from '../lib/addressSearch';
 import WorkSiteFenceCheck from '../components/WorkSiteFenceCheck';
 import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
-import { PersonSelect, Avatar as EmailAvatar } from '../tasks/components';
+import { PersonSelect, DateField, Avatar as EmailAvatar } from '../tasks/components';
 import { US_STATE_NAMES } from '../lib/usStates';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
 import RecordsAudit from '../components/RecordsAudit';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { PersonReimbursements } from '../components/Reimbursements';
-import { EmployeeMoreDetails } from '../components/EmployeeCustomFields';
 import { formatFieldValue, matchesFieldFilter } from '../lib/employeeCustomFields';
 import { LetterRequestsPanel } from '../components/HrLetters';
+// The person record's tabs (Neil, 11/03/2026) - each edited in place.
+import OverviewTab from '../people/OverviewTab';
+import JobTab from '../people/JobTab';
+import TimeTab from '../people/TimeTab';
+import PayTab from '../people/PayTab';
+import ComplianceTab from '../people/ComplianceTab';
+import { guardRecordLeave } from '../people/useTabDraft';
+import { daysUntil } from '../people/lib';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -88,8 +91,7 @@ const JobOpenings = lazy(() => import('../components/hiring/JobOpenings'));
 const HeadcountRequests = lazy(() => import('../components/hiring/HeadcountRequests'));
 // Performance (Oct 27 2026): HR's review cycles and company goals - lazy.
 const PerformanceAdmin = lazy(() => import('../performance/PerformanceAdmin'));
-// A person's Performance on their profile (Oct 29 2026) - their numbers, goals and reviews.
-const PersonPerformanceSection = lazy(() => import('../performance/PersonPerformanceSection'));
+// A person's Performance on their profile (Oct 29 2026) lives on Overview (people/OverviewTab.jsx).
 // People Analytics and Exits (Oct 27 2026) load with their tab - their own chunks.
 const HrAnalytics = lazy(() => import('../components/HrAnalytics'));
 const ExitsTab = lazy(() => import('../components/ExitsTab'));
@@ -625,166 +627,6 @@ function AssetsSection({ employee }) {
   );
 }
 
-// Work mode (Neil, Sep 19): a person is EITHER remote - may punch from anywhere,
-// that is a contractual arrangement, not a place - OR on-site, which means ANY
-// company work site, never one assigned address. ("We're not tagging them to a
-// specific location. We're tagging them to our locations.") This replaced the
-// per-person geofence, where an admin pinned one person to one spot and radius.
-// Every punch still records where it was made, so a doubtful one can be looked
-// at on the map - "that's on us, that's not on him." Hybrid (Neil, Oct 22
-// 2026) is both: remote allowed, plus the usual locations they go to.
-function GeofenceSection({ employee, toastOk, toastErr }) {
-  const { canAccessModule, hrTeam } = useRole();
-  const canEdit = !hrTeam && canAccessModule('hr', 'manager', 'editor');   // a team view is read only
-  const [data, setData] = useState(null);        // { geofence: {mode,remote,setBy,setAt}, lastPunchLocation, workSites }
-  const [busy, setBusy] = useState(false);
-
-  const load = () => api.getGeofence(employee.id)
-    .then(setData)
-    .catch(() => setData({ geofence: {}, lastPunchLocation: null, workSites: [] }));
-  useEffect(() => { setData(null); load(); }, [employee.id]);   // eslint-disable-line react-hooks/exhaustive-deps
-
-  const gf = data?.geofence || {};
-  // Older payloads carry only remote; Hybrid (Neil, Oct 22) came with mode.
-  const mode = gf.mode || (gf.remote ? 'remote' : 'onsite');
-  const lp = data?.lastPunchLocation || null;
-  const sites = data?.workSites || [];
-  // Allowed sites (Charmi, Sep 29): several, any of them is on-site; none
-  // picked = any company work site. Older payloads carry one workSiteId.
-  const allowed = gf.workSiteIds || (gf.workSiteId ? [gf.workSiteId] : []);
-  const firstName = employee.firstName || employee.first_name || 'This person';
-
-  const saveSites = async (ids) => {
-    if (busy || !canEdit) return;
-    setBusy(true);
-    try {
-      const r = await api.setGeofence(employee.id, { work_site_ids: ids });
-      setData(d => ({ ...(d || {}), geofence: r }));
-      const names = sites.filter(x => ids.includes(x.id)).map(x => x.name || 'Unnamed site');
-      toastOk(ids.length ? `${firstName}'s usual locations: ${names.join(', ')}. A punch at any company location still counts as on-site.` : `${firstName} may punch from any company location.`);
-    } catch (e) { toastErr(e?.message || 'Could not save the locations.'); }
-    finally { setBusy(false); }
-  };
-  const toggleSite = (sid) => saveSites(allowed.includes(sid) ? allowed.filter(x => x !== sid) : [...allowed, sid]);
-
-  const choose = async (next) => {
-    if (busy || !canEdit || next === mode) return;
-    setBusy(true);
-    try {
-      const r = await api.setGeofence(employee.id, { mode: next });
-      setData(d => ({ ...(d || {}), geofence: r }));
-      toastOk({
-        remote: `${firstName} is now remote - punches from anywhere are accepted.`,
-        hybrid: `${firstName} is now hybrid - punches at a company location count there, anywhere else counts as remote.`,
-        onsite: `${firstName} is now on-site - punches are expected at a company location.`,
-      }[next]);
-    } catch (e) { toastErr(e?.message || 'Could not save the work mode.'); }
-    finally { setBusy(false); }
-  };
-
-  const OPTIONS = [
-    { value: 'onsite', icon: Building2, title: 'On-Site',
-      body: 'Punches are expected at any company location. A punch made somewhere else is still recorded, and flagged for the manager to review.' },
-    { value: 'remote', icon: Globe, title: 'Remote',
-      body: 'May punch from anywhere - home, a coffee shop, another city. Nothing is flagged. At a company location, the punch still counts toward that location.' },
-    { value: 'hybrid', icon: ArrowLeftRight, title: 'Hybrid',
-      body: 'Works from their usual locations some days and remotely on others; punches away from a site count as remote.' },
-  ];
-
-  return (
-    <div style={{ marginTop: 18 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 10 }}>
-        <MapPinned size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Work Mode
-      </div>
-
-      {!data ? <SkeletonBlocks count={3} height={40} /> : (
-        <>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
-            Nobody is tied to a single address. A person works remote, works from our locations - any of them - or is hybrid and does both.
-          </div>
-
-          <div role="radiogroup" aria-label="Work mode" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 14 }} className="acc-grid">
-            {OPTIONS.map(o => {
-              const on = mode === o.value;
-              const Icon = o.icon;
-              return (
-                <button key={o.title} type="button" role="radio" aria-checked={on} disabled={!canEdit || busy} onClick={() => choose(o.value)}
-                  style={{ textAlign: 'left', border: `1.5px solid ${on ? 'var(--pine)' : 'var(--line)'}`, background: on ? 'var(--mist)' : 'transparent',
-                    borderRadius: 12, padding: 14, cursor: canEdit && !busy ? 'pointer' : 'default', font: 'inherit', color: 'inherit', opacity: !canEdit && !on ? 0.6 : 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <Icon size={15} style={{ color: on ? 'var(--pine)' : 'var(--muted)' }} />
-                    <span style={{ fontSize: 13.5, fontWeight: 700 }}>{o.title}</span>
-                    {on && (busy
-                      ? <Spinner size={13} style={{ marginLeft: 'auto' }} />
-                      : <CheckCircle size={14} style={{ marginLeft: 'auto', color: 'var(--pine)' }} />)}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>{o.body}</div>
-                </button>
-              );
-            })}
-          </div>
-
-          {gf.setBy && (
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 14 }}>
-              Last changed by {gf.setBy}{gf.setAt ? ` on ${formatDate(gf.setAt)}` : ''}.
-            </div>
-          )}
-
-          {mode !== 'remote' && (
-            <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>{firstName}'s Usual Locations</div>
-              {sites.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--muted)', marginBottom: 10, flexWrap: 'wrap' }}>
-                  <span>
-                    {allowed.length
-                      ? `${allowed.length === 1 ? 'This is' : `These ${allowed.length} locations are`} ${firstName}'s usual location${allowed.length === 1 ? '' : 's'} and win where two locations overlap. A punch at any company location counts as on-site; outside all of them is ${mode === 'hybrid' ? 'Remote' : 'Out of Location'}.`
-                      : 'Any company location counts as on-site. Click locations to mark the usual ones - they only matter where two locations overlap.'}
-                  </span>
-                  {allowed.length > 0 && canEdit && (
-                    <button type="button" className="secondary-btn" disabled={busy} onClick={() => saveSites([])}
-                      style={{ fontSize: 11.5, padding: '3px 10px' }}>Clear Usual Locations</button>
-                  )}
-                </div>
-              )}
-              {sites.length === 0 ? (
-                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-                  No company location is placed on the map yet, so no punch can be judged on-site. Place them in Settings - Location Library.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {sites.map(st => {
-                    const picked = allowed.includes(st.id);
-                    const on = !allowed.length || picked;
-                    return (
-                      <button key={st.id} type="button" aria-pressed={picked} disabled={!canEdit || busy} onClick={() => toggleSite(st.id)}
-                        title={`${st.radiusM} m fence${canEdit ? (picked ? ' - click to remove' : ' - click to allow') : ''}`}
-                        style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 20, fontFamily: 'inherit', cursor: canEdit && !busy ? 'pointer' : 'default',
-                          background: picked ? 'var(--mist)' : 'transparent', border: `1px solid ${picked ? 'var(--pine)' : 'var(--line)'}`,
-                          color: on ? 'var(--ink)' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        {picked && <CheckCircle size={11} style={{ color: 'var(--pine)' }} />}
-                        {st.name || 'Unnamed location'} · {st.radiusM} m
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {lp && (
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              <MapPin size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-              Last located punch {formatDateTime(lp.at)}{lp.workSiteName ? ` - ${lp.workSiteName}` : ''}
-              {' · '}<a href={`https://www.google.com/maps?q=${lp.lat},${lp.lng}`} target="_blank" rel="noreferrer" style={{ color: 'var(--pine)', fontWeight: 600 }}>View on map <ArrowUpRight size={11} style={{ verticalAlign: 'middle' }} /></a>
-            </div>
-          )}
-          <style>{`@media (max-width:640px){.acc-grid{grid-template-columns:1fr !important}}`}</style>
-        </>
-      )}
-    </div>
-  );
-}
-
 // day.toISOString().slice(0,10) but in local time, not UTC - a UTC-based cut
 // would flip to the wrong calendar day for anyone west of Greenwich.
 function localIsoDate(d) {
@@ -842,9 +684,9 @@ export function WorkLogsSection({ employee }) {
           <Clock size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Work logs (BOD/EOD)
         </span>
         <button className="secondary-btn" onClick={() => setRange(lastWeekRange())} style={{ fontSize: 11.5, padding: '4px 10px' }}>This week</button>
-        <input className="form-input" type="date" value={start} onChange={ev => setRange([ev.target.value, end])} style={{ fontSize: 12, width: 140 }} />
+        <DateField value={start} onChange={v => v && setRange([v, end])} title="From" style={{ fontSize: 12, width: 140, height: 32, padding: '0 10px', border: '1px solid var(--line)', borderRadius: 8 }} />
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
-        <input className="form-input" type="date" value={end} onChange={ev => setRange([start, ev.target.value])} style={{ fontSize: 12, width: 140 }} />
+        <DateField value={end} onChange={v => v && setRange([start, v])} title="To" style={{ fontSize: 12, width: 140, height: 32, padding: '0 10px', border: '1px solid var(--line)', borderRadius: 8 }} />
       </div>
       {logs === null ? (
         <SkeletonBlocks count={3} height={54} />
@@ -1119,158 +961,6 @@ function StatCard({ label, value, sub, tone }) {
       <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 800, marginTop: 3, color, lineHeight: 1.1 }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>}
-    </div>
-  );
-}
-
-// Restricted read view of pay/benefits/bank; edit opens the full CompensationModal.
-// reloadToken bumps after the modal closes so saved changes show without a reload.
-// `readOnly` (Oct 7): a manager viewing a direct report - no Edit, no upload
-// or delete, and no bank accounts (the server sends none to them either).
-function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
-  const [data, setData] = useState(null);
-  const [stubs, setStubs] = useState([]);
-  const [stubPeriod, setStubPeriod] = useState('');
-  const [stubBusy, setStubBusy] = useState(false);
-  const [stepLocked, setStepLocked] = useState(false);   // comp/bank need a fresh step-up
-  const [suToken, setSuToken] = useState(0);
-  const stubFileRef = useRef(null);
-  const nameOf = useNameResolver();   // "Changed by" shows a name, never a raw email
-  useEffect(() => {
-    let live = true;
-    api.getCompensation(employee.id)
-      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [], payroll: r.payroll || {}, rateHistory: r.rateHistory || [], gstin: r.gstin || '', pan: r.pan || '' }); } })
-      .catch(e => {
-        // Compensation/bank require a fresh step-up MFA - show the Verify gate.
-        if (isStepUpRequired(e)) { if (live) setStepLocked(true); return; }
-        if (live) setData({ comp: {}, bank: [] });
-      });
-    api.hrPaystubs(employee.id).then(r => { if (live) setStubs(r); }).catch(() => {});
-    return () => { live = false; };
-  }, [employee.id, reloadToken, suToken]);
-
-  if (stepLocked) return <StepUpNeeded label="Compensation, bank and paystub details are confidential." onVerified={() => setSuToken(n => n + 1)} />;
-
-  const uploadStub = async (file) => {
-    if (!file) return;
-    setStubBusy(true);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('period', stubPeriod);
-      const created = await api.hrPaystubUpload(employee.id, form);
-      setStubs(s => [created, ...s]);
-      setStubPeriod('');
-    } catch { /* surfaced by list not changing */ }
-    finally { setStubBusy(false); if (stubFileRef.current) stubFileRef.current.value = ''; }
-  };
-  const openStub = async (id) => {
-    try { const { url } = await api.getDocUrl(id); window.open(url, '_blank', 'noopener'); } catch { /* noop */ }
-  };
-  const deleteStub = async (id) => {
-    if (!await dialog.confirm('Delete this paystub?', { title: 'Delete paystub', confirmText: 'Delete', danger: true })) return;
-    try { await api.deleteEmployeeDoc(id); setStubs(s => s.filter(x => x.id !== id)); } catch { /* noop */ }
-  };
-
-  const money = (v, cur) => v ? `${moneyPrefix(cur)}${Number(v).toLocaleString()}` : '-';
-  const label = (list, v) => (list.find(([x]) => x === v) || [])[1] || v || '';
-  const sectionLabel = txt => <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', margin: '16px 0 8px' }}>{txt}</div>;
-  const row2 = (k, lbl, value) => (
-    <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', width: 150, flexShrink: 0 }}>{lbl}</span>
-      <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)' }}>{value || '-'}</span>
-    </div>
-  );
-
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, flex: 1 }}><Lock size={12} /> {readOnly ? 'Read only · your direct report' : 'Restricted · compensation grant'}</span>
-        {!readOnly && <button className="secondary-btn" onClick={onEdit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Pencil size={13} /> Edit</button>}
-      </div>
-      {!data ? (
-        <SkeletonBlocks count={4} height={44} />
-      ) : (
-        <>
-          {sectionLabel('Base pay')}
-          {row2('base', 'Base', data.comp.base ? `${money(data.comp.base, data.comp.currency)} · ${label(PAY_BASIS, data.comp.payBasis)}` : '')}
-          {row2('freq', 'Frequency', label(PAY_FREQ, data.comp.frequency))}
-          {row2('eff', 'Effective', formatDate(data.comp.effectiveDate))}
-          {sectionLabel('Time clock')}
-          {row2('otrule', 'Overtime rule', `${label(OT_RULES, data.payroll?.overtimeRule).split(' (')[0] || '-'}${data.comp.overtimeRule ? ''
-            : (data.payroll?.defaultOvertimeRule && data.payroll.defaultOvertimeRule !== data.payroll.overtimeRule
-              ? ` (the company default is now ${label(OT_RULES, data.payroll.defaultOvertimeRule).split(' (')[0]} - not applied yet)`
-              : ' (company default)')}`)}
-          {/* Where they work decides the default rule (Charmi, Oct 20): California work state -> California rule. */}
-          {data.payroll?.workState?.byWorkState && row2('workstate', 'Work state', workStateText(data.payroll.workState))}
-          {row2('fullday', 'Full day hours', data.payroll?.fullDayHours ? `${data.payroll.fullDayHours} h` : '')}
-          {/* Read-only: set on the person's role in Settings > Access, beside the screen-share exemption (Visesh, 10/02). */}
-          {row2('tracking', 'Time tracking', timeTrackingText(data.payroll))}
-          {/* CA-rule hourly staff only (Oct 17 2026): the meal period waiver in Nexus Sign. */}
-          <MealWaiverCard email={employee.workEmail} />
-          {sectionLabel('Pay history')}
-          {(data.rateHistory || []).length === 0
-            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No pay recorded yet.</div>
-            : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, fontVariantNumeric: 'tabular-nums' }}>
-                <thead>
-                  <tr>
-                    {['Base', 'Basis', 'Currency', 'Effective', 'Changed By'].map((h, i) => (
-                      <th key={h} style={{ textAlign: i === 0 ? 'right' : 'left', fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', padding: '6px 8px 6px 0', borderBottom: '1px solid var(--line)' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.rateHistory.map((h, i) => (
-                    <tr key={h.id || i} style={{ fontWeight: i === 0 ? 700 : 400 }}>
-                      <td style={{ textAlign: 'right', padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{money(h.base, h.currency)}{h.payBasis === 'hourly' ? '/hr' : '/mo'}</td>
-                      <td style={{ padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{label(PAY_BASIS, h.payBasis)}</td>
-                      <td style={{ padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{h.currency}</td>
-                      <td style={{ padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{h.effectiveDate ? formatDate(h.effectiveDate) : 'Since always'}</td>
-                      <td style={{ padding: '7px 0', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>{h.changedBy ? nameOf(h.changedBy) : '-'}{h.changedAt ? ` · ${formatDate(h.changedAt.slice(0, 10))}` : ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          {sectionLabel('Benefits & deductions')}
-          {(data.comp.benefits || []).length === 0
-            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
-            : data.comp.benefits.map((bn, i) => row2(`bn${i}`, label(BENEFIT_TYPES, bn.type), [bn.plan, bn.deduction && `${money(bn.deduction, data.comp.currency)}/paycheck`, bn.note].filter(Boolean).join(' · ')))}
-          {!readOnly && sectionLabel('Bank accounts')}
-          {!readOnly && (data.bank.length === 0
-            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
-            : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · '))))}
-          {!readOnly && data.pan && row2('pan', 'PAN', maskId(data.pan))}
-          {!readOnly && data.gstin && row2('gstin', 'GSTIN', maskId(data.gstin))}
-
-          {sectionLabel('Paystubs')}
-          {!readOnly && <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
-            <input className="form-input" placeholder='Pay period, e.g. "Jun 16 – Jun 30, 2026"' value={stubPeriod}
-              onChange={e => setStubPeriod(e.target.value)} style={{ flex: 1, minWidth: 200, fontSize: 12.5 }} />
-            <input ref={stubFileRef} type="file" accept="application/pdf" style={{ display: 'none' }}
-              onChange={e => uploadStub(e.target.files?.[0])} />
-            <button className="secondary-btn" disabled={stubBusy} onClick={() => stubFileRef.current?.click()}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-              {stubBusy ? 'Uploading…' : 'Upload PDF'}
-            </button>
-          </div>}
-          {stubs.length === 0
-            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>{readOnly ? 'None uploaded.' : 'None uploaded. The employee sees these under My HR.'}</div>
-            : stubs.map(s => (
-              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
-                <FileText size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                <button onClick={() => openStub(s.id)} style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter,sans-serif', padding: 0 }}>
-                  {s.fileName}
-                </button>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{formatDate(s.createdAt?.slice(0, 10))}</span>
-                {!readOnly && <button onClick={() => deleteStub(s.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
-                  <Trash2 size={13} />
-                </button>}
-              </div>
-            ))}
-        </>
-      )}
     </div>
   );
 }
@@ -1719,72 +1409,18 @@ function TeamAccessView({ employee }) {
   );
 }
 
-// Office and contact info as Microsoft 365 has it - kept in step both ways
-// (Neil, 10/07, m365_profile_sync.py): edits here go to Microsoft 365 on save,
-// edits made there come back within 15 minutes, or now with Sync Now.
-function OfficeContact({ e, row, canSync, onSynced, toastOk, toastErr }) {
-  const [busy, setBusy] = useState(false);
-  const linked = !!e.m365Id;
-  const sync = e.m365Sync || {};
-  const address = [e.streetAddress, [e.city, [e.state, e.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ');
-  async function syncNow() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const updated = await api.syncEmployeeM365(e.id);
-      onSynced?.(updated);
-      const r = updated?.m365Result || {};
-      const label = (k) => ({ phone: 'mobile phone', office_phone: 'office phone', location: 'office', street_address: 'street address',
-        city: 'city', state: 'state', postal_code: 'ZIP', country: 'country', job_title: 'job title', department: 'department' }[k] || k);
-      if (r.error) toastErr(`Microsoft 365 did not take the change: ${r.error}`);
-      else if (r.pulled?.length || r.pushed?.length) {
-        toastOk([r.pulled?.length ? `Updated from Microsoft 365: ${r.pulled.map(label).join(', ')}.` : '',
-          r.pushed?.length ? `Sent to Microsoft 365: ${r.pushed.length} field${r.pushed.length === 1 ? '' : 's'}.` : ''].filter(Boolean).join(' '));
-      } else if (r.waiting?.length && !r.writesEnabled) toastOk('Up to date from Microsoft 365. This environment does not write to Microsoft 365 - production does.');
-      else toastOk('Already in step with Microsoft 365.');
-    } catch (err) { toastErr(err?.message || 'Could not reach Microsoft 365.'); }
-    setBusy(false);
-  }
-  return (
-    <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 0 2px', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
-          <Building2 size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Office &amp; contact
-        </span>
-        {linked && (
-          <span title={sync.error ? `Last attempt failed: ${sync.error}` : 'Kept in step with Microsoft 365 both ways'}
-            style={{ fontSize: 11.5, color: sync.error ? '#b45309' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {sync.error ? <AlertTriangle size={12} /> : <CheckCircle size={12} style={{ color: 'hsl(var(--color-green))' }} />}
-            {sync.error ? 'Microsoft 365 sync needs attention' : sync.at ? `Synced with Microsoft 365 ${formatDateTime(sync.at)}` : 'Synced with Microsoft 365'}
-          </span>
-        )}
-        {linked && canSync && (
-          <button className="secondary-btn" onClick={syncNow} disabled={busy}
-            title="Bring this person's details in step with Microsoft 365 now"
-            style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
-            {busy ? <Spinner size={12} /> : <RefreshCw size={12} />} Sync Now
-          </button>
-        )}
-      </div>
-      <div>
-        {row(MapPin, 'Office', e.location)}
-        {row(Phone, 'Mobile phone', e.phone)}
-        {row(Phone, 'Office phone', e.officePhone)}
-        {row(MapPinned, 'Street address', address)}
-        {e.country && row(Globe2, 'Country or region', countryName(e.country))}
-      </div>
-    </>
-  );
-}
-
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], focusProbation = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged, onReload }) {
+// The person record (Neil, 11/03/2026): each tab owns its fields and is
+// edited in place where it is read - Edit turns them on, one Save row at the
+// tab's foot saves them (people/useTabDraft.js); leaving a tab or the record
+// with unsaved edits asks first. The tab bodies live in frontend/src/people/.
+// Old keys still land: 'location' (Work Mode) is Time & Scheduling and
+// 'details' (More Details) is the foot of Overview.
+const LEGACY_TAB = { location: 'time', details: 'overview' };
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], focusProbation = false, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged, onReload }) {
   // Removed from Nexus (soft delete) - the record is intact and restorable.
   const isRemoved = !!e.deletedAt;
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
-  const [compOpen, setCompOpen] = useState(false);
-  const [personalOpen, setPersonalOpen] = useState(false);
-  const [complianceOpen, setComplianceOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   // HR's actions on an employee (Neil, Oct 8): promote / change role / offboard
   const [roleAction, setRoleAction] = useState(null);      // 'choose' (Change Role asks first) | 'promotion'
@@ -1797,16 +1433,24 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [requestsKey, setRequestsKey] = useState(0);   // the pending role change card
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
-  const [tab, setTab] = useState(initialTab);
+  // The probation bell lands on the probation card, which sits on Job now.
+  const [tab, setTabNow] = useState(() => (focusProbation && initialTab === 'overview' ? 'job' : LEGACY_TAB[initialTab] || initialTab));
+  // A tab with unsaved edits asks before another one opens.
+  const setTab = id => { if (id !== tab) guardRecordLeave(() => setTabNow(id)); };
+  // On the Schedule (11/03/2026): off = not on the shift planner, given no
+  // shifts and never checked for Late. The switch is on Time & Scheduling.
+  const [scheduleNow, setScheduleNow] = useState(null);
+  const onSchedule = scheduleNow ?? (e.onSchedule !== false);
   // Checklist steps: HR editors start, cancel and reassign; viewers only read.
   const { canAccessModule: canAccessHr, myEmail: viewerEmail } = useRole();
   const canEditChecklist = canAccessHr('hr', 'administrator', 'editor');
   const canEditProfile = canAccessHr('hr', 'manager', 'editor');
+  // The tabs' Edit: People editors outside a team view, on a record still in Nexus.
+  const canEdit = !teamView && canEditProfile && !isRemoved;
   // Promote / Change Role: HR editors outside a team view, Administrators and
   // Super Administrators only (Neil, Oct 22 - "Manager calls HR"); the server's
   // role_change.can_change_roles is the same rule.
   const canChangeRole = !teamView && canAccessHr('hr', 'administrator', 'editor');
-  const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
   const [restoreBusy, setRestoreBusy] = useState(false);
   // Nexus-only removal - separate from offboarding (which deprovisions M365).
   // REVERSIBLE since Aug 11: the record is hidden, not destroyed, and the copy
@@ -1814,8 +1458,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   // is the reason nobody dared use it.
   async function removeFromNexus() {
     if (!await dialog.confirm(
-      `Remove ${fullName(e)} from Nexus? They disappear from the directory and everywhere else in Nexus, but nothing is deleted - you can restore them any time from the Deleted filter. It does NOT change or deprovision their Microsoft 365 account - use "Change status -> Left" for a full offboarding.`,
-      { title: 'Remove from Nexus only', confirmText: 'Remove from Nexus', danger: true })) return;
+      `Remove ${fullName(e)} from Nexus? They disappear from the directory and everywhere else in Nexus, but nothing is deleted - you can restore them any time from the Deleted filter. It does NOT change or deprovision their Microsoft 365 account - use Offboard for a full offboarding.`,
+      { title: 'Remove From Nexus Only', confirmText: 'Remove From Nexus', danger: true })) return;
     try {
       await api.deleteEmployee(e.id);
       toastOk(`${fullName(e)} removed from Nexus. Restore them any time from the Deleted filter.`);
@@ -1838,40 +1482,31 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const mgrEmail = (e.managerEmail || '').toLowerCase();
   const manager = mgrEmail ? employees.find(m => (m.workEmail || '').toLowerCase() === mgrEmail) : null;
   const reports = meEmail ? employees.filter(r => (r.managerEmail || '').toLowerCase() === meEmail) : [];
-  const row = (Icon, label, value) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-      <Icon size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', width: 110, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value || '-'}</span>
-    </div>
-  );
   // A manager looking at their team (Oct 6) gets a short read-only strip -
   // plus Pay & Benefits and Reimbursements for their DIRECT reports (Oct 7).
-  // Order and the Access -> Role label are Neil's (Oct 22 2026); the key stays
-  // 'access' so jumps into it keep working.
+  // Tab order and names are Neil's (11/03/2026); the keys stay so links land.
   const directReport = teamView && !!mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase();
   const tabs = (teamView ? [
     ['overview', 'Overview', Contact],
-    ['details', 'More Details', ListPlus],
-    ['access', 'Role', Shield],
+    ['job', 'Job', Briefcase],
+    ['time', 'Time & Scheduling', CalendarClock],
     directReport && ['pay', 'Pay & Benefits', Wallet],
     directReport && ['expenses', 'Reimbursements', Receipt],
-    ['assets', 'Assets', Briefcase],
-    ['location', 'Work Mode', MapPinned],
+    ['access', 'Access', Shield],
+    ['assets', 'Assets', Package],
     ['bod', 'Work Logs', Clock],
   ] : [
     ['overview', 'Overview', Contact],
-    // HR's own fields (Oct 27 2026) - HR Only ones never reach a manager.
-    ['details', 'More Details', ListPlus],
-    // Everyone in People sees Role (Pranshu, Oct 14): the pending role
-    // change and the role history; managing access stays admin-only.
-    ['access', 'Role', Shield],
+    ['job', 'Job', Briefcase],
+    ['time', 'Time & Scheduling', CalendarClock],
     canSeeComp && ['pay', 'Pay & Benefits', Wallet],
     ['expenses', 'Reimbursements', Receipt],
     ['compliance', 'Compliance', ShieldCheck],
-    ['assets', 'Assets', Briefcase],
-    ['location', 'Work Mode', MapPinned],
+    // Everyone in People sees Access (Pranshu, Oct 14): the pending role
+    // change and the role history; managing access stays admin-only.
+    ['access', 'Access', Shield],
     ['documents', 'Documents', FileText],
+    ['assets', 'Assets', Package],
     ['checklist', 'Checklist', ListChecks],
     ['bod', 'Work Logs', Clock],
   ]).filter(Boolean);
@@ -1879,7 +1514,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   return (
     <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '22px 24px', boxShadow: 'var(--shadow-sm)' }}>
       {isMobile && (
-        <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', padding: 0, marginBottom: 14 }}>
+        <button onClick={() => guardRecordLeave(() => onBack?.())} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', padding: 0, marginBottom: 14 }}>
           <ChevronLeft size={15} /> All People
         </button>
       )}
@@ -1912,9 +1547,12 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             editing, status changes and provisioning are all withheld rather
             than left live on a record that is not currently in the company. */}
         {teamView ? (
-          <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: isRemoved ? 'hsla(var(--color-red),0.12)' : sm.bg, color: isRemoved ? 'hsl(var(--color-red))' : sm.fg }}>
-            {isRemoved ? 'Removed' : sm.label}
-          </span>
+          <>
+            <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: isRemoved ? 'hsla(var(--color-red),0.12)' : sm.bg, color: isRemoved ? 'hsl(var(--color-red))' : sm.fg }}>
+              {isRemoved ? 'Removed' : sm.label}
+            </span>
+            {!onSchedule && !isRemoved && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Off the Schedule</span>}
+          </>
         ) : isRemoved ? (
           <>
             <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: 'hsla(var(--color-red),0.12)', color: 'hsl(var(--color-red))' }}>
@@ -1934,12 +1572,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sm.bg, color: sm.fg, border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           {sm.label} <Pencil size={10} />
         </button>
+        {!onSchedule && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Off the Schedule</span>}
         {/* Open onboarding / offboarding / leave checklist at a glance. */}
         {checklists.map(p => <ChecklistChip key={p.checklistId} p={p} onClick={() => setTab('checklist')} />)}
         <ProbationBadge p={e.probation} />
-        <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-          <Pencil size={13} /> Edit
-        </button>
         {canEditProfile && !teamView && ['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' && (
           <>
             {canChangeRole && (<>
@@ -1965,7 +1601,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           <button className="secondary-btn" onClick={removeFromNexus}
             title="Remove this person's Nexus record only - does not touch Microsoft 365"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red),0.35)' }}>
-            <Trash2 size={13} /> Remove from Nexus
+            <Trash2 size={13} /> Remove From Nexus
           </button>
         )}
         {!e.m365Id ? (
@@ -1999,7 +1635,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                   catch (err) { toastErr(err?.message || 'Could not send welcome email.'); }
                   setWelcomeBusy(false);
                 }}>
-                {welcomeBusy ? <Spinner size={13} /> : <Mail size={13} />} Resend welcome
+                {welcomeBusy ? <Spinner size={13} /> : <Mail size={13} />} Resend Welcome
               </button>
             )}
           </>
@@ -2054,7 +1690,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       {/* Stat cards - all derived from the loaded record, no extra fetch */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
         <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
-        <StatCard label="Direct reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : mgrEmail ? `reports to ${mgrEmail === (viewerEmail || '').toLowerCase() ? 'you' : mgrEmail}` : 'no manager'} />
+        <StatCard label="Direct Reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : mgrEmail ? `reports to ${mgrEmail === (viewerEmail || '').toLowerCase() ? 'you' : mgrEmail}` : 'no manager'} />
         <StatCard label="Type" value={TYPE_LABEL[e.employmentType] || '-'} sub={e.department || '-'} />
         {teamView ? null : expiry
           ? <StatCard label={expiry.label} value={expiry.days < 0 ? 'Expired' : `${expiry.days}d`} sub={formatDate(expiry.date)} tone={expiry.days < 0 ? 'red' : expiry.days <= 60 ? 'orange' : undefined} />
@@ -2072,7 +1708,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       {/* Tab strip */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: 18, borderBottom: '1px solid var(--line)' }}>
         {tabs.map(([id, tlabel, Icon]) => (
-          <button key={id} onClick={() => setTab(id)}
+          <button key={id} onClick={() => setTab(id)} aria-current={tab === id ? 'page' : undefined}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${tab === id ? 'var(--pine)' : 'transparent'}`, color: tab === id ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1 }}>
             <Icon size={14} /> {tlabel}
           </button>
@@ -2081,118 +1717,35 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
       <div style={{ marginTop: 16 }}>
         {tab === 'overview' && (
-          <>
-            {!isRemoved && (
-              <ProbationCard employee={e} focus={focusProbation} toastOk={toastOk} toastErr={toastErr}
-                onChanged={() => onReload?.()}
-                onOffboard={init => { setOffboardInitial(init); setOffboardOpen(true); }} />
-            )}
-            {!isRemoved && e.work_email && (
-              <Suspense fallback={null}>
-                <PersonPerformanceSection email={e.work_email} name={[e.first_name, e.last_name].filter(Boolean).join(' ')} toastOk={toastOk} toastErr={toastErr} />
-              </Suspense>
-            )}
-            <div>
-              {row(Mail, 'Work email', e.workEmail)}
-              {row(Mail, 'Personal', e.personalEmail)}
-              {e.designation && row(Briefcase, 'Designation', e.designation)}
-              {row(Briefcase, 'Department', [e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(' · '))}
-              {companyName && row(Building2, 'Company', companyName)}
-              {row(CalendarOff, 'Start date', formatDate(e.startDate))}
-              {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
-              {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', formatDate(e.contractor.contract_end))}
-              {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
-              {e.employmentType === 'contractor' && e.contractor?.invoice_next_number && row(FileText, 'Next invoice number', String(e.contractor.invoice_next_number))}
-              {e.employmentType === 'contractor' && e.contractor?.invoice_description && row(FileText, 'Invoice description', e.contractor.invoice_description)}
-              {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase() ? 'You' : e.managerEmail)}
-              {(() => {
-                // Backup Manager (Neil, Oct 13): the one set on the profile, else
-                // the default the server worked out for the People list.
-                const bk = (e.backupManagerEmail || e.backupManager || '').toLowerCase();
-                if (!bk) return null;
-                const person = employees.find(m => (m.workEmail || '').toLowerCase() === bk);
-                const who = bk === (viewerEmail || '').toLowerCase() ? 'You' : person ? fullName(person) : bk;
-                const why = e.backupManagerEmail ? '' : e.backupManagerSource === 'hr' ? ' (default - company HR contact)' : " (default - manager's manager)";
-                return row(Users, 'Backup manager', `${who}${why}`);
-              })()}
-              {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
-              {e.notes && row(FileText, 'Notes', e.notes)}
-            </div>
-            <OfficeContact e={e} row={row} canSync={!teamView && canEditProfile && !isRemoved}
-              onSynced={onEmployeeUpdated} toastOk={toastOk} toastErr={toastErr} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 0 2px' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
-                <Contact size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Personal details
-              </span>
-              {!teamView && (
-                <button className="secondary-btn" onClick={() => setPersonalOpen(true)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
-                  <Pencil size={12} /> Edit
-                </button>
-              )}
-            </div>
-            <div>
-              {row(CalendarDays, 'Date of birth', formatDate(e.personal?.dob))}
-              {row(Users, 'Gender', e.personal?.gender)}
-              {row(Lock, 'National ID', e.personal?.nationalId ? maskId(e.personal.nationalId) : '')}
-              {/* The whole personal record reads on the main screen, addresses
-                  included (Neil, Oct 12) - not only inside the Edit modal. */}
-              {row(MapPinned, 'Current address', e.personal?.currentAddress)}
-              {row(MapPinned, 'Permanent address', e.personal?.permanentAddress)}
-              {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone, e.personal.emergency.email].filter(Boolean).join(' · ') : '')}
-            </div>
-          </>
+          <OverviewTab e={e} employees={employees} canEdit={canEdit} canSync={canEdit} isRemoved={isRemoved}
+            readOnlyCustom={teamView || isRemoved || !canEditProfile}
+            onSaved={onEmployeeUpdated} toastOk={toastOk} toastErr={toastErr} />
         )}
 
-        {tab === 'details' && (
-          <EmployeeMoreDetails employee={e} readOnly={teamView || isRemoved || !canEditProfile} toastOk={toastOk} toastErr={toastErr} />
+        {tab === 'job' && (
+          <JobTab e={e} employees={employees} companyName={companyName} viewerEmail={viewerEmail} canEdit={canEdit} isRemoved={isRemoved}
+            empTypes={EMP_TYPES} statusLabel={isRemoved ? 'Removed' : sm.label}
+            onChangeStatus={!teamView && !isRemoved ? () => setStatusOpen(true) : null}
+            focusProbation={focusProbation} onReload={onReload}
+            onOffboard={init => { setOffboardInitial(init); setOffboardOpen(true); }}
+            roleHistoryKey={`${requestsKey}-${eventsKey}-${e.updatedAt || ''}`}
+            onSaved={onEmployeeUpdated} toastOk={toastOk} toastErr={toastErr} />
+        )}
+
+        {tab === 'time' && (
+          <TimeTab e={e} onSchedule={onSchedule} onScheduleChange={on => { setScheduleNow(on); onReload?.(); }}
+            canEdit={canEdit} canSeeComp={canSeeComp} toastOk={toastOk} toastErr={toastErr} />
         )}
 
         {tab === 'pay' && (canSeeComp || directReport) && (
-          <PayTab employee={e} reloadToken={payReload} onEdit={() => setCompOpen(true)} readOnly={teamView} />
+          <PayTab employee={e} readOnly={teamView} onGoCompliance={teamView ? null : () => setTab('compliance')} toastOk={toastOk} toastErr={toastErr} />
         )}
 
-        {tab === 'compliance' && (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1 }}>Right-to-work &amp; compliance</span>
-              <button className="secondary-btn" onClick={() => setComplianceOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-                <Pencil size={13} /> Edit
-              </button>
-            </div>
-            {/* The hiring packet (Oct 14) - one place to see it, kept up to date by itself. */}
-            <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} />
-            <div>
-              {row(ShieldCheck, 'Work auth', e.compliance?.workAuth ? (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                  {WORK_AUTH.find(([v]) => v === e.compliance.workAuth)?.[1] || e.compliance.workAuth}
-                  {(() => { const m = VERIFY_STATUS[e.compliance.status || 'unverified']; return <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10.5, fontWeight: 700, background: m.bg, color: m.fg }}>{m.label}</span>; })()}
-                </span>
-              ) : '')}
-              {row(FileText, 'Document', [DOC_TYPES.find(([v]) => v === e.compliance?.docType)?.[1], e.compliance?.docNumber].filter(Boolean).join(' · '))}
-              {row(CalendarDays, 'Issued', formatDate(e.compliance?.issueDate, e.compliance?.issueDate || ''))}
-              {e.compliance?.pan && row(FileText, 'PAN (India)', maskId(e.compliance.pan))}
-              {e.compliance?.expiryDate ? (() => {
-                const d = daysUntil(e.compliance.expiryDate); const warn = d !== null && d <= 60;
-                return row(warn ? AlertTriangle : CalendarDays, 'Doc expiry', (
-                  <span style={{ color: warn ? (d < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-orange))') : 'inherit', fontWeight: warn ? 700 : 400 }}>
-                    {formatDate(e.compliance.expiryDate, e.compliance.expiryDate)}{d !== null && (d < 0 ? ' · expired' : ` · in ${d}d`)}
-                  </span>
-                ));
-              })() : row(CalendarDays, 'Doc expiry', '')}
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', margin: '16px 0 8px' }}>Consents</div>
-            {CONSENTS.map(([k, clabel]) => (
-              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', fontSize: 13 }}>
-                {e.compliance?.consents?.[k] ? <CheckCircle size={15} style={{ color: 'hsl(var(--color-green))' }} /> : <XCircle size={15} style={{ color: 'var(--muted)' }} />}
-                <span style={{ color: e.compliance?.consents?.[k] ? 'var(--ink)' : 'var(--muted)' }}>{clabel}</span>
-              </div>
-            ))}
-          </>
+        {tab === 'compliance' && !teamView && (
+          <ComplianceTab e={e} canEdit={canEdit} paperworkKey={eventsKey} onSaved={onEmployeeUpdated} toastErr={toastErr} />
         )}
 
         {tab === 'assets' && <AssetsSection employee={e} />}
-
-        {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
         {/* A role change request from before Oct 22 still waiting: HR decides
             or cancels it here, or from the bell / email. */}
@@ -2239,15 +1792,6 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         <ProvisionModal employee={e} toastErr={toastErr}
           onClose={() => setProvisionOpen(false)}
           onDone={updated => { onEmployeeUpdated(updated); toastOk(`${fullName(e)} provisioned.`); }} />
-      )}
-      {compOpen && (
-        <CompensationModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => { setCompOpen(false); setPayReload(n => n + 1); }} />
-      )}
-      {personalOpen && (
-        <PersonalModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setPersonalOpen(false)} onSaved={onEmployeeUpdated} />
-      )}
-      {complianceOpen && (
-        <ComplianceModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setComplianceOpen(false)} onSaved={onEmployeeUpdated} />
       )}
       {statusOpen && (
         <StatusChangeModal employee={e} employees={employees} toastOk={toastOk} toastErr={toastErr} onClose={() => setStatusOpen(false)} onSaved={onEmployeeUpdated} />
@@ -4658,422 +4202,6 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   );
 }
 
-// ── Right-to-work & compliance (HR Section B - open to HR) ───────────────────
-const WORK_AUTH = [['citizen', 'Citizen'], ['permanent_resident', 'Permanent resident'], ['work_visa', 'Work visa'], ['permit', 'Work permit'], ['other', 'Other']];
-const DOC_TYPES = [['passport', 'Passport'], ['national_id', 'National ID'], ['visa', 'Visa'], ['work_permit', 'Work permit'], ['other', 'Other']];
-const VERIFY_STATUS = { unverified: { label: 'Unverified', fg: 'var(--muted)', bg: 'var(--mist)' }, verified: { label: 'Verified', fg: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }, rejected: { label: 'Rejected', fg: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.12)' } };
-const CONSENTS = [['bgCheck', 'Background check consent'], ['dataProcessing', 'Data processing consent'], ['handbook', 'Handbook acknowledgment']];
-
-// Days until an ISO date (negative = past). '' → null.
-function daysUntil(iso) {
-  if (!iso) return null;
-  const d = new Date(iso + 'T00:00:00'); if (isNaN(d)) return null;
-  return Math.ceil((d - new Date()) / 86400000);
-}
-
-export const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-
-export function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
-  const c0 = employee.compliance || {};
-  const [c, setC] = useState({
-    pan: c0.pan || '',
-    workAuth: c0.workAuth || '', docType: c0.docType || 'passport', docNumber: c0.docNumber || '',
-    issueDate: c0.issueDate || '', expiryDate: c0.expiryDate || '', status: c0.status || 'unverified',
-    consents: { bgCheck: false, dataProcessing: false, handbook: false, ...(c0.consents || {}) },
-    verifiedBy: c0.verifiedBy || '', verifiedAt: c0.verifiedAt || '',
-  });
-  const [busy, setBusy] = useState(false);
-  const set = (k, v) => setC(prev => ({ ...prev, [k]: v }));
-  const setConsent = (k, v) => setC(prev => ({ ...prev, consents: { ...prev.consents, [k]: v } }));
-  const initialCRef = useRef(c);
-  const dirty = JSON.stringify(c) !== JSON.stringify(initialCRef.current);
-  const panBad = !!c.pan && !PAN_RE.test(c.pan);
-
-  async function save() {
-    if (busy || panBad) return; setBusy(true);
-    try { const saved = await api.updateEmployee(employee.id, { compliance: c }); onSaved(saved); toastOk('Compliance saved.'); onClose(); }
-    catch (e) { toastErr(e?.message || 'Could not save.'); setBusy(false); }
-  }
-  const guard = useUnsavedGuard(dirty, onClose, save);
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-purple),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ShieldCheck size={17} color="hsl(var(--color-purple))" /></div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Right to Work - {fullName(employee)}</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div><label style={FL}>WORK AUTHORIZATION</label><select className="form-input" style={{ width: '100%' }} value={c.workAuth} onChange={e => set('workAuth', e.target.value)}><option value="">-</option>{WORK_AUTH.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-            <div><label style={FL}>DOCUMENT TYPE</label><select className="form-input" style={{ width: '100%' }} value={c.docType} onChange={e => set('docType', e.target.value)}>{DOC_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>DOCUMENT NUMBER</label><input className="form-input" style={{ width: '100%' }} value={c.docNumber} onChange={e => set('docNumber', e.target.value)} /></div>
-            <div><label style={FL}>ISSUE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={c.issueDate} onChange={e => set('issueDate', e.target.value)} /></div>
-            <div><label style={FL}>EXPIRY DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={c.expiryDate} onChange={e => set('expiryDate', e.target.value)} /></div>
-            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>VERIFICATION STATUS</label>
-              <select className="form-input" style={{ width: '100%' }} value={c.status} onChange={e => set('status', e.target.value)}>
-                {Object.entries(VERIFY_STATUS).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
-              </select>
-            </div>
-            <div style={{ gridColumn: '1 / -1' }}><label style={FL} htmlFor="compliance-pan">PAN (INDIA)</label>
-              <input id="compliance-pan" className="form-input" style={{ width: '100%', borderColor: panBad ? 'hsl(var(--color-red))' : undefined }} value={c.pan} maxLength={10}
-                onChange={e => set('pan', e.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="ABCDE1234F" />
-              <div style={{ fontSize: 11.5, color: panBad ? 'hsl(var(--color-red))' : 'var(--muted)', marginTop: 4 }}>
-                {panBad ? 'PAN is 5 letters, 4 digits and a letter, e.g. ABCDE1234F.' : "Printed on the person's invoices when they are a contractor."}
-              </div>
-            </div>
-          </div>
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '10px 0 0' }}>Upload the actual passport / visa scan in the Documents section below the profile (private, signed-URL access).</p>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '18px 0 10px' }}>CONSENT CHECKLIST</div>
-          {CONSENTS.map(([k, label]) => (
-            <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={!!c.consents[k]} onChange={e => setConsent(k, e.target.checked)} style={{ width: 16, height: 16 }} />
-              {label}
-            </label>
-          ))}
-        </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy || panBad} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy || panBad ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save</button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={busy} />
-      )}
-    </div>
-  );
-}
-
-// ── Personal details + emergency contact (HR Section B - open to HR) ─────────
-function maskId(v) {
-  const s = (v || '').replace(/\s/g, '');
-  return s.length > 4 ? `${'•'.repeat(Math.min(s.length - 4, 8))}${s.slice(-4)}` : s;
-}
-
-function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
-  const p0 = employee.personal || {};
-  // Everything else in the record (preferred name, a hire packet's details)
-  // is kept as it was - the save replaces the whole record.
-  const [p, setP] = useState({
-    ...p0,
-    dob: p0.dob || '', gender: p0.gender || '', nationalId: p0.nationalId || '',
-    currentAddress: p0.currentAddress || '', permanentAddress: p0.permanentAddress || '',
-    emergency: { name: '', relationship: '', phone: '', email: '', ...(p0.emergency || {}) },
-  });
-  const [busy, setBusy] = useState(false);
-  const set = (k, v) => setP(prev => ({ ...prev, [k]: v }));
-  const setE = (k, v) => setP(prev => ({ ...prev, emergency: { ...prev.emergency, [k]: v } }));
-  const initialPRef = useRef(p);
-  const dirty = JSON.stringify(p) !== JSON.stringify(initialPRef.current);
-
-  async function save() {
-    if (busy) return; setBusy(true);
-    try { const saved = await api.updateEmployee(employee.id, { personal: p }); onSaved(saved); toastOk('Personal details saved.'); onClose(); }
-    catch (e) { toastErr(e?.message || 'Could not save.'); setBusy(false); }
-  }
-  const guard = useUnsavedGuard(dirty, onClose, save);
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Contact size={17} color="hsl(var(--color-blue))" /></div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Personal - {fullName(employee)}</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div><label style={FL}>DATE OF BIRTH</label><input className="form-input" style={{ width: '100%' }} type="date" value={p.dob} onChange={e => set('dob', e.target.value)} /></div>
-            <div><label style={FL}>GENDER</label><select className="form-input" style={{ width: '100%' }} value={p.gender} onChange={e => set('gender', e.target.value)}><option value="">-</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer not to say</option></select></div>
-            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>NATIONAL ID / SSN / AADHAAR</label><input className="form-input" style={{ width: '100%' }} value={p.nationalId} onChange={e => set('nationalId', e.target.value)} placeholder="stored securely, shown masked" /></div>
-            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>CURRENT ADDRESS</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={p.currentAddress} onChange={e => set('currentAddress', e.target.value)} /></div>
-            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>PERMANENT ADDRESS</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={p.permanentAddress} onChange={e => set('permanentAddress', e.target.value)} /></div>
-          </div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-red))', letterSpacing: '.04em', margin: '18px 0 10px' }}>EMERGENCY CONTACT</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div><label style={FL}>NAME</label><input className="form-input" style={{ width: '100%' }} value={p.emergency.name} onChange={e => setE('name', e.target.value)} /></div>
-            <div><label style={FL}>RELATIONSHIP</label><input className="form-input" style={{ width: '100%' }} value={p.emergency.relationship} onChange={e => setE('relationship', e.target.value)} placeholder="e.g. spouse" /></div>
-            <div><label style={FL}>PHONE</label><input className="form-input" style={{ width: '100%' }} value={p.emergency.phone} onChange={e => setE('phone', e.target.value)} /></div>
-            <div><label style={FL}>EMAIL</label><input className="form-input" style={{ width: '100%' }} type="email" value={p.emergency.email} onChange={e => setE('email', e.target.value)} /></div>
-          </div>
-        </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save</button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={busy} />
-      )}
-    </div>
-  );
-}
-
-// ── Compensation + bank (HR Section B - gated by hr_comp grant / owner) ──────
-const PAY_BASIS = [['salary', 'Salary'], ['hourly', 'Hourly'], ['daily', 'Daily'], ['fixed_fee', 'Fixed fee']];
-const PAY_FREQ  = [['monthly', 'Monthly'], ['semimonthly', 'Semi-monthly'], ['biweekly', 'Bi-weekly'], ['weekly', 'Weekly']];
-// Default pay frequency by pay type (Charmi, Aug 4): hourly and US salary -> biweekly;
-// India (INR) salary -> monthly. Applied when pay basis/currency changes; the user
-// can still override via the dropdown.
-const defaultPayFreq = (payBasis, currency) =>
-  payBasis === 'hourly' ? 'biweekly' : (currency === 'INR' ? 'monthly' : 'biweekly');
-const BANK_TYPES = [['checking', 'Checking'], ['savings', 'Savings'], ['current', 'Current']];
-const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
-const BENEFIT_TYPES = [['health', 'Health'], ['dental', 'Dental'], ['vision', 'Vision'], ['life', 'Life'], ['disability', 'Disability'], ['retirement', 'Retirement / 401k / PF'], ['other', 'Other']];
-
-// The timecard-only fields live here too since Sep 30 (Charmi: "this should all
-// be linked into their individual people module") - Pay & Benefits is the one
-// writer of PayrollRate; the timecard only reads.
-// "California (Work site: GS Temecula, CA)" - the person's work state and why (work_state.py, Oct 20 2026).
-const workStateText = (w) => (w?.state ? `${w.stateName || w.state} (${w.label})` : `Unknown - ${w?.label || 'no work site'}`);
-const OT_RULES = [['ca', 'California (daily 8h / 12h, 7th day, weekly 40h)'], ['federal', 'Federal (weekly 40h only)'], ['none', 'None (no US overtime premium)']];
-const COMP_DEFAULTS = { base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [],
-  overtimeRule: '', fullDayHours: '8' };
-
-export function CompensationModal({ employee, onClose, toastOk, toastErr }) {
-  const [comp, setComp] = useState(COMP_DEFAULTS);
-  const [bank, setBank] = useState([]);
-  const [gstin, setGstin] = useState('');   // India GST number, printed on a contractor's invoices (Oct 21)
-  const [pan, setPan] = useState('');       // PAN (India) - the same one as on Compliance; printed on invoices (Oct 23)
-  const [payroll, setPayroll] = useState({});   // what the timecard currently uses (read-only context)
-  const [ownPayLocked, setOwnPayLocked] = useState(false);   // your own record: another admin or HR sets your pay (Oct 20)
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  // Workers' comp rate per year (Charmi, 10/27 item 14): the rates so far, and a new one typed here.
-  const [wc, setWc] = useState({ rates: [], history: [] });
-  const [wcDraft, setWcDraft] = useState({ year: String(new Date().getFullYear()), ratePct: '' });
-  const setC = (k, v) => setComp(p => ({ ...p, [k]: v }));
-  // Baseline for the unsaved-changes guard, re-synced once the real record
-  // loads (the pre-fetch defaults above aren't a meaningful baseline).
-  const baselineRef = useRef({ comp, bank });
-
-  useEffect(() => {
-    let live = true;
-    api.getCompensation(employee.id)
-      .then(r => {
-        if (!live) return;
-        const pr = r.payroll || {};
-        const nextComp = { ...COMP_DEFAULTS, ...(r.compensation || {}) };
-        // A record saved before Sep 30 has no rule / hours of its own - start
-        // from what the timecard is using today.
-        if (nextComp.overtimeRule === undefined || nextComp.overtimeRule === null) nextComp.overtimeRule = '';
-        if (!(r.compensation || {}).fullDayHours && pr.fullDayHours) nextComp.fullDayHours = String(pr.fullDayHours);
-        const nextBank = r.bank || [];
-        setComp(nextComp); setBank(nextBank); setGstin(r.gstin || ''); setPan(r.pan || ''); setPayroll(pr); setOwnPayLocked(!!r.ownPayLocked);
-        baselineRef.current = { comp: nextComp, bank: nextBank, gstin: r.gstin || '', pan: r.pan || '' };
-      })
-      .catch(e => toastErr(e?.message || 'Could not load compensation.'))
-      .finally(() => live && setLoading(false));
-    api.getWorkersCompRates(employee.id).then(r => { if (live) setWc(r || { rates: [], history: [] }); }).catch(() => {});
-    return () => { live = false; };
-  }, [employee.id]);
-
-  const addBank = () => setBank(b => [...b, { holder: '', bankName: '', number: '', routingOrIfsc: '', type: 'checking' }]);
-  const setBankField = (i, k, v) => setBank(b => b.map((x, j) => j === i ? { ...x, [k]: v } : x));
-  const removeBank = i => setBank(b => b.filter((_, j) => j !== i));
-  const benefits = comp.benefits || [];
-  const addBenefit = () => setComp(p => ({ ...p, benefits: [...(p.benefits || []), { type: 'health', plan: '', deduction: '', note: '' }] }));
-  const setBenefit = (i, k, v) => setComp(p => ({ ...p, benefits: (p.benefits || []).map((x, j) => j === i ? { ...x, [k]: v } : x) }));
-  const removeBenefit = i => setComp(p => ({ ...p, benefits: (p.benefits || []).filter((_, j) => j !== i) }));
-
-  async function save() {
-    if (busy) return;
-    const wcRate = wcDraft.ratePct === '' ? null : Number(wcDraft.ratePct);
-    if (wcRate !== null && !(wcRate >= 0 && wcRate <= 100)) { toastErr("The workers' comp rate is a percent of gross wages, from 0 to 100."); return; }
-    const up = await ensureStepUp();
-    if (!up.ok) { if (!up.cancelled) toastErr('Identity check didn’t complete.'); return; }
-    setBusy(true);
-    try {
-      if (payDirty || wcRate === null) {
-        const clean = { ...comp }; delete clean.history;   // server owns history
-        // GSTIN rides on the same PUT (the server keeps it beside the bank list).
-        await api.saveCompensation(employee.id, { compensation: clean, bank, gstin, pan });
-      }
-      if (wcRate !== null) await api.addWorkersCompRate(employee.id, { year: Number(wcDraft.year), ratePct: wcRate });
-      toastOk('Compensation saved.'); onClose();
-    } catch (e) { toastErr(e?.message || 'Could not save compensation.'); setBusy(false); }
-  }
-  const money = (v, cur) => v ? `${moneyPrefix(cur)}${Number(v).toLocaleString()}` : '-';
-  const gstinBad = !!gstin && !GSTIN_RE.test(gstin);
-  const panBad = !!pan && !PAN_RE.test(pan);
-  const payDirty = JSON.stringify({ comp, bank, gstin, pan }) !== JSON.stringify(baselineRef.current);
-  const dirty = payDirty || wcDraft.ratePct !== '';
-  const thisYear = new Date().getFullYear();
-  const wcNow = (wc.rates || []).find(r => r.year <= thisYear);
-  const guard = useUnsavedGuard(dirty, onClose, save);
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-green),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Wallet size={17} color="hsl(var(--color-green))" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Pay, Benefits & Bank - {fullName(employee)}</h3>
-            <div style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}><Lock size={11} /> Restricted · compensation grant</div>
-          </div>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-
-        {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
-        ) : (
-          <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
-            {ownPayLocked && (
-              <div data-testid="own-pay-hint" style={{ fontSize: 12, color: 'var(--muted)', background: 'var(--bg-2, rgba(0,0,0,0.03))', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Lock size={12} /> Another administrator or HR sets your pay - you can still update your bank accounts.
-              </div>
-            )}
-            <fieldset disabled={ownPayLocked} data-testid="comp-pay-fields" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 10 }}>BASE PAY</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-              <div><label style={FL}>BASE AMOUNT</label><input className="form-input" style={{ width: '100%' }} type="number" value={comp.base} onChange={e => setC('base', e.target.value)} placeholder="e.g. 90000" /></div>
-              <div><label style={FL}>CURRENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => { const cur = e.target.value; setComp(p => ({ ...p, currency: cur, frequency: defaultPayFreq(p.payBasis, cur) })); }}>{currencyOptions().map(c => <option key={c.code} value={c.code}>{c.label}</option>)}</select></div>
-              <div><label style={FL}>PAY BASIS</label><select className="form-input" style={{ width: '100%' }} value={comp.payBasis} onChange={e => { const b = e.target.value; setComp(p => ({ ...p, payBasis: b, frequency: defaultPayFreq(b, p.currency) })); }}>{PAY_BASIS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-              <div><label style={FL}>PAY FREQUENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.frequency} onChange={e => setC('frequency', e.target.value)}>{PAY_FREQ.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-              <div>
-                <label style={FL}>EFFECTIVE DATE</label>
-                <input className="form-input" style={{ width: '100%' }} type="date" value={comp.effectiveDate} onChange={e => setC('effectiveDate', e.target.value)} />
-                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>A changed base applies from this date; days before it keep the old rate. Leave the date as it is to correct the current record.</div>
-              </div>
-            </div>
-
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px' }}>TIME CLOCK</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-              <div>
-                <label style={FL}>OVERTIME RULE</label>
-                <select className="form-input" style={{ width: '100%' }} value={comp.overtimeRule || ''} onChange={e => setC('overtimeRule', e.target.value)}>
-                  <option value="">Company default{payroll.defaultOvertimeRule ? ` (${(OT_RULES.find(([k]) => k === payroll.defaultOvertimeRule) || [])[1]?.split(' (')[0] || payroll.defaultOvertimeRule})` : ''}</option>
-                  {OT_RULES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>
-                  {payroll.workState?.byWorkState
-                    ? `The default follows where they work: California is the California rule, another US state is Federal, India is None. ${payroll.workState.state ? `Work state: ${workStateText(payroll.workState)}.` : 'Work state unknown - give them a work site, or pick a rule here.'} The time sheet only reads this.`
-                    : "The default follows the company's country: US is California, India is None. The time sheet only reads this."}
-                </div>
-              </div>
-              <div>
-                <label style={FL}>FULL DAY HOURS</label>
-                <input className="form-input" type="number" min="1" max="24" step="0.5" style={{ width: '100%' }} value={comp.fullDayHours} onChange={e => setC('fullDayHours', e.target.value)} placeholder="8" />
-                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Salaried: a full day is this minus an hour, a half day is 4 hours; weekend pay is pro-rated against it. Hourly: the paid holiday credit.</div>
-              </div>
-              <div>
-                <label style={FL}>TIME TRACKING</label>
-                <div data-testid="comp-time-tracking" style={{ fontSize: 13, color: 'var(--ink)', padding: '8px 0' }}>{timeTrackingText(payroll)}</div>
-                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Set on the person's role in Settings &gt; Access, beside the screen-share exemption.</div>
-              </div>
-            </div>
-
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px' }}>WORKERS' COMP</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }} data-testid="comp-workers-comp">
-              <div>
-                <label style={FL} htmlFor="comp-wc-year">EFFECTIVE YEAR</label>
-                <input id="comp-wc-year" className="form-input" type="number" min="2000" max={thisYear + 1} step="1" style={{ width: '100%' }} value={wcDraft.year} onChange={e => setWcDraft(d => ({ ...d, year: e.target.value }))} />
-              </div>
-              <div>
-                <label style={FL} htmlFor="comp-wc-rate">RATE (% OF GROSS WAGES)</label>
-                <input id="comp-wc-rate" className="form-input" type="number" min="0" max="100" step="0.01" style={{ width: '100%' }} value={wcDraft.ratePct} onChange={e => setWcDraft(d => ({ ...d, ratePct: e.target.value }))} placeholder={wcNow ? `In force: ${wcNow.ratePct}%` : 'e.g. 3.5'} />
-              </div>
-            </div>
-            <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>
-              Accounting &gt; Compensation charges this percent of Bonus plus Salaried / Hourly Payroll from the effective year on, until a later year has its own rate.
-              {wcNow ? ` In force now: ${wcNow.ratePct}% (from ${wcNow.year}).` : ' No rate set yet.'} A new rate for a year replaces it there; every earlier entry stays below.
-            </div>
-            {wc.history?.length > 0 && (
-              <div style={{ marginTop: 8 }}>
-                {wc.history.map((h, i) => {
-                  const live = wc.rates.some(r => r.year === h.year && r.setAt === h.setAt);
-                  return (
-                    <div key={`${h.year}-${h.setAt}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--line)', color: live ? 'var(--ink)' : 'var(--muted)' }}>
-                      <span>{h.year} · {h.ratePct}%{live ? '' : ' (replaced)'}</span>
-                      <span>{h.setBy}{h.setAt ? ` · ${formatDate(h.setAt.slice(0, 10))}` : ''}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            </fieldset>
-
-            {comp.history?.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 8 }}>HISTORY</div>
-                {comp.history.map((h, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
-                    <span>{money(h.base, h.currency)} · {h.payBasis || ''}</span>
-                    <span>{formatDate(h.effectiveDate || (h.changedAt || '').slice(0, 10))}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}><Heart size={13} /> BENEFITS & DEDUCTIONS</div>
-            {benefits.map((bn, i) => (
-              <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div><label style={FL}>TYPE</label><select className="form-input" style={{ width: '100%' }} value={bn.type} onChange={e => setBenefit(i, 'type', e.target.value)}>{BENEFIT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-                  <div><label style={FL}>PLAN / PROVIDER</label><input className="form-input" style={{ width: '100%' }} value={bn.plan} onChange={e => setBenefit(i, 'plan', e.target.value)} /></div>
-                  <div><label style={FL}>PER-PAYCHECK DEDUCTION</label><input className="form-input" style={{ width: '100%' }} type="number" value={bn.deduction} onChange={e => setBenefit(i, 'deduction', e.target.value)} placeholder={`in ${comp.currency}`} /></div>
-                  <div><label style={FL}>NOTE</label><input className="form-input" style={{ width: '100%' }} value={bn.note} onChange={e => setBenefit(i, 'note', e.target.value)} /></div>
-                </div>
-                <button onClick={() => removeBenefit(i)} style={{ marginTop: 8, background: 'none', border: 'none', color: 'hsl(var(--color-red))', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Remove</button>
-              </div>
-            ))}
-            <button className="secondary-btn" onClick={addBenefit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 4 }}><Plus size={13} /> Add Benefit / Deduction</button>
-
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}><Landmark size={13} /> BANK ACCOUNTS</div>
-            {bank.map((acc, i) => (
-              <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div><label style={FL}>ACCOUNT HOLDER</label><input className="form-input" style={{ width: '100%' }} value={acc.holder} onChange={e => setBankField(i, 'holder', e.target.value)} /></div>
-                  <div><label style={FL}>BANK NAME</label><input className="form-input" style={{ width: '100%' }} value={acc.bankName} onChange={e => setBankField(i, 'bankName', e.target.value)} /></div>
-                  <div><label style={FL}>ACCOUNT NUMBER</label><input className="form-input" style={{ width: '100%' }} value={acc.number} onChange={e => setBankField(i, 'number', e.target.value)} /></div>
-                  <div><label style={FL}>ROUTING / IFSC</label><input className="form-input" style={{ width: '100%' }} value={acc.routingOrIfsc} onChange={e => setBankField(i, 'routingOrIfsc', e.target.value)} /></div>
-                  <div><label style={FL}>TYPE</label><select className="form-input" style={{ width: '100%' }} value={acc.type} onChange={e => setBankField(i, 'type', e.target.value)}>{BANK_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-                </div>
-                <button onClick={() => removeBank(i)} style={{ marginTop: 8, background: 'none', border: 'none', color: 'hsl(var(--color-red))', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Remove</button>
-              </div>
-            ))}
-            <button className="secondary-btn" onClick={addBank} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add Bank Account</button>
-            <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, maxWidth: 560 }}>
-            <div>
-              <label style={FL} htmlFor="comp-pan">PAN</label>
-              <input id="comp-pan" className="form-input" style={{ width: '100%', textTransform: 'uppercase', borderColor: panBad ? 'hsl(var(--color-red))' : undefined }} value={pan} maxLength={10}
-                onChange={e => setPan(e.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="e.g. ABCDE1234F" aria-invalid={panBad} />
-              <div style={{ fontSize: 10.5, color: panBad ? 'hsl(var(--color-red))' : 'var(--muted)', marginTop: 4 }}>
-                {panBad ? 'Not a valid PAN - 5 letters, 4 digits and a letter, like ABCDE1234F.' : "The same PAN as on Compliance. Printed on the person's invoices."}
-              </div>
-            </div>
-            <div>
-              <label style={FL} htmlFor="comp-gstin">GSTIN</label>
-              <input id="comp-gstin" className="form-input" style={{ width: '100%', textTransform: 'uppercase', borderColor: gstinBad ? 'hsl(var(--color-red))' : undefined }} value={gstin} maxLength={15}
-                onChange={e => setGstin(e.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="e.g. 27ABCDE1234F1Z5" aria-invalid={gstinBad} />
-              <div style={{ fontSize: 10.5, color: gstinBad ? 'hsl(var(--color-red))' : 'var(--muted)', marginTop: 4 }}>
-                {gstinBad ? 'Not a valid GSTIN - 15 characters, like 27ABCDE1234F1Z5.' : "Printed on the person's invoices when set."}
-              </div>
-            </div>
-            </div>
-          </div>
-        )}
-
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy || loading || gstinBad || panBad} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading || gstinBad || panBad) ? 0.6 : 1 }}>
-            {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
-          </button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={busy} />
-      )}
-    </div>
-  );
-}
-
 // ── Work Site Library (Neil, Sep 25) - every work site, entered once; each
 // company then picks its own from its Work Sites tab. Lives under Settings ->
 // Global Settings, not inside any one company.
@@ -5468,7 +4596,9 @@ export default function HR({ activeSub, onSubChange }) {
   // they had, so it cannot live in STATUS_META alongside active/onboarding.
   const [deletedEmployees, setDeletedEmployees] = useState([]);
   const [deletedLoading, setDeletedLoading] = useState(false);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedIdNow] = useState(null);
+  // A person record holding unsaved edits asks before another one opens (11/03/2026).
+  const setSelectedId = (id) => (id === selectedId ? setSelectedIdNow(id) : guardRecordLeave(() => setSelectedIdNow(id)));
   const [formOpen,  setFormOpen]  = useState(false);
   const [editing,   setEditing]   = useState(null);
   // One Add control (Neil, Aug 24): Add Employee / Add Independent Contractor /
