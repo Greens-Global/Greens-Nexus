@@ -13,9 +13,16 @@ vi.mock('../../api', () => ({ api: {
   getTicketJobs: vi.fn(), startJobFromTicket: vi.fn(), getPropertyJobs: vi.fn(), getTaskPortfolios: vi.fn(),
   getConstructionMeta: vi.fn(), getConstructionWeather: vi.fn(), weather: vi.fn(), getConstructionRegister: vi.fn(),
   getPeopleDirectory: vi.fn(), getTicketProperties: vi.fn(),
+  // Field and Closeout (phase 3): the punch writes the outbox sends, the reads it saves.
+  setPunchDoneWithPhoto: vi.fn(), setPunchVerifiedQueued: vi.fn(), addPunchItemQueued: vi.fn(),
+  getJobTimeline: vi.fn(), getLogPrefill: vi.fn(), getJobChanges: vi.fn(), getConstructionLogs: vi.fn(),
 } }));
+vi.mock('../lib/upload', () => ({
+  uploadConstructionMedia: vi.fn(async () => ({ payload: { kind: 'photo', url: 'https://x/construction-media/construction/j1/done.jpg', mime_type: 'image/jpeg', size_bytes: 9 }, error: null })),
+  validate: () => '', kindOf: () => 'photo', filesFromPaste: () => [], MAX_BYTES: {}, BUCKET: 'construction-media',
+}));
 vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, myEmail: 'ana.lopez@greensglobal.com' }) }));
-vi.mock('../../ui/dialog', () => ({ dialog: { confirm: vi.fn(async () => true), alert: vi.fn() } }));
+vi.mock('../../ui/dialog', () => ({ dialog: { confirm: vi.fn(async () => true), alert: vi.fn(), undo: vi.fn() } }));
 // The Schedule tab's Tasks store and timeline: the real ones load the whole
 // workspace; here the store is empty (the server's read stands in) and the
 // timeline says what it was given.
@@ -82,8 +89,8 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('Job tabs and the URL', () => {
   it('a work order shows Overview, Tasks, Field and Closeout; a project every tab', () => {
-    expect(jobTabs('work_order').map((t) => t.label)).toEqual(['Overview', 'Tasks', 'Field', 'Closeout']);
-    expect(jobTabs('project').map((t) => t.key)).toEqual(['overview', 'schedule', 'punch', 'field', 'rfis', 'closeout']);
+    expect(jobTabs('work_order').map((t) => t.label)).toEqual(['Overview', 'Tasks', 'Photos', 'Field', 'Changes', 'Closeout']);
+    expect(jobTabs('project').map((t) => t.key)).toEqual(['overview', 'schedule', 'punch', 'photos', 'field', 'rfis', 'changes', 'closeout']);
     expect(tabFor('work_order', 'schedule')).toBe('overview');
     expect(tabFor('project', 'rfis')).toBe('rfis');
   });
@@ -100,7 +107,7 @@ describe('Job tabs and the URL', () => {
     const onTab = vi.fn();
     render(<JobPage project={base} tab="overview" onTab={onTab} onBack={() => {}} />);
     const labels = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(labels).toEqual(['Overview', 'Tasks', 'Field', 'Closeout']);
+    expect(labels).toEqual(['Overview', 'Tasks', 'Photos', 'Field', 'Changes', 'Closeout']);
     fireEvent.click(screen.getByRole('tab', { name: 'Field' }));
     expect(onTab).toHaveBeenCalledWith('field');
   });
@@ -129,33 +136,45 @@ describe('Punch list', () => {
     expect(v.tasks.filter((t) => t.sectionId === 'sec-p').map((t) => punchState(t, v.verifiedStatusId))).toEqual(['open', 'done', 'verified']);
   });
 
-  it('the crew marks Done, a reviewer Verifies, and the list narrows to one person', async () => {
-    api.setPunchDone.mockResolvedValue({});
-    api.setPunchVerified.mockResolvedValue({});
+  it('the crew marks Done with a photo, a reviewer Verifies (with Undo), and the list narrows to one person', async () => {
+    api.setPunchDoneWithPhoto.mockResolvedValue({});
+    api.setPunchVerifiedQueued.mockResolvedValue({});
     const { container } = render(<PunchTab project={base} />);
     await waitFor(() => expect(container.querySelector('[data-punch-row="p1"]')).toBeTruthy());
     // A work order also lists its steps above the punch list.
     expect(screen.getByText('Work Steps')).toBeInTheDocument();
-    fireEvent.click(container.querySelector('[data-punch-row="p1"]').querySelector('button'));
-    await waitFor(() => expect(api.setPunchDone).toHaveBeenCalledWith('p1', true));
+    const row = container.querySelector('[data-punch-row="p1"]');
+    fireEvent.click([...row.querySelectorAll('button')].find((b) => /Mark Done/.test(b.textContent)));
+    expect(api.setPunchDoneWithPhoto).not.toHaveBeenCalled();     // the camera opens first
+    fireEvent.change(container.querySelector('input[data-done-photo="p1"]'), { target: { files: [new File(['x'], 'done.jpg', { type: 'image/jpeg' })] } });
+    await waitFor(() => expect(api.setPunchDoneWithPhoto).toHaveBeenCalledWith('p1', true,
+      expect.objectContaining({ url: expect.stringContaining('done.jpg') }), { headers: { 'Idempotency-Key': expect.any(String) } }));
     const verify = [...container.querySelector('[data-punch-row="p2"]').querySelectorAll('button')].find((b) => b.textContent === 'Verify');
     fireEvent.click(verify);
-    await waitFor(() => expect(api.setPunchVerified).toHaveBeenCalledWith('p2', true));
-    fireEvent.change(screen.getByLabelText('Show'), { target: { value: SAM } });
+    await waitFor(() => expect(api.setPunchVerifiedQueued).toHaveBeenCalledWith('p2', true, expect.anything()));
+    await waitFor(() => expect(dialog.undo).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Mine' }));
+    expect(container.querySelector('[data-punch-row="p2"]')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Everyone' }));
+    fireEvent.change(screen.getByLabelText('Show one person'), { target: { value: SAM } });
     expect(container.querySelector('[data-punch-row="p1"]')).toBeNull();
     expect(container.querySelector('[data-punch-row="p2"]')).toBeTruthy();
   });
 
   it('adds an item with an id made on the phone', async () => {
-    api.addPunchItem.mockResolvedValue({});
+    api.addPunchItemQueued.mockResolvedValue({});
     render(<PunchTab project={{ ...base, jobType: 'project' }} />);
     fireEvent.change(await screen.findByLabelText('What needs fixing'), { target: { value: 'Scuffed door' } });
+    fireEvent.change(screen.getByLabelText('Where on the site'), { target: { value: 'Unit 4' } });
     fireEvent.click(screen.getByRole('button', { name: /Add Item/ }));
-    await waitFor(() => expect(api.addPunchItem).toHaveBeenCalled());
-    const [jobId, body] = api.addPunchItem.mock.calls[0];
+    await waitFor(() => expect(api.addPunchItemQueued).toHaveBeenCalled());
+    const [jobId, body, opts] = api.addPunchItemQueued.mock.calls[0];
     expect(jobId).toBe('j1');
     expect(body.title).toBe('Scuffed door');
+    expect(body.location_text).toBe('Unit 4');
     expect(body.id).toMatch(/^punch-/);
+    // ONE mechanism: the record's phone-made id is the Idempotency-Key.
+    expect(opts.headers['Idempotency-Key']).toBe(body.id);
   });
 
   it('a job with no schedule offers to set it up', async () => {

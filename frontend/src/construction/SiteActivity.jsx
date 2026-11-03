@@ -34,7 +34,9 @@ import DailyLogCapture from './DailyLogCapture';
 import WeeklyReports from './WeeklyReports';
 import SearchPicker from './SearchPicker';
 import { useConstructionMeta } from './lib/meta';
-import { formatDate } from '../lib/datetime';
+import { formatDate, formatDateTime } from '../lib/datetime';
+import { loadLogs as loadLogsThroughPhone, prefetchJob, startLog, loadPrefill } from './constructionOffline';
+import { readThrough } from '../lib/offline/store';
 
 // The browser's own date - only when the server has not said the jobsite's.
 function browserToday() {
@@ -53,9 +55,12 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
   const [busy, setBusy] = useState(false);
   const [capturing, setCapturing] = useState(null);
   const [queueKey, setQueueKey] = useState(0);
+  const [savedAt, setSavedAt] = useState('');
 
+  // Through the phone (field offline, 11/03/2026): with no signal the jobsites
+  // and their logs open from what this phone saved.
   useEffect(() => {
-    api.getConstructionOverview()
+    readThrough('construction:overview', () => api.getConstructionOverview(), { onCache: setSavedAt })
       .then((d) => setProjects(d?.projects || []))
       .catch((e) => { setProjects([]); setError(e.message || 'Could not load projects.'); });
   }, []);
@@ -77,12 +82,14 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
     if (!projectId) { setLogs([]); return; }
     setError('');
     setLogs(null);
-    api.getConstructionLogs(projectId)
+    loadLogsThroughPhone(projectId, { onCache: setSavedAt })
       .then(setLogs)
       .catch((e) => { setLogs([]); setError(e.message || 'Could not load daily logs.'); });
   }, [projectId]);
 
   useEffect(loadLogs, [loadLogs]);
+  // Keep today's prefill and the job's field lists on the phone while there is signal.
+  useEffect(() => { if (project) prefetchJob(project); }, [project]);
 
   const startToday = async () => {
     if (!project) return;
@@ -91,7 +98,12 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
       // The JOBSITE's date (the server's clock for it, construction_company),
       // not UTC and not the phone's: a log filed at 6 PM on a Pacific site must
       // not land on tomorrow.
-      setCapturing(await api.startConstructionLog(project.id, { log_date: project.today || browserToday() }));
+      // With no signal the log starts on this phone from its saved prefill
+      // and goes to the server when there is signal (constructionOffline).
+      const day = project.today || browserToday();
+      let pre = null;
+      try { pre = await loadPrefill(project.id, day); } catch { /* none saved */ }
+      setCapturing(await startLog(project, day, pre));
     } catch (e) {
       setError(e.message || 'Could not start a daily log.');
     } finally {
@@ -120,6 +132,7 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
         <div className="view-title-group">
           <h2>Site Activity</h2>
           <p>Daily logs from the crew and the weekly report they add up to</p>
+          {savedAt && <p style={{ fontSize: '0.78rem' }}>Opened from this phone (saved {formatDateTime(savedAt, '')}).</p>}
         </div>
         {project && (
           <button className="primary-btn" onClick={startToday} disabled={busy}>

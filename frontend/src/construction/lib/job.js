@@ -15,12 +15,17 @@ const ALL = [
   { key: 'overview', label: 'Overview' },
   { key: 'schedule', label: 'Schedule' },
   { key: 'punch', label: 'Punch List' },
+  { key: 'photos', label: 'Photos' },
   { key: 'field', label: 'Field' },
   { key: 'rfis', label: 'RFIs And Submittals' },
+  { key: 'changes', label: 'Changes' },
   { key: 'closeout', label: 'Closeout' },
 ];
 
-const WORK_ORDER = ['overview', 'punch', 'field', 'closeout'];
+// Field and Closeout (11/03/2026, phase 3): Photos (the timeline) and Changes
+// (field tickets and change orders) on both sizes - a work order's extra work
+// is signed on site too.
+const WORK_ORDER = ['overview', 'punch', 'photos', 'field', 'changes', 'closeout'];
 
 export function jobTabs(jobType) {
   if (jobType === 'work_order') {

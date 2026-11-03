@@ -295,8 +295,52 @@ def register_media(..., db: Session = Depends(get_db), idem: Idem = Depends(idem
 - Applied now to: construction daily log create (`POST
   /construction/projects/{id}/logs`), edit (`PATCH /construction/logs/{id}` -
   an old edit resent after a newer one answers as it did then and never
-  overwrites the newer one) and photo register (`POST
-  /construction/logs/{id}/media`).
+  overwrites the newer one), photo register (`POST
+  /construction/logs/{id}/media`) and Submit (`POST /construction/logs/{id}/submit`);
+  job photos, photo tags / spot, before and after pairs, Mark Up attach;
+  punch Add, Done (with its photo), Verified, spot; equipment links; field
+  tickets and their signature; change order create / edit / send / approve;
+  closeout records (11/03/2026, construction phase 3).
+
+### One mechanism, and the phone-made ids (11/03/2026)
+
+Phase 2 of Construction (feat/construction-jobs) gave its field writes an id
+made on the phone (`lib/job.js clientId` - a punch item, a job from a ticket,
+an equipment link), so a resend found the row it had made. Merged with this
+branch, the choice is: **the Idempotency-Key is THE mechanism** for every
+field write; the phone-made ids stay, but as the RECORD's id, not as a second
+dedupe:
+
+- a record that must be pointed at before the server has seen it (a daily log
+  started offline, a punch item added offline that a Done is queued behind, a
+  field ticket) is created with the id the phone gave it;
+- the outbox sends that SAME id as the entry's `Idempotency-Key`
+  (`constructionOffline.fieldWrite`: entry id = record id), so the stored
+  answer is what a resend gets;
+- each create keeps its "this id already exists" answer only as the backstop
+  for a resend after the key's 7 days (or a write made before this) - it
+  never decides anything the key decides.
+
+Done and Verified are also idempotent by state. Forms keep their own
+`entryKey` (above).
+
+## 4b. Construction in the field (phase 3, 11/03/2026)
+
+`src/construction/constructionOffline.js` registers every construction kind
+(`construction:log-create | log-patch | log-media | log-submit | job-photo |
+punch-add | punch-done | punch-verify | field-ticket`) and is the one place
+the screens write through: `fieldWrite` sends now when there is signal, keeps
+the change (same id = same key) when the send gets no answer, and queues it
+outright with no signal or when something of the same group is still waiting
+(a log started offline: its photos, edits and Submit wait behind it, in
+order, and follow the server's id once the start lands - `ctx.result`).
+Photos are uploaded once (`uploadOnce` keeps the upload's answer). Reads go
+through the phone: the punch list (`construction:schedule:<job>`), today's
+log prefill (`construction:prefill:<job>:<day>`), the photo timeline, the
+Changes tab, the logs and the jobsites; the Job page and Site Activity save
+them while there is signal (`prefetchJob`). The job page, its field tabs,
+Site Activity and the capture sheet are in `OFFLINE_SCREENS`. Tests:
+`src/construction/field.offline.test.jsx` (fake-indexeddb).
 - Rate limiting is unchanged: a resend counts like any request.
 
 **Release (RLS):** `create_all` makes `nexus_idempotency_keys` at startup and

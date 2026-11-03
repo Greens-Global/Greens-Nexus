@@ -50,12 +50,14 @@ export const savedOf = (p) => ({
   workerEmails: p.workerEmails || [],
   managerEmails: p.managerEmails || [],
   executiveEmails: p.executiveEmails || [],
+  superintendentEmail: p.superintendentEmail || '',
 });
 
 const FIELDS = {
   name: 'name', address: 'address', status: 'status', phase: 'phase', startOn: 'start_on',
   targetFinishOn: 'target_finish_on', propertyId: 'property_id', workerEmails: 'worker_emails',
   managerEmails: 'manager_emails', executiveEmails: 'executive_emails',
+  superintendentEmail: 'superintendent_email',
 };
 
 export function changesFor(saved, draft, { canCost }) {

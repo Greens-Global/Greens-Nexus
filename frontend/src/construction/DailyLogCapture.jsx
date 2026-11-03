@@ -13,6 +13,15 @@
 //   - Where the phone is goes with the log when the person allows location
 //     (navigator.geolocation) - optional, asked once, never blocks a thing; the
 //     server records the advisory geofence check from it.
+//   - The log drafts itself (Neil, 11/03/2026, plan phase 3): weather from the
+//     jobsite's forecast, crew and hours from today's Time Clock punches at
+//     the jobsite (hours only), today's photos, punch items Done / Verified
+//     today and the forms filed to the job today - all editable; the person
+//     adds what was unusual (dictation), tags the day, and gives each delay
+//     its own line (cause, hours lost). One Submit, with their typed name.
+//   - It works with no signal: the log, its photos, the edits and the Submit
+//     wait in the phone's outbox (constructionOffline) and go out in order;
+//     the prefill comes from what the phone saved.
 //
 // Mobile capture uses the hidden-input `capture="environment"` trick, the same
 // pattern as tickets/TicketsView.jsx and tasks/QuickCreateTask.jsx. There is no
@@ -32,7 +41,48 @@ import DictateButton from '../components/DictateButton';
 import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
 import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
-import { LOG_TAGS, TAG_COLOR } from './ui';
+import { LOG_TAGS, TAG_COLOR, TONE } from './ui';
+import { formatDateTime, formatTime } from '../lib/datetime';
+import { isOffline } from '../lib/offline/store';
+import SyncState from '../components/offline/SyncState';
+import { StatusLabel } from '../components/StatusLabel';
+import { addLogPhoto, loadPrefill, saveLogPatch, submitLog } from './constructionOffline';
+
+const DELAY_CAUSES = [
+  ['weather', 'Weather'], ['inspection', 'Inspection'], ['material', 'Material'], ['labor', 'Labor'],
+  ['owner', 'Owner or Client'], ['design', 'Design or RFI'], ['equipment', 'Equipment'], ['other', 'Other'],
+];
+const unanswered = (e) => !!e && (e.isNetworkError || !e.status);
+
+// What today's log was drafted from (construction_field.prefill) - shown, so
+// the person can see where each number came from and fix what is wrong.
+function DraftedFrom({ pre, savedAt }) {
+  if (!pre) return null;
+  const done = pre.punch?.done || [];
+  const verified = pre.punch?.verified || [];
+  const line = { fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 };
+  return (
+    <details data-drafted-from="" open style={{ marginTop: 16, padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-primary)' }}>
+      <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>Drafted From Today</summary>
+      {savedAt && <div style={line}>From this phone (saved {formatDateTime(savedAt, '')}).</div>}
+      <div style={line}><b>Weather:</b> {pre.weather?.text ? `${pre.weather.text} (forecast)` : 'No forecast for this jobsite - type it in.'}</div>
+      <div style={line}><b>Crew:</b> {pre.crew?.count ? `${pre.crew.count} ${pre.crew.count === 1 ? 'person' : 'people'} punched in here, ${pre.crew.hours} h` : 'No Time Clock punches at this jobsite yet today.'}
+        {(pre.crew?.people || []).length > 0 && ` (${pre.crew.people.map((p) => `${p.name || p.email} ${p.hours} h`).join(', ')})`}</div>
+      {(pre.photos || []).length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0' }} aria-label="Today's photos">
+          {pre.photos.slice(0, 12).map((p) => <img key={p.id} src={p.thumbnailUrl || p.url} alt={p.caption || 'Photo from today'} style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6 }} />)}
+          <span style={line}>{pre.photos.length} photo{pre.photos.length === 1 ? '' : 's'} on the job today</span>
+        </div>
+      )}
+      {(done.length > 0 || verified.length > 0) && (
+        <div style={line}><b>Punch:</b> {[done.length ? `${done.length} done (${done.map((d) => d.title).join(', ')})` : '', verified.length ? `${verified.length} verified` : ''].filter(Boolean).join('; ')}</div>
+      )}
+      {(pre.forms || []).length > 0 && (
+        <div style={line}><b>Forms:</b> {pre.forms.map((f) => `${f.title}${f.submittedByName ? ` by ${f.submittedByName}` : ''} at ${formatTime(f.submittedAt, '')}`).join('; ')}</div>
+      )}
+    </details>
+  );
+}
 
 // Where the phone is, if the person allows it - one quick, low-power fix,
 // never waited on: a jobsite with no signal or a "no" files the log anyway.
@@ -86,6 +136,14 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   const [crew, setCrew] = useState(log.crewSize || '');
   const [hours, setHours] = useState(log.hoursWorked || '');
   const [tags, setTags] = useState(log.tags || []);
+  const [weather, setWeather] = useState(log.weather || '');
+  const [temp, setTemp] = useState(log.temperatureF || '');
+  const [weatherTyped, setWeatherTyped] = useState(false);
+  const [delays, setDelays] = useState(log.delays || []);
+  const [signedName, setSignedName] = useState('');
+  const [pre, setPre] = useState(null);
+  const [preSaved, setPreSaved] = useState('');
+  const [queuedSubmit, setQueuedSubmit] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const fix = usePhoneLocation();
@@ -96,22 +154,44 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   const vidRef = useRef(null);
   const fileRef = useRef(null);
 
-  // Media already attached (the worker backgrounded the app and came back, or
-  // a manager bounced the log back for more).
+  // What the log drafts itself from (the phone's copy with no signal).
   useEffect(() => {
+    let live = true;
+    loadPrefill(project.id, log.logDate, { onCache: (at) => { if (live) setPreSaved(at); } })
+      .then((p) => { if (live) setPre(p); })
+      .catch(() => { /* no prefill: the log is still the person's to fill */ });
+    return () => { live = false; };
+  }, [project.id, log.logDate]);
+
+  // Media already attached (the worker backgrounded the app and came back, or
+  // a manager bounced the log back for more). A log made on this phone with
+  // no signal has none on the server yet.
+  useEffect(() => {
+    if (log.local) return;
     api.getConstructionMedia(log.id)
       .then((rows) => setItems(rows.map((m) => ({
         key: m.id, file: null, kind: m.kind, status: 'done', error: '',
         media: m, preview: m.thumbnailUrl || m.url,
       }))))
       .catch(() => { /* an empty strip is the correct fallback, not an error */ });
-  }, [log.id]);
+  }, [log.id, log.local]);
 
   const patch = useCallback((key, next) => {
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...next } : it)));
   }, []);
 
+  // No signal (or a log still on the phone): the photo waits in the outbox
+  // and goes up when there is signal - shown with its sync state.
+  const queuePhoto = useCallback(async (item) => {
+    try {
+      const out = await addLogPhoto(log, project, item.file);
+      if (out?.queued) patch(item.key, { status: 'queued', entryId: out.queued.id, error: '' });
+      else patch(item.key, { status: 'done', media: out.result, preview: out.result?.url || item.preview });
+    } catch (e) { patch(item.key, { status: 'error', error: e.message || 'Could not keep that file on this phone.' }); }
+  }, [log, project, patch]);
+
   const upload = useCallback(async (item) => {
+    if (isOffline() || log.local) { await queuePhoto(item); return; }
     patch(item.key, { status: 'uploading', error: '' });
     const { payload, error: upErr } = await uploadConstructionMedia(item.file, { projectId: project.id });
     if (upErr) { patch(item.key, { status: 'error', error: upErr }); return; }
@@ -119,12 +199,14 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
       const media = await api.createConstructionMedia(log.id, payload);
       patch(item.key, { status: 'done', media, preview: media.url });
     } catch (e) {
+      // The signal dropped mid-send: the outbox keeps it and sends it.
+      if (unanswered(e)) { await queuePhoto(item); return; }
       // Supabase has the bytes but the server has no row. Retry re-uploads to a
       // fresh key rather than trying to reconcile - a duplicate object is
       // cheap, a media row pointing at nothing is not.
       patch(item.key, { status: 'error', error: e.message || 'Could not attach that file.' });
     }
-  }, [log.id, project.id, patch]);
+  }, [log.id, log.local, project.id, patch, queuePhoto]);
 
   const add = useCallback((files) => {
     const picked = Array.from(files || []).filter(Boolean);
@@ -132,7 +214,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
     const rejected = picked.map((f) => ({ f, why: validate(f) })).filter((r) => r.why);
     if (rejected.length) setError(rejected[0].why);
     const accepted = picked.filter((f) => !validate(f));
-    const fresh = accepted.map(newItem);
+    const fresh = accepted.map((f) => ({ ...newItem(f), preview: kindOf(f) === 'photo' && typeof URL !== 'undefined' && URL.createObjectURL ? URL.createObjectURL(f) : '' }));
     setItems((prev) => [...prev, ...fresh]);
     // Sequential, not parallel: eight concurrent uploads on jobsite LTE is how
     // you get eight timeouts instead of eight files. Same reasoning as
@@ -192,16 +274,20 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   const failedReasons = [...new Set(
     items.filter((i) => i.status === 'error').map((i) => i.error).filter(Boolean),
   )];
-  const attached = items.filter((i) => i.status === 'done').length;
+  const attached = items.filter((i) => i.status === 'done' || i.status === 'queued').length;
   // A voice note still recording: Submit and Save & Close wait for Stop - the
   // clip is only kept once it is stopped.
-  const canSubmit = !submitting && !pending && !recording && (attached > 0 || notes.trim().length > 0);
+  const canSubmit = !submitting && !pending && !recording && (attached > 0 || notes.trim().length > 0) && signedName.trim().length > 1;
 
   // The typed half of the log. Media uploads itself the moment it is picked;
   // notes, crew and hours only exist in component state until this runs.
-  const patchLog = () => api.updateConstructionLog(log.id, {
+  const patchLog = () => saveLogPatch(log, {
     notes_raw: notes,
     tags,
+    weather,
+    ...(weatherTyped ? { weather_source: 'typed' } : {}),
+    ...(temp !== '' && temp !== null ? { temperature_f: Number(temp) } : {}),
+    delays: delays.filter((d) => d.cause).map((d) => ({ cause: d.cause, hours: Number(d.hours) || 0, note: d.note || '' })),
     ...(crew !== '' ? { crew_size: Number(crew) } : {}),
     ...(hours !== '' ? { hours_worked: Number(hours) } : {}),
     ...(fix ? { gps_latitude: fix.lat, gps_longitude: fix.lng, gps_accuracy_m: fix.acc || 0 } : {}),
@@ -234,7 +320,9 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
       // Notes and conditions are saved before submit, because submit freezes the
       // log - PATCH after that is a 409 by design.
       await patchLog();
-      await api.submitConstructionLog(log.id);
+      const out = await submitLog(log, signedName.trim());
+      // Saved on this phone: it goes out when there is signal, in order.
+      if (out?.queued) { setQueuedSubmit(out.queued.id); setSubmitting(false); return; }
       onSubmitted();
     } catch (e) {
       setSubmitting(false);
@@ -268,6 +356,17 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
           <div data-review-note="" style={{ marginTop: 16, padding: '10px 14px', borderRadius: 8, fontSize: '0.85rem',
             background: 'var(--bg-primary)', border: '1px solid var(--border-color)', lineHeight: 1.5 }}>
             <strong>{log.reviewedByName || 'Your manager'} asks:</strong> {log.reviewNote}
+          </div>
+        )}
+
+        <DraftedFrom pre={pre} savedAt={preSaved} />
+
+        {queuedSubmit && (
+          <div role="status" style={{ marginTop: 16, padding: '12px 14px', borderRadius: 8, border: '1px solid var(--border-color)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <b style={{ fontSize: '0.88rem' }}>Saved on This Phone</b>
+            <span style={{ flex: 1, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>The log, its photos and your signature go out when there is signal.</span>
+            <SyncState id={queuedSubmit} />
+            <button className="primary-btn" onClick={onSubmitted}>Done</button>
           </div>
         )}
 
@@ -350,7 +449,10 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
                   {it.status === 'done' && (
                     <CheckCircle2 size={14} style={{ position: 'absolute', top: 4, left: 4, color: 'hsl(var(--color-green))', backgroundColor: '#fff', borderRadius: '50%' }} />
                   )}
-                  {!it.media && (
+                  {it.status === 'queued' && (
+                    <span style={{ position: 'absolute', bottom: 4, left: 4, right: 4 }}><SyncState id={it.entryId} /></span>
+                  )}
+                  {!it.media && it.status !== 'queued' && (
                     <button type="button" onClick={() => drop(it)} title="Remove" aria-label="Remove"
                       style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,.55)', border: 'none', borderRadius: 6, color: '#fff', padding: 3, cursor: 'pointer', display: 'inline-flex' }}>
                       <Trash2 size={12} />
@@ -395,6 +497,19 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
           <textarea id="dl-notes" ref={notesRef} className="form-input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)}
             placeholder="Anything the photos do not show - or tap the mic and say it" style={{ resize: 'vertical', fontFamily: 'inherit' }} />
 
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 12, marginTop: 12 }}>
+            <div>
+              <label className="form-label" htmlFor="dl-weather">Weather {log.weatherSource === 'forecast' && !weatherTyped && weather ? <StatusLabel size="sm" label="From the Forecast" color={TONE.slate} /> : null}</label>
+              <input id="dl-weather" className="form-input" value={weather} onChange={(e) => { setWeather(e.target.value); setWeatherTyped(true); }}
+                placeholder="e.g. Clear, high 75°F" />
+            </div>
+            <div>
+              <label className="form-label" htmlFor="dl-temp">Temperature (°F)</label>
+              <input id="dl-temp" className="form-input" type="number" inputMode="decimal" value={temp ?? ''}
+                onChange={(e) => { setTemp(e.target.value); setWeatherTyped(true); }} placeholder="e.g. 68" />
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
             <div>
               <label className="form-label" htmlFor="dl-crew">Crew Size</label>
@@ -430,6 +545,38 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
               })}
             </div>
           </div>
+          {/* One line per delay (11/03/2026): the weekly report adds the hours
+              by cause - a weather-delay summary from what the crew wrote. */}
+          <div style={{ marginTop: 14 }} data-delays="">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="form-label" style={{ margin: 0 }}>Delays</span>
+              <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem' }}
+                onClick={() => setDelays((d) => [...d, { cause: 'weather', hours: '', note: '' }])}>Add Delay</button>
+            </div>
+            {delays.length === 0 && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>No delays today.</div>}
+            {delays.map((d, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                <select className="form-input" aria-label="What caused it" value={d.cause} style={{ flex: '1 1 130px' }}
+                  onChange={(e) => setDelays((x) => x.map((y, j) => (j === i ? { ...y, cause: e.target.value } : y)))}>
+                  {DELAY_CAUSES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
+                <input className="form-input" aria-label="Hours lost" type="number" min="0" max="24" step="0.25" inputMode="decimal" placeholder="Hours lost"
+                  value={d.hours} style={{ flex: '0 1 110px' }}
+                  onChange={(e) => setDelays((x) => x.map((y, j) => (j === i ? { ...y, hours: e.target.value } : y)))} />
+                <input className="form-input" aria-label="What happened" placeholder="What happened" value={d.note || ''} style={{ flex: '2 1 160px' }}
+                  onChange={(e) => setDelays((x) => x.map((y, j) => (j === i ? { ...y, note: e.target.value } : y)))} />
+                <button type="button" className="secondary-btn" aria-label="Remove this delay" style={{ padding: 8 }}
+                  onClick={() => setDelays((x) => x.filter((_, j) => j !== i))}><Trash2 size={14} /></button>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <label className="form-label" htmlFor="dl-sign">Sign With Your Name</label>
+            <input id="dl-sign" className="form-input" value={signedName} onChange={(e) => setSignedName(e.target.value)}
+              placeholder="Type your full name to sign this log" autoComplete="name" />
+          </div>
+
           {fix && (
             <div style={{ marginTop: 10, fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <MapPin size={12} />Your location goes with this log.
@@ -457,7 +604,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
           {/* No inline background: .primary-btn already carries var(--pine) and
               dims itself at :disabled. */}
           <button className="primary-btn" onClick={submit} disabled={!canSubmit}
-            title={recording ? STOP_VOICE_FIRST : pending ? 'Wait for uploads to finish' : !canSubmit ? 'Attach something or write a note' : ''}>
+            title={recording ? STOP_VOICE_FIRST : pending ? 'Wait for uploads to finish' : !signedName.trim() ? 'Type your name to sign' : !canSubmit ? 'Attach something or write a note' : ''}>
             <Send size={15} />{submitting ? 'Submitting…' : 'Submit'}
           </button>
         </div>
