@@ -450,6 +450,9 @@ keep the diff minimal.
   `reminders_loop`); a route with its own key keeps it (Forms' `entryKey`).
   Never add a second outbox, a second offline cache, a caching rule for the
   API in the worker, or a retry layer on top of api.js's GET retries.
+  Nothing is queued under Act As. The emergency switch is the build variable
+  `VITE_OFFLINE_SHELL=off` + a redeploy (the worker empties its caches and
+  answers nothing, push stays; never unregister it - runbook in the guide).
   `bodQueue` / `punchQueue` keep their own (time-window) rules.
 - **Forms are templates (Neil, 11/02/2026, `docs/Forms.md`):** a field form
   (inspection, incident report, vehicle check, checklist) is a `DocTemplate`

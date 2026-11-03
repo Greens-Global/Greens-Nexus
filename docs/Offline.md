@@ -29,9 +29,12 @@ manifest, the icons). Install saves them in `nexus-shell-<build id>`.
 
 Routing:
 
-- **Pages (navigations): network first.** Online it is always the server's
-  copy (index.html is `no-cache`), never a stale one. The saved copy answers
-  only when the network does not. With nothing saved: a plain "You Are
+- **Pages (navigations): network first.** Online and responsive it is always
+  the server's copy (index.html is `no-cache`), never a stale one. With no
+  signal the saved copy answers (this build's, else the one build before -
+  its files are kept with it). On a signal so weak the page has not come back
+  in 10 s, THIS build's saved page answers - never an older build's; with
+  none saved it keeps waiting. With nothing saved at all: a plain "You Are
   Offline" page, never blank.
 - **`/assets/*`: cache first.** Hashed and immutable. A hashed file fetched
   online is saved too, so any screen used online opens offline later.
@@ -44,21 +47,63 @@ Updates: a deploy changes `sw.js` (the file list), which is how phones notice
 (`/sw.js` is `no-cache` in `_headers`, registered with `updateViaCache:
 'none'`). The new worker saves its files, then takes over (`skipWaiting` +
 `clients.claim`). That is safe for an open tab: pages stay network first and
-the previous build's cache is kept one generation, so a tab still on the old
-build can open its old chunks. Nothing reloads a page; the existing "new
+exactly the build before is kept, so a tab still on the old build can open
+its old chunks. The order is recorded in one place (the `nexus-offline-meta`
+cache: `{ current, previous }`), never guessed from cache names; every other
+`nexus-shell-*` cache is deleted on activate. Install copies each unchanged
+hashed file from the build before instead of downloading it again. Nothing
+reloads a page; the existing "new
 version" bar (`lib/useBuildVersion.js`) asks the person. `guard.js` and
 `ViewErrorBoundary` never reload while offline (a reload cannot fetch a
 missing chunk); they say "You Are Offline" and retry when the signal is back.
 
-Size: about 78 files / 4.7 MB per deploy (most of it is first paint, already
-in the browser's HTTP cache). Every file in `OFFLINE_SCREENS` is downloaded by
-every phone after every deploy - add field screens only.
+Size: the first-paint graph plus the field screens (Workday - `TimeClock.jsx`
+is the Workday page, `MyHR.jsx` its overview with Fill a Form and My Shifts -
+FillForm, the signature pad, the QR fallback, the outbox screens). The
+manager's planner (`views/Shifts.jsx`, with its maps) is deliberately NOT in
+the list. Unchanged files are copied between builds, so a deploy downloads
+only what changed. Add field screens only.
+
+### Kill switch (runbook)
+
+If the offline shell ever misbehaves in production:
+
+1. Cloudflare Pages > the Nexus project > Settings > Environment variables:
+   add `VITE_OFFLINE_SHELL` = `off` (Production, and Preview for dev).
+   For the GitHub-built prod bundle, set the same variable on the build step
+   (`deploy-cloudflare.yml` env) instead.
+2. Redeploy (retry the latest deployment, or push an empty commit).
+3. The build prints `offline shell: OFF` and writes `const KILL = true` into
+   `sw.js` with no file list. Each phone picks the new worker up on its next
+   load (`/sw.js` is no-cache); it deletes every `nexus-shell-*` cache and
+   the meta cache on activate, claims open tabs and answers no request -
+   everything goes to the network exactly as with no worker. Push keeps
+   working: the worker is never unregistered (that would drop every push
+   subscription).
+4. The app's own offline layer (the read cache and the outbox) keeps
+   working - it does not depend on the worker; only opening the app with no
+   signal stops.
+5. To turn it back on: remove the variable and redeploy.
 
 Opening offline also needs a person: MSAL keeps its account in localStorage;
 in BFF mode (the hosted app) `bffBootstrap` remembers the last signed-in
-email and name (`nexus:offline-me`, nothing that signs anyone in) and opens
-the shell with it when there is no signal. The session cookie stays the only
-proof of identity for every request. `RoleContext` reads `/roles/me` and the
+email and name and when the session must have expired (`nexus:offline-me`:
+the server's idle days from `/auth/me` `sessionIdleDays`, counted from that
+boot - nothing that signs anyone in). It opens the shell with it only when
+the phone truly cannot reach the site (the browser says offline, or not even
+the static `/version.json` answers) and only before that expiry; a failed API
+call behind a working connection keeps the "Reconnecting" screen. The session
+cookie stays the only proof of identity for every request.
+
+**iPhones: install to the Home Screen.** Safari deletes a site's stored data
+(the saved shell, the read cache, unsent changes) after 7 days without a
+visit. A web app added to the Home Screen (Share > Add to Home Screen; the
+Profile menu shows the hint) is not subject to that. Tell every crew member
+on an iPhone to install Nexus before relying on it offline, and to open it
+at least once a week. Android and desktop Chrome keep the data (the app asks
+for persistent storage when it first holds a photo).
+
+`RoleContext` reads `/roles/me` and the
 groups through `offlineRead`, so the app opens at the person's own access.
 
 ## 2. The read cache and blobs (`store.js`)
@@ -83,18 +128,24 @@ const jobs = await readThrough('construction:my-jobs', () => api.getMyJobs(), {
 
 **Privacy.** Every saved dataset is stamped with the person (`identity.js`:
 the signed-in account plus the Act As session). A read for anyone else finds
-nothing. The whole read cache is cleared on sign out (MSAL `LOGOUT_START`),
-when a different person signs in (checked at boot), and on every Act As start
-or stop (`api.js` fires `nexus:identity-change`). Copies older than 30 days
-are not shown.
+nothing. The whole read cache is cleared - and the sign out WAITS for it,
+bounded to 1.5 s (`clearOfflineReadCache`) - before every sign-out
+navigation: BFF `bffLogout`, the shared-browser purge when a different person
+signs in, and the MSAL Sign Out in the header and the phone menu. It is also
+cleared on MSAL `LOGOUT_START`, when a different person is found at boot, and
+on every Act As start or stop (`api.js` fires `nexus:identity-change`).
+Copies older than 30 days are not shown.
 
 **Blobs.** Photos and files taken offline: `putBlob(file, { ref })` keeps the
 bytes (as ArrayBuffers - old iOS Safari lost Blob values in IndexedDB); the
 answer carries `nexus-offline:<id>` until it uploads; `HeldImage` shows it
 from the phone (`blob:` URLs, allowed by the CSP). Caps: 100 MB for one file,
-200 MB together (`MAX_ONE_BLOB_BYTES`, `MAX_BLOB_BYTES`); past them the person
-is told to send what is waiting first. Drafts' blobs nobody came back to go
-after 14 days.
+200 MB per person (`MAX_ONE_BLOB_BYTES`, `MAX_BLOB_BYTES` - one crew member's
+backlog on a shared tablet never blocks the next); past them the person is
+told to send what is waiting first. Drafts' blobs nobody came back to go
+after 14 days; outbox blobs whose change is gone (any identity) are swept at
+start. An uploaded blob keeps its URL on its own row, so it is never uploaded
+twice.
 
 ## 3. The outbox (`outbox.js`)
 
@@ -116,19 +167,29 @@ ONE outbox for every field change. It is `lib/punchQueue.js` /
    never redirects to Microsoft while offline.
 6. **409 is a conflict**: the entry keeps the server's value (`server`, from
    the error body) and the person chooses **Keep Mine** (the kind's `rebase`
-   builds the resend) or **Use Theirs** (the change is dropped; the kind's
-   `useTheirs` may refresh the screen). Never a silent overwrite.
+   builds the resend) or **Use Theirs** (held - `HoldButton`, `HOLD_RECORD_MS`;
+   offered only when the kind has `useTheirs`, which may refresh the screen).
+   Never a silent overwrite. A kind whose 409 is a transient race says so
+   with `classify` (Forms: retried with the same entryKey).
 7. **Any other 4xx is an answer**: Not Sent, with the server's message;
-   Retry or Discard (held - `HoldButton`).
+   **Open and Fix** when the kind has `fix` (Forms: back into the fill
+   screen as a draft, same entryKey, photos kept), Retry, or Discard (held).
 8. **Order**: entries of one `group` (default: the kind) go in the order
    they were made; `after: [id]` waits for other entries and `ctx.result(id)`
    hands their answer on (a log first, then the photos on it).
-9. One flush at a time, one tab at a time (Web Locks where the browser has
-   them; otherwise the idempotency key makes a double send harmless).
+9. One flush at a time, one tab at a time: Web Locks where the browser has
+   them, otherwise a 30 s lease in localStorage (`nexus:outbox-lease`,
+   renewed while sending, released after; the other tabs look again in
+   3 s). The idempotency key makes a rare double send harmless either way.
 10. Caps: 300 entries, the blob caps above.
 11. Only the signed-in person's entries are listed or sent. An unsent change
     is NOT cleared on sign out - it is the person's work; it stays on the
     phone under their name and sends when they sign in again.
+12. **Act As**: nothing is queued while acting as someone (the change sends
+    online or not at all, with "While you are acting as someone else, changes
+    are not saved on this phone"), so nothing can send later as the wrong
+    person. Changes of the same email from another session are listed apart
+    ("N changes from another session") and can only be discarded (held).
 
 Entry shape: `{ id, kind, group, payload, blobs, after, label, owner,
 createdAt, seq, attempts, nextAt, state, error, server, result, progress,
@@ -264,6 +325,14 @@ and run `get_advisors` (security) on both.
   uploads the photos to `task-files/forms/<entryKey>/` once each and sends the
   same `POST /forms/{id}/entries`; the server answers a resend with the first
   entry. A refusal online is shown as before and nothing is queued.
+- A 409 on replay is the insert race (`routers/forms.py`: "Could not file the
+  entry - try again"): retried with the SAME entryKey - the next try finds
+  the first entry by its key, so it can never file two. A key that belongs
+  to another entry is a refusal.
+- Refused on replay (a form rule, 403): **Open and Fix** puts the answers
+  back in the fill screen's draft with the same entryKey (a fresh one only
+  when the key belonged to another entry), photos already uploaded as their
+  URLs and the rest handed to the draft, and opens the form on Workday.
 - Still one engine, one entry store.
 
 ## 7. Testing offline
@@ -271,7 +340,10 @@ and run `get_advisors` (security) on both.
 Unit (`npx vitest run`): `src/lib/offline/*.test.js` (store, outbox,
 manifest - on `fake-indexeddb`), `src/components/offline/offline.test.jsx`,
 `src/forms/FillForm.offline.test.jsx`, `src/lib/sw.test.js` (routing, shell,
-install, activate). Backend: `python -m pytest test_idempotency.py` (alone).
+the 10 s weak-signal rule, install, build order over many deploys, the kill
+switch), `src/bffAuth.offline.test.js`, `src/components/MobileMenu.signout.test.jsx`.
+Backend (one file per process): `python -m pytest test_idempotency.py`,
+`python -m pytest test_auth_me_idle.py`.
 
 By hand, on a production build (the worker does nothing in `npm run dev`):
 
