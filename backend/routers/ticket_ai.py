@@ -29,7 +29,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-import auth
 import models
 import ticket_ai
 import ticket_roles
@@ -49,7 +48,7 @@ def _desk_ticket(db: Session, user: dict, ticket_id: str) -> models.TaskTicket:
     """The ticket, for a desk agent who may open it. Another company's ticket
     is 404 (the company wall, before any role check); off the desk is 403."""
     t = T._conversation_ticket_or_404(db, ticket_id)
-    auth.assert_company(t.company_id or "", user, db)
+    ticket_roles.assert_company(t.company_id or "", user, db)
     if not ticket_roles.can_work_queue(user, db):
         raise HTTPException(403, "AI features are for the service desk.")
     return t

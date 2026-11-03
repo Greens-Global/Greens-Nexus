@@ -237,8 +237,8 @@ class CompanyWallsTests(unittest.TestCase):
         self.assertTrue({"tkt-walls-a", "tkt-walls-b"} <= g)
         self._arm(False)
         auth.invalidate_role_cache()
-        adm = self._get_ids("/task-tickets", ADMIN_A)
-        self.assertIn("tkt-walls-a", adm); self.assertNotIn("tkt-walls-b", adm)
+        adm = self._get_ids("/task-tickets", ADMIN_A)  # hotfix 11/04/2026: an Administrator sees every company's tickets
+        self.assertTrue({"tkt-walls-a", "tkt-walls-b"} <= adm)
 
     def _mk_item(self, iid, company):
         db = database.SessionLocal()
