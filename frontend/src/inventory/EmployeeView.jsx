@@ -17,6 +17,7 @@ import { runBatchReRequest } from './checkout/batchReRequest';
 import { AllocateModal } from './checkout/AllocateModal';
 import { MyCheckoutsPanel } from './checkout/MyCheckoutsPanel';
 import { ItemPhotoGrid } from './catalog/ItemPhotoGrid';
+import { ItemScanButton } from './scan/ItemScanButton';
 
 // ── Employee View ─────────────────────────────────────────────────────────────
 export const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, initiateHandover, confirmReceipt, toast, showManage = false, onEnterManage }) {
@@ -209,9 +210,12 @@ export const EmployeeView = memo(function EmployeeView({ items, checkouts, activ
   if (mode === 'home') {
     return (
       <div style={{ animation:'fadeIn var(--transition-normal) ease-in-out' }}>
-        <div style={{ marginBottom:32 }}>
-          <h2 style={{ fontSize:20, fontWeight:700, margin:'0 0 4px' }}>Item Management</h2>
-          <p style={{ fontSize:13, color:'var(--muted)', margin:0 }}>What would you like to do today?</p>
+        <div style={{ marginBottom:32, display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12 }}>
+          <div>
+            <h2 style={{ fontSize:20, fontWeight:700, margin:'0 0 4px' }}>Item Management</h2>
+            <p style={{ fontSize:13, color:'var(--muted)', margin:0 }}>What would you like to do today?</p>
+          </div>
+          <ItemScanButton />
         </div>
         {(() => {
           // Neil: top row groups the "do something with items" actions and spans the full
@@ -276,6 +280,8 @@ export const EmployeeView = memo(function EmployeeView({ items, checkouts, activ
           onMouseLeave={e => e.currentTarget.style.color='var(--muted)'}>
           <ArrowLeft size={14} /> Back to Home
         </button>
+        {/* Scan sits beside Back: on a phone the cart is pinned top right. */}
+        <ItemScanButton style={{ marginRight:'auto' }} />
         <button onClick={() => setCartOpen(true)}
           className="header-cart"
           style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative', fontSize:14.5, fontWeight:700, padding:'10px 22px', background:'#000', color:'#fff', border:'1px solid #000', borderRadius:9, cursor:'pointer', fontFamily:'Inter,sans-serif', flexShrink:0 }}>

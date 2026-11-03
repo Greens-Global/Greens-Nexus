@@ -33,6 +33,8 @@ import { ManagerManageTab } from '../inventory/manage/ManagerManageTab';
 import { OverdueAlertModal } from '../inventory/admin/OverdueAlertModal';
 import { WhoHasItTab } from '../inventory/whohas/WhoHasItTab';
 import { AuditLogPanel } from '../inventory/audit/AuditLogPanel';
+// QR tags + phone scan (Items phase 4, Neil 11/02/2026) - see inventory/scan/index.js.
+import { ItemScanHost, ItemScanButton, printItemTags } from '../inventory/scan';
 
 // Borrowed by other modules (asset/App.jsx, components/PurchaseRequests.jsx,
 // views/AdminConsole.jsx) and their tests - keep these re-exports.
@@ -44,7 +46,7 @@ export { SendAlertModal } from '../inventory/admin/SendAlertModal';
 // ── Main view ─────────────────────────────────────────────────────────────────
 const INV_VALID_TABS = ['myitems','catalog','manage','checkouts','whohasit','audit'];
 
-export default function InventoryManagement({ activeSub }) {
+export default function InventoryManagement({ activeSub, onSubChange }) {
   const {
     items, itemsLoading, itemsError,
     checkouts, checkoutsLoading, checkoutsError,
@@ -449,10 +451,12 @@ export default function InventoryManagement({ activeSub }) {
 
   // Everyone lands on the normal employee screen. Managers get a "Manage" tab on it
   // that flips into the full management UI below (Neil). Employees never see it.
+  const scanHost = <ItemScanHost activeSub={activeSub} onSubChange={onSubChange} userEmail={userEmail} userName={userName} isManager={isManager} toast={toast} />;
   if (!isManager || !manageMode) {
     return (
       <>
         {acceptBanner}
+        {scanHost}
         <EmployeeView
           items={items} checkouts={checkouts} activeSub={activeSub}
           userName={userName} userEmail={userEmail}
@@ -531,6 +535,7 @@ export default function InventoryManagement({ activeSub }) {
               the right edge instead of floating next to hidden filters */}
           {/* header-cart: phones pin this to ONE fixed spot (title row, top
               right) on every tab - no FAB, no drifting (Visesh) */}
+          <ItemScanButton />
           <button className="header-cart"
             style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative', background:'#000', color:'#fff', border:'1px solid #000', borderRadius:9, fontWeight:700, padding:'8px 18px', cursor:'pointer', fontFamily:'Inter,sans-serif' }}
             onClick={() => setCartOpen(true)}>
@@ -599,7 +604,7 @@ export default function InventoryManagement({ activeSub }) {
           onDelete={setDeletingItem} onImport={openImport}
           onExport={exportCsv} onExportAllPdf={exportAllPdf} onReport={openReport}
           checkouts={checkouts} toast={toast}
-          onAssign={openAssign} onDetails={setDetailsItem}
+          onAssign={openAssign} onDetails={setDetailsItem} onPrintTags={printItemTags}
           onShowDeleted={() => setDeletedOpen(true)}
           // Manage Types / Add Custom Field moved to the Admin module in full
           // (Pranshu, Sep 9) - no longer triggered from here.
@@ -745,6 +750,7 @@ export default function InventoryManagement({ activeSub }) {
         onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={cartBusy}
         onDaysChange={handleDaysChange} showApprover />
 
+      {scanHost}
       <Toast toasts={toasts} onDismiss={dismissToast} />
     </div>
   );

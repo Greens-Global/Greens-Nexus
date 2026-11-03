@@ -1,7 +1,7 @@
 // Item Management - Manage > Manage: the item list, filters, KPIs and batch tools.
 // Moved out of views/InventoryManagement.jsx unchanged (items split, Nov 2 2026).
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
-import { Package, Plus, Search, AlertCircle, X, ChevronDown, UploadCloud, FileSpreadsheet, Download, Pencil, Trash2, FileBarChart, ArrowUpDown, Tag, Settings2 } from 'lucide-react';
+import { Package, Plus, Search, AlertCircle, X, ChevronDown, UploadCloud, FileSpreadsheet, Download, Pencil, Trash2, FileBarChart, ArrowUpDown, Tag, Settings2, QrCode } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
 import { api } from '../../api';
 import { ITEM_TYPES, displayStatus } from '../model/status';
@@ -13,7 +13,7 @@ import { BatchEditModal } from './BatchEditModal';
 import { BatchPhotoModal } from './BatchPhotoModal';
 import { ManageRow, ManageCard } from './ManageRow';
 
-export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', cardFilter = null, search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, onManageTypes, itemTypes = ITEM_TYPES, filterControls, kpiStrip, highlightId, onHighlightDone }) {
+export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', cardFilter = null, search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, onManageTypes, itemTypes = ITEM_TYPES, filterControls, kpiStrip, highlightId, onHighlightDone, onPrintTags }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [exportMenu,         setExportMenu]         = useState(false); // Export ▾ dropdown
   const [manageMenu,         setManageMenu]         = useState(false); // Manage ▾ dropdown (admin extras)
@@ -347,6 +347,13 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
             title={`Batch edit the ${selItems.length} selected item${selItems.length !== 1 ? 's' : ''}`}
             style={{ display:'inline-flex', alignItems:'center', gap:7 }}>
             <Pencil size={14} /> Batch edit ({selItems.length})
+          </button>
+        )}
+        {/* QR tags for the ticked rows (Items phase 4, Neil 11/02/2026). */}
+        {onPrintTags && selected.size > 0 && (
+          <button className="secondary-btn" onClick={() => onPrintTags(selItems)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7 }}>
+            <QrCode size={14} /> Print Tags ({selItems.length})
           </button>
         )}
         {/* Assignment moved INTO Batch Edit (Neil) - no separate Assign button. */}
