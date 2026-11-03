@@ -10,13 +10,16 @@
 // OFFLINE APP SHELL. The build writes MANIFEST below (scripts/offline-
 // manifest.mjs): the build id, the app shell's hashed JS / CSS (the entry and
 // everything it imports statically) plus the field screens' chunks (Fill a
-// Form, Workday, My Shifts, the outbox screens - OFFLINE_SCREENS in that
-// script), and the few unhashed files the shell needs (guard.js, the
-// manifest, the icons). Install saves them in a cache named for the build.
+// Form on Workday, the outbox screens - OFFLINE_SCREENS in that script), and
+// the few unhashed files the shell needs (guard.js, the manifest, the icons).
+// Install saves them in a cache named for the build (a hashed file the
+// previous build already holds is copied over, not fetched again).
 // Routing, and nothing else:
 //   * the page itself (a navigation) - NETWORK FIRST. Online it is always
-//     the server's copy (index.html is no-cache), never a stale one; the saved
-//     copy answers only when the network does not (no signal);
+//     the server's copy (index.html is no-cache), never a stale one. The saved
+//     copy answers when the network does not (no signal) and, on a signal so
+//     weak the page has not come back in NAV_TIMEOUT_MS, the CURRENT build's
+//     saved copy answers (never an older build's - its files may be gone);
 //   * /assets/* (content-hashed, immutable) - CACHE FIRST, and a hashed file
 //     fetched while online is saved too, so a screen used online opens offline;
 //   * the API - NEVER cached here: it is another origin (the Azure API) or
@@ -28,27 +31,37 @@
 //     straight through.
 // Updates: a new deploy is a new sw.js (the manifest changes), installed in the
 // background; once its files are saved it takes over (skipWaiting + claim).
-// That is safe for an open tab: pages stay network first, and the previous
-// build's cache is kept one generation, so a tab still on the old build can
-// open its old chunks; older caches are removed. The tab learns of the new
-// build from the existing "new version" bar (lib/useBuildVersion.js) and
-// reloads when the person chooses - nothing here reloads a page.
+// That is safe for an open tab: pages stay network first, and EXACTLY the
+// build before is kept (the order is recorded in META_CACHE, never guessed
+// from cache names), so a tab still on it can open its old chunks; every
+// other shell cache is removed. The tab learns of the new build from the
+// existing "new version" bar (lib/useBuildVersion.js) and reloads when the
+// person chooses - nothing here reloads a page.
+//
+// KILL SWITCH (docs/Offline.md runbook): a build with VITE_OFFLINE_SHELL=off
+// writes KILL = true and no MANIFEST. That worker deletes every shell cache
+// on activate, answers no request (everything goes to the network as if there
+// were no worker) and keeps push. It is never unregistered - that would drop
+// every phone's push subscription.
 //
 // Served from /sw.js (frontend/public), scope '/'. Registered by
 // src/lib/pwa.js. In `npm run dev` MANIFEST stays null and this worker never
 // touches a request (push only).
 const MANIFEST = null; // @nx-offline-manifest (replaced by the build)
+const KILL = false; // @nx-offline-kill (true when built with VITE_OFFLINE_SHELL=off)
 
 const PREFIX = 'nexus-shell-';
+const META_CACHE = 'nexus-offline-meta';     // { current, previous } - the one record of build order
+const META_KEY = '/__nexus-shell-builds';
 const SHELL_KEY = '/index.html';
 const CURRENT = MANIFEST ? `${PREFIX}${MANIFEST.build}` : '';
-const ORDER_KEY = '/__nexus-shell-order';
+const NAV_TIMEOUT_MS = 10000;
 // Never answered here, whatever they are.
 const PASS_PREFIXES = ['/api/', '/auth-popup', '/outlook-addin/', '/pdf-editor-app/', '/careers', '/assets-404'];
 const PASS_EXACT = new Set(['/api', '/version.json', '/sw.js']);
 
 function route(request) {
-  if (!MANIFEST || request.method !== 'GET') return 'pass';
+  if (KILL || !MANIFEST || request.method !== 'GET') return 'pass';
   let url;
   try { url = new URL(request.url); } catch { return 'pass'; }
   if (url.origin !== self.location.origin) return 'pass';           // the API host, Supabase, fonts, Microsoft
@@ -66,47 +79,69 @@ async function cacheNames() {
   return all.filter((n) => n.startsWith(PREFIX));
 }
 
-// The current build's cache first, then the ones kept from before. Vary is
-// ignored: a module script asks with an Origin header the install fetch did
-// not send, and a `Vary: Origin` answer would otherwise never match - every
-// saved file would miss offline (found on the first offline run, 11/03/2026).
-// The files are content-hashed or this build's own, so one copy fits all.
+async function readBuilds() {
+  try {
+    const r = await (await caches.open(META_CACHE)).match(META_KEY);
+    const v = r ? await r.json() : null;
+    return v && typeof v === 'object' ? { current: v.current || '', previous: v.previous || '' } : { current: '', previous: '' };
+  } catch { return { current: '', previous: '' }; }
+}
+
+// Vary is ignored: a module script asks with an Origin header the install
+// fetch did not send, and a `Vary: Origin` answer would otherwise never match
+// - every saved file would miss offline (found on the first offline run,
+// 11/03/2026). The files are content-hashed or this build's own.
+async function matchIn(name, request, opts = {}) {
+  if (!name || !(await caches.has(name))) return null;
+  return (await (await caches.open(name)).match(request, { ignoreVary: true, ...opts })) || null;
+}
+
+// This build's cache, then the one build before it - the only two kept.
 async function matchAny(request, opts = {}) {
-  opts = { ignoreVary: true, ...opts };
-  const names = await cacheNames();
-  names.sort((a, b) => (a === CURRENT ? -1 : b === CURRENT ? 1 : 0));
-  for (const n of names) {
-    const c = await caches.open(n);
-    const hit = await c.match(request, opts);
-    if (hit) return hit;
-  }
-  return null;
+  const hit = await matchIn(CURRENT, request, opts);
+  if (hit) return hit;
+  const { previous } = await readBuilds();
+  return previous && previous !== CURRENT ? matchIn(previous, request, opts) : null;
 }
 
 const isHtml = (res) => (res.headers.get('content-type') || '').includes('text/html');
 
-async function page(request) {
-  try {
-    const res = await fetch(request);
-    // Keep the newest shell for when there is no signal - only the real page
-    // (a 200 from this origin, not a redirect, not an error page).
-    if (res.ok && res.type === 'basic' && !res.redirected && isHtml(res)) {
-      const copy = res.clone();
-      caches.open(CURRENT).then((c) => c.put(SHELL_KEY, copy)).catch(() => {});
-    }
-    return res;
-  } catch {
-    const hit = await matchAny(SHELL_KEY);
-    if (hit) return hit;
-    return new Response(
-      '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-      + '<title>Nexus</title><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;'
-      + 'display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f6f7fb;color:#323338">'
-      + '<div style="text-align:center;max-width:340px;padding:24px"><h1 style="font-size:18px">You Are Offline</h1>'
-      + '<p style="font-size:14px;line-height:1.5;color:#676879">Open this once with signal and it will open offline after that.</p></div>',
-      { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
-    );
+function keepShell(res) {
+  // Keep the newest shell for when there is no signal - only the real page
+  // (a 200 from this origin, not a redirect, not an error page).
+  if (res.ok && res.type === 'basic' && !res.redirected && isHtml(res)) {
+    const copy = res.clone();
+    caches.open(CURRENT).then((c) => c.put(SHELL_KEY, copy)).catch(() => {});
   }
+  return res;
+}
+
+const offlinePage = () => new Response(
+  '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+  + '<title>Nexus</title><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;'
+  + 'display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f6f7fb;color:#323338">'
+  + '<div style="text-align:center;max-width:340px;padding:24px"><h1 style="font-size:18px">You Are Offline</h1>'
+  + '<p style="font-size:14px;line-height:1.5;color:#676879">Open this once with signal and it will open offline after that.</p></div>',
+  { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+);
+
+async function page(request) {
+  const network = fetch(request).then(keepShell);
+  network.catch(() => {});                       // a late failure after the timeout answered
+  let timer;
+  const slow = new Promise((resolve) => { timer = setTimeout(() => resolve('slow'), NAV_TIMEOUT_MS); });
+  try {
+    const first = await Promise.race([network, slow]);
+    if (first !== 'slow') return first;
+    // A signal too weak to bring the page back: this build's saved page
+    // (its files are in this build's cache). Without one, keep waiting.
+    const mine = await matchIn(CURRENT, SHELL_KEY);
+    return mine || await network;
+  } catch {
+    // No signal at all: this build's page, else the one build before (its
+    // files are kept with it), else a plain page - never blank.
+    return (await matchAny(SHELL_KEY)) || offlinePage();
+  } finally { clearTimeout(timer); }
 }
 
 async function asset(request) {
@@ -131,7 +166,7 @@ async function staticFile(request) {
     }
     return res;
   } catch (e) {
-    // guard.js is stamped ?v=<build>: any saved build's copy is better than none.
+    // guard.js is stamped ?v=<build>: this build's copy, else the one before.
     const hit = await matchAny(request, { ignoreSearch: true });
     if (hit) return hit;
     throw e;
@@ -148,12 +183,19 @@ self.addEventListener('fetch', (event) => {
 
 async function precache() {
   const cache = await caches.open(CURRENT);
+  const { current: before } = await readBuilds();   // the build this one replaces
   const urls = [...(MANIFEST.assets || []), ...(MANIFEST.static || []).map((p) => `${p}?v=${MANIFEST.build}`)];
   // One failed file does not stop the rest (a retry happens on the next load).
   await Promise.allSettled(urls.map(async (u) => {
-    if (await cache.match(u, { ignoreSearch: !u.startsWith('/assets/'), ignoreVary: true })) return;
-    const res = await fetch(u, { cache: u.startsWith('/assets/') ? 'default' : 'reload' });
-    if (res.ok && !(u.startsWith('/assets/') && isHtml(res))) await cache.put(u, res);
+    const hashed = u.startsWith('/assets/');
+    if (await cache.match(u, { ignoreSearch: !hashed, ignoreVary: true })) return;
+    // A hashed file the build before already holds is the same bytes: copy it.
+    if (hashed && before && before !== CURRENT) {
+      const old = await matchIn(before, u);
+      if (old) { await cache.put(u, old); return; }
+    }
+    const res = await fetch(u, { cache: hashed ? 'default' : 'reload' });
+    if (res.ok && !(hashed && isHtml(res))) await cache.put(u, res);
   }));
   try {
     const shell = await fetch('/', { cache: 'reload' });
@@ -163,28 +205,25 @@ async function precache() {
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
-    if (MANIFEST) { try { await precache(); } catch { /* best effort - the shell still works online */ } }
+    if (MANIFEST && !KILL) { try { await precache(); } catch { /* best effort - the shell still works online */ } }
     await self.skipWaiting();
   })());
 });
 
-// Keep this build's cache and the one before it (an open tab may still be on
-// it); remove the rest. The order lives in a tiny entry of the current cache.
+// Keep exactly this build's cache and the one it replaced (an open tab may
+// still be on it); remove every other shell cache. The order is recorded in
+// META_CACHE as { current, previous } - never read from caches.keys(), whose
+// order is creation order and would keep an ancient build forever.
 async function cleanUp() {
+  if (KILL) {
+    for (const n of await caches.keys()) if (n.startsWith(PREFIX) || n === META_CACHE) await caches.delete(n);
+    return;
+  }
   if (!MANIFEST) return;
-  const cache = await caches.open(CURRENT);
-  let order = [];
-  try {
-    const all = await cacheNames();
-    for (const n of all) {
-      const c = await caches.open(n);
-      const r = await c.match(ORDER_KEY);
-      if (r) { const list = await r.json(); if (Array.isArray(list) && list.length > order.length) order = list; }
-    }
-  } catch { order = []; }
-  order = [CURRENT, ...order.filter((n) => n !== CURRENT)].slice(0, 2);
-  await cache.put(ORDER_KEY, new Response(JSON.stringify(order), { headers: { 'Content-Type': 'application/json' } }));
-  for (const n of await cacheNames()) if (!order.includes(n)) await caches.delete(n);
+  const was = await readBuilds();
+  const previous = was.current && was.current !== CURRENT ? was.current : (was.previous !== CURRENT ? was.previous : '');
+  await (await caches.open(META_CACHE)).put(META_KEY, new Response(JSON.stringify({ current: CURRENT, previous }), { headers: { 'Content-Type': 'application/json' } }));
+  for (const n of await cacheNames()) if (n !== CURRENT && n !== previous) await caches.delete(n);
 }
 
 self.addEventListener('activate', (event) => {

@@ -27,8 +27,12 @@ export const OFFLINE_SCREENS = [
   'src/forms/FillForm.jsx',
   'src/forms/FormsTile.jsx',
   'src/forms/formsOffline.js',
-  'src/views/MyHR.jsx',           // Workday (hosts the Fill a Form tile)
-  'src/views/Shifts.jsx',         // My Shifts (the shift card's forms)
+  // Workday: views/TimeClock.jsx is the Workday page (the punch card and the
+  // overview), views/MyHR.jsx its overview with the Fill a Form tile and the
+  // embedded My Shifts (the shift card's forms). The manager's planner
+  // (views/Shifts.jsx, with its maps) is NOT a field screen - not here.
+  'src/views/TimeClock.jsx',
+  'src/views/MyHR.jsx',
   'src/components/MyShifts.jsx',
   'src/components/ESign.jsx',     // the signature pad a form's signature field opens
   'node_modules/jsqr/',           // a form's QR scan where the browser has no reader
@@ -44,6 +48,21 @@ export const OFFLINE_STATIC = [
 ];
 
 const PLACEHOLDER = /const MANIFEST = null;[^\n]*/;
+const KILL_LINE = /const KILL = false;[^\n]*/;
+
+/** The emergency switch (docs/Offline.md runbook): VITE_OFFLINE_SHELL=off at
+ *  build time ships a worker that empties every shell cache, answers no
+ *  request and keeps push. */
+export const shellKilled = (env = process.env) => String(env.VITE_OFFLINE_SHELL || '').trim().toLowerCase() === 'off';
+
+/** public/sw.js as the build writes it: the file list in, or the kill switch on. */
+export function writeWorker(src, { buildId, assets, killed }) {
+  if (!PLACEHOLDER.test(src)) throw new Error('offline-manifest: public/sw.js lost its `const MANIFEST = null;` line');
+  if (!KILL_LINE.test(src)) throw new Error('offline-manifest: public/sw.js lost its `const KILL = false;` line');
+  if (killed) return src.replace(KILL_LINE, 'const KILL = true; // VITE_OFFLINE_SHELL=off');
+  const manifest = { build: buildId, assets, static: OFFLINE_STATIC };
+  return src.replace(PLACEHOLDER, `const MANIFEST = ${JSON.stringify(manifest)};`);
+}
 
 const asList = (v) => (v ? [...v] : []);
 
@@ -83,11 +102,10 @@ export function offlineManifestPlugin({ buildId }) {
         const file = join(dir, 'sw.js');
         let src;
         try { src = await readFile(file, 'utf8'); } catch { return; }   // no worker in this build
-        if (!PLACEHOLDER.test(src)) throw new Error('offline-manifest: public/sw.js lost its `const MANIFEST = null;` line');
-        const manifest = { build: buildId, assets, static: OFFLINE_STATIC };
-        await writeFile(file, src.replace(PLACEHOLDER, `const MANIFEST = ${JSON.stringify(manifest)};`));
-        const kb = assets.length;
-        console.log(`offline shell: ${kb} files precached by sw.js (build ${String(buildId).slice(0, 12)})`);
+        const killed = shellKilled();
+        await writeFile(file, writeWorker(src, { buildId, assets, killed }));
+        if (killed) console.log('offline shell: OFF (VITE_OFFLINE_SHELL=off) - sw.js empties its caches and answers no request; push stays');
+        else console.log(`offline shell: ${assets.length} files precached by sw.js (build ${String(buildId).slice(0, 12)})`);
       },
     },
   };

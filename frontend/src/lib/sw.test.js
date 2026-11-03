@@ -16,7 +16,9 @@ const MANIFEST = {
   assets: ['/assets/index-nx2-aaa.js', '/assets/index-nx2-aaa.css', '/assets/FillForm-nx2-bbb.js'],
   static: ['/guard.js', '/manifest.webmanifest'],
 };
-const built = raw.replace(/const MANIFEST = null;[^\n]*/, `const MANIFEST = ${JSON.stringify(MANIFEST)};`);
+const buildOf = (m) => raw.replace(/const MANIFEST = null;[^\n]*/, `const MANIFEST = ${JSON.stringify(m)};`);
+const built = buildOf(MANIFEST);
+const killed = raw.replace(/const KILL = false;[^\n]*/, 'const KILL = true;');
 
 // A Response stand-in: enough of the shape the worker reads.
 function res(body = '', { status = 200, type = 'basic', redirected = false, ct = 'application/javascript' } = {}) {
@@ -56,12 +58,13 @@ function fakeCaches() {
     api: {
       open,
       keys: async () => [...store.keys()],
+      has: async (n) => store.has(n),
       delete: async (n) => store.delete(n),
     },
   };
 }
 
-function boot(source = built) {
+function boot(source = built, shared = null) {
   const handlers = {};
   const clients = [];
   const self = {
@@ -75,7 +78,7 @@ function boot(source = built) {
       openWindow: vi.fn(() => Promise.resolve(null)),
     },
   };
-  const c = fakeCaches();
+  const c = shared || fakeCaches();
   const fetch = vi.fn(async () => res('net'));
   // eslint-disable-next-line no-new-func
   new Function('self', 'caches', 'fetch', 'Response', source)(self, c.api, fetch, FakeResponse);
@@ -197,10 +200,53 @@ describe('public/sw.js - offline routing', () => {
     const none = await fire(ctx, req('/workday', { mode: 'navigate' }));
     expect(none.status).toBe(503);
     expect(none.body).toContain('You Are Offline');
+    // The build before this one (recorded in the meta cache) still answers.
+    await (await ctx.caches.api.open('nexus-offline-meta')).put('/__nexus-shell-builds', new FakeResponse(JSON.stringify({ current: 'nexus-shell-b2', previous: 'nexus-shell-b1' })));
     const c = await ctx.caches.api.open('nexus-shell-b1');
     await c.put('/index.html', res('<html>kept</html>', { ct: 'text/html' }));
     const kept = await fire(ctx, req('/tasks', { mode: 'navigate' }));
     expect(kept.body).toBe('<html>kept</html>');
+    // ...but a build that is neither this one nor the one before never does.
+    const ctx2 = boot();
+    ctx2.fetch.mockRejectedValue(new TypeError('Failed to fetch'));
+    await (await ctx2.caches.api.open('nexus-shell-b0')).put('/index.html', res('<html>ancient</html>', { ct: 'text/html' }));
+    expect((await fire(ctx2, req('/tasks', { mode: 'navigate' }))).status).toBe(503);
+  });
+
+  it('a weak signal: after 10 s the CURRENT build\'s saved page answers, never an older build\'s', async () => {
+    vi.useFakeTimers();
+    try {
+      const ctx = boot();
+      let release;
+      ctx.fetch.mockImplementation(() => new Promise((r) => { release = r; }));
+      await (await ctx.caches.api.open('nexus-shell-b2')).put('/index.html', res('<html>current</html>', { ct: 'text/html' }));
+      let out = null;
+      ctx.handlers.fetch({ request: req('/workday', { mode: 'navigate' }), respondWith: (p) => { p.then((r) => { out = r; }); } });
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(out).toBeNull();                                   // still waiting on the network
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(out.body).toBe('<html>current</html>');
+
+      // Only an older build's page saved: keep waiting for the network.
+      const ctx2 = boot();
+      ctx2.fetch.mockImplementation(() => new Promise((r) => { release = r; }));
+      await (await ctx2.caches.api.open('nexus-offline-meta')).put('/__nexus-shell-builds', new FakeResponse(JSON.stringify({ current: 'nexus-shell-b2', previous: 'nexus-shell-b1' })));
+      await (await ctx2.caches.api.open('nexus-shell-b1')).put('/index.html', res('<html>older</html>', { ct: 'text/html' }));
+      let out2 = null;
+      ctx2.handlers.fetch({ request: req('/workday', { mode: 'navigate' }), respondWith: (p) => { p.then((r) => { out2 = r; }); } });
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(out2).toBeNull();
+      release(res('<html>network</html>', { ct: 'text/html' }));
+      await vi.advanceTimersByTimeAsync(10);
+      expect(out2.body).toBe('<html>network</html>');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a responsive network always wins (never stale online)', async () => {
+    const ctx = boot();
+    await (await ctx.caches.api.open('nexus-shell-b2')).put('/index.html', res('<html>saved</html>', { ct: 'text/html' }));
+    ctx.fetch.mockResolvedValueOnce(res('<html>fresh</html>', { ct: 'text/html' }));
+    expect((await fire(ctx, req('/workday', { mode: 'navigate' }))).body).toBe('<html>fresh</html>');
   });
 
   it('a redirect or an error page is never kept as the shell', async () => {
@@ -252,14 +298,73 @@ describe('public/sw.js - offline routing', () => {
     expect((await fire(ctx, req('/guard.js?v=b2'))).body).toBe('file /guard.js?v=b2');
   });
 
-  it('activate keeps this build and the one before, and removes older ones', async () => {
-    const ctx = boot();
-    const prev = await ctx.caches.api.open('nexus-shell-b1');
-    await prev.put('/__nexus-shell-order', new FakeResponse(JSON.stringify(['nexus-shell-b1', 'nexus-shell-b0'])));
-    await ctx.caches.api.open('nexus-shell-b0');
-    await ctx.caches.api.open('other-cache');
+  it('deploy after deploy, activate keeps exactly this build and the one it replaced', async () => {
+    const shared = fakeCaches();
+    await shared.api.open('other-cache');
+    const builds = ['a1', 'a2', 'a3', 'a4', 'a5'];
+    for (const [i, b] of builds.entries()) {
+      const ctx = boot(buildOf({ ...MANIFEST, build: b }), shared);
+      ctx.fetch.mockImplementation(async (u) => (String(u) === '/' ? res('<html></html>', { ct: 'text/html' }) : res(`file ${u}`)));
+      await waitUntil(ctx.handlers.install, {});
+      await waitUntil(ctx.handlers.activate, {});
+      const shells = [...shared.store.keys()].filter((n) => n.startsWith('nexus-shell-')).sort();
+      expect(shells).toEqual(i === 0 ? ['nexus-shell-a1'] : [`nexus-shell-${builds[i - 1]}`, `nexus-shell-${b}`].sort());
+      expect(ctx.self.clients.claim).toHaveBeenCalled();
+    }
+    expect(shared.store.has('other-cache')).toBe(true);
+    // Activating the same build again (a second tab) keeps the same pair.
+    const again = boot(buildOf({ ...MANIFEST, build: 'a5' }), shared);
+    await waitUntil(again.handlers.activate, {});
+    expect([...shared.store.keys()].filter((n) => n.startsWith('nexus-shell-')).sort()).toEqual(['nexus-shell-a4', 'nexus-shell-a5']);
+  });
+
+  it('install copies an unchanged hashed file from the build before instead of fetching it', async () => {
+    const shared = fakeCaches();
+    const first = boot(buildOf({ ...MANIFEST, build: 'c1' }), shared);
+    first.fetch.mockImplementation(async (u) => res(`file ${u}`, { ct: String(u) === '/' ? 'text/html' : 'application/javascript' }));
+    await waitUntil(first.handlers.install, {});
+    await waitUntil(first.handlers.activate, {});
+    const next = boot(buildOf({ ...MANIFEST, build: 'c2', assets: [...MANIFEST.assets, '/assets/New-nx2-zzz.js'] }), shared);
+    next.fetch.mockImplementation(async (u) => res(`file ${u}`, { ct: String(u) === '/' ? 'text/html' : 'application/javascript' }));
+    await waitUntil(next.handlers.install, {});
+    const fetched = next.fetch.mock.calls.map(([u]) => String(u));
+    expect(fetched.filter((u) => u.startsWith('/assets/'))).toEqual(['/assets/New-nx2-zzz.js']);
+    expect(shared.store.get('nexus-shell-c2').get(`${ORIGIN}/assets/index-nx2-aaa.js`).body).toBe('file /assets/index-nx2-aaa.js');
+  });
+});
+
+describe('public/sw.js - the kill switch (VITE_OFFLINE_SHELL=off)', () => {
+  it('empties every shell cache on activate, answers no request, keeps push and never unregisters', async () => {
+    const shared = fakeCaches();
+    await (await shared.api.open('nexus-shell-b1')).put('/index.html', res('<html></html>', { ct: 'text/html' }));
+    await shared.api.open('nexus-shell-b2');
+    await (await shared.api.open('nexus-offline-meta')).put('/__nexus-shell-builds', new FakeResponse('{"current":"nexus-shell-b2","previous":"nexus-shell-b1"}'));
+    await shared.api.open('other-cache');
+    const ctx = boot(killed, shared);
+    ctx.self.registration.unregister = vi.fn();
+    await waitUntil(ctx.handlers.install, {});
     await waitUntil(ctx.handlers.activate, {});
-    expect([...ctx.caches.store.keys()].sort()).toEqual(['nexus-shell-b1', 'nexus-shell-b2', 'other-cache']);
+    expect([...shared.store.keys()]).toEqual(['other-cache']);
     expect(ctx.self.clients.claim).toHaveBeenCalled();
+    for (const r of [req('/', { mode: 'navigate' }), req('/assets/index-nx2-aaa.js'), req('/guard.js')]) expect(await fire(ctx, r)).toBe('pass');
+    expect(ctx.fetch).not.toHaveBeenCalled();
+    await waitUntil(ctx.handlers.push, { data: { json: () => ({ title: 'Task Assigned' }) } });
+    expect(ctx.self.registration.showNotification).toHaveBeenCalledWith('Task Assigned', expect.anything());
+    expect(ctx.self.registration.unregister).not.toHaveBeenCalled();
+  });
+});
+
+describe('scripts/offline-manifest.mjs writeWorker', () => {
+  it('writes the file list, or - with the switch off - KILL and no list', async () => {
+    const { writeWorker, shellKilled } = await import('../../scripts/offline-manifest.mjs');
+    const on = writeWorker(raw, { buildId: 'x9', assets: ['/assets/a.js'], killed: false });
+    expect(on).toContain('const MANIFEST = {"build":"x9"');
+    expect(on).toContain('const KILL = false;');
+    const off = writeWorker(raw, { buildId: 'x9', assets: ['/assets/a.js'], killed: true });
+    expect(off).toContain('const MANIFEST = null;');
+    expect(off).toContain('const KILL = true;');
+    expect(shellKilled({ VITE_OFFLINE_SHELL: 'off' })).toBe(true);
+    expect(shellKilled({ VITE_OFFLINE_SHELL: 'OFF ' })).toBe(true);
+    expect(shellKilled({})).toBe(false);
   });
 });
