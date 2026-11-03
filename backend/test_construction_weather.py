@@ -178,8 +178,19 @@ class DailyUpdateTests(unittest.TestCase):
 
     def setUp(self):
         db = SessionLocal()
-        for t in (models.ConstructionProject, models.NexusNotification, models.NexusSetting):
+        for t in (models.ConstructionProject, models.NexusNotification, models.NexusSetting,
+                  models.NexusEmployee, models.HrDepartment):
             db.query(t).delete()
+        # Everyone these tests notify works in a department with Weather Calls
+        # on - the one weather rule (weather_scope.py) every notice goes
+        # through (11/03/2026).
+        db.add(models.HrDepartment(id="d-con", company_id="c1", name="Construction", weather=1))
+        db.add(models.HrDepartment(id="d-acct", company_id="c1", name="Accounting", weather=0))
+        for em in ("boss@greensglobal.com", "crew1@greensglobal.com", "crew2@greensglobal.com"):
+            db.add(models.NexusEmployee(id=f"e-{em}", first_name="A", last_name="B", work_email=em,
+                                        status="active", deleted_at="", company="c1", department="Construction"))
+        db.add(models.NexusEmployee(id="e-clerk", first_name="C", last_name="D", work_email="clerk@greensglobal.com",
+                                    status="active", deleted_at="", company="c1", department="Accounting"))
         db.commit()
         db.close()
         weather._cache.clear()
@@ -258,6 +269,31 @@ class DailyUpdateTests(unittest.TestCase):
         self.assertEqual(bell[0][3], 0)
         # 10 AM is past the morning window: nothing, whatever changed.
         self.assertEqual(self._tick("2026-10-31T17:00:00+00:00", lambda *a, **k: tomorrow)["notices"], 0)
+
+    def test_only_people_in_weather_departments_hear_it_and_outsiders_never(self):
+        """The one weather rule (weather_scope.py, Neil 10/29/2026): an office
+        manager on the project and an outside investor on its executive list
+        get no bell and no email (11/03/2026)."""
+        db = SessionLocal()
+        db.add(models.ConstructionProject(
+            id="tem", name="GS Temecula", address="x", latitude=33.49, longitude=-117.15, status="active",
+            manager_emails=["clerk@greensglobal.com"], worker_emails=["crew1@greensglobal.com"],
+            executive_emails=["investor@outside.example"]))
+        db.commit()
+        db.close()
+        fc = {**FC, "daily": [{**FC["daily"][0], "date": "2026-10-30"}, {**FC["daily"][0], "date": "2026-10-31"}] + FC["daily"][2:]}
+        out = self._tick("2026-10-31T00:05:00+00:00", lambda *a, **k: fc)
+        self.assertEqual(out, {"notices": 1, "people": 1})
+        self.assertEqual([r[0] for r in self._bells()], ["crew1@greensglobal.com"])
+        self.assertEqual([to for to, s, h in self.sent], ["crew1@greensglobal.com"])
+
+    def test_the_jobsite_keeps_the_zone_its_forecast_answered(self):
+        self._project("tem", "GS Temecula", ["crew1@greensglobal.com"])
+        self._tick("2026-10-30T23:30:00+00:00")
+        db = SessionLocal()
+        tz = db.get(models.ConstructionProject, "tem").time_zone
+        db.close()
+        self.assertEqual(tz, FC["timezone"])
 
     def test_a_site_with_no_people_or_no_point_and_one_outage_are_skipped(self):
         self._project("tem", "GS Temecula", [])

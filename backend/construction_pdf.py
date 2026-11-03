@@ -207,16 +207,22 @@ def _numbered_canvas(photo_pages: set):
 
 
 # ── Photo log ────────────────────────────────────────────────────────────────
-def _fetch(url: str) -> bytes:
+def _fetch(url: str, project_id: str) -> bytes:
     """Bytes behind a media row's url. Handles the inline (data:) case, which a
-    laptop with no Supabase produces - see services/construction_storage.is_inline."""
+    laptop with no Supabase produces - see services/construction_storage.is_inline.
+
+    Anything else must be this job's own object in construction-media
+    (storage.fetch_url raises otherwise, 11/03/2026): this PDF is emailed to
+    executives, so a link to any other address or bucket is never fetched
+    into it."""
     if (url or "").startswith("data:"):
         import base64
         return base64.b64decode((url.split(",", 1) + [""])[1])
     import httpx
-    from routers.files import fetchable_url
+    from services import construction_storage as storage
+    src = storage.fetch_url(url, project_id)
     with httpx.Client(timeout=30) as c:
-        r = c.get(fetchable_url(url))   # construction-media is private: signed URL
+        r = c.get(src)   # construction-media is private: signed URL
         r.raise_for_status()
         return r.content
 
@@ -224,7 +230,7 @@ def _fetch(url: str) -> bytes:
 def _photo_block(m, st, avail_w):
     """One photo row: metadata column left, image right, as in the sample."""
     try:
-        img = Image(io.BytesIO(_fetch(m.url)), width=avail_w * 0.66,
+        img = Image(io.BytesIO(_fetch(m.url, m.project_id or "")), width=avail_w * 0.66,
                     height=52 * mm, kind="proportional")
     except Exception:
         # One unreachable object must not fail the document - the rest of the
@@ -314,11 +320,10 @@ def build(report, project, media_by_id: dict, logs: list) -> bytes:
                                       bulletText="•"))
 
     # ── Photo log ────────────────────────────────────────────────────────────
-    shots = [media_by_id[s["id"]]
-             for s in ({"id": i} for i in (report.media_ids or []))
-             if s["id"] in media_by_id and media_by_id[s["id"]].kind == "photo"]
-    vids = [media_by_id[i] for i in (report.media_ids or [])
-            if i in media_by_id and media_by_id[i].kind == "video"]
+    # A removed photo never prints (11/03/2026), whatever the caller queried.
+    live = {k: m for k, m in media_by_id.items() if not (getattr(m, "deleted_at", "") or "")}
+    shots = [live[i] for i in (report.media_ids or []) if i in live and live[i].kind == "photo"]
+    vids = [live[i] for i in (report.media_ids or []) if i in live and live[i].kind == "video"]
 
     if shots or vids:
         flow.append(NextPageTemplate("photos"))

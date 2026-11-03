@@ -102,20 +102,20 @@ class AssembleTests(unittest.TestCase):
 
 class MilestoneLineTests(unittest.TestCase):
     def test_matches_the_samples_shape(self):
-        """'All columns complete 6/30' - what, then when."""
+        """'All columns complete 06/30/2026' - what, then when, in MM/DD/YYYY
+        (11/03/2026: US formats everywhere)."""
         self.assertEqual(cr._milestone_line(_ms("All columns complete", "2026-06-30")),
-                         "All columns complete 6/30")
+                         "All columns complete 06/30/2026")
 
     def test_actual_date_wins_over_target(self):
         """A hit milestone is reported by the day it landed, not the day it was
         aimed at."""
         self.assertEqual(
             cr._milestone_line(_ms("Slab pour", target="2026-07-14", actual="2026-07-19")),
-            "Slab pour 7/19")
+            "Slab pour 07/19/2026")
 
-    def test_a_different_year_is_shown(self):
-        line = cr._milestone_line(_ms("Framing", "2027-09-15"))
-        self.assertTrue(line.endswith("/27"), line)
+    def test_a_different_year_is_shown_in_full(self):
+        self.assertEqual(cr._milestone_line(_ms("Framing", "2027-09-15")), "Framing 09/15/2027")
 
     def test_a_milestone_with_no_date_still_prints(self):
         self.assertEqual(cr._milestone_line(_ms("Topping out")), "Topping out")
