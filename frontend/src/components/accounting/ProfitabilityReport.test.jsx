@@ -84,7 +84,7 @@ describe('ProfitabilityReport', () => {
     expect(screen.getByTitle('From').textContent).toBe(`01/01/${y}`);
     expect(screen.getByTitle('To').textContent).toBe(`12/31/${y}`);
     fireEvent.click(screen.getByTitle('From'));
-    fireEvent.click(screen.getByRole('button', { name: '15' }));
+    fireEvent.click(screen.getByRole('button', { name: /^\d{2}\/15\/\d{4}$/ }));
     expect(screen.getByTitle('From').textContent).toBe(`01/15/${y}`);
     expect(screen.getByLabelText('Period').value).toBe('custom');
     expect(api.getProfitability).toHaveBeenLastCalledWith(`${y}-01-15`, `${y}-12-31`, { locations: [], book: 'accrual', expand: false });

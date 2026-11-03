@@ -7,9 +7,10 @@
 //                        the QuickBooks balances, everyone's balance, a
 //                        person's policy, corrections, and the policies.
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarClock, ChevronDown, ChevronRight, Plus, RefreshCw, Upload, X } from 'lucide-react';
+import { CalendarClock, ChevronDown, ChevronRight, Plus, RefreshCw, Search, Upload, X } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
+import { DateField } from '../tasks/components';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 import SaveRow from './SaveRow';
 import { useDraft } from '../lib/useDraft';
@@ -296,10 +297,11 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
               </select>
             </label>
           )}
-          <label style={{ display: 'grid', gap: 5 }}>
+          <div style={{ display: 'grid', gap: 5 }}>
             <span style={LBL}>Start Date</span>
-            <input className="form-input" type="date" value={cut} onChange={e => setCut(e.target.value)} style={{ fontSize: 12.5 }} />
-          </label>
+            <DateField value={cut} onChange={(v) => setCut(v || '')} title="Start date"
+              style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, padding: '8px 10px', background: 'var(--card)', fontSize: 12.5 }} />
+          </div>
           <button className="primary-btn" onClick={() => saveCutover(false)} disabled={!cut || cut === savedCut || busy === 'cut'} style={{ fontSize: 12.5 }}>
             {busy === 'cut' ? <Spinner size={12} /> : 'Save Start Date'}
           </button>
@@ -329,7 +331,11 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
       {data.cutover && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0 8px' }}>
-            <input className="form-input" placeholder="Search people" value={q} onChange={e => setQ(e.target.value)} style={{ fontSize: 12.5, maxWidth: 260 }} />
+            <div style={{ position: 'relative', flex: '0 1 260px' }}>
+              <Search size={13} style={{ position: 'absolute', left: 10, top: 9, color: 'var(--muted)' }} />
+              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search by name" aria-label="Search people"
+                style={{ width: '100%', padding: '7px 10px 7px 30px', borderRadius: 10, border: '1px solid var(--line)', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', fontFamily: 'inherit' }} />
+            </div>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>{people.length} people</span>
           </div>
           <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>

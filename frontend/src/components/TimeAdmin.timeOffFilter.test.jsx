@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 
-// People > Time > Time Off (Charmi, Oct 20): status chips with counts, opening
-// on Pending, and sortable Requested By / Period / Status headers.
+// People > Time > Time Off is the Desk now (11/03/2026 redesign): a rail of
+// sections opening on Requests, the decision queue clubbed by person, and
+// the ledger register with status chips (opening on All - pending lives in
+// the queue), search, year / month filters and sortable headers.
 
 const ROWS = [
   { id: 'a', email: 'amy@x.com', name: 'Amy Approved', type: 'vacation', status: 'approved', startDate: '2026-10-10', endDate: '2026-10-10', approver: 'hr@x.com' },
@@ -31,41 +33,50 @@ vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ hrTeam: false, myE
 
 const TimeAdmin = (await import('./TimeAdmin')).default;
 const NAMES = ['Amy Approved', 'Ben Pending', 'Cal Rejected', 'Dee Pending', 'Eve Approved'];
+// Names shown in the LEDGER (pending people also sit in the queue above it).
+const ledger = () => within(document.querySelector('.tob-ledger'));
 const shownNames = () => NAMES
-  .map(n => [n, screen.queryByText(n)])
+  .map(n => [n, ledger().queryByText(n)])
   .filter(([, el]) => el)
   .sort(([, a], [, b]) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
   .map(([n]) => n);
 
 beforeEach(() => { rowsForTest = ROWS; try { localStorage.clear(); } catch { /* none */ } });
 
-describe('People > Time > Time Off status filter', () => {
-  it('opens on Pending with the right counts, and shows only pending rows', async () => {
+describe('People > Time > Time Off desk', () => {
+  it('opens on Requests: the queue holds the decisions, the ledger opens on All', async () => {
     render(<TimeAdmin toastOk={() => {}} toastErr={() => {}} initialView="timeoff" />);
-    expect(await screen.findByText('Ben Pending')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'All (5)' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Pending (2)' }).getAttribute('aria-pressed')).toBe('true');
+    expect((await screen.findAllByText('Ben Pending')).length).toBeGreaterThan(0);
+    // The queue lists the people waiting on a decision.
+    const queue = within(document.querySelector('.tob-queue'));
+    expect(queue.getByText('Ben Pending')).toBeTruthy();
+    expect(queue.getByText('Dee Pending')).toBeTruthy();
+    expect(queue.getAllByRole('button', { name: /Approve/ })).toHaveLength(2);
+    // The register shows everything - pending rows are not its job.
+    expect(screen.getByRole('button', { name: 'All (5)' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Pending (2)' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Approved (2)' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Rejected (1)' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^Cancelled/ })).toBeNull();   // none to show
-    expect(shownNames()).toEqual(['Ben Pending', 'Dee Pending']);
+    expect(shownNames()).toEqual(NAMES);
 
     fireEvent.click(screen.getByRole('button', { name: 'Approved (2)' }));
     expect(shownNames()).toEqual(['Amy Approved', 'Eve Approved']);
-    expect(localStorage.getItem('nexus.timeadmin.timeoffFilter.hr@x.com')).toBe('approved');
   });
 
-  it('remembers the chip per viewer', async () => {
-    localStorage.setItem('nexus.timeadmin.timeoffFilter.hr@x.com', 'rejected');
+  it('search narrows the register and the counts follow', async () => {
     render(<TimeAdmin toastOk={() => {}} toastErr={() => {}} initialView="timeoff" />);
-    expect(await screen.findByText('Cal Rejected')).toBeTruthy();
-    expect(shownNames()).toEqual(['Cal Rejected']);
+    await screen.findAllByText('Ben Pending');
+    fireEvent.change(screen.getByLabelText('Search time-off requests'), { target: { value: 'amy' } });
+    expect(shownNames()).toEqual(['Amy Approved']);
+    expect(screen.getByRole('button', { name: 'All (1)' })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Search time-off requests'), { target: { value: 'zzz' } });
+    expect(screen.getByText('Nothing matches your search.')).toBeTruthy();
   });
 
   it('sorts by Status when the header is clicked, stable within a status', async () => {
     render(<TimeAdmin toastOk={() => {}} toastErr={() => {}} initialView="timeoff" />);
-    await screen.findByText('Ben Pending');
-    fireEvent.click(screen.getByRole('button', { name: 'All (5)' }));
+    await screen.findAllByText('Ben Pending');
     expect(shownNames()).toEqual(NAMES);   // server order
 
     fireEvent.click(screen.getByRole('button', { name: /^Status/ }));
@@ -80,7 +91,7 @@ describe('People > Time > Time Off status filter', () => {
   });
 });
 
-// Year / Month selects (Neil, Oct 21): the chip counts follow the period.
+// Year / Month selects: the chip counts follow the period.
 describe('People > Time > Time Off period filter', () => {
   it('filters by year and month, counts follow, empty state says so', async () => {
     rowsForTest = [
@@ -88,8 +99,8 @@ describe('People > Time > Time Off period filter', () => {
       { id: 'f', email: 'fay@x.com', name: 'Fay Approved', type: 'vacation', status: 'approved', startDate: '2025-12-29', endDate: '2026-01-02' },
     ];
     render(<TimeAdmin toastOk={() => {}} toastErr={() => {}} initialView="timeoff" />);
-    await screen.findByText('Ben Pending');
-    fireEvent.click(screen.getByRole('button', { name: 'All (6)' }));
+    await screen.findAllByText('Ben Pending');
+    expect(screen.getByRole('button', { name: 'All (6)' })).toBeTruthy();
     const year = screen.getByRole('combobox', { name: 'Year' });
     const month = screen.getByRole('combobox', { name: 'Month' });
     expect([...year.options].map(o => o.textContent)).toEqual(['All Years', '2026', '2025']);
@@ -97,8 +108,8 @@ describe('People > Time > Time Off period filter', () => {
 
     fireEvent.change(year, { target: { value: '2025' } });
     expect(screen.getByRole('button', { name: 'All (1)' })).toBeTruthy();   // the straddling row
-    expect(screen.getByText('Fay Approved')).toBeTruthy();
-    expect(screen.queryByText('Ben Pending')).toBeNull();
+    expect(ledger().getByText('Fay Approved')).toBeTruthy();
+    expect(ledger().queryByText('Ben Pending')).toBeNull();
 
     fireEvent.change(year, { target: { value: '2026' } });
     fireEvent.change(month, { target: { value: '01' } });
@@ -107,9 +118,6 @@ describe('People > Time > Time Off period filter', () => {
     expect(screen.getByRole('button', { name: 'Pending (2)' })).toBeTruthy();
 
     fireEvent.change(month, { target: { value: '03' } });
-    expect(screen.getByText('No requests in that period.')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Show All' }));
-    expect(screen.getByRole('button', { name: 'All (6)' })).toBeTruthy();
-    expect(year.value).toBe('');
+    expect(ledger().getByText('No requests in that period.')).toBeTruthy();
   });
 });

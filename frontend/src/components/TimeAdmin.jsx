@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { teamsChatUrl } from '../lib/teamsLinks';
 import { createPortal } from 'react-dom';
 import {
-  Clock, ChevronDown, ChevronRight, MapPin, AlertTriangle, Download,
+  Clock, ChevronDown, ChevronRight, MapPin, AlertTriangle,
   Pencil, Plus, X, CheckCircle, Ban,
-  Activity, Inbox, Banknote, CalendarOff,
+  Inbox, Banknote, CalendarOff,
   Search, Lock, Receipt, Timer, ClipboardCheck, Scale, MessageSquare,
 } from 'lucide-react';
 import { api } from '../api';
@@ -16,29 +16,26 @@ import AddTimeModal from './AddTimeModal';
 import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
-import { ErrorBanner, SkeletonBlocks, Spinner } from './AsyncState';
+import { SkeletonBlocks, Spinner } from './AsyncState';
 import { formatDate, formatDateTime, zonedDateTime, zonedInputValue, zonedInputToUtc, zoneOffsetMin } from '../lib/datetime';
-import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
-import { TIMEOFF_FILTERS, countByStatus, filterAndSortTimeoff, nextSort, yearsOf, inPeriod } from '../lib/timeOffFilter';
 import { takePendingOpen } from '../lib/pendingOpen';
 import TimesheetsToReview from './TimesheetsToReview';
-import { Avatar, AvatarName } from '../tasks/components';
+import TimeOffDesk from './TimeOffDesk';
+import { TOB_CSS } from './tobTheme';
+import RangePill from './RangePill';
+import { Avatar, AvatarName, DateField } from '../tasks/components';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { useRole } from '../contexts/RoleContext';
 import PayrollReadiness from './PayrollReadiness';
-import { ForChip, ApprovalDelegationsAdmin } from './DelegateApprovals';
-import LeaveBalancesAdmin from './LeaveBalances';
-import LeaveHistory from './LeaveHistory';
+import { ForChip } from './DelegateApprovals';
 import CaReview from './CaReview';
 import LongShiftWarning from './LongShiftWarning';
 import { checkLongShift } from '../lib/longShift';
 import ContractorInvoices from './ContractorInvoices';
-// Team Leave Calendar, Leave Year End and Extra Time (Oct 27 2026) load with
-// their tab - their own chunks.
-const TeamLeaveCalendar = lazy(() => import('./TeamLeaveCalendar'));
-const LeaveYearEndPreview = lazy(() => import('./LeaveYearEnd').then(m => ({ default: m.LeaveYearEndPreview })));
+// Extra Time (Oct 27 2026) loads with its tab - its own chunk. The Time Off
+// panels live in TimeOffDesk.jsx now.
 const ExtraTimeQueue = lazy(() => import('./ExtraTimeQueue'));
 
 // Confidential time off (Sep 29): the server blanks the note for anyone but
@@ -107,13 +104,6 @@ function AdminDayRow({ date, email, d, timeZone }) {
 // The Adjust input shows the punch on the EMPLOYEE's clock; saveEdit turns
 // what was typed back into UTC on that same clock (Oct 20).
 const utcToInput = (iso, tz) => zonedInputValue(iso, tz);
-
-function readTimeoffFilter(key) {
-  try {
-    const v = localStorage.getItem(key);
-    return TIMEOFF_FILTERS.some(([f]) => f === v) ? v : 'pending';
-  } catch { return 'pending'; }
-}
 
 // Teams on an Action Log person (Oct 28 2026): a 1:1 chat with what is
 // waiting on them already typed in the compose box - the reviewer reads it
@@ -216,6 +206,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
     window.addEventListener('nexus:open-punch-request', onOpenReq);
     return () => { window.removeEventListener('nexus:open-timecard', onOpen); window.removeEventListener('nexus:open-punch-request', onOpenReq); };
   }, [openTimecard, focusPunchRequest]);
+  // Time sheets waiting on my review or signature - the Payroll tab badge
+  // (11/03/2026: the tabs lead the page now, so the count must be visible
+  // from every tab, not only where the list renders).
+  const [reviewCount, setReviewCount] = useState(0);
   // Contractor invoices waiting on HR (Oct 21) - the Invoices tab badge. HR only, never the manager tier.
   const [invoiceDrafts, setInvoiceDrafts] = useState(0);
   const loadInvoiceDrafts = useCallback(() => {
@@ -505,18 +499,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
   const totalMin = (rows || []).reduce((a, r) => a + r.workedMin, 0);
   const pendingCount = timeoff.filter(r => r.status === 'pending').length;
   const decidableCount = timeoff.filter(r => r.status === 'pending' && r.canDecide !== false).length;
-  // Time Off status chips (Charmi, Oct 20): opens on Pending - the requests
-  // that still need a decision - and remembers each viewer's last chip.
-  const timeoffFilterKey = `nexus.timeadmin.timeoffFilter.${(myEmail || '').toLowerCase()}`;
-  const [timeoffFilter, setTimeoffFilterState] = useState(() => readTimeoffFilter(timeoffFilterKey));
-  useEffect(() => { setTimeoffFilterState(readTimeoffFilter(timeoffFilterKey)); }, [timeoffFilterKey]);
-  const setTimeoffFilter = (f) => {
-    setTimeoffFilterState(f);
-    try { localStorage.setItem(timeoffFilterKey, f); } catch { /* private window */ }
-  };
-  const [timeoffSort, setTimeoffSort] = useState(null);   // null = server order (newest first)
-  const [timeoffYear, setTimeoffYear] = useState('');     // '' = all years (Neil, Oct 21)
-  const [timeoffMonth, setTimeoffMonth] = useState('');   // '01'..'12', '' = all months
   const rangeText = `${formatDate(start)} - ${formatDate(end)}`;
 
   // Unsaved-changes guards for the edit/on-behalf/add-punch modals: an
@@ -538,25 +520,44 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
   const addDirty = !!addFor && addBaselineRef.current !== null && JSON.stringify(addP) !== JSON.stringify(addBaselineRef.current);
   const addGuard = useUnsavedGuard(addDirty, () => setAddFor(null), saveAdd);
 
+  // The week/date range controls - one definition, two homes: Insights keeps
+  // the old standalone row; in the B world the Action Log carries them on its
+  // ONE toolbar line. DateField, never a native date box (Neil, Oct 19).
+  const rangeControls = (<>
+    {[['This week', 0], ['Last week', -1]].map(([l, off]) => {
+      const r = weekRange(off);
+      const active = r[0] === start && r[1] === end;
+      return (
+        <button key={l} className="secondary-btn" onClick={() => setRange(r)}
+          style={{ fontSize: 12, ...(active ? { background: 'var(--wk-brand)', color: '#fff', borderColor: 'var(--wk-brand)' } : {}) }}>{l}</button>
+      );
+    })}
+    <DateField value={start} onChange={(v) => setRange([v || start, end])} title="From date" compact />
+    <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+    <DateField value={end} onChange={(v) => setRange([start, v || end])} title="To date" compact />
+  </>);
+
+  // B world: ONE bounded range control (components/RangePill.jsx) - the same
+  // grammar as Payroll's period pill, so every tab filters the same way.
+  const rangePill = (
+    <RangePill start={start} end={end} onChange={(s, e) => setRange([s, e])}
+      reset={{ label: 'This Week', range: () => weekRange(0) }} />
+  );
+
   return (
-    <div style={{ fontFamily: 'var(--wk-font)' }}>
-      {/* No summary tiles on top (Neil, Oct 20: "unnecessary clutter, the
-          information is already there") - the Team Hours and Time Sheets to
-          Review tiles went; the list below carries its own count. */}
-      {/* Timesheets submitted to me and not decided yet (Sep 29). */}
-      <TimesheetsToReview toastOk={toastOk} toastErr={toastErr}
-        onOpen={(r) => openTimecard(r.employeeEmail, r.periodStart, r.payType)} />
-
-      {/* Monitoring alerts live on Workforce Analytics now (Charmi, Sep 25: the
-          block listing every person took half this screen). One line stays
-          here: how many, and the way to the list. */}
-      <MonitoringAlertsLine />
-
+    <div className="tob" style={{ fontFamily: 'var(--wk-font)' }}>
+      {/* The Time module runs in the .tob world (11/03/2026 redesign) - its
+          palette reaches every tab through the house-variable remap. */}
+      <style>{TOB_CSS}</style>
       {/* Sub-screen nav - these are PAGES of a complex module, so they get the
           Documents-style underline tab band (icons, brand underline, hairline
-          base) instead of floating pills that merged into the content. */}
+          base) instead of floating pills that merged into the content.
+          The band LEADS the page (Visesh, 11/03/2026: with the review list
+          above it, reaching Time Off meant scrolling past the whole panel
+          first) - the review list now lives under Payroll, where its Review
+          button opens the time sheet anyway, and its count rides this tab. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
-        {[['payroll', 'Payroll', Banknote],
+        {[['payroll', 'Payroll', Banknote, reviewCount, true],
           ['actions', 'Action Log', Inbox, new Set(punchReqs.map(punchReqKey)).size + exBlocking, true],
           ['timeoff', 'Time Off', CalendarOff, pendingCount, decidableCount > 0],
           ...(hrTeam ? [] : [['invoices', 'Invoices', Receipt, invoiceDrafts, true]]),
@@ -592,20 +593,32 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
         </>)}
       </div>
 
-      {/* Range picker - shared by Insights and the Action Log's missing punches (both scan a range) */}
-      {(view === 'insights' || view === 'actions') && (
+      {/* No summary tiles on top (Neil, Oct 20: "unnecessary clutter, the
+          information is already there"). Timesheets submitted to me and not
+          decided yet (Sep 29) - shown on Payroll only, but kept mounted so
+          the tab badge stays current from any tab. */}
+      <div style={view === 'payroll' ? undefined : { display: 'none' }}>
+        <div className="tob-head" style={{ marginBottom: 14 }}>
+            <h2>Payroll</h2>
+            <p>{reviewCount > 0
+              ? `${reviewCount} time sheet${reviewCount === 1 ? ' is' : 's are'} waiting on you.`
+              : 'Time sheets, pay periods and the payroll export.'}</p>
+        </div>
+        <TimesheetsToReview toastOk={toastOk} toastErr={toastErr} onCount={(n) => setReviewCount(n || 0)}
+          onOpen={(r) => openTimecard(r.employeeEmail, r.periodStart, r.payType)} />
+
+        {/* Monitoring alerts live on Workforce Analytics now (Charmi, Sep 25:
+            the block listing every person took half this screen). One line
+            stays here: how many, and the way to the list. */}
+        <MonitoringAlertsLine />
+      </div>
+
+      {/* Range picker - shared by Insights and the Action Log (both scan a
+          range). In the B world the Action Log's copy rides its own toolbar
+          line below the header instead of a separate row up here. */}
+      {view === 'insights' && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-        {[['This week', 0], ['Last week', -1]].map(([l, off]) => {
-          const r = weekRange(off);
-          const active = r[0] === start && r[1] === end;
-          return (
-            <button key={l} className="secondary-btn" onClick={() => setRange(r)}
-              style={{ fontSize: 12, ...(active ? { background: 'var(--wk-brand)', color: '#fff', borderColor: 'var(--wk-brand)' } : {}) }}>{l}</button>
-          );
-        })}
-        <input className="form-input" type="date" value={start} onChange={e => setRange([e.target.value, end])} style={{ fontSize: 12, width: 150 }} />
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
-        <input className="form-input" type="date" value={end} onChange={e => setRange([start, e.target.value])} style={{ fontSize: 12, width: 150 }} />
+        {rangeControls}
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>Team total: <span style={{ color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(totalMin)}</span></span>
       </div>
@@ -755,14 +768,30 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
       {view === 'payroll' && !hrTeam && checksOpen.ca && <CaReview autoRun onClose={() => setChecksOpen(o => ({ ...o, ca: false }))}
         onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
       {view === 'payroll' && <PayrollTimecard key={payrollTarget.key} toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail}
-        initialStart={payrollTarget.start} initialPayType={payrollTarget.payType} />}
+        initialStart={payrollTarget.start} initialPayType={payrollTarget.payType} desk />}
       {/* Retro Pay (Oct 17): back-dated rate changes on finalized periods. Pay - never the manager tier. */}
       {view === 'payroll' && !hrTeam && <RetroPayReport />}
 
       {/* Contractor invoices (Oct 21): drafted at finalize, approved and emailed here. */}
+      {view === 'invoices' && !hrTeam && (
+        <div className="tob-head" style={{ marginBottom: 14 }}>
+          <h2>Invoices</h2>
+          <p>{invoiceDrafts > 0
+            ? `${invoiceDrafts} draft invoice${invoiceDrafts === 1 ? ' is' : 's are'} waiting on you.`
+            : 'Contractor invoices - drafted when a month is finalized, approved and emailed here.'}</p>
+        </div>
+      )}
       {view === 'invoices' && !hrTeam && <ContractorInvoices toastOk={toastOk} toastErr={toastErr} onChanged={loadInvoiceDrafts} />}
 
       {/* India Contractor Extra Time (Oct 27 2026): claims to approve or decline. */}
+      {view === 'extra' && !hrTeam && (
+        <div className="tob-head" style={{ marginBottom: 14 }}>
+          <h2>Extra Time</h2>
+          <p>{xtPending > 0
+            ? `${xtPending} claim${xtPending === 1 ? ' is' : 's are'} waiting for a decision.`
+            : 'Extra Time claims from India contractors, approved or declined here.'}</p>
+        </div>
+      )}
       {view === 'extra' && !hrTeam && (
         <Suspense fallback={<SkeletonBlocks count={3} height={48} />}>
           <ExtraTimeQueue toastOk={toastOk} toastErr={toastErr} onOpenTimecard={openTimecard} onChanged={setXtPending} />
@@ -777,6 +806,19 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
           timecard). Filter by department so HR can clear one team at a time;
           the server already limits it to the people you manage. A shift that
           is still running is not "missing" its clock-out. */}
+      {view === 'actions' && (() => {
+        const fixes = new Set(punchReqs.map(punchReqKey)).size;
+        const line = fixes || exBlocking
+          ? [fixes ? `${fixes} punch ${fixes === 1 ? 'fix' : 'fixes'} to decide` : '',
+             exBlocking ? `${exBlocking} missing ${exBlocking === 1 ? 'punch' : 'punches'} to chase` : ''].filter(Boolean).join(' and ') + '.'
+          : 'Punch-fix requests and missing punches, person by person.';
+        return (
+          <div className="tob-head" style={{ marginBottom: 14 }}>
+            <h2>Action Log</h2>
+            <p>{line}</p>
+          </div>
+        );
+      })()}
       {view === 'actions' && (() => {
         const q = reqSearch.trim().toLowerCase();
         const kindRank = { in: 0, break_start: 1, break_end: 2, out: 3 };
@@ -884,6 +926,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                 <button type="button" className="secondary-btn" onClick={() => { setActDept(''); setReqSearch(''); setActKind('all'); }}
                   style={{ fontSize: 12, padding: '5px 10px' }}>Clear Filters</button>
               )}
+              {/* The range lives on this same line - one bounded pill, not
+                  a second row of boxes above the header. */}
+              {rangePill}
               {visibleIds.length > 0 && (
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer', marginLeft: 'auto' }}>
                   {cb(allSelected, on => toggle(visibleIds, on), 'Select every request shown')}
@@ -1069,152 +1114,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
       })()}
 
       {/* Time-off register - requests table, pending rows carry the decisions */}
+      {/* Time Off is its own desk (TimeOffDesk.jsx, 11/03/2026 redesign):
+          rail sections, the decision queue, the ledger register. */}
       {view === 'timeoff' && (
-        <>
-        {(() => {
-          const inRange = timeoff.filter(r => inPeriod(r, timeoffYear, timeoffMonth));
-          const counts = countByStatus(inRange);
-          const shownRows = filterAndSortTimeoff(inRange, timeoffFilter, timeoffSort);
-          const periodSel = { fontSize: 12, padding: '4px 6px' };
-          const chips = TIMEOFF_FILTERS.filter(([k]) => k !== 'cancelled' || counts.cancelled > 0 || timeoffFilter === 'cancelled');
-          const sortHead = (key, label, style) => {
-            const on = timeoffSort?.key === key;
-            return (
-              <button type="button" onClick={() => setTimeoffSort(cur => nextSort(cur, key))}
-                aria-sort={on ? (timeoffSort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
-                title={`Sort by ${label}`}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                  font: 'inherit', color: on ? 'var(--ink)' : 'inherit', fontWeight: on ? 700 : 500, ...style }}>
-                {label}
-                <span aria-hidden="true" style={{ fontSize: 10, opacity: on ? 1 : 0.35 }}>{on ? (timeoffSort.dir === 'asc' ? '\u25B2' : '\u25BC') : '\u2195'}</span>
-              </button>
-            );
-          };
-          return (<>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-          <div className="chip-row" role="group" aria-label="Filter by status" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginRight: 'auto' }}>
-            {chips.map(([k, label]) => {
-              const on = timeoffFilter === k;
-              return (
-                <button key={k} type="button" onClick={() => setTimeoffFilter(k)} aria-pressed={on}
-                  style={{ padding: '6px 14px', borderRadius: 10, border: `1px solid ${on ? 'var(--wk-brand)' : 'var(--wk-line2)'}`,
-                    background: on ? 'var(--wk-brand-tint)' : 'var(--card)', color: on ? 'var(--wk-brand)' : 'var(--muted)',
-                    fontWeight: 700, fontSize: 12.5, cursor: 'pointer', fontFamily: 'var(--wk-font)', whiteSpace: 'nowrap' }}>
-                  {label} ({counts[k]})
-                </button>
-              );
-            })}
-          </div>
-          <select className="form-input" aria-label="Year" value={timeoffYear} onChange={e => setTimeoffYear(e.target.value)} style={periodSel}>
-            <option value="">All Years</option>
-            {yearsOf(timeoff).map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <select className="form-input" aria-label="Month" value={timeoffMonth} onChange={e => setTimeoffMonth(e.target.value)} style={periodSel}>
-            <option value="">All Months</option>
-            {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-              .map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
-          </select>
-          <button className="primary-btn" onClick={() => setObo({ email: '', type: 'vacation', start: '', end: '', note: '', confidential: false })}
-            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}>
-            <Plus size={13} /> Request on Behalf
-          </button>
-        </div>
-        {/* Six fixed columns: on a phone the table scrolls sideways inside its
-            card instead of cutting off Approver and Status (phone pass, Oct 29 2026). */}
-        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflowX: 'auto', overflowY: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', minWidth: 790, gap: 10, padding: '10px 14px', background: 'var(--wk-hover)', fontSize: 12.5, fontWeight: 500, color: 'var(--wk-dim)' }}>
-            <span>{sortHead('name', 'Requested By')}</span><span>Type</span><span>{sortHead('period', 'Period')}</span><span>Days</span><span>Approver</span>
-            <span style={{ display: 'flex', justifyContent: 'flex-end' }}>{sortHead('status', 'Status')}</span>
-          </div>
-          {timeoffErr ? (
-            <div style={{ padding: '14px 16px' }}><ErrorBanner message="Couldn't load time-off requests right now." onRetry={loadTimeoff} /></div>
-          ) : shownRows.length === 0 && (
-            <div style={{ padding: '20px 16px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
-              {timeoff.length === 0 ? 'No time-off requests yet.'
-                : timeoffYear || timeoffMonth ? 'No requests in that period.'
-                : timeoffFilter === 'pending' ? 'No requests are waiting for a decision.'
-                : `No ${timeoffFilter} requests.`}
-              {timeoff.length > 0 && (
-                <button type="button" className="secondary-btn" onClick={() => { setTimeoffFilter('all'); setTimeoffYear(''); setTimeoffMonth(''); }}
-                  style={{ fontSize: 12, padding: '4px 10px', marginLeft: 8 }}>Show All</button>
-              )}
-            </div>
-          )}
-          {shownRows.slice(0, 150).map(r => {
-            // Working days (Mon-Fri), a partial day as its share of 8 hours - the
-            // same count the employee sees on their Time Off tab (lib/workdayStats.js).
-            const days = leaveRequestDays(r);
-            // Partial-day request (Charmi, Aug 21): show its hour window and count
-            // the fraction of an 8-hour day instead of a full day.
-            const hm12 = (v) => { const [h, m] = (v || '').split(':').map(Number); return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
-            const partial = r.startTime && r.endTime;
-            return (
-              <div key={r.id} className={r.status === 'pending' && r.canDecide !== false ? 'nx-needs-you--row' : undefined} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', minWidth: 790, gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                  <Avatar email={r.email} name={r.name || r.email} size={22} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{r.name || r.email}{r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}</span>
-                </span>
-                <span style={{ fontSize: 12, textTransform: 'capitalize', display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-                  {timeoffLabel(r)}{r.confidential && <ConfidentialMark />}
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note || undefined}>
-                  {formatDate(r.startDate, r.startDate)} - {formatDate(r.endDate, r.endDate)}{partial ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : ''}{r.note ? ` · Reason: ${r.note}` : r.redacted ? '' : ' · No reason given'}
-                  {r.requestedBy && r.requestedBy !== r.email && (
-                    <span style={{ fontStyle: 'italic' }}> · filed by <AvatarName email={r.requestedBy} name={r.requestedByName || r.requestedBy.split('@')[0].replace(/\./g, ' ')} size={16} /></span>
-                  )}
-                </span>
-                <span style={{ fontSize: 12, fontWeight: 700 }} title="Working days (Mon-Fri)">{r.startDate ? fmtDays(days) : '-'}</span>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }} title={r.approver || undefined}>
-                  {r.approver ? (<>
-                    <Avatar email={r.approver} name={r.approverName || r.approver.split('@')[0].replace(/\./g, ' ')} size={20} />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{r.approverName || r.approver.split('@')[0].replace(/\./g, ' ')}</span>
-                  </>) : '-'}
-                </span>
-                <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                  {r.status === 'pending' && r.canDecide === false ? (
-                    // Your own request, or a confidential one that is not
-                    // yours to decide (Sep 29): say who decides instead.
-                    <span style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'right', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                      title={r.awaitingHr ? `Approved by ${r.firstApproverName || r.firstApprover || 'the manager'} - HR approves next` : r.confidential ? 'Confidential - only the approver can decide it' : undefined}>
-                      {r.awaitingHr ? 'Awaiting HR Approval' : r.reviewer ? (<>
-                        {/* One named decider gets a face; "HR" or a list of several stays words. */}
-                        {r.reviewer !== 'HR' && !/,| and others$/.test(r.reviewer) && <Avatar name={r.reviewer} size={18} card={false} />}
-                        {`Pending - ${r.reviewer} decides`}
-                      </>) : 'Pending - your manager decides'}
-                    </span>
-                  ) : r.status === 'pending' ? (<>
-                    {r.awaitingHr && <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }} title={`Approved by ${r.firstApproverName || r.firstApprover || 'the manager'}`}>HR Approval</span>}
-                    <button className="secondary-btn" onClick={() => decideTimeoff(r.id, 'rejected')} style={{ fontSize: 11, color: '#b91c1c', padding: '4px 10px' }}>Reject</button>
-                    <button className="primary-btn" onClick={() => decideTimeoff(r.id, 'approved')} style={{ fontSize: 11, padding: '4px 10px' }}>Approve</button>
-                  </>) : (
-                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'capitalize', padding: '2px 10px', borderRadius: 999,
-                      background: r.status === 'approved' ? 'hsla(var(--color-green),0.1)' : r.status === 'rejected' ? 'rgba(185,28,28,0.08)' : 'var(--mist)',
-                      color: r.status === 'approved' ? 'hsl(var(--color-green))' : r.status === 'rejected' ? '#b91c1c' : 'var(--muted)' }}>
-                      {r.status}
-                    </span>
-                  )}
-                </span>
-              </div>
-            );
-          })}
-          {shownRows.length > 150 && <div style={{ padding: '8px 16px', fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>Showing 150 of {shownRows.length} - filter to narrow down.</div>}
-        </div>
-        </>);
-        })()}
-        <Suspense fallback={<SkeletonBlocks count={1} height={220} />}>
-          <TeamLeaveCalendar />
-        </Suspense>
-        {hrPanels && !hrTeam && (<>
-          <Suspense fallback={<SkeletonBlocks count={1} height={120} />}>
-            <LeaveYearEndPreview toastOk={toastOk} toastErr={toastErr} />
-          </Suspense>
-          <LeaveBalancesAdmin toastOk={toastOk} toastErr={toastErr} />
-          <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />
-          <LeaveHistory />
-        </>)}
-        </>
+        <TimeOffDesk rows={timeoff} err={timeoffErr} onRetry={loadTimeoff} onDecide={decideTimeoff}
+          onRequestOnBehalf={() => setObo({ email: '', type: 'vacation', start: '', end: '', note: '', confidential: false })}
+          hrPanels={hrPanels} hrTeam={hrTeam} toastOk={toastOk} toastErr={toastErr} myEmail={myEmail} />
       )}
-
       {/* Person time portal - everything time-related for one employee.
           Portaled to <body>: host cards (Manager Dashboard) have transformed
           ancestors that would otherwise trap position:fixed overlays. */}
@@ -1281,8 +1187,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                     </span>
                     <span style={{ color: 'var(--muted)', flex: 1 }}>{formatDate(t.startDate, t.startDate)} - {formatDate(t.endDate, t.endDate)}{t.note ? ` · Reason: ${t.note}` : ''}</span>
                     <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'capitalize', padding: '2px 10px', borderRadius: 999,
-                      background: t.status === 'approved' ? 'hsla(var(--color-green),0.1)' : t.status === 'rejected' ? 'rgba(185,28,28,0.08)' : 'rgba(180,83,9,0.1)',
-                      color: t.status === 'approved' ? 'hsl(var(--color-green))' : t.status === 'rejected' ? '#b91c1c' : '#b45309' }}>{t.status}</span>
+                      background: t.status === 'approved' ? 'hsla(var(--color-green),0.1)' : t.status === 'rejected' ? 'rgba(220,38,38,0.08)' : 'rgba(180,83,9,0.1)',
+                      color: t.status === 'approved' ? 'hsl(var(--color-green))' : t.status === 'rejected' ? 'hsl(var(--color-red))' : '#b45309' }}>{t.status}</span>
                   </div>
                 ))}
                 <p style={{ margin: '14px 0 0', fontSize: 10.5, color: 'var(--muted)' }}>
@@ -1318,8 +1224,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                   onChange={e => setEdit(x => ({ ...x, adjustNote: e.target.value }))} style={{ width: '100%', fontFamily: 'inherit' }} /></div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
                 <input type="checkbox" checked={!!edit.voided} onChange={e => setEdit(x => ({ ...x, voided: e.target.checked }))}
-                  style={{ width: 15, height: 15, accentColor: '#b91c1c' }} />
-                <Ban size={13} style={{ color: '#b91c1c' }} /> Void this punch (kept on record, excluded from totals)
+                  style={{ width: 15, height: 15, accentColor: 'hsl(var(--color-red))' }} />
+                <Ban size={13} style={{ color: 'hsl(var(--color-red))' }} /> Void this punch (kept on record, excluded from totals)
               </label>
               <LongShiftWarning issue={longWarn?.form === 'edit' ? longWarn.issue : null} manager busy={busy}
                 onFix={() => setLongWarn(null)}
@@ -1363,10 +1269,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                   {oboReasons.map(t => <option key={t} value={t}>{t}</option>)}
                 </select></div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {/* DateField, never a native date box (Neil, Oct 19). */}
                 <div><label style={FL}>First day</label>
-                  <input className="form-input" type="date" value={obo.start} onChange={e => setObo(p => ({ ...p, start: e.target.value }))} style={{ width: '100%' }} /></div>
+                  <DateField value={obo.start} onChange={(v) => setObo(p => ({ ...p, start: v || '', end: p.end && v && p.end < v ? v : p.end }))} title="First day"
+                    style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, padding: '8px 10px', background: 'var(--card)', width: '100%' }} /></div>
                 <div><label style={FL}>Last day</label>
-                  <input className="form-input" type="date" value={obo.end} onChange={e => setObo(p => ({ ...p, end: e.target.value }))} style={{ width: '100%' }} /></div>
+                  <DateField value={obo.end} onChange={(v) => setObo(p => ({ ...p, end: v && p.start && v < p.start ? p.start : (v || '') }))} title="Last day"
+                    style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, padding: '8px 10px', background: 'var(--card)', width: '100%' }} /></div>
               </div>
               <div className="nx-fill"><label style={FL}>Reason</label>
                 <textarea className="form-input" rows={3} aria-label="Reason" placeholder="Why they are off, e.g. called in sick this morning" value={obo.note}

@@ -44,8 +44,10 @@ describe('HR people pickers', () => {
   it('an old Leave link lands on Time Off and the Leave tab is gone', async () => {
     const { default: HR } = await import('./HR');
     render(<HR activeSub="hr-leave" onSubChange={() => {}} />);
-    // The Time Off view's own controls: Request on Behalf and the calendar.
+    // The Time Off view's own controls: Request on Behalf, and the calendar
+    // behind its own section tab (11/03/2026: sections, not a stack).
     expect(await screen.findByRole('button', { name: /Request on Behalf/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'Calendar' }));
     expect(await screen.findByRole('region', { name: 'Team Leave Calendar' })).toBeTruthy();   // its own lazy chunk
     expect(screen.queryByRole('button', { name: /Log on Behalf/ })).toBeNull();
     expect(calls.some(([k]) => k === 'createLeave' || k === 'getLeave')).toBe(false);

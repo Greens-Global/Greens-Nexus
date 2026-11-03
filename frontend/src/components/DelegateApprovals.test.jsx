@@ -34,8 +34,12 @@ const deleg = (over) => ({
   startDate: '2026-10-20', endDate: '2026-10-27', note: 'Vacation', state: 'upcoming', warnings: [], ...over,
 });
 
-// Mon 10/26/2026 - Fri 10/30/2026 off.
-const OFF = [{ start: '2026-10-26', end: '2026-10-30', kind: 'timeoff', label: 'Approved Time Off' }];
+// Mon 10/26/2026 - Fri 10/30/2026 off, and a second window 11/05 - 11/06:
+// the DateField calendar fences picks to [first start, last end], so the
+// outside-the-window message is reached through the GAP between windows
+// (11/02 - 11/04) - the native-input loophole of typing past max is gone.
+const OFF = [{ start: '2026-10-26', end: '2026-10-30', kind: 'timeoff', label: 'Approved Time Off' },
+  { start: '2026-11-05', end: '2026-11-06', kind: 'timeoff', label: 'Approved Time Off' }];
 const DELEGATES = [
   { email: 'boss@x.com', name: 'Bo Boss', relation: 'above', relationLabel: 'Up Your Reporting Line' },
   { email: 'dee@x.com', name: 'Dee Test', relation: 'peer', relationLabel: 'Same Manager' },
@@ -106,8 +110,9 @@ describe('DelegateApprovalsCard', () => {
     render(<DelegateApprovalsCard />);
     await openCard();
     fireEvent.click(await screen.findByRole('button', { name: /10\/26\/2026 - 10\/30\/2026/ }));
-    expect(screen.getByLabelText('From').value).toBe('2026-10-26');
-    expect(screen.getByLabelText('To').value).toBe('2026-10-30');
+    // DateField shows the picked window (11/03/2026: no native date boxes).
+    expect(screen.getByTitle('From date').textContent).toBe('10/26/2026');
+    expect(screen.getByTitle('To date').textContent).toBe('10/30/2026');
     fireEvent.focus(screen.getByRole('combobox'));
     fireEvent.mouseDown(screen.getByRole('option', { name: /Bo Boss/ }));
     fireEvent.change(screen.getByLabelText('Note'), { target: { value: 'Vacation' } });
@@ -123,11 +128,25 @@ describe('DelegateApprovalsCard', () => {
     await openCard();
     fireEvent.focus(await screen.findByRole('combobox'));
     fireEvent.mouseDown(screen.getByRole('option', { name: /Dee Test/ }));
-    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-10-28' } });
-    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-11-03' } });
+    // Dates go through the DateField calendar now (11/03/2026): open the
+    // field, walk to the month, click the day by its full-date name.
+    const pickDate = (field, iso) => {
+      fireEvent.click(screen.getByTitle(field));
+      const [y, m, d] = iso.split('-').map(Number);
+      const want = `${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y}`;
+      for (let i = 0; i < 24 && !screen.queryByRole('button', { name: want }); i++) {
+        const dir = new Date() < new Date(iso + 'T12:00:00') ? 'Next month' : 'Previous month';
+        fireEvent.click(screen.getByLabelText(dir));
+      }
+      fireEvent.click(screen.getByRole('button', { name: want }));
+    };
+    pickDate('From date', '2026-10-28');
+    expect(screen.getByTitle('From date').textContent).toBe('10/28/2026');
+    pickDate('To date', '2026-11-05');
+    expect(screen.getByTitle('To date').textContent).toBe('11/05/2026');
     expect(screen.getByRole('button', { name: /^Delegate$/ }).disabled).toBe(true);
     expect(screen.getByText('11/02/2026 is not inside your approved time off.')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-10-27' } });
+    pickDate('To date', '2026-10-27');
     expect(screen.getByRole('button', { name: /^Delegate$/ }).disabled).toBe(true);
     expect(screen.getByText('The last day is before the first day.')).toBeTruthy();
   });
