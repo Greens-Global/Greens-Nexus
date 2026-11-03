@@ -205,7 +205,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const active = activeId ? findAsset(activeId) : null;
   const recordsFor = (coll) => (store[coll] || []).filter((r) => r.propertyId === activeId);
 
-  const openAsset = (id, tab = 'property') => { setActiveId(id); setView(tab); };
+  // Stable, so the portfolio's memoized cards are not re-rendered for a new function.
+  const openAsset = useCallback((id, tab = 'property') => { setActiveId(id); setView(tab); }, []);
   // Export CSV is "everything tied to an asset" - that includes its closed
   // tickets summarized as maintenance records, which live in Tickets, not in
   // the store. Fetched at export time; if that fails the file says so
@@ -671,6 +672,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       return target ? appendLog(next, makeLogEntry({ section: 'Property', property: target.name, propertyId: id, action: 'removed', item: target.name, changes: [] })) : next;
     });
     if (activeId === id) { setActiveId(null); setView('portfolio'); }
+    // A trashed asset's card is gone from the grid; Back must not outline anything for it.
+    setLastOpenedId((cur) => (cur === id ? null : cur));
     if (!keepModalClosed) setModal(null);
   };
 

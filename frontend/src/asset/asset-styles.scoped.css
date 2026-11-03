@@ -151,7 +151,14 @@
 .nexus-asset-root .fleet-card.is-selected:hover{border-color:var(--wk-live) !important;box-shadow:0 0 0 1px var(--wk-live),var(--shadow-sm) !important}
 .nexus-asset-root .fleet-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-width:0}
 .nexus-asset-root .fleet-title{min-width:0;flex:1}
-.nexus-asset-root .fleet-name{margin:0;font-size:.94rem;font-weight:700;line-height:1.25;letter-spacing:-.005em;color:var(--text-primary);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+.nexus-asset-root .fleet-name{margin:0;font-size:.94rem;font-weight:700;line-height:1.25;letter-spacing:-.005em;color:var(--text-primary)}
+/* The name is the card's one button; its ::after covers the card so a click anywhere opens it,
+   and the card shows the focus ring. */
+.nexus-asset-root .fleet-open{display:block;width:100%;padding:0;margin:0;border:none;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.nexus-asset-root .fleet-open::after{content:'';position:absolute;inset:0;border-radius:14px;z-index:1}
+.nexus-asset-root .fleet-open:focus-visible{outline:none}
+.nexus-asset-root .fleet-card:has(.fleet-open:focus-visible){outline:2px solid var(--pine);outline-offset:2px}
+.nexus-asset-root .fleet-name-text{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
 .nexus-asset-root .fleet-id{margin-top:2px;font-size:.78rem;color:var(--text-secondary);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nexus-asset-root .fleet-top .nx-label{flex-shrink:0;margin-top:1px}
 .nexus-asset-root .fleet-photo{position:relative;aspect-ratio:16/8;border-radius:10px;background:color-mix(in srgb,var(--text-primary) 4%,var(--bg-card));color:var(--text-muted);display:grid;place-items:center;overflow:hidden}

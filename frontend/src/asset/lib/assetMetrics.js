@@ -165,19 +165,28 @@ export function assetSignals(asset, store) {
     );
 
     // The one next-service rule (lib/nextService.js) - the fleet card's track reads it too.
+    // Warn bands: a date within 30 days; miles within 500, or 90% of the way there. `by` says
+    // which target the warning is about (Needs Attention folds a date one into its critical row).
     const serviceRecords = (store.vservice || []).filter((x) => x.propertyId === asset.id);
     const service = nextService(asset, store);
     const serviceDays = service ? service.daysLeft : null;
+    const milesLeft = service ? service.milesLeft : null;
+    const milesWarn = milesLeft != null && (milesLeft <= 500 || (service.by === 'miles' && service.value >= 0.9));
+    const daysWarn = serviceDays != null && serviceDays <= 30;
     signals.push(
       service && service.state === 'overdue'
-        ? { l: 'Service', v: 'Overdue', t: 'bad' }
-        : serviceDays == null
-        ? serviceRecords.length
-          ? { l: 'Service', v: serviceRecords.length + ' on file', t: 'info' }
-          : { l: 'Service', v: 'None Logged', t: 'mut' }
-        : serviceDays <= 30
+        ? { l: 'Service', v: 'Overdue', t: 'bad', by: service.by }
+        : milesLeft === 0 || serviceDays === 0
+        ? { l: 'Service', v: 'Due Now', t: 'warn', by: milesLeft === 0 ? 'miles' : 'date' }
+        : milesWarn && (service.by === 'miles' || !daysWarn)
+        ? { l: 'Service', v: milesLeft.toLocaleString('en-US') + ' mi left', t: 'warn', by: 'miles' }
+        : daysWarn
         ? { l: 'Service', v: 'Due ' + serviceDays + 'd', t: 'warn' }
-        : { l: 'Service', v: 'Current', t: 'ok' }
+        : service
+        ? { l: 'Service', v: 'Current', t: 'ok' }
+        : serviceRecords.length
+        ? { l: 'Service', v: serviceRecords.length + ' on file', t: 'info' }
+        : { l: 'Service', v: 'None Logged', t: 'mut' }
     );
 
     const odometerReadings = (store.odometer || []).filter((x) => x.propertyId === asset.id);

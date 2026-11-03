@@ -1,14 +1,16 @@
-import { useRef, useLayoutEffect } from 'react';
+import { useRef, useLayoutEffect, useId, memo } from 'react';
 import { Link2 } from 'lucide-react';
 import { inferAssetKind } from '../../lib/vehicleFields.js';
 import { cityRegion, typeLabel, tileStats, typeIcon, stageTone, stageMetric } from '../../lib/portfolioCards.js';
 import { parcelAcres } from '../../lib/parcelGrouping.js';
 import { toNumber } from '../../lib/format.js';
-import { nextService, currentOdometer } from '../../lib/nextService.js';
-import { fleetStatusColor, fleetIdLine, initialsOf, fleetMeter, lastChangeOf } from '../../lib/fleetCards.js';
+import { fleetStatusColor, fleetIdLine, initialsOf, fleetMeter, fleetFactsFor } from '../../lib/fleetCards.js';
 import { relativeTime } from '../../../components/audit/auditModel.js';
 import { StatusLabel } from '../../../components/StatusLabel.jsx';
 import ProgressTrack from '../../../ui/ProgressTrack';
+
+// A stable empty list, so a card with no linked parcels keeps its memo between renders.
+const NONE = [];
 
 // Shared pill style for the two badges that float over the photo (parcel-count / Private, and
 // the stage chip) - same shape, different content/positioning per-badge.
@@ -260,23 +262,31 @@ function PropertyTile({ pr: property, openProperty, secondaries = [], metric = n
  * keeps its photo-header tile above; a vehicle or a piece of equipment gets the fleet face
  * below (Neil, 11/02/2026, mock https://claude.ai/artifact/PwncxMck8YaSkFkQ8hmTHE section 2).
  *
- * `store` is the module's data store (service, odometer and log rows for the fleet face);
- * `selected` marks the asset last opened, so coming Back lands on an outlined card.
+ * `fleet` is this asset's facts from fleetFactsFor (Portfolio builds them once per store);
+ * without it (a lone card) they are worked out from `store`. `selected` marks the asset last
+ * opened, so coming Back lands on an outlined card. Memoized: typing in the portfolio search
+ * re-renders the grid, not every card.
  */
-export function TileCard({ pr, openProperty, secondaries = [], metric = null, store = null, selected = false }) {
+export const TileCard = memo(function TileCard({ pr, openProperty, secondaries = NONE, metric = null, store = null, fleet = null, selected = false }) {
   if (inferAssetKind(pr) !== 'property' && !secondaries.length) {
-    return <FleetTile asset={pr} openProperty={openProperty} store={store || {}} selected={selected} />;
+    const facts = fleet || fleetFactsFor([pr], store || {})[pr.id];
+    return <FleetTile asset={pr} openProperty={openProperty} facts={facts} selected={selected} />;
   }
   return <PropertyTile pr={pr} openProperty={openProperty} secondaries={secondaries} metric={metric} />;
-}
+});
 
 /**
  * The fleet face: name and plate / serial with the Status soft label, the photo (or a clean
  * silhouette), the assigned driver / operator and when it last changed, the progress to the
  * next service (lib/nextService.js - live orange while under, red once past; no service data
  * = no track), then the meter and the home base. Styles: .fleet-* in asset-styles.scoped.css.
+ *
+ * Accessibility: the name is the card's one button (its ::after stretches over the card, so a
+ * click anywhere opens it); its accessible name is the asset name and its description the
+ * card's facts. The service progressbar sits outside the button, so it keeps its own name.
  */
-function FleetTile({ asset, openProperty, store, selected }) {
+function FleetTile({ asset, openProperty, facts, selected }) {
+  const descId = useId();
   const kind = inferAssetKind(asset);
   const name = asset.name || asset.siteName || 'Unnamed asset';
   // The plate / serial; else the make and model, unless that is just the name again.
@@ -285,31 +295,29 @@ function FleetTile({ asset, openProperty, store, selected }) {
   const status = String(asset.devStage || '').trim();
   const photo = (asset.images && asset.images[0]) || asset.image || '';
   const who = String(asset.manager || '').trim();
-  const changed = lastChangeOf(asset, store.logs);
-  const updated = changed ? relativeTime(changed) : '';
-  const service = nextService(asset, store);
-  const meter = fleetMeter(asset, kind === 'vehicle' ? currentOdometer(asset, store) : null);
+  const updated = facts && facts.changed ? relativeTime(facts.changed) : '';
+  const service = facts ? facts.service : null;
+  const meter = fleetMeter(asset, kind === 'vehicle' ? (facts ? facts.odometer : 0) : null);
   const where = cityRegion(asset) || String(asset.address || '').split(',')[0].trim();
-  const open = () => openProperty(asset.id);
+  const description = [
+    status, idLine, who && `Assigned to ${who}`, service && service.note,
+    meter, where, updated && `Updated ${updated}`, asset.private && 'Private',
+  ].filter(Boolean).join('. ');
 
   return (
-    <div
-      className={`asset-card fleet-card${selected ? ' is-selected' : ''}`}
-      role="button"
-      tabIndex={0}
-      aria-label={`Open ${name}`}
-      aria-current={selected ? 'true' : undefined}
-      data-asset-id={asset.id}
-      onClick={open}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
-    >
+    <div className={`asset-card fleet-card${selected ? ' is-selected' : ''}`} data-asset-id={asset.id} data-selected={selected ? 'true' : undefined}>
       <div className="fleet-top">
         <div className="fleet-title">
-          <h3 className="fleet-name" title={name}>{name}</h3>
+          <h3 className="fleet-name">
+            <button type="button" className="fleet-open" title={name} aria-describedby={descId} onClick={() => openProperty(asset.id)}>
+              <span className="fleet-name-text">{name}</span>
+            </button>
+          </h3>
           {idLine && <div className="fleet-id">{idLine}</div>}
         </div>
         {status && <StatusLabel label={status} color={fleetStatusColor(status)} size="sm" />}
       </div>
+      <span id={descId} hidden>{description}</span>
 
       <div className={`fleet-photo${photo ? ' has-photo' : ''}`}>
         {photo ? <img src={photo} alt="" loading="lazy" decoding="async" /> : <FleetSilhouette kind={kind} />}

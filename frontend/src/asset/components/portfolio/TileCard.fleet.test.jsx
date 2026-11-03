@@ -35,7 +35,7 @@ describe('TileCard fleet face', () => {
     expect(container.querySelector('.fleet-sil[data-kind="vehicle"]')).toBeTruthy();
     // No property tile pieces on the fleet face.
     expect(screen.queryByText('Owner')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Open Ford Transit 250' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ford Transit 250' }));
     expect(open).toHaveBeenCalledWith('v1');
   });
 
@@ -63,11 +63,30 @@ describe('TileCard fleet face', () => {
     expect(container.querySelector('.fleet-sil')).toBeNull();
   });
 
-  it('outlines the selected card and marks it current', () => {
+  it('outlines the selected card (a data attribute, not aria-current)', () => {
     const { container } = render(<TileCard pr={loader} openProperty={() => {}} store={{}} selected />);
     const card = container.querySelector('.fleet-card');
     expect(card.className).toContain('is-selected');
-    expect(card.getAttribute('aria-current')).toBe('true');
+    expect(card.getAttribute('data-selected')).toBe('true');
+    expect(container.querySelector('[aria-current]')).toBeNull();
+  });
+
+  it('names the card by the asset, describes it by its facts, keeps the progressbar outside the button', () => {
+    render(<TileCard pr={van} openProperty={() => {}} store={vanStore} />);
+    const button = screen.getByRole('button', { name: 'Ford Transit 250' });
+    const desc = document.getElementById(button.getAttribute('aria-describedby'));
+    expect(desc.textContent).toBe('In Service. KLM 4821. Assigned to Ana Ruiz. 1,120 mi to next service. 11,880 mi. Austin, TX. Updated 5 min ago');
+    expect(screen.getByRole('button', { name: 'Ford Transit 250' }).getAttribute('aria-describedby')).toBeTruthy();
+    const bar = screen.getByRole('progressbar', { name: 'Ford Transit 250 next service' });
+    expect(button.contains(bar)).toBe(false);
+    expect(document.querySelector('.fleet-card').getAttribute('role')).toBeNull();
+  });
+
+  it('uses facts handed in by the portfolio instead of scanning the store', () => {
+    const fleet = { service: { by: 'date', value: 0.5, state: 'live', note: 'Due 12/01/2026', track: true }, odometer: 500, changed: '' };
+    render(<TileCard pr={van} openProperty={() => {}} fleet={fleet} store={null} />);
+    expect(screen.getByText('Due 12/01/2026')).toBeTruthy();
+    expect(screen.getByText('500 mi')).toBeTruthy();
   });
 
   it('keeps the property tile for a property', () => {
