@@ -167,11 +167,18 @@ def policy_status(user: dict = Depends(get_current_user), db: Session = Depends(
            .filter(PolicyAcknowledgment.email == user["email"].lower(),
                    PolicyAcknowledgment.version == pub["version"])
            .first())
+    import crisis_support
     return {"version": pub["version"],
             "title": pub["title"],
             "body": pub["body"],
             "accepted": row is not None,
-            "acceptedAt": row.accepted_at if row else ""}
+            "acceptedAt": row.accepted_at if row else "",
+            # The person's country (US / IN / ''), for the crisis support
+            # card's resource list (crisis_support.py). Carried on this call,
+            # which every app load makes anyway, so showing the card never
+            # needs a request of its own - nothing on the server can tell a
+            # card was shown.
+            "country": crisis_support.country_of(db, user["email"])}
 
 
 class AcceptIn(BaseModel):

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { crisisCheck } from '../../lib/crisisSupport';
 import { Maximize2, MessageCircleQuestion, Minimize2, Plus, Send, Settings, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate, formatDateTime } from '../../lib/datetime';
@@ -250,7 +251,8 @@ export function ThreadPanel({ row, me, canEdit, onClose, onChanged, onAsk, onRec
   const send = (e) => {
     e.preventDefault();
     if (!reply.trim()) return;
-    act('reply', () => api.replyAskThread(t.id, reply.trim())).then((next) => { if (next) setReply(''); });
+    // Crisis support (11/02/2026): resources card first; the message still goes out.
+    act('reply', () => crisisCheck(reply).then(() => api.replyAskThread(t.id, reply.trim()))).then((next) => { if (next) setReply(''); });
   };
   const resolve = (movedTo = moved) => act('resolve', () => api.resolveAskThread(t.id, { movedToAccount: movedTo.trim() })).then((next) => { if (next) setResolving(false); });
 

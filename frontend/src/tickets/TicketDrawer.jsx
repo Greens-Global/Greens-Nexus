@@ -1,5 +1,6 @@
 // TicketDrawer - split out of TicketsView.jsx (Oct 2026); the code below
 // moved verbatim, see TicketsView.jsx for the module overview.
+import { crisisCheck, textOf } from '../lib/crisisSupport';
 import { useMemo, useEffect, useRef, useState } from 'react';
 import { Plus, Pencil, Trash2, CheckCircle2, ClipboardList, Paperclip, MessageSquare, History, ArrowUp, MousePointer2, Lock, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../api';
@@ -470,6 +471,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     if (clashes.length && !(await appDialog.confirm(
       'This ticket was changed by someone else while you were editing. Save anyway?',
       { title: 'Ticket Changed', confirmText: 'Save Anyway', cancelText: 'Keep Editing' }))) return false;
+    // Crisis support (11/02/2026): resources card first when a reply
+    // expresses suicidal intent or self-harm; the reply still goes out.
+    if (hasReply) await crisisCheck(textOf(reply.body));
     // A screenshot pasted into the reply or the description is held inline
     // (a data: URL) while typing. Before it goes out it is stored in the
     // private ticket-evidence bucket and the HTML points at that copy, the

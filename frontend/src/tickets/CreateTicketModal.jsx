@@ -1,5 +1,6 @@
 // CreateTicketModal - split out of TicketsView.jsx (Oct 2026); the code below
 // moved verbatim, see TicketsView.jsx for the module overview.
+import { crisisCheck, textOf } from '../lib/crisisSupport';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Paperclip, Image as ImageIcon, ScanText, Camera, ImagePlus, Check, Copy, Send, CircleCheck, Circle,
@@ -353,6 +354,9 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     // A marked spot asks for a photo - strongly, never a wall.
     if (mapSpot && !hasPhoto && !(await appDialog.confirm('A photo of the spot shows the maintenance team exactly what to fix. Create the ticket without one?',
       { title: 'Add a Photo?', confirmText: 'Create Without a Photo', cancelText: 'Add a Photo' }))) return;
+    // Crisis support (11/02/2026): resources card first when the words
+    // express suicidal intent or self-harm; the ticket is still filed.
+    await crisisCheck(`${form.subject || ''} ${textOf(form.description)}`);
     setBusy(true);
     try {
       // Persist the current type's fields AND the current service area's,
