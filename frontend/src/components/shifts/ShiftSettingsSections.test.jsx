@@ -429,9 +429,13 @@ describe('Companies', () => {
     fireEvent.change(daily, { target: { value: '999' } });
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertDailyLeadMin: 240 }, ''));
+    // Let that save settle (Save goes back to disabled) before the next edit.
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
     fireEvent.change(weekly, { target: { value: '999' } });
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertWeeklyLeadMin: 480 }, ''));
+    // Let that save settle (Save goes back to disabled) before the next edit.
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
     fireEvent.change(weekly, { target: { value: '0' } });
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertWeeklyLeadMin: 0 }, ''));
