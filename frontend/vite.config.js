@@ -232,7 +232,6 @@ export default defineConfig(({ command }) => ({
           // vendor-react 1,192 KB with them in the catch-all.
           if (/node_modules\/(roughjs|points-on-curve|path-data-parser|hachure-fill|perfect-freehand|jotai|jotai-scope|tunnel-rat|fractional-indexing|es6-promise-pool|browser-fs-access|image-blob-reduce|pica|multimath|glur|png-chunk-text|png-chunks-encode|png-chunks-extract|crc-32|open-color|fuzzy|@braintree\/sanitize-url|canvas-roundrect-polyfill|@radix-ui|zustand|@excalidraw|laser-pointer|pwacompat|sliced|lodash\.throttle|lodash\.debounce)\//.test(id)) return undefined;
           if (id.includes('@azure/msal-browser') || id.includes('@azure/msal-react')) return 'vendor-msal';
-          if (id.includes('@supabase/supabase-js'))  return 'vendor-supabase';
           if (id.includes('lucide-react'))            return 'vendor-icons';
           // Heavy libs get their OWN chunks so they load on demand instead of on
           // first paint. They're only reached from lazy views / dynamic import()s,
