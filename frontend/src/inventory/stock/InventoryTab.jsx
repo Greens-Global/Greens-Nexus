@@ -25,6 +25,7 @@ import { DeletedItemsModal } from '../manage/DeletedItemsModal';
 import { WhoHasItTab } from '../whohas/WhoHasItTab';
 import { AuditLogPanel } from '../audit/AuditLogPanel';
 import { itemsToast as toast } from '../ui/Toast';
+import { printItemTags } from '../scan/events';
 
 const VIEWS = [
   { key: 'table', label: 'Table', Icon: Table2 },
@@ -179,6 +180,7 @@ export function InventoryTab({ view, onViewChange, items, itemsLoading, itemsErr
           checkouts={checkouts} toast={toast}
           onAssign={item => setSheet({ kind: 'assign', item })} onDetails={item => onOpenItem(item.id)}
           onShowDeleted={() => setSheet({ kind: 'deleted' })}
+          onPrintTags={printItemTags}
           itemTypes={itemTypes} overdueIds={overdueIds}
           highlightId={highlightItemId} onHighlightDone={() => setHighlightItemId(null)}
           filterControls={filterSelects} cardFilter={cardFilter} kpiStrip={kpiStrip} />

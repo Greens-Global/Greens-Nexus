@@ -8,6 +8,13 @@
 // and every tab, queue, view and open item record is in the address, so Back
 // and links work (the old subs still land). The item record opens over any
 // tab as a sheet. The phone's bottom bar is these same tabs.
+//
+// QR tags + phone scan (Items phase 4, Neil 11/02/2026; inventory/scan/
+// index.js): an item's own link /itemmanagement/item/<id> (sub "item/<id>",
+// what a printed tag and a scan open) lands on this same record, over the
+// tab the item belongs to for this person, through the one ItemScanHost
+// mounted here - which also owns the scanner, the tag sheet and the calm
+// "no access" state for an item outside the person's companies.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SkeletonBlocks } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
@@ -31,6 +38,7 @@ import { ItemRecord } from '../inventory/record/ItemRecord';
 import { EditItemModal } from '../inventory/manage/EditItemModal';
 import { ItemDetailsPanel } from '../inventory/manage/ItemDetailsPanel';
 import { ItemsToasts, itemsToast } from '../inventory/ui/Toast';
+import { ItemScanHost, ItemScanButton, parseItemSub } from '../inventory/scan';
 
 // Borrowed by other modules (asset/App.jsx, components/PurchaseRequests.jsx,
 // views/AdminConsole.jsx) and their tests - keep these re-exports.
@@ -55,7 +63,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
     refreshItems, refreshCheckouts, patchItemLocal, removeItemsLocal, addItemLocal,
   } = inv;
   const { can, canAccessModule, loading: roleLoading } = useRole();
-  const { myEmail } = useItemsIdentity();
+  const { myEmail, myName } = useItemsIdentity();
   const { assignments } = useAssignments();
   const { byName } = useTypeSettings();
 
@@ -67,10 +75,21 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const access = useMemo(() => ({ isManager, isAllocator }), [isManager, isAllocator]);
 
   // ── The address: <tab>[:<view>][@<itemId | co:checkoutId>] ───────────────
+  // or an item's own link, item/<id> (a QR tag, a shared link, a scan): the
+  // record opens over My Stuff when the item is with this person or waiting
+  // on them, else over Inventory for an items admin, else over Borrow.
   const parsed = parseItemsSub(activeSub);
-  const tab = resolveTab(parsed, access);
-  const view = tab === parsed.tab ? parsed.view : '';
-  const recordRef = parsed.itemId;
+  const linkId = parseItemSub(activeSub);
+  const linkTab = useMemo(() => {
+    if (!linkId) return '';
+    const mine = checkouts.some(c => c.itemId === linkId && ['pending', 'approved', 'pending_receipt', 'allocated'].includes(c.status) && (c.requestedByEmail || '').toLowerCase() === myEmail)
+      || (assignments || []).some(a => a.itemId === linkId && ['pending_acceptance', 'active', 'return_initiated'].includes(a.status) && (a.assigneeEmail || '').toLowerCase() === myEmail);
+    return mine ? 'mystuff' : isManager ? 'inventory' : 'borrow';
+  }, [linkId, checkouts, assignments, myEmail, isManager]);
+  const tab = linkId ? linkTab : resolveTab(parsed, access);
+  const view = !linkId && tab === parsed.tab ? parsed.view : '';
+  // An item link's record is the scan host's (below), never a second one here.
+  const recordRef = linkId ? '' : parsed.itemId;
   const recordItemId = recordRef.startsWith('co:')
     ? (checkouts.find(c => c.id === recordRef.slice(3))?.itemId || '')
     : recordRef;
@@ -82,6 +101,13 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   useEffect(() => { subChangeRef.current = onSubChange; });
   const go = useCallback((next) => {
     const sub = itemsSub(next);
+    if (subChangeRef.current) subChangeRef.current(sub);
+    else window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub } }));
+  }, []);
+
+  // The scan host moves by raw sub (back to where the person was, or out to
+  // a tab after an action) - the same stable path as `go`.
+  const goSub = useCallback((sub) => {
     if (subChangeRef.current) subChangeRef.current(sub);
     else window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub } }));
   }, []);
@@ -145,6 +171,8 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
           <h2 className="it-title">{copy.title}</h2>
           <p className="it-sub">{copy.sub}</p>
         </div>
+        {/* Scan a tag: always on a phone, on a computer only with a camera. */}
+        <ItemScanButton />
       </header>
       {/* The tabs live in the page (never behind the header search at any
           width); phones use the bottom bar instead (style.css hides these). */}
@@ -188,6 +216,13 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
         <ItemDetailsPanel item={details} customFields={customFields} canEdit={isManager}
           onClose={() => setDetails(null)} onSaved={refreshItems} toast={itemsToast} />
       )}
+      <ItemScanHost activeSub={activeSub} onSubChange={goSub} closeSub={itemsSub({ tab })}
+        userEmail={myEmail} userName={myName} isManager={isManager} toast={itemsToast}
+        renderItem={({ item, close }) => (
+          <ItemRecord itemId={item.id} fallbackItem={item} onClose={close}
+            borrowable={isTypeBorrowable(byName, item.itemType)}
+            onEdit={isManager ? setEditing : undefined} onOpenDetails={isManager ? setDetails : undefined} />
+        )} />
       {cartOpen && <CartSheet isManager={isManager} onClose={() => setCartOpen(false)} onSubmitted={() => go({ tab: 'mystuff' })} />}
       <ItemsToasts />
     </div>

@@ -419,6 +419,12 @@ if (entry) {
   const firstPaint = [...seen].reduce((a, f) => a + statSync(join(DIST, f)).size / 1024, 0);
   const engine = [...seen].find((f) => /excalidraw/.test(f));
   if (engine) offenders.push(`FIRST PAINT pulls the whiteboard engine in statically (${engine}) - see vite.config.js`);
+  // Items QR tags + phone scan (11/02/2026): the camera scanner, the tag sheet
+  // and the QR libraries behind them (jsqr, qrcode) load only when someone
+  // scans or prints tags - inventory/scan/ItemScanHost.jsx lazy-loads them.
+  const scanOnly = [/^vendor-jsqr-/, /^vendor-qr-/, /^ScannerSheet-/, /^TagSheet-/];
+  const pulled = [...seen].filter((f) => scanOnly.some((re) => re.test(f)));
+  if (pulled.length) offenders.push(`FIRST PAINT pulls the Items scanner / QR chunks in statically (${pulled.join(', ')}) - reach them with import()`);
   if (firstPaint > FIRST_PAINT_KB) offenders.push(`FIRST PAINT JS: ${Math.round(firstPaint)} KB over ${seen.size} chunks (budget ${FIRST_PAINT_KB} KB)`);
   console.log(`first paint: ${Math.round(firstPaint)} KB over ${seen.size} chunks (cap ${FIRST_PAINT_KB} KB)`);
 }

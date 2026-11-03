@@ -3,7 +3,7 @@
 // photo is a quiet filter (Missing Photo), not a red banner; a batch edit that
 // skipped rows (checked out or assigned) says which.
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
-import { Package, Plus, Search, X, ChevronDown, UploadCloud, FileSpreadsheet, Download, Pencil, Trash2, FileBarChart, ArrowUpDown, Tag, Settings2, ImageOff } from 'lucide-react';
+import { Package, Plus, Search, X, ChevronDown, UploadCloud, FileSpreadsheet, Download, Pencil, Trash2, FileBarChart, ArrowUpDown, Tag, Settings2, ImageOff, QrCode } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
 import { api } from '../../api';
 import { ITEM_TYPES, displayStatus } from '../model/status';
@@ -15,7 +15,7 @@ import { BatchEditModal } from './BatchEditModal';
 import { BatchPhotoModal } from './BatchPhotoModal';
 import { ManageRow, ManageCard } from './ManageRow';
 
-export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', cardFilter = null, search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, onManageTypes, itemTypes = ITEM_TYPES, filterControls, kpiStrip, highlightId, onHighlightDone, overdueIds = null }) {
+export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', cardFilter = null, search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, onManageTypes, itemTypes = ITEM_TYPES, filterControls, kpiStrip, highlightId, onHighlightDone, overdueIds = null, onPrintTags }) {
   const [missingOnly, setMissingOnly] = useState(false);   // the quiet Missing Photo filter
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [exportMenu,         setExportMenu]         = useState(false); // Export ▾ dropdown
@@ -358,6 +358,13 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
             title={`Batch edit the ${selItems.length} selected item${selItems.length !== 1 ? 's' : ''}`}
             style={{ display:'inline-flex', alignItems:'center', gap:7 }}>
             <Pencil size={14} /> Batch Edit ({selItems.length})
+          </button>
+        )}
+        {/* QR tags for the ticked rows (Items phase 4, Neil 11/02/2026). */}
+        {onPrintTags && selected.size > 0 && (
+          <button className="secondary-btn" onClick={() => onPrintTags(selItems)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7 }}>
+            <QrCode size={14} /> Print Tags ({selItems.length})
           </button>
         )}
         {/* Assignment moved INTO Batch Edit (Neil) - no separate Assign button. */}

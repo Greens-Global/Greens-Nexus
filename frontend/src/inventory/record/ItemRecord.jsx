@@ -6,7 +6,7 @@
 // this person may do with it, and ONE timeline of its checkouts, assignments
 // and edits with the handover and return photos side by side.
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, ShoppingCart, RotateCcw, Clock, Wrench, User, Camera, CheckCircle, XCircle, Unlock, X as XIcon, MapPin } from 'lucide-react';
+import { Pencil, ShoppingCart, RotateCcw, Clock, Wrench, User, Camera, CheckCircle, XCircle, Unlock, X as XIcon, MapPin, QrCode } from 'lucide-react';
 import { SkeletonBlocks } from '../../components/AsyncState';
 import { StatusLabel } from '../../components/StatusLabel';
 import ProgressTrack from '../../ui/ProgressTrack';
@@ -35,6 +35,7 @@ import { ImageLightbox } from '../ui/ImageLightbox';
 import { NoPhoto } from '../ui/photos';
 import { itemsToast } from '../ui/Toast';
 import { ItemSheet, Z_RECORD } from '../ui/Sheet';
+import { printItemTags } from '../scan/events';
 
 const LIVE_CO = ['pending', 'approved', 'pending_receipt', 'allocated'];
 const LIVE_ASG = ['pending_acceptance', 'active', 'return_initiated'];
@@ -66,7 +67,9 @@ export function stateLine(item, co, asg) {
   return item.location ? `Available at ${item.location}` : 'Available';
 }
 
-export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable = true }) {
+// `fallbackItem`: the item as the server sent it for an item link or a scan
+// (GET /items/by-code) when the screen's own list does not hold it.
+export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable = true, fallbackItem = null }) {
   const { items = [], checkouts = [], itemsLoading, checkoutsLoading, refreshItems, patchItemLocal } = useInventory() || {};
   const { assignments, refreshAssignments } = useAssignments();
   const { canAccessModule } = useRole();
@@ -78,7 +81,7 @@ export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable 
   const [audit, setAudit] = useState([]);
   const [lightbox, setLightbox] = useState(null);
 
-  const item = items.find(i => i.id === itemId) || null;
+  const item = items.find(i => i.id === itemId) || (fallbackItem?.id === itemId ? fallbackItem : null);
   const itemCos = useMemo(() => checkouts.filter(c => c.itemId === itemId), [checkouts, itemId]);
   const itemAsgs = useMemo(() => assignments.filter(a => a.itemId === itemId), [assignments, itemId]);
   const liveCo = itemCos.find(c => LIVE_CO.includes(c.status)) || null;
@@ -160,6 +163,8 @@ export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable 
         .then(u => { patchItemLocal?.(u); itemsToast(`${item.name} is back in service.`); })
         .catch(e => itemsToast(e?.message || 'Could not update it.', 'error')));
     }
+    // Its QR tag (Items phase 4): the print-ready tag sheet for this one.
+    secondary('tag', 'Print Tag', QrCode, () => printItemTags([item]));
     if (onEdit) secondary('edit', 'Edit Item', Pencil, () => onEdit(item));
   }
 

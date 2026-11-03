@@ -4177,3 +4177,119 @@ def undo_audit_entry(body: AuditUndoRequest, user: dict = Depends(require_items_
         db.rollback()
         raise HTTPException(409, "That serial is already used by another item")
     return {"ok": True, "undone_id": row.id}
+
+
+# ── QR tags and phone scan (Items phase 4, Neil 11/02/2026) ──────────────────
+# A printed tag carries the item's own link (<app>/itemmanagement/item/<id>);
+# no secret token rides in it - the link needs a sign-in and every read here
+# is walled exactly like GET /items (a 404, never a 403, outside the caller's
+# companies, so a tag never says whether an item exists elsewhere). The
+# scanner also takes a bare serial ("GG-00042", "gg 42", "42") and the item id.
+# Neil green-lit editing Visesh's Items files for this on 11/02/2026.
+_ITEM_LINK_RE = re.compile(r"/(?:itemmanagement|inventory)/item(?:/|:)([A-Za-z0-9_.~%-]{1,120})/?$", re.IGNORECASE)
+_TAG_MAX = 600   # 20 sheets of 30 - more is a second print
+
+
+def _compact(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def _live_items_q(db: Session):
+    return db.query(Item).filter(or_(Item.deleted_at.is_(None), Item.deleted_at == ""))
+
+
+def resolve_item_code(db: Session, code: str, scope=None):
+    """(Item, how) for a scanned or typed code - an item link, an item id or a
+    serial - or (None, "") when nothing matches. `scope` (company_scope) only
+    narrows the loose serial match below; callers still wall what comes back."""
+    from urllib.parse import unquote, urlsplit
+    raw = (code or "").strip()[:512]
+    if not raw:
+        return None, ""
+    is_url = "://" in raw
+    path = raw
+    if is_url:
+        try:
+            path = urlsplit(raw).path or ""
+        except ValueError:
+            path = ""
+    m = _ITEM_LINK_RE.search(path) if path.startswith("/") else None
+    if m:
+        found = _live_items_q(db).filter(Item.id == unquote(m.group(1))).first()
+        return (found, "link") if found else (None, "")
+    if is_url:
+        return None, ""   # another site's link is never a serial
+    found = _live_items_q(db).filter(Item.id == raw).first()
+    if found:
+        return found, "id"
+    found = _live_items_q(db).filter(func.lower(Item.serial_number) == raw.lower()).first()
+    if found:
+        return found, "serial"
+    # The printed serial typed by hand: "gg 42", "GG00042" and "42" all mean GG-00042.
+    digits = re.fullmatch(r"(?:gg)?\s*-?\s*0*(\d{1,9})", raw, re.IGNORECASE)
+    if digits:
+        want = _fmt_serial(int(digits.group(1))).lower()
+        found = _live_items_q(db).filter(func.lower(Item.serial_number) == want).first()
+        if found:
+            return found, "serial"
+    # An old or outside serial read with different spacing or dashes.
+    key = _compact(raw)
+    if len(key) >= 3:
+        for it in _live_items_q(db).filter(Item.serial_number.isnot(None), Item.serial_number != "").all():
+            if _compact(it.serial_number) == key and _item_ok(it, scope):
+                return it, "serial"
+    return None, ""
+
+
+def _company_names(db: Session, ids) -> dict:
+    from models import HrEntity
+    wanted = sorted({i for i in ids if i})
+    if not wanted:
+        return {}
+    return {e.id: e.name or "" for e in db.query(HrEntity).filter(HrEntity.id.in_(wanted)).all()}
+
+
+@router.get("/by-code")
+def item_by_code(code: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The item a scanned tag or a typed serial names, walled like GET /items."""
+    scope = _scope(user, db)
+    item, how = resolve_item_code(db, code, scope)
+    if item is None or not _item_ok(item, scope):
+        raise HTTPException(404, "No item you can see matches that code")
+    mine = company_of(user, db)
+    names = _company_names(db, [item.company_id or "", mine])
+    d = _item_to_dict(item)
+    d["companyName"] = names.get(item.company_id or "", "") or names.get(mine, "")
+    d["matchedBy"] = how
+    return d
+
+
+class ItemTagsIn(BaseModel):
+    ids: list[str] = []
+
+
+@router.post("/tags")
+def item_tags(body: ItemTagsIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """What a printed tag needs for each item (name, serial and the company name -
+    white-label: the item's company, else the printer's own), in the order
+    asked and walled; an id outside the caller's companies is left off."""
+    ids = list(dict.fromkeys(i for i in (body.ids or []) if i))
+    if len(ids) > _TAG_MAX:
+        raise HTTPException(400, f"Print at most {_TAG_MAX} tags at a time")
+    if not ids:
+        return []
+    scope = _scope(user, db)
+    rows = {i.id: i for i in _live_items_q(db).filter(Item.id.in_(ids)).all() if _item_ok(i, scope)}
+    mine = company_of(user, db)
+    names = _company_names(db, [r.company_id or "" for r in rows.values()] + [mine])
+    out = []
+    for iid in ids:
+        it = rows.get(iid)
+        if it is None:
+            continue
+        out.append({
+            "id": it.id, "name": it.name, "serialNumber": it.serial_number or "",
+            "itemType": it.item_type or "", "location": it.location or "",
+            "companyName": names.get(it.company_id or "", "") or names.get(mine, ""),
+        })
+    return out
