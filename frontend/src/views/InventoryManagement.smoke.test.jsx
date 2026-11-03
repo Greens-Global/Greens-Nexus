@@ -74,7 +74,9 @@ vi.mock('../api', () => {
 
 const mod = await import('./InventoryManagement');
 const InventoryManagement = mod.default;
-const { EmployeeView, ManagerCheckoutsTab, MyCheckoutsPanel, AddItemModal } = mod;
+const { EmployeeView, AddItemModal } = mod;
+const { MyCheckoutsPanel } = await import('../inventory/checkout/MyCheckoutsPanel');
+const { ManagerCheckoutsTab } = await import('../inventory/checkout/ManagerCheckoutsTab');
 
 // Visible key text: headings, buttons, tabs, column headers and labels, in
 // document order, whitespace collapsed.

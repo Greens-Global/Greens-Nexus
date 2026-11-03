@@ -204,8 +204,11 @@
     "type=\"date\"": 7
   },
   "views/InventoryManagement.jsx": {
-    "type=\"date\"": 4,
+    "type=\"date\"": 2,
     "type={...date...}": 1
+  },
+  "inventory/checkout/MyCheckoutsPanel.jsx": {
+    "type=\"date\"": 2
   },
   "inventory/model/auditFeed.js": {
     "type=\"date\"": 1,
