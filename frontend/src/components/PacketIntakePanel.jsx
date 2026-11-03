@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Eye, Lock, X, AlertTriangle, ClipboardList, FileText } from 'lucide-react';
+import { Eye, X, AlertTriangle, ClipboardList, FileText } from 'lucide-react';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
 import PublicIntake, { LABELS, SECTIONS } from '../views/PublicIntake';
@@ -19,7 +19,50 @@ const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', f
 const chip = { padding: '2px 8px', borderRadius: 10, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', background: 'var(--mist)', color: 'var(--muted)' };
 const docNote = (docs) => <span style={{ fontSize: 12, color: 'var(--muted)' }}><FileText size={11} style={{ verticalAlign: -1 }} /> {docs.join(', ')}</span>;
 
-const payload = (docIds, extraDocs, detailsForm, companyId, roleIds) => ({
+// Who fills each variable, per packet (Pranshu, 11/03/2026): the rows the
+// server sends (`fields`) say who fills each one now; a choice HR makes here
+// is kept in the editor (`fieldSources`) and saved with the packet. Built-ins,
+// the always-asked details and pay are shown, never changed here.
+const LOCKED = { standard: 'The New Hire - Always Asked', nexus: 'Nexus Fills It', pay: 'HR At The Offer (Pay & Benefits)', form: 'The New Hire - Also Ask, Below' };
+const CHOICES = [['person', 'The New Hire (Intake Form)'], ['hr', 'HR At The Offer'], ['same', 'One Value For Everyone']];
+
+function FieldRow({ r, choice, onChange }) {
+  const c = choice || { source: r.fill === 'none' ? '' : r.fill, value: r.value, required: r.required, sensitive: r.sensitive };
+  const box = (k, label, title) => (
+    <label title={title} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer' }}>
+      <input type="checkbox" checked={!!c[k]} onChange={e => onChange({ ...c, [k]: e.target.checked })} style={{ accentColor: 'var(--pine)' }} /> {label}
+    </label>
+  );
+  return (
+    <div style={{ ...row, alignItems: 'flex-start' }} data-testid={`field-${r.token}`}>
+      <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+        <div style={{ fontWeight: 600 }}>{r.label}</div>
+        {docNote(r.documents)}
+      </div>
+      <div style={{ flex: '1 1 260px', minWidth: 0, display: 'grid', gap: 6 }}>
+        {r.editable ? (
+          <select className="form-input" aria-label={`Who fills ${r.label}`} value={c.source || ''} onChange={e => onChange(e.target.value ? { ...c, source: e.target.value } : null)}
+            style={{ fontSize: 12.5, borderColor: c.source ? undefined : 'hsl(var(--color-orange))' }}>
+            {!c.source && <option value="">- Nobody Yet -</option>}
+            {CHOICES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        ) : <span style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>{LOCKED[r.fill] || r.fill}</span>}
+        {r.editable && c.source === 'same' && (
+          <input className="form-input" aria-label={`${r.label} for everyone`} value={c.value || ''} placeholder="The value every hire gets"
+            onChange={e => onChange({ ...c, value: e.target.value })} style={{ fontSize: 12.5 }} />
+        )}
+        {r.editable && (c.source === 'person' || c.source === 'hr') && (
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            {box('required', 'Required', 'They cannot go on without it')}
+            {c.source === 'person' && box('sensitive', 'Private', 'Only people with Pay & Benefits access see the answer')}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const payload = (docIds, extraDocs, detailsForm, companyId, roleIds, fieldSources) => ({
   doc_template_ids: docIds,
   entity_id: companyId || '',
   role_ids: roleIds || [],
@@ -28,13 +71,14 @@ const payload = (docIds, extraDocs, detailsForm, companyId, roleIds) => ({
   details_form: (detailsForm || []).filter(f => String(f.label || '').trim())
     .map(({ key, label, type, required, sensitive, last4, options, help }) => ({
       key: key || '', label, type, required: !!required, sensitive: !!sensitive, last4: !!last4, options: options || [], help: help || '' })),
+  field_sources: fieldSources || {},
 });
 
-export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, companyId, roleIds, companyName, children }) {
+export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, companyId, roleIds, companyName, fieldSources = {}, onFieldSources, children }) {
   const [data, setData] = useState(null);
   const [problem, setProblem] = useState('');
   const [previewOpen, setPreviewOpen] = useState(false);
-  const key = JSON.stringify(payload(docIds, extraDocs, detailsForm, companyId, roleIds));
+  const key = JSON.stringify(payload(docIds, extraDocs, detailsForm, companyId, roleIds, fieldSources));
 
   useEffect(() => {
     let live = true;
@@ -48,7 +92,14 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
   }, [key]);
 
   const form = data?.form || [];
-  const fromDocs = form.filter(f => f.type !== 'heading' && f.documents?.length);
+  const fields = data?.fields || [];
+  const asked = form.filter(f => f.type !== 'heading');
+  const nobody = fields.filter(r => r.fill === 'none' && !fieldSources[r.token]?.source).length;
+  const setChoice = (token, c) => {
+    const next = { ...fieldSources };
+    if (c) next[token] = c; else delete next[token];
+    onFieldSources?.(next);
+  };
   const required = new Set((data?.standard || []).filter(f => f.required).map(f => f.key));
   const page = data && {
     state: 'open', company: companyName || '', role: '', expiresOn: '', prefill: {}, afterOffer: true,
@@ -66,8 +117,16 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
         </button>
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.55 }}>
-        One form, on their phone, no login. Each question is asked once, however many documents print it.
+        One form, on their phone, no login. Each question is asked once, however many documents print it, and what they answer fills itself into every document.
       </div>
+      {data && (
+        <div style={{ fontSize: 13, marginTop: 8, lineHeight: 1.55 }} data-testid="intake-summary">
+          The new hire answers <b>{(data.standard || []).length + asked.length}</b> questions
+          {asked.some(f => f.sensitive) ? ` (${asked.filter(f => f.sensitive).length} private)` : ''}.
+          {' '}HR answers <b>{(data.hrAtOffer || []).length}</b> at the offer.
+          {nobody > 0 && <span style={{ color: 'hsl(var(--color-orange))', fontWeight: 600 }}> {nobody} {nobody === 1 ? 'field has' : 'fields have'} nobody filling {nobody === 1 ? 'it' : 'them'} yet.</span>}
+        </div>
+      )}
       {problem && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', color: 'hsl(var(--color-orange))', fontSize: 12.5, marginTop: 8 }}>
           <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} /><span>{problem}</span>
@@ -86,18 +145,14 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
           </div>
         ))}
 
-        <div style={sub}>From The Documents</div>
-        {fromDocs.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-            None yet. In a template&apos;s Template Fields, set a field to The New Hire (Intake Form) and it is asked here.
-          </div>
-        ) : fromDocs.map(f => (
-          <div key={f.key} style={row} data-testid={`asked-${f.key}`}>
-            <span style={{ fontWeight: 600 }}>{f.label}{f.required ? ' *' : ''}</span>
-            {f.sensitive && <span style={chip} title="Only people with Pay & Benefits access see the answer"><Lock size={10} style={{ verticalAlign: -1 }} /> Private</span>}
-            {f.packetOnly && <span style={chip} title="Defined on this packet below">Set On This Packet</span>}
-            {docNote(f.documents)}
-          </div>
+        <div style={sub}>Every Field In These Documents</div>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+          Pick who fills each one for this packet. The templates are not changed - another packet can choose differently.
+        </div>
+        {fields.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 6 }}>Add documents to see the fields they print.</div>
+        ) : fields.map(r => (
+          <FieldRow key={r.token} r={r} choice={fieldSources[r.token]} onChange={c => setChoice(r.token, c)} />
         ))}
 
         <div style={sub}>Each Role&apos;s Own Documents</div>

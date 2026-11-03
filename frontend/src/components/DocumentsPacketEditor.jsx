@@ -126,6 +126,8 @@ const fromPacket = (packet, event = '', eventLabel = '') => ({
   extraDocs: (packet?.extraDocs || []).map(({ match, value, templateIds }) => ({ match, value, templateIds: templateIds || [] })),
   flow: packet?.flow?.map(({ key, role, action, once }) => ({ key, role, action, ...(once ? { once: true } : {}) })) || [],
   detailsForm: (packet?.detailsForm || []).map(f => ({ ...f, options: f.options || [] })),
+  // Who fills each variable, for this packet (Pranshu, 11/03/2026): {token: {source, value, required, sensitive}}.
+  fieldSources: packet?.fieldSources || {},
   verifyRole: packet?.verifyRole || 'hr',
   letterheadId: packet?.letterheadId || '',
   payMode: packet?.payMode || '',
@@ -223,11 +225,6 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
   };
 
   // ── Details Form ──
-  const formKeys = new Set(p.detailsForm.map(f => f.key || formKey(f.label)).filter(Boolean));
-  const wanted = [];
-  docs.forEach(d => (d.variables || []).forEach(v => {
-    if (!formKeys.has(v.token) && !wanted.some(w => w.token === v.token)) wanted.push(v);
-  }));
   const setField = (i, patch) => set('detailsForm', p.detailsForm.map((f, j) => j === i ? { ...f, ...patch } : f));
   // The checklist's "Add To Details Form": every variable nothing fills, in one go.
   const addVariables = (vars) => {
@@ -288,6 +285,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
         details_form: event === 'hire' ? p.detailsForm.map(({ key, label, type, required, sensitive, last4, options, help }) => ({
           key: key || '', label, type, required: !!required, sensitive: !!sensitive, last4: !!last4, options: options || [], help: help || '',
         })) : [],
+        ...(event === 'hire' ? { field_sources: p.fieldSources } : {}),
       });
       // Stay open on the checklist: what is still missing shows at once.
       setP(x => ({ ...x, id: saved.id }));
@@ -570,18 +568,8 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
       )}
 
       {event === 'hire' && (
-        <PacketIntakePanel docIds={p.docIds} extraDocs={p.extraDocs} detailsForm={p.detailsForm} companyId={companyId} roleIds={p.roleIds} companyName={companyName}>
-          {wanted.length > 0 && (
-            <div style={{ border: '1.5px dashed var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 10, fontSize: 13 }}>
-              Your documents print these, and nothing fills them yet:
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-                {wanted.map(v => (
-                  <button key={v.token} type="button" className="secondary-btn" onClick={() => addField({ key: v.token, label: v.label, type: ['date', 'email', 'number'].includes(v.type) ? v.type : 'text' })}
-                    style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Plus size={11} /> {v.label}</button>
-                ))}
-              </div>
-            </div>
-          )}
+        <PacketIntakePanel docIds={p.docIds} extraDocs={p.extraDocs} detailsForm={p.detailsForm} companyId={companyId} roleIds={p.roleIds} companyName={companyName}
+          fieldSources={p.fieldSources} onFieldSources={v => set('fieldSources', v)}>
           {p.detailsForm.map((f, i) => f.type === 'heading' ? (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
               <Heading size={14} style={{ color: 'var(--muted)' }} />

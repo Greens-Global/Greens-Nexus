@@ -1450,6 +1450,7 @@ def _run_migrations():
             "ALTER TABLE nexus_announcements ADD COLUMN work_site_id VARCHAR DEFAULT ''",
             # Federal forms in hiring packets (Neil, 11/02/2026) - see the Postgres list.
             "ALTER TABLE hr_packet_settings ADD COLUMN federal_forms JSON DEFAULT '[]'",
+            "ALTER TABLE hr_packet_settings ADD COLUMN field_sources JSON DEFAULT '{}'",
             # Sign-in notices (Neil, 11/02/2026): where each session signed in
             # from (sign_in_watch.record). models.ServerSession.
             "ALTER TABLE server_sessions ADD COLUMN ip VARCHAR DEFAULT ''",
@@ -3478,6 +3479,8 @@ def _run_migrations():
         # I-9 and Direct Deposit Authorization a US hiring packet sends.
         # models.HrPacketSetting.federal_forms. Additive.
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS federal_forms JSONB DEFAULT '[]'::jsonb",
+        # Who fills each variable, per packet (Nov 3 2026): models.HrPacketSetting.field_sources.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS field_sources JSONB DEFAULT '{}'::jsonb",
         # Sign-in notices (Neil, 11/02/2026): where each session signed in from
         # (sign_in_watch.record) and the new nexus_sign_ins table's RLS.
         # models.ServerSession / NexusSignIn.
