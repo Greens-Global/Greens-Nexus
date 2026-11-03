@@ -87,6 +87,15 @@ export function hasUnsavedWork() { return hasDirtyDialog() || inlineDirty.size >
 // asks it instead of the plain prompt. `fn` resolves true to leave.
 let leaveAsk = null;
 export function setLeaveGuard(fn) { leaveAsk = fn || null; }
+
+// Browser Back and Forward with work to lose: App's popstate listener asks here
+// before it moves the screen. It cannot be a second listener: Chrome runs a
+// window's popstate listeners in the order they were added, capture or not, so
+// App's would go first and unmount the screen trying to stop it. `fn` gets the
+// event and returns true when it dealt with the pop.
+let popGuard = null;
+export function setPopGuard(fn) { popGuard = fn || null; }
+export function runPopGuard(e) { return !!popGuard?.(e); }
 export function askToLeave() {
   return hasDirtyDialog() || inlineDirty.size > 0 || !leaveAsk ? confirmDiscard() : leaveAsk();
 }

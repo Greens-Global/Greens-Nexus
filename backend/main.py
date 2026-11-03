@@ -5403,3 +5403,5 @@ from routers import forms as forms_router  # noqa: E402 - doc_form_entries: crea
 app.include_router(forms_router.router)  # Forms & Checklists: fill a form on the phone, entries, review, PDF, CSV (Neil, 11/02/2026)
 from routers import me_sessions as me_sessions_router  # noqa: E402 - nexus_sign_ins: create_all + explicit RLS line
 app.include_router(me_sessions_router.router)  # My Profile > Security: where you are signed in, sign out other devices, recent sign-ins (Neil, 11/02/2026)
+from routers import pdf_tools as pdf_tools_router  # noqa: E402 - writes audit_logs rows only, no new table
+app.include_router(pdf_tools_router.router)  # PDF Tools: who did what - one Audit Log row per action, never the file (Neil, 11/02/2026)

@@ -36,7 +36,7 @@ import { BFF_MODE } from "./bffAuth";
 import LoginPage from "./views/LoginPage";
 import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
-import { hasUnsavedWork, askToLeave } from "./lib/dialogGuard";
+import { hasUnsavedWork, askToLeave, runPopGuard } from "./lib/dialogGuard";
 
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
@@ -777,6 +777,7 @@ function MainApp() {
   const fromPopstate = useRef(false);
   useEffect(() => {
     const onPop = (e) => {
+      if (runPopGuard(e)) return;
       const { view, sub } = parsePath();
       fromPopstate.current = true;
       setActiveView(view);

@@ -1880,7 +1880,7 @@ export const api = {
   // by pointing one at the other.
   egnyteStatus:      ()                   => req('/egnyte/status'),
   egnyteFolder:      (path = '')          => req(`/egnyte/folder?path=${encodeURIComponent(path)}`),
-  egnyteFile:        (path)               => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}`),
+  egnyteFile:        (path, opts)         => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}`, opts),
   // Same bytes, but asking to VIEW rather than download, so the response carries
   // the file's real content type and the blob can be rendered. The server grants
   // that only for its own allowlist (PDF/image/text) - see routers/egnyte.py.
@@ -1892,11 +1892,11 @@ export const api = {
   egnyteDelete:      (path)               => req('/egnyte/fs/delete', { method: 'POST', body: JSON.stringify({ path }) }),
   egnyteDescribe:    (path, description)  => req('/egnyte/fs/describe', { method: 'POST', body: JSON.stringify({ path, description }) }),
   // multipart: let the browser set the boundary, never set Content-Type by hand
-  egnyteUpload:      (folder, file) => {
+  egnyteUpload:      (folder, file, opts = {}) => {
     const fd = new FormData();
     fd.append('folder', folder);
     fd.append('file', file);
-    return req('/egnyte/upload', { method: 'POST', body: fd });
+    return req('/egnyte/upload', { method: 'POST', body: fd, ...opts });
   },
   // ── Egnyte wiring registry (manager+ edits surface->folder mappings in UI) ──
   egnyteWiring:      ()                       => req('/egnyte/wiring'),
@@ -3472,6 +3472,10 @@ api.mySessions = () => req('/me/sessions');
 api.mySignIns = () => req('/me/sign-ins');
 api.signOutSession = (id) => req(`/me/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
 api.signOutOtherSessions = () => req('/me/sessions/others', { method: 'POST' });
+
+// PDF Tools: one Audit Log row per action (routers/pdf_tools.py). Name, page count
+// and places only, never the file. The caller ignores the answer.
+api.pdfToolsEvent = (body) => req('/pdf-tools/events', { method: 'POST', body: JSON.stringify(body) });
 // A jobsite placed from its Google Maps link (11/02/2026), like a work site:
 // the exact point its weather is read at, and the address the link names.
 api.resolveProjectLink = (link) => req('/construction/resolve-link', { method: 'POST', body: JSON.stringify({ link }) });

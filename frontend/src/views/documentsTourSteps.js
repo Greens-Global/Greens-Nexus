@@ -73,7 +73,7 @@ export function buildDocumentsTourSteps({ go, isMobile }) {
       target: 'documents-screen-documents-pdf',
       before: () => go('documents-pdf'),
       title: 'PDF Tools',
-      body: 'A full PDF editor in the browser - edit and sign a PDF, merge another one in, rotate or split its pages, add a watermark, compress it, and read scanned pages with OCR. It takes the whole screen; switch tabs to leave it.',
+      body: 'A full PDF editor in the browser - edit a PDF, merge another one in, rotate or split its pages, add a watermark, compress it, and read scanned pages with OCR. It takes the whole screen; switch tabs to leave it.',
     },
     {
       target: null,
