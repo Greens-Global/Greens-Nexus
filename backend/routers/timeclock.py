@@ -278,7 +278,19 @@ def _visible_emails(db: Session, user: dict):
         base = _visible_emails(db, {k: v for k, v in user.items() if k != "_sched_extra"})
         return None if base is None else base | set(extra)
     if user.get("level", 0) >= 4:
-        return None
+        # An Administrator sees their companies' people (plus their own
+        # directs); only an unrestricted caller - a Super Administrator -
+        # sees everyone (Neil, 11/02/2026: walled, the switch on or off).
+        # People with no company are shared (auth.AdminScope), as in People.
+        from auth import company_scope, admits_blank
+        cscope = company_scope(user, db)
+        if cscope is None:
+            return None
+        import backup_manager
+        mine = backup_manager.managed_directly(db, user["email"]) | {(user["email"] or "").lower()}
+        blank = admits_blank(cscope)
+        return mine | {(e.work_email or "").lower() for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all()
+                       if e.work_email and ((e.company or "") in cscope or (blank and not (e.company or "")))}
     # Direct reports, plus anyone the caller is Backup Manager for - the
     # backup has the manager's rights over them (Neil, Oct 13).
     import backup_manager
@@ -1039,6 +1051,29 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     has_eod = (db.query(TimeBod)
                .filter(TimeBod.employee_email == email, TimeBod.kind == "eod",
                        TimeBod.local_date == local_today).first()) if _open else None
+    # Early clock-in confirm (Neil, Teams 11/02/2026): clocking in more than
+    # earlyPunchAlertMin minutes (default 10) before today's expected start
+    # makes the client ask "clock in anyway?" before it sends the punch. The
+    # server never blocks an early punch - early_punch.py quietly tells the
+    # manager once it lands. Only before the first clock-in of the workday;
+    # no expected start (no shift, no preset, weather-cancelled) = no ask.
+    early_warning = None
+    if has_in is None:
+        try:
+            import early_punch
+            import shift_expect
+            from routers.shift_requests import settings_for
+            _thr = int(settings_for(db, email).get(early_punch.SETTING, 0) or 0)
+            if _thr > 0:
+                _dd = date.fromisoformat(local_today)
+                _exp = shift_expect.expected_start(db, email, _dd)
+                _start = shift_expect.start_utc(_dd, _exp)
+                if _start is not None:
+                    early_warning = {"shiftStartUtc": _start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                     "shiftStart": _exp.get("start") or "",
+                                     "warnBeforeMin": _thr}
+        except Exception as e:   # a hint only - never fail the clock for it
+            print(f"[early_punch] status hint skipped for {email}: {e}")
     return {
         "lastPunch": _serialize(last) if last else None,
         "eodRequired": _open and has_eod is None and not _bod_ex,
@@ -1056,6 +1091,9 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         # hook runs only when this is true (lib/useLocationTrail.js).
         "locationTrail": _location_trail_on(db, email),
         "bodRequired": (has_bod is None and has_in is None) and not _bod_ex,
+        # {shiftStartUtc, shiftStart, warnBeforeMin} before the first clock-in
+        # of a day with an expected start, else null (see above).
+        "earlyWarning": early_warning,
         # Role-flagged people skip EVERY message prompt (BOD, EOD, break start/
         # end) - punches go straight through (Neil, Aug 25).
         "bodExempt": _bod_ex,
@@ -1244,6 +1282,7 @@ def punch(body: PunchIn, request: Request,
                     ip=ip, user_agent=ua, source="web",
                     created_by=email, created_at=now, **geo)
     db.add(row)
+    _early_punch_alert(db, row, email)
     # Soft-gate escalation (Charmi / Visesh, Sep 25): an out-of-fence punch IN
     # or OUT goes to the employee's manager as a bell notification AND an email
     # ("email manager when punches out of the geofence").
@@ -1442,9 +1481,26 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
                     note=body.note.strip()[:300], source="offline",
                     created_by=email, created_at=now)
     db.add(row)
+    _early_punch_alert(db, row, email)
     _notify_offline_punch(db, row)
     db.commit()
     return _serialize(row)
+
+
+def _early_punch_alert(db: Session, row, email: str) -> None:
+    """Early punch alert (Neil, 11/02/2026, early_punch.py): a clock-in well
+    before the expected start tells the manager. Called by every punch
+    writer right after the row is added; the punch is ALWAYS recorded -
+    nothing here may raise out of the route."""
+    if (getattr(row, "kind", "") or "") != "in":
+        return
+    try:
+        import early_punch
+        db.flush()
+        emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == (email or "").lower()).first()
+        early_punch.check(db, row, emp)
+    except Exception as e:   # noqa: BLE001 - an alert never blocks a punch
+        print(f"[early_punch] alert skipped for {email}: {e}")
 
 
 def _notify_offline_punch(db: Session, row) -> None:
@@ -2428,7 +2484,7 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(get_current_user)
     import timesheet_review as _tsr
     email = body.email.strip().lower()
     if not _tsr.is_hr(db, user["email"], email):
-        raise HTTPException(403, "Only HR or a Global Admin can unlock a finalized time sheet.")
+        raise HTTPException(403, "Only HR or a Super Administrator can unlock a finalized time sheet.")
     reason = (body.reason or "").strip()
     if len(reason) < 5:
         raise HTTPException(422, "Give a reason of at least 5 characters - it is logged on the time sheet.")
@@ -3416,6 +3472,19 @@ def _require_company_tracking_scope(user: dict, company_id: str, db: Session):
     scope = hr_scope(user, db)
     if scope is not None and company_id not in scope:
         raise HTTPException(404, "Company not found")
+
+
+@router.get("/monitoring/companies")
+def list_monitoring_companies(user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
+    """The companies whose Workforce Analytics Policy this caller may open
+    (11/02/2026) - Settings' company list for a Full Employee Tracking grant
+    holder who cannot read People's company list (/hr/entities). Names
+    only, within the same scope as the policy routes."""
+    from auth import hr_scope
+    from models import HrEntity
+    scope = hr_scope(user, db)
+    return [{"id": e.id, "name": e.name or ""} for e in db.query(HrEntity).order_by(HrEntity.name).all()
+            if scope is None or e.id in scope]
 
 
 @router.get("/monitoring/policy/{company_id}")
@@ -6029,14 +6098,16 @@ def track_clock(body: TrackClockIn, request: Request, dev: AgentDevice = Depends
     geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
            if (body.lat or "").strip() else
            {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0})
-    db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
+    _row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
                      local_date=_local_date(now, body.tz_offset_min or 0),
                      tz_offset_min=body.tz_offset_min or 0,
                      lat=(body.lat or "").strip()[:24], lng=(body.lng or "").strip()[:24],
                      accuracy_m=max(0, int(body.accuracy_m or 0)),
                      # Phone punches carried no IP, so the hover showed none (Oct 18 2026).
                      ip=_client_meta(request)[0], user_agent=_client_meta(request)[1],
-                     source="mobile", created_by=email, created_at=now, **geo))
+                     source="mobile", created_by=email, created_at=now, **geo)
+    db.add(_row)
+    _early_punch_alert(db, _row, email)
     if body.kind == "in":
         if _live_consent(db, email) is not None:
             _open_session(db, email) or _new_session(db, dev)  # start tracking on clock-in
@@ -7167,6 +7238,8 @@ def _sched_dict(row: ScheduledShift, presets: dict, effective: bool = False, tea
             "paidMin": 0 if weather_status == "cancelled" else max(0, _shift_minutes(start, end) - break_min),
             "activities": acts,
             "groupId": getattr(row, "group_id", "") or "",
+            # Where it is worked: '' = the team's site (jobsites.py).
+            "jobsite": getattr(row, "jobsite", "") or "",
             "timeZone": _shift_tz(row, p, team_tz),
             "ownColor": pend.get("color", getattr(row, "color", "") or "") or "",
             # '' = no preset: the team's zone (shift settings) applies.
@@ -7557,6 +7630,23 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     # scan last wrote, never a live forecast call from here.
     import weather_watch
     weather = weather_watch.outlook_rows(db, start, end, group_ids)
+    # The places a shift may name (the weather follows the jobsite, 10/30/2026),
+    # each shift's jobsite by name, and a shift at a jobsite its own sky (the
+    # day's chip covers the team's site, as before).
+    import jobsites
+    cat = jobsites.Catalog(db)
+    jobsite_list = cat.options() if can_write or any(s.get("jobsite") for s in scheduled) else []
+    if any(s.get("jobsite") for s in scheduled):
+        site_of = {g.id: g.work_site_id or "" for g in db.query(ShiftGroup).all()}
+        bands = {(w["groupId"], w["date"], w["place"]): w for w in weather if w.get("place")}
+        for s in scheduled:
+            if not s.get("jobsite"):
+                continue
+            p = cat.get(s["jobsite"])
+            s["jobsiteName"], s["jobsiteLocated"] = (p.name, p.located) if p is not None else ("", False)
+            w = bands.get((s.get("groupId") or "", s["date"], cat.place_of(s["jobsite"], site_of.get(s.get("groupId") or "", ""))))
+            if w:
+                s["weatherBand"], s["weatherChance"], s["weatherInches"] = w["band"], w["chance"], w["inches"]
 
     last = _last_publish(db) if can_write else {}
     # Where the unshared changes are, per day (Oct 30 2026): the team line
@@ -7567,7 +7657,7 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
             unshared_by_date[d] = unshared_by_date.get(d, 0) + 1
     return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
             "groups": groups, "scheduled": scheduled, "openShifts": open_shifts,
-            "timeoff": timeoff, "holidays": holidays, "weather": weather,
+            "timeoff": timeoff, "holidays": holidays, "weather": weather, "jobsites": jobsite_list,
             "dayNotes": day_notes, "canManage": can_write, "availability": avail,
             "groupScheduler": bool(user.get("_group_scheduler")), "usual": usual,
             "me": (user.get("email") or "").lower(),
@@ -7731,7 +7821,37 @@ def schedule_labor(start: str, end: str, user: dict = Depends(require_schedule_w
         out.update({"cost": total_cost, "currency": currency,
                     "costs": {k: round(v, 2) for k, v in currencies.items()},
                     "peopleWithoutRate": len(no_rate), "fixedPayPeople": len(fixed)})
+    # Weekly labor budget (Neil, 11/02/2026): HR++ ONLY - hr_access is the
+    # rule (the company's HR contact, administrators, a Full People grant in
+    # scope; the manager tier is never HR). Everyone else gets NEITHER key:
+    # the flag and the values are absent, not null, so a payload never says
+    # there is a budget to someone who may not see it.
+    budget_company = _budget_company(db, user, rows, people)
+    import hr_access
+    if hr_access.is_hr_for_company(db, user, budget_company):
+        from routers.shift_requests import get_settings as _shift_settings
+        cfg = _shift_settings(db, budget_company)
+        days = (d1 - d0).days + 1
+        scale = lambda v: (int(round(int(v) * days / 7.0)) if int(v or 0) > 0 else None)   # noqa: E731
+        out["budgetVisible"] = True
+        out["budget"] = {"hours": scale(cfg.get("laborBudgetHours", 0)),
+                         "amount": scale(cfg.get("laborBudgetAmount", 0)),
+                         "currency": currency or "USD"}
     return out
+
+
+def _budget_company(db: Session, user: dict, rows: list, people: dict) -> str:
+    """Whose weekly budget the planner shows: the one company of the people
+    scheduled in the range; several companies (or nobody scheduled) = the
+    caller's own company (auth.company_of)."""
+    companies = set()
+    for r in rows:
+        p = people.get((r.employee_email or "").lower())
+        companies.add((p.company if p is not None else "") or "")
+    if len(companies) == 1:
+        return next(iter(companies))
+    from auth import company_of
+    return company_of(user, db)
 
 
 @router.get("/schedule/check")
@@ -7818,18 +7938,30 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
     (Miranda, Oct 21: see at a glance who is on a break). The same people as
     /my-schedule; status words and the punch time only - never a location,
     note or screenshot. Someone with no punch on their current workday is
-    absent, and so is anyone exempt from time tracking."""
+    absent, and so is anyone exempt from time tracking.
+
+    The live team strip (Homebase lifts, Neil 11/02/2026) adds `late` - the
+    members expected to have started by now (shift_expect.expected_starts +
+    late_now, the ONE expected-start rule) with no clock-in yet - and
+    `counts` {in, break, late, off} over every member listed. A punch whose
+    job category classes as leave (_leave_class: Sick / PTO / Personal) is
+    NOT a clock-in, exactly as shift_attendance reads it: the person is on
+    leave, never In and never Late, so they are not in `people` either."""
     email = (user.get("email") or "").lower()
     from routers.shift_requests import settings_for as _sr_settings_for
+    import shift_expect
     cfg = _sr_settings_for(db, email)
     _, _, group_ids = _visible_shift_groups(db, user, email, cfg, can_manage_shifts(user))
     now = datetime.now(timezone.utc)
     people = {}
+    late = []
+    members = []
     if group_ids:
         exempt = time_tracking_exempt_emails(db)
         members = sorted({(m.employee_email or "").lower() for m in db.query(ShiftGroupMember)
                           .filter(ShiftGroupMember.group_id.in_(group_ids)).all()} - exempt - {""})
         last = {}
+        last_in = {}
         if members:
             # Two days covers any live shift (16h stale guard) and today's clock-out.
             since = (now - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S")
@@ -7837,7 +7969,11 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
                       .filter(func.lower(TimePunch.employee_email).in_(members),
                               TimePunch.voided == 0, TimePunch.at >= since)
                       .order_by(TimePunch.at.asc()).all()):
-                last[(p.employee_email or "").lower()] = p   # ascending -> the latest wins
+                em = (p.employee_email or "").lower()
+                last[em] = p   # ascending -> the latest wins
+                if p.kind == "in":
+                    last_in[em] = p
+        on_leave = set()
         for em, p in last.items():
             state = _LIVE_STATE.get(p.kind)
             if not state or _stale_open_shift(p):
@@ -7845,10 +7981,26 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
             off = p.tz_offset_min or 0
             if state == "out" and _local_date(p.at, off) != _local_date(now.isoformat(), off):
                 continue   # clocked out on an earlier day - nothing live to show
+            opened = last_in.get(em)
+            if opened is not None and _leave_class(getattr(opened, "category", "") or ""):
+                on_leave.add(em)   # a Sick / PTO / Personal punch: on leave, not on the clock
+                continue
             # Stored `at` is naive UTC; the Z keeps browsers from reading it as local time.
             at = p.at if p.at.endswith("Z") or "+" in p.at[10:] else p.at + "Z"
             people[em] = {"state": state, "label": _LIVE_LABEL[state], "since": at}
-    return {"people": people, "asOf": now.isoformat()}
+        # Late: no clock-in today and the expected start + grace has passed on
+        # the shift's own clock. "Today" is the planner's day - the caller's
+        # team zone; a weather-cancelled day or no shift at all is never late.
+        candidates = [em for em in members if em not in people and em not in on_leave]
+        if candidates:
+            team_day = now.astimezone(shift_expect.zone(cfg.get("timeZone") or _DEFAULT_TEAM_TZ)).date()
+            expected = shift_expect.expected_starts(db, candidates, team_day)
+            late = [em for em in candidates if shift_expect.late_now(team_day, expected.get(em), now)]
+    n_in = sum(1 for p in people.values() if p["state"] == "working")
+    n_break = sum(1 for p in people.values() if p["state"] == "break")
+    counts = {"in": n_in, "break": n_break, "late": len(late),
+              "off": max(0, len(members) - n_in - n_break - len(late))}
+    return {"people": people, "late": late, "counts": counts, "asOf": now.isoformat()}
 
 
 @router.get("/my-schedule")
@@ -7941,6 +8093,8 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
                         key=lambda g: (g.id not in member_set, (g.name or "").lower())):
             ems = sorted(set(members_by_group.get(g.id, [])), key=lambda em: (em != email, names.get(em, em)))
             teams.append({"id": g.id, "name": g.name, "isMember": g.id in member_set,
+                          # Forms (11/02/2026): a site-scoped form shows on the shift card of this team's site.
+                          "workSiteId": g.work_site_id or "",
                           "members": [{"email": em, "name": names.get(em, em), "isMe": em == email,
                                        "photoUrl": photos.get(em, ""),
                                        "shift": defaults.get(em), "scheduled": placed.get(em, []),
@@ -8003,6 +8157,7 @@ class ScheduledShiftIn(BaseModel):
     color: Optional[str] = None        # '#rrggbb', '' = the preset's; None = leave as is
     group_id: Optional[str] = None     # the team; None = the person's first team (an open shift needs one)
     timezone: Optional[str] = None     # IANA zone of the times; None = the preset's / the team's
+    jobsite: Optional[str] = None      # where it is worked (jobsites.py); '' = the team's site; None = leave as is
 
 
 def _check_person_in_scope(db: Session, user: dict, em: str) -> None:
@@ -8054,6 +8209,11 @@ def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_schedu
     color = _clean_color(body.color)
     team_tz = _team_tz(db)
     tz = _placement_tz(body.timezone, preset, team_tz)
+    import jobsites
+    try:
+        jobsite = jobsites.normalize(db, body.jobsite)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     _dup_check(db, em, day, start, end, group_id=gid)   # after every 400: a bad field is reported first
     brk = (_clamp_break(body.break_min) if body.break_min is not None
            else int(getattr(preset, "break_min", 0) or 0) if preset else 0)
@@ -8063,7 +8223,7 @@ def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_schedu
         label=(body.label or "")[:80], note=(body.note or "")[:200], open_slots=slots,
         break_min=_break_for(acts, brk),
         activities_json=json.dumps(acts) if acts else "",
-        color=color, group_id=gid, timezone=tz,
+        color=color, group_id=gid, timezone=tz, jobsite=jobsite,
         published=0,   # new shifts start as a DRAFT until the manager publishes
         created_by=user["email"], created_at=_now_iso())
     db.add(row)
@@ -8105,6 +8265,7 @@ def assign_open_shift(sched_id: str, body: AssignOpenIn,
         label=row.label, note=row.note, open_slots=0, break_min=int(row.break_min or 0),
         activities_json=row.activities_json or "", color=row.color or "",
         group_id=getattr(row, "group_id", "") or "", timezone=getattr(row, "timezone", "") or "",
+        jobsite=getattr(row, "jobsite", "") or "",
         published=0,   # a newly assigned shift is a draft until published
         created_by=user["email"], created_at=_now_iso())
     db.add(assigned)
@@ -8474,6 +8635,7 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
                                  if src.get("activities") and body.include_activities else ""),
                 color=src.get("ownColor") or "",
                 group_id=src.get("groupId") or "", timezone=getattr(row, "timezone", "") or "",
+                jobsite=src.get("jobsite") or "",
                 published=0, created_by=user["email"], created_at=now)
             db.add(new_row)
             shift_log.record(db, "copied", new_row, user["email"], before=shift_log.snapshot(src),
@@ -8573,6 +8735,7 @@ def move_scheduled(sched_id: str, body: MoveIn, user: dict = Depends(require_sch
         open_slots=max(1, int(eff["openSlots"] or 0)) if not target else 0, break_min=int(eff["breakMin"] or 0),
         activities_json=json.dumps(eff["activities"]) if eff["activities"] else "",
         color=eff.get("ownColor") or "", group_id=gid, timezone=getattr(row, "timezone", "") or "",
+        jobsite=getattr(row, "jobsite", "") or "",
         published=0, created_by=user["email"], created_at=_now_iso())
     db.add(new)
     pending_removal = False
@@ -9004,6 +9167,13 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
         row.group_id = _resolve_group(db, body.group_id, row.employee_email, open_shift=not row.employee_email)
     if body.timezone is not None and (body.timezone or "").strip():
         row.timezone = _placement_tz(body.timezone, None, "")
+    jobsite_was = getattr(row, "jobsite", "") or ""
+    if body.jobsite is not None:
+        import jobsites
+        try:
+            row.jobsite = jobsites.normalize(db, body.jobsite)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
     was_removing = bool(row.pending_delete)
     if row.published:
         # Staff can already see this shift: keep the published version live
@@ -9018,14 +9188,54 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
         row.break_min = new["breakMin"]
         row.activities_json = json.dumps(new["activities"]) if new["activities"] else ""
         row.color = new["color"]
-    if new != base or was_removing:
+    moved = (getattr(row, "jobsite", "") or "") != jobsite_was
+    if new != base or was_removing or moved:
         shift_log.record(db, "edited", row, user["email"],
                          before=shift_log.snapshot({**base, "date": row.work_date, "email": row.employee_email}),
                          after=shift_log.snapshot({**new, "date": row.work_date, "email": row.employee_email}),
-                         reason="Kept after all" if was_removing else "")
+                         reason="Kept after all" if was_removing else ("Jobsite changed" if moved and new == base else ""))
     db.commit()
     presets = {s.id: s for s in db.query(Shift).filter(Shift.id.in_({row.shift_id, new["shiftId"]} - {""})).all()}
     return _sched_dict(row, presets, effective=True, team_tz=_team_tz(db))
+
+
+class JobsiteIn(BaseModel):
+    name: str
+    address: str = ""
+    # From a pasted Google Maps link (11/02/2026): the exact point, never
+    # looked up again from the address.
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+class JobsiteLinkIn(BaseModel):
+    link: str
+
+
+@router.post("/jobsites/resolve-link")
+def resolve_jobsite_link(body: JobsiteLinkIn, user: dict = Depends(require_schedule_write)):
+    """'+ New Jobsite' placed from a Google Maps link (11/02/2026): the work
+    site reader (routers/hr.py), for whoever may write the schedule."""
+    from routers.hr import MapLinkIn, resolve_work_site_link
+    return resolve_work_site_link(MapLinkIn(link=body.link), user)
+
+
+@router.post("/jobsites", status_code=201)
+def create_jobsite(body: JobsiteIn, user: dict = Depends(require_schedule_write), db: Session = Depends(get_db)):
+    """'+ New Jobsite' in the shift popup (Pranshu, 11/02/2026): a name and an
+    address make a Construction project in one step, its address looked up
+    for the weather. The same address or name returns the project already
+    there instead of a second one. Answers the picker's row for it."""
+    import jobsites
+    try:
+        p = jobsites.create_project(db, (user.get("email") or "").lower(), body.name, body.address,
+                                    body.latitude, body.longitude)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    db.commit()
+    key = jobsites.PROJECT + p.id
+    return next(o for o in jobsites.Catalog(db).options() + [{"id": key, "kind": "project", "name": p.name,
+                "where": p.address or "", "located": False, "hint": jobsites.NO_POINT}] if o["id"] == key)
 
 
 @router.delete("/schedule/{sched_id}")
@@ -9486,12 +9696,20 @@ def _weekend_pay(daily: float, worked_min: int, full_hours: float, currency: str
     return round(max(floor, _WEEKEND_MULT * daily * hours / full_hours), 2)
 
 
+SALARIED_FULL_MIN = 4 * 60        # a salaried weekday is a full day from 4 h worked
+SALARIED_HALF_MIN = 150           # a half day from 2.5 h; absent below that
+
+
 def _attendance_bands(full_hours: float) -> tuple:
-    """(FULL_MIN, HALF_MIN) in minutes: a full day is worked >= full_day_hours
-    minus 60 min (an hour short is not pinged), a half day is >= 4 h and
-    under that, absent below 4 h (Charmi, Sep 30)."""
-    full_min = max(0, int(round(float(full_hours or 8) * 60)) - 60)
-    return full_min, min(4 * 60, full_min)
+    """(FULL_MIN, HALF_MIN) in minutes for a FIXED-salary employee's weekday:
+    a full day is worked >= 4 h, a half day >= 2.5 h and under that, absent
+    below 2.5 h (Neil / Charmi via Sagar, Oct 31 2026 - replaces the Sep 30
+    rule of full-day hours minus an hour / 4 h; the Time Sheet no longer
+    prints the bands). Only guarded by a shorter full day, so the half band
+    never sits above the full one. India contractors never read this: their
+    8 h / 4 h credits are india_contractor_pay's."""
+    full_min = min(SALARIED_FULL_MIN, max(0, int(round(float(full_hours or 8) * 60))))
+    return full_min, min(SALARIED_HALF_MIN, full_min)
 
 
 def _fixed_card(db: Session, em: str, anchor: str) -> dict:
@@ -9864,6 +10082,7 @@ def _pay_type(db: Session, em: str) -> str:
 
 _AUTOLUNCH_KEY = "timeclock_autolunch"
 _AUTOLUNCH_DEFAULT = {"enabled": False, "afterMin": 360, "deductMin": 30}
+_AUTOLUNCH_MIN_AFTER = 60   # the shortest segment a lunch may be deducted from (11/02/2026)
 
 
 # ── Pay rules per company (Settings redesign phase 4, Oct 23 2026) ─────────
@@ -9878,20 +10097,31 @@ def _company_of(db: Session, email: str) -> str:
     return scoped_settings.company_of_email(db, email) if email else ""
 
 
-def _pay_company(db: Session, company: str) -> str:
+def _pay_company(db: Session, company: str, user: dict | None = None) -> str:
+    """The company a pay-rule call names ('' = the tenant row). With `user`,
+    a company outside their reach (_visible_companies: the walls, a People
+    grant limited to other companies) is not theirs to read or change: 404,
+    as across every wall (11/02/2026)."""
     from models import HrEntity
     cid = (company or "").strip()
     if cid and not db.query(HrEntity.id).filter(HrEntity.id == cid).first():
         raise HTTPException(404, "Company not found.")
+    if cid and user is not None:
+        admit = _visible_companies(db, user)
+        if admit is not None and cid not in admit:
+            raise HTTPException(404, "Company not found.")
     return cid
 
 
-def _pay_rule_payload(db: Session, key: str, cfg: dict, company_id: str) -> dict:
+def _pay_rule_payload(db: Session, key: str, cfg: dict, company_id: str, user: dict | None = None) -> dict:
     """A rule as the Settings screen reads it: the rule itself, whose it is,
-    whether the company has one of its own, and the companies to pick from."""
+    whether the company has one of its own, and the companies to pick from -
+    with `user`, only the companies they may see (11/02/2026)."""
     from models import HrEntity
+    admit = _visible_companies(db, user) if user is not None else None
     return {**cfg, "company": company_id, "hasOverride": scoped_settings.has_override(db, key, company_id),
-            "companies": [{"id": e.id, "name": e.name or ""} for e in db.query(HrEntity).order_by(HrEntity.name).all()]}
+            "companies": [{"id": e.id, "name": e.name or ""} for e in db.query(HrEntity).order_by(HrEntity.name).all()
+                          if admit is None or e.id in admit]}
 
 
 def _save_pay_rule(db: Session, key: str, cfg: dict, company_id: str, reset: bool, user: dict) -> None:
@@ -9921,8 +10151,8 @@ def _autolunch_cfg(db: Session, company_id: str = "") -> dict:
 
 @router.get("/payroll/autolunch")
 def get_autolunch(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
-    return _pay_rule_payload(db, _AUTOLUNCH_KEY, _autolunch_cfg(db, cid), cid)
+    cid = _pay_company(db, company, user)
+    return _pay_rule_payload(db, _AUTOLUNCH_KEY, _autolunch_cfg(db, cid), cid, user)
 
 
 class AutoLunchIn(BaseModel):
@@ -9935,11 +10165,17 @@ class AutoLunchIn(BaseModel):
 @router.put("/payroll/autolunch")
 def set_autolunch(body: AutoLunchIn, company: str = "", user: dict = Depends(require_administrator),
                   db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
+    cid = _pay_company(db, company, user)
     cfg = {"enabled": bool(body.enabled), "afterMin": max(0, int(body.afterMin)),
            "deductMin": max(0, int(body.deductMin))}
+    # A deduction after 0 minutes would take lunch off every worked segment,
+    # however short (11/02/2026): at least an hour, at most a day.
+    if cfg["enabled"] and not (body.reset and cid) and not (_AUTOLUNCH_MIN_AFTER <= cfg["afterMin"] <= 24 * 60):
+        raise HTTPException(400, "Deduct lunch after a shift of at least 60 minutes (and at most 24 hours).")
+    if cfg["enabled"] and not (body.reset and cid) and cfg["deductMin"] >= cfg["afterMin"]:
+        raise HTTPException(400, "The lunch deducted must be shorter than the shift it is taken from.")
     _save_pay_rule(db, _AUTOLUNCH_KEY, cfg, cid, body.reset, user)
-    return _pay_rule_payload(db, _AUTOLUNCH_KEY, _autolunch_cfg(db, cid), cid)
+    return _pay_rule_payload(db, _AUTOLUNCH_KEY, _autolunch_cfg(db, cid), cid, user)
 
 
 # ── Punch rounding (SwipeClock parity) ─────────────────────────────────────────
@@ -9988,8 +10224,8 @@ def _round_punch(t: datetime, nearest: int) -> datetime:
 
 @router.get("/payroll/rounding")
 def get_rounding(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
-    return _pay_rule_payload(db, _ROUNDING_KEY, _rounding_cfg(db, cid), cid)
+    cid = _pay_company(db, company, user)
+    return _pay_rule_payload(db, _ROUNDING_KEY, _rounding_cfg(db, cid), cid, user)
 
 
 class RoundingIn(BaseModel):
@@ -10001,10 +10237,10 @@ class RoundingIn(BaseModel):
 @router.put("/payroll/rounding")
 def set_rounding(body: RoundingIn, company: str = "", user: dict = Depends(require_administrator),
                  db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
+    cid = _pay_company(db, company, user)
     cfg = {"enabled": bool(body.enabled), "nearestMin": min(30, max(0, int(body.nearestMin)))}
     _save_pay_rule(db, _ROUNDING_KEY, cfg, cid, body.reset, user)
-    return _pay_rule_payload(db, _ROUNDING_KEY, _rounding_cfg(db, cid), cid)
+    return _pay_rule_payload(db, _ROUNDING_KEY, _rounding_cfg(db, cid), cid, user)
 
 
 # ── India Contractor Policy (Neil, Oct 27 2026, india_contractor_pay.py) ─────
@@ -10012,9 +10248,9 @@ def set_rounding(body: RoundingIn, company: str = "", user: dict = Depends(requi
 # Starts (11/01/2026 by default - months that start before it keep the old
 # rules, so October is never re-priced). Same permissions as Punch Rounding.
 
-def _india_policy_payload(db: Session, cid: str) -> dict:
+def _india_policy_payload(db: Session, cid: str, user: dict | None = None) -> dict:
     cfg = india_contractor_pay.config(db, cid)
-    out = _pay_rule_payload(db, india_contractor_pay.SETTING_KEY, cfg, cid)
+    out = _pay_rule_payload(db, india_contractor_pay.SETTING_KEY, cfg, cid, user)
     out.update({"defaultStart": india_contractor_pay.DEFAULT_START, "version": india_contractor_pay.POLICY_VERSION,
                 "companyCountry": india_contractor_pay.company_country(db, cid) if cid else "",
                 "enabled": india_contractor_pay.enabled_for_company(db, cid, cfg) if cid else None})
@@ -10024,7 +10260,7 @@ def _india_policy_payload(db: Session, cid: str) -> dict:
 @router.get("/payroll/india-contractor-policy")
 def get_india_contractor_policy(company: str = "", user: dict = Depends(require_team_read),
                                 db: Session = Depends(get_db)):
-    return _india_policy_payload(db, _pay_company(db, company))
+    return _india_policy_payload(db, _pay_company(db, company, user), user)
 
 
 class IndiaPolicyIn(BaseModel):
@@ -10036,7 +10272,7 @@ class IndiaPolicyIn(BaseModel):
 @router.put("/payroll/india-contractor-policy")
 def set_india_contractor_policy(body: IndiaPolicyIn, company: str = "", user: dict = Depends(require_administrator),
                                 db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
+    cid = _pay_company(db, company, user)
     mode = (body.mode or "").strip().lower()
     if mode and mode not in india_contractor_pay.MODES:
         raise HTTPException(400, "India Contractor Policy is on, off or the default.")
@@ -10048,7 +10284,7 @@ def set_india_contractor_policy(body: IndiaPolicyIn, company: str = "", user: di
             raise HTTPException(400, "Policy Starts must be a date.")
     _save_pay_rule(db, india_contractor_pay.SETTING_KEY,
                    {"mode": mode, "startDate": start or india_contractor_pay.DEFAULT_START}, cid, body.reset, user)
-    return _india_policy_payload(db, cid)
+    return _india_policy_payload(db, cid, user)
 
 
 # ── Payroll export codes (Neil, Oct 17 2026) ──────────────────────────────────
@@ -10226,8 +10462,8 @@ def _paid_break_credit(windows: list, worked_min: int, cfg: dict) -> int:
 
 @router.get("/payroll/breakpolicy")
 def get_breakpolicy(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
-    return _pay_rule_payload(db, _BREAKPOLICY_KEY, _breakpolicy_cfg(db, cid), cid)
+    cid = _pay_company(db, company, user)
+    return _pay_rule_payload(db, _BREAKPOLICY_KEY, _breakpolicy_cfg(db, cid), cid, user)
 
 
 class BreakPolicyIn(BaseModel):
@@ -10241,11 +10477,15 @@ class BreakPolicyIn(BaseModel):
 @router.put("/payroll/breakpolicy")
 def set_breakpolicy(body: BreakPolicyIn, company: str = "", user: dict = Depends(require_administrator),
                     db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
+    cid = _pay_company(db, company, user)
     cfg = {"enabled": bool(body.enabled), "paidBreakMin": max(0, int(body.paidBreakMin)),
            "restMaxMin": max(1, int(body.restMaxMin)), "longBreakMin": max(15, int(body.longBreakMin))}
+    # A rest break is shorter than a long (meal) break (11/02/2026): with the
+    # two crossed, one break would count as both.
+    if not (body.reset and cid) and cfg["restMaxMin"] > cfg["longBreakMin"]:
+        raise HTTPException(400, "The longest rest break must not be longer than a long break.")
     _save_pay_rule(db, _BREAKPOLICY_KEY, cfg, cid, body.reset, user)
-    return _pay_rule_payload(db, _BREAKPOLICY_KEY, _breakpolicy_cfg(db, cid), cid)
+    return _pay_rule_payload(db, _BREAKPOLICY_KEY, _breakpolicy_cfg(db, cid), cid, user)
 
 
 @router.get("/team-exceptions")
@@ -12081,7 +12321,7 @@ def _reasons_company(db: Session, company: str, user: dict) -> str:
     if company == "default":
         return ""
     if company:
-        return _pay_company(db, company)
+        return _pay_company(db, company, user)
     return _company_of(db, user.get("email") or "")
 
 
@@ -12104,7 +12344,7 @@ def save_timeoff_types(body: TimeOffTypesIn, company: str = "", user: dict = Dep
     """Replace the custom time-off reasons - the default for every company,
     or one company's own (?company=). Removing one leaves existing requests
     of that type as they are."""
-    cid = "" if company in ("", "default") else _pay_company(db, company)
+    cid = "" if company in ("", "default") else _pay_company(db, company, user)
     if cid:
         _require_company_manage(user, db, cid, "time-off reasons")
     else:
@@ -12168,6 +12408,16 @@ class _TimeoffPrivacy:
         self._stand_ins = {}
         self._any_deleg = None
         self._hr = {}
+        self._recommend_memo = None
+
+    def recommend_memo(self):
+        """One timeoff_recommend.Memo for every row this viewer is shown -
+        the settings per company, the policies and each person's balances
+        are read once per list, not once per pending row (11/02/2026)."""
+        if self._recommend_memo is None:
+            import timeoff_recommend
+            self._recommend_memo = timeoff_recommend.Memo(self.db, emp_lookup=self._emp)
+        return self._recommend_memo
 
     def _emp(self, email: str):
         if self._emps is None:
@@ -12294,6 +12544,14 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" 
            "firstNote": getattr(r, "first_note", "") or ""}
     if priv is not None:
         out["canDecide"] = priv.can_decide(r)
+        if out["canDecide"] and r.status == "pending":
+            # Time-off recommendation (Neil, 11/02/2026): "Recommended:
+            # Approve" / "Check First" with reasons, for the DECIDER only -
+            # a hint beside the buttons, never a decision (timeoff_recommend).
+            import timeoff_recommend
+            rec = timeoff_recommend.for_decider(priv.db, r, priv.recommend_memo())
+            if rec:
+                out["recommendation"] = rec
         # Who decides it, whenever the viewer cannot: a confidential request,
         # or the viewer's own (nobody approves their own time off - Visesh,
         # 09/30: "no approval or decline for me"; the approvers are named).
@@ -12771,8 +13029,8 @@ def _second_hr_on(db: Session, email: str) -> bool:
 
 @router.get("/timeoff/approval-settings")
 def get_timeoff_approval(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
-    return _pay_rule_payload(db, _TIMEOFF_APPROVAL_KEY, _timeoff_approval_cfg(db, cid), cid)
+    cid = _pay_company(db, company, user)
+    return _pay_rule_payload(db, _TIMEOFF_APPROVAL_KEY, _timeoff_approval_cfg(db, cid), cid, user)
 
 
 class TimeOffApprovalIn(BaseModel):
@@ -12788,9 +13046,9 @@ def set_timeoff_approval(body: TimeOffApprovalIn, company: str = "", user: dict 
     me = (user.get("email") or "").strip().lower()
     if not (level_for(me, db) >= _LEVELS["administrator"] or _module_level(me, "hr", db) >= _MODULE_LEVEL_RANK["full"]):
         raise HTTPException(403, "Only an administrator or HR with Full access can change this.")
-    cid = _pay_company(db, company)
+    cid = _pay_company(db, company, user)
     _save_pay_rule(db, _TIMEOFF_APPROVAL_KEY, {"secondHr": bool(body.secondHr)}, cid, body.reset, user)
-    return _pay_rule_payload(db, _TIMEOFF_APPROVAL_KEY, _timeoff_approval_cfg(db, cid), cid)
+    return _pay_rule_payload(db, _TIMEOFF_APPROVAL_KEY, _timeoff_approval_cfg(db, cid), cid, user)
 
 
 def _hr_level_recipients(db: Session, employee_email: str, actor: str) -> list:

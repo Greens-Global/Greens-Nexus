@@ -1,7 +1,8 @@
 // A Board's scene (Notes whiteboard, Neil 11/02/2026): what is saved on the
-// note row's `scene` column and what the engine (Excalidraw, wrapped by
-// Board.jsx) is fed. Pure: no engine import, so the list, the API client and
-// the tests read a scene without loading the 2.7 MB chunk.
+// note row's `scene` column and what the drawing engine (behind the adapter
+// in ./engine, mounted by Board.jsx) is fed. Pure: no engine import, so the
+// list, the API client and the tests read a scene without loading the 2.7 MB
+// chunk.
 //
 // Shape:
 //   { type: 'nexus-board', version: 1, look: 'clean' | 'sketch',
@@ -22,7 +23,7 @@ export const SAFE_APP_STATE_KEYS = [
 ];
 // Deleted elements ride along for a day so a collaborator who was offline
 // still receives the deletion; after that they are pruned from the saved scene.
-const DELETED_KEEP_MS = 24 * 3600 * 1000;
+export const DELETED_KEEP_MS = 24 * 3600 * 1000;
 
 // The engine's font family ids (@excalidraw/excalidraw FONT_FAMILY), copied so
 // this module stays engine-free: Nunito is the engine's "Normal" sans,
@@ -98,18 +99,76 @@ export function parseScene(str) {
   };
 }
 
-/** Engine state -> the saved string. */
-export function serializeScene({ elements, appState, filesMeta, look }) {
+/** Engine state -> the scene object that is saved (the adapter's toScene). */
+export function buildScene({ elements, appState, filesMeta, look }) {
   const now = Date.now();
-  const kept = (elements || []).filter((e) => !e.isDeleted || (now - (Number(e.updated) || 0)) < DELETED_KEEP_MS);
-  return JSON.stringify({
+  const kept = (elements || []).filter((e) => e && (!e.isDeleted || (now - (Number(e.updated) || 0)) < DELETED_KEEP_MS));
+  return {
     type: SCENE_TYPE,
     version: SCENE_VERSION,
     look: normalizeLook(look),
     elements: kept,
     appState: pruneAppState(appState),
     files: pruneFiles(filesMeta),
-  });
+  };
+}
+
+/** Engine state -> the saved string. */
+export function serializeScene(state) {
+  return JSON.stringify(buildScene(state));
+}
+
+/**
+ * The scene guard before a save (Neil, 11/02/2026): a deleted element older
+ * than DELETED_KEEP_MS (its `updated` more than a day before `now`) is
+ * dropped - every collaborator has had a day to receive its deletion - and
+ * so is a file no kept element points at. A scene still over SCENE_MAX
+ * after this is refused by Board.jsx with a notice, never sent as a 413.
+ * The rule is the day, never "since this tab's last save" (11/02/2026:
+ * that pruned a deletion a collaborator who saved in between had not seen,
+ * so the shape came back). Pure and non-destructive: a new object, the
+ * input untouched.
+ */
+export function compact(scene, { now = Date.now() } = {}) {
+  if (!scene || typeof scene !== 'object' || !Array.isArray(scene.elements)) return scene;
+  const cutoff = (Number(now) || Date.now()) - DELETED_KEEP_MS;
+  const elements = scene.elements.filter((e) => e && (!e.isDeleted || (Number(e.updated) || 0) > cutoff));
+  const used = new Set();
+  for (const e of elements) if (e.type === 'image' && e.fileId) used.add(e.fileId);
+  const files = {};
+  for (const [id, meta] of Object.entries(scene.files || {})) if (used.has(id)) files[id] = meta;
+  return { ...scene, elements, files };
+}
+
+/**
+ * Whether two saved scenes (strings) are the same drawing. The server
+ * re-dumps JSON with non-ASCII escaped (`"\ud83d\ude00"` for an emoji the
+ * browser sent as itself), so the string a Board sent and the one that
+ * comes back as the note's scene can differ while meaning the same thing;
+ * the parsed values are compared. A string that is not JSON only equals
+ * itself.
+ */
+export function sameScene(a, b) {
+  if (a === b) return true;
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  let pa; let pb;
+  try { pa = JSON.parse(a); pb = JSON.parse(b); } catch { return false; }
+  return deepEqual(pa, pb);
+}
+
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) if (!deepEqual(a[i], b[i])) return false;
+    return true;
+  }
+  const ka = Object.keys(a); const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) if (!Object.prototype.hasOwnProperty.call(b, k) || !deepEqual(a[k], b[k])) return false;
+  return true;
 }
 
 const nonce = () => Math.floor(Math.random() * 0x7fffffff);

@@ -6,7 +6,10 @@ const calls = [];
 vi.mock('../../api', () => {
   const api = {
     kbUploadMedia: (data, folder) => { calls.push(['upload', data.slice(0, 30), folder]); return Promise.resolve({ url: `https://x.supabase.co/storage/v1/object/public/kb-media/imports/${calls.length}` }); },
-    kbImportConvert: (body) => { calls.push(['convert', body]); return Promise.resolve({ blocks: body.body, title: 'Gate Lockup', words: 12, images: 0, tables: 1 }); },
+    kbImportConvert: (body) => { calls.push(['convert', body]); return Promise.resolve({ blocks: body.body, title: 'Gate Lockup', words: 12, images: 0, tables: 1,
+      // filed by rules on the server (kb_filer) - the modal shows it and hands it on
+      suggested: { page_type: 'sop', departments: ['Operations', 'Maintenance'], collection_id: 'col-ops', tags: ['keys'], by: 'rules', reasons: { page_type: 'It has numbered steps.', departments: 'Operations, Maintenance: named in the text.', collection: 'Filed under Operations for the Operations department.' } } }); },
+    kbCollections: () => Promise.resolve([{ id: 'col-ops', name: 'Operations', department: 'Operations', parent_id: '' }]),
     kbImport: () => Promise.reject(new Error('the AI path must not run')),
   };
   return { api, default: api };
@@ -68,7 +71,10 @@ describe('Import As Is', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Import As Is' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Open in Editor' }));
     await waitFor(() => expect(opened).toHaveLength(1));
-    expect(opened[0].page_type).toBe('how_to');
+    expect(opened[0].page_type).toBe('sop');   // the filer's pick; the author left the type on its default
+    expect(opened[0].departments).toEqual(['Operations', 'Maintenance']);
+    expect(opened[0].collection_id).toBe('col-ops');
+    expect(opened[0].tags).toEqual(['keys']);
     expect(opened[0].title).toBe('Gate Lockup');
     expect(opened[0].original_title).toBe('Gate_Lockup-v3.docx');
     expect(opened[0].blocks.type).toBe('doc');

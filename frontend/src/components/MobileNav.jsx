@@ -56,6 +56,7 @@ const TASK_ACTIONS = [
 const DOCUMENT_ACTIONS = [
   { sub: 'documents-browse',    label: 'Documents',  Icon: Folder },
   { sub: 'documents-templates', label: 'Templates',  Icon: LayoutTemplate },
+  { sub: 'documents-forms',     label: 'Forms',      Icon: ClipboardList },
   { sub: 'documents-esign',     label: 'Sign',       Icon: FileSignature },
   { sub: 'documents-pdf',       label: 'PDF Tools',  Icon: FileText },
 ];

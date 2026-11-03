@@ -1,32 +1,53 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, within, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within, waitFor, act } from '@testing-library/react';
 
 // Settings (AdminConsole, one tab since Oct 23 2026): a rail of subjects, a
 // scope picker (Every company / one company), every group open, old links
 // still landing somewhere sensible, and the filter searching every subject.
 
 // Every api call resolves empty, except the companies the scope picker lists.
+// `apiOverrides` lets a test answer one call its own way (reset after each).
 const COMPANIES = [{ id: 'c1', name: 'Greens Global' }, { id: 'c2', name: 'Greens India' }];
+// `entities`: how the company list answers ('ok', 'denied' = a 403 from People,
+// 'error' = a failed load); the Workforce Analytics fallback list answers
+// `trackingCompanies` (or 403 when null). `apiOverrides` lets a test answer
+// one call its own way (reset after each).
+const apiState = { entities: 'ok', trackingCompanies: null, added: [] };
+const apiOverrides = {};
+const refusal = () => Object.assign(new Error('Forbidden'), { status: 403 });
 vi.mock('../api', () => ({
   api: new Proxy({}, { get: (_, k) => (
-    k === 'getEntities' ? () => Promise.resolve(COMPANIES)
-      : k === 'getEntitySignatureTemplates' ? () => Promise.resolve({ templates: [], template: 'classic' })
-        : vi.fn(() => Promise.resolve([]))) }),
+    k in apiOverrides ? apiOverrides[k]
+    : k === 'getEntitiesFresh' ? () => Promise.resolve([...COMPANIES, ...apiState.added])
+    : k === 'getEntities' ? () => (apiState.entities === 'ok' ? Promise.resolve(COMPANIES)
+      : Promise.reject(apiState.entities === 'denied' ? refusal() : Object.assign(new Error('Network'), { status: 502 })))
+      : k === 'timeMonitoringCompanies' ? () => (apiState.trackingCompanies ? Promise.resolve(apiState.trackingCompanies) : Promise.reject(refusal()))
+        : k === 'getMyTicketAccess' ? () => Promise.resolve({ canManageDesk: roleState.desk ?? (LEVELS[roleState.role] >= 3) })
+          : k === 'getEntitySignatureTemplates' ? () => Promise.resolve({ templates: [], template: 'classic' })
+            : vi.fn(() => Promise.resolve([]))) }),
 }));
-// Who is looking: an IT Admin by default. `grants` = Access Group grants by
+// Who is looking: an Administrator by default. `grants` = Access Group grants by
 // module ({ hr: 'editor' }); `hrScope` = the companies their People access is
-// limited to (null = company-wide); `hrTeam` = the manager tier (own team).
+// limited to (null = company-wide); `hrTeam` = the manager tier (own team);
+// `manageCompanies` = the companies whose shift / pay settings they may change
+// (null = company-wide, /roles/me); `companyWalled` = a company wall confines
+// them; `desk` = a ticket desk supervisor (by default the manager tier and up).
 const LEVELS = { employee: 1, supervisor: 2, manager: 3, administrator: 4, owner: 5 };
 const RANKS = { viewer: 1, editor: 2, full: 3, owner: 4 };
-const roleState = { role: 'administrator', grants: {}, hrScope: null, hrTeam: false };
-const asRole = (role, extra = {}) => Object.assign(roleState, { role, grants: {}, hrScope: null, hrTeam: false }, extra);
+const ROLE_DEFAULTS = { grants: {}, hrScope: null, hrTeam: false, manageCompanies: null, manageCompanyRows: [], companyWalled: false, isGlobalAdmin: false, hrContactFor: [], desk: undefined };
+// The default viewer is an Administrator in a group flagged is_global_admin: a
+// Super Administrator's reach, so every group opens (asRole resets it).
+const roleState = { role: 'administrator', ...ROLE_DEFAULTS, isGlobalAdmin: true };
+const asRole = (role, extra = {}) => Object.assign(roleState, { role, ...ROLE_DEFAULTS }, extra);
 vi.mock('../contexts/RoleContext', () => ({
   useRole: () => ({
     can: (min) => LEVELS[roleState.role] >= (LEVELS[min] ?? 1),
     canAccessModule: (m, minRole, lvl = 'viewer') => LEVELS[roleState.role] >= (LEVELS[minRole] ?? 1)
       || (RANKS[roleState.grants[m]] ?? 0) >= (RANKS[lvl] ?? 1),
     hrScope: roleState.hrScope, hrTeam: roleState.hrTeam,
-    myGrantedModules: new Set(), actingAs: null,
+    manageCompanies: roleState.manageCompanies, manageCompanyRows: roleState.manageCompanyRows,
+    companyWalled: roleState.companyWalled, isGlobalAdmin: roleState.isGlobalAdmin, hrContactFor: roleState.hrContactFor,
+    myGrantedModules: new Map(Object.entries(roleState.grants)), actingAs: null,
     startActAs: vi.fn(), stopActAs: vi.fn(),
   }),
 }));
@@ -60,9 +81,16 @@ vi.mock('../components/shifts/ShiftSettingsSections', () => ({
 // The weather panel can stand in for any form with unsaved changes: it
 // reports `dirtyState.weather` through the shared hook (lib/groupDirty.js).
 const dirtyState = { weather: false };
+// Its "Weather note" box is a typed draft of its own, to prove a draft
+// survives the filter and that Discard really drops it.
 vi.mock('../components/shifts/WeatherSettings', async () => {
   const { useGroupDirty } = await import('../lib/groupDirty');
-  return { default: function WeatherPanel({ company }) { useGroupDirty(dirtyState.weather); return <div>Weather panel{company ? ` ${company}` : ''}</div>; } };
+  const { useState } = await import('react');
+  return { default: function WeatherPanel({ company }) {
+    const [note, setNote] = useState('');
+    useGroupDirty(dirtyState.weather || note !== '');
+    return <div>Weather panel{company ? ` ${company}` : ''}<input aria-label="Weather note" value={note} onChange={e => setNote(e.target.value)} /></div>;
+  } };
 });
 // With a company fixed, the export codes say the company has names of its own.
 vi.mock('../components/PayrollExportCodes', async () => {
@@ -98,7 +126,11 @@ vi.mock('../components/EmployeeCustomFieldsSettings', () => ({ default: ({ compa
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); asRole('administrator'); dirtyState.weather = false; });
+afterEach(() => {
+  cleanup(); vi.restoreAllMocks(); asRole('administrator', { isGlobalAdmin: true }); dirtyState.weather = false;
+  Object.assign(apiState, { entities: 'ok', trackingCompanies: null, added: [] });
+  for (const k of Object.keys(apiOverrides)) delete apiOverrides[k];
+});
 
 const rail = () => screen.getByRole('navigation', { name: 'Settings subjects' });
 // Lazy panels on a slow machine: give a find a little longer than the default second.
@@ -166,9 +198,10 @@ describe('AdminConsole', () => {
     expect(onSubChange).toHaveBeenLastCalledWith('companies');
   });
 
-  it('switches Ticket Manager panels with tabs, keeping an opened panel mounted', () => {
+  it('switches Ticket Manager panels with tabs, keeping an opened panel mounted', async () => {
     render(<AdminConsole activeSub="tickets" onSubChange={() => {}} />);
-    expect(screen.getByRole('tab', { name: /Routing & Escalation/ })).toHaveAttribute('aria-selected', 'true');
+    // The desk role arrives from /task-tickets/my-access, a beat after the page.
+    expect(await screen.findByRole('tab', { name: /Routing & Escalation/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText('Desk panel')).toBeVisible();
 
     fireEvent.click(screen.getByRole('tab', { name: /SLA & Ticket Types/ }));
@@ -197,8 +230,9 @@ describe('AdminConsole', () => {
     // is a People route, an administrator's, or Workforce Analytics' (app
     // ratings take its full grant since Oct 29 2026 - monitoring data is for
     // its grant holders only).
-    asRole('manager', { hrTeam: true, hrScope: [] });
+    asRole('manager', { hrTeam: true, hrScope: [], manageCompanies: [] });
     render(<AdminConsole activeSub="access" onSubChange={() => {}} />);
+    expect(await within(rail()).findByRole('button', { name: 'Tickets' })).toBeInTheDocument();
     for (const name of ['People & Access', 'Security', 'Branding & Email', 'Time & Pay', 'Companies', 'Locations', 'Hiring & Onboarding', 'Shifts & Scheduling', 'Workforce Analytics']) {
       expect(within(rail()).queryByRole('button', { name })).not.toBeInTheDocument();
     }
@@ -214,27 +248,45 @@ describe('AdminConsole', () => {
 
   it('opens each group for exactly who its save route lets in (the registry gates, Oct 23)', async () => {
     // A supervisor with a People (hr) editor grant limited to Greens Global:
-    // Companies, Locations, Shifts and Hiring are theirs - with their company
-    // picked. At Every company the library, the shared records and the
-    // tenant defaults are not, so the page says to pick the company.
-    asRole('supervisor', { grants: { hr: 'editor' }, hrScope: ['c1'] });
-    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    // Companies, Locations and Hiring are theirs - with their company picked
+    // (the Holiday Policies and the Location Library accept them at Every
+    // company too). The shift settings are not: they save through
+    // require_shift_manage, the manager tier and up (11/02/2026).
+    asRole('supervisor', { grants: { hr: 'editor' }, hrScope: ['c1'], manageCompanies: ['c1'], desk: false });
+    render(<AdminConsole activeSub="hiring" onSubChange={() => {}} />);
     // (Branding & Email stays: the company's Email Signature is a People route;
     // People & Access too: its More Details Fields are HR's, Oct 27 2026.)
-    for (const name of ['Companies', 'Locations', 'People & Access', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Branding & Email']) {
+    for (const name of ['Companies', 'Locations', 'People & Access', 'Hiring & Onboarding', 'Branding & Email']) {
       expect(within(rail()).getByRole('button', { name })).toBeInTheDocument();
     }
-    for (const name of ['Security', 'Tickets', 'Items & Equipment', 'Operations']) {
+    for (const name of ['Security', 'Tickets', 'Items & Equipment', 'Operations', 'Shifts & Scheduling']) {
       expect(within(rail()).queryByRole('button', { name })).not.toBeInTheDocument();
     }
+    cleanup();
+    render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Holiday Policies' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Companies' })).toBeInTheDocument();
+    cleanup();
+    render(<AdminConsole activeSub="locations" onSubChange={() => {}} />);
+    expect(await find('Site list')).toBeInTheDocument();
+    cleanup();
+
+    // A manager whose reach is Greens Global: the shift settings with their
+    // company picked; at Every company the tenant defaults are not theirs, so
+    // the page says to pick the company.
+    asRole('manager', { grants: { hr: 'editor' }, hrScope: ['c1'], manageCompanies: ['c1'] });
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(within(rail()).getByRole('button', { name: 'Shifts & Scheduling' })).toBeInTheDocument();
     expect(screen.getByText(/set per company for you - pick one in the Scope box/)).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Shift Types' })).not.toBeInTheDocument();
     cleanup();
     render(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
-    expect(screen.getByRole('region', { name: 'Shift Types' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Shift Types' }, { timeout: 5000 })).toBeInTheDocument();
     expect(await find('Shift settings panel basics c1')).toBeInTheDocument();
     // Weather Alerts are set for every company at once: company-wide access only.
     expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();
+    // The labor budget is HR++'s: an Editor People grant is not.
+    expect(screen.queryByRole('region', { name: 'Labor Budget' })).not.toBeInTheDocument();
     cleanup();
     // People & Access for them is More Details Fields, with their company
     // picked - never the access groups, which are administrators' alone.
@@ -275,6 +327,231 @@ describe('AdminConsole', () => {
     expect(onSubChange).toHaveBeenCalledWith('tools');
     cleanup();
     expect(hasUnsavedWork()).toBe(false);   // unmounted: nothing left to guard
+  });
+
+  it('keeps a draft through the filter: hidden groups stay mounted (no lost edits, 11/02/2026)', async () => {
+    const { hasUnsavedWork } = await import('../lib/dialogGuard');
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    fireEvent.change(await screen.findByLabelText('Weather note', {}, { timeout: 5000 }), { target: { value: 'rain' } });
+    const box = screen.getByLabelText('Filter settings');
+    fireEvent.change(box, { target: { value: 'swap' } });
+    expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();   // hidden...
+    expect(hasUnsavedWork()).toBe(true);                                                       // ...and still unsaved
+    fireEvent.change(box, { target: { value: 'weather' } });
+    expect(screen.getByLabelText('Weather note')).toHaveValue('rain');
+    fireEvent.change(box, { target: { value: '' } });
+    expect(screen.getByLabelText('Weather note')).toHaveValue('rain');
+    // A search result from another subject, edited, then filtered away, keeps its draft too.
+    fireEvent.change(box, { target: { value: 'nothing like this' } });
+    fireEvent.change(box, { target: { value: 'weather' } });
+    expect(screen.getByLabelText('Weather note')).toHaveValue('rain');
+  });
+
+  it('a lone group (bare) keeps its panel when a search turns it into a result', async () => {
+    render(<AdminConsole activeSub="items" onSubChange={() => {}} />);
+    const before = document.querySelector('[data-setting-group="item-types"] section');
+    expect(before).not.toBeNull();
+    fireEvent.change(screen.getByLabelText('Filter settings'), { target: { value: 'item types' } });
+    expect(document.querySelector('[data-setting-group="item-types"] section')).toBe(before);
+  });
+
+  it('names the unsaved group in the prompt, and Discard really drops the draft', async () => {
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
+    fireEvent.change(await screen.findByLabelText('Weather note', {}, { timeout: 5000 }), { target: { value: 'rain' } });
+    // The subject already on screen: nothing unmounts, nothing to ask.
+    fireEvent.click(within(rail()).getByRole('button', { name: 'Shifts & Scheduling' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onSubChange).not.toHaveBeenCalled();
+    fireEvent.click(within(rail()).getByRole('button', { name: 'Companies' }));
+    const ask = screen.getByRole('alertdialog');
+    expect(within(ask).getByText(/Your changes to Weather Alerts on this page have not been saved/)).toBeInTheDocument();
+    expect(ask.querySelector('.modal-content').className).not.toContain('nx-popup');
+    // The weather panel cannot save itself from here: no Save and Leave.
+    expect(within(ask).queryByRole('button', { name: 'Save and Leave' })).not.toBeInTheDocument();
+    fireEvent.click(within(ask).getByRole('button', { name: 'Discard Changes' }));
+    expect(onSubChange).toHaveBeenCalledWith('companies');
+    expect(await screen.findByLabelText('Weather note')).toHaveValue('');
+  });
+
+  // Pay Rules (Neil, 11/02/2026): a switch saves on click with an Undo toast
+  // that writes the previous value back; the minutes are one draft, and a
+  // save that fails for one rule keeps that rule's edits.
+  function payRules({ rounding = {}, autoLunch = {} } = {}) {
+    const rules = {
+      rounding: { enabled: false, nearestMin: 5, ...rounding },
+      autoLunch: { enabled: true, afterMin: 360, deductMin: 30, ...autoLunch },
+      breakPolicy: { enabled: false, paidBreakMin: 10, restMaxMin: 20, longBreakMin: 75 },
+    };
+    apiOverrides.timeRoundingGet = () => Promise.resolve(rules.rounding);
+    apiOverrides.timeAutoLunchGet = () => Promise.resolve(rules.autoLunch);
+    apiOverrides.timeBreakPolicyGet = () => Promise.resolve(rules.breakPolicy);
+    apiOverrides.timeRoundingSet = vi.fn((body) => Promise.resolve({ ...body }));
+    apiOverrides.timeAutoLunchSet = vi.fn((body) => Promise.resolve({ ...body }));
+    apiOverrides.timeBreakPolicySet = vi.fn((body) => Promise.resolve({ ...body }));
+    return rules;
+  }
+
+  it('Pay Rules: a switch saves on click, with an Undo that writes the old value back', async () => {
+    payRules();
+    const { dialog } = await import('../ui/dialog');
+    const undo = vi.spyOn(dialog, 'undo').mockImplementation(() => {});
+    render(<AdminConsole activeSub="pay:timeclock-policy" onSubChange={() => {}} />);
+    const sw = await screen.findByRole('switch', { name: 'Punch Rounding' }, { timeout: 5000 });
+    fireEvent.click(sw);
+    await waitFor(() => expect(apiOverrides.timeRoundingSet).toHaveBeenCalledWith({ enabled: true, nearestMin: 5 }, ''));
+    await waitFor(() => expect(undo).toHaveBeenCalled());
+    expect(undo.mock.calls[0][0]).toBe('Punch rounding turned on.');
+    const region = screen.getByRole('region', { name: 'Pay Rules' });
+    expect(within(region).getByRole('button', { name: /^Save$/ })).toBeDisabled();   // nothing waits for Save
+    await undo.mock.calls[0][1]();
+    expect(apiOverrides.timeRoundingSet).toHaveBeenLastCalledWith({ enabled: false, nearestMin: 5 }, '');
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Punch Rounding' })).not.toBeChecked());
+  });
+
+  it('Pay Rules: a failed switch rolls back; a partly failed Save keeps the failed rule\'s edits', async () => {
+    payRules({ rounding: { enabled: true } });
+    apiOverrides.timeAutoLunchSet = vi.fn(() => Promise.reject(new Error('Auto-lunch is locked.')));
+    render(<AdminConsole activeSub="pay:timeclock-policy" onSubChange={() => {}} />);
+    const lunch = await screen.findByRole('switch', { name: 'Auto-Lunch Deduction' }, { timeout: 5000 });
+    fireEvent.click(lunch);
+    await waitFor(() => expect(apiOverrides.timeAutoLunchSet).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Auto-Lunch Deduction' })).toBeChecked());
+    fireEvent.change(screen.getByLabelText('Nearest'), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText('Deduct'), { target: { value: '45' } });
+    const region = screen.getByRole('region', { name: 'Pay Rules' });
+    fireEvent.click(within(region).getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(apiOverrides.timeRoundingSet).toHaveBeenCalledWith({ enabled: true, nearestMin: 10 }, ''));
+    await waitFor(() => expect(within(region).getByText('Unsaved changes')).toBeInTheDocument());
+    expect(screen.getByLabelText('Nearest')).toHaveValue(10);   // saved
+    expect(screen.getByLabelText('Deduct')).toHaveValue(45);    // failed, still the draft
+  });
+
+  it('Email Signature: a slow answer for an earlier company never lands over the one picked; a dirty pick asks', async () => {
+    const waiting = {};
+    apiOverrides.getEntitySignatureTemplates = (id) => new Promise((resolve) => { waiting[id] = resolve; });
+    const tpl = (id, label) => ({ id, label, html: '' });
+    const { dialog } = await import('../ui/dialog');
+    const confirm = vi.spyOn(dialog, 'confirm').mockResolvedValue(false);
+    render(<AdminConsole activeSub="branding:email-signature" onSubChange={() => {}} />);
+    const region = screen.getByRole('region', { name: 'Email Signature' });
+    const box = await within(region).findByRole('combobox');
+    await waitFor(() => expect(waiting.c1).toBeTypeOf('function'));
+    fireEvent.change(box, { target: { value: 'c2' } });
+    await waitFor(() => expect(waiting.c2).toBeTypeOf('function'));
+    await act(async () => { waiting.c2({ templates: [tpl('modern', 'Modern B'), tpl('bold', 'Bold B')], template: 'modern' }); });
+    await act(async () => { waiting.c1({ templates: [tpl('classic', 'Classic A')], template: 'classic' }); });
+    expect(within(region).getByText('Modern B')).toBeInTheDocument();
+    expect(within(region).queryByText('Classic A')).not.toBeInTheDocument();
+    // A template picked and not saved: switching companies asks; Keep Editing stays.
+    fireEvent.click(within(region).getByText('Bold B'));
+    fireEvent.change(box, { target: { value: 'c1' } });
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(confirm.mock.calls[0][0]).toMatch(/Greens India has not been saved/);
+    expect(box).toHaveValue('c2');
+    expect(within(region).getByText('Bold B')).toBeInTheDocument();
+  });
+
+  it('Item Types: a failed load says so with Retry and keeps the editors shut', async () => {
+    apiOverrides.getItemTypes = () => Promise.reject(new Error('down'));
+    render(<AdminConsole activeSub="items" onSubChange={() => {}} />);
+    expect(await screen.findByText('Could not load the item types.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Manage Item Types' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Manage Custom Fields' })).not.toBeDisabled();
+    apiOverrides.getItemTypes = () => Promise.resolve(['Laptop']);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByText('Could not load the item types.')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Manage Item Types' })).not.toBeDisabled();
+  });
+
+  it('a company whose answer never comes does not hide who keeps their own: it times out with Retry', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      payRules();
+      apiOverrides.timeRoundingGet = (cid) => (cid === 'c2' ? new Promise(() => {}) : Promise.resolve({ enabled: false, nearestMin: 5, hasOverride: cid === 'c1' }));
+      render(<AdminConsole activeSub="pay:timeclock-policy" onSubChange={() => {}} />);
+      const region = screen.getByRole('region', { name: 'Pay Rules' });
+      await within(region).findByRole('switch', { name: 'Punch Rounding' }, { timeout: 5000 });
+      expect(region.querySelector('[data-company-overrides]')).toBeNull();
+      // Whenever the companies' checks start, 15 seconds later they give up.
+      const overrides = () => region.querySelector('[data-company-overrides]');
+      for (let i = 0; i < 50 && !overrides(); i++) {
+        await act(async () => { vi.advanceTimersByTime(16000); await Promise.resolve(); });
+      }
+      const line = overrides();
+      expect(line).not.toBeNull();
+      expect(within(line).getByRole('button', { name: 'Greens Global' })).toBeInTheDocument();
+      expect(within(line).getByText('Could not check Greens India.')).toBeInTheDocument();
+      expect(within(line).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Review fixes (11/02/2026).
+  it('Pay Rules: "10" typed and saved leaves the form clean (no Unsaved changes after a save that worked)', async () => {
+    payRules({ rounding: { enabled: true } });
+    render(<AdminConsole activeSub="pay:timeclock-policy" onSubChange={() => {}} />);
+    await screen.findByRole('switch', { name: 'Punch Rounding' }, { timeout: 5000 });
+    fireEvent.change(screen.getByLabelText('Nearest'), { target: { value: '10' } });
+    const region = screen.getByRole('region', { name: 'Pay Rules' });
+    expect(within(region).getByText('Unsaved changes')).toBeInTheDocument();
+    fireEvent.click(within(region).getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(apiOverrides.timeRoundingSet).toHaveBeenCalledWith({ enabled: true, nearestMin: 10 }, ''));
+    await waitFor(() => expect(within(region).getByText(/^Saved /)).toBeInTheDocument());
+    expect(within(region).queryByText('Unsaved changes')).not.toBeInTheDocument();
+    const { hasUnsavedWork } = await import('../lib/dialogGuard');
+    await waitFor(() => expect(hasUnsavedWork()).toBe(false));
+  });
+
+  it('Discard on the app-wide prompt (browser Back, a bell) really drops the draft', async () => {
+    const { default: DialogGuard } = await import('../components/DialogGuard');
+    const { askToLeave, hasUnsavedWork } = await import('../lib/dialogGuard');
+    render(<><DialogGuard /><AdminConsole activeSub="shifts" onSubChange={() => {}} /></>);
+    fireEvent.change(await screen.findByLabelText('Weather note', {}, { timeout: 5000 }), { target: { value: 'rain' } });
+    let left;
+    act(() => { left = askToLeave(); });
+    const ask = await screen.findByRole('alertdialog');
+    expect(within(ask).getByText(/Your changes to Weather Alerts/)).toBeInTheDocument();
+    fireEvent.click(within(ask).getByRole('button', { name: 'Discard Changes' }));
+    await expect(left).resolves.toBe(true);
+    await waitFor(() => expect(screen.getByLabelText('Weather note')).toHaveValue(''));
+    expect(hasUnsavedWork()).toBe(false);
+  });
+
+  it('leaving for Tools reports Settings clean: nothing stays dirty, no stale save is offered', async () => {
+    const { hasUnsavedWork, unsavedSummary } = await import('../lib/dialogGuard');
+    const onSubChange = vi.fn();
+    const { rerender } = render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
+    fireEvent.change(await screen.findByLabelText('Weather note', {}, { timeout: 5000 }), { target: { value: 'rain' } });
+    expect(hasUnsavedWork()).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /^Tools$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
+    expect(onSubChange).toHaveBeenCalledWith('tools');
+    rerender(<AdminConsole activeSub="tools" onSubChange={onSubChange} />);
+    await waitFor(() => expect(hasUnsavedWork()).toBe(false));
+    expect(unsavedSummary().labels).toEqual([]);
+  });
+
+  it('browser Back to another group of the same subject goes through without asking; another subject asks', async () => {
+    const { rememberEntry, guardPopstate } = await import('../lib/dialogGuard');
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    fireEvent.change(await screen.findByLabelText('Weather note', {}, { timeout: 5000 }), { target: { value: 'rain' } });
+    window.history.replaceState({ depth: 1 }, '', '/admin-console/shifts');
+    rememberEntry();
+    window.history.replaceState({ depth: 0 }, '', '/admin-console/shifts:shift-weather');
+    const apply = vi.fn();
+    expect(guardPopstate({ state: { depth: 0 } }, apply)).toBe(true);
+    expect(apply).toHaveBeenCalled();
+    window.history.replaceState({ depth: 0 }, '', '/admin-console/pay');
+    const go = vi.spyOn(window.history, 'go').mockImplementation(() => {});
+    expect(guardPopstate({ state: { depth: -1 } }, vi.fn())).toBe(false);
+    expect(go).toHaveBeenCalledWith(1);
+    guardPopstate({ state: { depth: 0 } }, vi.fn());   // the step back, swallowed
+    const { subscribe } = await import('../lib/dialogGuard');
+    const off = subscribe((p) => { p?.resolve(false); });   // Keep Editing, to tidy up
+    off();
+    await act(async () => { await Promise.resolve(); });
   });
 
   it('has Shifts & Scheduling with the settings, shift types, groups and weather, all open (Charmi, 09/30)', async () => {
@@ -396,8 +673,8 @@ describe('AdminConsole', () => {
     expect(screen.getByRole('region', { name: 'Pay Rules' })).toBeInTheDocument();
 
     rerender(<AdminConsole activeSub="tickets@c1" onSubChange={() => {}} />);
+    expect(await screen.findByRole('tab', { name: /Routing & Escalation/ })).toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(1);
-    expect(screen.getByRole('tab', { name: /Routing & Escalation/ })).toBeInTheDocument();
     expect(screen.getByText('Desk panel c1')).toBeInTheDocument();
 
     rerender(<AdminConsole activeSub="branding@c1" onSubChange={() => {}} />);
@@ -445,12 +722,12 @@ describe('AdminConsole', () => {
     expect(await find('Company page c1: monitoring')).toBeInTheDocument();
   });
 
-  it('filters groups across every subject', () => {
+  it('filters groups across every subject', async () => {
     render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
     const box = screen.getByLabelText('Filter settings');
 
     fireEvent.change(box, { target: { value: 'notifications' } });
-    expect(screen.getByText('Ticket Manager')).toBeInTheDocument();
+    expect(await screen.findByText('Ticket Manager')).toBeInTheDocument();
     expect(screen.getByText('Task Notifications')).toBeInTheDocument();
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 
@@ -470,7 +747,7 @@ describe('AdminConsole', () => {
     expect(screen.getByRole('heading', { name: 'Companies', level: 3 })).toBeInTheDocument();
   });
 
-  it('opens on a list of the subjects on phones, and a subject has a way back', () => {
+  it('opens on a list of the subjects on phones, and a subject has a way back', async () => {
     vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
       matches: true, media: q, onchange: null,
       addEventListener() {}, removeEventListener() {},
@@ -487,5 +764,169 @@ describe('AdminConsole', () => {
     expect(screen.getByRole('heading', { name: 'Emails & Reminders' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /All Settings/ }));
     expect(onSubChange).toHaveBeenLastCalledWith('settings');
+
+    // With unsaved changes, All Settings asks first, like every other move.
+    onSubChange.mockClear();
+    dirtyState.weather = true;
+    rerender(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
+    await screen.findByLabelText('Weather note', {}, { timeout: 5000 });
+    fireEvent.click(screen.getByRole('button', { name: /All Settings/ }));
+    expect(onSubChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
+    expect(onSubChange).toHaveBeenLastCalledWith('settings');
+  });
+});
+
+// The Settings walls (11/02/2026): mayOpen opens each group only where its
+// save route would let the person in - the shift and pay settings' "Every
+// company" face for company-wide callers only (`tenant`), the organization's
+// records for an unwalled caller (`orgWide`), the labor budget for HR++,
+// the Ticket Manager for a desk supervisor - and an unknown company in the
+// address never has panels mounted against it.
+describe('AdminConsole walls', () => {
+  it('opens the pay and shift settings per company for a walled Administrator, never at Every company', async () => {
+    asRole('administrator', { hrScope: ['c1'], manageCompanies: ['c1'], companyWalled: true });
+    const { rerender } = render(<AdminConsole activeSub="pay" onSubChange={() => {}} />);
+    for (const t of ['Pay Rules', 'India Contractor Policy', 'Time-Off Approval', 'Leave Year-End', 'Leave Policies', 'California Minimum Wage']) {
+      expect(screen.queryByRole('region', { name: t })).not.toBeInTheDocument();
+    }
+    rerender(<AdminConsole activeSub="pay@c1" onSubChange={() => {}} />);
+    expect(await screen.findByRole('region', { name: 'Pay Rules' }, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Time-Off Approval' })).toBeInTheDocument();
+    rerender(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
+    expect(await find('Shift settings panel basics c1')).toBeInTheDocument();
+    // HR++ inside their reach: the labor budget is theirs for their company.
+    expect(screen.getByRole('region', { name: 'Labor Budget' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the records every company shares - brand, email look, property rules - to a Super Administrator', async () => {
+    asRole('administrator', { hrScope: ['c1'], manageCompanies: ['c1'], companyWalled: true });
+    render(<AdminConsole activeSub="branding" onSubChange={() => {}} />);
+    expect(screen.queryByRole('region', { name: 'Brand Color' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Email Appearance' })).not.toBeInTheDocument();
+    cleanup();
+    render(<AdminConsole activeSub="tickets" onSubChange={() => {}} />);
+    expect(await screen.findByRole('tab', { name: /Routing & Escalation/ })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Property Rules' })).not.toBeInTheDocument();
+    cleanup();
+    // An Administrator with the walls nowhere near them is still refused (Neil, 11/02/2026).
+    asRole('administrator');
+    render(<AdminConsole activeSub="branding" onSubChange={() => {}} />);
+    expect(screen.queryByRole('region', { name: 'Brand Color' })).not.toBeInTheDocument();
+    cleanup();
+    asRole('owner', { isGlobalAdmin: true });
+    render(<AdminConsole activeSub="branding" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Brand Color' })).toBeInTheDocument();
+  });
+
+  it('opens the labor budget for HR++ only - never the manager tier', async () => {
+    asRole('manager', { grants: { hr: 'editor' } });
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Schedule Basics' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Labor Budget' })).not.toBeInTheDocument();
+    cleanup();
+    asRole('manager', { grants: { hr: 'full' } });
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Labor Budget' })).toBeInTheDocument();
+    cleanup();
+    // A company's HR contact: their company's budget, not every company's.
+    asRole('manager', { hrContactFor: ['c1'] });
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(screen.queryByRole('region', { name: 'Labor Budget' })).not.toBeInTheDocument();
+    cleanup();
+    render(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
+    expect(await screen.findByRole('region', { name: 'Labor Budget' }, { timeout: 5000 })).toBeInTheDocument();
+  });
+
+  it('opens Weather Alerts only with company-wide team access', () => {
+    asRole('manager', { manageCompanies: ['c1'] });
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();
+    cleanup();
+    asRole('manager');
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Weather Alerts' })).toBeInTheDocument();
+  });
+
+  it('opens the Ticket Manager for a desk supervisor only', async () => {
+    asRole('manager', { desk: false });
+    render(<AdminConsole activeSub="emails" onSubChange={() => {}} />);
+    expect(await find('Task notify panel')).toBeInTheDocument();
+    expect(within(rail()).queryByRole('button', { name: 'Tickets' })).not.toBeInTheDocument();
+    cleanup();
+    asRole('manager');
+    render(<AdminConsole activeSub="emails" onSubChange={() => {}} />);
+    expect(await within(rail()).findByRole('button', { name: 'Tickets' })).toBeInTheDocument();
+  });
+
+  it('drops an unknown company from the address with a notice, mounting nothing against it', async () => {
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="pay@nope" onSubChange={onSubChange} />);
+    expect(screen.queryByText(/panel nope/)).not.toBeInTheDocument();
+    await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('pay'));
+    expect(screen.getByText(/That company is not one you can open/)).toBeInTheDocument();
+    expect(screen.queryByText(/panel nope/)).not.toBeInTheDocument();
+  });
+
+  it('says the companies could not load, with Retry, instead of "No companies yet"', async () => {
+    apiState.entities = 'error';
+    render(<AdminConsole activeSub="analytics" onSubChange={() => {}} />);
+    expect(await screen.findByText('The companies could not be loaded right now.')).toBeInTheDocument();
+    expect(screen.queryByText(/No companies yet/)).not.toBeInTheDocument();
+    apiState.entities = 'ok';
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByText('The companies could not be loaded right now.')).not.toBeInTheDocument());
+  });
+
+  it('lists the companies a Workforce Analytics grant may open when People is not theirs', async () => {
+    asRole('employee', { grants: { 'employee-tracking': 'full' }, manageCompanies: [] });
+    apiState.entities = 'denied';
+    apiState.trackingCompanies = [{ id: 'c1', name: 'Greens Global' }];
+    render(<AdminConsole activeSub="analytics" onSubChange={() => {}} />);
+    const box = screen.getByLabelText('Applies To');
+    await waitFor(() => expect(within(box).getByRole('option', { name: 'Greens Global' })).toBeInTheDocument());
+    expect(screen.queryByText('The companies could not be loaded right now.')).not.toBeInTheDocument();
+  });
+});
+
+// Review follow-ups (11/02/2026): a manager refused both company lists still
+// reaches their own company; a company just added elsewhere is asked for
+// past the cache before it is dropped; Property Rules open for a desk
+// supervisor, as the route does.
+describe('AdminConsole walls, review follow-ups', () => {
+  it('gives a manager refused both company lists their own companies, never dropping them', async () => {
+    asRole('manager', { manageCompanies: ['c1'], manageCompanyRows: [{ id: 'c1', name: 'Greens Global' }] });
+    apiState.entities = 'denied';
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="shifts@c1" onSubChange={onSubChange} />);
+    expect(await find('Shift settings panel basics c1')).toBeInTheDocument();
+    expect(onSubChange).not.toHaveBeenCalled();
+    // The fallback list arrives after the panel; wait for the option rather than racing it.
+    await waitFor(() => expect(within(screen.getByLabelText('Applies To')).getByRole('option', { name: 'Greens Global' })).toBeInTheDocument());
+    expect(screen.queryByText(/That company is not one you can open/)).not.toBeInTheDocument();
+  });
+
+  it('asks for the companies again past the cache before dropping an unknown one', async () => {
+    apiState.added = [{ id: 'c3', name: 'Greens New' }];
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="pay@c3" onSubChange={onSubChange} />);
+    await waitFor(() => expect(screen.getByLabelText('Applies To')).toHaveValue('c3'));
+    expect(await find('Export codes panel c3')).toBeInTheDocument();
+    expect(onSubChange).not.toHaveBeenCalled();
+  });
+
+  it('keeps Property Rules from a desk supervisor and a Full tickets grant - Super Administrators only', async () => {
+    asRole('employee', { desk: true });
+    render(<AdminConsole activeSub="tickets" onSubChange={() => {}} />);
+    // Tickets holds nothing for them: the rules are every company's.
+    await waitFor(() => new Promise(r => setTimeout(r, 20)));   // the desk role has answered
+    expect(screen.queryByText('Property rules panel')).not.toBeInTheDocument();
+    cleanup();
+    // Nor a Full tickets grant.
+    asRole('employee', { grants: { tickets: 'full' }, desk: false });
+    render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
+    await waitFor(() => new Promise(r => setTimeout(r, 20)));   // the desk role has answered
+    expect(within(rail()).queryByRole('button', { name: 'Tickets' })).not.toBeInTheDocument();
   });
 });

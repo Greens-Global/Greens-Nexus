@@ -1,0 +1,23 @@
+{
+  "topmostSubform[0].Page1[0].Step1a[0].f1_01[0]": {"id": "first_name_mi", "role": "employee", "type": "text", "label": "First Name and Middle Initial", "required": true, "source": "person"},
+  "topmostSubform[0].Page1[0].Step1a[0].f1_02[0]": {"id": "last_name", "role": "employee", "type": "text", "label": "Last Name", "required": true, "source": "person"},
+  "topmostSubform[0].Page1[0].f1_05[0]": {"id": "ssn", "role": "employee", "type": "text", "label": "Social Security Number", "required": true, "format": "ssn", "sensitive": true, "source": "person"},
+  "topmostSubform[0].Page1[0].Step1a[0].f1_03[0]": {"id": "address", "role": "employee", "type": "text", "label": "Address", "required": true, "source": "person"},
+  "topmostSubform[0].Page1[0].Step1a[0].f1_04[0]": {"id": "city_state_zip", "role": "employee", "type": "text", "label": "City or Town, State, and ZIP Code", "required": true, "source": "person"},
+  "topmostSubform[0].Page1[0].c1_1[0]": {"id": "filing_single", "role": "employee", "type": "check", "label": "Single or Married Filing Separately", "required": false, "source": "person"},
+  "topmostSubform[0].Page1[0].c1_1[1]": {"id": "filing_joint", "role": "employee", "type": "check", "label": "Married Filing Jointly or Qualifying Surviving Spouse", "required": false, "source": "person"},
+  "topmostSubform[0].Page1[0].c1_1[2]": {"id": "filing_head", "role": "employee", "type": "check", "label": "Head of Household", "required": false, "source": "person"},
+  "topmostSubform[0].Page1[0].c1_2[0]": {"id": "step2c_two_jobs", "role": "employee", "type": "check", "label": "Step 2(c): Only Two Jobs in Total", "required": false, "source": "person"},
+  "topmostSubform[0].Page1[0].Step3_ReadOrder[0].f1_06[0]": {"id": "step3_children", "role": "employee", "type": "text", "label": "Step 3(a): Qualifying Children Under 17 x $2,200", "required": false, "format": "money", "source": "person"},
+  "topmostSubform[0].Page1[0].Step3_ReadOrder[0].f1_07[0]": {"id": "step3_other_dependents", "role": "employee", "type": "text", "label": "Step 3(b): Other Dependents x $500", "required": false, "format": "money", "source": "person"},
+  "topmostSubform[0].Page1[0].f1_08[0]": {"id": "step3_total", "role": "employee", "type": "text", "label": "Step 3: Total Credits", "required": false, "format": "money", "source": "person"},
+  "topmostSubform[0].Page1[0].f1_09[0]": {"id": "step4a_other_income", "role": "employee", "type": "text", "label": "Step 4(a): Other Income (Not From Jobs)", "required": false, "format": "money", "source": "person"},
+  "topmostSubform[0].Page1[0].f1_10[0]": {"id": "step4b_deductions", "role": "employee", "type": "text", "label": "Step 4(b): Deductions", "required": false, "format": "money", "source": "person"},
+  "topmostSubform[0].Page1[0].f1_11[0]": {"id": "step4c_extra_withholding", "role": "employee", "type": "text", "label": "Step 4(c): Extra Withholding per Pay Period", "required": false, "format": "money", "source": "person"},
+  "topmostSubform[0].Page1[0].c1_3[0]": {"id": "exempt", "role": "employee", "type": "check", "label": "Exempt From Withholding for 2026", "required": false, "source": "person"},
+  "topmostSubform[0].Page1[0].f1_12[0]": {"id": "employer_name_address", "role": "", "type": "text", "label": "Employer's Name and Address", "required": false, "source": "merge", "mergeKey": "employer.name_address"},
+  "topmostSubform[0].Page1[0].f1_13[0]": {"id": "employer_first_date", "role": "", "type": "text", "label": "First Date of Employment", "required": false, "format": "date_mmddyyyy", "source": "merge", "mergeKey": "person.first_day"},
+  "topmostSubform[0].Page1[0].f1_14[0]": {"id": "employer_ein", "role": "", "type": "text", "label": "Employer Identification Number (EIN)", "required": false, "format": "ein", "source": "merge", "mergeKey": "employer.ein"},
+  "@step5_signature": {"id": "step5_signature", "page": 0, "rect": [0.16, 0.858, 0.58, 0.032], "role": "employee", "type": "sign", "label": "Employee's Signature", "required": true, "source": "person"},
+  "@step5_date": {"id": "step5_date", "page": 0, "rect": [0.757, 0.858, 0.18, 0.032], "role": "employee", "type": "date", "label": "Date", "required": true, "source": "person"}
+}

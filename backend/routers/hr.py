@@ -5,7 +5,7 @@ import time
 import uuid
 import httpx
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Request
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -14,7 +14,7 @@ from typing import Optional
 from database import get_db
 import workflows
 from notify_company import notification_company
-from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
+from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited, admits_blank
 from routers.stepup import require_stepup
 from currency import is_currency
 from models import NexusEmployee, PayrollRate, HrRemovedIdentity, PayrollRateHistory
@@ -148,6 +148,8 @@ def _validate(employment_type: Optional[str], status: Optional[str], identity_ty
 def _in_scope(emp: Optional[NexusEmployee], scope) -> bool:
     if emp is not None and is_team_scope(scope):   # People limited to their own team (Oct 6)
         return (emp.work_email or "").strip().lower() in scope.emails
+    if emp is not None and scope is not None and not (emp.company or "") and admits_blank(scope):
+        return True    # an Administrator: people with no company are shared (11/02/2026)
     return emp is not None and (scope is None or (emp.company or "") in scope)
 
 
@@ -166,7 +168,11 @@ def _scoped(q, scope):
     if is_team_scope(scope):
         return q.filter(func.lower(NexusEmployee.work_email).in_(sorted(scope.emails)))
     if scope is not None:
-        q = q.filter(NexusEmployee.company.in_(scope))
+        if admits_blank(scope):
+            q = q.filter(or_(NexusEmployee.company.in_(scope), NexusEmployee.company.is_(None),
+                             NexusEmployee.company == ""))
+        else:
+            q = q.filter(NexusEmployee.company.in_(scope))
     return q
 
 
@@ -192,9 +198,21 @@ def _next_code(db: Session) -> str:
     return f"GG-{best + 1:03d}"
 
 
-def _serialize(e: NexusEmployee) -> dict:
+def _serialize(e: NexusEmployee, db: Session = None, tiers: dict = None) -> dict:
+    # The tier mark beside the name (Neil, 11/02/2026): `tiers` is
+    # auth.tiers_by_email(db) for a list (one query), `db` reads one person
+    # through the role cache; neither given = '' (the field is always there).
+    email = (e.work_email or "").lower()
+    if tiers is not None:
+        tier = tiers.get(email, "")
+    elif db is not None and email:
+        import auth
+        tier = auth.tier_for(email, db)
+    else:
+        tier = ""
     return {
         "id": e.id,
+        "tier":           tier,
         "employeeCode":   e.employee_code,
         "firstName":      e.first_name,
         "lastName":       e.last_name,
@@ -260,7 +278,8 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
         q = (q.execution_options(include_deleted=True)
               .filter(NexusEmployee.deleted_at != "", NexusEmployee.deleted_at.isnot(None)))
     rows = q.order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
-    out = [_team_view(_serialize(e)) for e in rows] if is_team_scope(scope) else [_serialize(e) for e in rows]
+    tiers = __import__("auth").tiers_by_email(db)
+    out = [_team_view(_serialize(e, tiers=tiers)) for e in rows] if is_team_scope(scope) else [_serialize(e, tiers=tiers) for e in rows]
     # More Details values (Oct 27 2026), filtered per caller - never HR Only for a manager.
     import hr_custom_fields
     hr_custom_fields.attach_list_values(db, user, rows, out)
@@ -395,7 +414,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         db.query(HrRemovedIdentity).filter(HrRemovedIdentity.work_email == _wemail).delete()
     db.commit()
     db.refresh(row)
-    return _with_backup(db, _serialize(row))
+    return _with_backup(db, _serialize(row, db=db))
 
 
 @router.patch("/employees/{eid}")
@@ -410,6 +429,11 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     if scope is not None and body.company is not None and body.company.strip() not in scope:
         raise HTTPException(403, "You can't move someone to a company outside your People access")
     _validate(body.employment_type, body.status, body.identity_type)
+    # Offboarding goes through the status change (POST /employees/{eid}/status),
+    # which requires the termination date and runs the leaver steps (Neil,
+    # Teams 11/02/2026) - the generic profile save must not slip past it.
+    if body.status == "offboarded" and (row.status or "") != "offboarded":
+        raise HTTPException(400, "Use the status change to offboard - it records the termination date.")
     if body.first_name is not None and not body.first_name.strip():
         raise HTTPException(400, "first_name cannot be empty")
     fields = body.model_dump(exclude_unset=True)
@@ -466,7 +490,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
         except Exception as e:   # the audit row must never fail the save
             db.rollback()
             print(f"[hr] field audit skipped: {e}")
-    out = _with_backup(db, _serialize(row))
+    out = _with_backup(db, _serialize(row, db=db))
     # Nexus is the source of truth for profile edits - mirror them onto the
     # linked Entra account automatically (best-effort: a Graph hiccup must never
     # fail the save; the response says whether Entra took the change).
@@ -487,7 +511,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
             if contact:
                 m365_profile_sync.push(token, row, contact)
                 db.commit()
-            out = _with_backup(db, _serialize(row))
+            out = _with_backup(db, _serialize(row, db=db))
             out["entra"] = {"synced": True, "written": written, "manager": manager}
         except Exception as e:
             out["entra"] = {"synced": False, "error": str(e)[:200]}
@@ -513,7 +537,7 @@ def sync_employee_m365(eid: str, user: dict = Depends(require_hr_write), db: Ses
     except Exception as e:
         raise HTTPException(502, f"Microsoft 365 did not answer: {str(e)[:160]}")
     db.refresh(row)
-    out = _serialize(row)
+    out = _serialize(row, db=db)
     out["m365Result"] = result
     out["m365Result"]["writesEnabled"] = _entra_writes_enabled()
     return out
@@ -573,7 +597,7 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
         raise HTTPException(404, "That person no longer exists in Nexus")
     _assert_scope(row, hr_scope(user, db))
     if not row.deleted_at:
-        return {"ok": True, **_serialize(row)}
+        return {"ok": True, **_serialize(row, db=db)}
 
     q = db.query(HrRemovedIdentity)
     conds = []
@@ -589,7 +613,7 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     db.refresh(row)
-    return {"ok": True, **_serialize(row)}
+    return {"ok": True, **_serialize(row, db=db)}
 
 
 # ── Hiring pipeline (Phase 2) ─────────────────────────────────────────────────
@@ -1242,7 +1266,7 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
     out = _ser_candidate(row)
     if created_employee:
         db.refresh(created_employee)
-        out["createdEmployee"] = _serialize(created_employee)
+        out["createdEmployee"] = _serialize(created_employee, db=db)
     return out
 
 
@@ -1519,6 +1543,16 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
     elif row.kind == "contract" and _contract_prints_pay(db, row) and not _has_comp(user, db):
         # A signed offer / promotion letter filed from Nexus Sign (Oct 14).
         raise HTTPException(403, "This document shows pay - Pay & Benefits access is needed")
+    if row.kind == "contract" and row.storage_path:
+        # The filed copy of an envelope with a sensitive field (a federal
+        # form's SSN or bank number) is audited each time it is opened
+        # (Neil, 11/02/2026) - the same event the Nexus Sign routes write.
+        from models import HrSignRequest
+        from routers import esign as _esign
+        env = db.query(HrSignRequest).filter(HrSignRequest.final_pdf_path == row.storage_path).first()
+        if env is not None:
+            _esign._note_final_view(db, env, user["email"])
+            db.commit()
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.storage_path}",
         headers=_storage_headers(), json={"expiresIn": 300}, timeout=15,
@@ -1545,6 +1579,133 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
 
 # ── Paystubs - HrDocument rows with kind="paystub", hr_comp-gated ────────────
 # Employees see/download their own via /myhr/paystubs (routers/myhr.py).
+
+# ── Federal forms from the person record (Neil, 11/02/2026) ─────────────────
+# One form - the W-4, the I-9 or the Direct Deposit Authorization - sent by
+# itself to someone already in People, by HR++ for their company (the HR
+# contact, an administrator or owner, a Full People grant inside their reach;
+# hr_access.is_hr_for_company) and never for your own record. The same builder
+# the hiring packet uses (hr_packet_docs.federal_documents) prepares the form;
+# the person signs first, HR second on the I-9; link_kind 'federal_form' with
+# link_id "<employee id>:<kind>" is how the signing hooks and the checklist
+# signals know which form it was. The signed PDF files under the person's
+# Egnyte folder: "Tax and Payroll Forms" (W-4, direct deposit) or "Form I-9".
+
+class FederalFormSendIn(BaseModel):
+    kind: str
+
+
+def _federal_status_rows() -> list:
+    import federal_forms
+    from federal_forms import editions
+    out = []
+    for kind, spec in federal_forms.FORMS.items():
+        st = editions.status(kind)
+        src = spec.get("source_url", "")
+        out.append({"kind": kind, "title": spec["title"], "edition": spec["edition"],
+                    "editionLabel": spec["editionLabel"], "expires": st["expires"], "state": st["state"],
+                    "message": st["message"], "roles": list(spec["roles"]),
+                    "sourceUrl": src if src.startswith("http") else ""})
+    return out
+
+
+@router.get("/federal-forms/status")
+def federal_forms_status(user: dict = Depends(require_hr_read)):
+    """Settings > Hiring & Onboarding: each bundled form's edition and whether
+    it is current, expiring or expired (read-only; updating an edition is a
+    code change - docs/Federal-Forms.md)."""
+    from federal_forms import editions
+    return {"forms": _federal_status_rows(), "today": editions.date.today().strftime("%m/%d/%Y")}
+
+
+@router.post("/employees/{eid}/federal-forms/send")
+def send_federal_form(eid: str, body: FederalFormSendIn, request: Request,
+                      user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    import federal_forms
+    import hr_access
+    import hr_checklists as hc
+    import hr_life_events as hle
+    import hr_packet_docs as hpd
+    from models import HrSignRequest
+    from routers import esign
+    kind = (body.kind or "").strip()
+    if kind not in federal_forms.FORMS:
+        raise HTTPException(400, "Pick Form W-4, Form I-9 or the Direct Deposit Authorization.")
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
+    me = (user["email"] or "").lower()
+    if me == (emp.work_email or "").lower() or me == (emp.personal_email or "").lower():
+        raise HTTPException(403, "You cannot send yourself a federal form - ask HR.")
+    if not hr_access.is_hr_for_company(db, user, emp.company or ""):
+        raise HTTPException(403, "Only HR for this person's company sends federal forms - the company's HR contact, "
+                                 "an administrator, or a Full People grant that covers it.")
+    if emp.status not in ("active", "onboarding"):
+        raise HTTPException(409, "This person is not active in People.")
+    country = hle.country_of(db, emp.company or "") or (emp.country or "").upper()[:2]
+    if not hpd.federal_applies(country, hle.worker_type_of(emp.employment_type)):
+        raise HTTPException(400, "Federal forms are for employees of a US company. Contractors use the W-9; "
+                                 "another country's paperwork is its own hiring packet.")
+    spec = federal_forms.FORMS[kind]
+    # Someone in People signs with their work email when they have one (an
+    # internal signer, inside Nexus); a hire not yet provisioned gets the
+    # link at their personal email.
+    to_email = (emp.work_email or emp.personal_email or "").strip().lower()
+    if not to_email:
+        raise HTTPException(409, "This person has no email in People to send the form to.")
+    link_id = f"{eid}:{kind}"
+    if (db.query(HrSignRequest.id).filter(HrSignRequest.link_kind == hle.FEDERAL_LINK_KIND,
+                                          HrSignRequest.link_id == link_id, HrSignRequest.status == "pending")
+            .first()) is not None:
+        raise HTTPException(409, f"A {spec['title']} is already out for {emp.first_name} to sign - void it in "
+                                 f"Nexus Sign first if it must go again.")
+    name = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
+    kind_of_person = "internal" if to_email == (emp.work_email or "").lower() else "external"
+    parties = [esign.PartyIn(role_key="employee", name=name, email=to_email, kind=kind_of_person, ordinal=1,
+                             party_role="signer", title=emp.job_title or "")]
+    hr_key = ""
+    if "hr" in spec["roles"]:
+        ent = db.query(HrEntity).filter(HrEntity.id == emp.company).first() if emp.company else None
+        hr_email = (hc.resolve_owner(db, "hr", emp, hc.role_owners(db, emp.company or ""), ent) or "").lower()
+        if not hr_email or hr_email == to_email or hr_email == (emp.work_email or "").lower():
+            hr_email = me                      # the sender is HR++ for this company
+        hr_person = hpd.person(db, hr_email)
+        hr_key = "hr"
+        parties.append(esign.PartyIn(role_key="hr", email=hr_email, kind="internal", ordinal=2, party_role="signer",
+                                     name=((hr_person.display_name or f"{hr_person.first_name} {hr_person.last_name}").strip()
+                                           if hr_person else hr_email),
+                                     title=(hr_person.job_title if hr_person else "") or ""))
+    ent = db.query(HrEntity).filter(HrEntity.id == emp.company).first() if emp.company else None
+    try:
+        docs = hpd.federal_documents(db, kinds=[kind], entity=ent, start_date=emp.start_date or "",
+                                     person_key="employee", hr_key=hr_key)
+    except hpd.FederalFormProblem as e:
+        raise HTTPException(400, str(e))
+    except hle.PacketError as e:
+        raise HTTPException(e.status, str(e))
+    # Where the signed copy files: the person's folder, a form subfolder.
+    # Resolved only when Egnyte is connected; '' = Nexus Sign's own fallback.
+    folder = ""
+    try:
+        import egnyte_wiring
+        import services.egnyte as svc
+        if svc.configured():
+            folder = f"{egnyte_wiring.provision_person_folder(emp, db)}/{hpd.federal_subfolder(kind)}"
+    except Exception as e:   # noqa: BLE001 - filing is best effort, sending is not
+        print(f"[federal-forms] person folder for {eid} not resolved: {e}")
+    title = f"{spec['title']} - {name}"
+    ip, ua = esign._client_meta(request)
+    try:
+        out = esign.envelope_from_documents(
+            db, user, documents=docs, parties=parties, title=title, employee_id=eid, entity_id=emp.company or "",
+            message="", ip=ip, user_agent=ua, excluded_ack=True, document_class="employment",
+            link_kind=hle.FEDERAL_LINK_KIND, link_id=link_id, sender_signs_first=False, egnyte_folder=folder)
+    except HTTPException:
+        hpd.federal_discard(docs)      # a refused send leaves no flat PDF behind
+        raise
+    return {**out, "requestId": out["id"], "kind": kind, "title": title}
+
 
 @router.get("/employees/{eid}/paystubs")
 def list_paystubs(eid: str, user: dict = Depends(require_comp_read_or_manager),
@@ -2041,7 +2202,7 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
         "steps": [{"step": s.step, "status": s.status, "detail": s.detail}
                   for s in sorted(steps.values(), key=lambda x: x.ordinal)],
         "tempPassword": temp_password if user_id else None,
-        "employee": _serialize(emp),
+        "employee": _serialize(emp, db=db),
     }
 
 
@@ -2139,7 +2300,7 @@ def upload_photo(eid: str, file: UploadFile = File(...),
     emp.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     db.refresh(emp)
-    return _serialize(emp)
+    return _serialize(emp, db=db)
 
 
 # The M365 directory import is scoped to the company's own domains only. Guests
@@ -2827,9 +2988,12 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
     # (company=='') employee on that domain into this company - a re-tag escape
     # that would pull people the scoped admin must not see into their scope. Only
     # a company-wide admin may touch domains, and only their edits run the
-    # domain-based auto-assignment.
+    # domain-based auto-assignment. The form may send its copy back: only a
+    # CHANGE is refused (11/02/2026), and the unchanged value is not re-saved.
     if scope is not None and body.domains is not None:
-        raise HTTPException(403, "Only a company-wide admin can change a company's email domains")
+        if set(_norm_domains(body.domains).split(",")) - {""} != set(_norm_domains(row.domains or "").split(",")) - {""}:
+            raise HTTPException(403, "Only a company-wide admin can change a company's email domains")
+        body.domains = None
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
     if body.signature_template is not None:
@@ -3077,10 +3241,20 @@ class SenderOverridesIn(BaseModel):
     overrides: list
 
 
+def _sender_overrides_wide(db: Session, user: dict) -> bool:
+    """May this caller read and change the sender overrides - company-wide
+    People access (no company wall, no company-limited or team People grant)?"""
+    from auth import company_scope
+    return company_scope(user, db) is None and hr_scope(user, db) is None
+
+
 @router.get("/signature-sender-overrides")
 def get_signature_sender_overrides(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     from routers.myhr import get_sender_overrides, _render_override_signature, SIGNATURE_TEMPLATES
-    overrides = get_sender_overrides(db)
+    # The overrides apply in every company and name addresses from any of
+    # them (11/02/2026): a caller whose People reach is walled or limited
+    # to some companies sees none; only a Super Administrator changes them.
+    overrides = get_sender_overrides(db) if _sender_overrides_wide(db, user) else []
     return {
         "templates": [{"id": tid, "label": label} for tid, (label, _) in SIGNATURE_TEMPLATES.items()],
         # previewHtml is the SAVED state, re-rendered on every load - not live
@@ -3094,6 +3268,10 @@ def get_signature_sender_overrides(user: dict = Depends(require_hr_read), db: Se
 def save_signature_sender_overrides(body: SenderOverridesIn,
                                     user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     from routers.myhr import SIGNATURE_TEMPLATES, _OVERRIDE_FIELD_KEYS, SENDER_OVERRIDES_SETTING_KEY
+    # Every company shares them (Neil, 11/02/2026): a Super Administrator's
+    # to change; company-wide HR reads them (read only on the screen).
+    import settings_walls
+    settings_walls.require_super_admin_for_org(db, user, "Changing the sender template overrides")
     cleaned = []
     for grp in body.overrides:
         if not isinstance(grp, dict):
@@ -3170,6 +3348,8 @@ def upload_sender_override_logo(file: UploadFile = File(...),
     on the section's whole-list Save), so there's no row here to attach the
     URL to; the frontend puts the returned URL straight into the in-progress
     override's fields.logoUrl."""
+    import settings_walls
+    settings_walls.require_super_admin_for_org(db, user, "Uploading a sender override logo")
     ext = _IMAGE_TYPES.get(file.content_type or "")
     if not ext:
         raise HTTPException(400, "Logo must be JPEG, PNG, WebP, or GIF")
@@ -5263,6 +5443,16 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
     both come here, so an offboarding is the same whichever way it runs."""
     now = datetime.now(timezone.utc).isoformat()
     did_change = body.status != row.status
+    # An offboarding always carries the termination date (Neil, Teams
+    # 11/02/2026: "Make sure on offboarded people there is a termination
+    # date"). The Offboard flow (hr_life_events) validates its last day
+    # before it ever gets here; this covers the direct status pill too.
+    if did_change and body.status == "offboarded":
+        eff = (body.effectiveDate or "").strip()[:10]
+        try:
+            datetime.strptime(eff, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, "Enter the termination date (their last day).")
     log = list(row.status_log or [])
     entry = None
     # Normalise the offboarding block independently of the status change so the
@@ -5401,7 +5591,7 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
         except Exception:
             pass
 
-    return {**_serialize(row), "m365": m365, "items": items_returned, "handover": handover}
+    return {**_serialize(row, db=db), "m365": m365, "items": items_returned, "handover": handover}
 
 
 # ---------------------------------------------------------------------------

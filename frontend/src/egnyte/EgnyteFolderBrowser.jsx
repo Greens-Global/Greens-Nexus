@@ -12,10 +12,11 @@
 // CONTAINER, so the same markup collapses to a single pane in narrow homes.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AlignLeft, Bookmark, Check, ChevronRight, Copy, Download, ExternalLink, Eye,
+  AlignLeft, Bookmark, Check, ChevronRight, Copy, Download, ExternalLink, Eye, FileText,
   FolderInput, FolderPlus, HardDrive, Home, Info, Link2, MoreVertical, PenLine,
   RefreshCw, Search, Trash2, Upload, X,
 } from 'lucide-react';
+import { isPdfName, openEgnyteInPdfTools } from '../lib/pdfToolsHandoff';
 import { api } from '../api';
 import {
   canPreview, crumbsFor, downloadEgnyteFile, egnyteErrorMessage, FOLDER_FRESH_MS,
@@ -453,6 +454,11 @@ export default function EgnyteFolderBrowser({
           ? { label: 'View', icon: <Eye size={14} />, onClick: () => setPreview(item) }
           : null),
       !isFolder && { label: 'Download', icon: <Download size={14} />, onClick: () => download(item) },
+      !isFolder && isPdfName(item.name) && {
+        label: 'Open In PDF Tools',
+        icon: <FileText size={14} />,
+        onClick: () => openEgnyteInPdfTools(item),
+      },
       // Office documents edit in Egnyte's Office Online - same behavior as
       // Egnyte's own "Edit in Excel/Word for the Web" (Visesh, Aug 11).
       !isFolder && officeAppFor(item.name) && item.webUrl && {

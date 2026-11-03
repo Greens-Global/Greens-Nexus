@@ -203,17 +203,22 @@ describe('ProbationCard past the window', () => {
 });
 
 describe('ProbationSettings', () => {
-  it('rows for the length, reminder and letters; Save once something changed', async () => {
+  // The Settings save pattern: the numbers wait for the one Save (disabled
+  // until one changed) and send only the keys changed; a letter pick saves
+  // on change.
+  it('rows for the length, reminder and letters; Save sends only what changed; a pick saves at once', async () => {
+    settingsSave.mockClear();
     const onOverride = vi.fn();
     render(<ProbationSettings company="c1" onOverride={onOverride} toastOk={() => {}} toastErr={() => {}} />);
     expect(await screen.findByText('Probation Length')).toBeTruthy();
     expect(screen.getByText('Confirmation Letter')).toBeTruthy();
     expect(screen.getByText('Extension Letter')).toBeTruthy();
-    expect(screen.queryByText('Save')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
     await waitFor(() => expect(onOverride).toHaveBeenCalledWith(false));
     fireEvent.change(screen.getByLabelText('Probation Length'), { target: { value: '6' } });
-    fireEvent.click(screen.getByText('Save'));
-    await waitFor(() => expect(settingsSave).toHaveBeenCalledWith(expect.objectContaining({ company: 'c1', reset: false })));
-    expect(settingsSave.mock.calls[0][0].settings.months).toBe(6);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(settingsSave).toHaveBeenCalledWith({ company: 'c1', settings: { months: 6 } }));
+    fireEvent.change(screen.getByLabelText('Extension letter'), { target: { value: '' } });
+    await waitFor(() => expect(settingsSave).toHaveBeenLastCalledWith({ company: 'c1', settings: { extendTemplateId: '' } }));
   });
 });

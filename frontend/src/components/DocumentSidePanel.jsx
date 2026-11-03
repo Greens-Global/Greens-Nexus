@@ -2,14 +2,20 @@
 // who signed and who is next, the versions, and named actions - so "who are we
 // waiting on?" needs no click into anything. Phones get it as a full-screen
 // sheet with no page preview, since a phone's browser cannot draw a PDF in a page.
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { X, Lock } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { setPendingOpen } from '../lib/pendingOpen';
+import { openRowInPdfTools, pdfLoadFor } from '../lib/pdfToolsHandoff';
 import { rowFor, rowStatus } from '../lib/documentLibrary';
 import { useIsMobile } from '../lib/useIsMobile';
 import HoldButton from '../ui/HoldButton';
+
+// A form entry's row (Neil, 11/02/2026) opens the Forms panel. Lazy: it brings
+// the entry viewer and the ticket / task composers along, and it imports this
+// file's PanelShell.
+const EntryPanel = lazy(() => import('../forms/EntryPanel'));
 
 const go = (sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub } }));
 
@@ -131,7 +137,20 @@ function Versions({ docId }) {
   );
 }
 
-export default function DocumentSidePanel({ row, folders = [], onClose, onEdit, onOrganize, onChanged, toastOk, toastErr }) {
+export default function DocumentSidePanel(props) {
+  const { row, onClose, onChanged, toastOk, toastErr } = props;
+  if (row.kind === 'form_entry') {
+    return (
+      <Suspense fallback={<aside className="nx-dl-panel" aria-label={row.title}><div className="nx-dl-muted">Opening the entry...</div></aside>}>
+        <EntryPanel entry={row.entry || { id: row.entryId, title: row.title, templateId: row.templateId, status: row.entryStatus }}
+          onClose={onClose} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />
+      </Suspense>
+    );
+  }
+  return <DocumentRowPanel {...props} />;
+}
+
+function DocumentRowPanel({ row, folders = [], onClose, onEdit, onOrganize, onChanged, toastOk, toastErr }) {
   const [busy, setBusy] = useState('');
   const isDoc = row.kind === 'document';
   const isHr = row.kind === 'hr';
@@ -220,6 +239,9 @@ export default function DocumentSidePanel({ row, folders = [], onClose, onEdit, 
           <button type="button" className="secondary-btn" disabled={busy === 'send'} onClick={send}>
             {busy === 'send' ? 'Preparing...' : 'Send For Signature'}
           </button>
+        )}
+        {pdfLoadFor(row) && (
+          <button type="button" className="secondary-btn" onClick={() => openRowInPdfTools(row)}>Open In PDF Tools</button>
         )}
         {row.signRequestId && !isHr && (
           <button type="button" className="secondary-btn" onClick={() => go(row.canManageEnvelope ? 'documents-esign-requests' : 'documents-esign')}>View In Nexus Sign</button>

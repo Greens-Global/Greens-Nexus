@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { nxSrcVitePlugin } from './scripts/nxsrc-plugin.mjs'
+import { stampHtml } from './scripts/stamp-assets.mjs'
 
 // Build Mode (Oct 24 2026). Dev builds stamp every host JSX element that has a
 // handler or an aria / role attribute with data-nx-src="<fileId>:line:col"
@@ -135,10 +136,7 @@ const stampUnhashedAssets = () => ({
       for (const rel of entries) {
         const file = join(dir, rel);
         const html = await readFile(file, 'utf8');
-        const stamped = html.replace(
-          /((?:src|href)=")(?!https?:|\/\/|data:|\/assets\/)([^"?#]+\.(?:js|css))"/g,
-          `$1$2?v=${BUILD_ID}"`,
-        );
+        const stamped = stampHtml(html, BUILD_ID);
         if (stamped !== html) await writeFile(file, stamped);
       }
     },
@@ -193,15 +191,27 @@ export default defineConfig(({ command }) => ({
         // Split vendors into separate cached chunks — same approach as Amazon, Netflix, etc.
         // Each chunk loads in parallel and is cached independently by the browser.
         manualChunks(id) {
-          // The whiteboard engine (Notes boards, Neil 11/02/2026): the package
-          // and the libraries only it uses, in one lazy chunk reached by
-          // notes/board/Board.jsx's import() alone - never on first paint.
-          // Its small shared-looking deps (clsx, nanoid, pako, lodash.*,
-          // @radix-ui/*) stay in the catch-all so no other chunk ever has to
-          // pull this one in to reach them. Budget: check-bundle-size.mjs
-          // CHUNK_EXEMPT['vendor-excalidraw'].
-          if (id.includes(EXCALIDRAW_LOCALE_STUB) || id.includes(EXCALIDRAW_MERMAID_STUB) || id.includes('node_modules/@excalidraw/')
-            || /node_modules\/(roughjs|points-on-curve|perfect-freehand|jotai|jotai-scope|tunnel-rat|fractional-indexing|es6-promise-pool|browser-fs-access|image-blob-reduce|pica|png-chunk-text|png-chunks-encode|png-chunks-extract|open-color|fuzzy|@braintree\/sanitize-url|canvas-roundrect-polyfill)\//.test(id)) return 'vendor-excalidraw';
+          // The whiteboard engine (Notes boards, Neil 11/02/2026) has NO manual
+          // chunk on purpose. It is reached only by the import() in
+          // notes/board/engine/index.js (the adapter, engine/excalidraw.jsx,
+          // is the one file that imports the package), and left alone rolldown
+          // splits that import into its own lazy chunk (excalidraw-nx2-*, about
+          // 540 KB plus the shared pieces in their usual chunks). A manual
+          // 'vendor-excalidraw' chunk did the opposite: on rolldown a manual
+          // chunk takes a module's whole static tree with it
+          // (advancedChunks.includeDependenciesRecursively, default true), so it
+          // swallowed react/jsx-runtime, @radix-ui/*, tslib, lodash.* and 50
+          // other shared modules, every chunk that needed them imported the
+          // 3 MB chunk statically, and the engine shipped on FIRST PAINT for
+          // everyone. Measured 11/02/2026: entry static graph 5,448 KB with the
+          // manual chunk, 2,628 KB without. check-bundle-size.mjs now guards
+          // the first-paint graph (FIRST_PAINT_KB). Do not add one back.
+          if (id.includes(EXCALIDRAW_LOCALE_STUB) || id.includes(EXCALIDRAW_MERMAID_STUB) || id.includes('node_modules/@excalidraw/')) return undefined;
+          // ...and the libraries only the engine uses stay out of the catch-all
+          // below too, so they ride its lazy chunk instead of vendor-react
+          // (first paint). Measured 11/02/2026 with the CI's Supabase values:
+          // vendor-react 1,192 KB with them in the catch-all.
+          if (/node_modules\/(roughjs|points-on-curve|path-data-parser|hachure-fill|perfect-freehand|jotai|jotai-scope|tunnel-rat|fractional-indexing|es6-promise-pool|browser-fs-access|image-blob-reduce|pica|multimath|glur|png-chunk-text|png-chunks-encode|png-chunks-extract|crc-32|open-color|fuzzy|@braintree\/sanitize-url|canvas-roundrect-polyfill|@radix-ui|zustand|@excalidraw|laser-pointer|pwacompat|sliced|lodash\.throttle|lodash\.debounce)\//.test(id)) return undefined;
           if (id.includes('@azure/msal-browser') || id.includes('@azure/msal-react')) return 'vendor-msal';
           if (id.includes('@supabase/supabase-js'))  return 'vendor-supabase';
           if (id.includes('lucide-react'))            return 'vendor-icons';
@@ -216,6 +226,11 @@ export default defineConfig(({ command }) => ({
           if (id.includes('mammoth'))                 return 'vendor-docx';
           if (id.includes('leaflet'))                 return 'vendor-maps';
           if (id.includes('qrcode'))                  return 'vendor-qr';
+          // jsqr (Forms & Checklists, Neil 11/02/2026): the QR fallback for a
+          // browser with no BarcodeDetector, reached only by FillForm's
+          // ScanField `await import()`. In the catch-all it added ~130 KB to
+          // vendor-react on first paint for everyone.
+          if (id.includes('node_modules/jsqr'))       return 'vendor-jsqr';
           // heic2any bundles libheif (~1.4MB of wasm-ish decoder). It is only
           // reached from construction/lib/upload.js's `await import()`, and only
           // when a worker actually uploads an iPhone HEIC - which most uploads

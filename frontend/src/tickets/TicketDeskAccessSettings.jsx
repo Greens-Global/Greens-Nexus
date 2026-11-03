@@ -7,13 +7,16 @@
 //   explicit - only Tickets access counts; its level picks the role.
 // Administrators only - the backend refuses everyone else (this panel just
 // says so instead of rendering blank).
+//
+// One save pattern (Settings, Oct 23 2026): the rule is a choice, so picking
+// it saves at once - after the confirm when people would lose access - and a
+// refused save shows the reason with the rule left as it was.
 import { useEffect, useState } from 'react';
-import { useGroupDirty } from '../lib/groupDirty';
-import { ShieldCheck, Save, Users } from 'lucide-react';
-import { LoadingState } from '../components/AsyncState';
+import { ShieldCheck, Users } from 'lucide-react';
+import { LoadingState, Spinner } from '../components/AsyncState';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
-import { NX, FONT, btn, card } from '../tasks/theme';
+import { NX, FONT, card } from '../tasks/theme';
 import SavedCheck from '../components/SavedCheck';
 import { dialog } from '../ui/dialog';
 
@@ -43,7 +46,7 @@ export default function TicketDeskAccessSettings() {
   const { can } = useRole();
   const isAdmin = can('administrator');
   const [data, setData] = useState(null);
-  const [choice, setChoice] = useState('');
+  const [choice, setChoice] = useState('');   // the rule on screen: the saved one, or the one being saved
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
@@ -54,9 +57,6 @@ export default function TicketDeskAccessSettings() {
       .then((d) => { setData(d); setChoice(d.deskAccess); })
       .catch((e) => setErr(e.message || String(e)));
   }, [isAdmin]);
-
-  const dirty = !!data && choice !== data.deskAccess;
-  useGroupDirty(dirty);
 
   if (!isAdmin) {
     return (
@@ -71,18 +71,22 @@ export default function TicketDeskAccessSettings() {
 
   const changes = data.explicitChanges || [];
 
-  const save = async () => {
-    if (choice === 'explicit' && changes.length > 0
+  const pick = async (key) => {
+    if (saving || key === data.deskAccess) return;
+    if (key === 'explicit' && changes.length > 0
       && !(await dialog.confirm(`${changes.length} ${changes.length === 1 ? 'person' : 'people'} will lose desk access or desk powers. Switch anyway?`,
         { title: 'Switch Desk Access?', confirmText: 'Switch Anyway', danger: true }))) return;
+    setChoice(key);
     setSaving(true); setErr(''); setSaved(false);
     try {
-      const next = await api.updateTicketDeskAccess(choice);
+      const next = await api.updateTicketDeskAccess(key);
       setData(next); setChoice(next.deskAccess);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
-    } catch (e) { setErr(e.message || String(e)); }
-    finally { setSaving(false); }
+    } catch (e) {
+      setChoice(data.deskAccess);
+      setErr(`Could not switch the desk access rule: ${e.message || String(e)}`);
+    } finally { setSaving(false); }
   };
 
   return (
@@ -96,7 +100,7 @@ export default function TicketDeskAccessSettings() {
         {OPTIONS.map((o) => {
           const on = choice === o.key;
           return (
-            <button key={o.key} type="button" role="radio" aria-checked={on} onClick={() => setChoice(o.key)}
+            <button key={o.key} type="button" role="radio" aria-checked={on} onClick={() => pick(o.key)} disabled={saving}
               style={{
                 ...card, padding: 14, textAlign: 'left', cursor: 'pointer', fontFamily: FONT,
                 border: `1.5px solid ${on ? 'var(--wk-brand)' : NX.border}`,
@@ -165,13 +169,11 @@ export default function TicketDeskAccessSettings() {
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <button onClick={save} disabled={saving || !dirty} style={{ ...btn('primary'), opacity: saving || !dirty ? 0.6 : 1 }}>
-          <Save size={14} /> {saving ? 'Saving…' : 'Save'}
-        </button>
-        {dirty && !saving && <span style={{ fontSize: 12.5, color: NX.amber, fontWeight: 600 }}>Unsaved Changes</span>}
-        <SavedCheck show={saved} />
+      <div aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minHeight: 20 }}>
+        {saving ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.dim }}><Spinner size={13} /> Saving…</span>
+          : <SavedCheck show={saved} />}
         {err && <span style={{ fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</span>}
+        {!saving && !saved && !err && <span style={{ fontSize: 11.5, color: NX.faint }}>Picking a rule saves it at once.</span>}
       </div>
     </div>
   );

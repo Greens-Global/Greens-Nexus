@@ -2113,7 +2113,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             news.append("updated the " + _and_list(list(dict.fromkeys(edited))))
         if "approval_reset" in changed:
             news.append("sent back for approval")
-        public_reply = comment_body and not (comment_internal and ticket_roles.can_read_internal(user, db))
+        public_reply = comment_body and not (comment_internal and ticket_roles.can_read_internal(
+            user, db, company=getattr(t, "company_id", "") or ""))
         if public_reply and (status_changed or news):
             # One bell for the whole save: the reply rides along here and the
             # comment's own bell skips the requester (below).
@@ -2389,7 +2390,7 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
         # its company) - not the desk's.
         internal = bool(internal) and _sees_internal(db, t, user, False)
     else:
-        internal = bool(internal) and ticket_roles.can_read_internal(user, db)
+        internal = bool(internal) and ticket_roles.can_read_internal(user, db, company=getattr(t, "company_id", "") or "")
     c = models.TaskComment(id=gen_id(), task_id=t.id, author_email=user["email"], body=text,
                            internal=internal, created_at=now_iso())
     db.add(c)
@@ -3425,14 +3426,32 @@ def get_ticket_notify_settings(user: dict = Depends(require_manager), db: Sessio
 def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     # Email to ticket (Oct 2026): the support mailbox is never the Tasks one,
     # and a default department must be one of that company's.
+    import auth
+    import scoped_settings
     import ticket_inbound
+    import ticket_notify
+    # The row lock first (11/02/2026): every read below - the change check,
+    # the stored default departments merged in - sees the current value, so
+    # two supervisors saving at once never lose each other's changes.
+    ticket_notify.lock(db)
     try:
+        patch = ticket_notify.clean(patch)
+        # The mail plumbing is the Super Administrators' (Neil, 11/02/2026);
+        # the form sends its whole copy back, so only a CHANGE is refused.
+        if (scoped_settings.changed_keys(get_notify_settings(db), patch, ("fromMailbox", "replyTo", "defaultCc"))
+                and not auth.is_global_admin(user, db)):
+            raise PermissionError("Only a Super Administrator can change the sending mailbox, the reply-to "
+                                  "address or Always CC.")
+        # Who new tickets go to: other companies' desks kept as stored, the
+        # fallback desk and the ticket admin a Super Administrator's, and
+        # only Nexus People on a roster.
+        patch = ticket_notify.wall_rosters(db, user, patch, get_notify_settings(db))
         patch = ticket_inbound.clean_settings_patch(db, patch, user)
+        return save_notify_settings(db, patch, user["email"])
     except PermissionError as e:
         raise HTTPException(403, str(e))
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return save_notify_settings(db, patch, user["email"])
 
 
 # ── Taxonomy settings (admin): SLA target hours + per-type intake fields ──────

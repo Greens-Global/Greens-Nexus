@@ -35,6 +35,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SNAP = os.path.join(HERE, "testdata", "email_theme")
 ADMIN = "etheme.admin@greensglobal.com"
 EMP = "etheme.emp@greensglobal.com"
+ADMIN4 = "etheme.admin4@greensglobal.com"   # an Administrator: refused
+MGR3 = "etheme.mgr3@greensglobal.com"       # a manager: refused
 STORAGE = "https://proj.supabase.co/storage/v1/object/public/"
 LOGO = STORAGE + "document-images/email-theme/logo.png"
 
@@ -144,7 +146,10 @@ class EndpointTests(unittest.TestCase):
         self._cleanup()
         db = database.SessionLocal()
         try:
-            db.add(models.NexusRole(email=ADMIN, role="administrator"))
+            # Every company shares the look: a Super Administrator saves it (Neil, 11/02/2026).
+            db.add(models.NexusRole(email=ADMIN, role="owner"))
+            db.add(models.NexusRole(email=ADMIN4, role="administrator"))
+            db.add(models.NexusRole(email=MGR3, role="manager"))
             db.add(models.NexusRole(email=EMP, role="employee"))
             db.commit()
         finally:
@@ -173,7 +178,7 @@ class EndpointTests(unittest.TestCase):
             db.commit()
         finally:
             db.close()
-        for e in (ADMIN, EMP):
+        for e in (ADMIN, EMP, ADMIN4, MGR3):
             auth.invalidate_role_cache(e)
         cache.settings_config.invalidate()
 
@@ -269,6 +274,13 @@ class EndpointTests(unittest.TestCase):
         self.assertIn(self.client.put("/branding/email-theme", json={}).status_code, (401, 403))
         self.assertIn(self.client.post("/branding/email-theme/preview", json={}).status_code, (401, 403))
         self.assertIn(self.client.put("/branding/config", json={"accent": "blue"}).status_code, (401, 403))
+
+    def test_an_administrator_and_a_manager_cannot_change_it(self):
+        # Neil, 11/02/2026: every company shares it - Super Administrators only.
+        for who in (ADMIN4, MGR3):
+            self._as(who)
+            self.assertIn(self.client.put("/branding/email-theme", json={}).status_code, (401, 403), who)
+            self.assertIn(self.client.put("/branding/config", json={"accent": "blue"}).status_code, (401, 403), who)
 
 
 if __name__ == "__main__":

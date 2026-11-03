@@ -1,5 +1,5 @@
 // What the ticket form starts with when a question is handed over from help
-// (Ask Nexus, "I Need To..." - Help Center, Oct 2026): the question as the
+// (Ask Nexus, "How Do I..." - Help Center, Oct 2026): the question as the
 // title (shortened at a word) and in full as the description.
 export function ticketSeedFor(question, extra = {}) {
   const q = String(question || '').trim();

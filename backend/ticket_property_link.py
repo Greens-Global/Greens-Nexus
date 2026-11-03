@@ -25,7 +25,6 @@ for on top of it:
 """
 import json
 import re
-from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -69,23 +68,35 @@ def get_rules(db: Session) -> dict:
 
 
 def save_rules(db: Session, patch: dict, actor: str) -> dict:
+    import scoped_settings
     if not isinstance(patch, dict):
         raise HTTPException(400, "Settings must be an object.")
-    cur = get_rules(db)
     for key, kind in (("requiredServiceAreas", list), ("requiredTopics", list), ("facilityPropertyMap", dict)):
         if key in patch:
             if not isinstance(patch[key], kind):
                 raise HTTPException(400, f"{key} has the wrong shape.")
-            cur[key] = patch[key]
-    row = db.get(models.NexusSetting, SETTINGS_KEY)
-    if row is None:
-        row = models.NexusSetting(key=SETTINGS_KEY)
-        db.add(row)
-    row.value = json.dumps(cur)
-    row.updated_by = actor
-    row.updated_at = datetime.now(timezone.utc).isoformat()
+            # Size caps (11/02/2026): a list or map this long is a mistake, and
+            # every ticket form reads it.
+            if len(patch[key]) > RULES_CAP:
+                raise HTTPException(400, f"{key} can hold at most {RULES_CAP} entries.")
+            items = patch[key].items() if kind is dict else ((v, v) for v in patch[key])
+            if any(len(str(k)) > 200 or len(str(v)) > 200 for k, v in items):
+                raise HTTPException(400, f"An entry in {key} is too long.")
+
+    def build(stored: dict) -> dict:
+        # Merged into what is stored now, under the row lock (two saves at
+        # once keep both changes).
+        cur = dict(stored)
+        cur.update({k: patch[k] for k in ("requiredServiceAreas", "requiredTopics", "facilityPropertyMap")
+                    if k in patch})
+        return cur
+    scoped_settings.merge_save(db, SETTINGS_KEY, build, actor)
     db.commit()
     return get_rules(db)
+
+
+# The most entries any property rule list or the facility map may hold.
+RULES_CAP = 500
 
 
 def property_required(db: Session, service_area: str, application: str, rules: dict | None = None) -> bool:

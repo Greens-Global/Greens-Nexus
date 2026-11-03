@@ -5,7 +5,7 @@
 // presets that used to be Shifts > Presets & Teams) and the Groups (who is
 // scheduled together, who schedules them, their Teams chat). Registered in
 // views/AdminConsole.jsx GLOBAL_CATEGORIES / GLOBAL_SECTIONS.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, X, Check, MessageSquare, Search, ChevronUp, ChevronDown, Pencil, Hash, CloudRain, CalendarDays } from 'lucide-react';
 import { api } from '../../api';
 import { useDraft } from '../../lib/useDraft';
@@ -164,12 +164,13 @@ const SWITCHES = [
 // holds, so a company's group can say whether it differs from the default.
 export const SHIFT_SETTING_PARTS = {
   basics: ['timeZone', 'weekStart', 'defaultGraceMin'],
-  requests: [...SWITCHES.map(([k]) => k), 'releaseShifts', 'releaseNeedsApproval', 'openShiftsAcrossTeams'],
-  attendance: ['noShowAlertMin', 'leftEarlyMin', 'timesheetEscalateDays', 'breakNudgeMin', 'mealReminderMin', 'noShowOnUsualHours'],
+  requests: [...SWITCHES.map(([k]) => k), 'releaseShifts', 'releaseNeedsApproval', 'openShiftsAcrossTeams', 'timeOffNoticeDays', 'timeOffShortDays'],
+  attendance: ['noShowAlertMin', 'leftEarlyMin', 'earlyPunchAlertMin', 'timesheetEscalateDays', 'breakNudgeMin', 'mealReminderMin', 'noShowOnUsualHours'],
   overtime: ['otAlertOn', 'otAlertDailyLeadMin', 'otAlertWeeklyLeadMin'],
   rules: ['ruleMinRestHours', 'ruleMaxDaysInRow', 'ruleDailyOtHours', 'ruleWeeklyOtHours', 'ruleMaxWeekHours', 'publishReasonRequired'],
   sharing: ['outlookCalendarOn', 'outlookShowAs', 'confirmRequests'],
   trail: ['locationTrailOn'],
+  labor: ['laborBudgetHours', 'laborBudgetAmount'],
 };
 // The parts on screen at once share one request per company while it is in
 // flight, and hear each other's saves (SAVED_EVENT), so no part ever shows
@@ -189,6 +190,11 @@ const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverride, part }) {
   const [company, setCompany] = useSettingsCompany(scoped);
+  // The labor budget is HR++'s alone (Neil, 11/02/2026): administrators and
+  // a Full People grant that is not team-limited see the block; a manager
+  // never does (Settings' mayOpen hides the group too - this is the belt).
+  const role = useRole();
+  const hrPlus = !role || !!role.can?.('administrator') || (role.myGrantedModules?.get?.('hr') === 'full' && !role.hrTeam);
   const locked = scoped !== undefined;
   const show = (p) => !part || part === p;
   const [cfg, setCfg] = useState(null);
@@ -218,8 +224,8 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
   // selects save the moment they change. Each part drafts only its own
   // numbers, so a sibling group's save never wipes this one's edits.
   const numKeys = NUM_KEYS.filter((k) => !part || SHIFT_SETTING_PARTS[part].includes(k));
-  const { draft: nums, patch: patchNum, dirty: numsDirty, reset: resetNums } = useDraft(cfg ? numbersOf(cfg, numKeys) : null);
-  useGroupDirty(numsDirty);
+  // `rebase`: a switch saved beside a half-typed number never wipes it.
+  const { draft: nums, setDraft: setNums, patch: patchNum, dirty: numsDirty, reset: resetNums } = useDraft(cfg ? numbersOf(cfg, numKeys) : null, { rebase: true });
   const [savingNums, setSavingNums] = useState(false);
   useEffect(() => {
     let live = true;
@@ -255,21 +261,27 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
   // Only the key(s) that changed go to the API: a company's override stays
   // sparse (the server stores what differs from the tenant and says whether
   // anything is left - hasOverride), and nothing stale is written back.
-  async function save(patch) {
+  // A switch or select shows its new value at once (`optimistic`) and goes
+  // back on a refusal; the typed numbers stay as typed until the save lands,
+  // so a refusal leaves them a draft. The saved settings once the save
+  // landed, else null.
+  async function save(patch, { optimistic = true } = {}) {
     const before = cfg;
     const next = { ...cfg, ...patch };
-    setCfg(next);
+    if (optimistic) setCfg(next);
     try {
       const r = await api.shiftRequestSettingsSaveFor(patch, company);
       const saved = { ...next, hasOverride: !!company, ...(r || {}) };
       setCfg(saved);
       tell({ saved: true });
       toastOk?.(company ? `Shift settings saved for ${companyName}.` : 'Shift settings saved.');
+      return saved;
     } catch (e) {
       toastErr?.(e.message || 'Could not save the settings.');
       setCfg(before);
       // Another part may have saved since this one read: take the server's copy.
       loadShiftSettings(company).then((r) => { if (r) setCfg(r); }).catch(() => {});
+      return null;
     }
   }
   async function saveNums() {
@@ -280,19 +292,45 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
       if (typed === was[k]) continue;
       const n = Number(typed);
       if (typed === '' || !Number.isFinite(n)) continue;
-      patch[k] = Math.max(0, Math.min(NUM_MAX[k], Math.round(n)));
+      patch[k] = Math.max(NUM_MIN[k] ?? 0, Math.min(NUM_MAX[k], Math.round(n)));
     }
-    if (!Object.keys(patch).length) { resetNums(); return; }
+    if (!Object.keys(patch).length) { resetNums(); return true; }
     setSavingNums(true);
-    await save(patch);
+    const saved = await save(patch, { optimistic: false });
+    // The boxes it saved show what the server kept (a clamped number); a box
+    // it skipped (blank, not a number) stays as typed.
+    if (saved) setNums((d) => ({ ...d, ...numbersOf(saved, Object.keys(patch)) }));
     setSavingNums(false);
+    return !!saved;
   }
+  useGroupDirty(numsDirty, saveNums);
+  // The Save row names what it saves: on a card that mixes switches and
+  // boxes, only the boxes wait for it. The labor boxes only for whoever
+  // sees the labor budget (canSeeLaborBudget, HR++).
+  const laborShown = typeof cfg?.canSeeLaborBudget === 'boolean' ? cfg.canSeeLaborBudget : hrPlus;
+  const numNames = numKeys.filter((k) => NUM_LABELS[k] && (laborShown || !SHIFT_SETTING_PARTS.labor.includes(k))).map((k) => NUM_LABELS[k]);
+  const numNote = `Saves ${numNames.length > 2 ? `${numNames.slice(0, -1).join(', ')} and ${numNames[numNames.length - 1]}` : numNames.join(' and ')}. Switches and lists save as you go.`;
+  // In a Settings group (`part`), Use the Default drops only that group's own
+  // settings (11/02/2026) - the company keeps what it set in the others, the
+  // labor budget included; on its own the panel drops the whole override
+  // (the server keeps the labor budget for someone who may not see it).
   async function useDefaults() {
-    const ok = await dialog.confirm(`Drop the shift settings ${companyName} has of its own? It then follows the default settings, and whatever changes there.`, { title: 'Use the Default', confirmText: 'Use the Default' });
+    const ok = await dialog.confirm(part
+      ? `Drop what ${companyName} has of its own here? These settings then follow the default settings, and whatever changes there. The other shift settings stay as they are.`
+      : `Drop the shift settings ${companyName} has of its own? It then follows the default settings, and whatever changes there.`,
+    { title: 'Use the Default', confirmText: 'Use the Default' });
     if (!ok) return;
-    try { await api.shiftRequestSettingsReset(company); toastOk?.(`${companyName} now uses the default settings.`); setTick((t) => t + 1); tell({ reload: true }); }
-    catch (e) { toastErr?.(e?.message || 'Could not drop the settings.'); }
+    try {
+      if (part) await api.shiftRequestSettingsResetKeys(company, SHIFT_SETTING_PARTS[part]);
+      else await api.shiftRequestSettingsReset(company);
+      toastOk?.(`${companyName} now uses the default settings${part ? ' here' : ''}.`); setTick((t) => t + 1); tell({ reload: true });
+    } catch (e) { toastErr?.(e?.message || 'Could not drop the settings.'); }
   }
+  // This group's settings differ from the defaults for the company (part mode).
+  const partOwn = !!(part && company && cfg?.hasOverride && defaults && SHIFT_SETTING_PARTS[part].some((k) => !same(cfg?.[k], defaults[k])));
+  // The labor budget block: the server says whether this person is HR++ for
+  // the company (canSeeLaborBudget); an older API falls back to the role.
+  const seesLabor = typeof cfg?.canSeeLaborBudget === 'boolean' ? cfg.canSeeLaborBudget : hrPlus;
   // Each part is rows (SettingsUI): in Settings the group card holds them;
   // on its own the panel puts each part on a card under its heading.
   const block = (key, title, rows) => (!show(key) ? null : part ? <div key={key}>{rows}</div> : (
@@ -308,7 +346,14 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
       <AsyncSection loading={!cfg && !error} error={!!error} onRetry={() => setTick((t) => t + 1)} errorMessage="The shift settings could not be loaded right now." skeleton={<div style={{ padding: part ? 14 : 0 }}><SkeletonBlocks count={part ? 2 : 3} height={36} borderRadius={8} /></div>}>
         {cfg && (
           <div style={{ display: 'grid', gap: part ? 0 : 18 }}>
-            {company && show('basics') && (
+            {partOwn && (
+              <div className="nx-set-note" data-part-own={part} style={{ borderTop: 'none', borderBottom: '1px solid var(--line)', borderRadius: 0, color: 'var(--ink)' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--nx-own)', flexShrink: 0 }} aria-hidden="true" />
+                <span style={{ flex: 1, minWidth: 200 }}>{`${companyName} has its own settings here. Changes here apply to ${companyName} only.`}</span>
+                <button type="button" className="link-btn" onClick={useDefaults} style={{ marginTop: 0, color: 'var(--wk-brand)' }}>Use the Default</button>
+              </div>
+            )}
+            {company && show('basics') && !partOwn && (
               <div className="nx-set-note" style={{ borderTop: 'none', borderBottom: part ? '1px solid var(--line)' : 'none', borderRadius: part ? 0 : 10, color: cfg.hasOverride ? 'var(--ink)' : 'var(--muted)' }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: cfg.hasOverride ? 'var(--nx-own)' : 'var(--line)', flexShrink: 0 }} aria-hidden="true" />
                 <span style={{ flex: 1, minWidth: 200 }}>
@@ -316,13 +361,27 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                     ? `${companyName} has its own settings. Changes ${part ? 'in any shift group' : 'here'} apply to ${companyName} only.`
                     : `Using the default settings. Changing anything here saves settings for ${companyName} only.`}
                 </span>
-                {cfg.hasOverride && <button type="button" className="link-btn" onClick={useDefaults} style={{ marginTop: 0, color: 'var(--wk-brand)' }}>Use the Default</button>}
+                {cfg.hasOverride && !part && <button type="button" className="link-btn" onClick={useDefaults} style={{ marginTop: 0, color: 'var(--wk-brand)' }}>Use the Default</button>}
               </div>
             )}
             {block('requests', 'Requests And Visibility', (
               <>
                 {SWITCHES.map(([k, text]) => (
-                  <SwitchRow key={k} id={`shift-${k}`} title={text} checked={OFF_BY_DEFAULT.has(k) ? cfg[k] === true : cfg[k] !== false} onChange={(on) => save({ [k]: on })} />
+                  <Fragment key={k}>
+                    <SwitchRow id={`shift-${k}`} title={text} checked={OFF_BY_DEFAULT.has(k) ? cfg[k] === true : cfg[k] !== false} onChange={(on) => save({ [k]: on })} />
+                    {k === 'timeOffRequests' && (
+                      // Time off recommendation (Neil, 11/02/2026, timeoff_recommend.py): two day counts
+                      // behind "Recommended: Approve" - a hint for the manager, never a decision.
+                      <>
+                        <MinutesField nested muted={cfg.timeOffRequests === false} label="Time Off Notice (Days)" aria="Time off notice" unit="days" max={90}
+                          value={nums?.timeOffNoticeDays} fallback={7} onChange={(v) => patchNum({ timeOffNoticeDays: v })}
+                          hint="A request made at least this many days ahead earns 'Recommended: Approve'. A hint for the manager, never a decision." />
+                        <MinutesField nested muted={cfg.timeOffRequests === false} label="Short Request (Days)" aria="Short request" unit="days" max={30}
+                          value={nums?.timeOffShortDays} fallback={3} onChange={(v) => patchNum({ timeOffShortDays: v })}
+                          hint="A request of at most this many working days earns 'Recommended: Approve'." />
+                      </>
+                    )}
+                  </Fragment>
                 ))}
                 {/* Shifts Phase 3b (Oct 15): staff move their own work. */}
                 <SwitchRow id="shift-releaseShifts" title="People can release a shift to the open pool" checked={cfg.releaseShifts === true} onChange={(on) => save({ releaseShifts: on })} />
@@ -345,6 +404,8 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                       <option value="sunday">Sunday</option>
                     </select>
                   )} />
+                {/* The two above save when changed; the box below waits for the Save row under it. */}
+                <div className="nx-set-note" data-instant-split="">The time zone and the week start save when changed. Default Grace saves with the Save button below.</div>
                 <SettingRow title="Default Grace" desc="Late starts this many minutes after the shift start for a shift with no shift type. A shift type carries its own grace."
                   control={<NumberBox label="Default grace" min={0} max={120} unit="minutes" value={nums?.defaultGraceMin ?? ''} onChange={(v) => patchNum({ defaultGraceMin: v })} />} />
               </>
@@ -357,6 +418,11 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                   desc="Also alerts for office staff who have usual hours but no shift on the schedule that day. Time off and holidays excuse those." />
                 <MinutesField label="Left Early" aria="Left early" value={nums?.leftEarlyMin} fallback={15} onChange={(v) => patchNum({ leftEarlyMin: v })}
                   hint="Clocking out this many minutes before the shift's end counts as leaving early on the schedule." />
+                {/* Early punch alert (Neil, 11/02/2026, early_punch.py): the punch is always recorded.
+                    Default 10 (Neil, Teams 11/02/2026) - the Time Clock also asks the person to
+                    confirm before a clock-in earlier than this window. */}
+                <MinutesField label="Early Punch Alert" aria="Early punch alert" value={nums?.earlyPunchAlertMin} fallback={10} onChange={(v) => patchNum({ earlyPunchAlertMin: v })}
+                  hint="Someone clocking in more than this many minutes before their shift is asked to confirm, and their manager gets a quiet notification. 0 turns it off. The punch is always recorded." />
                 {/* Stalled Time Sheet escalation (Oct 19 2026, timesheet_alerts.py). */}
                 <MinutesField label="Escalate Unapproved Time Sheets After (Days)" aria="Escalate unapproved time sheets after" unit="days" max={30}
                   value={nums?.timesheetEscalateDays} fallback={2} onChange={(v) => patchNum({ timesheetEscalateDays: v })}
@@ -380,6 +446,16 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                   hint="Minutes before 8 worked hours in a day. People on the California overtime rule only. 0 turns it off." />
                 <MinutesField nested muted={cfg.otAlertOn !== true} label="Weekly Overtime Warning" aria="Weekly overtime warning" max={480} value={nums?.otAlertWeeklyLeadMin} fallback={120} onChange={(v) => patchNum({ otAlertWeeklyLeadMin: v })}
                   hint="Minutes before 40 hours of regular time in a payroll week (Sunday to Saturday). 0 turns it off." />
+              </>
+            ))}
+            {seesLabor && block('labor', 'Labor Budget', (
+              <>
+                {/* Weekly labor budget (Neil, 11/02/2026): the planner's "of ... budget", HR++ only. */}
+                <div className="nx-set-note" style={{ borderTop: 'none', borderBottom: '1px solid var(--line)' }}>Shown on the shift planner to HR and administrators only - never to managers. 0 means no budget.</div>
+                <MinutesField label="Hours Per Week" aria="Hours per week" unit="hours" max={100000} value={nums?.laborBudgetHours} fallback={0} onChange={(v) => patchNum({ laborBudgetHours: v })}
+                  hint="Scheduled hours the week's shifts should stay within. The planner scales it to the days shown." />
+                <MinutesField label="Amount Per Week" aria="Amount per week" unit="" max={10000000} value={nums?.laborBudgetAmount} fallback={0} onChange={(v) => patchNum({ laborBudgetAmount: v })}
+                  hint="Scheduled labor cost the week's shifts should stay within, in the company's pay currency." />
               </>
             ))}
             {block('trail', 'Location Trail', (
@@ -424,7 +500,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
             {numKeys.length > 0 && (
               <SaveRow dirty={numsDirty} busy={savingNums} onSave={saveNums} onDiscard={resetNums}
                 style={part ? { margin: 0, padding: '12px 18px' } : { marginTop: 2 }}
-                note={part ? undefined : 'Switches and lists save as you go; the numbers above save together.'} />
+                note={part ? numNote : 'Switches and lists save as you go; the numbers above save together.'} />
             )}
           </div>
         )}
@@ -482,16 +558,32 @@ function mealHours(min) {
 // The numeric keys of the shift settings, with the most each accepts - one
 // form, saved together by the Save row (Oct 23; each used to save on blur).
 const NUM_MAX = {
-  defaultGraceMin: 120, noShowAlertMin: 240, leftEarlyMin: 240, timesheetEscalateDays: 30, breakNudgeMin: 240, mealReminderMin: 295,
+  defaultGraceMin: 120, noShowAlertMin: 240, leftEarlyMin: 240, earlyPunchAlertMin: 240, timesheetEscalateDays: 30, breakNudgeMin: 240, mealReminderMin: 295,
   otAlertDailyLeadMin: 240, otAlertWeeklyLeadMin: 480,
   ruleMinRestHours: 24, ruleMaxDaysInRow: 14, ruleDailyOtHours: 24, ruleWeeklyOtHours: 80, ruleMaxWeekHours: 100,
+  laborBudgetHours: 100000, laborBudgetAmount: 10000000,
+  timeOffNoticeDays: 90, timeOffShortDays: 30,
 };
+// The least a number may be - 0 unless said here (a short request is at least one day).
+const NUM_MIN = { timeOffShortDays: 1 };
 const NUM_DEFAULT = {
-  defaultGraceMin: 10, noShowAlertMin: 10, leftEarlyMin: 15, timesheetEscalateDays: 2, breakNudgeMin: 60, mealReminderMin: 270,
+  defaultGraceMin: 10, noShowAlertMin: 10, leftEarlyMin: 15, earlyPunchAlertMin: 10, timesheetEscalateDays: 2, breakNudgeMin: 60, mealReminderMin: 270,
   otAlertDailyLeadMin: 30, otAlertWeeklyLeadMin: 120,
   ruleMinRestHours: 0, ruleMaxDaysInRow: 0, ruleDailyOtHours: 0, ruleWeeklyOtHours: 0, ruleMaxWeekHours: 0,
+  laborBudgetHours: 0, laborBudgetAmount: 0,
+  timeOffNoticeDays: 7, timeOffShortDays: 3,
 };
 const NUM_KEYS = Object.keys(NUM_MAX);
+// What each box is called on screen, for the Save row's note.
+const NUM_LABELS = {
+  defaultGraceMin: 'Default Grace', noShowAlertMin: 'No-Show Alert', leftEarlyMin: 'Left Early', earlyPunchAlertMin: 'Early Punch Alert',
+  timesheetEscalateDays: 'Escalate Unapproved Time Sheets', breakNudgeMin: 'Still on Break Reminder', mealReminderMin: 'Meal Reminder',
+  otAlertDailyLeadMin: 'Daily Overtime Warning', otAlertWeeklyLeadMin: 'Weekly Overtime Warning',
+  ruleMinRestHours: 'Minimum Rest', ruleMaxDaysInRow: 'Most Days In A Row', ruleDailyOtHours: 'Daily Overtime After',
+  ruleWeeklyOtHours: 'Weekly Overtime After', ruleMaxWeekHours: 'Most Hours Per Week',
+  laborBudgetHours: 'Hours Per Week', laborBudgetAmount: 'Amount Per Week',
+  timeOffNoticeDays: 'Time Off Notice', timeOffShortDays: 'Short Request',
+};
 // What the boxes show, as text: the saved value, else the default - so a
 // default typed back in is no change, and a blank box saves nothing.
 const numbersOf = (cfg, keys = NUM_KEYS) => Object.fromEntries(keys.map((k) => [k, String(cfg?.[k] ?? NUM_DEFAULT[k])]));

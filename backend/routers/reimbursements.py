@@ -163,7 +163,8 @@ def _is_hr(db: Session, me: str, r: ExpenseReimbursement) -> bool:
 
 
 def _hr_anywhere(db: Session, me: str) -> bool:
-    """Could this person be HR for anyone - so the HR tab is worth showing."""
+    """Could this person be HR for anyone - so the HR tab is worth showing.
+    (Which claims an Administrator then sees is _is_hr's: their companies.)"""
     if level_for(me, db) >= _LEVELS["administrator"]:
         return True
     if _module_level(me, "hr", db) >= _MODULE_LEVEL_RANK["full"]:
@@ -354,7 +355,10 @@ def _may_see_person(db: Session, user: dict, employee: str) -> bool:
     me = _norm(user["email"])
     if me == employee or _manages(db, me, employee) or timesheet_review.is_hr(db, me, employee):
         return True
-    if level_for(me, db) >= _LEVELS["administrator"]:
+    # A Super Administrator sees anyone's; an Administrator only inside their
+    # companies - timesheet_review.is_hr above already answers that (Neil,
+    # 11/02/2026: walled, the switch on or off).
+    if level_for(me, db) >= _LEVELS["owner"]:
         return True
     if _module_level(me, "hr", db) >= _MODULE_LEVEL_RANK["viewer"]:
         scope = hr_scope(user, db)

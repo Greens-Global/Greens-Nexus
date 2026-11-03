@@ -352,3 +352,32 @@ describe('helpers', () => {
     expect(waited('', now)).toBe('');
   });
 });
+
+// Time-off recommendation (Neil, 11/02/2026): a soft chip beside the request
+// with the reasons behind it. Never a decision - Approve and Reject are
+// exactly what they were.
+describe('time-off recommendation chip', () => {
+  const REASONS = ['Balance covers it (24 h left after).', 'Nobody else on the team is off those days.', 'Requested 12 days ahead.'];
+  const withHint = { ...INBOX, rows: [{ ...INBOX.rows[0], hint: { tone: 'good', text: 'Recommended: Approve', reasons: REASONS } },
+    { ...INBOX.rows[1], key: 'time_off:t2', kind: 'time_off', id: 't2', group: 'timeoff', source: 'time_off',
+      title: 'Time Off - 11/04/2026', actions: INBOX.rows[0].actions, hint: { tone: 'check', text: 'Check First', reasons: ['Starts in 2 days.'] } }] };
+  it('shows the label with the reasons as its title, and leaves the buttons alone', async () => {
+    approvalsInbox.mockResolvedValue(withHint);
+    render(<Approvals activeSub={null} onSubChange={vi.fn()} />);
+    const good = await screen.findByText('Recommended: Approve');
+    expect(good.closest('.nx-label').getAttribute('title')).toBe(REASONS.join(' '));
+    const check = screen.getByText('Check First');
+    expect(check.closest('.nx-label').getAttribute('title')).toBe('Starts in 2 days.');
+    // Nothing is decided for the manager: both rows still offer Approve and Reject.
+    expect(screen.getAllByRole('button', { name: /^Approve: Time Off/ })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /^Reject: Time Off/ })).toHaveLength(2);
+    expect(timeOffDecide).not.toHaveBeenCalled();
+  });
+  it('lists the reasons in Review', async () => {
+    approvalsInbox.mockResolvedValue(withHint);
+    render(<Approvals activeSub={null} onSubChange={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Review: Time Off - 11/04/2026 (Ankit Patel)' }));
+    expect((await screen.findAllByText('Check First')).length).toBeGreaterThan(1);
+    expect(screen.getByText('Starts in 2 days.')).toBeTruthy();
+  });
+});

@@ -412,7 +412,7 @@ def decide_claim(claim_id: str, body: DecideIn, user: dict = Depends(get_current
     if actor == email:
         raise HTTPException(403, "You can't decide your own Extra Time - your approver does.")
     if not can_decide(db, actor, email):
-        raise HTTPException(403, "Only HR, the company's HR contact or a Global Admin decides Extra Time.")
+        raise HTTPException(403, "Only HR, the company's HR contact or a Super Administrator decides Extra Time.")
     if c.status == "withdrawn":
         raise HTTPException(409, "This claim was withdrawn.")
     if tc._finalized_row(db, email, c.period_start, c.period_end):

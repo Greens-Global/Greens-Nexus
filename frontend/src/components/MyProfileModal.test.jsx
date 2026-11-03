@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
 
 // Profile (Oct 28 2026): who you are on top, four sections on the left -
 // Appearance first; a task email's "Email Settings" link opens Task Emails.
@@ -8,6 +8,12 @@ vi.mock('../api', () => ({
   api: new Proxy({}, { get: (_, k) => (apiSpies[k] ||= vi.fn(() => Promise.resolve({}))) }),
 }));
 vi.mock('../tasks/MyEmailSettings', () => ({ default: () => <div>Email settings form</div> }));
+// The Security section asks before signing every other device out (ui/dialog).
+const dialogSpies = vi.hoisted(() => ({ confirm: vi.fn(() => Promise.resolve(true)) }));
+vi.mock('../ui/dialog', async (importOriginal) => {
+  const real = await importOriginal();
+  return { ...real, dialog: { ...real.dialog, confirm: dialogSpies.confirm } };
+});
 
 const MyProfileModal = (await import('./MyProfileModal')).default;
 
@@ -106,5 +112,80 @@ describe('Profile - Phone Notifications (Frontline Reach, 11/02/2026)', () => {
     const sw = screen.getByRole('switch', { name: /Push to This Device/ });
     expect(sw.checked).toBe(false);
     expect(sw.disabled).toBe(true);
+  });
+});
+
+describe('Profile - Security (Neil, 11/02/2026)', () => {
+  const SESSIONS = { sessions: [
+    { id: 'h1', device: 'Windows 10/11 - Chrome', location: 'Laguna Niguel, CA, US', ip: '203.0.113.9',
+      lastSeen: '2026-11-02T16:33:00+00:00', createdAt: '2026-11-01T10:00:00+00:00', current: true },
+    { id: 'h2', device: 'iOS - Safari', location: '', ip: '198.51.100.7',
+      lastSeen: '2026-11-01T12:00:00+00:00', createdAt: '2026-11-01T12:00:00+00:00', current: false },
+  ] };
+  const SIGN_INS = { signIns: [
+    { id: 's1', at: '2026-11-02T16:33:00+00:00', device: 'iOS - Safari', location: 'Laguna Niguel, CA, US', ip: '198.51.100.7', isNew: true },
+    { id: 's2', at: '2026-11-01T10:00:00+00:00', device: 'Windows 10/11 - Chrome', location: '', ip: '203.0.113.9', isNew: false },
+  ] };
+  function arm() {
+    apiSpies.mySessions = vi.fn(() => Promise.resolve(SESSIONS));
+    apiSpies.mySignIns = vi.fn(() => Promise.resolve(SIGN_INS));
+    apiSpies.signOutOtherSessions = vi.fn(() => Promise.resolve({ signedOut: 1 }));
+    apiSpies.signOutSession = vi.fn(() => Promise.resolve({ signedOut: 1, current: false }));
+    dialogSpies.confirm.mockClear();
+  }
+
+  it('is a section of its own and opens straight from a bell or email link', async () => {
+    arm();
+    render(<MyProfileModal onClose={() => {}} initialSection="security" />);
+    expect(screen.getByRole('heading', { name: 'Security' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Security/ }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByText('Where You Are Signed In')).toBeTruthy();
+    expect(screen.getByText('Recent Sign-Ins')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Windows 10/11 - Chrome')).toBeTruthy());
+  });
+
+  it('shows each device with its place and last seen, This Device on the current one, and New on a new sign-in', async () => {
+    arm();
+    render(<MyProfileModal onClose={() => {}} initialSection="security" />);
+    await waitFor(() => expect(screen.getByText('This Device')).toBeTruthy());
+    expect(screen.getByText(/Laguna Niguel, CA, US - 203\.0\.113\.9 - Last seen 11\/02\/2026/)).toBeTruthy();
+    expect(screen.queryByText(/Unknown/)).toBeNull();                      // a blank location is simply left out
+    // Only the other device gets a Sign Out of its own - this one is signed out from the menu.
+    expect(screen.getAllByRole('button', { name: 'Sign Out' })).toHaveLength(1);
+    await waitFor(() => expect(screen.getByText('New')).toBeTruthy());
+    expect(screen.getAllByText('iOS - Safari').length).toBeGreaterThan(0);
+  });
+
+  it('a device the browser did not name is "Unrecognized Device", and Sign Out says "Signing Out…" while it works', async () => {
+    arm();
+    apiSpies.mySessions = vi.fn(() => Promise.resolve({ sessions: [
+      SESSIONS.sessions[0],
+      { id: 'h3', device: '', location: '', ip: '198.51.100.9', lastSeen: '2026-11-01T12:00:00+00:00', createdAt: '2026-11-01T12:00:00+00:00', current: false },
+    ] }));
+    let release;
+    apiSpies.signOutSession = vi.fn(() => new Promise((r) => { release = r; }));
+    render(<MyProfileModal onClose={() => {}} initialSection="security" />);
+    expect(await screen.findByText('Unrecognized Device')).toBeTruthy();   // Title Case, like every row title
+    fireEvent.click(screen.getByRole('button', { name: 'Sign Out' }));
+    expect(await screen.findByRole('button', { name: 'Signing Out…' })).toBeTruthy();   // the ellipsis character
+    expect(screen.queryByText('Signing Out...')).toBeNull();
+    await act(async () => { release({ signedOut: 1, current: false }); });
+  });
+
+  it('signs out one device without a dialog, and the others only after the confirm', async () => {
+    arm();
+    render(<MyProfileModal onClose={() => {}} initialSection="security" />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign Out' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Sign Out' }));
+    await waitFor(() => expect(apiSpies.signOutSession).toHaveBeenCalledWith('h2'));
+    expect(dialogSpies.confirm).not.toHaveBeenCalled();
+    dialogSpies.confirm.mockResolvedValueOnce(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign Out Other Devices' }));
+    await waitFor(() => expect(dialogSpies.confirm).toHaveBeenCalledTimes(1));
+    expect(apiSpies.signOutOtherSessions).not.toHaveBeenCalled();
+    dialogSpies.confirm.mockResolvedValueOnce(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign Out Other Devices' }));
+    await waitFor(() => expect(apiSpies.signOutOtherSessions).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText(/Signed out 1 other device\./)).toBeTruthy());
   });
 });

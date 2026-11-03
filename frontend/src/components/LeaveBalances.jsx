@@ -11,6 +11,9 @@ import { CalendarClock, ChevronDown, ChevronRight, Plus, RefreshCw, Upload, X } 
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { SkeletonBlocks, Spinner } from './AsyncState';
+import SaveRow from './SaveRow';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
 
 // Which balance a leave type draws from - the same rule as the server's
 // leave_balances.bucket_of (sick and personal are one balance). Phase 1D:
@@ -60,21 +63,6 @@ function bucketNames(b) {
   return { ...LABEL, ...Object.fromEntries((b?.extraTypes || []).map(t => [t.id, t.name])) };
 }
 
-// Phase 1C: hint under an extra leave type (bereavement, floating_holiday,
-// jury_duty, parental_leave, comp_time, ...). The backend's balances() payload
-// already carries method / eligibleOn / grant for the lump types, so this is
-// just presentation.
-function extraTypeHint(t) {
-  if (!t) return '';
-  if (t.method === 'none') return 'Not part of your policy.';
-  if (t.method === 'tracked_only') return 'Days you take are logged. No balance to run down.';
-  if (!t.eligible && t.eligibleOn) return `Starts ${day(t.eligibleOn)}.`;
-  if (t.method === 'lump') return t.carriesOver ? 'Granted at the start of each year.' : 'Granted each year. Use it or lose it.';
-  if (t.method === 'per_hour') return 'Earned per hour you work.';
-  if (t.method === 'anniversary') return 'Added on each work anniversary.';
-  if (t.method === 'per_period') return 'Added each pay period.';
-  return '';
-}
 const KIND = { opening: 'Opening Balance', accrual: 'Earned', used: 'Used', adjust: 'Adjustment',
   expire: 'Expired At Year End', carryover: 'Carried Over' };
 
@@ -121,6 +109,9 @@ export function LeaveBalanceCard({ balance }) {
     return <div style={CARD}><SkeletonBlocks count={1} height={54} /></div>;
   }
   if (!balance?.live) return null;      // HR hasn't set balances up yet
+  // US-based contractors are benefit exempt (Visesh, Teams 11/02/2026) -
+  // no paid-leave card at all, instead of zeros they can never earn.
+  if (balance.benefitExempt) return null;
   const pol = balance.policy;
   return (
     <div style={CARD}>
@@ -137,7 +128,7 @@ export function LeaveBalanceCard({ balance }) {
             <div key={k} style={{ border: '1px solid var(--wk-line2)', borderRadius: 12, padding: '11px 13px', background: 'var(--mist)' }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{LABEL[k]}</div>
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', margin: '2px 0' }}>{fmtLeave(x.available, pol)}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{bucketHint(balance, k, pol)}</div>
+              {/* No hint line here - the card shows the numbers only (Neil, 11/02/2026: remove the tooltips). */}
               {(x.upcoming > 0 || x.pending > 0) && (
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                   {x.upcoming > 0 && <>{fmtLeave(x.upcoming, pol)} approved and coming up. </>}
@@ -164,7 +155,6 @@ export function LeaveBalanceCard({ balance }) {
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', margin: '2px 0' }}>
               {t.method === 'tracked_only' ? 'As taken' : fmtLeave(t.available, pol)}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{extraTypeHint(t)}</div>
             {(t.upcoming > 0 || t.pending > 0) && (
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                 {t.upcoming > 0 && <>{fmtLeave(t.upcoming, pol)} approved and coming up. </>}
@@ -184,6 +174,9 @@ export function LeaveBalanceCard({ balance }) {
 export function RequestBalanceHint({ balance, type, hours }) {
   const bucket = bucketOf(type, balance);
   if (!balance?.live || !bucket) return null;
+  if (balance.benefitExempt) {
+    return <div style={{ fontSize: 12, color: 'var(--muted)' }}>US contractors are benefit exempt - this time off would be unpaid.</div>;
+  }
   const extra = bucket in LABEL ? null : (balance.extraTypes || []).find(t => t.id === bucket);
   if (!extra && !balance[bucket]) return null;
   if (extra) {
@@ -368,7 +361,8 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
                   <span style={{ flex: '1 1 150px', color: 'var(--muted)', fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={extrasSummary(p, p.policy) || undefined}>{extrasSummary(p, p.policy) || '-'}</span>
                   <span style={{ flex: '0 0 120px', color: 'var(--muted)', fontSize: 12 }}>
-                    {!p.startDate ? 'No start date' : p.sick?.eligible ? 'Eligible' : p.sick?.eligibleOn ? day(p.sick.eligibleOn) : '-'}
+                    {p.benefitExempt ? 'Benefit Exempt'
+                      : !p.startDate ? 'No start date' : p.sick?.eligible ? 'Eligible' : p.sick?.eligibleOn ? day(p.sick.eligibleOn) : '-'}
                   </span>
                 </div>
                 {person === p.email && <PersonDetail email={p.email} onChanged={load} toastOk={toastOk} toastErr={toastErr} />}
@@ -528,8 +522,12 @@ function PersonDetail({ email, onChanged, toastOk, toastErr }) {
   );
 }
 
+// The policy list is one draft beside the saved list with one Save row at its
+// foot (the Settings save pattern, Oct 23 2026): every box, select and
+// checkbox here is part of a policy, written together by one Save.
 function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
-  const [list, setList] = useState(() => policies.map(p => JSON.parse(JSON.stringify(p))));
+  const { draft, setDraft: setList, dirty, reset } = useDraft(policies);
+  const list = draft || [];
   const [busy, setBusy] = useState(false);
   const upd = (i, fn) => setList(l => l.map((p, j) => (j === i ? fn(JSON.parse(JSON.stringify(p))) : p)));
 
@@ -539,10 +537,12 @@ function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
       const body = Object.fromEntries(list.map(p => { const { assigned, ...rest } = p; void assigned; return [p.id, rest]; }));
       await api.leaveSavePolicies(body);
       toastOk?.('Policies saved.');
-      onSaved?.();
-    } catch (e) { toastErr?.(e?.message || 'Could not save the policies.'); }
-    setBusy(false);
+      await onSaved?.();
+      return true;
+    } catch (e) { toastErr?.(e?.message || 'Could not save the policies.'); return false; }
+    finally { setBusy(false); }
   }
+  useGroupDirty(dirty, save);
   function addPolicy() {
     const id = `custom-${Date.now().toString(36)}`;
     setList(l => [...l, { id, name: 'New Policy', unit: 'hours', hoursPerDay: 8, eligibleTypes: ['full_time'],
@@ -615,11 +615,10 @@ function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
           )}
         </div>
       ))}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="secondary-btn" onClick={addPolicy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Policy</button>
-        <span style={{ flex: 1 }} />
-        <button className="primary-btn" onClick={save} disabled={busy} style={{ fontSize: 12.5 }}>{busy ? <Spinner size={12} /> : 'Save Policies'}</button>
-      </div>
+      <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} style={{ marginTop: 6 }}
+        note="A new or changed policy counts from the next Recalculate.">
+        <button type="button" className="secondary-btn" onClick={addPolicy} disabled={busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Policy</button>
+      </SaveRow>
     </div>
   );
 }
@@ -644,9 +643,10 @@ export function LeaveSetup({ toastOk, toastErr }) {
       <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
         {data.cutover ? `Balances count from ${day(data.cutover)}${(data.companies || []).some(c => c.own) ? ' (some companies have a date of their own)' : ''}.` : 'No start date yet - nothing shows to employees until one is set.'} The start dates and the opening balances are on People &gt; Time &gt; Time Off.
       </div>
-      {data.canSetup
+      {/* Every company shares the policies (Neil, 11/02/2026): a Super Administrator's (canEditPolicies). */}
+      {(data.canEditPolicies ?? data.canSetup)
         ? <PoliciesEditor policies={data.policies || []} builtIn={data.defaults || []} onSaved={load} toastOk={toastOk} toastErr={toastErr} />
-        : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Only an administrator can change the policies.</div>}
+        : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Only a Super Administrator can change this.</div>}
     </div>
   );
 }

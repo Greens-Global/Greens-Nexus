@@ -44,6 +44,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
+import auth
 from auth import (require_administrator, invalidate_external_cache,
                   invalidate_role_cache, INTERNAL_DOMAINS)
 from models import NexusEmployee, NexusGroupMember, NexusRole, NexusAccessScope
@@ -54,7 +55,7 @@ router = APIRouter(prefix="/external-users", tags=["External Users"])
 _EXTERNAL_TYPES = ("guest", "external")
 
 
-def _find_external(db, key: str):
+def _find_external(db, key: str, user: Optional[dict] = None):
     """The external row behind a URL key - their email, or their row id.
 
     Every action here used to be email-keyed only, and an external row with
@@ -71,6 +72,11 @@ def _find_external(db, key: str):
         if row is None:
             row = q.filter(NexusEmployee.id == key).first()
     if not row:
+        raise HTTPException(404, "External user not found")
+    # The company wall (Neil, 11/02/2026): an external with no company is
+    # shared - every Administrator manages them - but one placed in a
+    # company is that company's, out of reach (404) for another's.
+    if user is not None and not auth.company_ok(row.company or "", auth.company_scope(user, db), shared_when_blank=True):
         raise HTTPException(404, "External user not found")
     return row
 
@@ -231,7 +237,8 @@ def list_external_users(user: dict = Depends(require_administrator), db: Session
     rows = (db.query(NexusEmployee)
             .filter(NexusEmployee.identity_type.in_(_EXTERNAL_TYPES))
             .order_by(NexusEmployee.created_at.desc()).all())
-    return [_serialize(e) for e in rows]
+    scope = auth.company_scope(user, db)
+    return [_serialize(e) for e in rows if auth.company_ok(e.company or "", scope, shared_when_blank=True)]
 
 
 @router.post("", status_code=201)
@@ -302,7 +309,7 @@ def enroll_external_user(body: ExternalUserCreate,
 def update_external_user(email: str, body: ExternalUserUpdate,
                          user: dict = Depends(require_administrator),
                          db: Session = Depends(get_db)):
-    row = _find_external(db, email)
+    row = _find_external(db, email, user)
     email = (row.work_email or "").lower().strip()
 
     if body.email is not None:
@@ -387,7 +394,7 @@ def resend_invite(email: str, user: dict = Depends(require_administrator),
     primary path mints a FRESH single-use activation link (killing prior ones)
     and emails it; the legacy Graph path just re-sends the B2B redemption.
     Updates the stored invite status either way."""
-    row = _find_external(db, email)
+    row = _find_external(db, email, user)
     email = (row.work_email or "").lower().strip()
     if (row.status or "active") == "staged":
         raise HTTPException(409, "This account is staged for testing - Release & Send Invite is what sends the invitation.")
@@ -410,7 +417,7 @@ def mint_test_code(email: str, user: dict = Depends(require_administrator),
     Partner Sign-In in place of the emailed/SMS code, so the admin can walk
     the genuine end-to-end login as this user before releasing them. Hashed
     at rest, 24h expiry, and every outstanding code dies at release."""
-    row = _find_external(db, email)
+    row = _find_external(db, email, user)
     if (row.status or "active") != "staged":
         raise HTTPException(409, "Test sign-in codes are only for staged accounts - this one is already released.")
     if not (row.work_email or "").strip():
@@ -428,7 +435,7 @@ def release_external_user(email: str, user: dict = Depends(require_administrator
     session an admin walk-through left behind, and sends the invitation email.
     The user then activates on their own - email proof via the invite link's
     code, plus their phone verified by SMS."""
-    row = _find_external(db, email)
+    row = _find_external(db, email, user)
     email = (row.work_email or "").lower().strip()
     if (row.status or "active") != "staged":
         raise HTTPException(409, "This account is already released.")
@@ -464,7 +471,7 @@ def remove_external_user(email: str, user: dict = Depends(require_administrator)
     no longer resolves to a person, and name resolution falls back to the
     email-derived form the same way it already does for any unknown address.
     The Entra guest account is NOT touched - deleting it is optional cleanup."""
-    row = _find_external(db, email)
+    row = _find_external(db, email, user)
     email = (row.work_email or "").lower().strip()
 
     if email:   # a blank-email row has nothing keyed to it elsewhere - and '' must never match

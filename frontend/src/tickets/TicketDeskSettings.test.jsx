@@ -2,8 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 
 // Routing & Escalation: a list of desks on the left (each saying where its
-// tickets go), one desk at a time on the right, and Save only once something
-// changed.
+// tickets go), one desk at a time on the right, and a roster that saves the
+// moment it changes.
 
 vi.mock('../api', () => ({
   api: {
@@ -52,13 +52,23 @@ describe('TicketDeskSettings', () => {
     expect(screen.getByText('Agents: 0')).toBeInTheDocument();
   });
 
-  it('enables Save only after a change, and flags it', async () => {
+  // One save pattern (Oct 23 2026): a roster is a chip list - it saves the
+  // moment it changes, with no Save button, and a refused save puts it back.
+  it('saves a roster change at once, with no Save button', async () => {
     render(<TicketDeskSettings />);
-    const save = await screen.findByRole('button', { name: /Save/ });
-    expect(save).toBeDisabled();
-    fireEvent.click(screen.getByText('Agents: 0'));
-    expect(screen.getByText('Unsaved Changes')).toBeInTheDocument();
-    expect(save).toBeEnabled();
+    fireEvent.click(await screen.findByText('Agents: 0'));
+    expect(screen.queryByRole('button', { name: /^Save/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(api.updateTicketNotifySettings).toHaveBeenLastCalledWith({ agentEmails: ['new@x.com'], agentEmailsByCompany: { acme: ['a@x.com'] } }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(screen.getByText('Agents: 1')).toBeInTheDocument();
+  });
+
+  it('puts the roster back when the save is refused', async () => {
+    api.updateTicketNotifySettings.mockImplementationOnce(() => Promise.reject(new Error('No access')));
+    render(<TicketDeskSettings />);
+    fireEvent.click(await screen.findByText('Agents: 0'));
+    expect(await screen.findByText(/Could not save the agents: No access/)).toBeInTheDocument();
+    expect(screen.getByText('Agents: 0')).toBeInTheDocument();
   });
 
   // Oct 1 2026 (Neil): departments come from the company's global list - no

@@ -144,7 +144,7 @@ describe('Builder', () => {
     expect(screen.getByText('Do notify: Welcome {{ subject.name }}')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Welcome Note')).toBeInTheDocument();
     expect(screen.getByText('Draft')).toBeInTheDocument();
-    // the Run As row (a Global Admin sees it) says what Nexus can and cannot do (permissions review L5)
+    // the Run As row (a Super Administrator sees it) says what Nexus can and cannot do (permissions review L5)
     expect(screen.getByText('Nexus can only send notifications and emails, and reads only the fields everyone can see.')).toBeInTheDocument();
     expect(screen.queryByText(/every record it may touch/)).toBeNull();
   });
@@ -352,13 +352,13 @@ describe('Builder', () => {
 
   it('words a refused Save As Template with the server\'s sentence', async () => {
     api.wfGet.mockImplementation(() => Promise.resolve(workflow({ status: 'active', version: 1 })));
-    api.wfSaveAsTemplate.mockImplementation(() => Promise.reject(Object.assign(new Error('API error 403'), { status: 403, detail: 'Only a Global Admin saves a template for every company' })));
+    api.wfSaveAsTemplate.mockImplementation(() => Promise.reject(Object.assign(new Error('API error 403'), { status: 403, detail: 'Only a Super Administrator saves a template for every company' })));
     open();
     await screen.findByText('Do notify: Welcome {{ subject.name }}');
     fireEvent.click(screen.getByRole('button', { name: /Save As Template/ }));
     await screen.findByLabelText('Name');
     fireEvent.click(screen.getByRole('button', { name: /Save Template/ }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Only a Global Admin saves a template for every company');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only a Super Administrator saves a template for every company');
     expect(document.body.textContent).not.toMatch(/API error/);
     expect(screen.queryByText('Saved as a template')).toBeNull();
   });
@@ -410,6 +410,9 @@ describe('Builder', () => {
   // the button with no dialog; a refusal rewinds it with the reason.
   it('deletes on a full hold of Delete, with no dialog, then goes back to the list', async () => {
     const go = open();
+    // Delete renders disabled until the workflow has loaded; a press before
+    // that is ignored (the CI runner is slow enough to lose the hold - 11/02/2026).
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
     const del = await screen.findByRole('button', { name: 'Delete, press and hold' });
     vi.useFakeTimers();
     try {
@@ -425,13 +428,22 @@ describe('Builder', () => {
   it('a refused delete rewinds the button and says why', async () => {
     api.wfDelete.mockRejectedValueOnce(Object.assign(new Error('Only the owner may delete this workflow'), { status: 403 }));
     const go = open();
+    // Delete is disabled until the workflow has loaded - wait for it, as the
+    // test above does, or a slow runner's press is ignored (CI, 11/02/2026).
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
     const del = await screen.findByRole('button', { name: 'Delete, press and hold' });
     vi.useFakeTimers();
     try {
       fireEvent.pointerDown(del, { button: 0, pointerId: 1 });
-      await act(async () => { vi.advanceTimersByTime(1200); });
+      // The hold timer fires at 1200 ms, the rejection lands on a microtask,
+      // and HoldButton's live region speaks the refusal on a 30 ms timer
+      // (announce). Advance ASYNC so the microtask runs, then past the 30 ms
+      // so that timer fires while the fake clock still owns it - a timer left
+      // pending when the real clock comes back is dropped, which is what made
+      // this flaky on CI (11/02/2026).
+      await act(async () => { await vi.advanceTimersByTimeAsync(1200); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
     } finally { vi.useRealTimers(); }
-    // The refusal lands on a microtask after the hold timer fires; wait for it (flaky on CI with getByRole).
     expect(await screen.findByRole('alert', {}, { timeout: 5000 })).toHaveTextContent('Only the owner may delete this workflow');
     expect(go).not.toHaveBeenCalledWith('list');
   });

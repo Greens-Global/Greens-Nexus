@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { FileSignature, Folder, LayoutTemplate, FileText } from 'lucide-react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { FileSignature, Folder, LayoutTemplate, FileText, ClipboardList } from 'lucide-react';
 import { api } from '../api';
 import { useEntities } from '../lib/queries';
 import ESign from '../components/ESign';
@@ -11,13 +11,23 @@ import GuidedTour from '../components/GuidedTour';
 import { useIsMobile } from '../lib/useIsMobile';
 import { buildDocumentsTourSteps } from './documentsTourSteps';
 import { registerTour } from '../lib/tours';
+import { SkeletonBlocks } from '../components/AsyncState';
+import { askToLeave, hasUnsavedWork } from '../lib/dialogGuard';
+import { takePendingOpen } from '../lib/pendingOpen';
+import { ESIGN_PREFILL_PENDING } from '../lib/pdfToolsHandoff';
+
+// Forms (Neil, 11/02/2026): the builder, the entries table and the entry
+// panel, loaded when the tab is opened.
+const FormsTab = lazy(() => import('../forms/FormsTab'));
 
 // ── Documents module ─────────────────────────────────────────────────────────
 // E-Sign was carved out of HR into its own top-level module (Jul 2026), then
 // grown into a full DMS. Four tabs (Neil, 10/31/2026): Documents is one library
 // that took in the old Dashboard, My Documents and HR Records tabs; Templates;
-// Nexus Sign stays its own tab, unchanged; PDF Tools. Backend /esign/* routes are
-// unchanged; the DMS half talks to the /documents/* router.
+// Nexus Sign stays its own tab, unchanged; PDF Tools. Forms (Neil, 11/02/2026)
+// is the fifth: field forms built as templates, their entries, review.
+// Backend /esign/* routes are unchanged; the DMS half talks to the /documents/*
+// router, Forms to /forms/*.
 //
 // Cross-module handoff: HR → Hiring "Send for signature" stashes an offer on
 // window.__esignPrefill then fires nexus:navigate here. We read it on mount
@@ -26,6 +36,7 @@ import { registerTour } from '../lib/tours';
 const TABS = [
   { key: 'documents-browse', label: 'Documents', Icon: Folder },
   { key: 'documents-templates', label: 'Templates', Icon: LayoutTemplate },
+  { key: 'documents-forms', label: 'Forms', Icon: ClipboardList },
   { key: 'documents-esign', label: 'Nexus Sign', Icon: FileSignature },
   { key: 'documents-pdf', label: 'PDF Tools', Icon: FileText },
 ];
@@ -41,10 +52,19 @@ const DOCUMENTS_TOUR_ID = 'documents';
 // Send for Signature wizard open; the address then goes back to the tab.
 const CREATE_SUBS = { 'documents-new': 'documents-browse', 'documents-esign-send': 'documents-esign' };
 
+// The tab strip and the tour change the sub directly, not through App's navigate(),
+// so unsaved work in PDF Tools (lib/dialogGuard.js) is asked about here.
+function changeTab(onSubChange, next) {
+  if (!hasUnsavedWork()) { onSubChange?.(next); return; }
+  askToLeave().then((ok) => { if (ok) onSubChange?.(next); });
+}
+
 export default function Documents({ activeSub, onSubChange }) {
   // Deep-links: 'documents-esign' / 'documents-esign-requests' both live on the
   // E-Sign tab - ESign reads the raw activeSub to pick its own sub-tab.
-  const navSub = OLD_SUBS[activeSub] || CREATE_SUBS[activeSub] || (String(activeSub || '').startsWith('documents-esign') ? 'documents-esign' : activeSub);
+  const navSub = OLD_SUBS[activeSub] || CREATE_SUBS[activeSub] || (String(activeSub || '').startsWith('documents-esign') ? 'documents-esign'
+    // Forms (11/02/2026): 'documents-forms:entry:<id>' is the Forms tab with that entry open.
+    : String(activeSub || '').startsWith('documents-forms') ? 'documents-forms' : activeSub);
   const tabs = TABS;
   const sub = tabs.some(t => t.key === navSub) ? navSub : 'documents-browse';
   // The + menu's New Document asks the library to pop its create dialog open - a
@@ -101,7 +121,7 @@ export default function Documents({ activeSub, onSubChange }) {
   const [tourSteps, setTourSteps] = useState(null);
   useEffect(() => {
     const openTour = () => setTourSteps(buildDocumentsTourSteps({
-      go: (k) => onSubChangeRef.current?.(k), isMobile: isMobileRef.current }));
+      go: (k) => changeTab(onSubChangeRef.current, k), isMobile: isMobileRef.current }));
     let cancelled = false;
     api.getToursSeen()
       .then(({ seen }) => { if (!cancelled && !seen?.[DOCUMENTS_TOUR_ID]) openTour(); })
@@ -139,6 +159,19 @@ export default function Documents({ activeSub, onSubChange }) {
     return () => window.removeEventListener('nexus:navigate', onNav);
   }, []);
 
+  // PDF Tools' Send For Signature (views/PdfEditorModule.jsx): the built PDF waits
+  // here in a note for the Nexus Sign tab. A note, not window.__esignPrefill: from
+  // the /pdf-editor address this view remounts, and the leaving instance's
+  // nexus:navigate listener above would take the stash with it. No sourceDocumentId:
+  // a Sign envelope from here must not mark some library document final.
+  useEffect(() => {
+    if (sub !== 'documents-esign') return;
+    const fromPdfTools = takePendingOpen(ESIGN_PREFILL_PENDING);
+    if (!fromPdfTools) return;
+    esignSourceDocRef.current = null;
+    setEsignPrefill(fromPdfTools);
+  }, [sub]);
+
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {/* No module header. Sagar, Sep 17: "we don't need this on any page,
@@ -155,7 +188,7 @@ export default function Documents({ activeSub, onSubChange }) {
           icon-over-label treatment the Task and Item modules use), so the
           in-page strip is suppressed there - two strips would be the same
           navigation twice. */}
-      {!pdfFullBleed && <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} mobileInline={false} overflow />}
+      {!pdfFullBleed && <ModuleTabs tabs={tabs} active={sub} onChange={(k) => changeTab(onSubChange, k)} mobileInline={false} overflow />}
 
       <div data-tour={`documents-screen-${sub}`}>
       {sub === 'documents-browse' && (
@@ -165,6 +198,12 @@ export default function Documents({ activeSub, onSubChange }) {
 
       {sub === 'documents-templates' && (
         <DocumentTemplates employees={employees} entities={entities} toastOk={toastOk} toastErr={toastErr} />
+      )}
+
+      {sub === 'documents-forms' && (
+        <Suspense fallback={<SkeletonBlocks count={6} height={44} />}>
+          <FormsTab toastOk={toastOk} toastErr={toastErr} activeSub={activeSub} />
+        </Suspense>
       )}
 
       {sub === 'documents-esign' && (

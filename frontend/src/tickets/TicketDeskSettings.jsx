@@ -15,6 +15,11 @@
 // copies of the config would let whichever saved second overwrite the other's
 // field with its own stale value.
 //
+// One save pattern (Settings, Oct 23 2026): the rosters are chip lists, so a
+// change saves at once (one save at a time, in order) and a refused one puts
+// the roster back with the reason - there is no Save button and nothing here
+// is ever left unsaved.
+//
 // Multi-company desks (Aug 2026, per Pranshu): Nexus now runs 4 legal
 // entities under one workspace, and a single flat agent list meant every
 // company's tickets paged the same people regardless of which company they
@@ -23,14 +28,13 @@
 // own roster now. The flat list above becomes the DEFAULT: it's what a
 // company with no roster of its own falls back to, before the backend's last
 // resort of "every administrator" (see ticket_notify.ticket_agents).
-import { useEffect, useMemo, useState } from 'react';
-import { useGroupDirty } from '../lib/groupDirty';
-import { LoadingState } from '../components/AsyncState';
-import { Headset, Save, Building2, Siren, ChevronDown, ChevronRight } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { LoadingState, Spinner } from '../components/AsyncState';
+import { Headset, Building2, Siren, ChevronDown, ChevronRight } from 'lucide-react';
 import DragList from './DragList';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
-import { NX, FONT, btn, card } from '../tasks/theme';
+import { NX, FONT, card } from '../tasks/theme';
 import { PersonMultiSelect, PersonSelect, usePeople } from '../tasks/components';
 import { useIsMobile } from '../lib/useIsMobile';
 import SavedCheck from '../components/SavedCheck';
@@ -241,7 +245,11 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
   // List on the left, one desk at a time on the right (Pranshu, Sep 26: a card
   // per company, each with its departments, made one very long page).
   const [selected, setSelected] = useState(scoped || DEFAULT_KEY);
-  const [baseline, setBaseline] = useState('');   // last saved rosters, to flag unsaved edits
+  // The rosters the server last confirmed (what a refused save goes back to),
+  // and the saves in flight, one after another.
+  const confirmed = useRef(null);
+  const queue = useRef(Promise.resolve());
+  const pendingSaves = useRef(0);
   const narrow = useIsMobile('(max-width: 900px)');
   // Default Assignee pickers offer only this company's desk agents.
   const deskAgents = useDeskAgents(selected !== DEFAULT_KEY ? [selected] : []);
@@ -252,16 +260,12 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
       .then(([c, comps, dep]) => {
         setAgents(c.agentEmails || []);
         setByCompany(c.agentEmailsByCompany || {});
-        setBaseline(JSON.stringify([c.agentEmails || [], c.agentEmailsByCompany || {}]));
+        confirmed.current = { agents: c.agentEmails || [], byCompany: c.agentEmailsByCompany || {} };
         setCompanies(comps || []);
         setDepts((dep || []).filter((d) => !d.removed));
       })
       .catch((e) => setErr(e.message || String(e)));
   }, [myLevel]);
-
-  const dirty = useMemo(() => agents !== null && byCompany !== null
-    && JSON.stringify([agents, byCompany]) !== baseline, [agents, byCompany, baseline]);
-  useGroupDirty(dirty);
 
   // Its own tab now, so this cannot return null - that would render the tab
   // blank with nothing explaining why (see CLAUDE.md: never let a screen render
@@ -277,7 +281,34 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
     return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
   }
 
-  const setCompanyRoster = (companyId, next) => setByCompany((b) => ({ ...b, [companyId]: next }));
+  // A roster change saves at once: shown now, sent after any save still in
+  // flight, and put back with the reason when the server refuses it.
+  const saveRosters = (nextAgents, nextByCompany) => {
+    setAgents(nextAgents); setByCompany(nextByCompany);
+    setErr(''); setSaved(false);
+    pendingSaves.current += 1; setSaving(true);
+    queue.current = queue.current.then(async () => {
+      try {
+        // Whole-list replace, same contract as before - a company missing from
+        // this patch would not be "left alone", it would be dropped, so every
+        // known company's roster (even an emptied one) goes in the payload.
+        const next = await api.updateTicketNotifySettings({ agentEmails: nextAgents, agentEmailsByCompany: nextByCompany });
+        confirmed.current = { agents: next.agentEmails || [], byCompany: next.agentEmailsByCompany || {} };
+        if (pendingSaves.current === 1) {
+          setAgents(confirmed.current.agents); setByCompany(confirmed.current.byCompany);
+          setSaved(true);
+          setTimeout(() => setSaved(false), 2500);
+        }
+      } catch (e) {
+        setAgents(confirmed.current.agents); setByCompany(confirmed.current.byCompany);
+        setErr(`Could not save the agents: ${e.message || String(e)}`);
+      } finally {
+        pendingSaves.current -= 1;
+        if (pendingSaves.current === 0) setSaving(false);
+      }
+    });
+  };
+  const setCompanyRoster = (companyId, next) => saveRosters(agents, { ...byCompany, [companyId]: next });
 
   // Both endpoints return the whole updated roster for one company - merge it
   // back into the flat list rather than refetching everyone else's.
@@ -295,22 +326,6 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
   const reorderDepts = (companyId, next) => {
     mergeDepts(companyId, next);
     return api.reorderTicketDepartments(companyId, next.map((d) => d.id)).then((rows) => mergeDepts(companyId, rows));
-  };
-
-  const save = async () => {
-    setSaving(true); setErr(''); setSaved(false);
-    try {
-      // Whole-list replace, same contract as before - a company missing from
-      // this patch would not be "left alone", it would be dropped, so every
-      // known company's roster (even an emptied one) goes in the payload.
-      const next = await api.updateTicketNotifySettings({ agentEmails: agents, agentEmailsByCompany: byCompany });
-      setAgents(next.agentEmails || []);
-      setByCompany(next.agentEmailsByCompany || {});
-      setBaseline(JSON.stringify([next.agentEmails || [], next.agentEmailsByCompany || {}]));
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (e) { setErr(e.message || String(e)); }
-    finally { setSaving(false); }
   };
 
   const company = companies.find((c) => c.id === selected) || null;
@@ -370,7 +385,7 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
     <DeskRoster
       title="Default Agents" icon={<Headset size={15} style={{ color: NX.dim }} />}
       hint="Used for any company with no agents of its own, and for tickets with no company on file."
-      value={agents} people={people} onChange={setAgents}
+      value={agents} people={people} onChange={(next) => saveRosters(next, byCompany)}
       status={defaultStatus(agents, companies.length)}
     />
   );
@@ -391,17 +406,14 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
               No companies are set up yet. Add one in Settings &gt; Companies to give it its own agents.
             </div>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
-            <button onClick={save} disabled={saving || !dirty} style={{ ...btn('primary'), opacity: saving || !dirty ? 0.6 : 1 }}>
-              <Save size={14} /> {saving ? 'Saving…' : 'Save'}
-            </button>
-            {dirty && !saving && <span style={{ fontSize: 12.5, color: NX.amber, fontWeight: 600 }}>Unsaved Changes</span>}
-            <SavedCheck show={saved} />
+          <div aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 14, minHeight: 20 }}>
+            {saving && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.dim }}><Spinner size={13} /> Saving…</span>}
+            {!saving && <SavedCheck show={saved} />}
             {err && <span style={{ fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</span>}
           </div>
-          <div style={{ fontSize: 11.5, color: NX.faint, lineHeight: 1.5, marginTop: 10 }}>
-            Agents don't need administrator access. Administrators can always act on tickets, so a
-            mistake here can never lock anyone out. Department heads save as soon as you pick them.
+          <div style={{ fontSize: 11.5, color: NX.faint, lineHeight: 1.5, marginTop: 6 }}>
+            Every change here saves as you make it. Agents don't need administrator access. Administrators can always
+            act on tickets, so a mistake here can never lock anyone out.
           </div>
         </div>
       </div>

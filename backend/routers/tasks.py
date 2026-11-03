@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlparse, urlsplit, urlunspl
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import String, and_, cast, func, or_
+from sqlalchemy import String, and_, cast, false, func, or_
 from sqlalchemy.exc import IntegrityError, InvalidRequestError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -112,6 +112,8 @@ def task_to_dict(t: models.Task) -> dict:
         "modifiedAt":       t.modified_at or "",
         "syncedWithAsana":  bool(t.synced_with_asana),
         "sourceTicketId":   _nz(t.source_ticket_id),
+        # The Cubby task it mirrors (cubby_tasks.py); the drawer fetches the rest.
+        "cubbyTaskId":      _nz(getattr(t, "cubby_task_id", "")),
         # Due-date accountability - see task_due.py.
         "dueExtensionCount": int(t.due_extension_count or 0),
         "dueHistory":       t.due_history if isinstance(t.due_history, list) else [],
@@ -6949,7 +6951,14 @@ def get_task_notify_settings(user: dict = Depends(require_manager), db: Session 
 
 @router.put("/notify/settings")
 def put_task_notify_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
-    return _save_task_notify_settings(db, patch, user["email"])
+    # The mail plumbing is the Super Administrators' (Neil, 11/02/2026) -
+    # task_notify.save_settings refuses a CHANGE to it from anyone else.
+    try:
+        return _save_task_notify_settings(db, patch, user["email"], user)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 # ── My own task email preferences (every user) ──────────────────────────────
@@ -6987,6 +6996,36 @@ def put_my_task_notify_prefs(body: dict, user: dict = Depends(get_current_user),
     return _my_notify_payload(db, user["email"], tnp.save(db, user["email"], body or {}))
 
 
+def _walled_email_log(db: Session, user: dict, q):
+    """The delivery log as `user` may read it (11/02/2026): every row names
+    a task and carries its subject line, so a caller sees only the rows of
+    tasks inside their company wall. The route is the manager tier's, which
+    sees every task inside its wall (task_visible_to), so the wall is the
+    whole rule. A row whose task no longer exists is a Super Administrator's
+    alone. Done in SQL - the task's company is task_util.task_company's
+    rule (its stamped company, else its owner's, else its creator's) - so
+    the count and the page stay in the database."""
+    import auth
+    from sqlalchemy.orm import aliased
+    if auth.is_global_admin(user, db):
+        return q
+    q = q.join(models.Task, models.Task.id == models.TaskEmailLog.task_id)
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return q
+    if not scope:
+        return q.filter(false())
+    owner = aliased(models.NexusEmployee)
+    creator = aliased(models.NexusEmployee)
+    q = (q.outerjoin(owner, and_(models.Task.owner_email != "",
+                                 func.lower(owner.work_email) == func.lower(models.Task.owner_email)))
+          .outerjoin(creator, and_(models.Task.created_by != "",
+                                   func.lower(creator.work_email) == func.lower(models.Task.created_by))))
+    company = func.coalesce(func.nullif(func.trim(models.Task.company_id), ""), func.nullif(owner.company, ""),
+                            func.nullif(creator.company, ""), "")
+    return q.filter(company.in_(sorted(scope)))
+
+
 @router.get("/notify/log")
 def get_task_notify_log(task_id: str = "", status: str = "", limit: int = 20, offset: int = 0,
                         user: dict = Depends(require_manager), db: Session = Depends(get_db)):
@@ -6995,6 +7034,7 @@ def get_task_notify_log(task_id: str = "", status: str = "", limit: int = 20, of
         q = q.filter(models.TaskEmailLog.task_id == task_id)
     if status:
         q = q.filter(models.TaskEmailLog.status == status)
+    q = _walled_email_log(db, user, q)
     total = q.count()
     rows = q.order_by(models.TaskEmailLog.created_at.desc()).offset(offset).limit(min(limit, 500)).all()
     return {"rows": [{

@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'public/pdf-editor-app/libs']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
@@ -37,6 +37,33 @@ export default defineConfig([
       // rather than block the release; clean up separately. (Jun 17)
       'no-unused-vars': 'warn',
       'no-useless-assignment': 'warn',
+    },
+  },
+  {
+    // PDF Tools engine: plain scripts served from public/, no bundler. Its
+    // libraries load as <script> globals, and `catch (_) {}` is the engine's
+    // deliberate best-effort idiom (a preference that cannot be read, a viewer
+    // that is already gone). Unused code stays visible as warnings, like the app.
+    files: ['public/pdf-editor-app/**/*.js'],
+    languageOptions: {
+      sourceType: 'script',
+      globals: {
+        ...globals.browser,
+        pdfjsLib: 'readonly',
+        PDFLib: 'readonly',
+        fabric: 'readonly',
+        JSZip: 'readonly',
+        docx: 'readonly',
+        XLSX: 'readonly',
+        Tesseract: 'readonly',
+        fontkit: 'readonly',
+        mammoth: 'readonly',
+      },
+    },
+    rules: {
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+      'react-refresh/only-export-components': 'off',
     },
   },
   {

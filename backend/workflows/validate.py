@@ -344,7 +344,7 @@ def _check_steps(steps: list, path: str, ent: Optional[catalog.EntityDef], ctx: 
             if run_as == "nexus" and action.needs_person:
                 problems.append(Problem(f"{p}.action", f"{action.label} needs a person's identity; Nexus can only send messages"))
             if action.admin_only and level < 5:
-                problems.append(Problem(f"{p}.action", f"{action.label} is for Global Admins only"))
+                problems.append(Problem(f"{p}.action", f"{action.label} is for Super Administrators only"))
             if not isinstance(params, dict):
                 problems.append(Problem(f"{p}.params", "Params must be an object"))
                 continue
@@ -566,9 +566,9 @@ def validate(db, definition: dict, *, owner: dict, run_as: str, company_id: str)
     if run_as not in ("owner", "nexus"):
         problems.append(Problem("runAs", f"{run_as!r} is not a run-as"))
     elif run_as == "nexus" and level < 5:
-        problems.append(Problem("runAs", "Only a Global Admin may run a workflow as Nexus"))
+        problems.append(Problem("runAs", "Only a Super Administrator may run a workflow as Nexus"))
     if (company_id or "") == "" and level < 5:
-        problems.append(Problem("companyId", "Only a Global Admin may run a workflow for every company"))
+        problems.append(Problem("companyId", "Only a Super Administrator may run a workflow for every company"))
     ent, changes_only = _check_trigger(definition.get("trigger"), owner, db, problems)
     _check_groups(definition.get("conditions"), "conditions", ent, owner, db, problems, changes_only=changes_only)
     steps = definition.get("steps")

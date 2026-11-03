@@ -26,7 +26,7 @@ const OP_WORDS = {
 const RECIPIENT_WORDS = {
   self: 'the person', manager: 'their manager', hr_contact: 'the HR contact', assignees: 'the assignees',
   creator: 'the creator', followers: 'the followers', approver: 'the approver', owner: 'the owner',
-  global_admins: 'the Global Admins',
+  global_admins: 'the Super Administrators',
 };
 
 // ---- catalog lookups (every one tolerates a missing catalog) ----

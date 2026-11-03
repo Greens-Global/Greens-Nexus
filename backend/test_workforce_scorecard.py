@@ -453,7 +453,12 @@ class ScopeTests(_Case):
         self._emp("kid@greensglobal.com", manager=AMY)       # Amy's report: in Mia's line, not a direct
         mia = {"email": MIA, "level": 3}
         self.assertEqual(sc.scope_for(self.db, mia), ({AMY, RAJ, SAM, LEE}, "direct"))
-        self.assertEqual(sc.scope_for(self.db, {"email": "admin@greensglobal.com", "level": 4}), (None, "all"))
+        # An Administrator (level 4) is walled to their companies (Neil,
+        # 11/02/2026): no People record = nobody; in gg-us = gg-us's people.
+        self.assertEqual(sc.scope_for(self.db, {"email": "admin@greensglobal.com", "level": 4}), (set(), "company"))
+        self.assertEqual(sc.scope_for(self.db, {"email": AMY, "level": 4}),
+                         ({MIA, AMY, SAM, LEE, ZOE, "kid@greensglobal.com"}, "company"))
+        self.assertEqual(sc.scope_for(self.db, {"email": "admin@greensglobal.com", "level": 5}), (None, "all"))
         self._grant(ZOE, "full")
         self.assertEqual(sc.scope_for(self.db, {"email": ZOE, "level": 1}), (None, "all"))
         self.assertEqual(sc.scope_for(self.db, {"email": "nobody@greensglobal.com", "level": 2}), (set(), "direct"))
@@ -487,13 +492,14 @@ class ScopeTests(_Case):
         self.assertEqual(got[ZOE], (None, "all"))
         self.assertEqual(got["ceo@greensglobal.com"], (None, "all"))
         self.assertNotIn(AMY, got)
-        # An administrator with only a viewer grant still gets the company; an
-        # Editor grant opens the manager's whole line.
+        # An administrator with only a viewer grant still gets their company
+        # (only theirs - walled, 11/02/2026); an Editor grant opens the
+        # manager's whole line.
         self.db.add(models.NexusRole(email=AMY, role="administrator"))
         self._grant(AMY, "viewer")
         self._grant(MIA, "editor")
         got = {e.work_email: (s, k) for e, s, k in sc.recipients(self.db, sc.get_settings(self.db))}
-        self.assertEqual(got[AMY], (None, "all"))
+        self.assertEqual(got[AMY], ({MIA, AMY, SAM, LEE, ZOE, "ceo@greensglobal.com", "kid@greensglobal.com"}, "company"))
         self.assertEqual(got[MIA], ({AMY, RAJ, SAM, LEE, "kid@greensglobal.com"}, "line"))
         # Offboarded holders are skipped.
         self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == ZOE).update({"status": "offboarded"})
@@ -612,7 +618,7 @@ class ApiTests(_Case):
         self.app.include_router(sc_router.router)
         from auth import require_administrator
         self.app.dependency_overrides[require_administrator] = lambda: {
-            "email": "admin@greensglobal.com", "role": "administrator", "level": 4}
+            "email": "admin@greensglobal.com", "role": "owner", "level": 5}   # a Super Administrator: mode and test addresses are theirs (Neil, 11/02/2026)
         self.client = TestClient(self.app)
 
     def _as(self, email, level):
@@ -629,10 +635,19 @@ class ApiTests(_Case):
         self.assertEqual((r.json()["scope"], r.json()["weekStart"]), ("direct", "2026-10-05"))
 
     def test_admin_can_ask_for_everyone_but_defaults_to_their_direct_reports(self):
-        self._as("admin@greensglobal.com", 4)
+        # A Super Administrator's "everyone" is everyone; an Administrator's is
+        # their companies' people (Neil, 11/02/2026).
+        self._as("admin@greensglobal.com", 5)
         r = self.client.get("/workforce-scorecard/report", params={"scope": "all"})
         self.assertEqual((r.json()["scope"], r.json()["canSeeCompany"]), ("all", True))
         self.assertIn(ZOE, [p["email"] for p in r.json()["people"]])
+        self.assertIn(RAJ, [p["email"] for p in r.json()["people"]])
+        self._as(MIA, 4)
+        r = self.client.get("/workforce-scorecard/report", params={"scope": "all"})
+        self.assertEqual((r.json()["scope"], r.json()["canSeeCompany"]), ("company", True))
+        self.assertIn(ZOE, [p["email"] for p in r.json()["people"]])
+        self.assertNotIn(RAJ, [p["email"] for p in r.json()["people"]])
+        self._as("admin@greensglobal.com", 4)
         r = self.client.get("/workforce-scorecard/report")
         self.assertEqual((r.json()["scope"], r.json()["people"]), ("direct", []))
 
@@ -659,6 +674,20 @@ class ApiTests(_Case):
         self.assertEqual(r.json()["standards"]["US"]["hours"], 8)      # untouched rows survive
         self.assertEqual(self.client.put("/workforce-scorecard/config", json={"belowPct": 99}).status_code, 400)
         self.assertEqual(self.client.get("/workforce-scorecard/config").json()["mode"], "test")
+
+    def test_mode_test_recipients_and_test_addresses_are_a_super_administrator_s(self):
+        # Neil, 11/02/2026: an Administrator and a level 1-3 Full grant holder
+        # (walls off) are refused; an unchanged mode sent back passes.
+        from auth import require_administrator
+        for level, role in ((4, "administrator"), (3, "manager")):
+            self.app.dependency_overrides[require_administrator] = lambda lv=level, ro=role: {
+                "email": "lower@greensglobal.com", "role": ro, "level": lv}
+            self.assertEqual(self.client.put("/workforce-scorecard/config", json={"mode": "live"}).status_code, 403, role)
+            self.assertEqual(self.client.put("/workforce-scorecard/config", json={"test_recipients": ["x@greensglobal.com"]}).status_code,
+                             403, role)
+            self.assertEqual(self.client.put("/workforce-scorecard/config", json={"mode": "off", "sendDay": 2}).status_code, 200, role)
+            r = self.client.post("/workforce-scorecard/test-send", json={"manager_email": MIA, "to": ["inbox@elsewhere.com"]})
+            self.assertIn(r.status_code, (403, 404), role)   # never sent to an address they named
 
     def test_recipients_preview(self):
         r = self.client.get("/workforce-scorecard/recipients")

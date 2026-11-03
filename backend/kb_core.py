@@ -157,6 +157,19 @@ def bump(major: int, minor: int, kind: str) -> tuple[int, int]:
 
 # ----------------------------------------------------------------- codes
 
+def departments_of(d: models.KbDocument) -> list[str]:
+    """The departments a page applies to (Neil, 11/02/2026: an SOP "applies
+    to which departments... it could be many"). Kept in the original
+    comma-separated `departments` column, so nothing migrates; '' = only
+    its collection's department, if any."""
+    return list(dict.fromkeys(p.strip() for p in (d.departments or "").split(",") if p.strip()))
+
+
+def set_departments(d: models.KbDocument, names) -> None:
+    clean = list(dict.fromkeys(str(n).strip() for n in (names or []) if str(n).strip()))[:12]
+    d.departments = ",".join(n.replace(",", " ") for n in clean)[:500]
+
+
 def _dept_prefix(db: Session, d: models.KbDocument) -> str:
     dept = ""
     if d.collection_id:

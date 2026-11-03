@@ -18,6 +18,7 @@ import { usePhotoMap } from '../lib/peoplePhotos';
 import { isTypingTarget } from '../lib/keys';
 import { formatTime } from '../lib/datetime';
 import { LoadingState } from './AsyncState';
+import TierMark from './TierMark';
 import InsightsChart from './icons/InsightsChart';
 
 const TESTING_NAV = NAV.find((item) => item.view === 'testing');
@@ -110,7 +111,7 @@ export function ActAsFinder({ onBack }) {
             <button type="button" key={p.email} className="hud-person" {...nav.optionProps(i)} onClick={() => pick(p)}
               disabled={!!starting} style={starting && starting !== p.email ? { opacity: 0.5 } : undefined}>
               <Avatar p={p} photo={p.photoUrl || photos[p.email]} />
-              <span className="hud-person-text"><b>{p.name}</b></span>
+              <span className="hud-person-text"><b>{p.name}</b><TierMark tier={p.tier} size={12} /></span>
               {starting === p.email && <span className="hud-person-note">Starting…</span>}
             </button>
           ))}

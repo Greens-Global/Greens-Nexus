@@ -271,8 +271,12 @@ def admin_publish(body: PolicyTextIn, user: dict = Depends(require_administrator
     return {"published": cfg["published"], "draft": None}
 
 
-def _report(db: Session) -> dict:
-    """Active internal employees vs acceptances of the CURRENT version."""
+def _report(db: Session, scope=None) -> dict:
+    """Active internal employees vs acceptances of the CURRENT version. With
+    `scope` (a company_scope() set - an Administrator, Neil 11/02/2026)
+    only those companies' people and the people with no company; None =
+    everyone."""
+    import auth
     version = current_version(db)
     emps = (db.query(models.NexusEmployee)
             .filter(models.NexusEmployee.status == "active",
@@ -282,6 +286,8 @@ def _report(db: Session) -> dict:
     for e in emps:
         if (e.identity_type or "internal") != "internal" or (e.deleted_at or ""):
             continue
+        if not auth.company_ok(e.company or "", scope, shared_when_blank=True):
+            continue   # people with no company are shared - every Administrator follows them up
         email = (e.work_email or "").strip().lower()
         if email:
             people[email] = e
@@ -309,7 +315,8 @@ def _report(db: Session) -> dict:
 
 @router.get("/report")
 def admin_report(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    return _report(db)
+    import auth
+    return _report(db, auth.company_scope(user, db))
 
 
 def _us_datetime_utc(iso: str) -> str:
@@ -328,7 +335,8 @@ def admin_report_csv(status: str = "not_accepted", user: dict = Depends(require_
     default, what this export always returned) or ?status=accepted."""
     if status not in ("accepted", "not_accepted"):
         raise HTTPException(400, "status must be accepted or not_accepted")
-    rep = _report(db)
+    import auth
+    rep = _report(db, auth.company_scope(user, db))
     buf = io.StringIO()
     w = csv.writer(buf)
     if status == "accepted":

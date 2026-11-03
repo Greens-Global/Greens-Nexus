@@ -50,10 +50,10 @@ export const IMPL_CONCEPTS = [
   { term: 'Holiday Policy', text: 'A named set of holidays with its weekend rule (Settings > Companies > Holiday Policies), applied to one or more companies. Each company’s Holiday Calendar shows its policies’ holidays and can skip or change any of them, or add its own.' },
   { term: 'Location', text: 'A physical site people punch in at, placed once in the Location Library from its Google Maps link with a geofence radius, then switched on for the companies that use it.' },
   { term: 'Job Role', text: 'What a person does: a seniority tier, a department, a bundle of modules at set levels, the time-clock exemptions, the Teams chat or channel their day messages post to, and a default approver. Giving someone a role gives them all of it at once.' },
-  { term: 'Tier', text: 'Employee, Supervisor, Manager, IT Admin (Administrator) or Global Admin (Owner). It decides what a person can approve and how far they see - a Manager with People sees their own team; IT Admins grant access up to Manager; only Global Admins manage other admins and see across company walls.' },
+  { term: 'Tier', text: 'Employee, Supervisor, Manager, Administrator (Administrator) or Super Administrator (Owner). It decides what a person can approve and how far they see - a Manager with People sees their own team; Administrators grant access up to Manager; only Super Administrators manage other admins and see across company walls.' },
   { term: 'Access Level', text: 'Each module is granted at Viewer, Editor, Full or Owner. Viewer reads, Editor creates and edits, Full runs the module, Owner also manages who else gets in.' },
   { term: 'Access Group', text: 'Extra modules on top of a job role, for a few people who need more than their role (a payroll helper who also needs Accounting). Additive only - it never takes access away.' },
-  { term: 'Company Walls', text: 'When on, a person whose role belongs to a company sees only that company’s people and records. Global Admins see across all of them. Turn it on once every person has a company.' },
+  { term: 'Company Walls', text: 'When on, a person whose role belongs to a company sees only that company’s people and records. Super Administrators see across all of them. Turn it on once every person has a company.' },
   { term: 'Person', text: 'A People record: Employee (on payroll), Independent Contractor, or External (a partner-company person who signs in with an emailed code). Internal people sign in with Microsoft 365; Nexus never stores their password.' },
   { term: 'Reports To', text: 'The reporting line. It drives the org chart, who approves time off and time sheets, who a manager sees in People, and who gets a person’s day-message notifications. Get it right early - half of Nexus reads it.' },
 ];
@@ -63,7 +63,7 @@ export const IMPL_DISCOVERY = [
   { area: 'Organization', questions: [
     'Which legal entities (companies) will use Nexus? Legal name, country, tax ID and addresses for each.',
     'Which email domains does each company use? (People are matched to their company by email domain.)',
-    'Who is the owner (Global Admin) and who administers Nexus day to day (IT Admins)?',
+    'Who is the owner (Super Administrator) and who administers Nexus day to day (Administrators)?',
     'Who is HR for each company? Their HR contact reviews time sheets for people with no manager, can change or finalize any time sheet, and pays reimbursements.',
     'Is there one manager over all companies (the group manager)?',
   ]},
@@ -129,7 +129,7 @@ export const IMPL_PHASES = [
     id: 'microsoft-365', n: 1, title: 'Connect Microsoft 365', icon: 'Cloud', owner: 'Nexus Team + Client IT', time: 'Half a day',
     summary: 'Sign-in, the directory, Teams and email - the plumbing everything else runs on.',
     why: 'People sign in to Nexus with their Microsoft 365 work account, and Nexus reads and writes the directory (titles, offices, phones, managers), posts to Teams and sends email through Microsoft 365. Until this is connected nothing else can be tested. The client’s IT grants the permissions once; Nexus never sees anyone’s password.',
-    needs: ['A Microsoft 365 Global Administrator on the client side for admin consent.'],
+    needs: ['A Microsoft 365 Super Administratoristrator on the client side for admin consent.'],
     decisions: [
       'Which mailbox Nexus sends email from (usually a shared inbox like nexus@company.com).',
       'Whether Outlook Actionable Messages (act on task emails inside Outlook) are wanted now or later.',
@@ -252,7 +252,7 @@ export const IMPL_PHASES = [
     pitfalls: [
       'Too many departments. Microsoft and every ERP push back on "maintenance support" vs "maintenance admin" - one department, sub-teams elsewhere.',
       'A location without its Google Maps link has no point on the map, so no punch can be judged on-site there.',
-      'No HR contact on a company: time sheets of people with no manager land with the Global Admins, and nobody there can finalize an unsigned time sheet or pay a reimbursement.',
+      'No HR contact on a company: time sheets of people with no manager land with the Super Administrators, and nobody there can finalize an unsigned time sheet or pay a reimbursement.',
     ],
   },
 
@@ -267,7 +267,7 @@ export const IMPL_PHASES = [
       'Who is exempt from screen-share monitoring, from beginning/end-of-day messages, and from time tracking (salaried leadership).',
       'Where each role’s day messages post in Teams (a group chat or a channel).',
       'The default approver per role (used when a person has no manager yet).',
-      'Who the Global Admins are - keep it to a very few.',
+      'Who the Super Administrators are - keep it to a very few.',
     ],
     steps: [
       { title: 'Create the Job Roles', where: 'Settings > People & Access > pick the company > Roles', view: 'admin-console', sub: 'access', items: [
@@ -290,7 +290,7 @@ export const IMPL_PHASES = [
       { id: 'roles.bundles', text: 'Every role’s module bundle reviewed with the client.' },
       { id: 'roles.exemptions', text: 'Monitoring, day-message and time-tracking exemptions set on the right roles.' },
       { id: 'roles.teams', text: 'Every role that posts day messages has its Teams chat or channel bound.' },
-      { id: 'roles.admins', text: 'Global Admins and IT Admins named and limited.' },
+      { id: 'roles.admins', text: 'Super Administrators and Administrators named and limited.' },
     ],
     pitfalls: [
       'Granting through per-person overrides instead of roles. It works on day one and becomes unmanageable by month three.',
@@ -381,7 +381,7 @@ export const IMPL_PHASES = [
       ]},
       { title: 'India Contractor Policy', where: 'Settings > Time & Pay > India Contractor Policy', view: 'admin-console', sub: 'pay:india-contractor-policy', items: [
         'For India companies: check the policy is on and its start month. Contractors are then credited by hours (8 full, 4 half), the month-end pool buys back missing half days, and approved Extra Time pays 1.35 times the daily rate divided by 9.',
-        'Extra Time claims are approved by the company’s HR contact (else the Global Admins) in People > Time > Extra Time - make sure every India company has an HR contact.',
+        'Extra Time claims are approved by the company’s HR contact (else the Super Administrators) in People > Time > Extra Time - make sure every India company has an HR contact.',
       ]},
       { title: 'Payroll Readiness', where: 'Settings > Time & Pay > Payroll Readiness', view: 'admin-console', sub: 'pay:payroll-readiness', items: [
         'Set what counts as a big change or an unusual week (25% or 8 hours off last period or the schedule by default) - a default, and each company’s own. The check itself runs from People > Time > Payroll.',
@@ -634,10 +634,10 @@ export const IMPL_PHASES = [
     steps: [
       { title: 'Workflow Settings', where: 'Settings > Workflows', view: 'admin-console', sub: 'workflows', items: [
         'Whether workflows run for a company, the per-hour and recipient ceilings and the weekly owner digest - a default, and each company’s own.',
-        'Global Admins only: Pause All (stops every workflow at once; events still queue for 7 days) and the webhook allow-list.',
+        'Super Administrators only: Pause All (stops every workflow at once; events still queue for 7 days) and the webhook allow-list.',
       ]},
       { title: 'Review the Automations', where: 'Workflows > Automations', view: 'workflows', items: [
-        'Read Built-In Automations with the client. A Global Admin can switch any one off; everyone else sees an Off chip.',
+        'Read Built-In Automations with the client. A Super Administrator can switch any one off; everyone else sees an Off chip.',
         'Tasks automation rules are listed here too, each with its own switch.',
       ]},
       { title: 'Build the First Workflows', where: 'Workflows > Templates', view: 'workflows', items: [

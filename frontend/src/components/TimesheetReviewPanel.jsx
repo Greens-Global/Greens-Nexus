@@ -47,7 +47,7 @@ const ACTION_LABEL = {
   auto_accepted: 'Not signed in time - the corrected time sheet was accepted as sent',
 };
 // Oct 16 (Neil): only the employee signs. The lead approver - the manager, or
-// the company's HR contact / a Global Admin when nobody is set - approves by
+// the company's HR contact / a Super Administrator when nobody is set - approves by
 // clicking Agree; the employee's signature finalizes the period.
 const STEPS = [
   { key: 'review', label: 'Review' }, { key: 'employee', label: 'Employee Signs' },
@@ -333,7 +333,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   const parties = Object.fromEntries((r.parties || []).map((p) => [p.role, p]));
   const signingView = ['signing', 'completed'].includes(r.status);
   // The sealed copy, for the employee, the approving manager, the HR contact,
-  // Full HR and Global Admins (Neil, Oct 20) - no longer listed in Documents.
+  // Full HR and Super Administrators (Neil, Oct 20) - no longer listed in Documents.
   async function openSigned() {
     try {
       const { url } = await api.downloadSign(r.signRequestId);

@@ -955,7 +955,7 @@ function SaveBar({ label, busy, onDiscard, onSave, saveText }) {
 // settings" - one company setup, applied everywhere. HR / IT / Accounting
 // steps go to the head AND backup of the department of that name - no
 // checklist owner setting of its own (Pranshu, Oct 23); with nobody active
-// there, HR steps to the HR contact, then everything to the Global Admins.
+// there, HR steps to the HR contact, then everything to the Super Administrators.
 // This card says who that is right now and what is missing.
 // Any other department can be ticked to own steps too (Pranshu, Oct 23: "the
 // three should be auto default, checked, but if we want, we can check other
@@ -985,7 +985,7 @@ function DepartmentOwnersCard({ entityId, people, onOpenDepartments, onTicked, t
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, fontFamily: FONT, color: 'var(--wk-ink)' }}>Who Does Each Step</h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
             HR, IT and Accounting steps go to the head and the backup of the department of that name in Departments - both get the task, and either one closing it closes it.
-            Manager steps go to the person&apos;s reports-to (no reports-to: their department head). Anything nobody owns goes to the Global Admins ({admins}).
+            Manager steps go to the person&apos;s reports-to (no reports-to: their department head). Anything nobody owns goes to the Super Administrators ({admins}).
           </p>
         </div>
         {onOpenDepartments && <button onClick={onOpenDepartments} style={ghostBtn}><Users size={13} /> Edit Heads In Departments</button>}
@@ -1022,7 +1022,7 @@ function DepartmentOwnersCard({ entityId, people, onOpenDepartments, onTicked, t
                   <span>
                     <b>{warn}.</b>{' '}
                     {active.length ? 'Steps reach the head, but nobody covers when they are out.'
-                      : `Steps go to ${fallback.length ? fallback.map(nameOf).join(', ') : `the Global Admins (${admins})`} until it is set.`}
+                      : `Steps go to ${fallback.length ? fallback.map(nameOf).join(', ') : `the Super Administrators (${admins})`} until it is set.`}
                   </span>
                 </div>
               )}
@@ -1062,7 +1062,7 @@ function LibraryOwnersNote() {
   return (
     <section style={{ ...card, padding: '14px 18px', marginBottom: 18, fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
       <b style={{ color: 'var(--wk-ink)' }}>Who does each step</b> is set once per company: the head and the backup of its HR, IT and
-      Accounting departments (Settings &gt; Companies, with the company picked, &gt; Departments). A step nobody owns goes to the Global Admins.
+      Accounting departments (Settings &gt; Companies, with the company picked, &gt; Departments). A step nobody owns goes to the Super Administrators.
     </section>
   );
 }

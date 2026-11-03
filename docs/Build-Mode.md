@@ -1,6 +1,6 @@
 # Build Mode (Oct 24 2026)
 
-Build Mode is a developer tool inside Nexus. A Global Admin (or anyone whose
+Build Mode is a developer tool inside Nexus. A Super Administrator (or anyone whose
 Access Group grants the `build-mode` module) turns it on from the profile menu
 (top right), pins comments and markup onto any element of the live app, edits
 text and styles in place, records screen and voice, and sends the collected
@@ -38,7 +38,7 @@ Pieces:
 
 Implemented as the dependency `require_build_mode`, which returns the user or
 raises 403 "Build Mode is not enabled for you". Administrators do NOT get it
-by role alone (the bypass is Global Admin group membership or the grant - the
+by role alone (the bypass is Super Administrator group membership or the grant - the
 same idea as `act_as.py`'s `act-as` grant). The frontend adds
 `{ id: 'build-mode', label: 'Build Mode' }` to the MODULES catalog in
 `frontend/src/contexts/RoleContext.jsx` so Access Groups can grant it. The UI
@@ -262,15 +262,15 @@ and `api.js`); `/dev-notes/` answers with a 307 to it.
 | GET | /pins | `?route=&sub=` | pins to draw on that screen: every note for the route whose status is not done/dismissed (fixed included), from EVERY author (the team sees each other's pins) |
 | GET | /{id} | | note - also accepts a Build Token |
 | GET | /stats | | `{pins: {total, open, building, prOpen, fixed, done, dismissed}, medianPinToPrHours, reopenRate, firstClaimHitRate, days: 90}` over the last 90 days. `open` includes dispatched, `building` includes needs_input; medianPinToPrHours = pin created -> its "PR #n Open" entry; reopenRate = share of pins that reached fixed and were reopened; firstClaimHitRate is a cheap proxy: share of completed pins whose first progress line after the claim started with "Found " (the skill posts "Found <file>" when it locates the code) and that were never reopened. `null` where there is nothing to divide by. |
-| POST | /purge | | Global Admin only: runs `purge_media(db)` (below), returns `{purged: n}` |
-| PATCH | /{id} | `{comment?, kind?, priority?, markup?, edit?, status?}` where status may be only `dismissed` or `open` (reopen from dismissed) | note. Author or Global Admin only. |
+| POST | /purge | | Super Administrator only: runs `purge_media(db)` (below), returns `{purged: n}` |
+| PATCH | /{id} | `{comment?, kind?, priority?, markup?, edit?, status?}` where status may be only `dismissed` or `open` (reopen from dismissed) | note. Author or Super Administrator only. |
 | POST | /{id}/thread | `{text, imageUrl?}` | note. Adds a `comment` entry by the user; if status was `needs_input` -> `building` (Claude is waiting on this). |
 | POST | /{id}/verify | `{accepted: bool, comment?}` | note. Only from `fixed` (else 409): accepted -> `done` (verifiedBy/At); else -> `open`, reopenCount+1, thread system entry "Reopened", dispatched at once if sendInstantly. |
 | POST | /dispatch | `{noteIds?: [], sessionId?: string, title?: string}` (neither = the caller's collecting session) | `{session, notes}`. Marks pins `dispatched`, session `sent`. Pins must be `open` (else 409); nothing to send -> 400. |
 | GET | /sessions | `?status=&mine=1&limit=` | `[session]` newest first |
 | PATCH | /sessions/{id} | `{title}` | session |
 | POST | /tokens | `{label}` | 201 `{id, token, label, expiresAt}` - token shown once |
-| GET | /tokens | | `[{id, email, label, createdAt, expiresAt, lastUsedAt, revokedAt}]` (own tokens; Global Admin sees all) |
+| GET | /tokens | | `[{id, email, label, createdAt, expiresAt, lastUsedAt, revokedAt}]` (own tokens; Super Administrator sees all) |
 | DELETE | /tokens/{id} | | 204 (sets revokedAt) |
 
 ### CLI (require_build_mode_or_token) - under `/dev-notes/cli`
@@ -320,7 +320,7 @@ since it deletes live storage; a laptop never runs it. The work happens in a
 thread (`asyncio.to_thread`), never on the event loop. A run that deleted
 something writes one `dev_note_purge` audit row by "build-mode-purge"
 (role "system"); a quiet day writes nothing. `POST /dev-notes/purge`
-(Global Admin) still runs it on demand.
+(Super Administrator) still runs it on demand.
 
 ### Audit
 Every create, dispatch, claim, CLI verify, accept, reopen, token mint,
@@ -616,8 +616,8 @@ regressionCaseId`) plus computed fields on every note:
 - `readyToCheck: bool` - status `pr_open`, `preview.url` set and
   `previewVerdict` != accepted;
 - per caller: `canRelease: bool` - held, and the caller is the owner or a
-  Global Admin; `canVerdict: bool` - `readyToCheck` or status `fixed`, and
-  the caller is the author or a Global Admin. The Global Admin check runs
+  Super Administrator; `canVerdict: bool` - `readyToCheck` or status `fixed`, and
+  the caller is the author or a Super Administrator. The Super Administrator check runs
   once per request (`_viewer`), never once per pin; the `/cli/wait` poll
   carries no caller, so both are false there.
 
@@ -639,7 +639,7 @@ into a repo path (`frontend/src/...`), backend paths unchanged;
   owner is not the author the pin is **held**: a `dev_note_owner` bell to the
   owner, title "Pin #n On Your Area", body "<Author> pinned <route> (<file>).
   It waits for you - release it to Claude Code or handle it yourself." (plus
-  "Ask a Global Admin for the Build Mode grant if the link does not open."
+  "Ask a Super Administrator for the Build Mode grant if the link does not open."
   when the owner has no Build Mode access), action `{view: dev-notes, sub:
   pin:<id>}`. A held pin is never dispatched by Send Instantly.
 - `POST /dev-notes/dispatch` sends only unheld pins and answers `held: [{id,
@@ -652,7 +652,7 @@ into a repo path (`frontend/src/...`), backend paths unchanged;
   sendable; `held` carries their new numbers. 400 when nothing unheld is
   left; the detail names the held ones: "No open pins to send - Pin #2 waits
   for Visesh" (several joined with "; ").
-- `PATCH /dev-notes/{id}` `{release: true}` - the owner or a Global Admin
+- `PATCH /dev-notes/{id}` `{release: true}` - the owner or a Super Administrator
   only (403 otherwise; the author cannot release it): sets
   `ownerReleasedBy/At`, thread system entry "Released To Claude Code by
   <name>", audit `dev_note_release`. From then on it is an ordinary pin of
@@ -703,7 +703,7 @@ SQLite, never a shared database) and posts each pin's preview.
   back when Claude Code restarts it". Idempotent: a pin with no running
   preview (no url) gets 204 and nothing changes. 404 for an unknown pin. Audit `dev_note_preview`
   (`stopped: true`).
-- `POST /dev-notes/{id}/preview-verdict` (author or Global Admin) `{accepted:
+- `POST /dev-notes/{id}/preview-verdict` (author or Super Administrator) `{accepted:
   bool, comment?}` -> note. 409 unless `readyToCheck`; 400 without
   `accepted`. The verdict records the commit it was given against
   (`preview.verdictCommit`). Audit `dev_note_preview_verdict`
@@ -794,9 +794,9 @@ left alone, a draft is refreshed):
 | GET | /enabled | signed in | adds `owners`, `isGlobalAdmin` |
 | GET | /owners | Build Mode user or token | `{owners: [{name, email, paths}]}` |
 | GET | /owner-of?path= | Build Mode user | `{owner: {name, email} \| null, held}` (`devNotesOwnerOf`) |
-| PATCH | /{id} | owner or Global Admin | `{release: true}` -> note (`devNotesRelease`) |
+| PATCH | /{id} | owner or Super Administrator | `{release: true}` -> note (`devNotesRelease`) |
 | POST | /dispatch | Build Mode | response adds `held: [{id, number, ownerName}]` (numbers after any move) |
-| POST | /{id}/preview-verdict | author or Global Admin | `{accepted, comment?}` -> note (`devNotesPreviewVerdict`) |
+| POST | /{id}/preview-verdict | author or Super Administrator | `{accepted, comment?}` -> note (`devNotesPreviewVerdict`) |
 | POST | /cli/preview/{id} | token or user | `{url, branch, prNumber, host, commit?}` -> note |
 | DELETE | /cli/preview/{id} | token or user | 204; preview cleared, an accepted verdict kept |
 | POST | /cli/complete | token or user | as before; also clears preview + previewVerdict, resets the PR's other Accepts |

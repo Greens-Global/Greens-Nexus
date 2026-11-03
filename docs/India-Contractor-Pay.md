@@ -33,8 +33,9 @@ Tests: `backend/test_india_contractor_pay.py` (exact rupee amounts).
   a company in any other country. HR can turn it on or off per company.
 - Policy Starts (per company, default 11/01/2026): a month that starts before it keeps the
   old rules, so October 2026 is never re-priced.
-- Everyone else keeps the old fixed-pay rules exactly (bands at full-day hours minus an hour
-  and 4 hours, automatic weekend pay at 1.35 x daily pro-rated with the Rs 500 floor, leave
+- Everyone else keeps the old fixed-pay rules (day bands - since 10/31/2026 a full day from
+  4 hours worked, a half day from 2.5 hours, absent below, no longer printed on the Time
+  Sheet; automatic weekend pay at 1.35 x daily pro-rated with the Rs 500 floor; leave
   deducted like an absence).
 
 ## The exact algorithm (all in minutes)
@@ -114,7 +115,7 @@ Saturday 5 h claimed and approved; Sunday 3 h not claimed.
 - Statuses: Pending, Approved (the approver may approve fewer hours than claimed), Declined
   (a reason is required).
 - **Approver**: the company's HR contact; when there is none, or the HR contact is the
-  claimant, the Global Admins (the time sheet review's fallback). HR may also decide - the one
+  claimant, the Super Administrators (the time sheet review's fallback). HR may also decide - the one
   HR rule (the HR contact, an administrator or owner, a Full HR grant) within the contractor's
   company: an administrator or a Full grant only where their People scope and the company
   walls reach (`extra_time.hr_for`). Nobody decides their own claim - enforced on the server.

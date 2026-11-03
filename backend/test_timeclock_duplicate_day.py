@@ -119,7 +119,13 @@ class DuplicateDayTests(unittest.TestCase):
         self.assertEqual(e.exception.status_code, 403)
 
     def test_an_administrator_counts_as_hr(self):
+        # An Administrator is HR for the people of their OWN company (Neil,
+        # 11/02/2026: an Administrator is company-walled; only a Super
+        # Administrator passes the walls) - so the admin is placed in Dean's company.
         self.db.add(models.NexusRole(email="admin.dup@greensglobal.com", role="administrator"))
+        self.db.add(models.NexusEmployee(id="e-admin", first_name="Adam", last_name="Admin",
+                                         work_email="admin.dup@greensglobal.com", company="co-dup",
+                                         country="US", status="active", deleted_at=""))
         self.db.commit()
         auth.invalidate_role_cache()
         res = self._dup(user={"email": "admin.dup@greensglobal.com", "level": 4},

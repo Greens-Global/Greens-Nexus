@@ -9,15 +9,22 @@
 // reasons that look identical without the other columns: mode was off,
 // there was nothing to report that scan, or the Graph send actually failed.
 // See STATUS_OF below for how each row disambiguates them.
-import { useEffect, useState } from 'react';
+// The Settings save pattern (Oct 23 2026): Mode, the Outlook card and the
+// no-shift switch, time and zone save the moment they change (going Live asks
+// first), with a toast, and roll back when the save fails; the typed fields -
+// the test recipients and the minutes before the shift - are a draft with one
+// Save row under them.
+import { useEffect, useMemo, useState } from 'react';
 import { LoadingState } from './AsyncState';
-import { Mail, Save, AlertTriangle, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
+import { Mail, AlertTriangle, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle } from '../tasks/theme';
 import { formatDate, formatTime } from '../lib/datetime';
-import SavedCheck from './SavedCheck';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
+import SaveRow from './SaveRow';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 
@@ -41,24 +48,83 @@ let ZONES = [];
 try { ZONES = Intl.supportedValuesOf('timeZone'); } catch { /* older browser: current zone only */ }
 const withCurrent = (list, v) => (v && !list.includes(v) ? [v, ...list] : list);
 const cardStyle = (v) => (v === true ? 'full' : ['quick', 'full'].includes(v) ? v : 'off');
+const splitList = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
+// The typed fields, as the draft holds them.
+const typedOf = (c) => ({ recipients: (c.test_recipients || []).join(', '), leadMinutes: String(c.leadMinutes ?? 150) });
 
-export default function DailyBriefingSettings() {
-  const { can } = useRole();
+// `toastOk` / `toastErr` (optional): the Settings shell's toasts; without
+// them the panel says so on a line of its own.
+export default function DailyBriefingSettings({ toastOk, toastErr }) {
+  const { can, isGlobalAdmin } = useRole();
+  // Mode and the test recipients are the whole organization's (Neil,
+  // 11/02/2026): a Super Administrator's to change.
+  const modeLocked = !isGlobalAdmin;
   const [tab, setTab] = useState('settings');   // settings | log
-  const [cfg, setCfg] = useState(null);
-  const [savedMode, setSavedMode] = useState(null);   // mode as last persisted - distinguishes an
-                                                       // actual off/test -> live transition from just
-                                                       // re-saving while already live
-  const [recipientsInput, setRecipientsInput] = useState('');
-  const [confirmLive, setConfirmLive] = useState(false);
+  const [cfg, setCfg] = useState(null);           // what the server holds
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [notice, setNotice] = useState(null);     // { ok, text } when there is no shell toast
   const [err, setErr] = useState('');
 
-  const load = () => api.getDailyBriefingConfig()
-    .then((c) => { setCfg(c); setSavedMode(c.mode); setRecipientsInput((c.test_recipients || []).join(', ')); })
-    .catch((e) => setErr(e.message || String(e)));
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    api.getDailyBriefingConfig().then(setCfg).catch((e) => setErr(e.message || String(e)));
+  }, []);
+
+  const typedSaved = useMemo(() => (cfg ? typedOf(cfg) : null), [cfg]);
+  const { draft, patch: editDraft, dirty, reset } = useDraft(typedSaved);
+  const say = (ok, text) => {
+    const fn = ok ? toastOk : toastErr;
+    if (fn) fn(text); else setNotice({ ok, text });
+  };
+
+  // A switch, a radio or a select: saved at once, rolled back on failure.
+  const instant = async (patch, what) => {
+    const prev = cfg;
+    setCfg((c) => ({ ...c, ...patch }));
+    try {
+      setCfg(await api.updateDailyBriefingConfig(patch));
+      say(true, `${what} saved.`);
+    } catch (e) {
+      setCfg(prev);
+      say(false, e.message || `Could not save ${what.toLowerCase()}.`);
+    }
+  };
+  const pickMode = async (mode) => {
+    if (mode === cfg.mode || modeLocked) return;
+    // Switching TO live is the one change here that reaches every employee
+    // in the company the moment it saves, so it asks first; off and test
+    // reach nobody but the admin.
+    if (mode === 'live') {
+      const ok = await dialog.confirm(
+        'Each person gets their own briefing at their own shift trigger, with no dry run. Check Test mode with a few real people first.',
+        { title: 'Send to Every Employee?', confirmText: 'Turn On Live', danger: true },
+      );
+      if (!ok) return;
+    }
+    instant({ mode }, 'Mode');
+  };
+
+  // The typed fields: one Save for both, only what changed.
+  const save = async () => {
+    if (!dirty || saving) return false;
+    const lead = Number(draft.leadMinutes);
+    if (!Number.isInteger(lead) || lead < 30 || lead > 360) {
+      setErr('Minutes before shift must be a whole number from 30 to 360.');
+      return false;
+    }
+    const body = {};
+    if (!modeLocked && draft.recipients !== typedSaved.recipients) body.test_recipients = splitList(draft.recipients);
+    if (draft.leadMinutes !== typedSaved.leadMinutes) body.leadMinutes = lead;
+    setSaving(true); setErr('');
+    try {
+      setCfg(await api.updateDailyBriefingConfig(body));
+      say(true, 'Daily Briefing saved.');
+      return true;
+    } catch (e) {
+      setErr(e.message || String(e));
+      return false;
+    } finally { setSaving(false); }
+  };
+  useGroupDirty(dirty, save);
 
   if (!can('administrator')) {
     return (
@@ -67,48 +133,7 @@ export default function DailyBriefingSettings() {
       </div>
     );
   }
-  if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
-
-  const goingLive = cfg.mode === 'live';
-  // Switching TO live is the one change here that reaches every employee in
-  // the company the moment it saves - everything else (off/test, editing the
-  // test list) is reversible with no visible side effect to anyone but the
-  // admin. The extra tick is a speed bump for that one transition, not a
-  // permission check (the backend already gates the whole endpoint) - so it
-  // only applies while actually switching FROM off/test INTO live. Once live
-  // is already the saved mode, re-saving (e.g. just to refresh the page)
-  // must not force the checkbox to be re-ticked every time - that read as
-  // "the checkbox does nothing" (Pranshu, Sep 23).
-  const switchingToLive = goingLive && savedMode !== 'live' && !confirmLive;
-
-  const lead = Number(cfg.leadMinutes ?? 150);
-  const save = async () => {
-    if (switchingToLive) return;
-    if (!Number.isInteger(lead) || lead < 30 || lead > 360) {
-      setErr('Minutes before shift must be a whole number from 30 to 360.');
-      return;
-    }
-    setSaving(true); setErr(''); setSaved(false);
-    try {
-      const patch = {
-        mode: cfg.mode,
-        test_recipients: recipientsInput.split(',').map((s) => s.trim()).filter(Boolean),
-        outlook_card: cardStyle(cfg.outlook_card),
-        leadMinutes: lead,
-        includeNoShift: !!cfg.includeNoShift,
-        defaultSendTime: cfg.defaultSendTime || '07:00',
-        defaultTimeZone: cfg.defaultTimeZone || 'America/Los_Angeles',
-      };
-      const next = await api.updateDailyBriefingConfig(patch);
-      setCfg(next);
-      setSavedMode(next.mode);
-      setRecipientsInput((next.test_recipients || []).join(', '));
-      setConfirmLive(false);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (e) { setErr(e.message || String(e)); }
-    finally { setSaving(false); }
-  };
+  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
@@ -127,8 +152,12 @@ export default function DailyBriefingSettings() {
 
       {tab === 'log' ? <DeliveryLog /> : (
       <>
+      {notice && (
+        <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? NX.green : NX.red }}>{notice.text}</div>
+      )}
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Mode</label>
+        {modeLocked && <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>Mode and the test recipients apply to every company - only a Super Administrator can change them.</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {MODES.map((m) => (
             <label key={m.key} style={{
@@ -136,9 +165,8 @@ export default function DailyBriefingSettings() {
               border: `1px solid ${cfg.mode === m.key ? NX.blue : NX.border}`, borderRadius: 8,
               background: cfg.mode === m.key ? 'var(--wk-brand-tint)' : 'transparent', cursor: 'pointer',
             }}>
-              <input type="radio" name="briefing-mode" checked={cfg.mode === m.key}
-                onChange={() => { setCfg((c) => ({ ...c, mode: m.key })); setConfirmLive(false); }}
-                style={{ marginTop: 3 }} />
+              <input type="radio" name="briefing-mode" checked={cfg.mode === m.key} disabled={modeLocked}
+                onChange={() => pickMode(m.key)} style={{ marginTop: 3 }} />
               <span>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.label}</div>
                 <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>{m.hint}</div>
@@ -148,38 +176,37 @@ export default function DailyBriefingSettings() {
         </div>
       </div>
 
-      {cfg.mode === 'test' && (
-        <div style={{ marginBottom: 16 }}>
-          <label style={fieldLabel}>Test recipients</label>
-          <input value={recipientsInput} onChange={(e) => setRecipientsInput(e.target.value)}
-            placeholder="you@company.com, another@company.com" style={inputStyle} />
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
-            Comma-separated. Every employee's briefing computes on their own real data, but the send is
-            redirected here instead of their own inbox, with a "[TEST -&gt; original]" subject prefix.
+      {cfg.mode === 'live' && (
+        <div style={{
+          display: 'flex', gap: 10, padding: '12px 14px', borderRadius: 8, marginBottom: 16,
+          background: 'hsla(var(--color-red), 0.08)', border: '1px solid hsla(var(--color-red), 0.35)',
+        }}>
+          <ShieldAlert size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-red))' }}>
+              Live: every employee in the company gets a real email
+            </div>
+            <div style={{ fontSize: 12, color: NX.dim, marginTop: 3 }}>
+              Each person gets their own briefing at their own shift trigger. Switch to Test or Off to stop it.
+            </div>
           </div>
         </div>
       )}
 
       <div style={{ marginBottom: 16, fontSize: 13 }}>
-        <label style={fieldLabel}>Timing</label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-          Send before shift start:
-          <input type="number" min={30} max={360} step={5} aria-label="Minutes before shift start"
-            value={cfg.leadMinutes ?? 150} onChange={(e) => setCfg((c) => ({ ...c, leadMinutes: e.target.value }))}
-            style={{ ...inputStyle, width: 80 }} /> minutes
-        </div>
+        <label style={fieldLabel}>When There Is No Shift</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
             <input type="checkbox" checked={!!cfg.includeNoShift}
-              onChange={(e) => setCfg((c) => ({ ...c, includeNoShift: e.target.checked }))} />
+              onChange={(e) => instant({ includeNoShift: e.target.checked }, 'No-shift sending')} />
             People with no shift today: send at
           </label>
           <select aria-label="Default send time" disabled={!cfg.includeNoShift} value={cfg.defaultSendTime || '07:00'}
-            onChange={(e) => setCfg((c) => ({ ...c, defaultSendTime: e.target.value }))} style={{ ...inputStyle, width: 'auto' }}>
+            onChange={(e) => instant({ defaultSendTime: e.target.value }, 'Send time')} style={{ ...inputStyle, width: 'auto' }}>
             {withCurrent(SLOTS, cfg.defaultSendTime).map((t) => <option key={t} value={t}>{formatTime(`2000-01-01T${t}:00`)}</option>)}
           </select>
           <select aria-label="Default time zone" disabled={!cfg.includeNoShift} value={cfg.defaultTimeZone || 'America/Los_Angeles'}
-            onChange={(e) => setCfg((c) => ({ ...c, defaultTimeZone: e.target.value }))} style={{ ...inputStyle, width: 'auto' }}>
+            onChange={(e) => instant({ defaultTimeZone: e.target.value }, 'Time zone')} style={{ ...inputStyle, width: 'auto' }}>
             {withCurrent(ZONES, cfg.defaultTimeZone || 'America/Los_Angeles').map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
@@ -200,7 +227,7 @@ export default function DailyBriefingSettings() {
                 background: on ? 'var(--wk-brand-tint)' : 'transparent', cursor: 'pointer',
               }}>
                 <input type="radio" name="briefing-card" checked={on} style={{ marginTop: 3 }}
-                  onChange={() => setCfg((x) => ({ ...x, outlook_card: c.key }))} />
+                  onChange={() => instant({ outlook_card: c.key }, 'Outlook card')} />
                 <span>
                   <div style={{ fontSize: 13.5, fontWeight: 700 }}>{c.label}</div>
                   <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>{c.hint}</div>
@@ -214,40 +241,36 @@ export default function DailyBriefingSettings() {
         </div>
       </div>
 
-      {goingLive && (
-        <div style={{
-          display: 'flex', gap: 10, padding: '12px 14px', borderRadius: 8, marginBottom: 16,
-          background: 'hsla(var(--color-red), 0.08)', border: '1px solid hsla(var(--color-red), 0.35)',
-        }}>
-          <ShieldAlert size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0, marginTop: 1 }} />
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-red))' }}>
-              This sends a real email to every employee in the company
-            </div>
-            <div style={{ fontSize: 12, color: NX.dim, marginTop: 3 }}>
-              Each person gets their own briefing at their own shift trigger - no dry run once this saves.
-              Confirm test mode has already been checked for a few real people before turning this on.
-            </div>
-            {savedMode !== 'live' && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12.5, cursor: 'pointer' }}>
-                <input type="checkbox" checked={confirmLive} onChange={(e) => setConfirmLive(e.target.checked)} />
-                I understand this goes out to every employee company-wide.
-              </label>
-            )}
+      {/* The typed fields, with the one Save row under them. */}
+      <div style={{ borderTop: `1px solid ${NX.border}`, paddingTop: 16 }}>
+        <div style={{ marginBottom: 16, fontSize: 13 }}>
+          <label style={fieldLabel}>Timing</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            Send before shift start:
+            <input type="number" min={30} max={360} step={5} aria-label="Minutes before shift start"
+              value={draft.leadMinutes} onChange={(e) => editDraft({ leadMinutes: e.target.value })}
+              style={{ ...inputStyle, width: 80 }} /> minutes
           </div>
         </div>
-      )}
 
-      {err && <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.red, margin: '0 0 12px' }}>
-        <AlertTriangle size={13} /> {err}
-      </div>}
+        {(cfg.mode === 'test' || draft.recipients !== typedSaved.recipients) && (
+          <div style={{ marginBottom: 4 }}>
+            <label style={fieldLabel} htmlFor="briefing-test-recipients">Test Recipients</label>
+            <input id="briefing-test-recipients" value={draft.recipients} onChange={(e) => editDraft({ recipients: e.target.value })} readOnly={modeLocked}
+              placeholder="you@company.com, another@company.com" style={inputStyle} />
+            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+              Comma-separated. Every employee's briefing computes on their own real data, but the send is
+              redirected here instead of their own inbox, with a "[TEST -&gt; original]" subject prefix.
+            </div>
+          </div>
+        )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button style={{ ...btn('primary'), opacity: (saving || switchingToLive) ? 0.6 : 1 }}
-          onClick={save} disabled={saving || switchingToLive}>
-          <Save size={14} /> {saving ? 'Saving…' : 'Save Settings'}
-        </button>
-        <SavedCheck show={saved} />
+        {err && <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.red, margin: '12px 0 0' }}>
+          <AlertTriangle size={13} /> {err}
+        </div>}
+
+        <SaveRow dirty={dirty} busy={saving} onSave={save} onDiscard={() => { reset(); setErr(''); }}
+          note={cfg.mode === 'test' ? 'Saves the minutes before shift start and the test recipients.' : 'Saves the minutes before shift start.'} />
       </div>
       </>
       )}

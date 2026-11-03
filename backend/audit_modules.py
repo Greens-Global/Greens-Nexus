@@ -85,7 +85,7 @@ _RESOURCES: dict[str, str] = {
     "implementation": "operations", "unifi": "operations", "dev-projects": "operations",
     # Documents
     "documents": "documents", "esign": "documents", "files": "documents", "egnyte": "documents",
-    "egnyte-oauth": "documents",
+    "egnyte-oauth": "documents", "pdf-tools": "documents", "pdf_tools": "documents",
     # Knowledge
     "knowledge-base": "knowledge", "sop-updates": "knowledge", "help": "knowledge",
     # Marketing

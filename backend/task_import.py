@@ -572,7 +572,7 @@ def _parse_field(ctx: _Context, r: _Row, f, value) -> None:
                     ctx.new_options[f.id] = pending
                     r.new_opts.add((f.id, _norm(label)))
                 else:
-                    why = (" - only a Global Admin can add options to a field shared by every company"
+                    why = (" - only a Super Administrator can add options to a field shared by every company"
                            if ctx.add_options else "")
                     r.warnings.append(f"{name} \"{label}\" is not an option{why} - left empty.")
                     continue

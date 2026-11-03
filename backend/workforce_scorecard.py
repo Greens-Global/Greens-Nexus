@@ -218,22 +218,28 @@ def validate(patch: dict) -> dict:
 
 
 def save_settings(db: Session, patch: dict, actor_email: str) -> dict:
-    merged = get_settings(db)
+    """Merge a PATCH into what is stored now, under the row lock
+    (scoped_settings.merge_save) - two saves at once keep both changes."""
+    import scoped_settings
     patch = dict(patch)
-    if "standards" in patch:
-        # The patch is the whole map, but the built-in rows (US, IN, default)
-        # always exist - an admin changes them, never loses them.
-        merged["standards"] = {**json.loads(json.dumps(_DEFAULT_SETTINGS["standards"])), **patch.pop("standards")}
-    merged.update(patch)
-    if "onTrackPct" in merged and "belowPct" in merged and merged["belowPct"] >= merged["onTrackPct"]:
-        raise ValueError("The Below Expected threshold must be lower than the On Track threshold.")
-    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
-    if not row:
-        row = models.NexusSetting(key=_SETTINGS_KEY)
-        db.add(row)
-    row.value = json.dumps(merged)
-    row.updated_by = actor_email
-    row.updated_at = datetime.now(timezone.utc).isoformat()
+    standards = patch.pop("standards", None)
+
+    def build(stored: dict) -> dict:
+        merged = json.loads(json.dumps(_DEFAULT_SETTINGS))
+        stored = dict(stored)
+        std = stored.pop("standards", None)
+        merged.update(stored)
+        if isinstance(std, dict):
+            merged["standards"].update({k: v for k, v in std.items() if isinstance(v, dict)})
+        if standards is not None:
+            # The patch is the whole map, but the built-in rows (US, IN, default)
+            # always exist - an admin changes them, never loses them.
+            merged["standards"] = {**json.loads(json.dumps(_DEFAULT_SETTINGS["standards"])), **standards}
+        merged.update(patch)
+        if "onTrackPct" in merged and "belowPct" in merged and merged["belowPct"] >= merged["onTrackPct"]:
+            raise ValueError("The Below Expected threshold must be lower than the On Track threshold.")
+        return merged
+    merged = scoped_settings.merge_save(db, _SETTINGS_KEY, build, actor_email)
     db.commit()
     return merged
 
@@ -271,7 +277,8 @@ def _level_of(db: Session, email: str) -> int:
     return _LEVELS.get((row.role if row else "employee") or "employee", 1)
 
 
-SCOPE_LABEL = {"direct": "your direct reports", "line": "your whole reporting line", "all": "the whole company"}
+SCOPE_LABEL = {"direct": "your direct reports", "line": "your whole reporting line", "all": "the whole company",
+               "company": "your company"}
 
 
 def direct_reports(db: Session, email: str) -> set:
@@ -280,18 +287,32 @@ def direct_reports(db: Session, email: str) -> set:
 
 
 def scope_kind(rank: int, level: int = 1, company: bool = False) -> str:
-    """direct | line | all from a grant rank (auth._MODULE_LEVEL_RANK) and tier."""
+    """direct | line | company | all from a grant rank
+    (auth._MODULE_LEVEL_RANK) and tier. An Administrator (level 4) gets
+    `company` - their own companies' people, never everyone (Neil,
+    11/02/2026: walled, the switch on or off); only a Super Administrator,
+    a Full grant or a company recipient gets `all`."""
     from auth import _MODULE_LEVEL_RANK
-    if company or level >= 4 or rank >= _MODULE_LEVEL_RANK["full"]:
+    if level == 4:
+        return "company"
+    if company or level >= 5 or rank >= _MODULE_LEVEL_RANK["full"]:
         return "all"
     return "line" if rank >= _MODULE_LEVEL_RANK["editor"] else "direct"
 
 
 def scope_emails(db: Session, email: str, kind: str):
-    """The emails a scope kind covers for `email`: None = everyone."""
+    """The emails a scope kind covers for `email`: None = everyone. `all`
+    and `company` are both capped at the caller's company scope - a walled
+    caller's "everyone" is everyone in their companies."""
+    import auth
     from auth import team_emails
-    if kind == "all":
-        return None
+    if kind in ("all", "company"):
+        level = 4 if kind == "company" else auth.level_for(email, db)
+        cs = auth.company_scope({"email": email, "level": level}, db)
+        if cs is None:
+            return None
+        return {(e.work_email or "").lower() for e in db.query(models.NexusEmployee.work_email)
+                .filter(models.NexusEmployee.company.in_(cs)).all() if e.work_email}
     return team_emails(db, email) if kind == "line" else direct_reports(db, email)
 
 

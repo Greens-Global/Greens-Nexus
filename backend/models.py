@@ -142,6 +142,11 @@ class Task(Base):
     # 2026, routers/tasks._cascade_level): opening that task again opens this
     # one again - unless its level was set by hand since, which clears it.
     narrowed_by       = Column(String, default="")
+    # The Cubby task this one mirrors (Neil, Oct 30 2026, cubby_tasks.py):
+    # Cubby's task id ("task_..."), '' for every task that did not come from
+    # Cubby. The sync state lives on cubby_task_links; this is the pointer
+    # every list row and the drawer read.
+    cubby_task_id     = Column(String, default="", index=True)
 
 
 class PurchaseRequest(Base):
@@ -1347,6 +1352,7 @@ class KbCourse(Base):
     description = Column(String, default="")
     overview    = Column(String, default="")           # "what you'll learn" - JSON list of objective strings
     recert_months = Column(Integer, default=0)         # 0 = no recertification; else retake every N months
+    default_due_days = Column(Integer, default=0)     # days a hand assignment gets when no date is picked (11/03/2026)
     departments = Column(String, default="")
     status      = Column(String, default="draft")     # draft | published
     owner_email = Column(String, default="")
@@ -1408,6 +1414,7 @@ class KbCourseAssignment(Base):
     source      = Column(String, default="manual")    # manual | rule | plan | renewal (rebuild, Oct 2026)
     rule_id     = Column(String, default="")          # KbAssignmentRule.id that made it
     plan_id     = Column(String, default="")          # KbTrainingPlan.id it belongs to
+    escalated_at = Column(String, default="")         # first time the supervisor was told it is overdue (11/03/2026)
 
 
 class KbQuizAttempt(Base):
@@ -1926,6 +1933,9 @@ class HrSignRequest(Base):
     # 1 = the documents print pay (offer / promotion letters): the sealed PDF,
     # the party links and party re-pointing need Pay & Benefits (hr_comp).
     prints_pay       = Column(Integer, default=0)
+    # Where the sealed copy landed in Egnyte ('' = not filed). Set by the
+    # automatic push at completion and by the sender's File In Egnyte (Oct 31 2026).
+    egnyte_filed_path = Column(String, default="")
 
 
 class HrSignParty(Base):
@@ -2238,6 +2248,15 @@ class DocTemplate(Base):
     published_meta      = Column(JSON, default=dict)
     published_by        = Column(String, default="")
     published_at        = Column(String, default="")
+    # Forms (Neil, 11/02/2026): a form IS a template (doc_type 'form'). Who
+    # may fill it is the Announcements audience rule (form_audience.py):
+    # 'company' = the creator's company, 'department' = `department` above,
+    # 'site' = people whose allowed work sites include `work_site_id`.
+    # show_on_shifts = 1 puts the form on the shift card of anyone scheduled
+    # at that site.
+    audience            = Column(String, default="company")   # company|department|site
+    work_site_id        = Column(String, default="")          # HrWorkSite.id for a site form
+    show_on_shifts      = Column(Integer, default=0)
 
 
 class Document(Base):
@@ -2300,6 +2319,11 @@ class DocTemplateVersion(Base):
     edited_by   = Column(String, default="")
     edited_at   = Column(String, default="")
     note        = Column(String, default="")
+    # The field list this version was PUBLISHED with (Forms, 11/02/2026): a
+    # form entry pins `template_version` and is read against these, so a later
+    # publish that renames a field never relabels an old entry. None = not
+    # stored (published before this column, or never published).
+    field_defs  = Column(JSON, nullable=True)
 
 
 # ── Time tracking (SwipeClock replacement) ────────────────────────────────────
@@ -2664,6 +2688,11 @@ class ScheduledShift(Base):
     # A delay that moves an overnight shift's start past midnight puts the
     # row on the next calendar day; this is the day it was on (Oct 12).
     original_work_date  = Column(String, default="")
+    # Where the shift is worked (Neil, call of 10/30/2026 - the weather
+    # follows the jobsite): '' = the team's own site, 'project-<id>' a
+    # construction project, 'site-<id>' a company site (jobsites.py).
+    # Changes in place like the team and the zone, never staged for Publish.
+    jobsite             = Column(String, default="")
     # The grid and the reminder scan read one person's days (Oct 2).
     __table_args__ = (Index("ix_scheduled_shifts_email_date", "employee_email", "work_date"),)
 
@@ -4690,6 +4719,14 @@ class ServerSession(Base):
     auth_time         = Column(Float, default=0.0)          # last interactive auth (step-up freshness)
     created_at        = Column(String, default="")
     last_seen         = Column(String, default="")
+    # Where this session signed in from (sign_in_watch.record, Neil 11/02/2026):
+    # My Profile > Security lists live sessions by device and place. The ip is
+    # client_ip.client_ip's trusted address; ua_summary is ua_summary.summarize;
+    # location is ip_location.lookup ('' when unknown - never printed as such).
+    ip                = Column(String, default="")
+    user_agent        = Column(String, default="")
+    ua_summary        = Column(String, default="")
+    location          = Column(String, default="")
 
 
 class M365SyncRun(Base):
@@ -6246,6 +6283,10 @@ class Announcement(Base):
     publish_at   = Column(String, default="")                   # ISO timestamp, '' = published at create
     notify       = Column(String, default="quiet")              # quiet | push_teams | email
     notified_at  = Column(String, default="")                   # '' = not yet published to its audience
+    # Work-site audience (Neil, 11/02/2026, Homebase lifts): audience 'site'
+    # reaches the people whose allowed work sites (work_site_ids) hold this
+    # HrWorkSite id - an empty list is NOT a member. '' for other audiences.
+    work_site_id = Column(String, default="")
 
 
 class AnnouncementRead(Base):
@@ -6322,6 +6363,9 @@ class HrPacketSetting(Base):
     # of doc_template_ids - "there's a different confidentiality agreement for
     # each team" (Neil). [{match: department | role, value, templateIds: []}]
     extra_docs       = Column(JSON, default=list)
+    # Federal onboarding forms sent with a US hiring packet (Neil, 11/02/2026):
+    # ["w4", "i9", "direct_deposit"] in registry order - federal_forms.FORMS.
+    federal_forms    = Column(JSON, default=list)
     # Where the person works, inside the country (Neil, Oct 22): "there is a
     # hiring packet that applies to California... when we open Texas we'll add
     # one for Texas". A US state code (CA, TX), '' = anywhere in the country.
@@ -6556,6 +6600,7 @@ class WeatherOutlook(Base):
     id           = Column(String, primary_key=True)
     group_id     = Column(String, default="", index=True)
     work_date    = Column(String, default="", index=True)   # YYYY-MM-DD, site-local
+    place        = Column(String, default="", index=True)   # '' = the team's site, else a jobsite key (jobsites.py)
     band         = Column(String, default="quiet")          # quiet | heads_up | major | warning
     chance       = Column(Integer, default=0)               # highest rain chance in the scheduled hours, %
     inches       = Column(Float, default=0)                 # rain expected over the scheduled hours
@@ -6582,6 +6627,7 @@ class WeatherAdvisory(Base):
     id              = Column(String, primary_key=True)
     group_id        = Column(String, default="", index=True)
     work_date       = Column(String, default="", index=True)
+    place           = Column(String, default="", index=True)   # '' = the team's site, else a jobsite key (jobsites.py)
     band            = Column(String, default="")
     chance          = Column(Integer, default=0)
     inches          = Column(Float, default=0)
@@ -6611,6 +6657,7 @@ class WeatherDecision(Base):
     id             = Column(String, primary_key=True)
     group_id       = Column(String, default="", index=True)
     work_date      = Column(String, default="", index=True)
+    place          = Column(String, default="", index=True)   # '' = the team's site, else a jobsite key (jobsites.py)
     company        = Column(String, default="")
     kind           = Column(String, default="")
     new_start      = Column(String, default="")   # delay: the new start (HH:MM)
@@ -8263,6 +8310,16 @@ class KbAssignmentRule(Base):
     created_at   = Column(String, default="")
     updated_at   = Column(String, default="")
     last_run_at  = Column(String, default="")
+    # Due modes (Sagar, 11/03/2026): '' = within `due_days` of the start date
+    # (or of today); a date = one calendar date for everyone the rule covers
+    # (company-wide or department-wide), with `due_days` as the grace for a
+    # person who joins after it. new_hires_only = an onboarding track: only
+    # people whose start date is on or after the rule's own start. escalate_days
+    # = days overdue before the supervisor (else the HR contact) is told, then
+    # weekly. ALTER lines in main.py.
+    due_date       = Column(String, default="")
+    new_hires_only = Column(Boolean, default=False)
+    escalate_days  = Column(Integer, default=0)
 
 
 class KbTrainingPlan(Base):
@@ -8274,6 +8331,7 @@ class KbTrainingPlan(Base):
     description = Column(String, default="")
     items       = Column(Text, default="")           # JSON [{kind: course|policy, id, order}]
     due_days    = Column(Integer, default=30)
+    due_date    = Column(String, default="")         # one calendar date for everyone (11/03/2026); '' = due_days from start
     audience    = Column(Text, default="")           # JSON, "" = assigned by name only
     active      = Column(Boolean, default=True)
     created_by  = Column(String, default="")
@@ -9602,6 +9660,39 @@ class ApprovalDecision(Base):
     decided_at    = Column(String, default="", index=True)
 
 
+class CubbyTaskLink(Base):
+    """One Cubby task that Nexus Tasks mirrors (Neil, Oct 30 2026 - "if you
+    close it in Nexus, it closes also there; if you close it in Cubby, it
+    closes it also in Nexus"). Keyed by Cubby's task id, so a Cubby task is
+    imported once however many syncs see it. `status` is what Cubby last said
+    (OPEN / COMPLETED / ARCHIVED); `push_status` is what Nexus wants Cubby to
+    become after someone completed or reopened the task here, cleared once
+    the push lands (cubby_tasks.push_pending). Names, not contact details:
+    the assignee names are Cubby staff, matched to Nexus people by work email."""
+    __tablename__ = "cubby_task_links"
+    task_id            = Column(String, primary_key=True)             # Cubby "task_..."
+    facility_id        = Column(String, default="", index=True)
+    nexus_task_id      = Column(String, default="", index=True)       # tasks.id
+    status             = Column(String, default="OPEN")               # Cubby's last known status
+    title              = Column(String, default="")
+    due_date           = Column(String, default="")                   # YYYY-MM-DD or ''
+    unit_id            = Column(String, default="")
+    unit_name          = Column(String, default="")
+    customer_id        = Column(String, default="")
+    assigned_names     = Column(JSON, default=list)                   # Cubby staff names (warehouse)
+    group_names        = Column(JSON, default=list)                   # Cubby manager groups (warehouse)
+    assignee_snapshot  = Column(JSON, default=list)                   # Nexus emails last applied FROM Cubby
+    created_by_name    = Column(String, default="")
+    workflow_generated = Column(Boolean, default=False)               # raised by a Cubby automation
+    cubby_created_at   = Column(String, default="")
+    cubby_updated_at   = Column(String, default="")
+    push_status        = Column(String, default="")                   # '' | COMPLETED | OPEN
+    push_attempts      = Column(Integer, default=0)
+    push_error         = Column(String, default="")
+    pushed_at          = Column(String, default="")
+    created_at         = Column(String, default="")
+    updated_at         = Column(String, default="")
+    last_seen_at       = Column(String, default="")                   # last sync that listed it open
 # ── Web Push (Frontline Reach, Neil 11/02/2026) ──────────────────────────────
 # A phone or desktop that said yes to "Push to This Device" (My Profile >
 # Phone Notifications) registers its browser subscription here, one row per
@@ -9635,3 +9726,209 @@ class NexusPushOutbox(Base):
     created_at  = Column(String, default="", index=True)
     sent_at     = Column(String, default="", index=True)           # '' = waiting
     error       = Column(String, default="")
+
+
+class DocFormEntry(Base):
+    """One filled form (Forms & Checklists, Neil 11/02/2026). The template is
+    a DocTemplate with doc_type 'form'; `template_version` pins the published
+    version the answers were given against. `answers` is {token: value}: a
+    photo field is a list of storage URLs, gps an object {lat, lng, accuracyM,
+    siteName}, a repeat group a list of answer maps under the group's name,
+    a signature a PNG URL. Files live in the private task-files bucket under
+    forms/<entry_key>/. Nothing here changes state by itself: status moves
+    only when a person reviews it. Soft-deleted rows keep deleted_at."""
+    __tablename__ = "doc_form_entries"
+    id               = Column(String, primary_key=True)                # uuid
+    template_id      = Column(String, index=True, nullable=False)
+    template_version = Column(Integer, default=0)
+    title            = Column(String, default="")                      # the template's title when filled
+    entry_key        = Column(String, unique=True, nullable=False)     # client-made UUID: a retry never files twice
+    answers          = Column(JSON, default=dict)
+    company          = Column(String, default="", index=True)          # the submitter's HrEntity id
+    work_site_id     = Column(String, default="", index=True)
+    shift_id         = Column(String, default="")
+    submitted_by     = Column(String, index=True, nullable=False)
+    submitted_at     = Column(String, default="", index=True)
+    source           = Column(String, default="web")                   # web | phone
+    status           = Column(String, default="submitted", index=True) # submitted | reviewed | follow_up | closed
+    reviewer_email   = Column(String, default="")
+    reviewed_at      = Column(String, default="")
+    review_note      = Column(String, default="")
+    linked_ticket_id = Column(String, default="")
+    linked_task_id   = Column(String, default="")
+    linked_asset_id  = Column(String, default="")
+    deleted_at       = Column(String, default="")
+class NexusSignIn(Base):
+    """One BFF sign-in (sign_in_watch.record, Neil 11/02/2026): who, when, from
+    which device and roughly where. `device_key` = sha256(ua_summary + the
+    address's /24 or /48); `is_new` when no sign-in of this person's in the
+    last 180 days carried the same key (never the very first sign-in);
+    `notified` once the bell and email went. Kept 180 days (sign_in_watch.sweep).
+    RLS must be enabled on dev+prod like every new table."""
+    __tablename__ = "nexus_sign_ins"
+    id          = Column(String, primary_key=True)                 # si_ + hex
+    email       = Column(String, nullable=False, index=True)
+    session_id  = Column(String, default="")                       # the server_sessions row (never sent to a browser)
+    at          = Column(String, default="", index=True)           # UTC ISO
+    ip          = Column(String, default="")
+    user_agent  = Column(String, default="")
+    ua_summary  = Column(String, default="")
+    location    = Column(String, default="")
+    device_key  = Column(String, default="", index=True)
+    is_new      = Column(Boolean, default=False)
+    notified    = Column(Boolean, default=False)
+
+
+# ── Performance: KPI scorecards per department (Oct 30 2026, perf_scorecards.py)
+class PerfKpi(Base):
+    """A MANUAL KPI in the library (Nexus's own metrics come from
+    perf_metrics.METRICS and have no row). company_id '' = every company."""
+    __tablename__ = "hr_perf_kpis"
+    id          = Column(String, primary_key=True)                 # uuid
+    company_id  = Column(String, default="", index=True)
+    key         = Column(String, nullable=False)                   # "manual:<slug>" - what scorecard rows point at
+    name        = Column(String, nullable=False)
+    description = Column(Text, default="")
+    unit        = Column(String, default="rating")                 # % | count | per100 | rating
+    direction   = Column(String, default="high")                   # high | low (which way is better)
+    active      = Column(Boolean, default=True)                    # retired KPIs stay on past versions
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+
+
+class PerfScorecard(Base):
+    """A JOB ROLE's scorecard, one VERSION (kind 'role': in force from
+    effective_from, the first of a month, to effective_to, '' = open; a change
+    to a running version becomes a new row starting next month) - or a SHARED
+    set (kind 'shared', role_id '', named) HR keeps to copy from, edited in
+    place. company_id '' on a shared set = every company may copy it."""
+    __tablename__ = "hr_perf_scorecards"
+    id             = Column(String, primary_key=True)              # uuid
+    company_id     = Column(String, default="", index=True)
+    kind           = Column(String, default="role")                # role | shared
+    role_id        = Column(String, default="", index=True)        # NexusGroup.id (is_job_role) for kind 'role'
+    name           = Column(String, default="")                    # the role's name at save, or the shared set's name
+    copied_from    = Column(String, default="")                    # "Role: X" / "Shared set: Y" when it started as a copy
+    version        = Column(Integer, default=1)
+    effective_from = Column(String, default="")                    # YYYY-MM-01
+    effective_to   = Column(String, default="")                    # YYYY-MM-DD, '' = open
+    status         = Column(String, default="active")              # active | retired
+    notes          = Column(Text, default="")
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class PerfScorecardKpi(Base):
+    """A KPI on a scorecard version: weight (whole %), target (full marks),
+    threshold (below it nothing), cap (above it no extra)."""
+    __tablename__ = "hr_perf_scorecard_kpis"
+    id           = Column(String, primary_key=True)                # uuid
+    scorecard_id = Column(String, nullable=False, index=True)
+    kpi_key      = Column(String, nullable=False)
+    weight       = Column(Integer, default=0)
+    target       = Column(Float, default=0)
+    threshold    = Column(Float, default=0)
+    cap          = Column(Float, default=0)
+    position     = Column(Integer, default=0)
+
+
+class PerfKpiRating(Base):
+    """A manager's (or HR's) rating of a MANUAL KPI for one person and month,
+    with the written reason (perf_scores.rate). One row per person, KPI and
+    month; rating again replaces it."""
+    __tablename__ = "hr_perf_kpi_ratings"
+    id         = Column(String, primary_key=True)                  # uuid
+    company_id = Column(String, default="", index=True)
+    email      = Column(String, nullable=False, index=True)
+    kpi_key    = Column(String, nullable=False)
+    period     = Column(String, nullable=False, index=True)        # YYYY-MM
+    value      = Column(Float, default=0)
+    reason     = Column(Text, default="")
+    rated_by   = Column(String, default="")
+    rated_at   = Column(String, default="")
+
+
+class PerfBonusPlan(Base):
+    """The bonus plan of one job role (perf_bonus.py): target % of base pay,
+    cadence and the payout curve read off the monthly score. One per role,
+    edited in place - a run keeps the values it was priced with."""
+    __tablename__ = "hr_perf_bonus_plans"
+    id                  = Column(String, primary_key=True)                 # uuid
+    company_id          = Column(String, default="", index=True)
+    role_id             = Column(String, nullable=False, index=True)
+    target_pct          = Column(Float, default=0)                         # % of base pay at 100% payout
+    period              = Column(String, default="monthly")                # monthly | quarterly
+    threshold_score     = Column(Float, default=60)                        # below it: nothing
+    payout_at_threshold = Column(Float, default=50)                        # % of target at the threshold
+    max_payout          = Column(Float, default=100)                       # % of target; > 100 = stretch for over-target
+    adjust_max          = Column(Float, default=20)                        # a manager's +/- % bound
+    review_weight       = Column(Float, default=0)                         # % of the score taken from the latest review rating (0 = KPIs only)
+    active              = Column(Integer, default=1)
+    created_at          = Column(String, default="")
+    updated_by          = Column(String, default="")
+    updated_at          = Column(String, default="")
+
+
+class PerfBonusRun(Base):
+    """One bonus run: a company and a period (YYYY-MM or YYYY-Qn).
+    review -> approved -> paid, or cancelled."""
+    __tablename__ = "hr_perf_bonus_runs"
+    id           = Column(String, primary_key=True)
+    company_id   = Column(String, default="", index=True)
+    period       = Column(String, nullable=False)
+    period_start = Column(String, default="")
+    period_end   = Column(String, default="")
+    status       = Column(String, default="review", index=True)
+    line_count   = Column(Integer, default=0)
+    budget       = Column(Float, nullable=True)                            # HR's pool for the run; over it = a flag, never a block
+    notes        = Column(Text, default="")
+    created_by   = Column(String, default="")
+    created_at   = Column(String, default="")
+    approved_by  = Column(String, default="")
+    approved_at  = Column(String, default="")
+    paid_at      = Column(String, default="")
+
+
+class PerfBonusLine(Base):
+    """One person on a run, with every input the amount was priced with."""
+    __tablename__ = "hr_perf_bonus_lines"
+    id              = Column(String, primary_key=True)
+    run_id          = Column(String, nullable=False, index=True)
+    email           = Column(String, nullable=False, index=True)
+    role_id         = Column(String, default="")
+    role_name       = Column(String, default="")
+    department      = Column(String, default="")
+    manager_email   = Column(String, default="", index=True)
+    score           = Column(Float, nullable=True)                         # what the payout reads: the KPI score, or its blend with the review
+    kpi_score       = Column(Float, nullable=True)                         # period average of the monthly KPI scores
+    review_score    = Column(Float, nullable=True)                         # the latest completed review's rating as 0..100, when the plan blends it
+    reviewed_by     = Column(String, default="")                           # the manager who said the line looks right (or adjusted it)
+    reviewed_at     = Column(String, default="")
+    over_target     = Column(Float, default=0)
+    measured_weight = Column(Float, default=0)
+    months_scored   = Column(Integer, default=0)
+    payout_pct      = Column(Float, nullable=True)
+    base_pay        = Column(Float, default=0)
+    currency        = Column(String, default="USD")
+    target_pct      = Column(Float, default=0)
+    adjust_max      = Column(Float, default=20)
+    adjust_pct      = Column(Float, default=0)
+    adjust_reason   = Column(Text, default="")
+    adjusted_by     = Column(String, default="")
+    adjusted_at     = Column(String, default="")
+    excluded        = Column(Integer, default=0)
+    note            = Column(String, default="")                           # no_pay_rate | hourly_standard_month
+    computed_amount = Column(Float, default=0)
+    final_amount    = Column(Float, default=0)
+    bonus_id        = Column(String, default="")                           # the TimecardBonus once paid
+
+
+class PerfBonusPlanLog(Base):
+    """Every save of a bonus plan, as saved (perf_bonus.save_plan) - the plan
+    row is edited in place, this is its history."""
+    __tablename__ = "hr_perf_bonus_plan_log"
+    id         = Column(String, primary_key=True)
+    plan_id    = Column(String, nullable=False, index=True)
+    snapshot   = Column(JSON, default=dict)
+    changed_by = Column(String, default="")
+    changed_at = Column(String, default="")

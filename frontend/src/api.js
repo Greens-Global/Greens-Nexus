@@ -1304,6 +1304,11 @@ export const api = {
   revertOpsCmaChange: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/revert`, { method: "POST", timeoutMs: 120_000 }),
   getOpsSettings: () => req("/facility-ops/settings"),
   saveOpsSettings: (data) => req("/facility-ops/settings", { method: "PUT", body: JSON.stringify(data) }),
+  // Cubby tasks <-> Nexus Tasks (Neil, Oct 30 2026): Settings > Operations > Cubby Tasks, and the drawer's From Cubby row.
+  getCubbyTaskSettings: () => req("/cubby-tasks/settings"),
+  saveCubbyTaskSettings: (data) => req("/cubby-tasks/settings", { method: "PUT", body: JSON.stringify(data) }),
+  runCubbyTaskSync: () => req("/cubby-tasks/sync-now", { method: "POST" }),
+  getCubbyTaskLink: (taskId) => req(`/cubby-tasks/link/${encodeURIComponent(taskId)}`),
   // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
   getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
   // Operations > Pricing Insights (Oct 20): ranked insights + sections from Cubby's pricing and the market. '' = every facility.
@@ -1534,6 +1539,7 @@ export const api = {
   getSignRequest:     (id)        => req(`/esign/requests/${id}`),
   remindSign:         (id)        => req(`/esign/requests/${id}/remind`, { method: 'POST' }),
   voidSign:           (id)        => req(`/esign/requests/${id}/void`, { method: 'POST' }),
+  fileSignToEgnyte:   (id, folder) => req(`/esign/requests/${id}/file-egnyte`, { method: 'POST', body: JSON.stringify({ folder }) }),
   downloadSign:       (id)        => req(`/esign/requests/${id}/download`),
   verifySign:         (id)        => req(`/esign/requests/${id}/verify`),
   mySignatures:       ()          => req('/esign/mine'),
@@ -1874,7 +1880,7 @@ export const api = {
   // by pointing one at the other.
   egnyteStatus:      ()                   => req('/egnyte/status'),
   egnyteFolder:      (path = '')          => req(`/egnyte/folder?path=${encodeURIComponent(path)}`),
-  egnyteFile:        (path)               => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}`),
+  egnyteFile:        (path, opts)         => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}`, opts),
   // Same bytes, but asking to VIEW rather than download, so the response carries
   // the file's real content type and the blob can be rendered. The server grants
   // that only for its own allowlist (PDF/image/text) - see routers/egnyte.py.
@@ -1886,11 +1892,11 @@ export const api = {
   egnyteDelete:      (path)               => req('/egnyte/fs/delete', { method: 'POST', body: JSON.stringify({ path }) }),
   egnyteDescribe:    (path, description)  => req('/egnyte/fs/describe', { method: 'POST', body: JSON.stringify({ path, description }) }),
   // multipart: let the browser set the boundary, never set Content-Type by hand
-  egnyteUpload:      (folder, file) => {
+  egnyteUpload:      (folder, file, opts = {}) => {
     const fd = new FormData();
     fd.append('folder', folder);
     fd.append('file', file);
-    return req('/egnyte/upload', { method: 'POST', body: fd });
+    return req('/egnyte/upload', { method: 'POST', body: fd, ...opts });
   },
   // ── Egnyte wiring registry (manager+ edits surface->folder mappings in UI) ──
   egnyteWiring:      ()                       => req('/egnyte/wiring'),
@@ -1985,6 +1991,8 @@ export const api = {
   getConstructionOverview: () => req("/construction/overview"),
   getConstructionProjects: () => req("/construction/projects"),
   createConstructionProject: (data) => req("/construction/projects", { method: "POST", body: JSON.stringify(data) }),
+  // Project-based weather (Neil, 10/30/2026): every active jobsite's sky, see construction_weather.py
+  getConstructionWeather: (units = "imperial") => req(`/construction/weather?units=${units}`),
   getConstructionReviewQueue: () => req("/construction/review-queue"),
   getConstructionReports: (projectId) => req(`/construction/projects/${projectId}/reports`),
   generateConstructionReport: (projectId, data) => req(`/construction/projects/${projectId}/reports/generate`, { method: "POST", body: JSON.stringify(data) }),
@@ -2462,8 +2470,8 @@ export const api = {
   weatherWatchSettingsSave: (data) => req('/weather-watch/settings', { method: 'PUT', body: JSON.stringify(data) }),
   weatherWatchScan:         ()     => req('/weather-watch/scan', { method: 'POST' }),
   // The weather call itself: the screen, the decision, follow-up, acknowledging, a person's texts switch.
-  weatherCallScreen:    (groupId, date)       => req(`/weather-call/${encodeURIComponent(groupId)}/${date}`),
-  weatherCallDecide:    (groupId, date, data) => req(`/weather-call/${encodeURIComponent(groupId)}/${date}`, { method: 'POST', body: JSON.stringify(data) }),
+  weatherCallScreen:    (groupId, date, place = '')       => req(`/weather-call/${encodeURIComponent(groupId)}/${date}${place ? `?place=${encodeURIComponent(place)}` : ''}`),
+  weatherCallDecide:    (groupId, date, data, place = '') => req(`/weather-call/${encodeURIComponent(groupId)}/${date}${place ? `?place=${encodeURIComponent(place)}` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
   weatherCallReinstate: (id)                  => req(`/weather-call/${encodeURIComponent(id)}/reinstate`, { method: 'POST' }),
   weatherCallRemind:    (id)                  => req(`/weather-call/${encodeURIComponent(id)}/remind`, { method: 'POST' }),
   weatherCallAck:       (id)                  => req(`/weather-call/${encodeURIComponent(id)}/ack`, { method: 'POST' }),
@@ -2810,8 +2818,8 @@ export const api = {
   kbMe: () => req("/kb/me"),
   kbHome: () => req("/kb/home"),
   // log: false = do not record a missed search (the header bar's type-ahead).
-  kbSearch: (q, { type = "", collection = "", limit = 30, log = true } = {}) =>
-    req(`/kb/search?q=${encodeURIComponent(q || "")}&type=${encodeURIComponent(type)}&collection=${encodeURIComponent(collection)}&limit=${limit}${log ? "" : "&log=false"}`),
+  kbSearch: (q, { type = "", collection = "", department = "", limit = 30, log = true } = {}) =>
+    req(`/kb/search?q=${encodeURIComponent(q || "")}&type=${encodeURIComponent(type)}&collection=${encodeURIComponent(collection)}&department=${encodeURIComponent(department)}&limit=${limit}${log ? "" : "&log=false"}`),
   kbAsk: (question) => req("/kb/ask", { method: "POST", body: JSON.stringify({ question }), timeoutMs: AI_TIMEOUT_MS }),
   kbCollections: () => req("/kb/collections"),
   kbCollection: (id) => req(`/kb/collections/${id}`),
@@ -3082,6 +3090,34 @@ export const api = {
   perfActionUpdate: (id, data) => req(`/performance/actions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
   perfSettings: (company = "") => req(`/performance/settings?company=${encodeURIComponent(company || "")}`),
   perfSettingsSave: (data) => req("/performance/settings", { method: "PUT", body: JSON.stringify(data) }),
+  // KPI scorecards per department (Charmi, 10/30/2026) - routers/perf_scorecards.py.
+  perfScorecards: (company) => req(`/performance/scorecards?company=${encodeURIComponent(company || "")}`),
+  perfScorecardSave: (data) => req("/performance/scorecards", { method: "PUT", body: JSON.stringify(data) }),
+  perfScorecardRetire: (id) => req(`/performance/scorecards/${encodeURIComponent(id)}/retire`, { method: "POST" }),
+  perfScorecardCopySource: (company, sourceId) => req(`/performance/scorecards/copy-source/${encodeURIComponent(sourceId)}?company=${encodeURIComponent(company || "")}`),
+  perfSharedScorecardSave: (data) => req("/performance/scorecards/shared", { method: "PUT", body: JSON.stringify(data) }),
+  perfMyScorecard: () => req("/performance/scorecards/current"),
+  perfScore: (person = "", month = "") => req(`/performance/score?person=${encodeURIComponent(person || "")}&month=${encodeURIComponent(month || "")}`),
+  perfTeamScores: (month = "") => req(`/performance/score/team?month=${encodeURIComponent(month || "")}`),
+  perfRateKpi: (data) => req("/performance/score/rating", { method: "PUT", body: JSON.stringify(data) }),
+  // Bonus plans per role and bonus runs (Oct 30 2026) - routers/perf_bonus.py.
+  perfBonusPlans: (company) => req(`/performance/bonus/plans?company=${encodeURIComponent(company || "")}`),
+  perfBonusPlanSave: (data) => req("/performance/bonus/plans", { method: "PUT", body: JSON.stringify(data) }),
+  perfBonusRuns: (company) => req(`/performance/bonus/runs?company=${encodeURIComponent(company || "")}`),
+  perfBonusRunStart: (data) => req("/performance/bonus/runs", { method: "POST", body: JSON.stringify(data) }),
+  perfBonusRun: (id) => req(`/performance/bonus/runs/${encodeURIComponent(id)}`),
+  perfBonusLineAdjust: (id, data) => req(`/performance/bonus/lines/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
+  perfBonusRunApprove: (id) => req(`/performance/bonus/runs/${encodeURIComponent(id)}/approve`, { method: "POST" }),
+  perfBonusRunPay: (id) => req(`/performance/bonus/runs/${encodeURIComponent(id)}/pay`, { method: "POST" }),
+  perfBonusRunCancel: (id) => req(`/performance/bonus/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  perfBonusReview: () => req("/performance/bonus/review"),
+  perfBonusReadiness: (company, period) => req(`/performance/bonus/readiness?company=${encodeURIComponent(company || "")}&period=${encodeURIComponent(period || "")}`),
+  perfBonusRunUpdate: (id, data) => req(`/performance/bonus/runs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
+  perfBonusRunReviewed: (id, emails = []) => req(`/performance/bonus/runs/${encodeURIComponent(id)}/reviewed`, { method: "POST", body: JSON.stringify({ emails }) }),
+  perfBonusPlanHistory: (id) => req(`/performance/bonus/plans/${encodeURIComponent(id)}/history`),
+  perfKpis: (company) => req(`/performance/kpis?company=${encodeURIComponent(company || "")}`),
+  perfKpiCreate: (data) => req("/performance/kpis", { method: "POST", body: JSON.stringify(data) }),
+  perfKpiUpdate: (id, data) => req(`/performance/kpis/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
 
   // Performance review cycles (Neil, Oct 27 2026) - routers/perf_reviews.py.
   perfCycles: (company = "") => req(`/performance/cycles?company=${encodeURIComponent(company || "")}`),
@@ -3239,6 +3275,9 @@ export const api = {
   // light (a board's carry shapes / words, never its scene); this one
   // carries the board's scene for a preview or a restore.
   noteVersionGet: (noteId, versionId) => req(`/notes/${encodeURIComponent(noteId)}/versions/${encodeURIComponent(versionId)}`),
+  // The weather follows the jobsite (10/30/2026): "+ New Jobsite" in the
+  // shift popup - a name and an address make a Construction project.
+  createJobsite: (data) => req("/timeclock/jobsites", { method: "POST", body: JSON.stringify(data) }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with
@@ -3385,3 +3424,68 @@ api.pushConfig = () => req('/push/config');
 api.pushSubscribe = (sub) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
 api.pushUnsubscribe = (endpoint) => req('/push/subscribe', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
 api.pushSubscriptions = () => req('/push/subscriptions');
+
+// Forms (Neil, 11/02/2026; backend routers/forms.py). A form is a template with
+// docType 'form' - its build, publish, duplicate and archive are the template
+// calls above. These are the entries: what this person may fill, the fill
+// payload, a submission (idempotent on entryKey), the viewer's list, review,
+// links to a ticket / task / asset, the PDF, and one CSV per form.
+api.getFormsMine = () => req('/forms/mine');
+api.getFormFill = (tid) => req(`/forms/${encodeURIComponent(tid)}`);
+api.submitFormEntry = (tid, data) => req(`/forms/${encodeURIComponent(tid)}/entries`, { method: 'POST', body: JSON.stringify(data) });
+// params: template, site, status, from, to, person, page - empty ones left out.
+// Answers {items: [entry], total, page, pageSize}.
+api.getFormEntries = (params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null));
+  return req(`/forms/entries${q.toString() ? `?${q}` : ''}`);
+};
+api.getFormEntry = (id) => req(`/forms/entries/${encodeURIComponent(id)}`);
+api.reviewFormEntry = (id, data) => req(`/forms/entries/${encodeURIComponent(id)}/review`, { method: 'POST', body: JSON.stringify(data) });
+api.linkFormEntry = (id, data) => req(`/forms/entries/${encodeURIComponent(id)}/link`, { method: 'POST', body: JSON.stringify(data) });
+api.formEntryPdf = (id) => reqBlob(`/forms/entries/${encodeURIComponent(id)}/pdf`);
+// params: from, to, status, site - the list's filters, empty ones left out.
+api.formTemplateCsv = (tid, params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null));
+  return reqBlob(`/forms/templates/${encodeURIComponent(tid)}/export.csv${q.toString() ? `?${q}` : ''}`);
+};
+// Forms & Checklists (Neil, 11/02/2026; backend routers/forms.py). The forms
+// this person may fill (the server's audience rule), one form's released
+// fields for the fill screen, and the send - idempotent on `entryKey`, so a
+// retry files the same entry once. Photos and signatures go to task-files
+// under forms/<entryKey>/ first (tasks/lib storeTaskFile); the body carries
+// their URLs. body: {entryKey, answers, workSiteId?, shiftId?, source, gps?}.
+// The same three calls under the names the fill screen uses (one definition above).
+api.formsMine = (...a) => api.getFormsMine(...a);
+api.formGet = (...a) => api.getFormFill(...a);
+api.formSubmit = (...a) => api.submitFormEntry(...a);
+// Federal forms (Neil, 11/02/2026; backend federal_forms/ + routers/hr.py):
+// HR++ sends one form - w4 / i9 / direct_deposit - to one employee, and
+// Settings reads the edition watch. A hiring packet's forms travel as
+// `federal_forms` on saveDocumentsPacket's body like its other fields.
+api.sendFederalForm = (eid, kind) => req(`/hr/employees/${encodeURIComponent(eid)}/federal-forms/send`, { method: 'POST', body: JSON.stringify({ kind }) });
+api.federalFormsStatus = () => req('/hr/federal-forms/status');
+// My Profile > Security (Neil, 11/02/2026; backend routers/me_sessions.py):
+// where you are signed in (a session is named by a hash - the cookie value
+// itself never comes back), sign one or every other device out, and the last
+// 20 sign-ins with the device and the approximate place.
+api.mySessions = () => req('/me/sessions');
+api.mySignIns = () => req('/me/sign-ins');
+api.signOutSession = (id) => req(`/me/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+api.signOutOtherSessions = () => req('/me/sessions/others', { method: 'POST' });
+
+// PDF Tools: one Audit Log row per action (routers/pdf_tools.py). Name, page count
+// and places only, never the file. The caller ignores the answer.
+api.pdfToolsEvent = (body) => req('/pdf-tools/events', { method: 'POST', body: JSON.stringify(body) });
+// A jobsite placed from its Google Maps link (11/02/2026), like a work site:
+// the exact point its weather is read at, and the address the link names.
+api.resolveProjectLink = (link) => req('/construction/resolve-link', { method: 'POST', body: JSON.stringify({ link }) });
+api.resolveJobsiteLink = (link) => req('/timeclock/jobsites/resolve-link', { method: 'POST', body: JSON.stringify({ link }) });
+// Settings walls (11/02/2026): the companies a Full Employee Tracking grant
+// holder may open the Workforce Analytics Policy for (Settings' company list
+// when People's /hr/entities is not theirs to read), and a shift settings
+// reset of one Settings group's own keys (the rest of the override stays).
+api.timeMonitoringCompanies = () => req('/timeclock/monitoring/companies');
+api.shiftRequestSettingsResetKeys = (company, keys) => req(`/timeclock/shift-requests/settings?company=${encodeURIComponent(company)}&keys=${encodeURIComponent((keys || []).join(','))}`, { method: 'DELETE' });
+// The companies again, past the 2-minute cache: Settings asks once when an
+// address names a company it does not know (someone may have just added it).
+api.getEntitiesFresh = () => req('/hr/entities');

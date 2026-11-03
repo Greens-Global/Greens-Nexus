@@ -34,9 +34,11 @@ vi.mock('../api', () => ({
 }));
 vi.mock('../lib/brandAccent', async (orig) => ({ ...(await orig()), setBrandAccent: vi.fn() }));
 vi.mock('../lib/docBuilderUpload', () => ({ uploadToSupabase: vi.fn(), imageFromPaste: () => null }));
-const roleState = { admin: true };
+// `super`: a Super Administrator - the brand and the email look are every
+// company's, theirs alone (Neil, 11/02/2026).
+const roleState = { admin: true, super: true };
 vi.mock('../contexts/RoleContext', () => ({
-  useRole: () => ({ can: (min) => (min === 'administrator' ? roleState.admin : true), myGrantedModules: new Set(), actingAs: null }),
+  useRole: () => ({ can: (min) => (min === 'administrator' ? roleState.admin : true), isGlobalAdmin: roleState.super, myGrantedModules: new Set(), actingAs: null }),
 }));
 vi.mock('./HR', () => ({ CompanySetupPage: () => null, WorkSiteLibrary: () => null }));
 vi.mock('../tickets/TicketDeskSettings', () => ({ default: () => null }));
@@ -47,7 +49,7 @@ const AdminConsole = (await import('./AdminConsole')).default;
 const { SignInPolicyPanel, EmailAppearancePanel, BrandColorPanel } = await import('./BrandingPoliciesSettings');
 
 beforeEach(() => { Object.values(mockApi).forEach(f => f.mockClear()); });
-afterEach(() => { cleanup(); roleState.admin = true; });
+afterEach(() => { cleanup(); roleState.admin = true; roleState.super = true; });
 
 describe('Branding & Email subject', () => {
   it('renders its groups for administrators, and the old global-branding link lands on it', () => {
@@ -59,6 +61,15 @@ describe('Branding & Email subject', () => {
     cleanup();
     render(<AdminConsole activeSub="security" onSubChange={() => {}} />);
     expect(screen.getByRole('region', { name: 'Sign-In Policy' })).toBeInTheDocument();
+  });
+
+  it('keeps Brand Color and Email Appearance from an Administrator who is not a Super Administrator', () => {
+    roleState.super = false;
+    render(<AdminConsole activeSub="branding" onSubChange={() => {}} />);
+    expect(screen.getByRole('heading', { name: 'Branding & Email' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Brand Color' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Email Appearance' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Email Signature' })).toBeInTheDocument();
   });
 
   it('is hidden from non-administrators', () => {

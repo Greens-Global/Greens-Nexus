@@ -889,6 +889,9 @@ def reminders_pass(now: Optional[datetime] = None) -> dict:
         db.commit()
         out["reviews"] = perf_reviews.loop_pass(db)
         db.commit()
+        import perf_bonus
+        out["ratings"] = perf_bonus.rating_reminders(db)       # month-end: manual KPIs still unrated (bonus plans)
+        db.commit()
         return out
     finally:
         db.close()

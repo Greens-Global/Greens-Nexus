@@ -1,13 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useGroupDirty } from '../lib/groupDirty';
+import { useDraft } from '../lib/useDraft';
+import { confirmDiscard } from '../lib/dialogGuard';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner } from './AsyncState';
+import SaveRow from './SaveRow';
 
 // Payroll Export Codes (Neil, Oct 17 2026): the name each pay class carries in
 // the QuickBooks IIF (payroll item) and the Intacct payroll memo, per company.
 // The server holds the defaults (exactly the names the exports always used);
-// a blank box reads the default, and Reset to Default clears the company's
-// names. Changing is administrator only, like Punch Rounding.
+// a blank box reads the default, and Use the Default clears the company's
+// names. Changing is administrator only, like Punch Rounding. The boxes are
+// one draft with one Save row at the foot (the Settings save pattern).
 
 export const PAY_CLASS_LABELS = {
   regular: 'Regular',
@@ -25,6 +29,9 @@ export const PAY_CLASS_LABELS = {
 };
 
 const draftOf = (data) => Object.fromEntries((data?.classes || []).map((c) => [c.key, c.custom ? c.code : '']));
+// The form as saved: each class's own name ('' = the default) and the QuickBooks company name.
+const formOf = (data) => (data ? { codes: draftOf(data), qb: data.quickbooksCompanyName || '' } : null);
+const trimmed = (f) => (f ? { codes: Object.fromEntries(Object.entries(f.codes).map(([k, v]) => [k, (v || '').trim()])), qb: (f.qb || '').trim() } : null);
 
 // `company` (Settings' scope picker, Oct 23) fixes the company and hides the
 // select; on its own the panel offers every company. Settings' group card
@@ -36,9 +43,9 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
   const [company, setCompany] = useState(scoped);
   useEffect(() => { if (scoped) setCompany(scoped); }, [scoped]);
   const [data, setData] = useState(null);
-  const [draft, setDraft] = useState({});
   // The QuickBooks company name the IIF header carries (Oct 19); blank = the company's own name.
-  const [qbDraft, setQbDraft] = useState('');
+  const saved = useMemo(() => formOf(data), [data]);
+  const { draft: form, patch, dirty: rawDirty, reset } = useDraft(saved);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');
 
@@ -64,28 +71,38 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
     setErr('');
     setData(null);
     api.timeExportCodesGet(company)
-      .then((d) => { if (mine === seq.current) { setData(d); setDraft(draftOf(d)); setQbDraft(d?.quickbooksCompanyName || ''); } })
+      .then((d) => { if (mine === seq.current) setData(d); })
       .catch((e) => { if (mine === seq.current) setErr(e?.message || 'Could not load the payroll export codes.'); });
   }, [company, companies]);
   useEffect(() => { load(); }, [load]);
 
+  // True once the names are saved.
   const save = async (codes, qbName, kind) => {
     setBusy(kind);
     try {
-      const saved = await api.timeExportCodesSet(company, codes, qbName);
-      setData(saved);
-      setDraft(draftOf(saved));
-      setQbDraft(saved?.quickbooksCompanyName || '');
-      toastOk?.(kind === 'reset' ? 'Payroll export codes reset to default.' : 'Payroll export codes saved.');
-    } catch (e) { toastErr?.(e?.message || 'Could not save the payroll export codes.'); }
-    setBusy('');
+      const next = await api.timeExportCodesSet(company, codes, qbName);
+      setData(next);
+      toastOk?.(kind === 'reset' ? 'Payroll export codes back to the default.' : 'Payroll export codes saved.');
+      return true;
+    } catch (e) {
+      toastErr?.(e?.message || 'Could not save the payroll export codes.');
+      return false;
+    } finally { setBusy(''); }
   };
 
   const anyCustom = (data?.classes || []).some((c) => c.custom) || !!data?.quickbooksCompanyName;
   useEffect(() => { if (data && scoped) onOverride?.(anyCustom); }, [data, scoped, anyCustom, onOverride]);
-  const dirty = (data?.classes || []).some((c) => (draft[c.key] || '').trim() !== (c.custom ? c.code : ''))
-    || qbDraft.trim() !== (data?.quickbooksCompanyName || '');
-  useGroupDirty(dirty);
+  // Spaces alone are no change: the server trims them away.
+  const dirty = rawDirty && JSON.stringify(trimmed(form)) !== JSON.stringify(saved);
+  const saveDraft = () => save(form.codes, form.qb, 'save');
+  useGroupDirty(dirty, saveDraft);
+  // The panel's own company select (outside Settings' scope picker) asks
+  // before it drops unsaved names.
+  const pickCompany = async (id) => {
+    if (dirty && !(await confirmDiscard())) return;
+    reset();
+    setCompany(id);
+  };
 
   return (
     <div data-testid="payroll-export-codes">
@@ -94,7 +111,7 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
           Leave a box blank to use the default shown in it. The names must match the payroll items in QuickBooks.
         </span>
         {!scoped && companies && companies.length > 0 && (
-          <select className="form-input" aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)} style={{ fontSize: 12.5, width: 'auto', maxWidth: 260 }}>
+          <select className="form-input" aria-label="Company" value={company} onChange={(e) => pickCompany(e.target.value)} style={{ fontSize: 12.5, width: 'auto', maxWidth: 260 }}>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
           </select>
         )}
@@ -105,7 +122,7 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
           <span style={{ flex: 1 }}>{err}</span>
           <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={load}>Retry</button>
         </div>
-      ) : !data ? (
+      ) : !data || !form ? (
         <div style={{ marginTop: 12 }}><SkeletonBlocks count={2} height={36} borderRadius={8} /></div>
       ) : (
         <>
@@ -115,7 +132,7 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
                 <span>{PAY_CLASS_LABELS[c.key] || c.key}</span>
                 <input className="form-input" type="text" maxLength={data.maxLength || 31} placeholder={c.default}
                   aria-label={`${PAY_CLASS_LABELS[c.key] || c.key} code`}
-                  value={draft[c.key] || ''} onChange={(e) => setDraft((d) => ({ ...d, [c.key]: e.target.value }))}
+                  value={form.codes[c.key] || ''} onChange={(e) => patch({ codes: { ...form.codes, [c.key]: e.target.value } })}
                   style={{ fontSize: 12.5 }} />
               </label>
             ))}
@@ -124,24 +141,12 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
             <span>QuickBooks Company Name</span>
             <input className="form-input" type="text" maxLength={data.quickbooksCompanyMaxLength || 100}
               placeholder={data.quickbooksCompanyDefault || ''} aria-label="QuickBooks Company Name"
-              value={qbDraft} onChange={(e) => setQbDraft(e.target.value)} style={{ fontSize: 12.5 }} />
+              value={form.qb} onChange={(e) => patch({ qb: e.target.value })} style={{ fontSize: 12.5 }} />
             <span style={{ fontSize: 11.5 }}>The company name in the QuickBooks IIF header. It must match the QuickBooks company file; leave it blank to use the company's name.</span>
           </label>
-          {/* One save pattern (Oct 25): Save shows only once something changed. */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-            {dirty && (
-              <>
-                <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={!!busy}
-                  onClick={() => save(draft, qbDraft, 'save')}>Save</button>
-                <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={!!busy}
-                  onClick={() => { setDraft(draftOf(data)); setQbDraft(data?.quickbooksCompanyName || ''); }}>Discard Changes</button>
-              </>
-            )}
-            {anyCustom && (
-              <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={!!busy}
-                onClick={() => save({}, '', 'reset')}>Reset to Default</button>
-            )}
-          </div>
+          <SaveRow dirty={dirty} busy={busy === 'save'} onSave={saveDraft} onDiscard={reset}
+            onUseDefault={anyCustom ? () => save({}, '', 'reset') : undefined} useDefaultBusy={busy === 'reset'}
+            note="Applies to the next QuickBooks and Intacct payroll export." />
         </>
       )}
     </div>

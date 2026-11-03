@@ -39,8 +39,11 @@ FIXED = "labor.fixed@greensglobal.com"       # fixed pay: counted, not priced
 NORATE = "labor.norate@greensglobal.com"     # hourly with no rate row
 MGR = "labor.mgr@greensglobal.com"           # manager tier: hours only, pay hidden
 STAFF = "labor.staff@greensglobal.com"
+HRC = "labor.hrc@greensglobal.com"            # manager tier, but the company's HR contact: HR++
+ENT = "ent-labor"
 MON, TUE, WED = "2026-11-16", "2026-11-17", "2026-11-18"
-ROLE_EMAILS = (ADMIN, MGR)
+SUN = "2026-11-22"
+ROLE_EMAILS = (ADMIN, MGR, HRC)
 
 
 class LaborTests(unittest.TestCase):
@@ -52,12 +55,15 @@ class LaborTests(unittest.TestCase):
         self._cleanup()
         db = database.SessionLocal()
         try:
-            for em in (ADMIN, HOURLY, FIXED, NORATE, MGR, STAFF):
+            for em in (ADMIN, HOURLY, FIXED, NORATE, MGR, STAFF, HRC):
                 db.add(models.NexusEmployee(id=f"emp-{em}", first_name=em.split(".")[1].split("@")[0], last_name="X",
                                             work_email=em, status="active", deleted_at="",
+                                            company=ENT if em in (HRC, HOURLY, MGR) else "",
                                             manager_email=MGR if em in (HOURLY, FIXED) else ""))
-            db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
+            db.add(models.HrEntity(id=ENT, name="Greens Labor", hr_contact_email=HRC))
+            db.add(models.NexusRole(email=ADMIN, role="owner", assigned_by="test"))   # company-wide labor = a Super Administrator (Administrators are walled, 11/02/2026)
             db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
+            db.add(models.NexusRole(email=HRC, role="manager", assigned_by="test"))
             db.add(models.PayrollRate(employee_email=HOURLY, pay_type="hourly", hourly_rate=30, overtime_rule="ca", currency="USD"))
             db.add(models.PayrollRateHistory(id="lab-h-1", employee_email=HOURLY, effective_date="", pay_type="hourly", hourly_rate=20, currency="USD", created_at="2026-01-01T00:00:00"))
             db.add(models.PayrollRateHistory(id="lab-h-2", employee_email=HOURLY, effective_date=TUE, pay_type="hourly", hourly_rate=30, currency="USD", created_at="2026-11-01T00:00:00"))
@@ -90,6 +96,8 @@ class LaborTests(unittest.TestCase):
             db.query(models.ScheduledShift).filter(
                 (models.ScheduledShift.employee_email.like("labor.%")) |
                 (models.ScheduledShift.created_by.like("labor.%"))).delete(synchronize_session=False)
+            db.query(models.HrEntity).filter(models.HrEntity.id == ENT).delete(synchronize_session=False)
+            db.query(models.NexusSetting).filter(models.NexusSetting.key.like("shift_requests_config%")).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -202,6 +210,58 @@ class LaborTests(unittest.TestCase):
     def test_staff_are_refused(self):
         self._as(STAFF)
         self.assertEqual(self._labor().status_code, 403)
+
+    # ── Weekly labor budget, HR++ only (Neil, 11/02/2026) ─────────────────
+    def _budget(self, company="", **cfg):
+        import json
+        db = database.SessionLocal()
+        try:
+            key = f"shift_requests_config:{company}" if company else "shift_requests_config"
+            db.add(models.NexusSetting(key=key, value=json.dumps(cfg)))
+            db.commit()
+        finally:
+            db.close()
+
+    def test_budget_hidden_for_manager_tier(self):
+        """A plain manager never sees the budget - not even that there is one:
+        both the flag and the values are ABSENT, not null."""
+        self._budget(ENT, laborBudgetHours=1200, laborBudgetAmount=9000)
+        self._place(HOURLY, MON)
+        self._as(MGR)
+        d = self._labor().json()
+        self.assertNotIn("budgetVisible", d)
+        self.assertNotIn("budget", d)
+
+    def test_budget_visible_for_hr_contact_with_values(self):
+        """The company's HR contact (manager tier, no admin role) is HR++ for
+        that company: the weekly budget, scaled to the 3-day range."""
+        self._budget(ENT, laborBudgetHours=1200, laborBudgetAmount=9000)
+        self._as(HRC)
+        r = self._labor()
+        self.assertEqual(r.status_code, 200, r.text)
+        d = r.json()
+        self.assertTrue(d["budgetVisible"])
+        self.assertEqual(d["budget"], {"hours": 514, "amount": 3857, "currency": "USD"})
+        # An administrator reads the tenant default when the scope spans no one company.
+        self._budget("", laborBudgetHours=700, laborBudgetAmount=7000)
+        self._as(ADMIN)
+        d = self._labor().json()
+        self.assertTrue(d["budgetVisible"])
+        self.assertEqual(d["budget"], {"hours": 300, "amount": 3000, "currency": "USD"})
+
+    def test_budget_scaled_to_range(self):
+        """Weekly figures: exact over a week, pro rata otherwise; 0 = no budget
+        (null values, the flag still true for HR++)."""
+        self._budget(ENT, laborBudgetHours=1200, laborBudgetAmount=9000)
+        self._as(HRC)
+        d = self._labor(MON, SUN).json()
+        self.assertEqual(d["budget"], {"hours": 1200, "amount": 9000, "currency": "USD"})
+        d = self._labor(MON, MON).json()
+        self.assertEqual(d["budget"], {"hours": 171, "amount": 1286, "currency": "USD"})
+        self._as(ADMIN)
+        d = self._labor().json()
+        self.assertTrue(d["budgetVisible"])
+        self.assertEqual(d["budget"], {"hours": None, "amount": None, "currency": "USD"})
 
     def test_bad_dates_are_refused(self):
         self.assertEqual(self._labor("2026-11-20", "2026-11-10").status_code, 400)

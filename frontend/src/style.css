@@ -1757,6 +1757,49 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 }
 .support-card-title { font-weight: 700; font-size: 14px; color: var(--ink); margin-bottom: 5px; }
 .support-card-desc { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+/* "How Do I..." (support/HowDoI.jsx, Neil, 11/02/2026): ONE full-width tile in
+   the Help Center grid, a question per row, the answer dropping down with the
+   one button that does it. A <section>, not a button, so the tile's own hover
+   lift and arrow do not apply; the rows carry the hover tint instead. */
+.how-do-i { grid-column: 1 / -1; position: relative; cursor: default; }
+.how-do-i:hover { background: var(--card); outline: none; transform: none; box-shadow: var(--shadow-md); }
+.how-do-i:hover .support-icon { background: var(--mist); color: var(--fern); }
+.how-do-i-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
+.how-do-i-head .support-icon { margin-bottom: 0; flex-shrink: 0; }
+.how-do-i-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 0 24px; }
+.how-do-i-row { border-top: 1px solid var(--line); min-width: 0; }
+.how-do-i-q {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 4px;
+  background: none; border: none; cursor: pointer; text-align: left; font-family: inherit; color: var(--ink);
+  font-size: 13.5px; font-weight: 600; border-radius: 8px;
+  transition: background var(--dur-sm) var(--ease-out), color var(--dur-sm) var(--ease-out);
+}
+.how-do-i-q:hover { background: color-mix(in srgb, var(--wk-brand) 8%, transparent); }
+.how-do-i-q:focus-visible { outline: 2px solid var(--fern); outline-offset: -2px; }
+.how-do-i-ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; background: var(--mist); color: var(--fern); }
+.how-do-i-row.is-open .how-do-i-ico, .how-do-i-q:hover .how-do-i-ico { background: color-mix(in srgb, var(--wk-brand) 16%, var(--card)); color: var(--wk-brand); }
+.how-do-i-label { flex: 1; min-width: 0; }
+.how-do-i-chev { color: var(--muted); flex-shrink: 0; transition: transform var(--dur-md) var(--ease-out); }
+.how-do-i-row.is-open .how-do-i-chev { transform: rotate(180deg); color: var(--wk-brand); }
+/* The answer slides down: grid-rows 0fr -> 1fr is the one height animation
+   that costs no layout thrash and needs no measured height. */
+.how-do-i-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-md) var(--ease-out); }
+.how-do-i-row.is-open .how-do-i-panel { grid-template-rows: 1fr; }
+.how-do-i-panel-in { overflow: hidden; min-height: 0; padding: 0 4px 0 44px; }
+.how-do-i-row.is-open .how-do-i-panel-in { padding-bottom: 14px; }
+.how-do-i-answer { margin: 2px 0 10px; font-size: 13px; line-height: 1.55; color: var(--muted); max-width: 68ch; }
+.how-do-i-act {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--wk-brand) 40%, transparent); background: color-mix(in srgb, var(--wk-brand) 10%, var(--card));
+  color: var(--wk-brand); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background var(--dur-sm) var(--ease-out), transform var(--dur-xs) var(--ease-out);
+}
+.how-do-i-act:hover { background: color-mix(in srgb, var(--wk-brand) 18%, var(--card)); }
+.how-do-i-act:active { transform: translateY(1px); }
+.how-do-i-act:focus-visible { outline: 2px solid var(--fern); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .how-do-i-panel, .how-do-i-chev, .how-do-i-q, .how-do-i-act { transition: none; }
+}
 .link-btn { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-weight: 600; font-size: 12.5px; background: none; border: none; cursor: pointer; font-family: inherit; margin-top: 10px; transition: color var(--transition-fast); }
 .link-btn:hover { color: var(--ink); }
 
@@ -3164,6 +3207,11 @@ button, [role="button"], select { touch-action: manipulation; }
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 input:focus-visible, textarea:focus-visible, select:focus-visible, [contenteditable]:focus-visible { outline-offset: 0; }
 [style*="outline: none"]:focus-visible, [style*="outline:none"]:focus-visible { outline: 2px solid var(--focus-ring) !important; outline-offset: 1px; }
+/* A paste target (Forms' photo field, Neil 11/02/2026): focusable so Ctrl+V
+   works without clicking a button first, and ringed whenever it holds focus -
+   a click included - so the person sees where the paste will land. */
+.nx-paste-zone { border-radius: 10px; }
+.nx-paste-zone:focus { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
 /* Borderless inline-edit fields (Oct 12) - every input that is a bare line
    of text with no box of its own: the task title, hours/minutes cells, the
    search pills and menu search rows, add-subtask / add-label / add-task
@@ -7916,6 +7964,13 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .hc-page--phone .support-card-title { font-size: 13.5px; line-height: 1.3; margin-bottom: 0; }
   .hc-page--phone .support-card-desc,
   .hc-page--phone .support-card-arrow { display: none; }
+  .hc-page--phone .how-do-i { grid-column: 1 / -1; min-height: 0; padding: 14px; display: block; }
+  .hc-page--phone .how-do-i .support-card-desc { display: block; }
+  .hc-page--phone .how-do-i-head { margin-bottom: 8px; }
+  .hc-page--phone .how-do-i-list { grid-template-columns: 1fr; }
+  .hc-page--phone .how-do-i-q { padding: 13px 2px; min-height: 48px; font-size: 15px; }
+  .hc-page--phone .how-do-i-panel-in { padding-left: 42px; }
+  .hc-page--phone .how-do-i-act { min-height: 40px; }
   .hc-page--phone .hc-tickets-phone { padding: 14px; }
   .hc-page--phone .view-header { margin-bottom: 0; }
 }
@@ -8207,28 +8262,127 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .apv-toast-undo { background: none; border: none; color: hsl(var(--color-green)); font-weight: 800; font-size: 13px; cursor: pointer; padding: 2px 4px; font-family: inherit; }
 .apv-toast-open { background: none; border: none; color: inherit; text-decoration: underline; font-weight: 700; font-size: 13px; cursor: pointer; padding: 2px 4px; font-family: inherit; white-space: nowrap; }
 @media (max-width: 1180px) { .apv-body { grid-template-columns: 200px minmax(0, 1fr); } }
+/* Under 760px the list above is replaced by the phone surface (next block);
+   only the Review sheet's facts and foot are still drawn from here. */
 @media (max-width: 760px) {
-  .apv-body { grid-template-columns: minmax(0, 1fr); }
-  .apv-tiles { grid-template-columns: 1fr 1fr; }
-  .apv-row { grid-template-columns: 22px minmax(0, 1fr) auto; grid-template-areas: "pick who prio" ". what what" ". age age" "act act act"; gap: 8px 10px; align-items: start; padding: 14px 16px; }
-  .apv-row[data-priority="urgent"] { box-shadow: inset 4px 0 0 #dc2626; }
-  .apv-row[data-priority="high"] { box-shadow: inset 4px 0 0 #d97706; }
-  .apv-pick input { width: 20px; height: 20px; }
-  .apv-name, .apv-title { font-size: 15px; }
-  .apv-detail { font-size: 13.5px; }
-  .apv-age { text-align: left; font-size: 12.5px; }
-  .apv-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .apv-search { grid-column: 1 / -1; min-width: 0; }
-  .apv-search input { font-size: 16px; min-height: 44px; }
-  .apv-tools label { flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
-  .apv-tools select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
   .apv-facts { grid-template-columns: minmax(0, 1fr); }
   .apv-facts > div:nth-child(odd) { border-bottom: none; padding-bottom: 0; }
-  .apv-act { justify-content: stretch; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
-  .apv-act button { flex: 1 1 92px; min-width: 0; min-height: 44px; padding: 0 10px; font-size: 14px; border-radius: 10px; overflow: hidden; text-overflow: ellipsis; }
-  .apv-foot button { flex: 1 1 92px; min-width: 0; min-height: 44px; justify-content: center; font-size: 14px; border-radius: 10px; }
+  .apv-foot button { flex: 1 1 92px; min-width: 0; min-height: 48px; justify-content: center; font-size: 15px; border-radius: 10px; }
   .apv-foot .apv-open { flex-basis: 100%; }
   .apv-foot > span { display: none; }
+  .apv-toast { bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .apv-toast-undo { min-height: 44px; padding: 0 12px; }
+}
+
+/* ── Approvals on the phone (approvals/ApprovalsPhone.jsx, Neil, 11/02/2026) ──
+   One card per request, two big decisions, the chip strip, one Filter
+   sheet. Motion is transform and opacity only, on the --dur-* tokens: a
+   decided card is lifted out of the flow as a ghost that flashes its action
+   color (an overlay's opacity, --dur-xs), then slides on the way it went
+   (right for a yes, left for a no, from where a swipe let go) and fades
+   (--dur-sm, the exit - 70% of the --dur-md the neighbors glide in through
+   useFlip); the count pill bumps on --dur-sm; the empty check pops once on
+   --ease-spring. Reduced motion: the JS skips the ghost, and this block
+   stills the rest. */
+.apv-phone { font-family: Inter, sans-serif; color: var(--ink); }
+/* Sticky section labels: .viewport is overflow-y: auto but never scrolls
+   itself (the page does), and body's overflow-x: hidden makes it a
+   non-scrolling scroll container - either stops position: sticky. Same fix
+   as Documentation and Settings, and only while Approvals shows on a phone. */
+.viewport:has(.apv-phone) { overflow: visible; }
+body:has(.apv-phone) { overflow-x: clip; }
+.apv-ph-head { display: grid; gap: 12px; margin-bottom: 12px; }
+.apv-ph-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.apv-ph-title h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.01em; line-height: 1.2; }
+.apv-ph-pill { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 999px; background: var(--wk-brand-tint); color: var(--wk-brand); font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.apv-ph-pill.is-bump { animation: apv-ph-bump var(--dur-sm) var(--ease-out); }
+@keyframes apv-ph-bump { 50% { transform: scale(1.08); } }
+.apv-phone .apv-tabs { display: flex; align-self: stretch; }
+.apv-phone .apv-tabs button { flex: 1 1 0; justify-content: center; min-height: 44px; font-size: 14px; }
+.apv-ph-chips { display: flex; align-items: center; gap: 8px; padding: 2px 0 12px; }
+.apv-ph-chip { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 13.5px; font-weight: 600; white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform var(--dur-xs) var(--ease-standard); }
+.apv-ph-chip:active { transform: scale(.97); }
+.apv-ph-chip b { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.apv-ph-chip.is-on { background: var(--wk-brand-tint); border-color: color-mix(in srgb, var(--wk-brand) 35%, var(--line)); color: var(--wk-brand); }
+.apv-ph-chip.is-on b { color: var(--wk-brand); }
+.apv-ph-filter { position: sticky; right: 0; margin-left: auto; box-shadow: -12px 0 10px -8px var(--paper), 0 0 0 6px var(--paper); }
+.apv-ph-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--wk-brand); }
+.apv-ph-list { position: relative; display: grid; gap: 10px; }
+.apv-ph-sec { display: grid; gap: 10px; }
+.apv-ph-sec-h { z-index: 2; display: flex; align-items: center; gap: 6px; padding: 8px 2px 6px; background: var(--paper); font-size: 12.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.apv-ph-sec-l { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-ph-sec-n { font-weight: 600; white-space: pre; }
+.apv-ph-sec-old { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.apv-ph-own .apv-ph-sec-h { color: #7c3aed; } .apv-ph-own .apv-ph-sec-l { color: #6d28d9; }
+.apv-ph-wrap { position: relative; }
+.apv-ph-swipe { position: absolute; inset: 0; border-radius: 12px; display: flex; align-items: center; padding: 0 22px; color: #fff; }
+.apv-ph-swipe.is-yes { background: #16a34a; justify-content: flex-start; }
+.apv-ph-swipe.is-no { background: #dc2626; justify-content: flex-end; }
+.apv-ph-swipe-ic { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,.22); }
+.apv-ph-card { position: relative; display: grid; gap: 10px; padding: 14px 14px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+/* Only a card that swipes keeps the horizontal drag for itself; scrolling
+   and pinch zoom stay the browser's. Every other card is left alone. */
+.apv-ph-card[data-swipe] { touch-action: pan-y pinch-zoom; }
+.apv-ph-card[data-priority="urgent"] { box-shadow: inset 4px 0 0 #dc2626; }
+.apv-ph-card[data-priority="high"] { box-shadow: inset 4px 0 0 #d97706; }
+.apv-ph-top { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+.apv-ph-who { min-width: 0; }
+.apv-ph-name { font-size: 15px; font-weight: 700; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A 44px tall hit area from padding (13px over and under an ~18px line),
+   pulled back by the same negative margin so the card's layout is as it was. */
+.apv-ph-ttl { display: block; width: 100%; background: none; border: none; padding: 13px 0; margin: -11px 0 -13px; font: inherit; font-size: 13.5px; line-height: 1.35; color: var(--ink); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.apv-ph-side { display: grid; justify-items: end; gap: 4px; }
+.apv-ph-age { font-size: 12.5px; font-weight: 600; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.apv-ph-age.is-slow { color: #d97706; }
+.apv-ph-age.is-late { color: #dc2626; font-weight: 700; }
+.apv-ph-detail { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; color: var(--muted); line-height: 1.4; }
+.apv-ph-detail > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-ph-acts { display: flex; gap: 8px; align-items: stretch; }
+.apv-ph-btn { flex: 1 1 0; min-width: 0; min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border-radius: 10px; border: 1px solid transparent; font: inherit; font-size: 15px; font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform var(--dur-xs) var(--ease-standard); }
+.apv-ph-btn:active { transform: scale(.97); }
+.apv-ph-btn svg { flex-shrink: 0; }
+.apv-ph-yes { background: color-mix(in srgb, #16a34a 14%, var(--card)); color: #166534; }
+.apv-ph-no { background: color-mix(in srgb, #dc2626 12%, var(--card)); color: #b91c1c; }
+/* On the dark card the tints go dark too: light text keeps the words legible. */
+[data-theme="dark"] .apv-ph-yes { color: #4ade80; }
+[data-theme="dark"] .apv-ph-no { color: #f87171; }
+.apv-ph-review { background: color-mix(in srgb, var(--ink) 9%, var(--card)); color: var(--ink); }
+.apv-ph-open { flex: 0 1 auto; padding: 0 16px; background: var(--card); border-color: var(--line); color: var(--ink); }
+.apv-ph-more { flex: 0 0 44px; width: 44px; min-height: 48px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--muted); display: inline-grid; place-items: center; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.apv-ph-btn:focus-visible, .apv-ph-more:focus-visible, .apv-ph-chip:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: 2px; }
+.apv-ph-ghost { position: absolute; left: 0; right: 0; z-index: 1; pointer-events: none; transform: translateX(var(--from-x, 0px)); animation: apv-ph-leave var(--dur-sm) var(--ease-in) var(--dur-xs) forwards; }
+.apv-ph-ghost::after { content: ''; position: absolute; inset: 0; border-radius: 12px; background: var(--tone, #16a34a); opacity: 0; animation: apv-ph-flash var(--dur-xs) var(--ease-out) forwards; }
+.apv-ph-ghost.is-yes { --tone: #16a34a; }
+.apv-ph-ghost.is-no { --tone: #dc2626; }
+/* From where the swipe let go (--from-x, 0 for a tap), on 24px the way it was going (--dir: 1 right, -1 left). */
+@keyframes apv-ph-leave { from { transform: translateX(var(--from-x, 0px)); } to { transform: translateX(calc(var(--from-x, 0px) + var(--dir, 1) * 24px)); opacity: 0; } }
+@keyframes apv-ph-flash { to { opacity: .12; } }
+.apv-ph-empty { padding: 44px 20px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; background: var(--card); }
+.apv-ph-empty-ic { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: color-mix(in srgb, #16a34a 12%, var(--card)); color: #16a34a; animation: apv-ph-pop var(--dur-md) var(--ease-spring) both; }
+@keyframes apv-ph-pop { from { transform: scale(.6); opacity: 0; } }
+/* Nothing matches the filters: a neutral mark, no pop - nothing was cleared. */
+.apv-ph-empty-ic.is-filtered { background: color-mix(in srgb, var(--ink) 7%, var(--card)); color: var(--muted); animation: none; }
+.apv-ph-clear { margin-top: 14px; min-height: 44px; }
+.apv-ph-fbtn { flex: 1 1 0; min-height: 48px; justify-content: center; font-size: 15px; border-radius: 10px; }
+.apv-ph-note-wrap { display: flex; flex-direction: column; gap: 6px; }
+.apv-ph-note-why { font-size: 15px; font-weight: 700; }
+.apv-ph-note-hint { margin: 0 0 6px; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.apv-ph-note { flex: 1; width: 100%; min-height: 140px; resize: none; font-size: 16px; line-height: 1.5; }
+.apv-ph-note-req { font-size: 12px; color: var(--muted); }
+.apv-ph-fs { display: grid; gap: 20px; }
+.apv-ph-fs-g { display: grid; gap: 8px; }
+.apv-ph-fs-t { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.apv-ph-seg { display: flex; flex-wrap: wrap; gap: 8px; }
+.apv-ph-seg button { min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.apv-ph-seg button b { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.apv-ph-seg button.is-on { background: var(--wk-brand-tint); border-color: color-mix(in srgb, var(--wk-brand) 35%, var(--line)); color: var(--wk-brand); }
+.apv-ph-seg button.is-on b { color: var(--wk-brand); }
+@media (prefers-reduced-motion: reduce) {
+  .apv-ph-ghost, .apv-ph-ghost::after, .apv-ph-empty-ic, .apv-ph-pill.is-bump { animation: none; }
+  .apv-ph-ghost { opacity: 0; }
+  /* The press is a color change only. */
+  .apv-ph-chip, .apv-ph-btn { transition: none; }
+  .apv-ph-chip:active, .apv-ph-btn:active { transform: none; }
 }
 /* Voice anywhere (components/DictateButton.jsx, VoiceNoteButton.jsx; Neil,
    Oct 30 2026). The mic sits beside or inside a text box; a voice note
@@ -8481,3 +8635,19 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .sidebar.is-opening .nav-label, .sidebar.is-opening .nav-kicker, .sidebar.is-opening .company-name, .sidebar.is-opening .nav-count,
   .sidebar .nav-count.is-bump { animation: none !important; }
 }
+
+/* ── Settings > Performance > KPI Scorecards (Oct 30 2026) ─────────────────── */
+.perf-sc-head, .perf-sc-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px 84px 84px 84px 34px; gap: 8px; align-items: center; }
+.perf-sc-head { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); padding: 0 0 2px; }
+.perf-sc-row { padding: 6px 0; border-top: 1px solid var(--line); }
+.perf-sc-num { width: 100%; padding: 5px 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.perf-sc-src { margin-left: 6px; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--bg-secondary); color: var(--muted); vertical-align: 1px; }
+.perf-sc-src.manual { background: hsla(var(--color-orange), 0.14); color: hsl(var(--color-orange)); }
+.perf-sc-total { font-weight: 700; color: var(--bad-fg); }
+.perf-sc-total.is-ok { color: var(--ok-fg, hsl(var(--color-green))); }
+@media (max-width: 767px) { .perf-sc-head { display: none; } .perf-sc-row { grid-template-columns: 1fr 1fr; } .perf-sc-row > span:first-child { grid-column: 1 / -1; } }
+
+/* My Score (Performance, Oct 30 2026): one row per KPI with its attainment bar. */
+.nx-perf-score-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 14px; padding: 10px 0; border-top: 1px solid var(--line); align-items: center; }
+.nx-perf-score-bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.nx-perf-score-bar > span { display: block; height: 100%; border-radius: 2px; transition: width .3s; }

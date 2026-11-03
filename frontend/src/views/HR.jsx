@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } fro
 import { InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import { SendHiringPacketModal, PacketSigner, PersonLifeEvents, PaperworkStatus, usDay } from '../components/HiringPacket';
 import PacketReview from '../components/PacketReview';
+import SendFederalFormMenu from '../components/SendFederalFormMenu';
 import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import { ProbationBadge, ProbationCard } from '../components/HrProbation';
@@ -46,6 +47,7 @@ import { LevelPill, ModuleLevelPill, TierBadge, RoleOptions, rolesForCompany } f
 // External tab folded into People (Neil, Aug 24: one master list) - only the
 // shared pieces remain in use: badge, invite modal, lifecycle section.
 import { ExternalBadge, InviteExternalModal, inviteOutcomeToast, ExternalPersonSection } from './ExternalUsersPanel';
+import TierMark from '../components/TierMark';
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
@@ -91,6 +93,9 @@ const PersonPerformanceSection = lazy(() => import('../performance/PersonPerform
 // People Analytics and Exits (Oct 27 2026) load with their tab - their own chunks.
 const HrAnalytics = lazy(() => import('../components/HrAnalytics'));
 const ExitsTab = lazy(() => import('../components/ExitsTab'));
+// People > Reports (Neil, Teams 11/02/2026): Company Directory, Employees,
+// Contractors - filterable and exportable, over the rows People already holds.
+const PeopleReports = lazy(() => import('../components/PeopleReports'));
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -891,7 +896,7 @@ export function WorkLogsSection({ employee }) {
   );
 }
 
-function DocumentsSection({ employeeId, toastOk, toastErr }) {
+function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
   const [docs, setDocs] = useState(null);
   const [kind, setKind] = useState('other');
   const [uploading, setUploading] = useState(false);
@@ -926,6 +931,8 @@ function DocumentsSection({ employeeId, toastOk, toastErr }) {
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
           <FileText size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Documents
         </span>
+        {/* Federal forms (Neil, 11/02/2026): HR++ sends a W-4, I-9 or direct deposit form to this person. */}
+        {employee && <SendFederalFormMenu employee={employee} toastOk={toastOk} toastErr={toastErr} onSent={onSent} />}
         <select className="form-input" value={kind} onChange={e => setKind(e.target.value)} style={{ padding: '3px 8px', fontSize: 11.5, height: 28 }}>
           {DOC_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
@@ -1795,8 +1802,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const { canAccessModule: canAccessHr, myEmail: viewerEmail } = useRole();
   const canEditChecklist = canAccessHr('hr', 'administrator', 'editor');
   const canEditProfile = canAccessHr('hr', 'manager', 'editor');
-  // Promote / Change Role: HR editors outside a team view, IT Admins and
-  // Global Admins only (Neil, Oct 22 - "Manager calls HR"); the server's
+  // Promote / Change Role: HR editors outside a team view, Administrators and
+  // Super Administrators only (Neil, Oct 22 - "Manager calls HR"); the server's
   // role_change.can_change_roles is the same rule.
   const canChangeRole = !teamView && canAccessHr('hr', 'administrator', 'editor');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
@@ -1890,7 +1897,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             the name into a one-word column. */}
         <div style={{ flex: 1, minWidth: 'min(100%, 220px)' }}>
           <div style={{ fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {fullName(e)}
+            {fullName(e)}<TierMark tier={e.tier} size={16} />
             {e.identityType && e.identityType !== 'internal' && (
               <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-orange),0.14)', color: 'hsl(var(--color-orange))' }}>
                 {e.identityType === 'guest' ? 'Guest' : 'External'}
@@ -2209,7 +2216,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           <>
             {/* Signed offer / packet / letters, one line each with their filing (off the header - Neil, Oct 22). */}
             {!teamView && <PersonLifeEvents signed employeeId={e.id} workEmail={e.workEmail} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
-            <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
+            <DocumentsSection employeeId={e.id} employee={teamView ? null : e} onSent={onReload} toastOk={toastOk} toastErr={toastErr} />
             {/* The person's wired Egnyte folder (Neil, Aug 6): hiring package,
                 invoices, payment proofs live in Egnyte, not as Nexus uploads.
                 Resolution + re-pointing happen in Egnyte - Wiring. */}
@@ -2709,6 +2716,7 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
               their own company on the company line. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
             <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{fullName(e)}</span>
+            <TierMark tier={e.tier} size={12} />
             {ext && (
               <span title={e.identityType === 'guest' ? 'Guest account (Microsoft 365 guest)' : 'External user (no Microsoft 365 login)'}
                 style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', padding: '1px 6px', borderRadius: 5,
@@ -3487,7 +3495,12 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   const blank = { name: '', legal_name: '', country: '', region: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', invoice_recipients: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
-  const { can } = useRole();
+  const { can, hrScope } = useRole();
+  // Company-wide People access (hr_scope null). A caller limited to some
+  // companies (or to a manager's own team) edits their companies' profiles
+  // but never adds or deletes a company, sets the group manager or changes
+  // email domains - the server refuses those (_require_unrestricted).
+  const companyWide = !Array.isArray(hrScope);
   const allTabs = can('administrator') ? [...COMPANY_TABS, COMPANY_ROLES_TAB] : COMPANY_TABS;
   const companyTabs = tabs ? allTabs.filter(t => tabs.includes(t.key)) : allTabs;
   const firstTab = companyTabs[0]?.key || 'overview';
@@ -3500,8 +3513,9 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   const [groupMgr, setGroupMgr] = useState('');
   const [groupMgrBusy, setGroupMgrBusy] = useState(false);
   useEffect(() => {
+    if (!companyWide) return;
     api.getGroupManager().then(r => setGroupMgr(r?.email || '')).catch(() => {});
-  }, []);
+  }, [companyWide]);
   // Company Manager(s) may also be external users (Sep 29) - offered in their
   // own group of the picker. HR Contact and the group manager stay Nexus People.
   const { data: withExternal = [] } = usePeopleDirectoryWithExternal();
@@ -3577,6 +3591,9 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
         main_phone: f.main_phone_type === 'phone' && f.main_phone.trim() ? `${dial} ${f.main_phone.trim()}` : f.main_phone.trim(),
         invoice_recipients: (f.invoice_recipients || '').split(/[,\s;]+/).filter(Boolean),
       };
+      // Domains only when they changed: they re-tag untagged people, and a
+      // company-limited caller may not change them at all.
+      if (mode !== 'new' && (!companyWide || f.domains === formSnapshotRef.current.domains)) delete payload.domains;
       if (mode === 'new') await api.createEntity(payload); else await api.updateEntity(mode, payload);
       await onChangedEntities(); toastOk('Company saved.'); setMode(null);
     } catch (e) { toastErr(e?.message || 'Could not save company.'); }
@@ -3612,7 +3629,9 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
 
   // Only the Overview tab's form carries unsaved state - Departments/Work
   // Sites/Holidays manage and save their own rows independently as you go.
-  const dirty = !!mode && tab === 'overview' && JSON.stringify(f) !== JSON.stringify(formSnapshotRef.current);
+  // The form's edits outlive a switch to another tab, so they stay unsaved
+  // (and the shell keeps asking) whichever tab is showing.
+  const dirty = !!mode && JSON.stringify(f) !== JSON.stringify(formSnapshotRef.current);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   const backToList = () => setMode(null);
@@ -3771,9 +3790,11 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                   </div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
-                  {field('EMAIL DOMAINS', 'domains', { placeholder: 'e.g. aaravconstruction.com - comma-separated' })}
+                  {field('EMAIL DOMAINS', 'domains', { placeholder: 'e.g. aaravconstruction.com - comma-separated', readOnly: !companyWide, 'aria-readonly': !companyWide })}
                   <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>
-                    Sync from M365 imports accounts on these domains and tags them to this company automatically (never overwrites a company already set on a profile).
+                    {companyWide
+                      ? 'Sync from M365 imports accounts on these domains and tags them to this company automatically (never overwrites a company already set on a profile).'
+                      : 'Email domains are set by someone with access to every company - they tag people to this company automatically.'}
                   </p>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
@@ -3844,7 +3865,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
+      {companyWide && <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700 }}>Group Manager</div>
           <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Oversees every company - the escalation step above each company's manager.</div>
@@ -3855,11 +3876,15 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
             people={dirPickRows(people)} placeholder="Not set" noneLabel="Not Set"
             ariaLabel="Group Manager" style={{ ...PICK_BOX, fontSize: 12.5 }} />
         </div>
-      </div>
+      </div>}
       {entities.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)' }}>
-          <p style={{ fontSize: 13, marginBottom: 14 }}>No companies yet. Add your legal entities so every worker can be tied to one.</p>
-          <button className="secondary-btn" onClick={seedDefaults} disabled={busy} style={{ marginRight: 8 }}>Add Greens · Greens India · MCD · Oversite</button>
+          {companyWide ? (
+            <>
+              <p style={{ fontSize: 13, marginBottom: 14 }}>No companies yet. Add your legal entities so every worker can be tied to one.</p>
+              <button className="secondary-btn" onClick={seedDefaults} disabled={busy} style={{ marginRight: 8 }}>Add Greens · Greens India · MCD · Oversite</button>
+            </>
+          ) : <p style={{ fontSize: 13 }}>No companies inside your access yet.</p>}
         </div>
       ) : entities.map(en => {
         const mgrEmails = en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []);
@@ -3872,13 +3897,13 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
             <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, mgrNames && `Manager${mgrEmails.length > 1 ? 's' : ''} ${mgrNames}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
           </div>
           <button className="secondary-btn" onClick={() => (onOpen ? onOpen(en.id) : startEdit(en))} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
-          <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
+          {companyWide && <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>}
         </div>
         );
       })}
-      <div style={{ padding: '14px 4px', display: 'flex', justifyContent: 'flex-end' }}>
+      {companyWide && <div style={{ padding: '14px 4px', display: 'flex', justifyContent: 'flex-end' }}>
         <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Company</button>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -4386,6 +4411,9 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
 
   async function save() {
     if (busy) return;
+    // Neil (Teams, 11/02/2026): an offboarded person always has a termination
+    // date - the server refuses the change without one.
+    if (isLeft && !effectiveDate) { toastErr('Enter the termination date (their last day).'); return; }
     if (needsDelegate && trustees.length === 0) { toastErr('Pick who should get mailbox access.'); return; }
     setBusy(true);
     try {
@@ -4490,7 +4518,11 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
               {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
             </select>
           </div>
-          <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} /></div>
+          <div>
+            <label style={FL}>{isLeft ? 'TERMINATION DATE' : 'EFFECTIVE DATE'}</label>
+            <input className="form-input" style={{ width: '100%' }} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} />
+            {isLeft && !effectiveDate && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Required - the person's last day.</div>}
+          </div>
           <div className="nx-fill"><label style={FL}>REASON</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="why the change (kept in the audit trail)" /></div>
 
           {offerChecklist && (
@@ -5390,7 +5422,7 @@ export default function HR({ activeSub, onSubChange }) {
   const { hrTeam } = useRole();
   // People Analytics (Oct 27 2026) is HR's: the manager tier's /hr allowlist
   // does not open it either.
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-exits', 'hr-performance'];
+  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-reports', 'hr-exits', 'hr-performance'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -5469,6 +5501,12 @@ export default function HR({ activeSub, onSubChange }) {
   useEffect(() => {
     const m = String(activeSub || '').match(/^hr-probation-(.+)$/);
     if (m) { setProbationFocus(m[1]); setOpenTab('overview'); setSelectedId(m[1]); onSubChange?.('hr-people'); }
+  }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The federal-form bells ("W-4 Signed - <name>", 11/02/2026) land on
+  // hr-documents-<employee id>: the person's Documents tab.
+  useEffect(() => {
+    const m = String(activeSub || '').match(/^hr-documents-(.+)$/);
+    if (m) { setOpenTab('documents'); setSelectedId(m[1]); onSubChange?.('hr-people'); }
   }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = !hrTeam && canAccessModule('hr_comp', 'owner', 'viewer');   // a team view never shows pay
@@ -5699,6 +5737,9 @@ export default function HR({ activeSub, onSubChange }) {
     // People Analytics (Neil, Oct 27 2026): the overview's headcount grown
     // into trends, attrition, tenure, absence and leave liability.
     { key: 'hr-analytics', label: 'Analytics', Icon: BarChart3 },
+    // People Reports (Neil, Teams 11/02/2026): Company Directory, Employees,
+    // Contractors - with filters and a CSV export.
+    { key: 'hr-reports', label: 'Reports', Icon: FileText },
     // Exits In Progress + the final settlement statement (Neil, Oct 27 2026).
     { key: 'hr-exits', label: 'Exits', Icon: LogOut },
     // Performance (Oct 27 2026): review cycles and the company's goals.
@@ -5719,6 +5760,7 @@ export default function HR({ activeSub, onSubChange }) {
     'hr-time': 'Time sheets, time off and punch fixes to review',
     'hr-checklists': 'Onboarding and offboarding steps for each person',
     'hr-analytics': 'Headcount, attrition, tenure, absence and leave',
+    'hr-reports': 'Filterable people lists - directory, employees, contractors',
     'hr-exits': 'People leaving and their final settlement',
     'hr-performance': 'Review cycles and goals',
   };
@@ -5831,6 +5873,12 @@ export default function HR({ activeSub, onSubChange }) {
           </div>
           <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
         </>
+      )}
+
+      {sub === 'hr-reports' && (
+        <Suspense fallback={<SkeletonBlocks count={3} height={60} />}>
+          <PeopleReports employees={employees} externals={extEmployees} entities={entities} />
+        </Suspense>
       )}
 
       {sub === 'hr-exits' && (
@@ -6003,7 +6051,7 @@ export default function HR({ activeSub, onSubChange }) {
                             <Avatar e={e} card={false} />
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                {fullName(e)}{isExtRow(e) && <ExternalBadge />}
+                                {fullName(e)}{isExtRow(e) && <ExternalBadge />}<TierMark tier={e.tier} />
                                 <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                               </div>
                               <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -6052,7 +6100,7 @@ export default function HR({ activeSub, onSubChange }) {
                           <Avatar e={e} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {fullName(e)}{isExtRow(e) && <ExternalBadge />}
+                              {fullName(e)}{isExtRow(e) && <ExternalBadge />}<TierMark tier={e.tier} />
                                 <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                             </div>
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>

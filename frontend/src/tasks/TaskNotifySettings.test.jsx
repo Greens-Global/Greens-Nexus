@@ -22,7 +22,9 @@ const api = {
 };
 
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => (...a) => api[k](...a) }) }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myLevel: 3 }) }));
+// A Super Administrator by default: the mail plumbing is theirs (11/02/2026).
+const role = { isGlobalAdmin: true };
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myLevel: 3, isGlobalAdmin: role.isGlobalAdmin }) }));
 // The Replies log resolves each row's task code from the store, and opens the
 // drawer on click. Neither needs the real provider here.
 vi.mock('./TasksContext', () => ({
@@ -43,7 +45,7 @@ beforeEach(() => {
 
 const openReplies = async () => {
   render(<TaskNotifySettings />);
-  await screen.findByText('Accept replies by email');
+  await screen.findByText('Accept Replies by Email');
   fireEvent.click(screen.getByText('Replies'));
 };
 
@@ -51,12 +53,12 @@ describe('inbound email settings', () => {
   it('renders the switch without a mailbox configured', async () => {
     api.getTaskNotifySettings.mockResolvedValue({ ...settings, replyTo: '', inboundMailbox: '' });
     render(<TaskNotifySettings />);
-    expect(await screen.findByText('Accept replies by email')).toBeTruthy();
+    expect(await screen.findByText('Accept Replies by Email')).toBeTruthy();
   });
 
   it('hides the mailbox details until replies are switched on', async () => {
     render(<TaskNotifySettings />);
-    await screen.findByText('Accept replies by email');
+    await screen.findByText('Accept Replies by Email');
     expect(screen.queryByText('Check Mailbox Now')).toBeNull();
   });
 
@@ -161,5 +163,40 @@ describe('replies log', () => {
     api.getTaskInboundLog.mockRejectedValue(new Error('502'));
     await openReplies();
     await waitFor(() => expect(screen.getByText('502')).toBeTruthy());
+  });
+});
+
+// Review fix (11/02/2026): turning replies on with no mailbox saved asks for
+// one first and saves the two together - it never starts reading the
+// reply-to address by surprise.
+describe('turning email replies on', () => {
+  it('asks for the mailbox when none is saved, and sends it with the switch', async () => {
+    const { dialog } = await import('../ui/dialog');
+    const ask = vi.spyOn(dialog, 'prompt').mockResolvedValueOnce(null).mockResolvedValueOnce('replies@greensglobal.com');
+    api.updateTaskNotifySettings.mockImplementation((p) => Promise.resolve({ ...settings, ...p }));
+    render(<TaskNotifySettings />);
+    await screen.findByText('Accept Replies by Email');
+    fireEvent.click(screen.getByRole('switch', { name: 'Accept Replies by Email' }));
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
+    expect(api.updateTaskNotifySettings).not.toHaveBeenCalled();   // cancelled: nothing turned on
+    fireEvent.click(screen.getByRole('switch', { name: 'Accept Replies by Email' }));
+    await waitFor(() => expect(api.updateTaskNotifySettings).toHaveBeenCalledWith({ inboundEnabled: true, inboundMailbox: 'replies@greensglobal.com' }));
+    ask.mockRestore();
+  });
+
+  it('is read-only for anyone but a Super Administrator: switch off-limits, mail fields locked, never dirty', async () => {
+    role.isGlobalAdmin = false;
+    try {
+      render(<TaskNotifySettings />);
+      await screen.findByText('Accept Replies by Email');
+      expect(screen.getByText(/only a Super Administrator can change them/)).toBeTruthy();
+      expect(screen.getByRole('switch', { name: 'Accept Replies by Email' }).disabled).toBe(true);
+      for (const name of ['Shared Mailbox (Sender)', 'Default CC', 'Reply-To Address']) {
+        expect(screen.getByLabelText(name).readOnly).toBe(true);
+      }
+      expect(screen.getByRole('button', { name: /^Save$/ }).disabled).toBe(true);
+    } finally {
+      role.isGlobalAdmin = true;
+    }
   });
 });

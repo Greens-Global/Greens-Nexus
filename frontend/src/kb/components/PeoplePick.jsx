@@ -87,7 +87,7 @@ export default function PeoplePick({ value = '', onChange, placeholder = 'Search
                     onMouseDown={(e) => e.preventDefault()}>
               <Av name={p.name} email={p.email} size={24} />
               <span className="kb-grow kb-ellipsis">{p.name}<span className="kb-meta"> · {[p.job_title, p.department].filter(Boolean).join(', ') || p.email}</span></span>
-              {p.role !== 'employee' && <span className="kb-tag">{p.role === 'owner' ? 'Global Admin' : p.role === 'administrator' ? 'IT Admin' : 'Manager'}</span>}
+              {p.role !== 'employee' && <span className="kb-tag">{p.role === 'owner' ? 'Super Administrator' : p.role === 'administrator' ? 'Administrator' : 'Manager'}</span>}
             </button>
             </Fragment>
           ))}

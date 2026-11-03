@@ -232,11 +232,16 @@ export default function PageView({ id, me }) {
                   </div>
                 </AnchoredMenu>
                 <button type="button" className={`kb-btn${page.pinned ? ' on' : ''}`} onClick={() => act(async () => { const r = await api.kbPinPage(page.id); setPage((p) => ({ ...p, pinned: r.pinned })); }, null)}><Pin style={page.pinned ? { fill: 'currentColor', color: 'var(--kb-green)' } : {}} />{page.pinned ? 'Pinned' : 'Pin'}</button>
-                {(page.translations?.length > 0 || page.can_edit) && (
+                {/* A language that exists is a switch; one that does not is a
+                    "Translate to" action for an editor, and translating is AI -
+                    off unless the server carries the switch (me.ai). With AI off
+                    the missing languages are not offered at all (11/02/2026:
+                    they answered with the AI refusal on prod). */}
+                {(page.translations?.length > 0 || (page.can_edit && me?.ai)) && (
                   <div className="kb-seg" style={{ padding: 3 }}>
                     {Object.entries(LANGS).map(([k, l]) => {
                       const has = k === 'en' || page.translations?.some((t) => t.lang === k);
-                      if (!has && !page.can_edit) return null;
+                      if (!has && !(page.can_edit && me?.ai)) return null;
                       return <button key={k} type="button" className={lang === k ? 'on' : ''} style={!has ? { borderBottom: '1px dashed var(--kb-dim)' } : {}}
                         onClick={() => (has ? switchLang(k) : act(async () => { await api.kbTranslate(page.id, k); toast(`Translating to ${l}. It takes a minute or two.`); }, null))}
                         title={!has ? `Translate to ${l}` : ''}>{l}</button>;
@@ -296,6 +301,7 @@ export default function PageView({ id, me }) {
                   <dt>Owner</dt><dd>{page.owner_name || '-'}</dd>
                   {page.reviewer_email && <><dt>Reviewer</dt><dd>{page.reviewer_name || page.reviewer_email}</dd></>}
                   <dt>Collection</dt><dd>{page.collection?.map((c) => c.name).join(' / ') || 'None'}</dd>
+                  {page.departments?.length > 0 && <><dt>Applies to</dt><dd>{page.departments.join(', ')}</dd></>}
                   {page.published_at && <><dt>Published</dt><dd>{fmtDate(page.published_at)}</dd></>}
                   {page.review?.next_review && <><dt>Review due</dt><dd style={{ color: page.review.stale ? '#dc2626' : 'inherit' }}>{fmtDate(page.review.next_review)}</dd></>}
                   {page.tags.length > 0 && <><dt>Tags</dt><dd>{page.tags.join(', ')}</dd></>}
@@ -316,6 +322,19 @@ export default function PageView({ id, me }) {
                     {page.versions.slice(0, 6).map((v) => (
                       <div key={v.id}><a href="#v" onClick={(e) => { e.preventDefault(); api.kbPageVersion(page.id, v.id).then(setVersionView).catch((er) => toast(errText(er), 'err')); }}><b>{v.version}</b></a> <span className="kb-meta">{fmtDate(v.published_at)} · {v.author_name}</span>
                         {v.change_note && <div className="kb-meta">{v.change_note}</div>}</div>
+                    ))}
+                  </div>
+                </section>
+              )}
+              {page.around?.length > 0 && (
+                <section className="kb-card">
+                  <h3 className="kb-h3" style={{ marginBottom: 8 }}>Around This Page</h3>
+                  <div className="kb-meta" style={{ marginBottom: 8 }}>Linked, embedded, taught together or for the same department - found from the links, not picked by hand.</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {page.around.map((r) => (
+                      <a key={r.id} href="#around" onClick={(e) => { e.preventDefault(); goKb('page', r.id); }} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13.5, color: 'var(--kb-ink)', fontWeight: 500 }}>
+                        <TypeChip type={r.page_type} /><span><span>{r.title}</span><div className="kb-meta" style={{ fontWeight: 400 }}>{r.why}</div></span>
+                      </a>
                     ))}
                   </div>
                 </section>

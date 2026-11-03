@@ -89,11 +89,29 @@ def _assign_course(db, course: models.KbCourse, emp: models.NexusEmployee, *, du
     return True
 
 
-def _due_for(db, emp: models.NexusEmployee, due_days: int) -> str:
+def _due_for(db, emp: models.NexusEmployee, due_days: int, due_date: str = "") -> str:
+    """When this person's copy is due. Two modes (Sagar, 11/03/2026):
+      * within `due_days` of their start date (a future start) or of today;
+      * by one calendar `due_date` for everyone - company-wide, department-wide -
+        with `due_days` as the GRACE for someone who joins after it: their copy
+        is due that many days from their start (or today), never on a date
+        that was already past when they arrived.
+    """
     start = (emp.start_date or "")[:10]
     day = kb_core.today_for(db, emp.work_email or "")
     base = start if start and start > day else day
+    if due_date:
+        if base <= due_date[:10]:
+            return due_date[:10]
+        return kb_core.add_days(base, int(due_days or 14))
     return kb_core.add_days(base, int(due_days or 0)) if due_days else ""
+
+
+def _new_hire(emp: models.NexusEmployee, rule: models.KbAssignmentRule) -> bool:
+    """An onboarding rule covers only people who started on or after the day
+    the rule was made; someone with no start date is never a new hire."""
+    start = (emp.start_date or "")[:10]
+    return bool(start) and start >= (rule.created_at or "")[:10]
 
 
 def run_rules(db) -> int:
@@ -106,14 +124,19 @@ def run_rules(db) -> int:
             if not c:
                 continue
             for emp in members:
-                if _assign_course(db, c, emp, due=_due_for(db, emp, rule.due_days), source="rule", rule_id=rule.id):
+                if rule.new_hires_only and not _new_hire(emp, rule):
+                    continue
+                if _assign_course(db, c, emp, due=_due_for(db, emp, rule.due_days, rule.due_date or ""), source="rule", rule_id=rule.id):
                     made += 1
         elif rule.kind == "plan":
             plan = db.query(models.KbTrainingPlan).filter(models.KbTrainingPlan.id == rule.target_id, models.KbTrainingPlan.active.is_(True)).first()
             if not plan:
                 continue
             for emp in members:
-                if assign_plan(db, plan, emp, due_days=plan.due_days or rule.due_days, source="rule", by="rule"):
+                if rule.new_hires_only and not _new_hire(emp, rule):
+                    continue
+                if assign_plan(db, plan, emp, due_days=plan.due_days or rule.due_days, source="rule", by="rule",
+                               due_date=rule.due_date or plan.due_date or "", rule_id=rule.id):
                     made += 1
         rule.last_run_at = kb_core.now()
     # plans with their own audience
@@ -121,17 +144,18 @@ def run_rules(db) -> int:
         if not plan.audience or kb_audience.is_everyone(kb_audience.loads(plan.audience)) and not plan.audience.strip("{} "):
             continue
         for emp in kb_audience.members(db, kb_audience.loads(plan.audience), kb_access.scope_of_email(db, plan.created_by)):
-            if assign_plan(db, plan, emp, due_days=plan.due_days, source="rule", by="rule"):
+            if assign_plan(db, plan, emp, due_days=plan.due_days, source="rule", by="rule", due_date=plan.due_date or ""):
                 made += 1
     db.commit()
     return made
 
 
-def assign_plan(db, plan: models.KbTrainingPlan, emp: models.NexusEmployee, *, due_days: int, source: str, by: str) -> bool:
+def assign_plan(db, plan: models.KbTrainingPlan, emp: models.NexusEmployee, *, due_days: int, source: str, by: str,
+                due_date: str = "", rule_id: str = "") -> bool:
     email = (emp.work_email or "").lower()
     if db.query(models.KbPlanAssignment).filter(models.KbPlanAssignment.plan_id == plan.id, models.KbPlanAssignment.user_email == email).first():
         return False
-    due = _due_for(db, emp, due_days)
+    due = _due_for(db, emp, due_days, due_date)
     db.add(models.KbPlanAssignment(id=kb_core.new_id("pa"), plan_id=plan.id, user_email=email,
                                    user_name=(emp.display_name or f"{emp.first_name} {emp.last_name}").strip(), due_date=due,
                                    source=source, assigned_by=by, created_at=kb_core.now()))
@@ -143,7 +167,7 @@ def assign_plan(db, plan: models.KbTrainingPlan, emp: models.NexusEmployee, *, d
         if isinstance(it, dict) and it.get("kind") == "course":
             c = db.query(models.KbCourse).filter(models.KbCourse.id == it.get("id"), models.KbCourse.status == "published").first()
             if c:
-                _assign_course(db, c, emp, due=due, source="plan", plan_id=plan.id, by=by)
+                _assign_course(db, c, emp, due=due, source="plan", plan_id=plan.id, by=by, rule_id=rule_id)
     kb_core.notify(db, recipient=email, ntype="kb_plan_assigned", title="Training Plan Assigned",
                    body=f"{plan.name}" + (f" - due {_us(due)}" if due else ""), ref_id=plan.id, item_name=plan.name,
                    sub="training", dedupe_today=True)
@@ -339,7 +363,63 @@ def run_owner_digests(db) -> int:
 
 # What each pass is called on Workflows > Automations (WP 4.1).
 PASS_LABELS = {"rules": "Assigned by rules", "renewals": "Renewals", "policy_envelopes": "Signing requests sent",
-               "learners": "Training reminders", "managers": "Manager digests", "owners": "Owner digests"}
+               "learners": "Training reminders", "escalations": "Escalated to supervisors", "managers": "Manager digests", "owners": "Owner digests"}
+
+
+# ----------------------------------------------------------------- escalations
+
+def _hr_contact_for(db, emp: models.NexusEmployee) -> str:
+    ent = db.query(models.HrEntity).filter(models.HrEntity.id == (emp.company or "")).first() if emp.company else None
+    return ((ent.hr_contact_email if ent else "") or "").strip().lower()
+
+
+def _sent_within(db, kind: str, ref: str, recipient: str, days: int) -> bool:
+    since = kb_core.add_days(kb_core.utc_day(), -days)
+    return db.query(models.KbReminderLog).filter(models.KbReminderLog.kind == kind, models.KbReminderLog.ref_id == ref,
+                                                 models.KbReminderLog.recipient == recipient, models.KbReminderLog.day > since).first() is not None
+
+
+def run_escalations(db) -> int:
+    """A course assigned by a rule with `escalate_days` that is still not done
+    that many days after its due date is raised to the person's supervisor
+    (their manager; nobody = the company's HR contact): one bell and email
+    when it first crosses the line, then once a week while it stays open
+    (Sagar, 11/03/2026: "otherwise escalation to supervisor"). The first
+    escalation is stamped on the assignment so Compliance can show it."""
+    cfg = kb_reminder_config.get_config(db)["managers"]
+    rules = {r.id: r for r in db.query(models.KbAssignmentRule).filter(models.KbAssignmentRule.escalate_days > 0).all()}
+    if not rules:
+        return 0
+    sent = 0
+    for asn in db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.rule_id.in_(list(rules)),
+                                                          models.KbCourseAssignment.due_date != "").all():
+        rule = rules[asn.rule_id]
+        c = db.query(models.KbCourse).filter(models.KbCourse.id == asn.course_id, models.KbCourse.status == "published").first()
+        emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == asn.user_email,
+                                                    models.NexusEmployee.status.in_(("onboarding", "active"))).first()
+        if not c or not emp:
+            continue
+        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, asn.user_email), asn.due_date, asn.user_email)
+        if st["status"] == "Completed" or st["days_overdue"] < int(rule.escalate_days):
+            continue
+        to = (emp.manager_email or "").strip().lower() or _hr_contact_for(db, emp)
+        if not to or to == asn.user_email or _sent_within(db, "escalation", asn.id, to, 7):
+            continue
+        who = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
+        line = f"{who}: {c.title} was due {_us(asn.due_date)}, {st['days_overdue']} days ago"
+        # the Team Training bell type (its icon lives in NotificationBell, Visesh's
+        # file); ref_id = the assignment, so it never dedupes against the Monday digest
+        kb_core.notify(db, recipient=to, ntype="kb_team_training", title="Training Escalated to You",
+                       body=line + (". Second notice." if asn.escalated_at else "."), ref_id=asn.id, item_name=c.title,
+                       sub="compliance", dedupe_today=True)
+        if cfg["email"]:
+            _mail(db, to, f"Overdue training: {who}", [line, "It was escalated to you because it is past the rule's limit. Open Compliance to nudge or reassign."], link_sub="compliance")
+        if not asn.escalated_at:
+            asn.escalated_at = kb_core.now()
+        _mark(db, "escalation", asn.id, to)
+        sent += 1
+    db.commit()
+    return sent
 
 
 def run_daily() -> dict:
@@ -354,7 +434,7 @@ def run_daily() -> dict:
               # envelope is the requirement itself, not a reminder, so it ignores the switch).
               ("policy_envelopes", kb_policy_sign.run)]
     if not job_switch.off("kb_daily"):   # Workflows > Automations switch: the reminders and digests only
-        passes += [("learners", run_learner_reminders), ("managers", run_manager_digests), ("owners", run_owner_digests)]
+        passes += [("learners", run_learner_reminders), ("escalations", run_escalations), ("managers", run_manager_digests), ("owners", run_owner_digests)]
     try:
         for key, fn in passes:
             try:

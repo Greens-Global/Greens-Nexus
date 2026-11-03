@@ -82,13 +82,14 @@ export default function Shifts({ activeSub, onSubChange }) {
     : TABS.filter(([key, , , managerOnly]) => (canManage || !managerOnly) && (key !== 'role-checklists' || keepsRoles)
       && (key !== 'headcount' || headcount.show) && (key !== 'analytics' || canAnalytics));
   // A weather advisory's bell deep-links to one day of one group:
-  // sub = "schedule:YYYY-MM-DD:<group id>" (Weather Call, Oct 2026). The tab
-  // is the part before the first colon; the rest is where to land.
-  const [subKey, focusDate = '', focusGroup = ''] = String(activeSub || '').split(':');
+  // sub = "schedule:YYYY-MM-DD:<group id>[:<place>]" (Weather Call, Oct 2026;
+  // the place - a jobsite - since the weather follows it, 10/30/2026). The
+  // tab is the part before the first colon; the rest is where to land.
+  const [subKey, focusDate = '', focusGroup = '', focusPlace = ''] = String(activeSub || '').split(':');
   // Workforce Analytics reads the part after the colon as its own tab:
   // "analytics:scorecard" (the Monday email), "analytics:coverage" (alerts).
   const tab = tabs.some(([k]) => k === subKey) ? subKey : (tabs[0]?.[0] || '');
-  const focus = tab === 'schedule' && /^\d{4}-\d{2}-\d{2}$/.test(focusDate) ? { date: focusDate, groupId: focusGroup } : null;
+  const focus = tab === 'schedule' && /^\d{4}-\d{2}-\d{2}$/.test(focusDate) ? { date: focusDate, groupId: focusGroup, place: focusPlace } : null;
   // A publish or nudge bell's "mine:confirm:<publish id>" (Shifts Phase 3a)
   // is your OWN week, so App.jsx sends it to Workday's My Schedule (Oct 15).
   // Consumed once: the schedule has landed (its own effect ran first), so

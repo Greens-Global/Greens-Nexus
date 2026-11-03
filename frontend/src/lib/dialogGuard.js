@@ -31,7 +31,8 @@ let pending = null; // { resolve(boolean) }
 const subs = new Set();
 const known = new Set(); // backdrops seen dirty, for topmost() lookups
 
-function emit() { subs.forEach(fn => fn(pending)); }
+// A fresh object each time, so a subscriber re-renders when what is unsaved changes.
+function emit() { const p = pending && { ...pending }; subs.forEach(fn => fn(p)); }
 
 export function subscribe(fn) { subs.add(fn); fn(pending); return () => subs.delete(fn); }
 export function isBypassing() { return bypass; }
@@ -78,15 +79,100 @@ export function hasDirtyDialog() {
 // Inline forms with unsaved work - the Settings groups (lib/groupDirty.js):
 // no backdrop to watch, so the shell says so itself. Leaving the page or
 // the module asks for them too; a backdrop click or Escape is not theirs.
+// `meta` says what is unsaved, for the prompt: `labels` (the group titles)
+// and `save` (resolves true once it all saved - lib/groupDirty.js), so the
+// prompt can name the forms and offer Save and Leave.
 const inlineDirty = new Map();
-export function setInlineDirty(key, dirty) { if (dirty) inlineDirty.set(key, true); else inlineDirty.delete(key); }
+export function setInlineDirty(key, dirty, meta = null) {
+  if (dirty) inlineDirty.set(key, meta || {}); else inlineDirty.delete(key);
+  if (pending) emit();
+}
 export function hasUnsavedWork() { return hasDirtyDialog() || inlineDirty.size > 0 || !!leaveAsk; }
+
+// What the plain prompt can say about the unsaved work: the names of the
+// inline forms, and one save for them all - only when nothing else (a dirty
+// popup, a screen's own guard) is unsaved and every form can save itself.
+// A dirty popup is what the prompt is about when one is open: then it names
+// nothing and offers no save, and its Discard leaves the forms alone.
+// `discard` lets a form drop its draft for real (the Settings groups remount)
+// when the person discards on the way out.
+export function unsavedSummary() {
+  if (hasDirtyDialog() || leaveAsk) return { labels: [], save: null, discard: null };
+  const entries = [...inlineDirty.values()];
+  const labels = [...new Set(entries.flatMap(m => m.labels || []))];
+  const saves = entries.map(m => m.save);
+  const save = entries.length && saves.every(s => typeof s === 'function')
+    ? async () => {
+      try { return (await Promise.all(saves.map(s => s()))).every(r => r === true); } catch { return false; }
+    }
+    : null;
+  const discard = entries.some(m => typeof m.discard === 'function') ? () => entries.forEach(m => m.discard?.()) : null;
+  return { labels, save, discard };
+}
+
+// The browser's Back / Forward with unsaved work (App.jsx's popstate): the
+// address has already moved, so step back to the entry we were on, ask, and
+// on Discard (or a save that landed) step again to where the person was
+// going - that second popstate goes through. The way back is `history.go`
+// by the entries' `depth` (App.jsx stamps it), so the other direction's
+// history and the entry's own address (a later replaceState) survive; an
+// entry without a depth is pushed back instead. `rememberEntry` notes the
+// entry on screen after every move.
+let lastEntry = null;
+let leavingPop = false;   // the step after Discard: goes through
+let returning = false;    // the step back to the entry on screen: swallowed
+let guarding = false;     // a question from Back is open
+let stayHere = null;      // does the new address keep every form mounted?
+export function rememberEntry() {
+  if (typeof window === 'undefined') return;
+  lastEntry = { state: window.history.state, url: window.location.href };
+}
+// A screen whose forms survive some moves (Settings: another group of the
+// same subject and scope only scrolls) says so, and those moves never ask.
+export function setPopStay(fn) { stayHere = fn || null; }
+const depthOf = (st) => (st && Number.isFinite(st.depth) ? st.depth : null);
+export function guardPopstate(e, apply) {
+  if (returning) { returning = false; return false; }
+  // A pop that keeps the path (a popup's own entry, lib/useBackToClose.js)
+  // never asks here - the same rule as a screen's own guard (usePopGuard).
+  const samePath = !!lastEntry && new URL(lastEntry.url).pathname === window.location.pathname;
+  if (leavingPop || !lastEntry || !hasUnsavedWork() || samePath || stayHere?.()) {
+    leavingPop = false;
+    apply(e);
+    rememberEntry();
+    return true;
+  }
+  const from = depthOf(lastEntry.state), to = depthOf(e?.state);
+  const steps = from != null && to != null && from !== to ? to - from : 0;
+  if (steps) { returning = true; window.history.go(-steps); }
+  else window.history.pushState(lastEntry.state, '', lastEntry.url);
+  // One question at a time: a second Back while one is open (this one, or a
+  // screen's own prompt) only puts the entry back.
+  if (guarding || (typeof document !== 'undefined' && document.querySelector('[data-nx-prompt]'))) return false;
+  guarding = true;
+  askToLeave().then(ok => {
+    guarding = false;
+    if (!ok) return;
+    leavingPop = true;
+    window.history.go(steps || -1);
+  });
+  return false;
+}
 
 // A screen with its own Save / Keep Editing / Discard prompt (the shift
 // schedule's unshared drafts, Neil Oct 28 2026) registers how to ask; leaving
 // asks it instead of the plain prompt. `fn` resolves true to leave.
 let leaveAsk = null;
 export function setLeaveGuard(fn) { leaveAsk = fn || null; }
+
+// Browser Back and Forward with work to lose: App's popstate listener asks here
+// before it moves the screen. It cannot be a second listener: Chrome runs a
+// window's popstate listeners in the order they were added, capture or not, so
+// App's would go first and unmount the screen trying to stop it. `fn` gets the
+// event and returns true when it dealt with the pop.
+let popGuard = null;
+export function setPopGuard(fn) { popGuard = fn || null; }
+export function runPopGuard(e) { return !!popGuard?.(e); }
 export function askToLeave() {
   return hasDirtyDialog() || inlineDirty.size > 0 || !leaveAsk ? confirmDiscard() : leaveAsk();
 }
@@ -96,7 +182,7 @@ export function confirmDiscard() {
   if (pending) return pending.promise;
   let resolve;
   const promise = new Promise(r => { resolve = r; });
-  pending = { promise, resolve: (v) => { pending = null; emit(); resolve(v); } };
+  pending = { promise, summary: unsavedSummary, resolve: (v) => { pending = null; emit(); resolve(v); } };
   emit();
   return promise;
 }

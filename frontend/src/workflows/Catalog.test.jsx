@@ -71,7 +71,7 @@ describe('Workflows Catalog', () => {
     expect(within(fields).getByText('Date Trigger')).toBeTruthy();
     const actions = screen.getByRole('region', { name: 'Actions' });
     expect(within(actions).getByText('Needs: To, Title, Message')).toBeTruthy();
-    expect(within(actions).getByText('Global Admin Only')).toBeTruthy();
+    expect(within(actions).getByText('Super Administrator Only')).toBeTruthy();
     const lists = screen.getByRole('region', { name: 'List Sources' });
     expect(within(lists).getByText('People Whose Probation Ends Soon')).toBeTruthy();
     expect(within(lists).getByText('Asks for: Within Days')).toBeTruthy();

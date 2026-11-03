@@ -56,7 +56,7 @@ def desk_agent_for(db: Session, email: str, company_id: str) -> bool:
     try:
         rec = auth._external_record(email) or {}
         who = {"email": email, "level": auth.level_for(email, db), "external": bool(rec.get("external"))}
-        if not ticket_roles.can_work_queue(who, db):
+        if not ticket_roles.can_work_queue(who, db, company=company_id or ""):
             return False
         return auth.company_ok(company_id or "", auth.company_scope(who, db))
     except Exception:

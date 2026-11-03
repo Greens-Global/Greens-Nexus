@@ -64,7 +64,8 @@ describe('leave balances', () => {
     rerender(<LeaveBalanceCard balance={BAL} />);
     expect(screen.getByText('My Paid Time Off')).toBeTruthy();
     expect(screen.getByText('12.77 h')).toBeTruthy();
-    expect(screen.getByText(/Use by 12\/31\/2026/)).toBeTruthy();
+    // No hint line under the numbers (Neil, 11/02/2026: remove the tooltips).
+    expect(screen.queryByText(/Use by 12\/31\/2026/)).toBeNull();
   });
 
   it('renders extra leave types alongside vacation and sick (Phase 1C)', () => {

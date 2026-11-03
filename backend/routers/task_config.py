@@ -1042,7 +1042,7 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
             old = {x for x in (f.project_ids or []) if x}
             new = {x for x in (data["project_ids"] or []) if x}
             if not old or not new:
-                raise HTTPException(403, "This field is shared by every company - only a Global Admin can change that.")
+                raise HTTPException(403, "This field is shared by every company - only a Super Administrator can change that.")
             for pid in old ^ new:
                 _own(pid)
         if "required_project_ids" in data:
@@ -1268,13 +1268,15 @@ def notification_to_dict(n: models.TaskNotification) -> dict:
 def list_notifications(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     email = user["email"].lower()
     q = db.query(models.TaskNotification)
-    if user["level"] >= 4:  # admins also see the "admins" fan-out
+    if user["level"] >= 4:  # admins also see the "admins" fan-out - of their companies only (11/02/2026)
         q = q.filter(or_(models.TaskNotification.for_email == email,
                          models.TaskNotification.for_email == "admins"))
     else:
         q = q.filter(models.TaskNotification.for_email == email)
     rows = q.order_by(models.TaskNotification.created_at.desc()).limit(500).all()
-    return [notification_to_dict(n) for n in rows]
+    from routers.task_util import admins_row_visible
+    return [notification_to_dict(n) for n in rows
+            if (n.for_email or "") != "admins" or admins_row_visible(db, user, n)]
 
 
 @router.post("/task-notifications/{notif_id}/read")
@@ -1286,6 +1288,9 @@ def mark_notification_read(notif_id: str, user: dict = Depends(get_current_user)
     targets = [user["email"].lower()] + (["admins"] if user["level"] >= 4 else [])
     if not n or (n.for_email or "").lower() not in targets:
         raise HTTPException(404, "Notification not found")
+    from routers.task_util import admins_row_visible
+    if (n.for_email or "") == "admins" and not admins_row_visible(db, user, n):
+        raise HTTPException(404, "Notification not found")
     n.read = True
     db.commit()
     return {"ok": True}
@@ -1294,11 +1299,18 @@ def mark_notification_read(notif_id: str, user: dict = Depends(get_current_user)
 @router.post("/task-notifications/read-all")
 def mark_all_read(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     email = user["email"].lower()
-    targets = [email] + (["admins"] if user["level"] >= 4 else [])
     db.query(models.TaskNotification).filter(
-        models.TaskNotification.for_email.in_(targets),
+        models.TaskNotification.for_email == email,
         models.TaskNotification.read == False,  # noqa: E712
     ).update({models.TaskNotification.read: True}, synchronize_session=False)
+    if user["level"] >= 4:
+        # The "admins" fan-out rows of the caller's companies only.
+        from routers.task_util import admins_row_visible
+        for n in (db.query(models.TaskNotification)
+                  .filter(models.TaskNotification.for_email == "admins",
+                          models.TaskNotification.read == False).all()):  # noqa: E712
+            if admins_row_visible(db, user, n):
+                n.read = True
     db.commit()
     return {"ok": True}
 

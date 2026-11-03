@@ -27,7 +27,7 @@ from routers import hr as hr_router  # noqa: E402
 models.Base.metadata.create_all(bind=database.engine)
 
 D = "@greensglobal.com"
-ADMIN = "ada.admin" + D        # administrator, no Pay & Benefits grant
+ADMIN = "ada.admin" + D        # administrator (company-walled, placed in CO), no Pay & Benefits grant
 HR_ONLY = "hal.hr" + D         # People editor, no Pay & Benefits grant
 HR_COMP = "cara.comp" + D      # People editor + Pay & Benefits
 OWNER = "olive.owner" + D      # owner: pay without a grant
@@ -61,6 +61,8 @@ class PayGateTests(unittest.TestCase):
         db.add(models.HrEntity(id=CO, name="Pay Gate Co"))
         db.add(models.NexusEmployee(id="emp-jane", first_name="Jane", last_name="Doe",
                                     work_email="jane.doe" + D, company=CO, status="active"))
+        db.add(models.NexusEmployee(id="emp-ada", first_name="Ada", last_name="Admin", work_email=ADMIN,
+                                    company=CO, status="active"))
         db.add(models.NexusRole(email=ADMIN, role="administrator"))
         db.add(models.NexusRole(email=OWNER, role="owner"))
         db.add(models.NexusGroup(id="g-hr", name="People Editors", allowed_modules="hr:editor"))

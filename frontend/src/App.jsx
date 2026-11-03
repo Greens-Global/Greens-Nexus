@@ -36,7 +36,7 @@ import { BFF_MODE } from "./bffAuth";
 import LoginPage from "./views/LoginPage";
 import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
-import { hasUnsavedWork, askToLeave } from "./lib/dialogGuard";
+import { hasUnsavedWork, askToLeave, guardPopstate, rememberEntry, runPopGuard } from "./lib/dialogGuard";
 
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
@@ -746,6 +746,9 @@ function MainApp() {
     // screen: devnotes/BuildMode.jsx hears the same event and opens the pin
     // on its own route. Nothing to change here.
     if (view === 'dev-notes') return;
+    // A new sign-in bell ({ view: 'profile', sub: 'security' }, 11/02/2026) is
+    // not a screen either: TopHeader hears the same event and opens Profile on it.
+    if (view === 'profile') return;
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);
@@ -772,14 +775,22 @@ function MainApp() {
   // user got here (this app's arrow, the browser's own back/forward, a swipe
   // gesture, alt+Left).
   const fromPopstate = useRef(false);
+  // With unsaved work (a dirty popup or Settings form) Back asks first, like
+  // navigate(); Keep Editing puts the entry back (lib/dialogGuard.js).
   useEffect(() => {
+    rememberEntry();
+    // A screen's own guard (PDF Tools, usePopGuard) answers first; the
+    // general one (unsaved Settings forms, dirty popups) handles the rest.
     const onPop = (e) => {
-      const { view, sub } = parsePath();
-      fromPopstate.current = true;
-      setActiveView(view);
-      setActiveSub(sub ?? getDefaultSub(view));
-      setCanGoBack((e.state?.depth || 0) > 0);
-      setPrevLabel(e.state?.fromLabel || null);
+      if (runPopGuard(e)) { rememberEntry(); return; }
+      guardPopstate(e, () => {
+        const { view, sub } = parsePath();
+        fromPopstate.current = true;
+        setActiveView(view);
+        setActiveSub(sub ?? getDefaultSub(view));
+        setCanGoBack((e.state?.depth || 0) > 0);
+        setPrevLabel(e.state?.fromLabel || null);
+      });
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -803,6 +814,7 @@ function MainApp() {
       const depth = (window.history.state?.depth || 0) + 1;
       const fromLabel = viewLabel(prevLocRef.current.view);
       window.history.pushState({ depth, fromLabel }, '', addressFor(path, { first, search: window.location.search, hash: window.location.hash }));
+      rememberEntry();
       setCanGoBack(true);
       setPrevLabel(fromLabel);
     }

@@ -40,11 +40,6 @@ def _require_global(db: Session, me: str) -> None:
         raise HTTPException(403, "Only an administrator or HR with Full access can change this.")
 
 
-def _hr_companies(db: Session, me: str) -> set:
-    return {r[0] for r in db.query(models.HrEntity.id)
-            .filter(func.lower(models.HrEntity.hr_contact_email) == me).all()}
-
-
 def _can_manage(db: Session, me: str, email: str) -> bool:
     return timesheet_review.is_hr(db, me, email)
 
@@ -85,10 +80,14 @@ def person_balance(email: str, user: dict = Depends(get_current_user), db: Sessi
 
 @router.get("/admin")
 def admin_overview(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Everyone this HR person looks after, with their balances."""
+    """Everyone this HR person looks after, with their balances. Only the
+    companies inside their reach (11/02/2026): every company for HR whose
+    reach no wall or scope limits (_year_end_all), else the companies they
+    are HR for (hr_access.is_hr_for_company - an Administrator is walled to
+    their own)."""
     me = _me(user)
-    glob = _hr_global(db, me)
-    companies = set() if glob else _hr_companies(db, me)
+    glob = _year_end_all(db, user)
+    companies = set() if glob else _year_end_companies(db, user)
     if not glob and not companies:
         raise HTTPException(403, "Leave balances are for HR.")
     q = (db.query(models.NexusEmployee)
@@ -106,16 +105,26 @@ def admin_overview(user: dict = Depends(get_current_user), db: Session = Depends
         b = lb.balances(db, email, pols=pols, emp=emp)
         people.append({"email": email, "name": f"{emp.first_name or ''} {emp.last_name or ''}".strip() or email,
                        "company": emp.company or "", "department": emp.department or "", **b})
-    return {"cutover": lb.cutover(db), "companies": _company_cutovers(db), "canSetup": glob,
+    return {"cutover": lb.cutover(db), "companies": _company_cutovers(db, None if glob else companies),
+            "canSetup": glob,
+            # The policies are every company's (Neil, 11/02/2026): a Super Administrator's.
+            "canEditPolicies": _super(db, user),
             "policies": list(pols.values()), "defaults": list(lb.DEFAULT_POLICIES.keys()), "people": people}
 
 
-def _company_cutovers(db: Session) -> list:
+def _super(db: Session, user: dict) -> bool:
+    import settings_walls
+    return settings_walls.is_super_admin(db, user)
+
+
+def _company_cutovers(db: Session, only=None) -> list:
     """Each company with the start date that applies to it and whether it is
-    its own (Oct 23: a company may have one of its own)."""
+    its own (Oct 23: a company may have one of its own). `only` limits the
+    list to those company ids (None = every company)."""
     own = lb.company_cutovers(db)
     return [{"id": e.id, "name": e.name or "", "cutover": own.get(e.id) or lb.cutover(db), "own": e.id in own}
-            for e in db.query(models.HrEntity).order_by(models.HrEntity.name).all()]
+            for e in db.query(models.HrEntity).order_by(models.HrEntity.name).all()
+            if only is None or e.id in only]
 
 
 class CutoverIn(BaseModel):
@@ -131,6 +140,10 @@ def set_cutover(body: CutoverIn, user: dict = Depends(get_current_user), db: Ses
     cid = (body.company or "").strip()
     if cid and not db.query(models.HrEntity.id).filter(models.HrEntity.id == cid).first():
         raise HTTPException(404, "Company not found.")
+    # The organization's date needs company-wide access; a walled
+    # administrator sets their own companies' (11/02/2026).
+    from routers.timeclock import _require_company_manage
+    _require_company_manage(user, db, cid, "The leave balance start date")
     if body.reset and cid:
         lb.clear_cutover(db, cid)
     else:
@@ -139,7 +152,8 @@ def set_cutover(body: CutoverIn, user: dict = Depends(get_current_user), db: Ses
         except ValueError:
             raise HTTPException(400, "Pick a valid start date.")
     db.commit()
-    return {"cutover": lb.cutover(db), "companies": _company_cutovers(db)}
+    glob = _year_end_all(db, user)
+    return {"cutover": lb.cutover(db), "companies": _company_cutovers(db, None if glob else _year_end_companies(db, user))}
 
 
 class PoliciesIn(BaseModel):
@@ -150,6 +164,10 @@ class PoliciesIn(BaseModel):
 def save_policies(body: PoliciesIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = _me(user)
     _require_global(db, me)
+    # The leave policies are every company's (Neil, 11/02/2026): Super
+    # Administrators only.
+    import settings_walls
+    settings_walls.require_super_admin_for_org(db, user, "Changing the leave policies")
     try:
         pols = lb.save_policies(db, body.policies, me)
     except ValueError as e:

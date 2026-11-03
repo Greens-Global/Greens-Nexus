@@ -7,14 +7,23 @@
 // 'workforce-scorecard' grant on a job role or access group (Roles & Access):
 // Viewer = direct reports (Neil, 10/10: the default), Editor = whole
 // reporting line, Full = company - plus the company-wide recipients below.
-import { useEffect, useState } from 'react';
+//
+// The Settings save pattern (Oct 23 2026): Mode, the timing selects, who is
+// scored, and each country's working days (and adding or removing a country)
+// save the moment they change (going Live asks first), with a toast, and roll
+// back when the save fails; the typed fields - hours, thresholds and the
+// three lists - are a draft with one Save row under them.
+import { useEffect, useMemo, useState } from 'react';
 import { LoadingState } from './AsyncState';
-import { Trophy, Save, Send, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle, Plus, Trash2 } from 'lucide-react';
+import { Trophy, Send, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle, Plus, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle } from '../tasks/theme';
 import { formatDate, formatTime } from '../lib/datetime';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
+import SaveRow from './SaveRow';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const hint = { fontSize: 11.5, color: NX.faint, marginTop: 4 };
@@ -29,53 +38,103 @@ let ZONES = [];
 try { ZONES = Intl.supportedValuesOf('timeZone'); } catch { /* older browser: current zone only */ }
 const withCurrent = (list, v) => (v && !list.includes(v) ? [v, ...list] : list);
 const splitList = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
+const NEW_STANDARD = { hours: 8, days: [1, 2, 3, 4, 5] };
+// The typed fields, flat, as the draft holds them: each country's hours is a
+// key of its own (`hours:US`), so adding or removing a country (saved at once)
+// never wipes an hour typed beside it.
+const typedOf = (c) => {
+  const out = {
+    test: (c.test_recipients || []).join(', '), company: (c.companyRecipients || []).join(', '),
+    working: (c.workingTimeOffTypes || []).join(', '),
+    onTrackPct: String(c.onTrackPct ?? ''), belowPct: String(c.belowPct ?? ''), shortToleranceMin: String(c.shortToleranceMin ?? ''),
+  };
+  Object.entries(c.standards || {}).forEach(([code, s]) => { out[`hours:${code}`] = String(s?.hours ?? ''); });
+  return out;
+};
+// The standards as the server takes them.
+const cleanStandards = (std) => Object.fromEntries(Object.entries(std || {}).map(([k, v]) => [k, { hours: Number(v.hours), days: (v.days || []).map(Number) }]));
 
-export default function WorkforceScorecardSettings() {
-  const { can } = useRole();
+// `toastOk` / `toastErr` (optional): the Settings shell's toasts; without
+// them the panel says so on a line of its own.
+export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
+  const { can, isGlobalAdmin } = useRole();
+  // Mode and the test recipients are the whole organization's (Neil,
+  // 11/02/2026): a Super Administrator's to change.
+  const modeLocked = !isGlobalAdmin;
   const [tab, setTab] = useState('settings');   // settings | recipients | log
   const [cfg, setCfg] = useState(null);
-  const [savedMode, setSavedMode] = useState(null);
-  const [lists, setLists] = useState({ test: '', company: '', working: '' });
-  const [confirmLive, setConfirmLive] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [notice, setNotice] = useState(null);
   const [err, setErr] = useState('');
 
-  const adopt = (c) => {
-    setCfg(c); setSavedMode(c.mode);
-    setLists({ test: (c.test_recipients || []).join(', '), company: (c.companyRecipients || []).join(', '),
-      working: (c.workingTimeOffTypes || []).join(', ') });
+  useEffect(() => { api.getWorkforceScorecardConfig().then(setCfg).catch((e) => setErr(e.message || String(e))); }, []);
+
+  const typedSaved = useMemo(() => (cfg ? typedOf(cfg) : null), [cfg]);
+  const { draft, setDraft, patch: editDraft, dirty, reset } = useDraft(typedSaved, { rebase: true });
+  const say = (ok, text) => {
+    const fn = ok ? toastOk : toastErr;
+    if (fn) fn(text); else setNotice({ ok, text });
   };
-  useEffect(() => { api.getWorkforceScorecardConfig().then(adopt).catch((e) => setErr(e.message || String(e))); }, []);
+  const instant = async (patch, what) => {
+    const prev = cfg;
+    setCfg((c) => ({ ...c, ...patch }));
+    try {
+      setCfg(await api.updateWorkforceScorecardConfig(patch));
+      say(true, `${what} saved.`);
+    } catch (e) {
+      setCfg(prev);
+      say(false, e.message || `Could not save ${what.toLowerCase()}.`);
+    }
+  };
+  const pickMode = async (mode) => {
+    if (mode === cfg.mode || modeLocked) return;
+    if (mode === 'live') {
+      const ok = await dialog.confirm(
+        'Every manager holding the Workforce Scorecard grant gets a real email on the next send day. Check the Recipients tab, and Test mode with a few real managers first.',
+        { title: 'Send to Every Recipient?', confirmText: 'Turn On Live', danger: true },
+      );
+      if (!ok) return;
+    }
+    instant({ mode }, 'Mode');
+  };
+  // A country's working days, adding and removing a country: saved at once,
+  // over the SAVED hours (an hour still being typed stays a draft).
+  const saveStandards = (next, what) => instant({ standards: cleanStandards(next) }, what);
+
+  const save = async () => {
+    if (!dirty || saving) return false;
+    const body = {};
+    if (!modeLocked && draft.test !== typedSaved.test) body.test_recipients = splitList(draft.test);
+    if (draft.company !== typedSaved.company) body.companyRecipients = splitList(draft.company);
+    if (draft.working !== typedSaved.working) body.workingTimeOffTypes = splitList(draft.working);
+    for (const k of ['onTrackPct', 'belowPct', 'shortToleranceMin']) {
+      if (draft[k] !== typedSaved[k]) body[k] = Number(draft[k]);
+    }
+    const codes = Object.keys(cfg.standards || {});
+    if (codes.some((code) => draft[`hours:${code}`] !== typedSaved[`hours:${code}`])) {
+      body.standards = cleanStandards(Object.fromEntries(codes.map((code) => [code, { ...cfg.standards[code], hours: draft[`hours:${code}`] }])));
+    }
+    setSaving(true); setErr('');
+    try {
+      const next = await api.updateWorkforceScorecardConfig(body);
+      setCfg(next);
+      setDraft(typedOf(next));   // the server's spelling of the lists, not the typed one
+      say(true, 'Workforce Scorecard saved.');
+      return true;
+    } catch (e) {
+      setErr(e.message || String(e));
+      return false;
+    } finally { setSaving(false); }
+  };
+  useGroupDirty(dirty, save);
 
   if (!can('administrator')) {
     return <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>Administrator access is required to view Workforce Scorecard settings.</div>;
   }
-  if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
+  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
-  const goingLive = cfg.mode === 'live';
-  const switchingToLive = goingLive && savedMode !== 'live' && !confirmLive;
   const std = cfg.standards || {};
-  const setStd = (code, patch) => setCfg((c) => ({ ...c, standards: { ...c.standards, [code]: { ...(c.standards?.[code] || { hours: 8, days: [1, 2, 3, 4, 5] }), ...patch } } }));
-
-  const save = async () => {
-    if (switchingToLive) return;
-    setSaving(true); setErr(''); setSaved(false);
-    try {
-      const standards = {};
-      Object.entries(std).forEach(([k, v]) => { standards[k] = { hours: Number(v.hours), days: (v.days || []).map(Number) }; });
-      const next = await api.updateWorkforceScorecardConfig({
-        mode: cfg.mode, test_recipients: splitList(lists.test), companyRecipients: splitList(lists.company),
-        workingTimeOffTypes: splitList(lists.working),
-        sendDay: Number(cfg.sendDay) || 1, sendTime: cfg.sendTime || '08:00', defaultTimeZone: cfg.defaultTimeZone || 'America/Los_Angeles',
-        weekStart: cfg.weekStart || 'monday', payTypes: cfg.payTypes?.length ? cfg.payTypes : ['hourly'], standards,
-        shortToleranceMin: Number(cfg.shortToleranceMin), onTrackPct: Number(cfg.onTrackPct), belowPct: Number(cfg.belowPct),
-      });
-      adopt(next); setConfirmLive(false); setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (e) { setErr(e.message || String(e)); }
-    finally { setSaving(false); }
-  };
+  const setDays = (code, days) => saveStandards({ ...std, [code]: { ...(std[code] || NEW_STANDARD), days } }, 'Working days');
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
@@ -99,15 +158,19 @@ export default function WorkforceScorecardSettings() {
       {tab === 'recipients' && <Recipients />}
       {tab === 'settings' && (
       <>
+      {notice && (
+        <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? NX.green : NX.red }}>{notice.text}</div>
+      )}
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Mode</label>
+        {modeLocked && <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>Mode and the test recipients apply to every company - only a Super Administrator can change them.</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {MODES.map((m) => (
             <label key={m.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px',
               border: `1px solid ${cfg.mode === m.key ? NX.blue : NX.border}`, borderRadius: 8,
               background: cfg.mode === m.key ? 'var(--wk-brand-tint)' : 'transparent', cursor: 'pointer' }}>
-              <input type="radio" name="workforce-scorecard-mode" checked={cfg.mode === m.key}
-                onChange={() => { setCfg((c) => ({ ...c, mode: m.key })); setConfirmLive(false); }} style={{ marginTop: 3 }} />
+              <input type="radio" name="workforce-scorecard-mode" checked={cfg.mode === m.key} disabled={modeLocked}
+                onChange={() => pickMode(m.key)} style={{ marginTop: 3 }} />
               <span>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.label}</div>
                 <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>{m.hint}</div>
@@ -117,12 +180,14 @@ export default function WorkforceScorecardSettings() {
         </div>
       </div>
 
-      {cfg.mode === 'test' && (
-        <div style={{ marginBottom: 16 }}>
-          <label style={fieldLabel} htmlFor="wsc-test-recipients">Test Recipients</label>
-          <input id="wsc-test-recipients" value={lists.test} onChange={(e) => setLists((l) => ({ ...l, test: e.target.value }))}
-            placeholder="you@company.com, another@company.com" style={inputStyle} />
-          <div style={hint}>Comma-separated. Each manager's scorecard is built from their own team and sent here instead, with a "[TEST -&gt; manager]" subject prefix.</div>
+      {cfg.mode === 'live' && (
+        <div style={{ display: 'flex', gap: 10, padding: '12px 14px', borderRadius: 8, marginBottom: 16,
+          background: 'hsla(var(--color-red), 0.08)', border: '1px solid hsla(var(--color-red), 0.35)' }}>
+          <ShieldAlert size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-red))' }}>Live: every manager holding the grant gets a real email</div>
+            <div style={{ fontSize: 12, color: NX.dim, marginTop: 3 }}>The Recipients tab lists who the next send goes to. Switch to Test or Off to stop it.</div>
+          </div>
         </div>
       )}
 
@@ -130,21 +195,21 @@ export default function WorkforceScorecardSettings() {
         <label style={fieldLabel}>Timing</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           Every
-          <select aria-label="Send day" value={cfg.sendDay || 1} onChange={(e) => setCfg((c) => ({ ...c, sendDay: Number(e.target.value) }))} style={{ ...inputStyle, width: 'auto' }}>
+          <select aria-label="Send day" value={cfg.sendDay || 1} onChange={(e) => instant({ sendDay: Number(e.target.value) }, 'Send day')} style={{ ...inputStyle, width: 'auto' }}>
             {DAYS.map((d, i) => <option key={d} value={i + 1}>{d}</option>)}
           </select>
           at
-          <select aria-label="Send time" value={cfg.sendTime || '08:00'} onChange={(e) => setCfg((c) => ({ ...c, sendTime: e.target.value }))} style={{ ...inputStyle, width: 'auto' }}>
+          <select aria-label="Send time" value={cfg.sendTime || '08:00'} onChange={(e) => instant({ sendTime: e.target.value }, 'Send time')} style={{ ...inputStyle, width: 'auto' }}>
             {withCurrent(SLOTS, cfg.sendTime).map((t) => <option key={t} value={t}>{formatTime(`2000-01-01T${t}:00`)}</option>)}
           </select>
           in each manager's own time zone, else
-          <select aria-label="Default time zone" value={cfg.defaultTimeZone || 'America/Los_Angeles'} onChange={(e) => setCfg((c) => ({ ...c, defaultTimeZone: e.target.value }))} style={{ ...inputStyle, width: 'auto' }}>
+          <select aria-label="Default time zone" value={cfg.defaultTimeZone || 'America/Los_Angeles'} onChange={(e) => instant({ defaultTimeZone: e.target.value }, 'Time zone')} style={{ ...inputStyle, width: 'auto' }}>
             {withCurrent(ZONES, cfg.defaultTimeZone || 'America/Los_Angeles').map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
           The scored week starts on
-          <select aria-label="Week start" value={cfg.weekStart || 'monday'} onChange={(e) => setCfg((c) => ({ ...c, weekStart: e.target.value }))} style={{ ...inputStyle, width: 'auto' }}>
+          <select aria-label="Week start" value={cfg.weekStart || 'monday'} onChange={(e) => instant({ weekStart: e.target.value }, 'Week start')} style={{ ...inputStyle, width: 'auto' }}>
             <option value="monday">Monday</option><option value="sunday">Sunday</option>
           </select>
         </div>
@@ -157,7 +222,11 @@ export default function WorkforceScorecardSettings() {
           {[['hourly', 'Hourly staff'], ['fixed', 'Salaried staff who punch (fixed pay)']].map(([k, lab]) => (
             <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
               <input type="checkbox" checked={(cfg.payTypes || []).includes(k)}
-                onChange={(e) => setCfg((c) => ({ ...c, payTypes: e.target.checked ? [...new Set([...(c.payTypes || []), k])] : (c.payTypes || []).filter((p) => p !== k) }))} />
+                onChange={(e) => {
+                  const next = e.target.checked ? [...new Set([...(cfg.payTypes || []), k])] : (cfg.payTypes || []).filter((p) => p !== k);
+                  if (!next.length) { say(false, 'Score at least one kind of staff.'); return; }
+                  instant({ payTypes: next }, 'Who is scored');
+                }} />
               {lab}
             </label>
           ))}
@@ -165,19 +234,23 @@ export default function WorkforceScorecardSettings() {
         <div style={hint}>Active internal staff only. People in a role flagged exempt from time tracking are never scored.</div>
       </div>
 
+      {/* From here down the fields are typed: one Save for all of them. The
+          working days and the country list save at once, like the switches above. */}
+      <div style={{ borderTop: `1px solid ${NX.border}`, paddingTop: 16 }}>
       <div style={{ marginBottom: 16, fontSize: 13 }}>
         <label style={fieldLabel}>Standard Day (when nobody scheduled the person)</label>
         <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
           {Object.keys(std).sort((a, b) => (a === 'default') - (b === 'default') || a.localeCompare(b)).map((code) => (
             <div key={code} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: `1px solid ${NX.border2}`, flexWrap: 'wrap' }}>
               <span style={{ fontWeight: 700, width: 70 }}>{code === 'default' ? 'Other' : code}</span>
-              <input type="number" min={0.5} max={16} step={0.5} aria-label={`${code} hours`} value={std[code].hours}
-                onChange={(e) => setStd(code, { hours: e.target.value })} style={{ ...inputStyle, width: 70 }} /> hours on
+              <input type="number" min={0.5} max={16} step={0.5} aria-label={`${code} hours`} value={draft[`hours:${code}`] ?? ''}
+                onChange={(e) => editDraft({ [`hours:${code}`]: e.target.value })} style={{ ...inputStyle, width: 70 }} /> hours on
               <div style={{ display: 'flex', gap: 4 }}>
                 {DAYS.map((d, i) => {
-                  const on = (std[code].days || []).includes(i + 1);
+                  const days = std[code].days || [];
+                  const on = days.includes(i + 1);
                   return (
-                    <button key={d} type="button" aria-pressed={on} title={d} onClick={() => setStd(code, { days: on ? std[code].days.filter((x) => x !== i + 1) : [...std[code].days, i + 1].sort() })}
+                    <button key={d} type="button" aria-pressed={on} title={d} onClick={() => setDays(code, on ? days.filter((x) => x !== i + 1) : [...days, i + 1].sort())}
                       style={{ ...btn('ghost'), width: 30, padding: 0, justifyContent: 'center', fontSize: 11.5, fontWeight: 700,
                         border: `1px solid ${on ? NX.blue : NX.border}`, color: on ? NX.blue : NX.faint, background: on ? 'var(--wk-brand-tint)' : 'transparent' }}>
                       {d.slice(0, 2)}
@@ -186,11 +259,12 @@ export default function WorkforceScorecardSettings() {
                 })}
               </div>
               {!['US', 'IN', 'default'].includes(code) && (
-                <button type="button" style={btn('ghost')} aria-label={`Remove ${code}`} onClick={() => setCfg((c) => { const s = { ...c.standards }; delete s[code]; return { ...c, standards: s }; })}><Trash2 size={13} /></button>
+                <button type="button" style={btn('ghost')} aria-label={`Remove ${code}`}
+                  onClick={() => { const s = { ...std }; delete s[code]; saveStandards(s, `${code} removal`); }}><Trash2 size={13} /></button>
               )}
             </div>
           ))}
-          <AddCountry existing={Object.keys(std)} onAdd={(code) => setStd(code, { hours: 8, days: [1, 2, 3, 4, 5] })} />
+          <AddCountry existing={Object.keys(std)} onAdd={(code) => saveStandards({ ...std, [code]: NEW_STANDARD }, `${code}`)} />
         </div>
         <div style={hint}>By country - the person's own, else their company's. Applies to full-time staff with no published shift and no shift preset; part-time, contractors and interns without a shift show as No Schedule instead.</div>
       </div>
@@ -199,11 +273,11 @@ export default function WorkforceScorecardSettings() {
         <label style={fieldLabel}>Scoring</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           On Track from
-          <input type="number" min={1} max={100} aria-label="On Track threshold" value={cfg.onTrackPct} onChange={(e) => setCfg((c) => ({ ...c, onTrackPct: e.target.value }))} style={{ ...inputStyle, width: 70 }} />%,
+          <input type="number" min={1} max={100} aria-label="On Track threshold" value={draft.onTrackPct} onChange={(e) => editDraft({ onTrackPct: e.target.value })} style={{ ...inputStyle, width: 70 }} />%,
           Below Expected from
-          <input type="number" min={0} max={100} aria-label="Below Expected threshold" value={cfg.belowPct} onChange={(e) => setCfg((c) => ({ ...c, belowPct: e.target.value }))} style={{ ...inputStyle, width: 70 }} />%
+          <input type="number" min={0} max={100} aria-label="Below Expected threshold" value={draft.belowPct} onChange={(e) => editDraft({ belowPct: e.target.value })} style={{ ...inputStyle, width: 70 }} />%
           (under that is Well Below). A day within
-          <input type="number" min={0} max={120} aria-label="Short tolerance minutes" value={cfg.shortToleranceMin} onChange={(e) => setCfg((c) => ({ ...c, shortToleranceMin: e.target.value }))} style={{ ...inputStyle, width: 70 }} />
+          <input type="number" min={0} max={120} aria-label="Short tolerance minutes" value={draft.shortToleranceMin} onChange={(e) => editDraft({ shortToleranceMin: e.target.value })} style={{ ...inputStyle, width: 70 }} />
           minutes of its target counts as full.
         </div>
         <div style={hint}>Score = hours covered (worked plus Sick / PTO punches) divided by hours expected over the week's scored days, capped at 100.</div>
@@ -211,39 +285,28 @@ export default function WorkforceScorecardSettings() {
 
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel} htmlFor="wsc-working-types">Time-Off Types That Still Count As Working</label>
-        <input id="wsc-working-types" value={lists.working} onChange={(e) => setLists((l) => ({ ...l, working: e.target.value }))} placeholder="Work From Home" style={inputStyle} />
+        <input id="wsc-working-types" value={draft.working} onChange={(e) => editDraft({ working: e.target.value })} placeholder="Work From Home" style={inputStyle} />
         <div style={hint}>Comma-separated, exactly as the time-off type reads. Every other approved request excuses the day.</div>
       </div>
 
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel} htmlFor="wsc-company-recipients">Company-Wide Recipients</label>
-        <input id="wsc-company-recipients" value={lists.company} onChange={(e) => setLists((l) => ({ ...l, company: e.target.value }))} placeholder="ceo@company.com" style={inputStyle} />
+        <input id="wsc-company-recipients" value={draft.company} onChange={(e) => editDraft({ company: e.target.value })} placeholder="ceo@company.com" style={inputStyle} />
         <div style={hint}>Always get the whole-company scorecard, whatever their grant or reporting line. Everyone else is decided by the Workforce Scorecard grant.</div>
       </div>
 
-      {goingLive && (
-        <div style={{ display: 'flex', gap: 10, padding: '12px 14px', borderRadius: 8, marginBottom: 16,
-          background: 'hsla(var(--color-red), 0.08)', border: '1px solid hsla(var(--color-red), 0.35)' }}>
-          <ShieldAlert size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0, marginTop: 1 }} />
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-red))' }}>This sends a real email to every manager holding the grant</div>
-            <div style={{ fontSize: 12, color: NX.dim, marginTop: 3 }}>Check the Recipients tab, and Test mode with a few real managers first.</div>
-            {savedMode !== 'live' && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12.5, cursor: 'pointer' }}>
-                <input type="checkbox" checked={confirmLive} onChange={(e) => setConfirmLive(e.target.checked)} />
-                I understand this goes out to every recipient listed.
-              </label>
-            )}
-          </div>
+      {(cfg.mode === 'test' || draft.test !== typedSaved.test) && (
+        <div style={{ marginBottom: 4 }}>
+          <label style={fieldLabel} htmlFor="wsc-test-recipients">Test Recipients</label>
+          <input id="wsc-test-recipients" value={draft.test} onChange={(e) => editDraft({ test: e.target.value })} readOnly={modeLocked}
+            placeholder="you@company.com, another@company.com" style={inputStyle} />
+          <div style={hint}>Comma-separated. Each manager's scorecard is built from their own team and sent here instead, with a "[TEST -&gt; manager]" subject prefix.</div>
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <button style={{ ...btn('primary'), opacity: saving || switchingToLive ? 0.6 : 1 }} disabled={saving || switchingToLive} onClick={save}>
-          <Save size={14} /> {saving ? 'Saving…' : 'Save'}
-        </button>
-        {saved && <span role="status" style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved.</span>}
-        {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
+      {err && <div style={{ fontSize: 12.5, color: NX.red, marginTop: 12 }}>{err}</div>}
+      <SaveRow dirty={dirty} busy={saving} onSave={save} onDiscard={() => { reset(); setErr(''); }}
+        note="Saves the hours, the scoring thresholds and the lists. Working days save as you click them." />
       </div>
       <TestSend testRecipients={cfg.test_recipients || []} />
       </>
@@ -257,7 +320,7 @@ function AddCountry({ existing, onAdd }) {
   const v = code.trim().toUpperCase();
   const ok = /^[A-Z]{2}$/.test(v) && !existing.includes(v);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 12.5 }}>
+    <div data-nx-noguard="" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 12.5 }}>
       <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Country code, e.g. GB" aria-label="New country code" maxLength={2} style={{ ...inputStyle, width: 170 }} />
       <button type="button" style={{ ...btn('ghost'), opacity: ok ? 1 : 0.5 }} disabled={!ok} onClick={() => { onAdd(v); setCode(''); }}><Plus size={13} /> Add Country</button>
     </div>
@@ -289,7 +352,7 @@ function TestSend({ testRecipients }) {
     finally { setBusy(false); }
   };
   return (
-    <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${NX.border}` }}>
+    <div data-nx-noguard="" style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${NX.border}` }}>
       <label style={fieldLabel} htmlFor="wsc-test-who">Send Test Scorecard</label>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <input id="wsc-test-who" list="wsc-people" value={who} onChange={(e) => setWho(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
@@ -327,8 +390,9 @@ function Recipients() {
             <div key={r.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5, flexWrap: 'wrap' }}>
               <span style={{ fontWeight: 600, minWidth: 140 }}>{r.name}</span>
               <span style={{ flex: 1, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.email}</span>
-              <span style={{ color: r.scope === 'all' ? NX.blue : NX.dim, fontWeight: 600 }}>
+              <span style={{ color: r.scope === 'all' || r.scope === 'company' ? NX.blue : NX.dim, fontWeight: 600 }}>
                 {r.scope === 'all' ? 'Whole company'
+                  : r.scope === 'company' ? `Their companies (${r.peopleInScope} ${r.peopleInScope === 1 ? 'person' : 'people'})`
                   : `${r.scope === 'line' ? 'Whole reporting line' : 'Direct reports'} (${r.peopleInScope} ${r.peopleInScope === 1 ? 'person' : 'people'})`}
               </span>
             </div>
@@ -347,7 +411,7 @@ function statusOf(row) {
 }
 
 const LOG_LIMIT = 25;
-const SCOPE_WORD = { direct: 'direct reports', line: 'reporting line', all: 'company' };
+const SCOPE_WORD = { direct: 'direct reports', line: 'reporting line', all: 'company', company: 'their companies' };
 
 function DeliveryLog() {
   const [rows, setRows] = useState(null);

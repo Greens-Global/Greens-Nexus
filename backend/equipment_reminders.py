@@ -425,7 +425,7 @@ def run_asset_alerts(db, cfg: dict = None) -> int:
 
     if unrouted:
         print(f"[equipment-reminders] no asset manager set for {len(unrouted)} alert(s), "
-              f"sent to IT Admins: {', '.join(unrouted[:10])}")
+              f"sent to Administrators: {', '.join(unrouted[:10])}")
     return sent
 
 

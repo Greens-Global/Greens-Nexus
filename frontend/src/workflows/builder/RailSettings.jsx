@@ -1,5 +1,5 @@
 // Settings rail (Oct 2026): who owns the workflow, which companies it
-// covers, who it runs as (Global Admins), enrollment and the caps, what to
+// covers, who it runs as (Super Administrators), enrollment and the caps, what to
 // do when a step fails. Enrollment and error handling live in the
 // definition's `settings`; owner, scope and run-as are the workflow's own
 // (the owner changes through Reown, the rest travel with the draft).

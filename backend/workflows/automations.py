@@ -107,6 +107,9 @@ def jobs() -> list[dict]:
              "Daily", "hiring"),
         _job("hr_record_audit", "Records Audit", "Missing details and expired documents, one bell per company.",
              "Daily"),
+        _job("federal_forms", "Federal Forms Edition Watch",
+             "Warns HR contacts and administrators when the bundled Form W-4 or Form I-9 edition is expiring or "
+             "expired. Off stops the warning only: an expired edition is still refused at send.", "Daily", "hiring"),
         _job("maintenance_services", "Maintenance Reminders",
              "15-day reminders for recurring property maintenance, and a ticket for a service that came due with "
              "none opened.", "Daily"),
@@ -192,6 +195,9 @@ def jobs() -> list[dict]:
              "Every 15 minutes", "operations"),
         _job("stortrack_sync", "StorTrack Rates", "Competitor rates from the StorTrack feed.", "Every few hours",
              "operations"),
+        _job("cubby_tasks", "Cubby Tasks",
+             "Cubby's tasks into Nexus Tasks after each Cubby sync; completions back to Cubby while Close Tasks "
+             "in Cubby is on.", "Every 15 minutes", "operations"),
         _job("cma_push", "CMA Queued Pushes",
              "Approved rate changes to Cubby on their effective date, only while Push To Cubby is on.", "Hourly",
              "operations"),
@@ -204,6 +210,9 @@ def jobs() -> list[dict]:
         _job("asset_geocode", "Asset Map Points", "Looks each asset's address up once.", "Continuous"),
         _job("trash_purge", "Task Trash Purge", "Permanently purges tasks deleted 90+ days ago.", "Daily"),
         _job("notification_retention", "Notification Retention", "Removes closed notices after 30 days.", "Daily"),
+        _job("sign_in_watch", "Sign-In Watch",
+             "Removes sign-in sessions idle past the Security limit and sign-ins older than 180 days; the "
+             "new-device notice itself keeps going.", "Every 6 hours", "security"),
         _job("changelog_generate", "What's New Drafts", "Drafts What's New from git after each merge.", "Daily"),
         _job("ops_report_schedule", "Ops Report Schedules", "Saved reports emailed weekly or monthly.", "Hourly",
              "operations"),

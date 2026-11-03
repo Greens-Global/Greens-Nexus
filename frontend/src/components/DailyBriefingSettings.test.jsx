@@ -18,7 +18,9 @@ vi.mock('../api', () => ({
 }));
 const confirm = vi.fn();
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirm(...a) } }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true }) }));
+// A Super Administrator by default: mode and the test recipients are theirs (11/02/2026).
+const role = { isGlobalAdmin: true };
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, isGlobalAdmin: role.isGlobalAdmin }) }));
 
 const DailyBriefingSettings = (await import('./DailyBriefingSettings')).default;
 
@@ -33,6 +35,7 @@ const ROWS = [
 ];
 
 beforeEach(() => {
+  role.isGlobalAdmin = true;
   getDailyBriefingConfig.mockReset().mockResolvedValue({ mode: 'test', test_recipients: [], outlook_card: 'off' });
   getDailyBriefingLog.mockReset().mockResolvedValue({ rows: ROWS, total: ROWS.length });
   forceResendDailyBriefing.mockReset().mockResolvedValue({ sentNow: true, mode: 'test', hadContent: true });
@@ -105,23 +108,25 @@ describe('Timing', () => {
     expect(screen.getByLabelText(/People with no shift today/).checked).toBe(false);
   });
 
-  it('saves the timing the admin picked', async () => {
+  it('saves the no-shift switch and time at once, and the minutes with Save', async () => {
     render(<DailyBriefingSettings />);
     fireEvent.change(await screen.findByLabelText('Minutes before shift start'), { target: { value: '90' } });
     fireEvent.click(screen.getByLabelText(/People with no shift today/));
+    await waitFor(() => expect(updateDailyBriefingConfig).toHaveBeenCalledWith({ includeNoShift: true }));
+    await waitFor(() => expect(screen.getByLabelText('Default send time').disabled).toBe(false));
     fireEvent.change(screen.getByLabelText('Default send time'), { target: { value: '18:30' } });
+    await waitFor(() => expect(updateDailyBriefingConfig).toHaveBeenCalledWith({ defaultSendTime: '18:30' }));
     expect(screen.getByLabelText('Default send time').selectedOptions[0].textContent).toBe('6:30 PM');
-    fireEvent.click(screen.getByText('Save Settings'));
-    await waitFor(() => expect(updateDailyBriefingConfig).toHaveBeenCalled());
-    expect(updateDailyBriefingConfig.mock.calls[0][0]).toMatchObject({
-      leadMinutes: 90, includeNoShift: true, defaultSendTime: '18:30', defaultTimeZone: 'America/Los_Angeles',
-    });
+    // The typed minutes stayed a draft through both saves.
+    expect(screen.getByLabelText('Minutes before shift start').value).toBe('90');
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(updateDailyBriefingConfig).toHaveBeenCalledWith({ leadMinutes: 90 }));
   });
 
   it('refuses a lead outside 30 to 360 minutes without calling the server', async () => {
     render(<DailyBriefingSettings />);
     fireEvent.change(await screen.findByLabelText('Minutes before shift start'), { target: { value: '400' } });
-    fireEvent.click(screen.getByText('Save Settings'));
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     expect(await screen.findByText(/whole number from 30 to 360/)).toBeTruthy();
     expect(updateDailyBriefingConfig).not.toHaveBeenCalled();
   });

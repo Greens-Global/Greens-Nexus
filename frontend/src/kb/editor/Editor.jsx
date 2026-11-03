@@ -8,7 +8,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
-import { ArrowLeft, Bold, Italic, Underline as UnderlineIcon, Link2, Heading2, Heading3, List, ListOrdered, ListChecks, AlertTriangle, Lightbulb, Table as TableIcon, Image as ImageIcon, Paperclip, Play, BookOpen, Plus, Eye, Sparkles, Send, Check, Trash2, X, Loader2, Undo2, Redo2, Save } from 'lucide-react';
+import { ArrowLeft, Bold, Italic, Underline as UnderlineIcon, Link2, Heading2, Heading3, List, ListOrdered, ListChecks, AlertTriangle, Lightbulb, Table as TableIcon, Image as ImageIcon, Paperclip, Play, BookOpen, Plus, Eye, Sparkles, Send, Check, Trash2, X, Loader2, Undo2, Redo2, Save, Upload } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection from '../../components/AsyncState';
 import AnchoredMenu from '../../components/AnchoredMenu';
@@ -119,8 +119,13 @@ export default function Editor({ id, me }) {
   const [collections, setCollections] = useState([]);
   const [tags, setTags] = useState([]);
   const [tagInput, setTagInput] = useState('');
-  const [settings, setSettings] = useState({ title: '', summary: '', page_type: 'how_to', collection_id: '', tags: [], reviewer_email: '', owner_email: '', review_every_months: 0, require_ack: false, audience: null, signing: 'in_page' });
-  const [newCreate, setNewCreate] = useState(isNew ? { collection_id: id.startsWith('new:') ? id.slice(4) : '', title: '', page_type: 'how_to', template: 'how_to' } : null);
+  const [settings, setSettings] = useState({ title: '', summary: '', page_type: 'how_to', collection_id: '', tags: [], departments: [], reviewer_email: '', owner_email: '', review_every_months: 0, require_ack: false, audience: null, signing: 'in_page' });
+  // Applies To (Neil, 11/02/2026): the department names People uses, for the picker
+  const [deptOptions, setDeptOptions] = useState([]);
+  const [deptInput, setDeptInput] = useState('');
+  useEffect(() => { api.kbAudienceOptions().then((o) => setDeptOptions(o?.departments || [])).catch(() => {}); }, []);
+  const [newCreate, setNewCreate] = useState(isNew ? { collection_id: id.startsWith('new:') ? id.slice(4) : '', title: '', page_type: 'how_to', template: 'how_to', departments: [] } : null);
+  const [newDeptInput, setNewDeptInput] = useState('');
   const [loadedDoc, setLoadedDoc] = useState(null);   // what the editor shows once both it and the page exist
   const plusRef = useRef(null);
   const saveTimer = useRef(null);
@@ -168,7 +173,7 @@ export default function Editor({ id, me }) {
       if (isNew || isImport) return;
       const p = await api.kbPage(id);
       setPage(p);
-      setSettings({ title: p.title, summary: p.summary, page_type: p.page_type, collection_id: p.collection_id, tags: p.tags, reviewer_email: p.reviewer_email, owner_email: p.owner_email,
+      setSettings({ title: p.title, summary: p.summary, page_type: p.page_type, collection_id: p.collection_id, tags: p.tags, departments: p.departments || [], reviewer_email: p.reviewer_email, owner_email: p.owner_email,
                     review_every_months: p.review_every_months, require_ack: p.require_ack, audience: p.audience, signing: p.signing });
       let doc = p.blocks;
       if (p.status === 'approved') {
@@ -238,6 +243,7 @@ export default function Editor({ id, me }) {
   // ── create (new page / import) ──
   const create = async (extra = {}) => {
     const body = { ...newCreate, ...extra };
+    if (!body.departments?.length) delete body.departments;   // none picked: the server files it under the collection's department
     if (!body.title?.trim()) { toast('Give the page a title', 'err'); return; }
     try {
       const p = await api.kbCreatePage(body);
@@ -344,16 +350,19 @@ export default function Editor({ id, me }) {
   // ── new page screen ──
   if (newCreate) {
     return (
-      <div className="kb-page" style={{ maxWidth: 760 }}>
+      <div className="kb-page kb-narrow">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><button type="button" className="kb-ibtn" style={{ width: 30, height: 30 }} aria-label="Back" onClick={() => goKb('home')}><ArrowLeft /></button><span className="kb-meta">Knowledge Base / New Page</span></div>
-        <h1 className="kb-h1" style={{ margin: 0 }}>New Page</h1>
-        <div className="kb-card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="kb-field"><label>Title</label><input className="kb-input" autoFocus style={{ fontSize: 17 }} value={newCreate.title} onChange={(e) => setNewCreate({ ...newCreate, title: e.target.value })} placeholder="Reset a Tenant's Gate Code" onKeyDown={(e) => { if (e.key === 'Enter') create(); }} /></div>
+        <div className="kb-card" style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: 28 }}>
+          <div>
+            <h1 className="kb-h1" style={{ margin: '0 0 2px', fontSize: 26 }}>New Page</h1>
+            <div className="kb-sub">Name it, pick what kind of page it is, and start writing. Everything else is set on the page.</div>
+          </div>
+          <div className="kb-field"><label>Title</label><input className="kb-input" autoFocus style={{ fontSize: 18, padding: '12px 14px' }} value={newCreate.title} onChange={(e) => setNewCreate({ ...newCreate, title: e.target.value })} placeholder="Reset a Tenant's Gate Code" onKeyDown={(e) => { if (e.key === 'Enter') create(); }} /></div>
           <div className="kb-field"><label>What kind of page</label>
-            <div className="kb-grid3">
+            <div className="kb-types" role="radiogroup" aria-label="What kind of page">
               {Object.values(PAGE_TYPES).map((t) => (
-                <button key={t.key} type="button" className="kb-coll" style={newCreate.page_type === t.key ? { borderColor: t.color, background: `color-mix(in srgb, ${t.color} 8%, var(--kb-card))` } : {}} onClick={() => setNewCreate({ ...newCreate, page_type: t.key, template: t.key })}>
-                  <Chip color={t.color}>{t.label}</Chip><div className="kb-meta">{t.blurb}</div>
+                <button key={t.key} type="button" role="radio" aria-checked={newCreate.page_type === t.key} className={`kb-type${newCreate.page_type === t.key ? ' on' : ''}`} style={{ '--c': t.color }} onClick={() => setNewCreate({ ...newCreate, page_type: t.key, template: t.key })}>
+                  <Chip color={t.color}>{t.label}</Chip><span className="kb-meta">{t.blurb}</span>
                 </button>
               ))}
             </div>
@@ -362,10 +371,21 @@ export default function Editor({ id, me }) {
             <select className="kb-select" value={newCreate.collection_id} onChange={(e) => setNewCreate({ ...newCreate, collection_id: e.target.value })}>
               <option value="">Choose later</option>
               {collections.filter((c) => !c.parent_id).map((c) => <optgroup key={c.id} label={c.name}><option value={c.id}>{c.name}</option>{collections.filter((x) => x.parent_id === c.id).map((x) => <option key={x.id} value={x.id}>{c.name} / {x.name}</option>)}</optgroup>)}
-            </select></div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-            <button type="button" className="kb-btn" onClick={() => setImportOpen(true)}>Import Instead</button>
-            <button type="button" className="kb-btn pri" onClick={() => create()}>Start Writing</button>
+            </select>
+            <div className="kb-help">The department shelf it lives on.</div></div>
+          <div className="kb-field"><label>Also applies to</label>
+            <div className="kb-input" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {(() => { const colDept = collections.find((c) => c.id === newCreate.collection_id)?.department || collections.find((c) => c.id === collections.find((x) => x.id === newCreate.collection_id)?.parent_id)?.department || ''; return colDept ? <span className="kb-tag" title="From the collection" style={{ opacity: .8 }}>{colDept}</span> : null; })()}
+              {newCreate.departments.map((d) => <span key={d} className="kb-tag">{d}<button type="button" aria-label={`Remove ${d}`} onClick={() => setNewCreate({ ...newCreate, departments: newCreate.departments.filter((x) => x !== d) })} style={{ border: 0, background: 'none', cursor: 'pointer', padding: 0, display: 'inline-flex', color: 'inherit' }}><X size={11} /></button></span>)}
+              <input list="kb-new-dept-list" value={newDeptInput} onChange={(e) => setNewDeptInput(e.target.value)} placeholder="Add a department" aria-label="Also applies to" className="kb-bare" style={{ border: 0, font: 'inherit', fontSize: 13, flex: '1 1 140px', minWidth: 0, background: 'transparent', color: 'inherit' }}
+                     onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ',') && newDeptInput.trim()) { e.preventDefault(); const d = deptOptions.find((o) => o.toLowerCase() === newDeptInput.trim().toLowerCase()) || newDeptInput.trim(); if (!newCreate.departments.includes(d)) setNewCreate({ ...newCreate, departments: [...newCreate.departments, d] }); setNewDeptInput(''); } else if (e.key === 'Enter') { e.preventDefault(); create(); } }}
+                     onBlur={() => { const v = newDeptInput.trim(); if (!v) return; const d = deptOptions.find((o) => o.toLowerCase() === v.toLowerCase()); if (d && !newCreate.departments.includes(d)) setNewCreate({ ...newCreate, departments: [...newCreate.departments, d] }); setNewDeptInput(''); }} />
+              <datalist id="kb-new-dept-list">{deptOptions.filter((o) => !newCreate.departments.includes(o)).map((o) => <option key={o} value={o} />)}</datalist>
+            </div>
+            <div className="kb-help">One page can apply to many departments. It shows in each one's collection under Also Applies Here and in that department's filter. You can change this on the page later.</div></div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', paddingTop: 4, borderTop: '1px solid var(--kb-line)' }}>
+            <button type="button" className="kb-btn ghost" onClick={() => setImportOpen(true)}><Upload />Have a Word or PDF file? Import it</button>
+            <button type="button" className="kb-btn pri lg" style={{ marginLeft: 'auto' }} disabled={!newCreate.title.trim()} onClick={() => create()}>Start Writing</button>
           </div>
         </div>
         {importOpen && <ImportModal ai={!!me?.ai} defaultCollection={newCreate.collection_id} onClose={() => setImportOpen(false)} onOpenInEditor={(d) => { setImportOpen(false); create({ ...d, template: '' }); }} />}
@@ -464,6 +484,15 @@ export default function Editor({ id, me }) {
                       <option value="">None</option>
                       {collections.filter((c) => !c.parent_id).map((c) => <optgroup key={c.id} label={c.name}><option value={c.id}>{c.name}</option>{collections.filter((x) => x.parent_id === c.id).map((x) => <option key={x.id} value={x.id}>{c.name} / {x.name}</option>)}</optgroup>)}
                     </select></div>
+                  <div className="kb-field"><label>Applies To</label>
+                    <div className="kb-input" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {(settings.departments || []).map((d) => <span key={d} className="kb-tag">{d}<button type="button" aria-label={`Remove ${d}`} onClick={() => patchSettings({ departments: settings.departments.filter((x) => x !== d) })} style={{ border: 0, background: 'none', cursor: 'pointer', padding: 0, display: 'inline-flex', color: 'inherit' }}><X size={11} /></button></span>)}
+                      <input list="kb-dept-list" value={deptInput} onChange={(e) => setDeptInput(e.target.value)} placeholder={settings.departments?.length ? 'Add a department' : 'Which departments use this page'} aria-label="Add a department" className="kb-bare" style={{ border: 0, font: 'inherit', fontSize: 13, flex: '1 1 120px', minWidth: 0, background: 'transparent', color: 'inherit' }}
+                             onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ',') && deptInput.trim()) { e.preventDefault(); const d = deptOptions.find((o) => o.toLowerCase() === deptInput.trim().toLowerCase()) || deptInput.trim(); if (!(settings.departments || []).includes(d)) patchSettings({ departments: [...(settings.departments || []), d] }); setDeptInput(''); } }}
+                             onBlur={() => { const v = deptInput.trim(); if (!v) return; const d = deptOptions.find((o) => o.toLowerCase() === v.toLowerCase()); if (d && !(settings.departments || []).includes(d)) patchSettings({ departments: [...(settings.departments || []), d] }); setDeptInput(''); }} />
+                      <datalist id="kb-dept-list">{deptOptions.filter((o) => !(settings.departments || []).includes(o)).map((o) => <option key={o} value={o} />)}</datalist>
+                    </div>
+                    <div className="kb-help">One SOP can apply to many departments. It shows in each department's collection under Also Applies Here and in that department's filter.</div></div>
                   <div className="kb-field"><label>Owner</label><PeoplePick value={settings.owner_email} onChange={(v) => patchSettings({ owner_email: v })} allowClear={false} /></div>
                   {settings.page_type !== 'how_to' && settings.page_type !== 'reference' && <div className="kb-field"><label>Reviewer</label><PeoplePick value={settings.reviewer_email} onChange={(v) => patchSettings({ reviewer_email: v })} preferManagers placeholder="Required for approval" /></div>}
                   <div className="kb-field"><label>Review every</label><select className="kb-select" value={settings.review_every_months} onChange={(e) => patchSettings({ review_every_months: Number(e.target.value) })}><option value={0}>Collection's cycle</option>{[3, 6, 12, 24].map((m) => <option key={m} value={m}>{m} months</option>)}</select></div>

@@ -127,7 +127,9 @@ class GoalTests(PerfCase):
         administrator, a FULL hr grant, or the company's HR contact - an
         Editor grant is not HR. A Full grant obeys its People scope."""
         db = self.db
-        self.assertIsNone(perf.hr_reach(db, U(FAR, level=4)))            # administrator: every company
+        # Neil, 11/02/2026: an Administrator is company-walled; only a Super Administrator passes the walls.
+        self.assertEqual(perf.hr_reach(db, U(FAR, level=4)), {CO2})     # administrator: their company
+        self.assertIsNone(perf.hr_reach(db, U(FAR, level=5)))            # Super Administrator: every company
         self.assertEqual(perf.hr_reach(db, U(HR)), {CO})                  # the HR contact: their company
         self.assertIs(perf.hr_reach(db, U(EMP)), False)
         grants = {}
@@ -157,7 +159,8 @@ class GoalTests(PerfCase):
         self.assertFalse(self.see(U(OTHER_MGR), g))      # a manager of another team (Oct 6 rule)
         self.assertFalse(self.see(U(OTHER_MGR, level=3), g))
         self.assertFalse(self.see(U(FAR), g))
-        self.assertTrue(self.see(U(FAR, level=4), g))    # an administrator, walls off
+        self.assertFalse(self.see(U(FAR, level=4), g))   # an administrator of another company: walled (11/02/2026)
+        self.assertTrue(self.see(U(FAR, level=5), g))    # a Super Administrator
         team = api.list_goals("team", "", "", False, U(MGR), self.db)
         self.assertEqual([x["id"] for x in team], [g])
         self.assertEqual(api.list_goals("team", "", "", False, U(OTHER_MGR), self.db), [])
@@ -679,7 +682,9 @@ class ReminderTests(PerfCase):
             api.get_settings("", U(EMP), self.db)
         out = api.save_settings(api.SettingsIn(company=CO, settings={"checkinEveryDays": 500}), U(HR), self.db)
         self.assertEqual((out["settings"]["checkinEveryDays"], out["override"]), (perf.CHECKIN_DAYS_MAX, True))
-        out = api.save_settings(api.SettingsIn(company="", settings={"checkinEveryDays": 7}), U(BOSS, level=4), self.db)
+        with self.assertRaises(HTTPException):     # an Administrator is HR for their company, not for everyone (11/02/2026)
+            api.save_settings(api.SettingsIn(company="", settings={"checkinEveryDays": 7}), U(BOSS, level=4), self.db)
+        out = api.save_settings(api.SettingsIn(company="", settings={"checkinEveryDays": 7}), U(BOSS, level=5), self.db)
         self.assertEqual(out["settings"]["checkinEveryDays"], 7)
 
 

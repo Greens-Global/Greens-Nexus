@@ -411,9 +411,13 @@ describe('Companies', () => {
     fireEvent.change(daily, { target: { value: '999' } });
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertDailyLeadMin: 240 }, ''));
+    // Let that save settle (Save goes back to disabled) before the next edit.
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
     fireEvent.change(weekly, { target: { value: '999' } });
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertWeeklyLeadMin: 480 }, ''));
+    // Let that save settle (Save goes back to disabled) before the next edit.
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
     fireEvent.change(weekly, { target: { value: '0' } });
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertWeeklyLeadMin: 0 }, ''));
@@ -458,6 +462,25 @@ describe('Companies', () => {
     fireEvent.change(mins, { target: { value: '0' } });
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ mealReminderMin: 0 }, ''));
+  });
+
+  // Early punch alert (Neil, 11/02/2026, early_punch.py): a 10-minute window
+  // out of the box (Neil, Teams 11/02/2026), clamped to 0-240, saved through
+  // the one Save row; the hint says the punch is always recorded.
+  it('saves the early punch alert minutes, 10 by default, through the one Save row', async () => {
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} part="attendance" />);
+    const mins = await screen.findByLabelText('Early punch alert');
+    expect(mins.value).toBe('10');
+    expect(screen.getByText('Early Punch Alert')).toBeTruthy();
+    expect(screen.getByText(/0 turns it off\. The punch is always recorded\.$/)).toBeTruthy();
+    expect(saveButton().disabled).toBe(true);
+    fireEvent.change(mins, { target: { value: '20' } });
+    expect(shiftRequestSettingsSaveFor).not.toHaveBeenCalled();   // typing alone saves nothing
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith({ earlyPunchAlertMin: 20 }, ''));
+    fireEvent.change(mins, { target: { value: '999' } });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ earlyPunchAlertMin: 240 }, ''));
   });
 
   it('shows the defaults (10 and 15) when the API sends none, and an unchanged value saves nothing', async () => {
@@ -709,6 +732,41 @@ describe('ShiftSettingsPanel sharing', () => {
 // Settings shows the shift settings as several groups (Oct 25): `part` is the
 // slice a group shows. The parts share one load, hear each other's saves, and
 // a company's part says whether ITS settings differ from the defaults.
+// Weekly labor budget (Neil, 11/02/2026): two typed fields of their own
+// group, saved through the one Save row; HR++ only - a manager never sees
+// the block, even on the whole panel.
+describe('ShiftSettingsPanel labor budget', () => {
+  it('saves the weekly hours and amount through the one Save row, 0 = none', async () => {
+    role.current = { can: (r) => r === 'administrator', myGrantedModules: new Map(), hrTeam: false };
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} company="" part="labor" />);
+    const hours = await screen.findByLabelText('Hours per week');
+    const amount = screen.getByLabelText('Amount per week');
+    expect(hours.value).toBe('0');
+    expect(amount.value).toBe('0');
+    expect(screen.getByText('Hours Per Week')).toBeTruthy();
+    expect(screen.getByText('Amount Per Week')).toBeTruthy();
+    expect(screen.getByText(/to HR and administrators only - never to managers/)).toBeTruthy();
+    expect(saveButton().disabled).toBe(true);
+    fireEvent.change(hours, { target: { value: '1200' } });
+    fireEvent.change(amount, { target: { value: '9000' } });
+    expect(shiftRequestSettingsSaveFor).not.toHaveBeenCalled();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith({ laborBudgetHours: 1200, laborBudgetAmount: 9000 }, ''));
+  });
+
+  it('shows the block to a Full People grant and hides it from a manager', async () => {
+    role.current = { can: () => false, myGrantedModules: new Map([['hr', 'full']]), hrTeam: false };
+    const r1 = render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    expect(await screen.findByLabelText('Hours per week')).toBeTruthy();
+    r1.unmount();
+    role.current = { can: (r) => r === 'manager', myGrantedModules: new Map(), hrTeam: true };
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByLabelText('No-show alert');
+    expect(screen.queryByLabelText('Hours per week')).toBeNull();
+    expect(screen.queryByText('Labor Budget')).toBeNull();
+  });
+});
+
 describe('ShiftSettingsPanel parts', () => {
   it('shows only its own slice, with no heading - the group card names it', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} company="" part="rules" />);
@@ -755,5 +813,37 @@ describe('ShiftSettingsPanel parts', () => {
     await waitFor(() => expect(basics).toHaveBeenLastCalledWith(false));
     // The company banner, and its way back to the defaults, sit with the basics.
     expect(screen.getAllByText(/has its own settings\. Changes in any shift group apply/)).toHaveLength(1);
+  });
+});
+
+// Time off recommendation (Neil, 11/02/2026, timeoff_recommend.py): two day
+// counts under the time-off switch, saved through the group's one Save row
+// like every other number; a hint for the manager, never a decision.
+describe('ShiftSettingsPanel time off recommendation', () => {
+  it('saves the notice and short-request days, clamped to 0-90 and 1-30, through the one Save row', async () => {
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} part="requests" />);
+    const notice = await screen.findByLabelText('Time off notice');
+    expect(notice.value).toBe('7');
+    const short = screen.getByLabelText('Short request');
+    expect(short.value).toBe('3');
+    expect(screen.getByText('Time Off Notice (Days)')).toBeTruthy();
+    expect(screen.getByText('Short Request (Days)')).toBeTruthy();
+    expect(screen.getByText("A request made at least this many days ahead earns 'Recommended: Approve'. A hint for the manager, never a decision.")).toBeTruthy();
+    expect(screen.getByText("A request of at most this many working days earns 'Recommended: Approve'.")).toBeTruthy();
+    expect(screen.getAllByText('days').length).toBe(2);
+    expect(saveButton().disabled).toBe(true);
+    fireEvent.change(notice, { target: { value: '120' } });
+    expect(shiftRequestSettingsSaveFor).not.toHaveBeenCalled();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ timeOffNoticeDays: 90 }, ''));
+    fireEvent.change(screen.getByLabelText('Short request'), { target: { value: '0' } });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ timeOffShortDays: 1 }, ''));
+  });
+  it('shows what the API sends for the two day counts', async () => {
+    shiftRequestSettingsGetFor.mockResolvedValue({ ...SETTINGS, timeOffNoticeDays: 14, timeOffShortDays: 5 });
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} part="requests" />);
+    expect((await screen.findByLabelText('Time off notice')).value).toBe('14');
+    expect(screen.getByLabelText('Short request').value).toBe('5');
   });
 });
