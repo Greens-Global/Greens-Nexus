@@ -1472,6 +1472,8 @@ def _run_migrations():
             "ALTER TABLE nexus_person_prefs ADD COLUMN email_optouts VARCHAR DEFAULT ''",
             # On the Schedule (Neil, 11/03/2026) - see the Postgres list.
             "ALTER TABLE nexus_employees ADD COLUMN on_schedule INTEGER DEFAULT 1",
+            # MRI lease documents folder (Urmi, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3526,6 +3528,10 @@ def _run_migrations():
         # On the Schedule (Neil, 11/03/2026): 0 = never placed, counted or
         # alerted in scheduling; NULL / 1 = on. models.NexusEmployee.on_schedule.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS on_schedule INTEGER DEFAULT 1",
+        # MRI lease documents folder (Urmi, 11/03/2026, Teams Nexus -
+        # Accounting): the lease's Egnyte folder, like MRE's per-vendor one.
+        # models.Lease.egnyte_folder.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS egnyte_folder VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
