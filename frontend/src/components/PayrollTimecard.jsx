@@ -571,7 +571,7 @@ function anchorForStart(startIso, payType) {
   return payType === 'fixed' ? new Date(y, m - 1, 15) : periodStartFor(new Date(y, m - 1, d));
 }
 
-export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '', initialStart = '', initialPayType = '', selfTop = null }) {
+export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '', initialStart = '', initialPayType = '', selfTop = null, desk = false }) {
   const self = selfMode;   // employee viewing their OWN timecard (from /my-payroll)
   const [people, setPeople] = useState([]);
   const [peopleLoaded, setPeopleLoaded] = useState(false);   // the team list answered (even empty)
@@ -1406,7 +1406,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     .filter(p => inFilter(p.email) && (!onlyMissing || p.missing > 0));
   const filterSel = (value, onChange, label, options) => options.length > 1 && (
     <select className="form-input" value={value} onChange={e => onChange(e.target.value)} aria-label={label}
-      style={{ fontSize: 12, padding: '4px 6px', width: '100%' }}>
+      style={{ fontSize: 12, padding: '4px 6px', width: desk ? 'auto' : '100%' }}>
       <option value="">All {label === 'Company' ? 'companies' : 'departments'}</option>
       {options.map(o => <option key={o} value={o}>{o}</option>)}
     </select>
@@ -1423,8 +1423,35 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // so switching between them never rearranges the screen (hidden in self mode).
   // On a phone the list gives way to the card; the employee picker above the
   // card still switches people.
+  const iifButton = showPay && companies.length > 0 && (
+    <button type="button" className="secondary-btn" disabled={(!iifCompanyId && !iifEmail) || exporting}
+      title={iifCompanyId
+        ? `QuickBooks Desktop time import (IIF) of ${iifCompany}'s finalized time sheets for ${formatDate(perStart)} - ${formatDate(perEnd)}. Import with File > Utilities > Import > Timer Activities. Employee names and the payroll items must match QuickBooks.`
+        : iifEmail
+          ? `QuickBooks Desktop time import (IIF) of ${nameFor(iifEmail)}'s finalized time sheet for ${formatDate(perStart)} - ${formatDate(perEnd)}. Import with File > Utilities > Import > Timer Activities.`
+          : 'Pick a company, or one person - QuickBooks imports one company (or one person) per file'}
+      onClick={() => exportFile(() => api.timeExportIifFinalized(perStart, perEnd, iifCompanyId, iifEmail), 'QuickBooks IIF',
+        [perStart, perEnd], iifCompanyId ? { company: iifCompanyId } : { email: iifEmail })}
+      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
+  );
+  // Desk (11/03/2026, B world): the period, person picker, filters and the
+  // export share ONE toolbar line above the master-detail - the same filter
+  // grammar as every other Time tab - and the sidebar keeps only the list.
+  const payrollToolbar = (desk && !self && !phone) ? (
+    <div style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      {periodNav(true)}
+      <EmployeeCombobox search people={pickable} value={email} onChange={setEmail} placeholder="Search by name"
+        labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`}
+        style={{ flex: '0 1 240px', minWidth: 180 }} />
+      {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
+      {filterSel(dept, setDept, 'Department', depts)}
+      <div style={{ flex: 1 }} />
+      {iifButton}
+    </div>
+  ) : null;
   const employeeSidebar = (!self && !phone) ? (
     <div data-tour="pr-sidebar" style={{ width: 240, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
+        {!desk && (
         <div style={{ padding: '8px 10px 6px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 5, borderBottom: '1px solid var(--line)' }}>
           {periodNav(true)}
           {/* The person picker lives here, with the period and the list (Neil, Oct 29 2026). */}
@@ -1433,18 +1460,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             style={{ minWidth: 0, border: '1px solid var(--wk-line2)', borderRadius: 8, padding: '6px 9px', background: 'var(--card)' }} />
           {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
           {filterSel(dept, setDept, 'Department', depts)}
-          {showPay && companies.length > 0 && (
-            <button type="button" className="secondary-btn" disabled={(!iifCompanyId && !iifEmail) || exporting}
-              title={iifCompanyId
-                ? `QuickBooks Desktop time import (IIF) of ${iifCompany}'s finalized time sheets for ${formatDate(perStart)} - ${formatDate(perEnd)}. Import with File > Utilities > Import > Timer Activities. Employee names and the payroll items must match QuickBooks.`
-                : iifEmail
-                  ? `QuickBooks Desktop time import (IIF) of ${nameFor(iifEmail)}'s finalized time sheet for ${formatDate(perStart)} - ${formatDate(perEnd)}. Import with File > Utilities > Import > Timer Activities.`
-                  : 'Pick a company, or one person - QuickBooks imports one company (or one person) per file'}
-              onClick={() => exportFile(() => api.timeExportIifFinalized(perStart, perEnd, iifCompanyId, iifEmail), 'QuickBooks IIF',
-                [perStart, perEnd], iifCompanyId ? { company: iifCompanyId } : { email: iifEmail })}
-              style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
-          )}
+          {iifButton}
         </div>
+        )}
       <div style={{ maxHeight: 560, overflowY: 'auto', borderRadius: '0 0 14px 14px' }}>
       {exceptions.length > 0 && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', fontSize: 11.5, fontWeight: 500, color: 'var(--ink)', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
@@ -1488,7 +1506,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     return (
       <>
         {self ? fixedCard : (
-          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)' }}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)', flexWrap: 'wrap' }}>
+            {payrollToolbar}
             {employeeSidebar}
             <div style={{ flex: 1, minWidth: 0 }}>{fixedCard}</div>
           </div>
@@ -1518,7 +1537,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       </div>
     );
     return self ? spinner : (
-      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)' }}>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)', flexWrap: 'wrap' }}>
+        {payrollToolbar}
         {employeeSidebar}
         <div style={{ flex: 1, minWidth: 0 }}>{spinner}</div>
       </div>
@@ -1526,7 +1546,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   }
 
   return (
-    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)' }}>
+    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)', flexWrap: 'wrap' }}>
+      {payrollToolbar}
       {/* Employee sidebar - who has missing punches / exceptions this period */}
       {employeeSidebar}
 

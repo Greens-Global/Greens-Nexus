@@ -12,11 +12,11 @@ describe('DateField noPast', () => {
     const onChange = vi.fn();
     render(<DateField value="" onChange={onChange} noPast placeholder="Pick a date" />);
     fireEvent.click(screen.getByText('Pick a date'));
-    const d17 = screen.getAllByRole('button', { name: '17' })[0];
+    const d17 = screen.getAllByRole('button', { name: /^\d{2}\/17\/\d{4}$/ })[0];
     expect(d17.disabled).toBe(true);
     fireEvent.click(d17);
     expect(onChange).not.toHaveBeenCalled();
-    const d18 = screen.getAllByRole('button', { name: '18' })[0];
+    const d18 = screen.getAllByRole('button', { name: /^\d{2}\/18\/\d{4}$/ })[0];
     expect(d18.disabled).toBe(false);
     fireEvent.click(d18);
     expect(onChange).toHaveBeenCalledWith('2026-09-18');

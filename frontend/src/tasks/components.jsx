@@ -506,7 +506,10 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
               const isSel = sameYMD(d, selected);
               const off = beforeMin(d) || afterMax(d);
               return (
-                <button key={i} disabled={off} title={beforeMin(d) ? 'Past dates cannot be picked' : afterMax(d) ? 'Later dates cannot be picked' : undefined}
+                // The full date as the name: a screen reader hears
+                // "10/28/2026", not a bare "28" (11/03/2026).
+                <button key={i} disabled={off} aria-label={fmtDate(dateToISO(d))}
+                  title={beforeMin(d) ? 'Past dates cannot be picked' : afterMax(d) ? 'Later dates cannot be picked' : undefined}
                   onClick={() => { onChange(dateToISO(d)); onClose(); }} style={{
                   height: 36, borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13,
                   fontWeight: (isSel || isToday) ? 700 : 500, fontFamily: FONT,
