@@ -308,7 +308,21 @@ def draft_cut(db, project, report) -> None:
              sub=_activity(project), family=REPORT_KINDS)
 
 
-def report_published(db, project, report, pdf: bytes = b"") -> str:
+def cost_readers(db, project, emails) -> set:
+    """The executives who may see the job's money (routers.construction.
+    _may_see_cost) - review H1, 11/03/2026: only they get the PDF with the
+    change orders' dollars."""
+    import task_automation
+    from routers.construction import _may_see_cost
+    out = set()
+    for em in emails:
+        u = task_automation._person_user(db, em)
+        if u and _may_see_cost(db, u, project):
+            out.add(em)
+    return out
+
+
+def report_published(db, project, report, pdf: bytes = b"", pdf_cost: bytes = b"", cost_to=()) -> str:
     """Deliver a published report to the people it was written for.
 
     Returns "" or a reason, for the caller to record - the publish itself has
@@ -321,6 +335,28 @@ def report_published(db, project, report, pdf: bytes = b"") -> str:
     to = _emails(project.executive_emails)
     if not to:
         return "no executive recipients on this project"
+    rich = [e for e in to if e in set(cost_to or ())] if pdf_cost else []
+    rest = [e for e in to if e not in rich]
+    errs = [_mail_report(project, report, rich, pdf_cost) if rich else "",
+            _mail_report(project, report, rest, pdf) if rest else ""]
+    err = "; ".join(e for e in errs if e)
+
+    # Managers get a bell either way, so "was it sent?" has an answer in the
+    # app. It is the week's draft bell, rewritten (one per workflow).
+    for m in reviewers(db, project):
+        bell(db, kind="report_published", recipient=m,
+             title="Weekly Report Published",
+             body=(f"Week of {_us(report.week_start)} on {project.name} was sent to "
+                   f"{len(to)} recipient(s)." if not err
+                   else f"Week of {_us(report.week_start)} on {project.name} was published, "
+                        f"but the email failed: {err}"),
+             ref_id=_report_ref(project, report), label="Open Report",
+             sub=_activity(project), family=REPORT_KINDS, done=not err)
+    return err
+
+
+def _mail_report(project, report, to, pdf: bytes) -> str:
+    """One report mail (the PDF attached when it fits) to `to`."""
 
     link = f"{_APP_URL}/construction/activity:{project.id}" if _APP_URL else ""
     attach = None
@@ -346,21 +382,8 @@ def report_published(db, project, report, pdf: bytes = b"") -> str:
         {f'<p><a href="{escape(link, quote=True)}" style="font-size:14px">Open it in Nexus</a></p>' if link else ''}
       </div>
     """
-    err = _send(to=to, subject=f"{project.name} - Weekly Report, Week of {_us(report.week_start)}",
-                html=html, attachment=attach)
-
-    # Managers get a bell either way, so "was it sent?" has an answer in the
-    # app. It is the week's draft bell, rewritten (one per workflow).
-    for m in reviewers(db, project):
-        bell(db, kind="report_published", recipient=m,
-             title="Weekly Report Published",
-             body=(f"Week of {_us(report.week_start)} on {project.name} was sent to "
-                   f"{len(to)} recipient(s)." if not err
-                   else f"Week of {_us(report.week_start)} on {project.name} was published, "
-                        f"but the email failed: {err}"),
-             ref_id=_report_ref(project, report), label="Open Report",
-             sub=_activity(project), family=REPORT_KINDS, done=not err)
-    return err
+    return _send(to=to, subject=f"{project.name} - Weekly Report, Week of {_us(report.week_start)}",
+                 html=html, attachment=attach)
 
 
 def deliver_published_report(report_id: str) -> str:
@@ -385,7 +408,7 @@ def deliver_published_report(report_id: str) -> str:
         if not p:
             return "project not found"
 
-        pdf = b""
+        pdf, pdf_cost, cost_to = b"", b"", set()
         try:
             import construction_pdf
             media = {m.id: m for m in db.query(_models.ConstructionMedia)
@@ -398,13 +421,17 @@ def deliver_published_report(report_id: str) -> str:
                     .order_by(_models.ConstructionDailyLog.log_date).all()) \
                 if r.daily_log_ids else []
             import construction_report
-            pdf = construction_pdf.build(r, p, media, logs, pairs=construction_report.report_pairs(db, r))
+            pairs = construction_report.report_pairs(db, r)
+            pdf = construction_pdf.build(r, p, media, logs, pairs=pairs)
+            cost_to = cost_readers(db, p, _emails(p.executive_emails))
+            if cost_to:
+                pdf_cost = construction_pdf.build(r, p, media, logs, pairs=pairs, with_cost=True)
         except Exception as e:
             # Still send the mail - a report someone can open in the app beats
             # silence because the renderer choked on one photo.
             print(f"[construction] report PDF render failed for {report_id}: {e}")
 
-        err = report_published(db, p, r, pdf)
+        err = report_published(db, p, r, pdf, pdf_cost=pdf_cost, cost_to=cost_to)
         db.commit()
         if err:
             print(f"[construction] report {report_id} published but not mailed: {err}")

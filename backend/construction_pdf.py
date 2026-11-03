@@ -358,7 +358,8 @@ def build_photo_report(project, photos: list, pairs: list, *, title: str = "", n
     return buf.getvalue()
 
 
-def build(report, project, media_by_id: dict, logs: list, pairs: list | None = None) -> bytes:
+def build(report, project, media_by_id: dict, logs: list, pairs: list | None = None,
+          with_cost: bool = False) -> bytes:
     """Render one report. `media_by_id` is {id: ConstructionMedia}; `pairs`
     the report's before / after pairs as [(pair, before, after)]."""
     st = _styles()
@@ -387,7 +388,8 @@ def build(report, project, media_by_id: dict, logs: list, pairs: list | None = N
 
     flow = [Paragraph("<u>Construction Update</u>", st["doctitle"])]
 
-    sections = report.sections or {}
+    # Dollars only for a reader who may see them (construction_report.money_sections).
+    sections = construction_report.money_sections(report, with_cost)
     order = report.section_order or [k for k, _ in construction_report.SECTIONS]
     labels = dict(construction_report.SECTIONS)
 

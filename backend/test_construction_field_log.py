@@ -126,6 +126,10 @@ class Prefill(Base):
         pre = self.client.get(f"/construction/projects/pa/logs/prefill?date={DAY}").json()
         self.assertEqual(sorted(p["id"] for p in pre["photos"]), ["m1", "m3"])
         self.assertEqual([f["title"] for f in pre["forms"]], ["Toolbox Talk"])
+        # Review M5: the Forms reach rule - another crew member's entry is not theirs to see.
+        self.as_(CREW2)
+        self.assertEqual(self.client.get(f"/construction/projects/pa/logs/prefill?date={DAY}").json()["forms"], [])
+        self.as_(CREW)
         pre_done = self.client.get(f"/construction/projects/pa/logs/prefill?date={day}").json()
         self.assertEqual([x["id"] for x in pre_done["punch"]["done"]], ["punch-01"])
         self.assertEqual(pre_done["punch"]["done"][0]["location"], "Unit 4 hallway")
@@ -253,6 +257,41 @@ class Reminder(Base):
         self.assertTrue(bells[0].actioned)
         self.assertEqual(bells[0].title, "Daily Log Filed")
 
+
+
+class ReviewFixes(Base):
+    def test_l9_one_job_failing_never_takes_another_jobs_bell(self):
+        self._worked_day()
+        real = construction_field.remind_one
+
+        def flaky(db, p, now=None, marks=None):
+            if p.id == "pb":
+                raise RuntimeError("boom")
+            return real(db, p, now=now, marks=marks)
+        with mock.patch.object(construction_field, "remind_one", side_effect=flaky):
+            self.assertEqual(construction_field.reminder_tick(self.db, now=Reminder.NOW), 1)
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.NexusNotification).filter_by(type="construction_log_missing").count(), 1)
+
+    def test_m7_done_is_one_transaction_and_a_photo_id_is_used_once(self):
+        self.as_(MGR_A)
+        self.client.post("/construction/projects/pa/punch", json={"id": "punch-m7-01", "title": "Patch"})
+        photo = {"id": "photo-m7-0001", "url": PIC, "mime_type": "image/png", "size_bytes": 8}
+        self.assertEqual(self.client.post("/construction/punch/punch-m7-01/done",
+                                          json={"done": True, "photo": {**photo, "id": "bad id!"}}).status_code, 422)
+        from routers import tasks as tasks_router
+        with mock.patch.object(tasks_router, "update_task", side_effect=RuntimeError("tasks down")):
+            with self.assertRaises(RuntimeError):
+                self.client.post("/construction/punch/punch-m7-01/done", json={"done": True, "photo": photo})
+        self.db.expire_all()
+        self.assertIsNone(self.db.get(models.ConstructionMedia, "photo-m7-0001"))     # nothing half-landed
+        self.assertIsNone(self.db.get(models.ConstructionPunchMeta, "punch-m7-01"))
+        self.assertEqual(self.client.post("/construction/punch/punch-m7-01/done", json={"done": True, "photo": photo}).status_code, 200)
+        self.client.post("/construction/punch/punch-m7-01/done", json={"done": False})
+        self.assertEqual(self.client.post("/construction/punch/punch-m7-01/done", json={"done": True, "photo": photo}).status_code, 200)
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.ConstructionMedia).filter_by(id="photo-m7-0001").count(), 1)
+        self.assertEqual(self.db.get(models.ConstructionPunchMeta, "punch-m7-01").done_media_id, "photo-m7-0001")
 
 if __name__ == "__main__":
     import unittest

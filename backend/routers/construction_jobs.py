@@ -37,6 +37,9 @@ Punch in the field (11/03/2026, phase 3): each item has a spot (location
 text, ConstructionPunchMeta) and marking a punch item Done needs a photo of
 the finished work (a job photo tagged 'punch', ConstructionMedia.task_id);
 Verified is one tap (undo = unverify), the verifier and time kept.
+KNOWN GAP (review M8, kept on purpose): "Done needs a photo" is enforced on
+THIS route only - a punch task completed from Tasks (the task drawer, a
+board, an import) does not ask for one.
 """
 from __future__ import annotations
 
@@ -290,30 +293,53 @@ def punch_done(task_id: str, body: DoneIn, background_tasks: BackgroundTasks,
         raise HTTPException(403, "You are not on this job.")
     sec = construction_tasks.punch_section(db, tp, create=False)
     is_punch = sec is not None and t.section_id == sec.id
+    # ONE transaction (review M7, 11/03/2026): the Done photo, the punch meta,
+    # the task's update and the Idempotency-Key's answer all land in
+    # update_task's one commit, or none of them does. Nothing commits before.
     if is_punch and bool(body.done) and not t.completed:
         m = db.get(models.ConstructionPunchMeta, t.id)
         if not body.photo and not (m and m.done_media_id):
             raise HTTPException(422, "Add a photo of the finished work to mark it Done.")
         if body.photo:
+            from routers.construction_field import _ID
             try:
                 pb = JobMediaBody(**{k: v for k, v in body.photo.items() if k in JobMediaBody.model_fields})
             except Exception:   # noqa: BLE001 - a malformed photo is the person's to fix
                 raise HTTPException(422, "The photo did not upload - take it again.")
             pb.kind = "photo"
-            media = make_media(db, user, job, pb, task_id=t.id, extra_tags=("punch",))
+            pid = (pb.id or "").strip()
+            if pid and not _ID.match(pid):
+                raise HTTPException(422, "A photo id is 8 to 64 letters, digits, '.', '_', ':' or '-'.")
+            was = db.get(models.ConstructionMedia, pid) if pid else None
+            if was is not None:
+                # A resend of the same photo (the key expired): the row it made.
+                if was.project_id != job.id or (was.uploaded_by or "").lower() != _me(user):
+                    raise HTTPException(409, "That photo id is taken.")
+                media = was
+            else:
+                media = make_media(db, user, job, pb, task_id=t.id, extra_tags=("punch",))
             meta = _meta(db, job, t.id)
             meta.done_media_id, meta.done_photo_url = media.id, media.url or ""
         meta = _meta(db, job, t.id)
         meta.done_by, meta.done_at, meta.modified_at = _me(user), _now(), _now()
-        db.commit()
+    elif is_punch and not body.done and t.completed:
+        meta = db.get(models.ConstructionPunchMeta, t.id)
+        if meta is not None:   # the photo stays as evidence; Done and Verified are taken back
+            meta.done_by = meta.done_at = meta.verified_by = meta.verified_at = ""
+            meta.modified_at = _now()
+    db.flush()
     if bool(t.completed) != bool(body.done):
+        # The key's answer goes into update_task's commit too; its body is
+        # filled in with the task as it stands right after.
+        idem.remember(db, user, {"id": t.id, "completed": bool(body.done)}, 200)
         tasks_router.update_task(t.id, tasks_router.TaskUpdate(completed=bool(body.done)), background_tasks, user, db)
-        if is_punch and not body.done:
-            meta = db.get(models.ConstructionPunchMeta, t.id)
-            if meta is not None:   # the photo stays as evidence; Done and Verified are taken back
-                meta.done_by = meta.done_at = meta.verified_by = meta.verified_at = ""
-                meta.modified_at = _now()
-                db.commit()
+        db.refresh(t)
+        out = _task_row(t, _names(db, t.assignee_emails or []))
+        if idem._pending is not None:
+            import json
+            idem._pending.response_json = json.dumps(out, default=str)
+            db.commit()
+        return out
     db.refresh(t)
     out = _task_row(t, _names(db, t.assignee_emails or []))
     idem.remember(db, user, out, 200)

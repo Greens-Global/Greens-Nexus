@@ -259,11 +259,15 @@ def punch_on(db: Session, p, day: str) -> dict:
     return {"done": done, "verified": verified}
 
 
-def forms_on(db: Session, p, day: str) -> list:
+def forms_on(db: Session, p, day: str, user: dict) -> list:
+    """The form entries filed to the job that day that the reader may see
+    (form_audience.viewer_reach - the ONE Forms reach rule, review M5)."""
+    import form_audience
     tz = _zone(db, p)
     E = models.DocFormEntry
+    reach = form_audience.viewer_reach(db, user)
     rows = db.query(E).filter(E.linked_project_id == p.id, E.deleted_at == "").all()
-    rows = [e for e in rows if local_day_of(e.submitted_at, tz) == day]
+    rows = [e for e in rows if local_day_of(e.submitted_at, tz) == day and reach(e)]
     names = construction_company.people_names(db, [e.submitted_by for e in rows])
     return [{"id": e.id, "title": e.title or "Form", "submittedBy": (e.submitted_by or "").lower(),
              "submittedByName": names.get((e.submitted_by or "").lower(), ""), "submittedAt": e.submitted_at or "",
@@ -327,7 +331,7 @@ def prefill(db: Session, user: dict, p, day: str) -> dict:
                     "logId": m.daily_log_id or "", "caption": m.caption or m.description or "",
                     "tags": list(m.tags or []), "location": m.location_text or ""} for m in photos],
         "punch": punch_on(db, p, day),
-        "forms": forms_on(db, p, day),
+        "forms": forms_on(db, p, day, user),
         "suggestedDelays": [suggested] if suggested else [],
         "delayCauses": [{"key": k, "label": DELAY_LABEL[k]} for k in DELAY_CAUSES],
     }
@@ -466,14 +470,17 @@ def reminder_tick(db: Session, now: datetime | None = None) -> int:
     marks = _marks(db)
     n = 0
     for p in db.query(P).filter(P.deleted_at == "", P.status == "active").all():
+        # One commit per job (review L9): a job that fails never takes another
+        # job's bell or mark with it.
         try:
             if remind_one(db, p, now=now, marks=marks):
                 n += 1
+            _save_marks(db, marks)
+            db.commit()
         except Exception as e:   # noqa: BLE001 - one job never stops the rest
             db.rollback()
+            marks = _marks(db)
             print(f"[construction-field] reminder {p.id}: {e}")
-    _save_marks(db, marks)
-    db.commit()
     return n
 
 
