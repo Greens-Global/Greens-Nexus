@@ -16,18 +16,17 @@ import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
 import { StatusLabel } from '../../components/StatusLabel';
 import ProgressTrack from '../../ui/ProgressTrack';
 import Amount from '../../components/accounting/Amount';
-import LinesPanel from '../../components/accounting/LinesPanel';
 import { ColumnResizer } from '../../components/accounting/reportControls';
 import { useColumnWidths } from '../../components/accounting/tableHooks';
 import { cellStyle, headStyle } from '../../components/accounting/columnStyles';
 import { formatDate } from '../../lib/datetime';
 import { CARD, TONE } from '../ui';
 import { REQUEST_STAGE, spendTrack, usd } from '../lib/money';
-import { actualQueries, actualReport, keepFor } from '../lib/moneyDrill';
+import ActualLines from './ActualLines';
 
 const quiet = { fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 };
 const h3 = { fontSize: '0.98rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' };
-const STAGE_TONE = { requested: TONE.yellow, received: TONE.blue, paid: TONE.green };
+const STAGE_TONE = { requested: TONE.yellow, posting: TONE.blue, received: TONE.blue, paid: TONE.green };
 
 function Figure({ label, value, hint, onDrill, testId, tone }) {
   const text = value == null ? '-' : usd(value);
@@ -91,7 +90,7 @@ const pct = (v) => `${(Math.round(v * 1000) / 10).toFixed(1)}%`;
 
 export default function MoneyTab({ project, money, onEdit }) {
   const { data: m, error, reload } = money;
-  const [lines, setLines] = useState(null);   // { title, queries, report, keep }
+  const [lines, setLines] = useState(null);   // { row } - null row = the total
 
   if (error) return <ErrorBanner message={error} onRetry={reload} />;
   if (!m) return <SkeletonBlocks count={3} height={110} borderRadius={12} />;
@@ -100,7 +99,7 @@ export default function MoneyTab({ project, money, onEdit }) {
   const link = m.link || {};
   const actual = m.actual;
   const track = spendTrack(m);
-  const open = (title, queries, report = null, keep = null) => setLines({ title, queries, report, keep });
+  const open = (row = null) => setLines({ row });
   const spend = m.spend || { purchaseRequests: [], reimbursements: [] };
   const changes = m.changes || { rows: [], approved: 0, pending: 0 };
 
@@ -131,14 +130,14 @@ export default function MoneyTab({ project, money, onEdit }) {
           <Figure testId="budget" label="Budget" value={m.budget?.amount || null}
             hint={m.budget?.amount ? `The job's contract value${m.budget.approvedChanges ? ' plus approved changes' : ''}. Not in the books by Project-Job.` : 'Set a contract value on Edit Job.'} />
           <Figure testId="committed" label="Requested, Not Yet Billed" value={m.committed?.amount ?? 0}
-            hint={`Reimbursements tagged to this job and not paid yet${m.committed?.purchaseRequests ? `; ${m.committed.purchaseRequests === 1 ? '1 open purchase request carries' : `${m.committed.purchaseRequests} open purchase requests carry`} no amount` : ''}.`} />
+            hint={`Reimbursements on this job their approver approved and HR has not yet${m.committed?.purchaseRequests ? `; ${m.committed.purchaseRequests === 1 ? '1 open purchase request carries' : `${m.committed.purchaseRequests} open purchase requests carry`} no amount` : ''}.`} />
           <Figure testId="actual" label="Actual to Date" value={actual ? actual.amount : null}
             hint={actual ? 'Posted cost on this Project-Job. Open it for the ledger lines.' : 'Read from the books once the job is mapped.'}
-            onDrill={actual ? () => open('Actual to Date', actualQueries(m)) : null} />
+            onDrill={actual ? () => open() : null} />
           <Figure testId="approved" label="Approved Changes" value={changes.approved} hint="Approved change orders on this job." />
           <Figure testId="pending" label="Pending Changes" value={changes.pending} hint="Change orders not decided yet." />
           <Figure testId="forecast" label="Forecast at Completion" value={m.forecast}
-            hint="Worked out: actual to date + requested, not yet billed + pending changes." />
+            hint="Worked out: the larger of the budget with its pending changes and actual to date plus requested, not yet billed." />
           {m.variance != null && (
             <Figure testId="variance" label="Variance" value={m.variance} tone={m.variance < 0 ? 'hsl(var(--color-red))' : undefined}
               hint="Worked out: budget less the forecast." />
@@ -147,7 +146,7 @@ export default function MoneyTab({ project, money, onEdit }) {
         {track && (
           <ProgressTrack value={track.value} state={track.state} label="Actual against budget"
             start="Actual to Date" end={`Budget ${usd(track.budget)}`}
-            note={<><b>{track.over ? `${usd(track.actual - track.budget)} over budget` : `${pct(m.percentSpent || 0)} spent`}</b>{' '}- worked out from the figures above</>} />
+            note={<><b>{track.over ? `Over Budget by ${usd(track.by)}` : `${pct(m.percentSpent || 0)} spent`}</b>{' '}- worked out from the figures above</>} />
         )}
       </div>
 
@@ -166,7 +165,7 @@ export default function MoneyTab({ project, money, onEdit }) {
                       </td>
                       <td className="acct-num" style={cellStyle(w.width('amount'))}>
                         <button type="button" className="acct-drill" aria-label={`Ledger lines behind ${r.label}`} title="See the ledger lines behind this amount"
-                          onClick={() => open(`${r.label} - Actual to Date`, actualQueries(m, r), actualReport(m, r), keepFor(m, r))}>
+                          onClick={() => open(r)}>
                           <Amount value={r.amount} zero="dash" />
                         </button>
                       </td>
@@ -176,7 +175,7 @@ export default function MoneyTab({ project, money, onEdit }) {
                   <tr className="acct-grand">
                     <td colSpan={2} className="acct-label">Total</td>
                     <td className="acct-num">
-                      <button type="button" className="acct-drill" aria-label="Ledger lines behind the total" onClick={() => open('Actual to Date', actualQueries(m))}>
+                      <button type="button" className="acct-drill" aria-label="Ledger lines behind the total" onClick={() => open()}>
                         <Amount value={actual.amount} />
                       </button>
                     </td>
@@ -216,7 +215,7 @@ export default function MoneyTab({ project, money, onEdit }) {
       <div style={{ ...CARD, marginBottom: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <h3 style={h3}>Tagged to This Job</h3>
         <div style={quiet}>
-          Purchase requests and reimbursements raised for this job in Nexus. They reach the books when accounting posts them; until then they are requested, not yet billed. Nothing here is added to Actual to Date.
+          Purchase requests and reimbursements raised for this job in Nexus, reimbursements once their approver approved them. Only Requested, Not Yet Billed counts in the forecast; Approved, Posting Soon and Paid may already be in the books, so they are listed, never added.
         </div>
         {spend.reimbursements.length === 0 && spend.purchaseRequests.length === 0 && (
           <div style={quiet}>Nothing is tagged to this job yet. Pick the job on a purchase request or a reimbursement.</div>
@@ -229,7 +228,7 @@ export default function MoneyTab({ project, money, onEdit }) {
                 <td style={cellStyle(w.width('by'))}>{r.requestedBy || '-'}</td>
                 <td style={cellStyle(w.width('date'))}>{r.purchaseDate ? formatDate(r.purchaseDate, r.purchaseDate) : '-'}</td>
                 <td style={cellStyle(w.width('stage'))}>
-                  <StatusLabel size="sm" label={r.stage === 'paid' ? `Paid${r.paidOn ? ` ${formatDate(r.paidOn, r.paidOn)}` : ''}` : REQUEST_STAGE.requested} color={STAGE_TONE[r.stage]} />
+                  <StatusLabel size="sm" label={r.stage === 'paid' ? `Paid${r.paidOn ? ` ${formatDate(r.paidOn, r.paidOn)}` : ''}` : REQUEST_STAGE[r.stage] || REQUEST_STAGE.requested} color={STAGE_TONE[r.stage]} />
                 </td>
                 <td className="acct-num" style={cellStyle(w.width('amount'))}>
                   <Amount value={r.amount} />{r.currency !== (m.currency || 'USD') ? ` ${r.currency}` : ''}
@@ -253,12 +252,7 @@ export default function MoneyTab({ project, money, onEdit }) {
         )}
       </div>
 
-      {lines && (
-        <LinesPanel key={lines.title} label={lines.title} title={lines.title}
-          caption={`Project-Job ${link.project} - ${link.entityName || link.entity} - through ${formatDate(m.asOf, m.asOf)}`}
-          queries={lines.queries} report={lines.report} keep={lines.keep} widthsKey="construction-money"
-          onClose={() => setLines(null)} />
-      )}
+      {lines && <ActualLines money={m} row={lines.row} onClose={() => setLines(null)} />}
     </div>
   );
 }

@@ -21,7 +21,8 @@ const dimsFor = (link, row, by) => ({
 export function actualQueries(m, row = null) {
   const link = m?.link || {};
   const by = m?.actual?.by || 'account';
-  const drill = { to: m?.asOf, entity: link.entity };
+  // The same book the totals were added up from (the accrual book).
+  const drill = { to: m?.asOf, entity: link.entity, book: m?.book || 'accrual' };
   if (row) {
     return row.accounts.map((a) => lineQuery({ account: a.account_no, drill, dims: dimsFor(link, row, by) }));
   }
@@ -37,5 +38,5 @@ export function actualReport(m, row) {
   if (!row || row.accounts.length !== 1) return null;
   const link = m?.link || {};
   const a = row.accounts[0];
-  return { account: a.account_no, accountName: a.title, from: '', to: m?.asOf, entity: link.entity, dims: dimsFor(link, row, m?.actual?.by) };
+  return { account: a.account_no, accountName: a.title, from: '', to: m?.asOf, book: m?.book || 'accrual', entity: link.entity, dims: dimsFor(link, row, m?.actual?.by) };
 }

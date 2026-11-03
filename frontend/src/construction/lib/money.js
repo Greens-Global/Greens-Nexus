@@ -32,17 +32,24 @@ export function useJobMoney(project) {
   return out;
 }
 
-/** The progress track of Actual against Budget: red once over, else still moving. */
+/**
+ * The progress track of Actual against Budget: red once the job is Over
+ * Budget, else still moving. Over Budget is the server's rule (actual +
+ * requested, not yet billed past the budget), so the Overview, the tab and
+ * the dashboard card always agree.
+ */
 export function spendTrack(m) {
   const budget = Number(m?.budget?.amount) || 0;
   const actual = Number(m?.actual?.amount) || 0;
   if (!budget || !m?.actual) return null;
-  const over = actual > budget;
-  return { value: Math.min(actual / budget, 1), state: over ? 'overdue' : 'live', over, actual, budget };
+  const over = !!m.overBudget;
+  const committed = Number(m?.committed?.amount) || 0;
+  return { value: Math.min(actual / budget, 1), state: over ? 'overdue' : 'live', over, actual, budget, committed, by: actual + committed - budget };
 }
 
 export const REQUEST_STAGE = {
   requested: 'Requested, Not Yet Billed',
+  posting: 'Approved, Posting Soon',
   received: 'Received',
   paid: 'Paid',
 };

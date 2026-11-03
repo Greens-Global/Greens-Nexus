@@ -24,6 +24,7 @@ const { api } = await import('../../api');
 const { resetAccountingPrefs } = await import('../../components/accounting/prefs');
 const { default: JobPage } = await import('./JobPage');
 const { default: MoneyTab } = await import('./MoneyTab');
+const { default: MoneyLine } = await import('./MoneyLine');
 const { default: EditJobSheet } = await import('../EditJobSheet');
 const { default: JobTagSelect } = await import('../../components/JobTagSelect');
 const { jobTabs } = await import('../lib/job');
@@ -51,7 +52,10 @@ const money = (over = {}) => ({
     left: [{ account_no: '20000', title: 'Accounts Payable', section: 'liability', amount: -600 }],
   },
   spend: {
-    reimbursements: [{ id: 'r1', item: 'Bolts', vendor: 'Hardware', amount: 100, currency: 'USD', requestedBy: 'Crew One', status: 'submitted', purchaseDate: '2026-11-01', paidOn: '', stage: 'requested' }],
+    reimbursements: [
+      { id: 'r1', item: 'Bolts', vendor: 'Hardware', amount: 100, currency: 'USD', requestedBy: 'Crew One', status: 'approver_approved', purchaseDate: '2026-11-01', paidOn: '', stage: 'requested' },
+      { id: 'r2', item: 'Paint', vendor: 'Paint Shop', amount: 40, currency: 'USD', requestedBy: '', status: 'hr_approved', purchaseDate: '2026-10-28', paidOn: '', stage: 'posting' },
+    ],
     purchaseRequests: [{ id: 'q1', item: 'Rebar', quantity: 4, requestedBy: 'Crew One', status: 'pending_manager', createdAt: '2026-11-02T10:00:00Z', stage: 'requested' }],
   },
   forecast: 750, variance: 250, percentSpent: 0.6, overBudget: false, booksError: '',
@@ -113,11 +117,20 @@ describe('Who sees Money', () => {
     expect(screen.queryByRole('tab', { name: 'Money' })).toBeNull();
   });
 
-  it('red once actual passes the budget', () => {
+  it('red once the server says Over Budget - actual + requested, the card\'s rule', () => {
     expect(spendTrack(money()).state).toBe('live');
-    const over = spendTrack(money({ actual: { ...money().actual, amount: 1200 } }));
-    expect(over).toMatchObject({ state: 'overdue', over: true, value: 1 });
+    // 950 actual is under the 1,000 budget, but 950 + 100 requested is over: red.
+    const over = spendTrack(money({ actual: { ...money().actual, amount: 950 }, overBudget: true }));
+    expect(over).toMatchObject({ state: 'overdue', over: true, by: 50 });
     expect(usd(-1200)).toBe('($1,200.00)');
+  });
+
+  it('the Overview line goes red with the server and its Actual opens the ledger lines', async () => {
+    const { container } = render(<MoneyLine money={loaded(money({ actual: { ...money().actual, amount: 950 }, overBudget: true }))} onOpen={() => {}} />);
+    expect(container.querySelector('[data-money-line]').textContent).toContain('Over Budget by $50.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind Actual to Date' }));
+    await screen.findByRole('dialog', { name: 'Actual to Date' });
+    expect(api.searchAccountingLedger.mock.calls.map(([q]) => [q.account, q.project, q.book])).toEqual([['17100', 'PJ-1', 'accrual'], ['61000', 'PJ-1', 'accrual']]);
   });
 });
 
@@ -129,7 +142,7 @@ describe('The Money tab', () => {
     const asked = api.searchAccountingLedger.mock.calls.map(([q]) => q);
     expect(asked.map((q) => q.account)).toEqual(['17100', '61000']);
     for (const q of asked) {
-      expect(q).toMatchObject({ project: 'PJ-1', item: 'CC-1', location: 'E1', to: '2026-11-03' });
+      expect(q).toMatchObject({ project: 'PJ-1', item: 'CC-1', location: 'E1', to: '2026-11-03', book: 'accrual' });
       expect(q.from).toBeUndefined();
     }
     const panel = await screen.findByRole('dialog', { name: 'Site Work - Actual to Date' });
@@ -137,19 +150,36 @@ describe('The Money tab', () => {
     await waitFor(() => expect(api.getAccountingEntry).toHaveBeenCalledWith('e-1'));
   });
 
-  it('No Cost Code keeps only the lines with no item; the total reads every cost account', async () => {
+  it('No Cost Code reads every page and keeps only the lines with no item; the total reads every cost account', async () => {
+    // 1,500 lines on the account, 20 of them with no cost code (each 5.00 = the 100.00 figure).
+    const all = Array.from({ length: 1500 }, (_, i) => ({ line_id: `n${i}`, entry_id: `e${i}`, entry_no: `AP-${i}`, entry_date: '2026-10-01', gl_code: '61000', account_name: 'Repairs', item_id: i % 75 === 0 ? '' : 'CC-1', debit: i % 75 === 0 ? 5 : 1, credit: 0 }));
+    api.searchAccountingLedger.mockImplementation(async (q) => ({ total: all.length, rows: all.slice(q.offset, q.offset + q.limit) }));
     render(<MoneyTab project={job} money={loaded(money())} />);
     fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind No Cost Code' }));
     const panel = await screen.findByRole('dialog', { name: 'No Cost Code - Actual to Date' });
     const table = await within(panel).findByRole('table', { name: /ledger lines/ });
-    expect(within(table).getByText('Total - 1 line')).toBeInTheDocument();
+    expect(within(table).getByText('Total - 20 lines')).toBeInTheDocument();
+    expect(api.searchAccountingLedger.mock.calls.map(([q]) => [q.offset, q.limit])).toEqual([[0, 1000], [1000, 1000]]);
     expect(api.searchAccountingLedger.mock.calls[0][0].item).toBeUndefined();
+    expect(panel.querySelector('[data-lines-check="ok"]').textContent).toContain('20 lines add up to the figure, 100.00');
     cleanup();
     api.searchAccountingLedger.mockClear();
     render(<MoneyTab project={job} money={loaded(money())} />);
     fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind the total' }));
     await waitFor(() => expect(api.searchAccountingLedger).toHaveBeenCalledTimes(2));
     expect(api.searchAccountingLedger.mock.calls.map(([q]) => [q.account, q.project, q.item])).toEqual([['17100', 'PJ-1', undefined], ['61000', 'PJ-1', undefined]]);
+    // Lines that do not add up to the figure say so.
+    const totalPanel = await screen.findByRole('dialog', { name: 'Actual to Date' });
+    await waitFor(() => expect(totalPanel.querySelector('[data-lines-check="short"]')).toBeTruthy());
+  });
+
+  it('reimbursements show their stage; only Requested, Not Yet Billed is summed; a hidden filer reads as a dash', () => {
+    render(<MoneyTab project={job} money={loaded(money())} />);
+    const table = screen.getByRole('table', { name: 'Reimbursements' });
+    expect(within(table).getByText('Approved, Posting Soon')).toBeInTheDocument();
+    const paint = within(table).getByText(/Paint - Paint Shop/).closest('tr');
+    expect(paint.textContent).toContain('-');
+    expect(paint.textContent).not.toContain('Crew One');
   });
 
   it('worked-out figures stay plain and say so; Nexus figures say where they come from', () => {
@@ -183,7 +213,7 @@ describe('The Money tab', () => {
 
 describe('Edit Job - the Books rows', () => {
   it('a manager with access picks the entity and the Project-Job and the one Save maps it', async () => {
-    api.getBookProjects.mockImplementation(async (entity) => ({ limited: false, entities: [{ code: 'E1', name: 'Test Entity' }, { code: 'E2', name: 'Other Entity' }], codes: entity ? [{ code: 'PJ-2', name: 'Second' }] : [], entity }));
+    api.getBookProjects.mockImplementation(async (entity) => ({ limited: false, entities: [{ code: 'E1', name: 'Test Entity' }, { code: 'E2', name: 'Other Entity' }], codes: entity ? [{ code: 'PJ-2', name: 'Second', onEntity: false }] : [], entity }));
     api.mapJobBooks.mockResolvedValue({ link: { project: 'PJ-2', entity: 'E2' } });
     const onSaved = vi.fn();
     render(<EditJobSheet project={job} money={loaded(money())} onClose={() => {}} onSaved={onSaved} />);
@@ -191,6 +221,8 @@ describe('Edit Job - the Books rows', () => {
     await waitFor(() => expect(within(entity).getByRole('option', { name: 'Other Entity (E2)' })).toBeInTheDocument());
     fireEvent.change(entity, { target: { value: 'E2' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Project-Job' }), { target: { value: 'PJ-2' } });
+    // No lines on that entity yet: a warning, never a block.
+    await waitFor(() => expect(document.querySelector('[data-books-warning]').textContent).toContain('It saves'));
     fireEvent.click(screen.getAllByRole('button', { name: 'Save' }).at(-1));
     await waitFor(() => expect(api.mapJobBooks).toHaveBeenCalledWith('j1', { intacctProjectId: 'PJ-2', intacctEntity: 'E2' }));
     expect(api.updateConstructionProject).not.toHaveBeenCalled();

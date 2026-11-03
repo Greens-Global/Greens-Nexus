@@ -15,7 +15,10 @@ export default function BooksRows({ books }) {
   const entities = data?.entities || [];
   const codes = data?.codes || [];
   const loading = !data && !error;
-  const listed = !draft.intacctProjectId || codes.some((c) => c.code === draft.intacctProjectId);
+  const picked = codes.find((c) => c.code === draft.intacctProjectId.trim()) || null;
+  // A code with no lines on the entity saves (the server warns too): Money
+  // reads nothing for it until costs post.
+  const noLines = !!(data && draft.intacctEntity && draft.intacctProjectId.trim() && !picked?.onEntity);
   return (
     <SettingCard>
       <SettingRow title="Entity" htmlFor="job-entity" desc="The Intacct entity this job books to."
@@ -43,9 +46,11 @@ export default function BooksRows({ books }) {
           </span>
         )} />
       {error && <div role="alert" style={{ padding: '8px 16px', fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{error}</div>}
-      {data && draft.intacctEntity && draft.intacctProjectId && !listed && (
-        <div style={{ padding: '8px 16px', fontSize: 12.5, color: 'var(--text-secondary)' }}>
-          {draft.intacctProjectId} is not on {data.limited ? "this entity's lines" : 'the books'} yet - the save will say so.
+      {noLines && (
+        <div data-books-warning="" role="status" style={{ padding: '8px 16px', fontSize: 12.5, color: 'var(--text-secondary)' }}>
+          {picked || data.limited
+            ? `${draft.intacctProjectId.trim()} has no lines on this entity yet. It saves; Money shows nothing until costs post to it.`
+            : `${draft.intacctProjectId.trim()} is not on the books - the save will refuse it.`}
         </div>
       )}
     </SettingCard>

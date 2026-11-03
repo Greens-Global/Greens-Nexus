@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { api } from '../../api';
-import Amount from './Amount';
+import Amount, { formatAmount } from './Amount';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import SidePanel from './SidePanel';
@@ -32,6 +32,9 @@ import { requestReportDrill } from './drill';
 // listed as one - e.g. one per expense account of an MRE line.
 // `keep` (optional): a test each line must pass, for a figure the search
 // cannot narrow to by itself - a job's "No Cost Code" lines (11/03/2026).
+// With `keep` every page of each search is read (readAllLines), so the kept
+// lines are complete, never the first page of them. `figure` (optional): the
+// amount the lines stand behind - the panel says whether they add up to it.
 
 export const LINES_LIMIT = 500;
 
@@ -64,7 +67,31 @@ export async function readLines(queries, limit = LINES_LIMIT) {
   return { lines, more };
 }
 
-export default function LinesPanel({ title, caption = '', queries, report = null, widthsKey = 'lines', label = 'Ledger lines', keep = null, onClose }) {
+const ALL_LINES_PAGE = 1000;
+const ALL_LINES_MAX = 20000;
+
+/** Every line of every query, page after page until each is complete (at
+ *  most ALL_LINES_MAX a query); `more` when one was longer than that. */
+async function readAllLines(queries) {
+  const one = async (q) => {
+    const rows = [];
+    let total = Infinity;
+    while (rows.length < total && rows.length < ALL_LINES_MAX) {
+      const d = await api.searchAccountingLedger({ ...q, offset: rows.length, limit: ALL_LINES_PAGE });
+      const page = d?.rows || [];
+      total = Number(d?.total) || 0;
+      rows.push(...page);
+      if (!page.length) break;
+    }
+    return { rows, more: rows.length < total };
+  };
+  const answers = await Promise.all((queries || []).map(one));
+  const lines = answers.flatMap((d) => d.rows);
+  lines.sort((a, b) => String(b.entry_date || '').localeCompare(String(a.entry_date || '')));
+  return { lines, more: answers.some((d) => d.more) };
+}
+
+export default function LinesPanel({ title, caption = '', queries, report = null, widthsKey = 'lines', label = 'Ledger lines', keep = null, figure = null, onClose }) {
   const key = JSON.stringify(queries || []);
   const [state, setState] = useState({ key: '', lines: null, more: false, error: '' });
   const [entry, setEntry] = useState(null);
@@ -74,7 +101,7 @@ export default function LinesPanel({ title, caption = '', queries, report = null
   const cols = useColumnWidths(`lines-panel:${widthsKey}`, Object.fromEntries(LINE_COLUMNS.map((c) => [c.key, c.width])), { min: 60 });
   useEffect(() => {
     let alive = true;
-    readLines(JSON.parse(key))
+    (keepRef.current ? readAllLines : readLines)(JSON.parse(key))
       .then((d) => { if (alive) setState({ key, ...d, lines: keepRef.current ? d.lines.filter(keepRef.current) : d.lines, error: '' }); })
       .catch((e) => { if (alive) setState({ key, lines: [], more: false, error: e?.message || 'Could not read the ledger lines.' }); });
     return () => { alive = false; };
@@ -129,6 +156,17 @@ export default function LinesPanel({ title, caption = '', queries, report = null
               </tbody>
             </table>
           </div>
+        )}
+        {lines && !state.error && figure != null && (
+          Math.abs(total - Number(figure)) < 0.005 ? (
+            <div data-lines-check="ok" style={{ marginTop: 8, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              {lines.length} {lines.length === 1 ? 'line adds' : 'lines add'} up to the figure, {formatAmount(figure)}.
+            </div>
+          ) : (
+            <div data-lines-check="short" role="status" style={{ marginTop: 8, fontSize: '0.78rem', fontWeight: 600, color: 'var(--bad-fg, #dc2626)' }}>
+              These {lines.length} {lines.length === 1 ? 'line adds' : 'lines add'} up to {formatAmount(total)}; the figure is {formatAmount(figure)}.{state.more ? ' There are more lines than shown here - Open in Reports for every one.' : ''}
+            </div>
+          )
         )}
       </SidePanel>
       {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
