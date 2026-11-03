@@ -258,7 +258,8 @@ function SignatureField({ value, onChange, entryKey, disabled, signerName, phone
       {err && <div style={errStyle}>{err}</div>}
       {open && (
         <Suspense fallback={null}>
-          <SignaturePad name={signerName || ''} onAdopt={adopt} onClose={() => setOpen(false)} />
+          {/* The pad is a sheet portaled to <body>: above this fill sheet (4100). */}
+          <SignaturePad name={signerName || ''} onAdopt={adopt} onClose={() => setOpen(false)} zIndex={4200} />
         </Suspense>
       )}
     </div>

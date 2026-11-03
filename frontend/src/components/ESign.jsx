@@ -13,16 +13,14 @@ import { isDocx } from '../lib/docxFile';
 import { RESERVED_TYPES as RESERVED_FIELD_TYPES, validateFieldValue, formatFieldValue } from '../lib/mergeFieldTypes';
 import TypedFieldInput from './TypedFieldInput';
 import EgnyteBrowser from './EgnyteBrowser';
-import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import { useIsMobile } from '../lib/useIsMobile';
 import { formatDate, formatDateTime, formatPacificDate, formatPacificDateTime } from '../lib/datetime';
-import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import AccessCodeField from './AccessCodeField';
 import AnchoredMenu from './AnchoredMenu';
 import { useRole } from '../contexts/RoleContext';
 import { Spinner, LoadingState } from './AsyncState';
 import BreakAttestModal, { BreakStatement } from './BreakAttestModal';
-import { PersonSelect } from '../tasks/components';
+import { PersonSelect, Modal } from '../tasks/components';
 import { dialog } from '../ui/dialog';
 import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import SignTextField from './esign/SignTextField';
@@ -125,8 +123,6 @@ const SIG_H = 216;
 const SIG_FONTS = ['"Segoe Script"', '"Brush Script MT"', '"Lucida Handwriting"'];
 
 const FL = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.05em', textTransform: 'uppercase' };
-const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
-const cardStyle = { background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' };
 
 // Name box that auto-fills the email: type a teammate's name, matching people
 // drop down beneath, picking one populates name + email. Free text stays as a
@@ -227,41 +223,33 @@ function FieldOptionsModal({ field, onSave, onClose }) {
   // the sealed PDF would fill both circles.
   const clean = [...new Set(opts.map(o => o.trim()).filter(Boolean))];
   const dirty = JSON.stringify(opts) !== JSON.stringify(initial);
-  const guard = useUnsavedGuard(dirty, onClose, clean.length >= 2 ? () => { onSave(clean); onClose(); } : undefined);
+  // The Modal's "Save your changes?" always offers Save Changes; with fewer
+  // than two options there is nothing valid to save, so it keeps editing.
+  const saveDirty = () => { if (clean.length >= 2) { onSave(clean); onClose(); } };
   return (
-    <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>{FIELD_META[field.type]?.label} options</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
-        </div>
-        <div style={{ padding: '14px 20px', overflowY: 'auto' }}>
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>The values the signer can choose from - at least two.</p>
-          {opts.map((o, i) => (
-            <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-              <input className="form-input" value={o} placeholder={`Option ${i + 1}`} autoFocus={i === opts.length - 1 && !o}
-                onChange={e => setOpts(os => os.map((x, j) => j === i ? e.target.value : x))} style={{ flex: 1 }} />
-              <button onClick={() => setOpts(os => os.filter((_, j) => j !== i))} disabled={opts.length <= 2}
-                style={{ background: 'none', border: 'none', color: opts.length <= 2 ? 'var(--line)' : 'hsl(var(--color-red))', cursor: opts.length <= 2 ? 'default' : 'pointer', display: 'flex', padding: 4 }}><Trash2 size={13} /></button>
-            </div>
-          ))}
-          <button className="secondary-btn" onClick={() => setOpts(os => [...os, ''])}
-            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Option</button>
-        </div>
-        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" disabled={clean.length < 2} onClick={() => { onSave(clean); onClose(); }}
+    <Modal zIndex={1500} onClose={onClose} isDirty={dirty} onSave={saveDirty}
+      title={`${FIELD_META[field.type]?.label} Options`}
+      footer={(close) => (
+        <>
+          <button className="secondary-btn" onClick={() => close()}>Cancel</button>
+          <button className="primary-btn" disabled={clean.length < 2} onClick={() => { onSave(clean); close(); }}
             style={{ opacity: clean.length < 2 ? 0.5 : 1 }}>Save Options</button>
+        </>
+      )}>
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>The values the signer can choose from - at least two.</p>
+      {opts.map((o, i) => (
+        <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+          <input className="form-input" value={o} placeholder={`Option ${i + 1}`} autoFocus={i === opts.length - 1 && !o}
+            onChange={e => setOpts(os => os.map((x, j) => j === i ? e.target.value : x))} style={{ flex: 1 }} />
+          <button onClick={() => setOpts(os => os.filter((_, j) => j !== i))} disabled={opts.length <= 2}
+            style={{ background: 'none', border: 'none', color: opts.length <= 2 ? 'var(--line)' : 'hsl(var(--color-red))', cursor: opts.length <= 2 ? 'default' : 'pointer', display: 'flex', padding: 4 }}><Trash2 size={13} /></button>
         </div>
+      ))}
+      <div>
+        <button className="secondary-btn" onClick={() => setOpts(os => [...os, ''])}
+          style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Option</button>
       </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt
-          onKeepEditing={guard.keepEditing}
-          onDiscard={onClose}
-          onSave={clean.length >= 2 ? guard.saveAndClose : undefined}
-        />
-      )}
-    </div>
+    </Modal>
   );
 }
 // Which offer value an Offer Field prints. Picked at placement so the box
@@ -270,27 +258,21 @@ const MERGE_COLOR = { solid: '#0f766e', soft: 'rgba(15,118,110,0.10)' };
 function MergeFieldModal({ field, onSave, onClose }) {
   const [key, setKey] = useState(field.merge || 'salary');
   return (
-    <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Offer Field</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
-        </div>
-        <div style={{ padding: '14px 20px' }}>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
-            This box is printed from the offer when the packet is sent - nobody types into it. Pick what it shows.
-          </p>
-          <select className="form-input" value={key} onChange={e => setKey(e.target.value)} style={{ width: '100%' }} autoFocus>
-            {MERGE_FIELDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-          </select>
-          {key === 'salary' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 0' }}>Printed the way the typed pay reads, e.g. "$85,000.00 per year" or "₹7,00,000.00 per year".</p>}
-        </div>
-        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" onClick={() => { onSave(key); onClose(); }}>Use This Field</button>
-        </div>
-      </div>
-    </div>
+    <Modal zIndex={1500} onClose={onClose} title="Offer Field"
+      footer={(close) => (
+        <>
+          <button className="secondary-btn" onClick={() => close()}>Cancel</button>
+          <button className="primary-btn" onClick={() => { onSave(key); close(); }}>Use This Field</button>
+        </>
+      )}>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
+        This box is printed from the offer when the packet is sent - nobody types into it. Pick what it shows.
+      </p>
+      <select className="form-input" value={key} onChange={e => setKey(e.target.value)} style={{ width: '100%' }} autoFocus>
+        {MERGE_FIELDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+      </select>
+      {key === 'salary' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 0' }}>Printed the way the typed pay reads, e.g. "$85,000.00 per year" or "₹7,00,000.00 per year".</p>}
+    </Modal>
   );
 }
 // Label editor for upload fields (shared by both field placers). An upload box
@@ -303,39 +285,29 @@ function FieldLabelModal({ field, onSave, onClose }) {
   const [required, setRequired] = useState(field.required !== false);
   const dirty = label !== initial || required !== (field.required !== false);
   const save = () => { onSave({ label: label.trim(), required }); onClose(); };
-  const guard = useUnsavedGuard(dirty, onClose, save);
   return (
-    <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Attachment Field</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
-        </div>
-        <div style={{ padding: '16px 20px' }}>
-          <label style={FL}>What should the signer attach?</label>
-          <input className="form-input" autoFocus value={label} style={{ width: '100%' }}
-            placeholder="Certificate of insurance" onChange={e => setLabel(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') save(); }} />
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 14px' }}>
-            Shown on the box the signer clicks, and named on the signing certificate.
-          </p>
-          <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: 'pointer' }}>
-            <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)}
-              style={{ width: 15, height: 15, marginTop: 1, accentColor: 'var(--pine)' }} />
-            <span style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-              Required - the signer cannot finish without attaching a file.
-            </span>
-          </label>
-        </div>
-        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" onClick={save}>Save</button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} />
-      )}
-    </div>
+    <Modal zIndex={1500} onClose={onClose} isDirty={dirty} onSave={save} title="Attachment Field"
+      footer={(close) => (
+        <>
+          <button className="secondary-btn" onClick={() => close()}>Cancel</button>
+          <button className="primary-btn" onClick={() => { onSave({ label: label.trim(), required }); close(); }}>Save</button>
+        </>
+      )}>
+      <label style={FL}>What should the signer attach?</label>
+      <input className="form-input" autoFocus value={label} style={{ width: '100%' }}
+        placeholder="Certificate of insurance" onChange={e => setLabel(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') save(); }} />
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 14px' }}>
+        Shown on the box the signer clicks, and named on the signing certificate.
+      </p>
+      <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: 'pointer' }}>
+        <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)}
+          style={{ width: 15, height: 15, marginTop: 1, accentColor: 'var(--pine)' }} />
+        <span style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+          Required - the signer cannot finish without attaching a file.
+        </span>
+      </label>
+    </Modal>
   );
 }
 const chip = (m) => ({ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: m.bg, color: m.fg, whiteSpace: 'nowrap' });
@@ -364,7 +336,9 @@ function useFillHeight(minH = 420) {
 const fillPanelStyle = (h) => ({ height: h, display: 'flex', flexDirection: 'column', border: '1px solid var(--line)', borderRadius: 14, background: 'var(--bg, #f3f4f6)', overflow: 'hidden' });
 
 // ── Signature pad - draw or type (with font styles), DocuSign "adopt" flow ────
-export function SignaturePad({ name = '', onAdopt, onClose }) {
+// `zIndex`: the pad is a sheet portaled to <body>, so a host that is itself a
+// higher sheet (Forms' fill sheet, 4100) passes a z above its own.
+export function SignaturePad({ name = '', onAdopt, onClose, zIndex = 1400 }) {
   const [tab, setTab] = useState('type');
   const [typed, setTyped] = useState(name);
   const [font, setFont] = useState(0);
@@ -434,20 +408,35 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
   // otherwise be silently lost on an outside click - a legally meaningful
   // loss for a signature specifically.
   const dirty = tab === 'draw' ? hasInk : typed.trim() !== (name || '').trim();
-  const guard = useUnsavedGuard(dirty, onClose, (tab === 'draw' ? hasInk : typed.trim()) ? adopt : undefined);
+  const canAdopt = !!(tab === 'draw' ? hasInk : typed.trim());
 
   return (
-    <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <PenTool size={17} style={{ color: 'var(--pine)' }} />
-          <div style={{ flex: 1 }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Adopt Your Signature</h3>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>This becomes your legal signature on this document.</div>
+    <Modal zIndex={zIndex} onClose={onClose} isDirty={dirty}
+      // "Save Changes" on the close question adopts; with nothing to adopt
+      // (a cleared name) it keeps the pad open instead.
+      onSave={() => { if (canAdopt) adopt(); }}
+      title={(
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <PenTool size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+          <span>
+            <span style={{ display: 'block', fontSize: 16, fontWeight: 800 }}>Adopt Your Signature</span>
+            <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--muted)', marginTop: 2 }}>This becomes your legal signature on this document.</span>
+          </span>
+        </span>
+      )}
+      footer={(close) => (
+        <>
+          <span style={{ fontSize: 10.5, color: 'var(--muted)', flex: '1 1 240px' }}>By adopting, you agree this is the electronic equivalent of your handwritten signature.</span>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="secondary-btn" onClick={() => close()}>Cancel</button>
+            <button className="primary-btn" onClick={adopt} disabled={!canAdopt}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: canAdopt ? 1 : 0.55 }}>
+              <CheckCircle size={14} /> Adopt &amp; Sign
+            </button>
           </div>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ padding: '18px 24px' }}>
+        </>
+      )}>
+        <div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>{seg('type', 'Type', Type)}{seg('draw', 'Draw', PenTool)}</div>
           {tab === 'draw' ? (
             <>
@@ -477,25 +466,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
             </>
           )}
         </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 10.5, color: 'var(--muted)', maxWidth: 300 }}>By adopting, you agree this is the electronic equivalent of your handwritten signature.</span>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button className="secondary-btn" onClick={onClose}>Cancel</button>
-            <button className="primary-btn" onClick={adopt} disabled={tab === 'draw' ? !hasInk : !typed.trim()}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (tab === 'draw' ? hasInk : typed.trim()) ? 1 : 0.55 }}>
-              <CheckCircle size={14} /> Adopt &amp; Sign
-            </button>
-          </div>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt
-          onKeepEditing={guard.keepEditing}
-          onDiscard={onClose}
-          onSave={(tab === 'draw' ? hasInk : typed.trim()) ? guard.saveAndClose : undefined}
-        />
-      )}
-    </div>
+    </Modal>
   );
 }
 
@@ -911,17 +882,14 @@ function HistoryPanel({ loadHistory, onClose }) {
   }, [loadHistory]);
 
   return (
-    <div style={{ ...overlayStyle, zIndex: 1450 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Clock size={17} style={{ color: 'var(--pine)' }} />
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, flex: 1 }}>History</h3>
-          <button onClick={onClose} aria-label="Close"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
-            <X size={16} />
-          </button>
-        </div>
-        <div style={{ padding: '6px 24px 18px', overflowY: 'auto' }}>
+    <Modal zIndex={1450} onClose={onClose}
+      title={(
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Clock size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} /> History
+        </span>
+      )}
+      footer={(close) => <button className="secondary-btn" onClick={() => close()}>Close</button>}>
+        <div>
           {error ? (
             <p style={{ fontSize: 13, color: 'hsl(var(--color-red))', margin: '14px 0' }}>{error}</p>
           ) : !rows ? (
@@ -970,11 +938,7 @@ function HistoryPanel({ loadHistory, onClose }) {
             </ol>
           )}
         </div>
-        <div style={{ padding: '12px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Close</button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1204,10 +1168,11 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   const listBtnRef = useRef(null);
   const [declineOpen, setDeclineOpen] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
-  // Declining is itself a consequential, one-way action - Save Changes isn't
-  // offered on this guard (only Keep Editing / Discard); the modal's own
-  // primary "Decline" button is the deliberate way to actually submit it.
-  const declineGuard = useUnsavedGuard(!!declineReason.trim(), () => setDeclineOpen(false), undefined);
+  // Declining is itself a consequential, one-way action - the close question's
+  // Save Changes never declines: it keeps the typed reason for next time and
+  // closes (Discard clears it); the popup's own primary "Decline" button is the
+  // deliberate way to actually submit it.
+  const declineDirty = !!declineReason.trim();
   const fieldRefs = useRef({});
   const myRole = payload.myRole;
   // What the other parties have already put in - read-only here, but shown:
@@ -1600,18 +1565,40 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
     setPaperBusy(false);
   };
 
+  // One sheet for the three steps; the footer follows the step.
   const paperModal = (
-    <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && setPaperStep(0)}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Printer size={17} style={{ color: 'var(--pine)' }} />
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, flex: 1 }}>Sign on Paper</h3>
+    <Modal zIndex={1400} onClose={() => setPaperStep(0)}
+      title={(
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Printer size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+          <span>Sign on Paper</span>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>Step {paperStep} of 3</span>
-        </div>
-
-        {paperStep === 1 && (
+        </span>
+      )}
+      footer={(close) => (
+        paperStep === 1 ? (
           <>
-            <div style={{ padding: '18px 24px' }}>
+            <button className="secondary-btn" onClick={() => close()}>Cancel</button>
+            <button className="primary-btn" onClick={() => setPaperStep(2)}>Continue</button>
+          </>
+        ) : paperStep === 2 ? (
+          <>
+            <button className="secondary-btn" onClick={() => setPaperStep(1)}>Back</button>
+            <button className="primary-btn" onClick={() => setPaperStep(3)}>I Have Signed It</button>
+          </>
+        ) : (
+          <>
+            <button className="secondary-btn" onClick={() => setPaperStep(2)}>Back</button>
+            <button className="primary-btn" disabled={!paperFile || paperBusy} onClick={submitPaper}
+              style={{ opacity: paperFile && !paperBusy ? 1 : 0.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              {paperBusy ? <Spinner size={14} /> : <Check size={14} />}
+              Submit Signed Copy
+            </button>
+          </>
+        )
+      )}>
+        {paperStep === 1 && (
+            <div>
               <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 0 16px' }}>
                 How would you like to return the signed document?
               </p>
@@ -1628,16 +1615,10 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 </span>
               </label>
             </div>
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="secondary-btn" onClick={() => setPaperStep(0)}>Cancel</button>
-              <button className="primary-btn" onClick={() => setPaperStep(2)}>Continue</button>
-            </div>
-          </>
         )}
 
         {paperStep === 2 && (
-          <>
-            <div style={{ padding: '18px 24px' }}>
+            <div>
               <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 0 14px' }}>
                 Download the document, print it, and sign it by hand. Come back to this page when
                 you have a scan ready - this link stays valid.
@@ -1649,16 +1630,10 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 </button>
               )}
             </div>
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="secondary-btn" onClick={() => setPaperStep(1)}>Back</button>
-              <button className="primary-btn" onClick={() => setPaperStep(3)}>I Have Signed It</button>
-            </div>
-          </>
         )}
 
         {paperStep === 3 && (
-          <>
-            <div style={{ padding: '18px 24px' }}>
+            <div>
               <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 0 14px' }}>
                 Upload your signed copy. Make sure every signed page is included and readable.
               </p>
@@ -1683,30 +1658,29 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 <p style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', margin: '10px 0 0', fontWeight: 600 }}>{paperErr}</p>
               )}
             </div>
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="secondary-btn" onClick={() => setPaperStep(2)}>Back</button>
-              <button className="primary-btn" disabled={!paperFile || paperBusy} onClick={submitPaper}
-                style={{ opacity: paperFile && !paperBusy ? 1 : 0.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                {paperBusy ? <Spinner size={14} /> : <Check size={14} />}
-                Submit Signed Copy
-              </button>
-            </div>
-          </>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 
   // Hoisted out of the return so the consent/OTP gates can render it too: a
   // signer who would rather use paper says so on the FIRST screen, long before
-  // the document exists to decline from.
+  // the document exists to decline from. A question with a reason box, so the
+  // centered card. Back keeps the typed reason; the close question's Discard
+  // (and a close with nothing typed) clears it.
   const declineModal = (
-    <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && declineGuard.requestClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)' }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Sign on Paper Instead</h3>
-        </div>
-        <div className="nx-fill" style={{ padding: '18px 24px' }}>
+    <Modal zIndex={1400} placement="center" title="Sign on Paper Instead"
+      onClose={(how) => { if (how !== 'back') setDeclineReason(''); setDeclineOpen(false); }}
+      isDirty={declineDirty} onSave={() => setDeclineOpen(false)}
+      footer={(close) => (
+        <>
+          <button className="secondary-btn" onClick={() => close('back')}>Back</button>
+          <button className="primary-btn" disabled={busy} onClick={() => onDecline(declineReason)}
+            style={{ background: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <XCircle size={14} /> Decline to Sign Electronically
+          </button>
+        </>
+      )}>
+        <div className="nx-fill">
           <p style={{ fontSize: 13, lineHeight: 1.6, margin: '0 0 14px', color: 'var(--muted)' }}>
             Tell the sender you would rather sign on paper and they will arrange it - download a
             copy above, print and sign it, then return the scan to them directly. Nothing is
@@ -1716,21 +1690,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
           <textarea className="form-input" rows={3} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
             value={declineReason} onChange={e => setDeclineReason(e.target.value)} autoFocus />
         </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={() => setDeclineOpen(false)}>Back</button>
-          <button className="primary-btn" disabled={busy} onClick={() => onDecline(declineReason)}
-            style={{ background: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <XCircle size={14} /> Decline to Sign Electronically
-          </button>
-        </div>
-      </div>
-      {declineGuard.confirming && (
-        <UnsavedChangesPrompt
-          onKeepEditing={declineGuard.keepEditing}
-          onDiscard={() => { setDeclineReason(''); setDeclineOpen(false); }}
-        />
-      )}
-    </div>
+    </Modal>
   );
 
   if (needsGate) return (
@@ -2225,6 +2185,7 @@ function MergePara({ text, onChange, onFocus, innerRef }) {
 export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
   const [url, setUrl] = useState('');
   const [fields, setFields] = useState(attachment.fields || []);
+  const [initialFields] = useState(() => JSON.stringify(attachment.fields || []));
   const [activeRole, setActiveRole] = useState(0);
   const [activeType, setActiveType] = useState('sign');
   const [optsFor, setOptsFor] = useState(null);   // field id whose options are being edited
@@ -2303,21 +2264,33 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
     </div>
   );
 
+  // A workspace sheet, most of the screen wide. The Modal closes on an outside
+  // click and on Escape; with fields moved, added or removed those ask first
+  // (Save Changes saves the fields), so a stray click never loses placements.
   return (
-    <div style={{ ...overlayStyle, zIndex: 1350 }}>
-      <div style={{ background: 'var(--bg, #f3f4f6)', borderRadius: 16, width: '100%', maxWidth: 1400, height: 'min(94dvh, 940px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow-lg)' }}>
-      <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', flexShrink: 0 }}>
-        <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 800, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.name}</div>
-          <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Signing template · place the fields once, every send reuses them</div>
-        </div>
-        <button className="secondary-btn" onClick={onClose} style={{ fontSize: 12.5 }}>Cancel</button>
-        <button className="primary-btn" onClick={() => { onSave(fields); onClose(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-          <CheckCircle size={13} /> Save fields
-        </button>
-      </div>
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+    <>
+    <Modal zIndex={1350} width={1400} onClose={onClose}
+      isDirty={JSON.stringify(fields) !== initialFields} onSave={() => { onSave(fields); onClose(); }}
+      title={(
+        <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: 'block', fontWeight: 800, fontSize: 14, overflowWrap: 'anywhere' }}>{attachment.name}</span>
+            <span style={{ display: 'block', fontSize: 10.5, fontWeight: 400, color: 'var(--muted)' }}>Signing template · place the fields once, every send reuses them</span>
+          </span>
+        </span>
+      )}
+      footer={(close) => (
+        <>
+          <button className="secondary-btn" onClick={() => close()} style={{ fontSize: 12.5 }}>Cancel</button>
+          <button className="primary-btn" onClick={() => { onSave(fields); close(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+            <CheckCircle size={13} /> Save Fields
+          </button>
+        </>
+      )}>
+      {/* The three columns take the whole body edge to edge (the negative
+          margin undoes the Modal's 20px padding); each column scrolls itself. */}
+      <div style={{ flex: '1 1 auto', display: 'flex', minHeight: 0, margin: -20, background: 'var(--bg, #f3f4f6)' }}>
         <div style={{ width: 180, borderRight: '1px solid var(--line)', background: 'var(--card)', padding: '14px 12px', flexShrink: 0, overflowY: 'auto' }}>
           <label style={FL}>Included documents</label>
           <div style={{ border: '1.5px solid var(--pine)', borderRadius: 10, padding: '14px 10px', textAlign: 'center', background: 'var(--mist)' }}>
@@ -2334,7 +2307,7 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
           activeIdx={activeRole} onPick={setActiveRole} offerFields
           activeType={activeType} setActiveType={setActiveType} placed={fields.length} />
       </div>
-      </div>
+    </Modal>
       {mergeFor && fields.find(f => f.id === mergeFor) && (
         <MergeFieldModal field={fields.find(f => f.id === mergeFor)} onClose={() => setMergeFor(null)}
           onSave={(merge) => setFields(fs => fs.map(f => f.id === mergeFor ? { ...f, merge } : f))} />
@@ -2347,7 +2320,7 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
         <FieldOptionsModal field={fields.find(f => f.id === optsFor)} onClose={() => setOptsFor(null)}
           onSave={(options) => setFields(fs => fs.map(f => f.id === optsFor ? { ...f, options } : f))} />
       )}
-    </div>
+    </>
   );
 }
 
@@ -3710,21 +3683,23 @@ export function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toa
 
   const editingParty = editPid ? (req?.parties || []).find(p => p.id === editPid) : null;
   const dirty = !!editingParty && (pf.name !== editingParty.name || pf.email !== editingParty.email || pf.access_code.trim() !== '');
-  const guard = useUnsavedGuard(dirty, onClose, editingParty ? async () => { await saveParty(editingParty); onClose(); } : undefined);
   const sm = req ? (REQ_STATUS[reqStatusKey(req)] || REQ_STATUS.pending) : null;
   return (
-    <div style={overlayStyle} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <FileSignature size={16} style={{ color: 'var(--pine)' }} />
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{req?.title || '…'}</h3>
+    <Modal zIndex={1200} onClose={onClose} isDirty={dirty}
+      // Save Changes on the close question saves the recipient being edited
+      // (dirty is only ever true while one is open).
+      onSave={async () => { if (editingParty) await saveParty(editingParty); onClose(); }}
+      title={(
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <FileSignature size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+          <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{req?.title || '…'}</span>
           {sm && <span style={chip(sm)}>{sm.label}</span>}
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
+        </span>
+      )}>
         {!req ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         ) : (
-          <div style={{ overflowY: 'auto', flex: 1, padding: '16px 24px' }}>
+          <div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('remind', () => api.remindSign(requestId), r => `Reminded ${r.reminded}.`)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Bell size={12} /> Remind</button>}
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={voidEnvelope} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))' }}><Ban size={12} /> Void</button>}
@@ -3799,12 +3774,7 @@ export function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toa
             ))}
           </div>
         )}
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
-          onSave={editingParty ? guard.saveAndClose : undefined} saving={guard.saving || busy === 'fix'} />
-      )}
-    </div>
+    </Modal>
   );
 }
 
