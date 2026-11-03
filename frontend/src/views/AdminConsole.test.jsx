@@ -902,7 +902,8 @@ describe('AdminConsole walls, review follow-ups', () => {
     render(<AdminConsole activeSub="shifts@c1" onSubChange={onSubChange} />);
     expect(await find('Shift settings panel basics c1')).toBeInTheDocument();
     expect(onSubChange).not.toHaveBeenCalled();
-    expect(within(screen.getByLabelText('Applies To')).getByRole('option', { name: 'Greens Global' })).toBeInTheDocument();
+    // The fallback list arrives after the panel; wait for the option rather than racing it.
+    await waitFor(() => expect(within(screen.getByLabelText('Applies To')).getByRole('option', { name: 'Greens Global' })).toBeInTheDocument());
     expect(screen.queryByText(/That company is not one you can open/)).not.toBeInTheDocument();
   });
 
