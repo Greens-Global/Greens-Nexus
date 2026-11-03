@@ -15,6 +15,7 @@ A path ending in "/" means the whole folder. Paths are repo-relative.
 OWNERS = [
     {"name": "Visesh", "email": "visesh.lodha@greensglobal.com", "paths": [
         "frontend/src/views/InventoryManagement.jsx",
+        "frontend/src/inventory/",        # the Items module split out of InventoryManagement.jsx
         "frontend/src/components/Assignments.jsx",
         "frontend/src/components/NotificationBell.jsx",
         "frontend/src/components/NotificationToasts.jsx",

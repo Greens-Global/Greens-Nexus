@@ -43,7 +43,7 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 
 | Area | Owner | Files |
 |---|---|---|
-| Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
+| Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/inventory/`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
 | Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/property_assets.py`, property models/tables |
 
 Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
@@ -320,7 +320,7 @@ keep the diff minimal.
   → `/myhr/directory`), never M365/GAL-derived lists. Backend approver/allocator
   endpoints filter role-holders against `nexus_employees`.
 - Every image-upload widget must accept Ctrl+V clipboard paste (see
-  `imageFromPaste` in `InventoryManagement.jsx` / `filesFromPaste` in
+  `imageFromPaste` in `inventory/ui/upload.js` / `filesFromPaste` in
   `tasks/lib.js` for the pattern) with an "or press Ctrl+V…" hint.
 - Time Clock paid leave: a punch pair whose job category says Sick / Vacation
   (matched by `_leave_class` in `timeclock.py`: "Sick Day", "PTO", "Annual
