@@ -197,7 +197,11 @@ export default function ScannerSheet({ items = [], onFound, onClose, deps = {} }
       {phase === 'manual' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label htmlFor="nx-scan-typed" style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>Serial or Item Name</label>
-          <form onSubmit={(e) => { e.preventDefault(); findTyped(); }} style={{ display: 'flex', gap: 8 }}>
+          {/* data-nx-noguard: the serial box is a lookup, not work - typing in it
+              must not mark the sheet dirty, or opening the item it finds (a
+              nexus:navigate while this sheet is still mounted) asks "Discard
+              Unsaved Changes?" first (release smoke, 11/02/2026). */}
+          <form data-nx-noguard onSubmit={(e) => { e.preventDefault(); findTyped(); }} style={{ display: 'flex', gap: 8 }}>
             <input id="nx-scan-typed" className="form-input" value={typed} autoFocus autoComplete="off" autoCapitalize="characters"
               placeholder="e.g. GG-00042" onChange={(e) => { setTyped(e.target.value); setResult(null); }}
               style={{ flex: 1, minWidth: 0, fontSize: 16 }} />

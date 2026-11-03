@@ -99,6 +99,9 @@ describe('the scanner', () => {
     expect(screen.queryByRole('button', { name: 'Try Again' })).toBeNull();
     fireEvent.click(screen.getAllByRole('button', { name: /Type a Serial/ })[0]);
     fireEvent.change(screen.getByLabelText('Serial or Item Name'), { target: { value: 'gg 99' } });
+    // A lookup, not work: the app-wide unsaved-work guard skips it, so opening
+    // the found item never asks "Discard Unsaved Changes?" (release smoke).
+    expect(screen.getByLabelText('Serial or Item Name').closest('[data-nx-noguard]')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Find/ }));
     await waitFor(() => expect(onFound).toHaveBeenCalledWith({ id: 'it-z', name: 'Generator' }));
     expect(fetchByCode).toHaveBeenCalledWith('gg 99');
