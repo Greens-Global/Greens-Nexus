@@ -1079,7 +1079,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
               snapshot: [
                 ...(staged.patch.snapshot || []),
                 { group: 'Item Management', fields: [
-                  { label: 'Linked item serial', value: createdItem?.serial_number || '' },
+                  { label: 'Linked item serial', value: createdItem?.serialNumber || '' },
                 ] },
               ],
             }, staged.reason, staged.linkOptions);
