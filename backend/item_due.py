@@ -212,10 +212,16 @@ def due_fields(co, zones: Optional[Zones]) -> dict:
     """{"dueAt", "dueDate"} for a checkout payload - blank until the item has
     changed hands. dueDate is YYYY-MM-DD in the borrower's zone (screens
     format it MM/DD/YYYY)."""
+    tz = zones.get(getattr(co, "requested_by_email", "")) if zones is not None else ""
+    today = local_today(tz)
+    blank = {"dueAt": "", "dueDate": "", "borrowerToday": today.isoformat(), "overdue": False, "dueToday": False}
     if not handed_over(co):
-        return {"dueAt": "", "dueDate": ""}
+        return blank
     at = due_at(co)
     if at is None:
-        return {"dueAt": "", "dueDate": ""}
-    tz = zones.get(getattr(co, "requested_by_email", "")) if zones is not None else ""
-    return {"dueAt": at.isoformat(), "dueDate": due_date(co, tz).isoformat()}
+        return blank
+    day = due_date(co, tz)
+    out_now = getattr(co, "status", "") == "allocated"
+    # The screens read these instead of comparing the VIEWER's today.
+    return {"dueAt": at.isoformat(), "dueDate": day.isoformat(), "borrowerToday": today.isoformat(),
+            "overdue": out_now and day < today, "dueToday": out_now and day == today}

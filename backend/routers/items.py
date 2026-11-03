@@ -309,7 +309,7 @@ def _validate_photo_url(url: Optional[str], field: str) -> None:
 
 def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
             ref_id: str = "", item_name: str = "", requested_by: str = "",
-            about_email: str = "", company: Optional[str] = None) -> NexusNotification:
+            about_email: str = "", company: Optional[str] = None, action: str = "") -> NexusNotification:
     """One bell row. `requested_by` is a DISPLAY name (shown on the card) -
     the company is stamped from an EMAIL: `company` when the caller knows the
     item's, else the company of `about_email` (the requester / assignee the
@@ -328,7 +328,7 @@ def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
         ref_id=ref_id,
         item_name=item_name,
         requested_by=requested_by,
-        action="",
+        action=action or "",
         actioned=False,
         read_by="",
         company=company or "",
@@ -336,6 +336,11 @@ def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
     )
     db.add(row)
     return row
+
+
+# The Hand Over button on an allocator's bell (the bell opens the Items
+# handover sheet for the checkout - or the whole order - in ref_id).
+_HAND_OVER_ACTION = json.dumps({"kind": "allocate", "label": "Hand Over"})
 
 
 def _bells(db: Session, ntype: str, ref_id: str, recipient=None, title_prefix: str = "") -> list:
@@ -1616,10 +1621,15 @@ _LOAN_CEILING_DAYS = 90
 
 
 def _type_row(db: Session, name: str):
-    key = (name or "").strip().lower()
+    """The type row for `name`, matched the way type names are kept unique
+    (_type_key: case, spacing and plural folding - "Tool" finds "Tools")."""
+    key = _type_key(name)
     if not key:
         return None
-    return next((r for r in db.query(ItemType).all() if (r.name or "").strip().lower() == key), None)
+    rows = db.query(ItemType).all()
+    exact = (name or "").strip().lower()
+    return (next((r for r in rows if (r.name or "").strip().lower() == exact), None)
+            or next((r for r in rows if _type_key(r.name) == key), None))
 
 
 def _loan_cap(db: Session, type_name: str) -> int:
@@ -1643,23 +1653,32 @@ class ItemTypeSettingsIn(BaseModel):
 
 
 def _type_settings(db: Session, user: dict) -> list:
+    """Item types are shared by every company (Neil, 11/02/2026: records
+    every company shares are Super Administrator only), so the default rule
+    reads ALL companies' items - one walled company's stock never decides
+    another's Borrow - while the counts shown are only the caller's own."""
+    import auth
     _seed_types_if_empty(db)
     scope = _scope(user, db)
-    counts: dict = defaultdict(lambda: [0, 0])   # type key -> [transient, permanent]
+    every: dict = defaultdict(lambda: [0, 0])    # type key -> [transient, permanent], all companies
+    mine: dict = defaultdict(lambda: [0, 0])     # the same, inside the caller's walls
     for it in db.query(Item).filter(or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
-        if not _item_ok(it, scope):
-            continue
-        c = counts[(it.item_type or "").strip().lower()]
-        c[0 if (it.ownership_type or "transient") == "transient" else 1] += 1
+        k = _type_key(it.item_type)
+        i = 0 if (it.ownership_type or "transient") == "transient" else 1
+        every[k][i] += 1
+        if _item_ok(it, scope):
+            mine[k][i] += 1
+    can_edit = auth.is_global_admin(user, db)
     out = []
     for r in db.query(ItemType).order_by(ItemType.sort_order, ItemType.name).all():
-        t, p = counts.get((r.name or "").strip().lower(), [0, 0])
+        t, p = every.get(_type_key(r.name), [0, 0])
+        mt, mp = mine.get(_type_key(r.name), [0, 0])
         cap = int(r.max_loan_days or 0)
         out.append({"name": r.name, "borrowable": _type_borrowable(r, t, p),
                     "borrowableSet": None if r.borrowable is None else bool(r.borrowable),
                     "maxLoanDays": cap,
                     "loanCapDays": min(cap, _LOAN_CEILING_DAYS) if cap > 0 else _LOAN_CEILING_DAYS,
-                    "temporaryCount": t, "permanentCount": p})
+                    "temporaryCount": mt, "permanentCount": mp, "canEdit": can_edit})
     return out
 
 
@@ -1671,9 +1690,15 @@ def list_item_type_settings(user: dict = Depends(get_current_user), db: Session 
     return _type_settings(db, user)
 
 
-@router.patch("/types/{name}")
-def update_item_type_settings(name: str, body: ItemTypeSettingsIn, user: dict = Depends(require_items_admin),
+@router.patch("/types/{name:path}")
+def update_item_type_settings(name: str, body: ItemTypeSettingsIn, user: dict = Depends(get_current_user),
                               db: Session = Depends(get_db)):
+    # Every company shares the type list - only a Super Administrator (or a
+    # flagged global group) changes its Borrowable switch or longest loan.
+    # {name:path}: a type like "Radios/Phones" is a name, not two segments.
+    import auth
+    if not auth.is_global_admin(user, db):
+        raise HTTPException(403, "Only a Super Administrator can change this.")
     row = _type_row(db, name)
     if row is None:
         raise HTTPException(404, "Item type not found")
@@ -1690,7 +1715,7 @@ def update_item_type_settings(name: str, body: ItemTypeSettingsIn, user: dict = 
     return _type_settings(db, user)
 
 
-@router.delete("/types/{name}")
+@router.delete("/types/{name:path}")
 def delete_item_type(name: str, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     if name.strip().lower() == "other":
         raise HTTPException(400, "“Other” is the fallback type and can't be removed.")
@@ -1808,7 +1833,9 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
         raise HTTPException(400, "Only transient items can be checked out")
     _refuse_lost(item)
     type_row = _type_row(db, item.item_type)
-    if type_row is not None and type_row.borrowable is False:
+    if type_row is not None and type_row.borrowable is False and not _is_items_manager(user, db):
+        # Borrowable is what Borrow lists; an items manager may still check
+        # one out (for themselves or for a crew member).
         raise HTTPException(400, f"{item.item_type} items are not borrowable")
     # Who it is for: anyone may raise a request on someone's behalf (ops staff
     # checking items out for a crew member - Neil), but that person must be a
@@ -2324,10 +2351,12 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                     existing_alloc.title   = alloc_title
                     existing_alloc.body    = alloc_body
                     existing_alloc.read_by = ""
+                    existing_alloc.action  = existing_alloc.action or _HAND_OVER_ACTION
                 else:
                     _notify(db, type="allocate_request", recipient=row.assigned_allocator_email,
                             title=alloc_title, body=alloc_body,
-                            ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
+                            ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by,
+                            action=_HAND_OVER_ACTION)
         else:
             # Solo item (no order) - one notification per action
             if body.status == "approved":
@@ -2339,7 +2368,8 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                     _notify(db, type="allocate_request", recipient=row.assigned_allocator_email,
                             title=f"Hand over: {row.item_name}",
                             body=f"Please hand {row.item_name} over to {row.requested_by}.",
-                            ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+                            ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by,
+                            action=_HAND_OVER_ACTION)
             else:
                 _notify(db, type="rejected", recipient=row.requested_by_email,
                         title=f"Checkout rejected: {row.item_name}",
@@ -2502,10 +2532,14 @@ def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Dep
         days = (new_due - current).days
         if days < 1:
             raise HTTPException(400, f"Pick a date after the current due date ({current.strftime('%m/%d/%Y')})")
+        if new_due <= item_due.local_today(item_due.zone_for(db, row.requested_by_email)):
+            raise HTTPException(400, "Pick a new return date after today")
     else:
         days = max(1, int(body.days or 1))
     # An extension is the manager-approved exception to the type's longest
     # loan, so it is held only to the 90-day ceiling for the whole loan.
+    if (row.days or 0) >= _LOAN_CEILING_DAYS:
+        raise HTTPException(400, f"This loan is already at the {_LOAN_CEILING_DAYS}-day limit - ask an items manager to return and re-lend it")
     if (row.days or 0) + days > _LOAN_CEILING_DAYS:
         raise HTTPException(400, f"A checkout can run for at most {_LOAN_CEILING_DAYS} days in all")
 
@@ -2584,6 +2618,71 @@ def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Dep
     for pending_notif in _bells(db, "extension_pending", checkout_id):
         pending_notif.actioned = True
 
+    db.commit()
+    _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
+    import item_due
+    _tag_item(response, row.item_id)
+    return _checkout_to_dict(row, item_due.Zones(db))
+
+
+# ── The borrower's calendar (Items redesign, 11/02/2026) ──────────────────────
+# Borrow's date boxes come from here, not from the viewer's clock: today, the
+# first and the last return date allowed, all in the BORROWER's zone (the
+# person the request is for - the signed-in one, or "Someone Else").
+
+@router.get("/borrow-window")
+def borrow_window(item_ids: str = "", for_email: str = "", user: dict = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    import item_due
+    who = (for_email or "").strip().lower() or _me(user)
+    if who != _me(user):
+        _require_person(db, who, user, "person this request is for")
+    tz = item_due.zone_for(db, who)
+    today = item_due.local_today(tz)
+    scope = _scope(user, db)
+    out = {}
+    ids = [s for s in (item_ids or "").split(",") if s.strip()][:100]
+    for it in db.query(Item).filter(Item.id.in_(ids)).all() if ids else []:
+        if not _item_ok(it, scope) or it.deleted_at:
+            continue
+        cap = _loan_cap(db, it.item_type)
+        out[it.id] = {"first": (today + timedelta(days=1)).isoformat(),
+                      "last": (today + timedelta(days=cap)).isoformat(), "capDays": cap,
+                      "available": it.status == "available" and (it.op_status or "") != "lost"}
+    return {"today": today.isoformat(), "zone": tz, "for": who, "items": out}
+
+
+# ── Pick a New Allocator (Items redesign, 11/02/2026) ─────────────────────────
+# Offboarding leaves an approved checkout with nobody to hand it over (the
+# allocator_needed bell). An items manager names the new allocator here; the
+# old bell is actioned and the new allocator is belled with Hand Over.
+
+class AllocatorIn(BaseModel):
+    allocator_email: str
+    allocator_name:  Optional[str] = ""
+
+
+@router.post("/checkouts/{checkout_id}/allocator")
+def set_checkout_allocator(checkout_id: str, body: AllocatorIn, user: dict = Depends(get_current_user),
+                           db: Session = Depends(get_db), response: Response = None):
+    if not _is_items_manager(user, db):
+        raise HTTPException(403, "Only an items manager picks who hands it over")
+    row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).with_for_update().first()
+    if not row:
+        raise HTTPException(404, "Checkout not found")
+    _wall_item_id(row.item_id, user, db)
+    if row.status != "approved":
+        raise HTTPException(409, "Only an approved checkout waiting for its handover gets a new allocator")
+    email = (body.allocator_email or "").strip().lower()
+    if not email:
+        raise HTTPException(400, "Pick who should hand it over")
+    _require_person(db, email, user, "allocator")
+    row.assigned_allocator_email = email
+    row.assigned_allocator_name = (body.allocator_name or "").strip() or _display_name(db, email)
+    _action_notif(db, "allocator_needed", row.id)
+    _notify(db, type="allocate_request", recipient=email, title=f"Hand over: {row.item_name}",
+            body=f"Please hand {row.item_name} over to {row.requested_by}.",
+            ref_id=row.id, item_name=row.item_name, requested_by=row.requested_by, action=_HAND_OVER_ACTION)
     db.commit()
     _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
     import item_due

@@ -3,8 +3,11 @@
 
   * every item type has a Borrowable switch: by default on for a type people
     check out (it has temporary items, or none yet) and off for a
-    permanent-only type; an admin's choice overrides it, Use the Default
-    puts the rule back, and a checkout of a type switched off is refused;
+    permanent-only type - counted over EVERY company, since the type list is
+    shared; only a Super Administrator changes it (review 11/02/2026), Use
+    the Default puts the rule back, and a checkout of a type switched off is
+    refused - except for an items manager;
+  * a type name may hold "/" and "Tool" finds "Tools";
   * a type's longest loan is 0 (no cap) to 90 days;
   * Add Item takes the unit's own serial (free, or a 409), blank = GG-#####;
   * GET /items/audit-log filters by a start / end instant on the server.
@@ -54,7 +57,7 @@ class BorrowableTests(unittest.TestCase):
     def test_an_admins_switch_wins_and_use_default_puts_the_rule_back(self):
         kit.add_item(self.db, "t2", item_type="Tools")
         items.update_item_type_settings("tools", ItemTypeSettingsIn(borrowable=False, max_loan_days=14),
-                                        user=U(kit.MGR_A), db=self.db)
+                                        user=U(kit.OWNER), db=self.db)
         row = _settings(self.db, "Tools")
         self.assertEqual((row["borrowable"], row["borrowableSet"], row["maxLoanDays"], row["loanCapDays"]),
                          (False, False, 14, 14))
@@ -64,20 +67,43 @@ class BorrowableTests(unittest.TestCase):
                         user=U(kit.EMP_A2), db=self.db)
         self.assertIn("not borrowable", e.detail)
         self.db.rollback()
-        items.update_item_type_settings("Tools", ItemTypeSettingsIn(use_default=True), user=U(kit.MGR_A), db=self.db)
+        # An items manager may still check one out, for themselves or a crew member.
+        ok = items.create_checkout(CheckoutIn(item_id="t2", item_name="x", requested_by="Evan", requested_by_email=kit.EMP_A2,
+                                              raised_by="Mia", reason="Crew job"), user=U(kit.MGR_A), db=self.db)
+        self.assertEqual(ok["status"], "pending")
+        items.update_item_type_settings("Tools", ItemTypeSettingsIn(use_default=True), user=U(kit.OWNER), db=self.db)
         self.assertTrue(_settings(self.db, "Tools")["borrowable"])
 
-    def test_only_an_items_admin_changes_it_and_the_loan_is_bounded(self):
+    def test_only_a_super_administrator_changes_it_and_the_loan_is_bounded(self):
+        e = kit.refused(self, 403, items.update_item_type_settings, "Tools", ItemTypeSettingsIn(borrowable=False),
+                        user=U(kit.MGR_A), db=self.db)
+        self.assertEqual(e.detail, "Only a Super Administrator can change this.")
+        self.assertFalse(_settings(self.db, "Tools", kit.MGR_A)["canEdit"])
+        self.assertTrue(_settings(self.db, "Tools", kit.OWNER)["canEdit"])
         kit.refused(self, 400, items.update_item_type_settings, "Tools", ItemTypeSettingsIn(max_loan_days=91),
-                    user=U(kit.MGR_A), db=self.db)
+                    user=U(kit.OWNER), db=self.db)
         kit.refused(self, 404, items.update_item_type_settings, "Nope", ItemTypeSettingsIn(borrowable=True),
-                    user=U(kit.MGR_A), db=self.db)
+                    user=U(kit.OWNER), db=self.db)
 
-    def test_counts_respect_the_company_wall(self):
-        kit.add_item(self.db, "t3", kit.COB, item_type="Tools")
+    def test_the_default_reads_every_company_but_counts_show_only_your_own(self):
+        kit.add_item(self.db, "t3", kit.COB, item_type="Keys")
+        kit.add_item(self.db, "p3", kit.COA, item_type="Keys", ownership="permanent")
         with kit.walls():
-            self.assertEqual(_settings(self.db, "Tools", kit.MGR_A)["temporaryCount"], 0)
-            self.assertEqual(_settings(self.db, "Tools", kit.MGR_B)["temporaryCount"], 1)
+            a = _settings(self.db, "Keys", kit.MGR_A)
+            # Company A holds only a permanent key, but B lends keys: borrowable for all.
+            self.assertTrue(a["borrowable"])
+            self.assertEqual((a["temporaryCount"], a["permanentCount"]), (0, 1))
+            self.assertEqual(_settings(self.db, "Keys", kit.MGR_B)["temporaryCount"], 1)
+
+    def test_names_with_a_slash_and_plural_folding(self):
+        self.db.add(models.ItemType(name="Radios/Phones", sort_order=9))
+        self.db.commit()
+        items.update_item_type_settings("Radios/Phones", ItemTypeSettingsIn(max_loan_days=3), user=U(kit.OWNER), db=self.db)
+        self.assertEqual(_settings(self.db, "Radios/Phones")["maxLoanDays"], 3)
+        self.assertEqual(items._type_row(self.db, "tool").name, "Tools")
+        self.assertEqual(items._loan_cap(self.db, "Radios/Phones"), 3)
+        paths = {getattr(rt, "path", "") for rt in items.router.routes}
+        self.assertIn("/items/types/{name:path}", paths)
 
 
 class SerialAndAuditTests(unittest.TestCase):

@@ -116,6 +116,38 @@ class ReturnDateTests(unittest.TestCase):
         self.assertEqual(done["requestedDueDate"], "2026-11-13")
         self.assertEqual(done["dueDate"], "2026-11-13")
 
+    def test_an_extension_must_land_after_the_borrowers_today(self):
+        # Overdue since 10/30: a new date of 11/01 is after the due date but already past.
+        kit.add_item(self.db, "it-9", status="checked_out")
+        kit.add_checkout(self.db, "co-9", "it-9", "allocated", requester=kit.EMP_A2, days=3,
+                         created_at="2026-10-27T17:00:00+00:00", handed_over_at="2026-10-27T18:00:00+00:00")
+        e = kit.refused(self, 400, items.request_extension, "co-9", ExtensionRequest(new_due_date="2026-11-01", reason="x"),
+                        user=U(kit.EMP_A2), db=self.db)
+        self.assertIn("after today", e.detail)
+
+    def test_a_loan_at_the_ceiling_says_how_to_go_on(self):
+        kit.add_item(self.db, "it-10", status="checked_out")
+        kit.add_checkout(self.db, "co-10", "it-10", "allocated", requester=kit.EMP_A2, days=90,
+                         handed_over_at="2026-10-01T18:00:00+00:00")
+        e = kit.refused(self, 400, items.request_extension, "co-10", ExtensionRequest(days=1, reason="x"),
+                        user=U(kit.EMP_A2), db=self.db)
+        self.assertIn("already at the 90-day limit - ask an items manager to return and re-lend it", e.detail)
+
+    def test_the_borrow_window_is_the_borrowers_own(self):
+        self._type("Tools", max_loan_days=5)
+        kit.add_item(self.db, "it-11", item_type="Tools")
+        out = items.borrow_window(item_ids="it-11", for_email=kit.EMP_A, user=U(kit.EMP_A2), db=self.db)
+        self.assertEqual(out["today"], "2026-11-02")
+        self.assertEqual(out["items"]["it-11"], {"first": "2026-11-03", "last": "2026-11-07", "capDays": 5, "available": True})
+        self.assertEqual(out["for"], kit.EMP_A)
+
+    def test_the_payload_says_overdue_in_the_borrowers_zone(self):
+        kit.add_item(self.db, "it-12", status="checked_out")
+        kit.add_checkout(self.db, "co-12", "it-12", "allocated", requester=kit.EMP_A2, days=2,
+                         created_at="2026-10-27T17:00:00+00:00", handed_over_at="2026-10-27T18:00:00+00:00")
+        row = next(c for c in items.list_checkouts(user=U(kit.MGR_A), db=self.db) if c["id"] == "co-12")
+        self.assertEqual((row["overdue"], row["dueToday"], row["borrowerToday"]), (True, False, "2026-11-02"))
+
     def test_an_extension_past_the_ceiling_is_refused(self):
         kit.add_item(self.db, "it-8", status="checked_out")
         kit.add_checkout(self.db, "co-8", "it-8", "allocated", requester=kit.EMP_A2, days=88,
