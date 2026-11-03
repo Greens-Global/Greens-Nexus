@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 import { nxSrcVitePlugin } from './scripts/nxsrc-plugin.mjs'
 import { stampHtml } from './scripts/stamp-assets.mjs'
 
@@ -63,9 +64,45 @@ function excalidrawLocaleStub() {
   };
 }
 
+// One zlib for the PDF tools and the whiteboard (11/03/2026, bundle headroom).
+// pdf-lib (and its @pdf-lib/standard-fonts and upng) depend on pako 1.0.11;
+// the whiteboard engine brings its own pako 2.0.3; both shipped, ~55 KB of the
+// same zlib port twice. pdf-lib only calls pako.deflate / pako.inflate on
+// Uint8Arrays, which pako 2 does byte for byte the same (checked 11/03/2026
+// at levels 0-9 on text, binary and random input), so on a production build
+// pdf-lib's `import pako from 'pako'` resolves to the engine's copy, which
+// sits in its own small vendor-pako chunk (codeSplitting below) so neither
+// side pulls the other in. Tests keep pako 1 (build only), and if a future
+// install leaves the engine without a pako 2 this does nothing.
+function pdfLibSharesPako() {
+  const ENGINE_ENTRY = fileURLToPath(new URL('./node_modules/@excalidraw/excalidraw/dist/prod/index.js', import.meta.url));
+  const FROM_PDF_LIB = /[\\/]node_modules[\\/](pdf-lib|@pdf-lib[\\/][^\\/]+)[\\/]/;
+  let shared;   // the engine's pako 2 entry, or false
+  return {
+    name: 'nexus-pdf-lib-shares-pako',
+    apply: 'build',
+    enforce: 'pre',
+    async resolveId(source, importer) {
+      if (source !== 'pako' || !importer || !FROM_PDF_LIB.test(importer)) return null;
+      if (shared === undefined) {
+        const hit = await this.resolve('pako', ENGINE_ENTRY, { skipSelf: true });
+        let major = 0;
+        try {
+          const pkg = hit && JSON.parse(readFileSync(hit.id.replace(/([\\/]node_modules[\\/]pako)[\\/].*$/, '$1/package.json'), 'utf8'));
+          major = Number(String(pkg?.version || '').split('.')[0]);
+        } catch { major = 0; }
+        shared = major >= 2 ? hit.id : false;
+      }
+      return shared || null;
+    },
+  };
+}
+
 // Chunk groups (see codeSplitting below). REACT_CORE is claimed first so no
 // other vendor group can take React (or the shared helpers) along with it.
 const REACT_CORE = /[\\/]node_modules[\\/](react|react-dom|scheduler|react-is|use-sync-external-store|clsx|tiny-invariant|eventemitter3)[\\/]|^\0vite\/preload-helper/;
+// zlib, shared by pdf-lib and the whiteboard engine (pdfLibSharesPako above).
+const PAKO = /[\\/]node_modules[\\/]pako[\\/]/;
 // The editor and Markdown packages, kept out of the vendor-react catch-all.
 const EDITOR_AND_MARKDOWN = /[\\/]node_modules[\\/](@tiptap|prosemirror-[a-z-]+|orderedmap|rope-sequence|w3c-keyname|linkifyjs|react-markdown|remark-[a-z-]+|micromark[a-z-]*|mdast-[a-z-]+|hast-[a-z-]+|unist-[a-z-]+|unified|vfile[a-z-]*|property-information|space-separated-tokens|comma-separated-tokens|html-url-attributes|devlop|bail|trough|extend|is-plain-obj|decode-named-character-reference|character-entities[a-z-]*|ccount|escape-string-regexp|markdown-table|longest-streak|zwitch|trim-lines|style-to-js|style-to-object|inline-style-parser|estree-util-[a-z-]+|@ungap)[\\/]/;
 
@@ -167,7 +204,7 @@ export default defineConfig(({ command }) => ({
     ...((NX_SRC || command === 'serve') && !process.env.VITEST
       // Dev serve stamps every element - size is irrelevant locally.
       ? [nxSrcVitePlugin({ root: FRONTEND_ROOT, only: command === 'serve' || process.env.VITE_NX_SRC === 'all' ? undefined : process.env.VITE_NX_SRC === 'interactive' ? 'interactive' : 'handlers' })] : []),
-    react(), versionManifest(), stampUnhashedAssets(), excalidrawLocaleStub(),
+    react(), versionManifest(), stampUnhashedAssets(), excalidrawLocaleStub(), pdfLibSharesPako(),
   ],
   base: '/',
   // Build Mode's local preview / e2e runs share the main checkout's node_modules
@@ -209,6 +246,7 @@ export default defineConfig(({ command }) => ({
         // 2,844 KB -> 2,340 KB, total unchanged.
         codeSplitting: { groups: [
           { name: 'vendor-react-core', test: REACT_CORE, priority: 1 },
+          { name: 'vendor-pako', test: PAKO, priority: 1 },
           { name(id) {
           // The whiteboard engine (Notes boards, Neil 11/02/2026) has NO manual
           // chunk on purpose. It is reached only by the import() in
