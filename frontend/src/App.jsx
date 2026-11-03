@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, addressFor } from './lib/routes';
+import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, addressFor, itemLinkSub } from './lib/routes';
 import { workforceRedirect, WORKFORCE_GRANTS } from './lib/workforceAccess';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
@@ -466,6 +466,9 @@ function parsePath() {
   // Workday > Purchase Requests (/purchase/new opens the form).
   const moved = purchaseRedirect(view, segs[1] || null);
   if (moved) return moved;
+  // An item's own link (a QR tag): /itemmanagement/item/<id> -> sub item/<id>.
+  const itemLink = itemLinkSub(view, segs);
+  if (itemLink) return { view, sub: itemLink };
   // ...and a "confirm your schedule" link (Shifts Phase 3a: the email's
   // ?confirm=<id>, the bell's mine:confirm:<id>) opens My Schedule on it.
   if (view === 'shifts' && /^mine(:|$)/.test(segs[1] || '')) {

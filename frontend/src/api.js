@@ -3493,3 +3493,8 @@ api.shiftRequestSettingsResetKeys = (company, keys) => req(`/timeclock/shift-req
 // The companies again, past the 2-minute cache: Settings asks once when an
 // address names a company it does not know (someone may have just added it).
 api.getEntitiesFresh = () => req('/hr/entities');
+// Items QR tags + phone scan (Items phase 4, Neil 11/02/2026; routers/items.py):
+// the item a scanned tag or a typed serial names (walled - 404 outside the
+// caller's companies), and what a printed tag needs for each id.
+api.getItemByCode = (code) => req(`/items/by-code?code=${encodeURIComponent(code || '')}`);
+api.getItemTags = (ids) => req('/items/tags', { method: 'POST', body: JSON.stringify({ ids: ids || [] }) });

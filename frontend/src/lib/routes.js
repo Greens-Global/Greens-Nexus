@@ -29,6 +29,14 @@ export function purchaseRedirect(view, sub) {
   return null;
 }
 
+// An item's own link (Items phase 4, QR tags, Neil 11/02/2026):
+// /itemmanagement/item/<id> - also /inventory/item/<id> - is the Items sub
+// "item/<id>", which the address writer turns back into the same path. The
+// rest of the link rules live in inventory/scan/itemLink.js. null = not one.
+export function itemLinkSub(view, segs) {
+  return view === 'inventory' && segs?.[1] === 'item' && segs?.[2] ? `item/${segs[2]}` : null;
+}
+
 // The address the app writes for its state. On the FIRST write - the app
 // rewriting the address it was opened at (/support -> /help-center, a default
 // tab added) - the query and hash ride along: an email's /support?ticket=<id>
