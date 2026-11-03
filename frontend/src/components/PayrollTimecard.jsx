@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, Info, SlidersHorizontal, Lock, Printer, ClipboardList, Coffee } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
@@ -22,7 +22,10 @@ import { hm } from '../lib/extraTime';
 import BreakPremiums from './BreakPremiums';
 import TimecardBonuses from './TimecardBonuses';
 import TimeSheetAdvances, { AskAdvanceButton, useTimeSheetAdvances } from './TimeSheetAdvances';
-import GeofencePunchModal from './GeofencePunchModal';
+// The punch map (Leaflet) loads when a manager opens it, not with every Time
+// Sheet - it kept the map library on every phone's offline download (field
+// offline, 11/03/2026). Same modal, same props.
+const GeofencePunchModal = lazy(() => import('./GeofencePunchModal'));
 import AddTimeModal from './AddTimeModal';
 import AddTimeFromRecordModal from './AddTimeFromRecordModal';
 import RecordTag from './RecordTag';
@@ -1999,6 +2002,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           toastOk={toastOk} toastErr={toastErr} />
       )}
       {geoMap && (
+        <Suspense fallback={null}>
         <GeofencePunchModal email={geoMap} name={data?.name || nameFor?.(geoMap) || geoMap} start={perStart} end={perEnd}
           onClose={() => { setGeoMap(''); setGeoFocus(null); }}
           focusIds={geoFocus ? [geoFocus.seg.inId, geoFocus.seg.outId] : null}
@@ -2007,6 +2011,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           onEditSite={geoFocus && !self && !fin && geoFocus.seg.inId
             ? () => { const f = geoFocus; setGeoMap(''); setGeoFocus(null); setEditDay({ date: f.date, seg: f.seg }); }
             : null} />
+        </Suspense>
       )}
       {tour && <GuidedTour onClose={() => setTour(false)} steps={[
         { target: 'pr-sidebar', title: 'Start with the employee list',
@@ -2503,7 +2508,9 @@ function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameF
           onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
       {geoMap && (
-        <GeofencePunchModal email={geoMap} name={data?.name || nameFor?.(geoMap) || geoMap} start={data?.periodStart || ''} end={data?.periodEnd || ''} onClose={() => setGeoMap('')} />
+        <Suspense fallback={null}>
+          <GeofencePunchModal email={geoMap} name={data?.name || nameFor?.(geoMap) || geoMap} start={data?.periodStart || ''} end={data?.periodEnd || ''} onClose={() => setGeoMap('')} />
+        </Suspense>
       )}
       {xtClaim && (
         <ExtraTimeClaimModal fd={xtClaim} onClose={() => setXtClaim(null)} onDone={() => { setXtClaim(null); load(); }}

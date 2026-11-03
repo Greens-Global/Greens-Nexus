@@ -189,4 +189,15 @@ def me(request: Request, user: dict = Depends(get_current_user)):
         "name": name or user["email"],
         "csrf": request.cookies.get(bff.CSRF_COOKIE, ""),
         "mode": "session" if sid else "bearer",
+        # Field offline (11/03/2026): how many idle days a session lives, so a
+        # phone opening with no signal stops trusting its remembered sign-in
+        # once the session must have expired (bffAuth.js offline boot).
+        "sessionIdleDays": _idle_days(),
     }
+
+
+def _idle_days() -> int:
+    try:
+        return int(bff.session_idle_days())
+    except Exception:
+        return bff.SESSION_IDLE_DAYS

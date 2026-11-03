@@ -9,6 +9,7 @@ import { BFF_MODE } from '../bffAuth';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { setDateFormat } from '../lib/datetime';
 import { setOpenTargetViewer } from '../lib/openTarget';
+import { offlineRead } from '../lib/offline/read';
 
 const RoleCtx = createContext(null);
 
@@ -207,7 +208,9 @@ export function RoleProvider({ children }) {
     }
 
     const tryFetch = (attempt = 1) => {
-      api.getMyRole()
+      // Field offline (11/03/2026): with no signal the last answer kept on
+      // this phone opens the app at the person's own access, not Employee.
+      offlineRead('me:role', () => api.getMyRole())
         .then(data => {
           if (!cancelled) {
             setMyRole(data.role ?? 'employee');
@@ -271,7 +274,7 @@ export function RoleProvider({ children }) {
     // deliberately NOT wrapped: its bespoke 3x-retry + 401 interactive-redirect
     // recovery must stay exactly as-is, and a context already shares its result
     // app-wide, so there is nothing to gain and real reliability to lose.
-    queryClient.fetchQuery({ queryKey: qk.groups, queryFn: api.getGroups, staleTime: 30_000 })
+    queryClient.fetchQuery({ queryKey: qk.groups, queryFn: () => offlineRead('me:groups', () => api.getGroups()), staleTime: 30_000 })
       .then(data => { if (!cancelled) setGroups(data); }).catch(() => {});
 
     return () => { cancelled = true; };

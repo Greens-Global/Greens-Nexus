@@ -21,7 +21,13 @@ function isStaleChunkError(error) {
 // At most one automatic reload per minute - if the chunk is still missing
 // after a fresh load, something else is wrong and we show the card instead
 // of reload-looping.
+// No signal (field offline, Neil 11/03/2026): a chunk this phone has not
+// saved cannot load, and a reload cannot fetch it - say so instead, and try
+// again when the signal is back.
+const offlineNow = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+
 function reloadForFreshBuild() {
+  if (offlineNow()) return false;
   const last = Number(sessionStorage.getItem(RELOAD_KEY) || 0);
   if (Date.now() - last < 60_000) return false;
   sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
@@ -43,6 +49,12 @@ export default class ViewErrorBoundary extends Component {
   }
 
   componentDidCatch(error) {
+    if (isStaleChunkError(error) && offlineNow()) {
+      // Back online: the same screen gets a clean retry.
+      this._onOnline = () => this.setState({ error: null });
+      window.addEventListener('online', this._onOnline, { once: true });
+      return;
+    }
     if (isStaleChunkError(error)) { reloadForFreshBuild(); return; }
     // Real render crashes go to the server's error trail (lib/errorReporter).
     import('../lib/errorReporter').then(m => m.reportError(error?.message || String(error), error?.stack)).catch(() => {});
@@ -55,9 +67,25 @@ export default class ViewErrorBoundary extends Component {
     }
   }
 
+  componentWillUnmount() {
+    if (this._onOnline) window.removeEventListener('online', this._onOnline);
+  }
+
   render() {
     if (!this.state.error) return this.props.children;
     const stale = isStaleChunkError(this.state.error);
+    if (stale && offlineNow()) {
+      return (
+        <div role="status" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', padding: 20 }}>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '28px 30px', maxWidth: 420, textAlign: 'center', fontFamily: 'Inter, sans-serif' }}>
+            <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--ink)', marginBottom: 8 }}>You Are Offline</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55 }}>
+              This screen is not saved on this device yet. It opens by itself when you are back online. Anything you saved on this device still sends.
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', padding: 20 }}>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '28px 30px', maxWidth: 420, textAlign: 'center', fontFamily: 'Inter, sans-serif' }}>

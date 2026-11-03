@@ -3529,6 +3529,10 @@ def _run_migrations():
         # On the Schedule (Neil, 11/03/2026): 0 = never placed, counted or
         # alerted in scheduling; NULL / 1 = on. models.NexusEmployee.on_schedule.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS on_schedule INTEGER DEFAULT 1",
+        # Field offline (Neil, 11/03/2026): one stored answer per
+        # Idempotency-Key the phone's outbox sends (backend/idempotency.py,
+        # models.NexusIdempotencyKey; create_all makes the table). RLS per CLAUDE.md.
+        "ALTER TABLE nexus_idempotency_keys ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

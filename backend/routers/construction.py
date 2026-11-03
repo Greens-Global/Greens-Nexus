@@ -36,6 +36,10 @@ import construction_weather
 import models
 from auth import get_current_user
 from database import get_db
+# Idempotency-Key (field offline, Neil 11/03/2026): the phone's outbox resends
+# a log create / edit / photo with the key it made, and a resend of one that
+# landed gets the first answer back (idempotency.py, docs/Offline.md).
+from idempotency import Idem, idempotency
 from services import construction_storage as storage
 
 
@@ -341,10 +345,13 @@ class LogBody(BaseModel):
 
 @router.post("/projects/{project_id}/logs", status_code=201)
 def create_log(project_id: str, body: LogBody, user: dict = Depends(get_current_user),
-               db: Session = Depends(get_db)):
+               db: Session = Depends(get_db), idem: Idem = Depends(idempotency)):
     """Opens a draft. Called the moment the worker taps Start Daily Log, before
     any media exists, so photos have somewhere to attach as they upload rather
     than being held on the phone until a final Submit."""
+    hit = idem.replay(db, user)
+    if hit is not None:
+        return hit
     p = _project(db, project_id)
     if not _may_log(user, p):
         raise HTTPException(403, "You are not assigned to this project.")
@@ -374,7 +381,11 @@ def create_log(project_id: str, body: LogBody, user: dict = Depends(get_current_
         created_at=now, modified_at=now,
     )
     db.add(l)
-    db.commit()
+    db.flush()
+    idem.remember(db, user, log_to_dict(l), 201)
+    lost = idem.commit(db, user)
+    if lost is not None:
+        return lost
     db.refresh(l)
     return log_to_dict(l)
 
@@ -397,7 +408,12 @@ def _within_geofence(p: models.ConstructionProject, lat, lon) -> bool:
 
 @router.patch("/logs/{log_id}")
 def update_log(log_id: str, body: LogBody, user: dict = Depends(get_current_user),
-               db: Session = Depends(get_db)):
+               db: Session = Depends(get_db), idem: Idem = Depends(idempotency)):
+    # A resend of an edit that already landed answers as it did then - it is
+    # never applied a second time over an edit made after it.
+    hit = idem.replay(db, user)
+    if hit is not None:
+        return hit
     l = _get_log(db, log_id)
     p = _project(db, l.project_id)
     em = (user.get("email") or "").lower()
@@ -409,7 +425,11 @@ def update_log(log_id: str, body: LogBody, user: dict = Depends(get_current_user
         if v is not None:
             setattr(l, k, v)
     l.modified_at = now_iso()
-    db.commit()
+    db.flush()
+    idem.remember(db, user, log_to_dict(l), 200)
+    lost = idem.commit(db, user)
+    if lost is not None:
+        return lost
     db.refresh(l)
     return log_to_dict(l)
 
@@ -542,13 +562,19 @@ class MediaBody(BaseModel):
 
 @router.post("/logs/{log_id}/media", status_code=201)
 def register_media(log_id: str, body: MediaBody, user: dict = Depends(get_current_user),
-                   db: Session = Depends(get_db)):
+                   db: Session = Depends(get_db), idem: Idem = Depends(idempotency)):
     """Records a file the client already uploaded to Supabase.
 
     Bytes go browser -> Supabase directly, never through this API: routing a
     100 MB clip through the request would hold it in a gunicorn worker's memory
     for the length of a jobsite LTE upload. This endpoint records where it
-    landed and queues the Egnyte record copy."""
+    landed and queues the Egnyte record copy.
+
+    With an Idempotency-Key a resend of a photo already recorded (the answer
+    was lost to the signal) returns that row - never a second copy of it."""
+    hit = idem.replay(db, user)
+    if hit is not None:
+        return hit
     l = _get_log(db, log_id)
     p = _project(db, l.project_id)
     em = (user.get("email") or "").lower()
@@ -595,7 +621,11 @@ def register_media(log_id: str, body: MediaBody, user: dict = Depends(get_curren
         # before Submit is ever pressed. Skipped for kinds with no still frame.
         if storage.can_thumbnail(body.kind, body.mime_type or ""):
             _queue(db, p.id, "derive_rendition", mid, priority=25)
-    db.commit()
+    db.flush()
+    idem.remember(db, user, media_to_dict(m), 201)
+    lost = idem.commit(db, user)
+    if lost is not None:
+        return lost
     db.refresh(m)
     return media_to_dict(m)
 

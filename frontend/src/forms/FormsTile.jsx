@@ -9,7 +9,6 @@
 // that form, `form:pick` the picker; `n` makes a second arrival open again.
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { ClipboardList, ArrowRight, ChevronRight } from 'lucide-react';
-import { api } from '../api';
 import { Modal } from '../tasks/components';
 import { ModalLoading, Spinner } from '../components/AsyncState';
 import { NX, FONT } from '../tasks/theme';
@@ -71,8 +70,17 @@ export default function FormsTile({ autoOpen = null, flash = () => {} }) {
   const [filling, setFilling] = useState('');   // the template id in the fill sheet
   const [seen, setSeen] = useState(null);
 
-  // GET /forms/mine is a bare array of forms (routers/forms.py).
-  const load = useCallback(() => api.formsMine().then((r) => setForms(Array.isArray(r) ? r : r?.forms || [])).catch(() => setForms([])), []);
+  // GET /forms/mine is a bare array of forms (routers/forms.py), read through
+  // the phone (formsOffline.js, Neil 11/03/2026): with no signal the tile
+  // shows what was saved, and once a list loads online every form's fill
+  // screen is saved too, so any of them opens offline.
+  const load = useCallback(() => import('./formsOffline')
+    .then(async (m) => {
+      const list = await m.loadMyForms();
+      setForms(list);
+      if (!m.isOfflineNow()) setTimeout(() => { m.prefetchForms(list).catch(() => {}); }, 1500);
+    })
+    .catch(() => setForms([])), []);
   useEffect(() => { load(); }, [load]);
 
   // A deep link arrival ({ id, n }) opens that form, or the picker, each time.
