@@ -506,13 +506,18 @@ def request_hours(r, hours_per_day: float) -> float:
 
 
 def balances(db: Session, email: str, today: date | None = None, pols: dict | None = None,
-             emp=None, with_entries: bool = False, exclude_ref: str = "") -> dict:
+             emp=None, with_entries: bool = False, exclude_ref: str = "",
+             rows: list | None = None, cut: str | None = None) -> dict:
     """{live, cutover, policy, vacation: {...}, sick: {...}} for one person.
-    Each bucket: available (hours, may be negative), plus how it was made."""
+    Each bucket: available (hours, may be negative), plus how it was made.
+    `rows` / `cut` / `today` let a caller that walks MANY people (the HR
+    admin table) prefetch in batches instead of three queries per person
+    (11/03/2026: the Balances tab took its ledger, latest punch and settings
+    read once per employee - seconds of round trips)."""
     email = (email or "").strip().lower()
     if emp is None:
         emp = employee(db, email)
-    cut = cutover_for(db, email, emp)
+    cut = cut if cut is not None else cutover_for(db, email, emp)
     pol = policy_for(db, email, emp, pols)
     out = {"live": bool(cut), "cutover": cut,
            "policy": {"id": pol["id"], "name": pol["name"], "unit": pol.get("unit", "hours"),
@@ -528,7 +533,8 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
     cut_d = date.fromisoformat(cut)
     start = _start(emp)
     eligible = _eligible_type(emp, pol) and start is not None
-    rows = _rows(db, email, exclude_ref)
+    if rows is None:
+        rows = _rows(db, email, exclude_ref)
 
     # Vacation: carries over (unless the company's year-end says otherwise -
     # leave_year_end.py writes that as ledger rows, so it is in `rows`). Opening + everything since the cutover + the

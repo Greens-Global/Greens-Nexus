@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, lazy, Suspense } from 'react';
+import { Fragment, useMemo, useRef, useState, lazy, Suspense } from 'react';
 import { CalendarOff, CalendarDays, Scale, Users, History as HistoryIcon, Inbox, Search, Plus, Lock, Check, X, Download } from 'lucide-react';
 import { formatDate } from '../lib/datetime';
 import { downloadCsv, csvName } from '../operations/csv';
@@ -36,6 +36,10 @@ function Confidential() {
 
 export default function TimeOffDesk({ rows, err, onRetry, onDecide, onRequestOnBehalf, hrPanels, hrTeam, toastOk, toastErr, myEmail }) {
   const [section, setSection] = useState('requests');
+  // A section loads once and stays mounted (11/03/2026: Balances took its
+  // full load every visit) - switching back is instant.
+  const [visited, setVisited] = useState(() => new Set(['requests']));
+  const openSection = (k) => { setSection(k); setVisited(v => (v.has(k) ? v : new Set(v).add(k))); };
   const [filter, setFilter] = useState('all');
   const [sort, setSort] = useState(null);
   const [year, setYear] = useState('');
@@ -112,15 +116,16 @@ export default function TimeOffDesk({ rows, err, onRetry, onDecide, onRequestOnB
       <div className="tob-shell">
         <nav className="tob-rail" role="tablist" aria-label="Time Off sections" aria-orientation="vertical">
           {sections.map(([k, label, Icon, n]) => (
-            <button key={k} type="button" role="tab" aria-selected={section === k} onClick={() => setSection(k)}>
+            <button key={k} type="button" role="tab" aria-selected={section === k} onClick={() => openSection(k)}>
               <Icon size={15} /> {label}
               {n > 0 && <span className="tob-n" title="Waiting on your decision">{n}</span>}
             </button>
           ))}
         </nav>
 
-        <div className="tob-view" key={section}>
-          {section === 'requests' && (
+        <div style={{ minWidth: 0 }}>
+          {visited.has('requests') && (
+          <div className={section === 'requests' ? 'tob-view' : undefined} style={section === 'requests' ? undefined : { display: 'none' }}>
             <>
               <div className="tob-head" style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ marginRight: 'auto' }}>
@@ -242,15 +247,22 @@ export default function TimeOffDesk({ rows, err, onRetry, onDecide, onRequestOnB
                     {rows.length === 0 ? 'No time-off requests yet.' : q ? 'Nothing matches your search.' : year || month ? 'No requests in that period.' : `No ${filter === 'all' ? '' : filter + ' '}requests.`}
                   </div>
                 )}
-                {shown.slice(0, 200).map(r => {
+                {/* One person, one block here too (11/03/2026): with no sort
+                    picked the register clubs a person's requests under one
+                    name; clicking a sort header flattens it for comparison. */}
+                {(() => {
+                  const list = shown.slice(0, 200);
+                  const row = (r, showWho) => {
                   const d = leaveRequestDays(r);
                   const [word, color] = STATUS[r.status] || [r.status, 'var(--tob-dim)'];
                   return (
                     <div key={r.id} className="tob-grid" style={{ fontSize: 12.5 }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, fontWeight: 600 }}>
-                        <Avatar email={r.email} name={who(r)} size={22} />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textTransform: 'capitalize' }} title={r.email}>{who(r)}{r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}</span>
-                      </span>
+                      {showWho ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, fontWeight: 600 }}>
+                          <Avatar email={r.email} name={who(r)} size={22} />
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textTransform: 'capitalize' }} title={r.email}>{who(r)}{r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}</span>
+                        </span>
+                      ) : <span aria-hidden="true" />}
                       <span style={{ textTransform: 'capitalize', color: 'var(--tob-dim)' }}>{r.type || 'Time off'}{r.confidential && <Confidential />}</span>
                       <span style={{ color: 'var(--tob-dim)', fontVariantNumeric: 'tabular-nums' }} title={r.note || undefined}>
                         {period(r)}{r.note ? ` · "${r.note}"` : ''}
@@ -272,41 +284,71 @@ export default function TimeOffDesk({ rows, err, onRetry, onDecide, onRequestOnB
                       </span>
                     </div>
                   );
-                })}
+                  };
+                  if (sort !== null) return list.map(r => row(r, true));
+                  const groups = []; const gi = new Map();
+                  list.forEach(r => {
+                    const k = (r.email || r.name || '?').toLowerCase();
+                    if (!gi.has(k)) { gi.set(k, groups.length); groups.push([]); }
+                    groups[gi.get(k)].push(r);
+                  });
+                  return groups.map(rs => rs.length === 1 ? row(rs[0], true) : (
+                    <Fragment key={`g-${rs[0].email || rs[0].name}`}>
+                      <div className="tob-grid" style={{ fontSize: 12.5, backgroundImage: 'linear-gradient(var(--tob-paper), var(--tob-paper))' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, fontWeight: 700 }}>
+                          <Avatar email={rs[0].email} name={who(rs[0])} size={22} />
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textTransform: 'capitalize' }} title={rs[0].email}>{who(rs[0])}</span>
+                        </span>
+                        <span />
+                        <span style={{ color: 'var(--tob-dim)' }}>{rs.length} requests · {fmtDays(rs.reduce((a, r) => a + (r.startDate ? leaveRequestDays(r) : 0), 0))} days</span>
+                        <span /><span /><span />
+                      </div>
+                      {rs.map(r => row(r, false))}
+                    </Fragment>
+                  ));
+                })()}
                 {shown.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: 'var(--tob-dim)', textAlign: 'center' }}>Showing 200 of {shown.length} - filter to narrow down.</div>}
               </div>
             </>
+          </div>
           )}
-
-          {section === 'calendar' && (<>
+          {visited.has('calendar') && (
+          <div className={section === 'calendar' ? 'tob-view' : undefined} style={section === 'calendar' ? undefined : { display: 'none' }}>
             <div className="tob-head" style={{ marginBottom: 14 }}>
               <h2>Calendar</h2>
               <p>{offToday.length === 0 ? 'Nobody is off today.' : offToday.length === 1 ? `${offToday[0]} is off today.` : `Off today: ${offToday.slice(0, 5).join(', ')}${offToday.length > 5 ? ` and ${offToday.length - 5} more` : ''}.`}</p>
             </div>
             <Suspense fallback={<SkeletonBlocks count={1} height={220} />}><TeamLeaveCalendar embedded /></Suspense>
-          </>)}
-          {section === 'balances' && hrPanels && !hrTeam && (<>
+          </div>
+          )}
+          {visited.has('balances') && hrPanels && !hrTeam && (
+          <div className={section === 'balances' ? 'tob-view' : undefined} style={section === 'balances' ? undefined : { display: 'none' }}>
             <div className="tob-head" style={{ marginBottom: 14 }}>
               <h2>Balances</h2>
               <p>Each person's leave balances, with the year-end carryover preview.</p>
             </div>
             <Suspense fallback={<SkeletonBlocks count={1} height={120} />}><LeaveYearEndPreview toastOk={toastOk} toastErr={toastErr} /></Suspense>
             <LeaveBalancesAdmin toastOk={toastOk} toastErr={toastErr} />
-          </>)}
-          {section === 'delegations' && hrPanels && !hrTeam && (<>
+          </div>
+          )}
+          {visited.has('delegations') && hrPanels && !hrTeam && (
+          <div className={section === 'delegations' ? 'tob-view' : undefined} style={section === 'delegations' ? undefined : { display: 'none' }}>
             <div className="tob-head" style={{ marginBottom: 14 }}>
               <h2>Delegations</h2>
               <p>Who approves in someone's place while they are away.</p>
             </div>
             <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />
-          </>)}
-          {section === 'history' && hrPanels && !hrTeam && (<>
+          </div>
+          )}
+          {visited.has('history') && hrPanels && !hrTeam && (
+          <div className={section === 'history' ? 'tob-view' : undefined} style={section === 'history' ? undefined : { display: 'none' }}>
             <div className="tob-head" style={{ marginBottom: 14 }}>
               <h2>History</h2>
               <p>The leave record kept from before requests moved here - read-only.</p>
             </div>
             <LeaveHistory />
-          </>)}
+          </div>
+          )}
         </div>
       </div>
     </div>

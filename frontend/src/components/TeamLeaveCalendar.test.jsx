@@ -27,7 +27,7 @@ describe('Team Leave Calendar', () => {
   it('renders the month with people out, holidays and the legend', async () => {
     render(<TeamLeaveCalendar />);
     const region = screen.getByRole('region', { name: 'Team Leave Calendar' });
-    expect(await within(region).findAllByText('Amy')).toHaveLength(2);       // both days of her leave
+    expect(await within(region).findAllByTitle('Amy Adams - Vacation (Approved)')).toHaveLength(2);   // a face on both days of her leave
     expect(within(region).getByText('Founders Day')).toBeTruthy();
     expect(within(region).getByTitle('Ben Brown - Sick (Awaiting HR Approval)')).toBeTruthy();
     expect(within(region).getByTitle('Cal Cruz - Out (Approved)')).toBeTruthy();
@@ -37,12 +37,12 @@ describe('Team Leave Calendar', () => {
 
   it('moves between months', async () => {
     render(<TeamLeaveCalendar />);
-    await screen.findAllByText('Amy');
+    await screen.findAllByTitle(/Amy Adams - Vacation/);
     fireEvent.click(screen.getByRole('button', { name: 'Next Month' }));
-    await screen.findAllByText('Amy');
+    await screen.findAllByTitle(/Amy Adams - Vacation/);
     expect(calendar.mock.calls.at(-1)[0]).not.toBe(thisMonth);
     fireEvent.click(screen.getByRole('button', { name: 'Today' }));
-    await screen.findAllByText('Amy');
+    await screen.findAllByTitle(/Amy Adams - Vacation/);
     expect(calendar.mock.calls.at(-1)[0]).toBe(thisMonth);
   });
 

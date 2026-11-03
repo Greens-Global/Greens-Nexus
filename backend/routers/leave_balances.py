@@ -7,6 +7,7 @@ in their reach, imports the opening balances and picks a person's policy.
 The start date, the policies and Recalculate are company-wide, so they need
 an administrator or a Full HR grant. A manager reads their direct reports'.
 """
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -97,12 +98,34 @@ def admin_overview(user: dict = Depends(get_current_user), db: Session = Depends
     if not glob:
         q = q.filter(models.NexusEmployee.company.in_(list(companies)))
     pols = lb.policies(db)
+    emps = q.order_by(models.NexusEmployee.first_name.asc(), models.NexusEmployee.last_name.asc()).all()
+    emails = [(e.work_email or "").strip().lower() for e in emps]
+    # Three batched reads instead of three queries per person (11/03/2026:
+    # this table took seconds - one ledger, one latest-punch and one settings
+    # round trip per employee).
+    led_by: dict = {}
+    for r in (db.query(models.LeaveLedgerEntry)
+              .filter(models.LeaveLedgerEntry.employee_email.in_(emails))
+              .order_by(models.LeaveLedgerEntry.effective_date.asc(), models.LeaveLedgerEntry.created_at.asc()).all()):
+        led_by.setdefault((r.employee_email or "").lower(), []).append(r)
+    newest = (db.query(models.TimePunch.employee_email, func.max(models.TimePunch.at).label("mx"))
+              .filter(models.TimePunch.employee_email.in_(emails))
+              .group_by(models.TimePunch.employee_email).subquery())
+    offs = {(em or "").lower(): (o or 0) for em, o in
+            (db.query(models.TimePunch.employee_email, models.TimePunch.tz_offset_min)
+             .join(newest, (models.TimePunch.employee_email == newest.c.employee_email)
+                   & (models.TimePunch.at == newest.c.mx)).all())}
+    base_cut = lb.cutover(db)
+    own_cuts = lb.company_cutovers(db)
+    now_utc = datetime.now(timezone.utc)
     people = []
-    for emp in q.order_by(models.NexusEmployee.first_name.asc(), models.NexusEmployee.last_name.asc()).all():
+    for emp in emps:
         email = (emp.work_email or "").strip().lower()
         if email == me and not glob:
             continue
-        b = lb.balances(db, email, pols=pols, emp=emp)
+        local_today = (now_utc - timedelta(minutes=offs.get(email, 0))).date()
+        b = lb.balances(db, email, today=local_today, pols=pols, emp=emp,
+                        rows=led_by.get(email, []), cut=own_cuts.get(emp.company or "") or base_cut)
         people.append({"email": email, "name": f"{emp.first_name or ''} {emp.last_name or ''}".strip() or email,
                        "company": emp.company or "", "department": emp.department or "", **b})
     return {"cutover": lb.cutover(db), "companies": _company_cutovers(db, None if glob else companies),

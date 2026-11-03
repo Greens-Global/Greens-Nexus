@@ -28,12 +28,19 @@ vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ hrTeam: false, myE
 const TimeAdmin = (await import('./TimeAdmin')).default;
 
 describe('People > Time header', () => {
-  it('has no summary tiles - the Time Sheets to Review list leads', async () => {
+  // 11/03/2026 (Visesh): the review list is a collapsed alert line - title,
+  // the count in red - and expands on click. Still no summary tiles.
+  it('has no summary tiles - the review list is a collapsed alert that expands', async () => {
+    const { fireEvent } = await import('@testing-library/react');
     render(<TimeAdmin toastOk={() => {}} toastErr={() => {}} />);
-    expect(await screen.findByText('Nayeli Sanchez')).toBeTruthy();
+    const bar = await screen.findByRole('button', { name: /Time Sheets to Review/ });
+    expect(bar.getAttribute('aria-expanded')).toBe('false');
+    expect(bar.textContent).toContain('1');                                    // the count rides the bar
+    expect(screen.queryByText('Nayeli Sanchez')).toBeNull();                   // collapsed by default
+    fireEvent.click(bar);
+    expect(await screen.findByText('Nayeli Sanchez')).toBeTruthy();            // expanded shows the list
     expect(screen.queryByText('Team Hours')).toBeNull();
     expect(screen.queryByText('Waiting on your review')).toBeNull();
-    expect(screen.queryByRole('button', { name: /Time Sheets to Review/ })).toBeNull();
     expect(screen.queryByTitle(/summary strip/)).toBeNull();
     expect(document.querySelector('.kpi-card')).toBeNull();
   });
