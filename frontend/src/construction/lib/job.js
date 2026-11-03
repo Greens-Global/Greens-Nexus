@@ -2,7 +2,8 @@
 // One record, two sizes: a Work Order shows Overview, Tasks (its steps and
 // punch list), Field and Closeout; a Project shows every tab. The tab is in
 // the URL (/construction/project:<id>:<tab>, lib/navigation.js). Pure, so the
-// page and the tests read one rule. Money is phase 4 - no tab for it yet.
+// page and the tests read one rule. Money (phase 4) shows on either size,
+// only when the server says the caller may see it (`{ money: true }`).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { TONE } from '../ui';
 
@@ -21,18 +22,26 @@ const ALL = [
 ];
 
 const WORK_ORDER = ['overview', 'punch', 'field', 'closeout'];
+const MONEY = { key: 'money', label: 'Money' };
 
-export function jobTabs(jobType) {
+// Money sits before Closeout: managers with Accounting access only.
+const withMoney = (tabs, money) => {
+  if (!money) return tabs;
+  const at = tabs.findIndex((t) => t.key === 'closeout');
+  return at < 0 ? [...tabs, MONEY] : [...tabs.slice(0, at), MONEY, ...tabs.slice(at)];
+};
+
+export function jobTabs(jobType, { money = false } = {}) {
   if (jobType === 'work_order') {
-    return ALL.filter((t) => WORK_ORDER.includes(t.key))
-      .map((t) => (t.key === 'punch' ? { ...t, label: 'Tasks' } : t));
+    return withMoney(ALL.filter((t) => WORK_ORDER.includes(t.key))
+      .map((t) => (t.key === 'punch' ? { ...t, label: 'Tasks' } : t)), money);
   }
-  return ALL;
+  return withMoney(ALL, money);
 }
 
 // A tab the job does not have (a work order opened on Schedule) lands on Overview.
-export function tabFor(jobType, tab) {
-  return jobTabs(jobType).some((t) => t.key === tab) ? tab : 'overview';
+export function tabFor(jobType, tab, opts = {}) {
+  return jobTabs(jobType, opts).some((t) => t.key === tab) ? tab : 'overview';
 }
 
 // A punch item's state: Open, Done (the crew's step), Verified (a reviewer's).

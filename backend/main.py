@@ -1503,6 +1503,13 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN equipment_asset_id VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_task_tickets_pm_due_on ON task_tickets (pm_due_on)",
             "CREATE INDEX IF NOT EXISTS ix_task_tickets_equipment_asset_id ON task_tickets (equipment_asset_id)",
+            # Construction money (Neil, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE construction_projects ADD COLUMN intacct_project_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_projects ADD COLUMN intacct_entity VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN job_id VARCHAR DEFAULT ''",
+            "ALTER TABLE expense_reimbursements ADD COLUMN job_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_requisitions_job_id ON requisitions (job_id)",
+            "CREATE INDEX IF NOT EXISTS ix_expense_reimbursements_job_id ON expense_reimbursements (job_id)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3617,6 +3624,17 @@ def _run_migrations():
         "CREATE INDEX IF NOT EXISTS ix_task_tickets_pm_due_on ON task_tickets (pm_due_on)",
         "CREATE INDEX IF NOT EXISTS ix_task_tickets_equipment_asset_id ON task_tickets (equipment_asset_id)",
         "ALTER TABLE property_maintenance_occurrences ENABLE ROW LEVEL SECURITY",
+        # Construction money (Neil, 11/03/2026, plan phase 4): a job's
+        # existing Intacct Project-Job code and the entity it books to (read
+        # from the books through the accounting proxy, construction_money.py),
+        # and the job a purchase request or a reimbursement was for ('' =
+        # none). models.ConstructionProject / Requisition / ExpenseReimbursement.
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS intacct_project_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS intacct_entity VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS job_id VARCHAR DEFAULT ''",
+        "ALTER TABLE expense_reimbursements ADD COLUMN IF NOT EXISTS job_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_requisitions_job_id ON requisitions (job_id)",
+        "CREATE INDEX IF NOT EXISTS ix_expense_reimbursements_job_id ON expense_reimbursements (job_id)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5571,3 +5589,5 @@ from routers import construction_jobs as construction_jobs_router  # noqa: E402 
 app.include_router(construction_jobs_router.router)  # Construction: the Job, connected - schedule and punch (Tasks), Start Job (Tickets), crew and hours, forms, equipment, property, search (Neil, 11/03/2026)
 from routers import maintenance as maintenance_router  # noqa: E402
 app.include_router(maintenance_router.router)  # Maintenance in the field: overdue per site, Scan to Request, My Work (Construction plan phase 5, 11/03/2026)
+from routers import construction_money as construction_money_router  # noqa: E402 - no new table (columns on construction_projects / requisitions / expense_reimbursements)
+app.include_router(construction_money_router.router)  # Construction: a job's Money - budget, requested, actual from the books by Project-Job, changes, forecast; job tags on requests (Neil, 11/03/2026)

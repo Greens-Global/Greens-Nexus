@@ -18,7 +18,7 @@ const SUB_ALIASES = {
 // The Job page's tab rides in the URL too (11/03/2026, phase 2):
 // /construction/project:<id>:<tab> - overview (the default, left off),
 // schedule, punch, field, rfis, closeout. A job id never holds a colon.
-export const JOB_TABS = ['overview', 'schedule', 'punch', 'field', 'rfis', 'closeout'];
+export const JOB_TABS = ['overview', 'schedule', 'punch', 'field', 'rfis', 'closeout', 'money'];
 
 export function parseConstructionSub(raw) {
   const sub = SUB_ALIASES[raw] || raw || 'construction-dashboard';

@@ -108,6 +108,14 @@ class ConstructionProject(Base):
     # value buys nothing. '' = none yet (stamped from the job type's
     # template the first time the job's schedule is opened or at create).
     task_project_id    = Column(String, default="", index=True)
+    # Money (Neil, 11/03/2026, plan phase 4): the job's EXISTING Intacct
+    # Project-Job code - the dimension the accounting reports already filter
+    # by (routers/accounting.py `project=`) - and the entity (Intacct
+    # location) it books to. Budget, actual and drill-downs are read from the
+    # books through the accounting proxy, never keyed here
+    # (construction_money.py). '' = not mapped yet.
+    intacct_project_id = Column(String, default="")
+    intacct_entity     = Column(String, default="")
 
 
 class ConstructionDailyLog(Base):

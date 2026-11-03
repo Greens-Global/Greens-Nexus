@@ -29,11 +29,14 @@ export function lastLogWords(h) {
   return `No log in ${plural(d, 'day')}`;
 }
 
-// The facts after the label, in the order they matter.
-export function healthFacts(h) {
+// The facts after the label, in the order they matter. `overBudget` (plan
+// phase 4) comes from the job's money - actual + requested, not yet billed
+// past the budget - and only for those who may see it (/construction/money/flags).
+export function healthFacts(h, { overBudget = false } = {}) {
   if (!h) return [];
   const out = [];
   if (h.daysPastTarget > 0) out.push({ key: 'late', text: `${plural(h.daysPastTarget, 'day')} past target`, tone: 'bad' });
+  if (overBudget) out.push({ key: 'budget', text: 'Over Budget', tone: 'bad' });
   if (h.nextMilestone) {
     out.push({ key: 'next', text: `${h.nextMilestone.name || 'Next milestone'} ${daysWords(h.nextMilestone.days)} (${formatDate(h.nextMilestone.targetDate, h.nextMilestone.targetDate)})` });
   }

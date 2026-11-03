@@ -3587,3 +3587,14 @@ api.getTaskProjectJob = (taskProjectId) => cachedGet(`/construction/task-project
 api.getPropertyJobs = (propertyId) => req(`/construction/properties/${encodeURIComponent(propertyId)}/jobs`);
 api.getMyJobs = () => cachedGet('/construction/my-jobs', 60_000);
 api.searchJobs = (q, limit = 6) => req(`/construction/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+// A job's Money (Neil, 11/03/2026, plan phase 4; routers/construction_money.py):
+// budget, requested-not-billed, actual from the books by the job's Intacct
+// Project-Job, changes and the worked-out forecast ({allowed: false} for
+// anyone who may not see it); Over Budget for the dashboard cards; the Edit
+// Job picker and save for the job's Project-Job code and entity; the jobs a
+// purchase request or a reimbursement may be tagged with.
+api.getJobMoney = (jobId) => cachedGet(`/construction/projects/${encodeURIComponent(jobId)}/money`, 60_000);
+api.getJobMoneyFlags = () => cachedGet('/construction/money/flags', 60_000);
+api.getBookProjects = (entity = '') => req(`/construction/books/projects${entity ? `?entity=${encodeURIComponent(entity)}` : ''}`);
+api.mapJobBooks = (jobId, body) => req(`/construction/projects/${encodeURIComponent(jobId)}/books`, { method: 'PUT', body: JSON.stringify(body) });
+api.getSpendJobs = () => cachedGet('/construction/spend-jobs', 120_000);
