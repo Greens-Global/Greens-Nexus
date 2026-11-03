@@ -1572,17 +1572,58 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
         raise HTTPException(403, "Paystubs require the compensation grant")
     # The file goes first and the row only once it is gone (11/02/2026, the
     # legal pass): a failed storage delete used to drop the row anyway and
-    # leave the document in the bucket with nothing pointing at it.
-    try:
-        resp = httpx.request("DELETE", f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{row.storage_path}",
-                             headers=_storage_headers(), timeout=30)
-    except httpx.HTTPError:
-        raise HTTPException(503, "The file could not be deleted from storage right now. Try again in a moment.")
-    if not (resp.is_success or resp.status_code in (400, 404)):
-        raise HTTPException(503, "The file could not be deleted from storage right now. Try again in a moment.")
+    # leave the document in the bucket with nothing pointing at it. A file
+    # another record still uses (a signed envelope's sealed PDF filed on the
+    # person's Documents tab, a duplicate row) stays: only this row goes.
+    if row.storage_path and not _hr_doc_path_shared(db, row.storage_path, row.id):
+        try:
+            resp = httpx.request("DELETE", f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{row.storage_path}",
+                                 headers=_storage_headers(), timeout=30)
+        except httpx.HTTPError:
+            raise HTTPException(503, "The file could not be deleted from storage right now. Try again in a moment.")
+        if not (resp.is_success or resp.status_code == 404 or _storage_not_found(resp)):
+            raise HTTPException(503, "The file could not be deleted from storage right now. Try again in a moment.")
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+
+# Every hr-docs column that can name the same object as an HrDocument row.
+_HR_DOC_PATH_REFS = (
+    ("hr_documents", "storage_path"), ("hr_sign_requests", "final_pdf_path"),
+    ("hr_sign_requests", "pdf_storage_path"), ("hr_sign_documents", "storage_path"),
+    ("hr_sign_uploads", "storage_path"), ("hr_sign_drafts", "file_path"),
+    ("hr_mailbox_exports", "storage_path"),
+)
+
+
+def _hr_doc_path_shared(db: Session, path: str, doc_id: str) -> bool:
+    """Does any record other than HrDocument `doc_id` use this hr-docs path?
+    One query; on any error the answer is yes - the file is kept."""
+    from sqlalchemy import text as _text
+    parts = []
+    for table, col in _HR_DOC_PATH_REFS:
+        extra = " AND id <> :doc_id" if table == "hr_documents" else ""
+        parts.append(f"SELECT 1 AS hit FROM {table} WHERE {col} = :path{extra}")
+    try:
+        return db.execute(_text(" UNION ALL ".join(parts) + " LIMIT 1"),
+                          {"path": path, "doc_id": doc_id}).first() is not None
+    except Exception:
+        db.rollback()
+        return True
+
+
+def _storage_not_found(resp) -> bool:
+    """Supabase storage answers a missing object with HTTP 400 and a body that
+    says not found; any other 400 (or a 401 / 403) is a real refusal."""
+    if resp.status_code != 400:
+        return False
+    try:
+        body = resp.text or ""
+    except Exception:
+        return False
+    low = body.lower()
+    return "not_found" in low or "not found" in low or '"404"' in low
 
 
 # ── Paystubs - HrDocument rows with kind="paystub", hr_comp-gated ────────────

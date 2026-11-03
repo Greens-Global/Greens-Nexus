@@ -31,9 +31,10 @@ ADMIN = "stordel.admin@greensglobal.com"
 
 
 class Resp:
-    def __init__(self, code):
+    def __init__(self, code, text=""):
         self.status_code = code
         self.is_success = 200 <= code < 300
+        self.text = text
 
 
 class _Base(unittest.TestCase):
@@ -64,6 +65,8 @@ class _Base(unittest.TestCase):
             db.query(models.HrDocument).filter(models.HrDocument.uploaded_by.like("stordel.%")).delete(
                 synchronize_session=False)
             db.query(models.NexusRole).filter(models.NexusRole.email.like("stordel.%")).delete(
+                synchronize_session=False)
+            db.query(models.HrSignRequest).filter(models.HrSignRequest.title == "stordel envelope").delete(
                 synchronize_session=False)
             db.commit()
         finally:
@@ -140,17 +143,62 @@ class HrDocumentDeleteTests(_Base):
         auth.SKIP_AUTH = self._skip
         super().tearDown()
 
-    def _doc(self):
+    def _doc(self, path=None):
         eid = self._emp()
         db = database.SessionLocal()
         try:
             did = str(uuid.uuid4())
             db.add(models.HrDocument(id=did, employee_id=eid, kind="other", file_name="f.pdf",
-                                     storage_path=f"{eid}/f.pdf", uploaded_by=ADMIN))
+                                     storage_path=path or f"{eid}/f.pdf", uploaded_by=ADMIN))
             db.commit()
             return did
         finally:
             db.close()
+
+    def _track(self, code=200, text=""):
+        self.storage_calls = []
+
+        def req(*a, **k):
+            self.storage_calls.append(a)
+            return Resp(code, text)
+        hr_router.httpx.request = req
+
+    def test_a_signed_envelopes_sealed_pdf_is_kept(self):
+        # esign files an HrDocument pointing at the envelope's own sealed PDF.
+        path = f"esign/{uuid.uuid4()}/final.pdf"
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrSignRequest(id=str(uuid.uuid4()), title="stordel envelope", final_pdf_path=path))
+            db.commit()
+        finally:
+            db.close()
+        self._track(200)
+        did = self._doc(path)
+        self.assertEqual(self.client.delete(f"/hr/documents/{did}").status_code, 200)
+        self.assertFalse(self._exists(did))     # the row goes
+        self.assertEqual(self.storage_calls, [])   # the envelope's file stays
+
+    def test_a_duplicate_row_keeps_the_file(self):
+        path = f"dup/{uuid.uuid4()}.pdf"
+        self._track(200)
+        first, second = self._doc(path), self._doc(path)
+        self.assertEqual(self.client.delete(f"/hr/documents/{first}").status_code, 200)
+        self.assertEqual(self.storage_calls, [])
+        self.assertTrue(self._exists(second))
+        self.assertEqual(self.client.delete(f"/hr/documents/{second}").status_code, 200)
+        self.assertEqual(len(self.storage_calls), 1)   # the last one takes the file
+
+    def test_a_400_counts_as_gone_only_when_it_says_not_found(self):
+        self._track(400, '{"statusCode":"404","error":"not_found","message":"Object not found"}')
+        did = self._doc()
+        self.assertEqual(self.client.delete(f"/hr/documents/{did}").status_code, 200)
+        self.assertFalse(self._exists(did))
+        for code, text in ((400, '{"error":"InvalidKey"}'), (401, ""), (403, "")):
+            with self.subTest(code=code):
+                self._track(code, text)
+                did = self._doc()
+                self.assertEqual(self.client.delete(f"/hr/documents/{did}").status_code, 503)
+                self.assertTrue(self._exists(did))
 
     def _exists(self, did):
         db = database.SessionLocal()
