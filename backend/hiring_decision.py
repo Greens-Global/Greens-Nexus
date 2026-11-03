@@ -65,10 +65,8 @@ def decider(db: Session, cand: models.HrCandidate) -> str:
     head = department_head(db, cand)
     if head:
         return head
-    ent = db.query(models.HrEntity).filter(models.HrEntity.id == cand.company).first() if cand.company else None
-    if ent is not None and _person(db, ent.hr_contact_email):
-        return ent.hr_contact_email.strip().lower()
-    return next(iter(hc.global_admins(db)), "")
+    from hiring_screening import hr_contacts_here
+    return next(iter(hr_contacts_here(db, cand.company) or hc.global_admins(db)), "")
 
 
 def _next_workday(db: Session, company: str) -> str:

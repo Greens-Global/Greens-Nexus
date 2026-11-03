@@ -1155,9 +1155,8 @@ def offer_from_people(db: Session, company: str, department: str) -> dict:
         if want and name == want:
             head = lead
     if not hr:
-        ent = db.query(HrEntity).filter(HrEntity.id == company).first() if company else None
-        contact = ((ent.hr_contact_email if ent else "") or "").strip().lower()
-        hr = contact if _person(db, contact) else ""
+        from hiring_screening import hr_contacts_here
+        hr = next(iter(hr_contacts_here(db, company)), "")
     return {"hr": hr, "department_head": head}
 
 
@@ -1271,7 +1270,7 @@ def plan_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
                              region=d.get("region", ""))
     # Never an offer with nothing to follow it (Neil, Oct 22): a hire who signs
     # and then waits on paperwork nobody set up is the failure to prevent.
-    if packet is None and not (inputs or {}).get("hire_packet_id"):
+    if packet is None:
         raise PacketError(_no_packet_text(d["worker_type"], d["country"], d.get("region", ""), company), 409)
     dp = hpd.plan(db, setting, ctx=hire_ctx(db, cand, d, entity, user["email"]),
                   overrides=hpd.event_values(db, "offer", d), pay=clean, can_see_pay=bool(clean),
