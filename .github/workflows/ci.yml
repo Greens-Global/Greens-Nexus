@@ -76,13 +76,14 @@ jobs:
       - run: npm ci
       - name: Render-smoke tests (Vitest) - catches runtime render crashes
         run: npm test
-      - name: Build (postbuild enforces scripts/check-bundle-size.mjs)
+      - name: Build (postbuild runs scripts/check-bundle-size.mjs and check-bundle-rewrites.mjs)
         # The VITE_* values matter to the SIZE, not just to the behavior, so
         # this gate has to build with them or it measures a bundle nobody ships.
-        # lib/supabase.js reads `url && key ? createClient(...) : null`; with the
-        # vars absent, Vite folds those to '' at build time, the ternary becomes
-        # statically false and the whole @supabase/supabase-js dependency tree is
-        # shaken out. That made this check read ~200 KB light (8423 vs 8625 on
+        # lib/supabase.js reads `url && key ? createNexusSupabase(...) : null`;
+        # with the vars absent, Vite folds those to '' at build time, the
+        # ternary becomes statically false and the Supabase storage and Realtime
+        # clients are shaken out (before 11/03/2026 it was all of supabase-js's
+        # createClient). That made this check read ~200 KB light (8423 vs 8625 on
         # the same commit), so it passed a PR that then failed the real build on
         # BOTH the Cloudflare Pages deploy and archive-assets - leaving dev
         # serving the previous frontend against an already-updated backend

@@ -97,7 +97,8 @@ function mammothXmlWriterStub() {
 // module loads, into the very same array of the very same objects. The
 // expansion is run here and compared with the original row by row; if it is
 // not identical (a new version of the package, a row that does not follow
-// the pattern) the original file is used untouched.
+// the pattern) or anything here throws, the original file is used untouched. scripts/check-bundle-rewrites.mjs (postbuild) runs mammoth from
+// the built chunk on a Word file with a Wingdings symbol.
 function compactDingbats() {
   const TABLE = /[\\/]node_modules[\\/]dingbat-to-unicode[\\/]dist[\\/]dingbats\.js$/;
   return {
@@ -106,32 +107,35 @@ function compactDingbats() {
     enforce: 'pre',
     load(id) {
       if (!TABLE.test(id)) return null;
-      const evalCjs = (code) => { const module = { exports: {} }; new Function('exports', 'module', code)(module.exports, module); return module.exports.default; };
-      const rows = evalCjs(readFileSync(id, 'utf8'));
-      if (!Array.isArray(rows)) return null;
-      const runs = [];
-      for (const r of rows) {
-        const last = runs[runs.length - 1];
-        const pair = [Number(r['Dingbat dec']), Number(r['Unicode dec'])];
-        if (last && last[0] === r['Typeface name']) last[1].push(...pair);
-        else runs.push([r['Typeface name'], pair]);
-      }
-      const code = [
-        '"use strict";',
-        'Object.defineProperty(exports, "__esModule", { value: true });',
-        `var runs = ${JSON.stringify(runs)};`,
-        'var dingbats = [];',
-        'var hex = function (n) { return n.toString(16).toUpperCase(); };',
-        'for (var r = 0; r < runs.length; r++) {',
-        '  for (var i = 0, a = runs[r][1]; i < a.length; i += 2) {',
-        '    dingbats.push({ "Typeface name": runs[r][0], "Dingbat dec": String(a[i]), "Dingbat hex": hex(a[i]), "Unicode dec": String(a[i + 1]), "Unicode hex": hex(a[i + 1]) });',
-        '  }',
-        '}',
-        'exports.default = dingbats;',
-      ].join('\n');
-      return isDeepStrictEqual(evalCjs(code), rows) ? code : null;
+      try { return compactTable(id); } catch { return null; }
     },
   };
+  function compactTable(id) {
+    const evalCjs = (code) => { const module = { exports: {} }; new Function('exports', 'module', code)(module.exports, module); return module.exports.default; };
+    const rows = evalCjs(readFileSync(id, 'utf8'));
+    if (!Array.isArray(rows)) return null;
+    const runs = [];
+    for (const r of rows) {
+      const last = runs[runs.length - 1];
+      const pair = [Number(r['Dingbat dec']), Number(r['Unicode dec'])];
+      if (last && last[0] === r['Typeface name']) last[1].push(...pair);
+      else runs.push([r['Typeface name'], pair]);
+    }
+    const code = [
+      '"use strict";',
+      'Object.defineProperty(exports, "__esModule", { value: true });',
+      `var runs = ${JSON.stringify(runs)};`,
+      'var dingbats = [];',
+      'var hex = function (n) { return n.toString(16).toUpperCase(); };',
+      'for (var r = 0; r < runs.length; r++) {',
+      '  for (var i = 0, a = runs[r][1]; i < a.length; i += 2) {',
+      '    dingbats.push({ "Typeface name": runs[r][0], "Dingbat dec": String(a[i]), "Dingbat hex": hex(a[i]), "Unicode dec": String(a[i + 1]), "Unicode hex": hex(a[i + 1]) });',
+      '  }',
+      '}',
+      'exports.default = dingbats;',
+    ].join('\n');
+    return isDeepStrictEqual(evalCjs(code), rows) ? code : null;
+  }
 }
 
 // One zlib for the PDF tools and the whiteboard (11/03/2026, bundle headroom).
@@ -142,8 +146,10 @@ function compactDingbats() {
 // at levels 0-9 on text, binary and random input), so on a production build
 // pdf-lib's `import pako from 'pako'` resolves to the engine's copy, which
 // sits in its own small vendor-pako chunk (codeSplitting below) so neither
-// side pulls the other in. Tests keep pako 1 (build only), and if a future
-// install leaves the engine without a pako 2 this does nothing.
+// side pulls the other in. scripts/check-bundle-rewrites.mjs (postbuild) builds
+// and reloads a PDF with the built chunk, so CI runs what ships. Tests keep
+// pako 1 (build only); if a future install leaves the engine without a pako 2
+// this does nothing.
 function pdfLibSharesPako() {
   const ENGINE_ENTRY = fileURLToPath(new URL('./node_modules/@excalidraw/excalidraw/dist/prod/index.js', import.meta.url));
   const FROM_PDF_LIB = /[\\/]node_modules[\\/](pdf-lib|@pdf-lib[\\/][^\\/]+)[\\/]/;
@@ -155,13 +161,11 @@ function pdfLibSharesPako() {
     async resolveId(source, importer) {
       if (source !== 'pako' || !importer || !FROM_PDF_LIB.test(importer)) return null;
       if (shared === undefined) {
-        const hit = await this.resolve('pako', ENGINE_ENTRY, { skipSelf: true });
-        let major = 0;
         try {
+          const hit = await this.resolve('pako', ENGINE_ENTRY, { skipSelf: true });
           const pkg = hit && JSON.parse(readFileSync(hit.id.replace(/([\\/]node_modules[\\/]pako)[\\/].*$/, '$1/package.json'), 'utf8'));
-          major = Number(String(pkg?.version || '').split('.')[0]);
-        } catch { major = 0; }
-        shared = major >= 2 ? hit.id : false;
+          shared = Number(String(pkg?.version || '').split('.')[0]) >= 2 ? hit.id : false;
+        } catch { shared = false; }   // anything odd: pdf-lib keeps its own pako
       }
       return shared || null;
     },

@@ -10,7 +10,7 @@
     "build": "vite build",
     "lint": "eslint src public/pdf-editor-app && node scripts/check-dates.mjs && node scripts/check-engine-imports.mjs && node scripts/check-role-copy.mjs",
     "preview": "vite preview",
-    "postbuild": "node scripts/check-bundle-size.mjs",
+    "postbuild": "node scripts/check-bundle-size.mjs && node scripts/check-bundle-rewrites.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
