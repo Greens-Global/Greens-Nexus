@@ -64,6 +64,30 @@ function excalidrawLocaleStub() {
   };
 }
 
+// Word import without the Word writer (11/03/2026, bundle headroom). mammoth
+// (Word -> HTML: the KB editor's and the document builder's Import) requires
+// xmlbuilder, ~45 KB, only to WRITE XML, and only its embedStyleMap() writes -
+// Nexus calls convertToHtml and images.imgElement and never embedStyleMap. On
+// a production build mammoth's xmlbuilder import gets a stub that throws if
+// it is ever reached, so a future embedStyleMap caller fails loudly instead
+// of writing a broken file. Tests and dev serve keep the real package.
+const XMLBUILDER_STUB = '\0mammoth-xmlbuilder-stub';
+function mammothXmlWriterStub() {
+  return {
+    name: 'nexus-mammoth-xmlbuilder-stub',
+    apply: 'build',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (source === 'xmlbuilder' && importer && /[\\/]node_modules[\\/]mammoth[\\/]/.test(importer)) return XMLBUILDER_STUB;
+      return null;
+    },
+    load(id) {
+      if (id !== XMLBUILDER_STUB) return null;
+      return 'export function create() { throw new Error("Writing Word files is not available in Nexus (mammoth.embedStyleMap)."); }\nexport default { create };';
+    },
+  };
+}
+
 // One zlib for the PDF tools and the whiteboard (11/03/2026, bundle headroom).
 // pdf-lib (and its @pdf-lib/standard-fonts and upng) depend on pako 1.0.11;
 // the whiteboard engine brings its own pako 2.0.3; both shipped, ~55 KB of the
@@ -204,7 +228,7 @@ export default defineConfig(({ command }) => ({
     ...((NX_SRC || command === 'serve') && !process.env.VITEST
       // Dev serve stamps every element - size is irrelevant locally.
       ? [nxSrcVitePlugin({ root: FRONTEND_ROOT, only: command === 'serve' || process.env.VITE_NX_SRC === 'all' ? undefined : process.env.VITE_NX_SRC === 'interactive' ? 'interactive' : 'handlers' })] : []),
-    react(), versionManifest(), stampUnhashedAssets(), excalidrawLocaleStub(), pdfLibSharesPako(),
+    react(), versionManifest(), stampUnhashedAssets(), excalidrawLocaleStub(), pdfLibSharesPako(), mammothXmlWriterStub(),
   ],
   base: '/',
   // Build Mode's local preview / e2e runs share the main checkout's node_modules
