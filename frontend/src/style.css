@@ -4467,8 +4467,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .hdr-tab:active, .module-tab-inline-btn:active { transform: scale(.96); }
 @media (prefers-reduced-motion: reduce) {
   .primary-btn:active, .btn-primary:active, .secondary-btn:active, .btn-sm:active,
-  .icon-btn:active, .hdr-tab:active, .module-tab-inline-btn:active, .nx-press:active { transform: none; }
+  .icon-btn:active, .hdr-tab:active, .module-tab-inline-btn:active { transform: none; }
 }
+@media (prefers-reduced-motion: reduce) { .nx-press:active { transform: none; } }
 
 /* KPI card hover - Work OS depth: 1px lift, deeper shadow (the legacy rule's
    -5px jump reads as bouncy next to the quiet cards) */
