@@ -17,9 +17,9 @@ const css = fs.readFileSync(path.join(SRC, 'style.css'), 'utf8');
 // (Oct 12: left for him rather than edited here). Drop an entry once its
 // owner removes the reset.
 const OWNER_HELD = new Set([
-  'views/InventoryManagement.jsx',
   'inventory/checkout/EmployeeAcceptModal.jsx',
   'inventory/checkout/ReturnModal.jsx',
+  'inventory/manage/BatchPhotoModal.jsx',
   'inventory/ui/photos.jsx',
   'components/Assignments.jsx',
   'asset/components/asset/AddAssetModal.jsx',
