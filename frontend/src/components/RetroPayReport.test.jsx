@@ -76,12 +76,17 @@ describe('RetroPayReport', () => {
     expect(api.timeRetroPay).toHaveBeenCalledTimes(2);
   });
 
-  it('refuses an inverted range', () => {
+  it('steps the period with the range pill - an inverted range cannot be formed', () => {
+    // The two loose date boxes became the one RangePill (11/03/2026): its
+    // arrows step a whole period and its From / To picks clamp each other,
+    // so the inverted-range error state is unreachable (RangePill.test.jsx
+    // pins the clamping itself).
     render(<RetroPayReport initiallyOpen />);
-    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-12-01' } });
-    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-11-01' } });
-    expect(screen.getByText('The start date must be on or before the end date.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Run Report' })).toBeDisabled();
+    const pill = screen.getByTitle('Pick the dates');
+    const before = pill.textContent;
+    fireEvent.click(screen.getByLabelText('Previous period'));
+    expect(pill.textContent).not.toBe(before);
+    expect(screen.getByRole('button', { name: 'Run Report' })).not.toBeDisabled();
   });
 
   it('builds the CSV with US dates and cents', () => {

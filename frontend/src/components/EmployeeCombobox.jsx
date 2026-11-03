@@ -13,7 +13,10 @@ import { matchPeople } from '../lib/peopleSearch';
 //   people   [{ email, name }]
 //   value    the selected email; onChange(email) fires on a pick
 //   labelFor optional (p) => text shown for an option (e.g. "Amy (2 missing)")
-export default function EmployeeCombobox({ people, value, onChange, labelFor, title, placeholder = 'Search employees...', style }) {
+// `search`: draw it like the plain search boxes (magnifier up front, no
+// chevron, regular weight) so every toolbar reads the same - it stays a
+// type-to-filter picker underneath (11/03/2026).
+export default function EmployeeCombobox({ people, value, onChange, labelFor, title, placeholder = 'Search employees...', style, search = false }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [hi, setHi] = useState(0);
@@ -45,8 +48,9 @@ export default function EmployeeCombobox({ people, value, onChange, labelFor, ti
   return (
     <div ref={boxRef} style={{ position: 'relative', minWidth: 180, ...style }} title={title}>
       <div className="form-input" onMouseDown={e => { if (e.target !== inputRef.current) { e.preventDefault(); inputRef.current?.focus(); openList(); } }}
-        style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', cursor: 'text', fontSize: 13, fontWeight: 700 }}>
-        {open && <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', cursor: 'text', fontSize: 13, fontWeight: 700,
+          ...(search ? { fontSize: 12.5, fontWeight: 500, padding: '7px 10px', borderRadius: 10, borderColor: 'var(--line)' } : {}) }}>
+        {(open || search) && <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
         <input className="nx-inline-edit" ref={inputRef} role="combobox" aria-label="Employee" aria-expanded={open} aria-autocomplete="list"
           value={open ? q : (current ? label(current) : '')}
           placeholder={open ? (current?.name || placeholder) : placeholder}
@@ -59,7 +63,7 @@ export default function EmployeeCombobox({ people, value, onChange, labelFor, ti
             else if (e.key === 'Escape') { e.preventDefault(); close(); inputRef.current?.blur(); }
           }}
           style={{ flex: 1, minWidth: 0, border: 'none', fontSize: 'inherit', fontWeight: 'inherit', fontFamily: 'inherit', color: 'var(--ink)', padding: 0, textOverflow: 'ellipsis' }} />
-        <ChevronDown size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+        {!search && <ChevronDown size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
       </div>
       <AnchoredMenu anchorRef={boxRef} open={open} onClose={close} role="listbox"
         style={{ width: Math.max(boxWidth || 0, 220), maxHeight: 360, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: '4px 0' }}>

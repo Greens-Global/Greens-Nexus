@@ -4,6 +4,7 @@ import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from './AsyncState';
 import { defaultRange, hrs, money, rateNowText, retroPayCsv, span } from './retroPayModel';
 import { isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
+import RangePill from './RangePill';
 
 // People > Time > Payroll > Retro Pay (Neil, Oct 17 2026). A finalized period
 // keeps the rate it was finalized with, so a raise entered later with an
@@ -19,7 +20,6 @@ const thNum = { ...th, textAlign: 'right' };
 const td = { padding: '8px 10px', fontSize: 12.5, color: 'var(--ink)', borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
 const tdNum = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const sub = { fontSize: 11.5, color: 'var(--muted)' };
-const lbl = { display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 
 export default function RetroPayReport({ initiallyOpen = false }) {
   const [open, setOpen] = useState(initiallyOpen);
@@ -76,13 +76,10 @@ export default function RetroPayReport({ initiallyOpen = false }) {
       </button>
       {open && (
         <div style={{ padding: '0 14px 14px' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 12 }}>
-            <label style={lbl}>From
-              <input className="form-input" type="date" aria-label="From" value={start} onChange={(e) => setRange([e.target.value, end])} style={{ fontSize: 12, width: 150 }} />
-            </label>
-            <label style={lbl}>To
-              <input className="form-input" type="date" aria-label="To" value={end} onChange={(e) => setRange([start, e.target.value])} style={{ fontSize: 12, width: 150 }} />
-            </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 12 }}>
+            {/* The one range control every Time toolbar uses (11/03/2026) -
+                never two loose date boxes. */}
+            <RangePill start={start} end={end} onChange={(s, e) => setRange([s, e])} />
             <button type="button" className="primary-btn" onClick={run} disabled={!!rangeError || state.loading} style={{ fontSize: 12.5 }}>Run Report</button>
             <div style={{ flex: 1 }} />
             <button type="button" className="secondary-btn" onClick={download} disabled={!data || isEmpty}

@@ -49,7 +49,8 @@ describe('People > Time > Invoices', () => {
     expect(screen.getAllByText('Awaiting Approval').length).toBeGreaterThanOrEqual(2);   // the filter + two chips
     expect(screen.getByText('INV-2026-0007')).toBeTruthy();
     expect(screen.getAllByText('09/01/2026 - 09/30/2026')).toHaveLength(2);
-    expect(within(screen.getByText('Invoices').closest('button')).getByText('2')).toBeTruthy();
+    // The tab button specifically - the view's own header also says Invoices (11/03/2026).
+    expect(within(screen.getByRole('button', { name: /Invoices/ })).getByText('2')).toBeTruthy();
     expect(list).toHaveBeenCalledWith('draft');
   });
 

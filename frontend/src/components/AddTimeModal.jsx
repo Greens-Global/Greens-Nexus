@@ -10,6 +10,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Check, AlertTriangle, Undo2, CalendarPlus, Clock } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
+import { DateField } from '../tasks/components';
 import { DAY_MS, localKey, nextDay, weekday, monthDay, hm, t12, cap, BREAKS, TYPES, TONE, dayNote, planText } from '../lib/addTime';
 import { inputToUtcTz, tzOffsetForInput, formatTimeTz, useDisplayTz, currentTzOption } from '../lib/displayTz';
 import { Spinner } from './AsyncState';
@@ -177,8 +178,16 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
               <div>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
                   <span style={{ ...lab, marginBottom: 0, flex: 1 }}>Days{chosen.length ? ` - ${chosen.length} picked` : ''}</span>
-                  <label style={{ fontSize: 12, color: 'var(--muted)' }}>From <input type="date" value={range.start} max={range.end} onChange={(e) => { setRange((r) => ({ ...r, start: e.target.value || r.start })); touch(); }} style={{ ...field, padding: '4px 6px' }} /></label>
-                  <label style={{ fontSize: 12, color: 'var(--muted)' }}>To <input type="date" value={range.end} min={range.start} max={today} onChange={(e) => { setRange((r) => ({ ...r, end: e.target.value || r.end })); touch(); }} style={{ ...field, padding: '4px 6px' }} /></label>
+                  {/* DateField, never a native date box (Neil, Oct 19) - the
+                      old min/max fences live on in the clamps. */}
+                  <span style={{ fontSize: 12, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>From
+                    <DateField value={range.start} max={range.end} title="From date"
+                      onChange={(v) => { if (!v) return; setRange((r) => ({ ...r, start: v > r.end ? r.end : v })); touch(); }}
+                      style={{ ...field, padding: '4px 8px' }} /></span>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>To
+                    <DateField value={range.end} max={today} title="To date"
+                      onChange={(v) => { if (!v) return; setRange((r) => ({ ...r, end: v < r.start ? r.start : (v > today ? today : v) })); touch(); }}
+                      style={{ ...field, padding: '4px 8px' }} /></span>
                 </div>
                 {days === null ? <div style={{ padding: 16, display: 'flex', justifyContent: 'center' }}><Spinner /></div>
                   : days.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No days in this range.</div> : (
