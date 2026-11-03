@@ -5,7 +5,7 @@
 // centered Keep Mine / Use Theirs card), Retry, or Discard (held: an unsent
 // change thrown away cannot be brought back). Sync Now sends what can go.
 import { useEffect, useState } from 'react';
-import { RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
+import { RefreshCw, RotateCcw, Trash2, Wrench } from 'lucide-react';
 import { Modal } from '../../tasks/components';
 import { NX, FONT, btn } from '../../tasks/theme';
 import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
@@ -39,7 +39,12 @@ const describe = (entry, handler) => {
 
 export default function OutboxPanel({ onClose }) {
   const s = useOffline();
-  const handlers = useHandlers(s.entries);
+  const others = s.others || [];
+  const handlers = useHandlers([...s.entries, ...others]);
+  const fix = async (e) => {
+    const ob = await import('../../lib/offline/outbox');
+    if (await ob.fixEntry(e.id)) onClose?.();
+  };
   const [choosing, setChoosing] = useState(null);   // entry id
   const list = [...s.entries].reverse();             // newest first
   const chosen = choosing ? s.entries.find((e) => e.id === choosing) : null;
@@ -66,7 +71,7 @@ export default function OutboxPanel({ onClose }) {
                   ? `${changes(s.waiting)} waiting to send.`
                   : 'Nothing is waiting to send.'}
           </div>
-          {!list.length && <div style={{ fontSize: 13, color: NX.dim, padding: 20, textAlign: 'center' }}>Nothing is saved on this phone.</div>}
+          {!list.length && !others.length && <div style={{ fontSize: 13, color: NX.dim, padding: 20, textAlign: 'center' }}>Nothing is saved on this phone.</div>}
           {list.map((e) => {
             const h = handlers[e.kind];
             const d = describe(e, h);
@@ -89,6 +94,13 @@ export default function OutboxPanel({ onClose }) {
                     {e.state === 'conflict' && (
                       <button type="button" style={{ ...btn('primary'), padding: '6px 12px', fontSize: 12.5 }} onClick={() => setChoosing(e.id)}>Choose</button>
                     )}
+                    {e.state === 'failed' && typeof h?.fix === 'function' && (
+                      // A refused change goes back where it can be corrected
+                      // (a form: its fill screen, answers and photos kept).
+                      <button type="button" style={{ ...btn('primary'), padding: '6px 12px', fontSize: 12.5 }} onClick={() => fix(e)}>
+                        <Wrench size={13} /> Open and Fix
+                      </button>
+                    )}
                     {e.state === 'failed' && (
                       <button type="button" style={{ ...btn('outline'), padding: '6px 12px', fontSize: 12.5 }} disabled={!s.online} onClick={() => s.retryEntry(e.id)}>
                         <RotateCcw size={13} /> Retry
@@ -102,6 +114,28 @@ export default function OutboxPanel({ onClose }) {
               </div>
             );
           })}
+          {others.length > 0 && (
+            <div data-others style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{changes(others.length)} from another session</div>
+              <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.5 }}>
+                Saved on this phone under your name in another session (for example while acting as someone). They never send from here - discard them when you are sure they are not needed.
+              </div>
+              {others.map((e) => {
+                const d = describe(e, handlers[e.kind]);
+                return (
+                  <div key={e.id} style={{ border: `1px dashed ${NX.border}`, borderRadius: 12, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <span style={{ flex: '1 1 180px', minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: NX.ink }}>{d.title}</span>
+                      <span style={{ display: 'block', fontSize: 12, color: NX.dim }}>Saved {formatDateTime(e.createdAt)}</span>
+                    </span>
+                    <HoldButton label="Discard" doneLabel="Discarded" size="sm" icon={Trash2} holdMs={HOLD_RECORD_MS}
+                      ariaLabel={`Discard ${d.title} from another session`} onConfirm={() => s.discardEntry(e.id)}
+                      fallbackMessage={`Discard ${d.title}? It was never sent and cannot be brought back.`} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </Modal>
       {chosen && chosen.state === 'conflict' && (

@@ -267,6 +267,83 @@ describe('outbox', () => {
     expect((await ob.getEntry(mine.id)).state).toBe('sent');
   });
 
+  it('while acting as someone nothing is queued (it would send later as the wrong person)', async () => {
+    _setIdentity({ email: 'admin@greensglobal.com', actAs: 'session-9' });
+    await expect(ob.enqueue({ kind: 'x', payload: {} })).rejects.toMatchObject({ code: 'act-as' });
+    expect(await ob.listEntries()).toEqual([]);
+  });
+
+  it("the same email's changes from another session are listed apart, never sent, and can be discarded", async () => {
+    const send = vi.fn().mockResolvedValue('ok');
+    ob.registerKind('test:other', { send });
+    online = false;
+    const old = await ob.enqueue({ kind: 'test:other', payload: {} });
+    // The same person, now under another session key (an older owner stamp).
+    await idb.put('outbox', { ...(await disk(old.id)), owner: 'crew@greensglobal.com|ended-session' });
+    online = true;
+    await ob.flush({ manual: true });
+    expect(send).not.toHaveBeenCalled();
+    expect(await ob.listEntries()).toEqual([]);
+    expect(status.getStatus().others.map((e) => e.id)).toEqual([old.id]);
+    expect(await ob.discardEntry(old.id)).toBe(true);
+    expect(status.getStatus().others).toEqual([]);
+  });
+
+  it('a kind can say a 409 is a race to retry (same key), not a conflict', async () => {
+    const keys = [];
+    let n = 0;
+    ob.registerKind('test:race', {
+      send: async (entry, ctx) => { keys.push(ctx.idempotencyKey); n += 1; if (n === 1) throw httpErr(409, 'Could not file the entry - try again'); return 'ok'; },
+      classify: (e) => (e?.status === 409 ? 'unknown' : null),
+    });
+    const e = await ob.enqueue({ kind: 'test:race', payload: {} });
+    await ob.flush();
+    expect((await ob.getEntry(e.id)).state).toBe('pending');
+    await ob.flush({ manual: true });
+    expect((await ob.getEntry(e.id)).state).toBe('sent');
+    expect(new Set(keys)).toEqual(new Set([e.id]));
+  });
+
+  it('Open and Fix hands a refused change to its kind and keeps its photos', async () => {
+    const fix = vi.fn(async () => {});
+    ob.registerKind('test:fix', { send: async () => { throw httpErr(400, 'Gate Number: required'); }, fix });
+    const photo = new File([new Uint8Array(5)], 'a.jpg', { type: 'image/jpeg' });
+    const e = await ob.enqueue({ kind: 'test:fix', payload: { n: 1 }, blobs: [photo] });
+    await ob.flush();
+    expect((await ob.getEntry(e.id)).state).toBe('failed');
+    expect(await ob.fixEntry(e.id)).toBe(true);
+    expect(fix).toHaveBeenCalledWith(expect.objectContaining({ id: e.id }), expect.objectContaining({ uploadedUrl: expect.any(Function) }));
+    expect(await ob.getEntry(e.id)).toBeNull();
+    expect(await store.getBlob(e.blobs[0])).not.toBeNull();    // the photo is the fix's now
+  });
+
+  it('a photo uploaded once is never uploaded again, even by another entry holding it', async () => {
+    const upload = vi.fn(async (f) => `https://store/${f.name}`);
+    ob.registerKind('test:up2', { send: async (entry, ctx) => ({ url: await ctx.uploadOnce(entry.blobs[0], upload) }) });
+    online = false;
+    const blob = await store.putBlob(new File([new Uint8Array(5)], 'b.jpg', { type: 'image/jpeg' }), { ref: 'draft:k' });
+    await store.markBlobUploaded(blob, 'https://store/b.jpg');
+    const e = await ob.enqueue({ kind: 'test:up2', payload: {}, blobIds: [blob] });
+    online = true;
+    await ob.flush({ manual: true });
+    expect((await ob.getEntry(e.id)).result).toEqual({ url: 'https://store/b.jpg' });
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('without Web Locks a lease in localStorage lets one tab send at a time', () => {
+    localStorage.removeItem('nexus:outbox-lease');
+    const t = 1_000_000;
+    expect(ob.tryLease('tab-a', t)).toBe(true);
+    expect(ob.tryLease('tab-b', t + 1000)).toBe(false);       // tab A holds it
+    expect(ob.tryLease('tab-a', t + 2000)).toBe(true);        // A renews
+    expect(ob.tryLease('tab-b', t + 2000 + 31000)).toBe(true); // A's lease ran out
+    ob.releaseLease('tab-a');                                   // not A's any more: no effect
+    expect(ob.tryLease('tab-a', t + 2000 + 32000)).toBe(false);
+    ob.releaseLease('tab-b');
+    expect(ob.tryLease('tab-a', t + 2000 + 33000)).toBe(true);
+    ob.releaseLease('tab-a');
+  });
+
   it('nobody signed in: nothing can be queued', async () => {
     _setIdentity(null);
     await expect(ob.enqueue({ kind: 'x', payload: {} })).rejects.toMatchObject({ code: 'signed-out' });

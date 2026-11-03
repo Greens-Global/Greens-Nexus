@@ -18,9 +18,10 @@ const formGet = vi.fn();
 const formSubmit = vi.fn();
 const formsMine = vi.fn();
 const storeTaskFile = vi.fn();
+const actAs = vi.hoisted(() => ({ id: null }));
 vi.mock('../api', () => ({
   api: { formGet: (...a) => formGet(...a), formSubmit: (...a) => formSubmit(...a), formsMine: (...a) => formsMine(...a) },
-  getActAsSessionId: () => null,
+  getActAsSessionId: () => actAs.id,
 }));
 vi.mock('../tasks/lib', async (orig) => ({ ...(await orig()), storeTaskFile: (...a) => storeTaskFile(...a) }));
 vi.mock('../msalInstance', () => ({
@@ -28,6 +29,8 @@ vi.mock('../msalInstance', () => ({
   msalReady: Promise.resolve(),
 }));
 vi.mock('../lib/useIsMobile', () => ({ useIsMobile: () => true }));
+// The draft is the signed-in person's (formDraft.js keys it by email).
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'crew@greensglobal.com' }) }));
 
 const idb = await import('../lib/offline/idb');
 const ob = await import('../lib/offline/outbox');
@@ -59,11 +62,14 @@ beforeEach(async () => {
   formSubmit.mockReset().mockResolvedValue(ENTRY);
   formsMine.mockReset().mockResolvedValue([{ id: 't1', title: 'Vehicle Check' }]);
   storeTaskFile.mockReset().mockResolvedValue(UPLOADED);
+  actAs.id = null;
   await ob.startOutbox();
 });
 afterEach(() => { ob._resetOutbox(); });
 
 const goOffline = () => { online = false; window.dispatchEvent(new Event('offline')); };
+// Open the form once online, so the phone has it (the save is not awaited by readThrough).
+const prime = async () => { await forms.loadForm('t1'); await new Promise((r) => setTimeout(r, 30)); };
 const goOnline = () => { online = true; window.dispatchEvent(new Event('online')); };
 const pickPhoto = () => {
   const input = document.querySelector('input[type="file"]:not([capture])');
@@ -93,7 +99,7 @@ describe('FillForm offline', () => {
     expect(await screen.findByText('Saved on This Phone')).toBeTruthy();
     expect(screen.getByText('Waiting to Send')).toBeTruthy();
     expect(formSubmit).not.toHaveBeenCalled();
-    expect(localStorage.getItem('nexus.formDraft.t1')).toBeNull();   // the outbox holds it now
+    expect(localStorage.getItem('nexus.formDraft.crew@greensglobal.com.t1')).toBeNull();   // the outbox holds it now
 
     await act(async () => { goOnline(); });
     await waitFor(() => expect(screen.getByText('Sent')).toBeTruthy());
@@ -131,6 +137,97 @@ describe('FillForm offline', () => {
     fireEvent.change(screen.getByLabelText('Plate'), { target: { value: 'TX-9' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(await screen.findByText('You may not fill this form')).toBeTruthy();
+    expect(await ob.listEntries()).toEqual([]);
+  });
+
+  it('a 409 on replay (two tries crossed) is retried with the SAME entryKey - never a second entry', async () => {
+    await prime();
+    goOffline();
+    render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    fireEvent.change(screen.getByLabelText('Plate'), { target: { value: 'TX-1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByText('Saved on This Phone')).toBeTruthy();
+    formSubmit.mockRejectedValueOnce(Object.assign(new Error('Could not file the entry - try again'), { status: 409 }));
+    await act(async () => { goOnline(); });
+    await waitFor(() => expect(formSubmit).toHaveBeenCalled());
+    // A race, not a choice: never "Needs Your Choice" - it goes again by itself.
+    await act(async () => { await ob.flush({ manual: true }); });
+    await waitFor(() => expect(screen.getByText('Sent')).toBeTruthy());
+    expect((await ob.listEntries())[0].state).toBe('sent');
+    expect(formSubmit).toHaveBeenCalledTimes(2);
+    expect(formSubmit.mock.calls[1][1].entryKey).toBe(formSubmit.mock.calls[0][1].entryKey);
+  });
+
+  it('refused on replay: Open and Fix puts the answers and photos back in the form with the same entryKey', async () => {
+    await prime();
+    goOffline();
+    const first = render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    fireEvent.change(screen.getByLabelText('Plate'), { target: { value: 'TX-77' } });
+    pickPhoto();
+    await waitFor(() => expect(screen.getByRole('img', { name: 'Photo 1' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByText('Saved on This Phone')).toBeTruthy();
+    first.unmount();
+    // The photo uploads, then the server refuses the entry (a form rule).
+    formSubmit.mockRejectedValueOnce(Object.assign(new Error('Plate: must be 6 letters'), { status: 400 }));
+    await act(async () => { goOnline(); });
+    await waitFor(async () => expect((await ob.listEntries())[0].state).toBe('failed'));
+    const [failed] = await ob.listEntries();
+    const nav = vi.fn();
+    window.addEventListener('nexus:navigate', nav);
+    expect(await ob.fixEntry(failed.id)).toBe(true);
+    window.removeEventListener('nexus:navigate', nav);
+    expect(nav.mock.calls[0][0].detail).toEqual({ view: 'timeclock', sub: 'form:t1' });
+    expect(await ob.listEntries()).toEqual([]);
+    const draft = JSON.parse(localStorage.getItem('nexus.formDraft.crew@greensglobal.com.t1'));
+    expect(draft.entryKey).toBe(failed.payload.body.entryKey);
+    expect(draft.answers).toEqual({ plate: 'TX-77', photos: [UPLOADED] });   // uploaded once, kept as its URL
+    // The form opens with the draft offered; Continue and Send files the same entry.
+    render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.change(screen.getByLabelText('Plate'), { target: { value: 'TX7777' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(formSubmit).toHaveBeenCalledTimes(2));
+    expect(formSubmit.mock.calls[1][1].entryKey).toBe(failed.payload.body.entryKey);
+    expect(formSubmit.mock.calls[1][1].answers.photos).toEqual([UPLOADED]);
+    expect(storeTaskFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('a photo still on the phone goes back to the draft too (it was never uploaded)', async () => {
+    await prime();
+    goOffline();
+    render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    fireEvent.change(screen.getByLabelText('Plate'), { target: { value: 'TX-5' } });
+    pickPhoto();
+    await waitFor(() => expect(screen.getByRole('img', { name: 'Photo 1' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByText('Saved on This Phone')).toBeTruthy();
+    // Mark it refused without sending (as if the upload's storage said no).
+    const [q] = await ob.listEntries();
+    await idb.put('outbox', { ...q, state: 'failed', error: 'A photo could not be uploaded: too big' });
+    ob._resetOutbox();
+    ob.registerKind(forms.KIND, forms.formsEntryKind);
+    expect(await ob.fixEntry(q.id)).toBe(true);
+    const draft = JSON.parse(localStorage.getItem('nexus.formDraft.crew@greensglobal.com.t1'));
+    const ref = draft.answers.photos[0];
+    expect(ref).toMatch(/^nexus-offline:/);
+    const { getBlob } = await import('../lib/offline/store');
+    expect(await getBlob(ref.slice('nexus-offline:'.length))).not.toBeNull();
+  });
+
+  it('while acting as someone, an offline Send is not kept on the phone - it says so', async () => {
+    actAs.id = 'session-1';
+    await prime();
+    goOffline();
+    render(<FillForm templateId="t1" onClose={() => {}} />);
+    await screen.findByText('Vehicle Check');
+    fireEvent.change(screen.getByLabelText('Plate'), { target: { value: 'TX-9' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByText(/While you are acting as someone else, changes are not saved on this phone/)).toBeTruthy();
     expect(await ob.listEntries()).toEqual([]);
   });
 });

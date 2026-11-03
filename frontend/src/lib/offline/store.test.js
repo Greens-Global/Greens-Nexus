@@ -106,11 +106,35 @@ describe('blobs', () => {
   it('refuses past the caps with words a person can act on', async () => {
     const big = { size: store.MAX_ONE_BLOB_BYTES + 1, type: 'video/mp4', name: 'clip.mp4' };
     await expect(store.putBlob(big)).rejects.toMatchObject({ code: 'blob-too-big' });
-    const spy = vi.spyOn(idb, 'getAll').mockResolvedValueOnce([{ size: store.MAX_BLOB_BYTES - 10 }]);
+    const spy = vi.spyOn(idb, 'getAll').mockResolvedValueOnce([{ size: store.MAX_BLOB_BYTES - 10, identity: 'crew@greensglobal.com|' }]);
     const err = await store.putBlob(file(100)).catch((e) => e);
     expect(err.code).toBe('blobs-full');
     expect(err.message).toMatch(/Send what is waiting when you have signal/);
     spy.mockRestore();
+  });
+
+  it('the budget is per person: one crew member\'s backlog never blocks the next', async () => {
+    const spy = vi.spyOn(idb, 'getAll').mockResolvedValue([{ size: store.MAX_BLOB_BYTES - 10, identity: 'other@greensglobal.com|' }]);
+    expect(await store.blobBytes('crew@greensglobal.com|')).toBe(0);
+    spy.mockRestore();
+    expect(await store.putBlob(file(100))).toBeTruthy();
+  });
+
+  it('an uploaded blob remembers its URL on its own row', async () => {
+    const id = await store.putBlob(file(10), { ref: 'outbox:e1' });
+    expect(await store.blobUploadedUrl(id)).toBe('');
+    await store.markBlobUploaded(id, 'https://up/a.jpg');
+    expect(await store.blobUploadedUrl(id)).toBe('https://up/a.jpg');
+  });
+
+  it('outbox photos whose change is gone are swept; drafts and live entries are kept', async () => {
+    const live = await store.putBlob(file(10), { ref: 'outbox:live' });
+    const orphan = await store.putBlob(file(10), { ref: 'outbox:gone' });
+    const draft = await store.putBlob(file(10), { ref: 'draft:k1' });
+    await store.sweepOrphanOutboxBlobs(new Set(['live']));
+    expect(await store.getBlob(live)).not.toBeNull();
+    expect(await store.getBlob(orphan)).toBeNull();
+    expect(await store.getBlob(draft)).not.toBeNull();
   });
 
   it('finds and swaps blob references anywhere in an answer tree', async () => {

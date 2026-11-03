@@ -34,12 +34,19 @@
 //     rebase: (payload, server) => payload,      // Keep Mine (optional)
 //     useTheirs: async (entry, server) => {},    // Use Theirs (optional)
 //     describe: (entry) => ({ title, detail }),  // the list's words (optional)
+//     classify: (error) => 'unknown' | ...,      // overrides classify() below (optional)
+//     fix: async (entry, ctx) => {},             // "Open and Fix" for a refused one (optional)
 //   });
 //
-// ctx: { idempotencyKey, headers, blob(id), uploadOnce(id, upload), result(id) }.
+// ctx: { idempotencyKey, headers, blob(id), uploadOnce(id, upload), result(id), uploadedUrl(id) }.
+//
+// Act As: nothing is queued while acting as someone (the change sends online
+// or not at all) - an unsent change must never send later as the wrong person.
+// Changes of the same email from another session (an ended Act As, an older
+// sign-in) are listed apart and can only be discarded.
 import * as idb from './idb';
-import { identityKey } from './identity';
-import { putBlob, adoptBlobs, deleteBlob, blobBytes, MAX_BLOB_BYTES, OfflineError, isOffline, sweepBlobs, getBlob } from './store';
+import { identityKey, currentIdentity } from './identity';
+import { putBlob, adoptBlobs, deleteBlob, blobBytes, MAX_BLOB_BYTES, OfflineError, isOffline, sweepBlobs, getBlob, markBlobUploaded, blobUploadedUrl, sweepOrphanOutboxBlobs } from './store';
 import { publish } from './status';
 import { loadKind } from './kinds';
 
@@ -77,6 +84,12 @@ export const kindHandler = (kind) => kinds.get(kind) || null;
 // ── State ────────────────────────────────────────────────────────────────────
 
 const mine = () => { const who = identityKey(); return who ? entries.filter((e) => e.owner === who) : []; };
+// The same email, another session (an ended Act As, an older sign-in).
+const emailOf = (owner) => String(owner || '').split('|')[0];
+const otherSessions = () => {
+  const me = currentIdentity();
+  return me ? entries.filter((e) => e.owner !== me.key && emailOf(e.owner) === me.email && e.state !== 'sent') : [];
+};
 
 // Made order: `seq` (strictly increasing on this phone), else the time made.
 let lastSeq = 0;
@@ -93,6 +106,7 @@ function snapshot() {
     failed: count((e) => e.state === 'failed'),
     sending: count((e) => e.state === 'sending'),
     signedOut,
+    others: otherSessions(),
   };
 }
 
@@ -157,15 +171,19 @@ export async function getEntry(id) { await load(); return mine().find((e) => e.i
  */
 export async function enqueue({ kind, payload, blobs = [], blobIds = [], after = [], group = '', label = '', id = '' }) {
   if (!kind) throw new Error('enqueue needs a kind');
-  const owner = identityKey();
+  const who = currentIdentity();
+  const owner = who?.key || '';
   if (!owner) throw new OfflineError('Sign in to save changes on this phone.', 'signed-out');
+  if (who.actAs) {
+    throw new OfflineError('While you are acting as someone else, changes are not saved on this phone. Send it when you have signal.', 'act-as');
+  }
   await load();
   try { await idb.openDb(); } catch { throw new OfflineError('This browser cannot keep changes on the phone (private browsing or blocked site data). Send it when you have signal.', 'no-storage'); }
   if (mine().filter((e) => e.state !== 'sent').length >= MAX_ENTRIES) {
     throw new OfflineError(`This phone already holds ${MAX_ENTRIES} changes waiting to send. Send them when you have signal, then try again.`, 'outbox-full');
   }
   const extra = blobs.reduce((n, b) => n + (b?.size || 0), 0);
-  if (extra && (await blobBytes()) + extra > MAX_BLOB_BYTES) {
+  if (extra && (await blobBytes(owner)) + extra > MAX_BLOB_BYTES) {
     throw new OfflineError(`This phone is holding the most photos and files it can (${Math.round(MAX_BLOB_BYTES / 1024 / 1024)} MB). Send what is waiting when you have signal, then try again.`, 'blobs-full');
   }
   const entryId = id || newOutboxId();
@@ -187,7 +205,7 @@ export async function enqueue({ kind, payload, blobs = [], blobIds = [], after =
 
 // ── Sending ──────────────────────────────────────────────────────────────────
 
-/** What an api.js error means for a queued change. */
+/** What an api.js error means for a queued change (a kind may override it). */
 export function classify(e) {
   const s = e?.status;
   if (!s) return 'unknown';                    // no answer: offline, timeout, CORS
@@ -204,18 +222,27 @@ function ctxFor(entry) {
     idempotencyKey: entry.id,
     headers: { 'Idempotency-Key': entry.id },
     blob: (id) => getBlob(id),
-    // Upload a blob once: the URL is kept on the entry, so a retry after the
-    // upload but before the registering call does not upload it again.
+    // Upload a blob once: the URL is kept on the entry AND on the blob's own
+    // row in IndexedDB, so a retry (this entry's, another tab's, or the same
+    // photo queued again after "Open and Fix") never uploads it twice.
     uploadOnce: async (blobId, upload) => {
       if (entry.progress?.[blobId]) return entry.progress[blobId];
+      const known = await blobUploadedUrl(blobId);
+      if (known) {
+        entry.progress = { ...(entry.progress || {}), [blobId]: known };
+        await save(entry);
+        return known;
+      }
       const file = await getBlob(blobId);
       if (!file) throw Object.assign(new Error('A photo saved on this phone is missing - it may have been cleared by the browser.'), { status: 410 });
       const url = await upload(file);
       if (!url) throw new Error('The photo upload did not answer.');
+      await markBlobUploaded(blobId, url);
       entry.progress = { ...(entry.progress || {}), [blobId]: url };
       await save(entry);
       return url;
     },
+    uploadedUrl: (blobId) => entry.progress?.[blobId] || blobUploadedUrl(blobId),
     result: (id) => entries.find((e) => e.id === id)?.result ?? null,
   };
 }
@@ -232,7 +259,9 @@ async function sendOne(entry) {
     signedOut = false;
     return 'sent';
   } catch (e) {
-    const kind = classify(e);
+    let kind = null;
+    try { kind = handler.classify?.(e) || null; } catch { kind = null; }
+    kind = kind || classify(e);
     entry.attempts = (entry.attempts || 0) + 1;
     if (kind === 'signed-out') {
       signedOut = true;
@@ -299,6 +328,7 @@ async function runFlush({ manual = false } = {}) {
         }
         if (deps === 'waiting') break;                         // keep the group's order
         if (manual && entry.state === 'parked') entry.attempts = 0;
+        renewLease();
         tried.add(entry.id);
         const out = await sendOne(entry);
         if (out === 'stop-all') return snapshot();             // signed out: nothing else will go
@@ -313,6 +343,27 @@ async function runFlush({ manual = false } = {}) {
 
 /** Send what can go now. One flush at a time (and one tab at a time where
  *  the browser has Web Locks); a call during a flush runs once more after. */
+// One tab sends at a time. Web Locks where the browser has them; otherwise a
+// short lease in localStorage (renewed while sending, released after), and
+// the other tabs look again shortly. The idempotency key makes a rare double
+// send harmless either way.
+const LEASE_KEY = 'nexus:outbox-lease';
+const LEASE_MS = 30000;
+const TAB_ID = newOutboxId();
+export function tryLease(tab = TAB_ID, now = Date.now()) {
+  try {
+    const cur = JSON.parse(localStorage.getItem(LEASE_KEY) || 'null');
+    if (cur && cur.tab !== tab && Number(cur.until) > now) return false;
+    localStorage.setItem(LEASE_KEY, JSON.stringify({ tab, until: now + LEASE_MS }));
+    return JSON.parse(localStorage.getItem(LEASE_KEY) || 'null')?.tab === tab;
+  } catch { return true; }            // no storage: nothing to share it with
+}
+export function releaseLease(tab = TAB_ID) {
+  try { if (JSON.parse(localStorage.getItem(LEASE_KEY) || 'null')?.tab === tab) localStorage.removeItem(LEASE_KEY); } catch { /* none */ }
+}
+let leaseMode = false;
+const renewLease = () => { if (leaseMode) tryLease(); };
+
 export function flush(opts = {}) {
   // During a flush: one more runs after it (with Sync Now's "now" kept), and
   // every caller in the meantime waits for that one.
@@ -334,7 +385,9 @@ export function flush(opts = {}) {
           return snapshot();
         });
       }
-      return await runFlush(opts);
+      if (!tryLease()) { setTimeout(() => flush(opts), 3000); return snapshot(); }
+      leaseMode = true;
+      try { return await runFlush(opts); } finally { leaseMode = false; releaseLease(); }
     } finally {
       schedule();
     }
@@ -395,10 +448,26 @@ export async function retryEntry(id) {
   return next;
 }
 
-/** Throw a change away (the person held Discard). Its photos go with it. */
-export async function discardEntry(id) {
+/** "Open and Fix" a refused change: the kind puts it back where the person
+ *  can correct it (a form: the fill screen's draft, same entryKey, photos
+ *  handed to the draft) and the entry leaves the outbox WITHOUT its photos
+ *  being deleted - they now belong to what the kind made. */
+export async function fixEntry(id) {
   await load();
   const entry = mine().find((e) => e.id === id);
+  if (!entry || entry.state !== 'failed') return false;
+  const handler = kinds.get(entry.kind) || await loadKind(entry.kind).then(() => kinds.get(entry.kind)).catch(() => null);
+  if (!handler?.fix) return false;
+  await handler.fix(entry, ctxFor(entry));
+  await remove(id);
+  return true;
+}
+
+/** Throw a change away (the person held Discard). Its photos go with it.
+ *  Also a change of the same email from another session (snapshot.others). */
+export async function discardEntry(id) {
+  await load();
+  const entry = mine().find((e) => e.id === id) || otherSessions().find((e) => e.id === id);
   if (!entry || entry.state === 'sending') return false;
   for (const b of entry.blobs || []) await deleteBlob(b);
   await remove(id);
@@ -423,8 +492,10 @@ export async function startOutbox() {
       if (channel) channel.onmessage = () => { reread(); };
     } catch { channel = null; }
   }
-  // Photos of drafts nobody came back to (the outbox keeps its own).
+  // Photos of drafts nobody came back to, and outbox photos whose change is
+  // gone (another identity's leftovers included).
   sweepBlobs();
+  sweepOrphanOutboxBlobs(new Set(entries.map((e) => e.id)));
   return flush({ manual: true });
 }
 

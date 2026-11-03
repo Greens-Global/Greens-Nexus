@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { HOLD_RECORD_MS } from '../../ui/HoldButton';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
 // The offline bar, the per-change state label and the Keep Mine / Use Theirs
@@ -7,7 +8,8 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 // something needing a choice, or what is sending (with Sync Now).
 const syncNow = vi.fn();
 vi.mock('../../lib/offline/status', async (orig) => ({ ...(await orig()), bootOffline: vi.fn(), syncNow: (...a) => syncNow(...a) }));
-const outbox = { resolveConflict: vi.fn(async () => null), retryEntry: vi.fn(), discardEntry: vi.fn(async () => true), kindHandler: () => null };
+const handlers = {};
+const outbox = { resolveConflict: vi.fn(async () => null), retryEntry: vi.fn(), discardEntry: vi.fn(async () => true), fixEntry: vi.fn(async () => true), kindHandler: (k) => handlers[k] || null };
 vi.mock('../../lib/offline/outbox', () => outbox);
 vi.mock('../../lib/offline/kinds', () => ({ loadKind: async () => false }));
 
@@ -74,6 +76,28 @@ describe('OfflineBar', () => {
   });
 });
 
+describe('OutboxPanel', () => {
+  it('a refused change with a kind that can fix it offers Open and Fix', async () => {
+    handlers['forms:entry'] = { send: vi.fn(), fix: vi.fn() };
+    render(<OfflineBar />);
+    act(() => { status.publish({ entries: [entry({ state: 'failed', error: 'Gate Number: required' })], failed: 1 }); });
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Open and Fix/ }));
+    await waitFor(() => expect(outbox.fixEntry).toHaveBeenCalledWith('e1'));
+    delete handlers['forms:entry'];
+  });
+
+  it('lists changes from another session apart, with Discard only', async () => {
+    render(<OfflineBar />);
+    act(() => { status.publish({ entries: [], others: [entry({ id: 'o1', state: 'parked', owner: 'crew@greensglobal.com|old-session' })] }); });
+    expect(screen.getByRole('status').textContent).toMatch(/1 change from another session is saved on this phone/);
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    expect(await screen.findByText('1 change from another session')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Discard Vehicle Check from another session/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Retry|Choose|Open and Fix/ })).toBeNull();
+  });
+});
+
 describe('SyncState', () => {
   it('names each state in Title Case', () => {
     expect(['pending', 'parked', 'sending', 'sent', 'conflict', 'failed'].map((s) => syncWords({ state: s })))
@@ -92,13 +116,28 @@ describe('SyncState', () => {
 });
 
 describe('ConflictCard', () => {
-  it('shows what differs, side by side, and Use Theirs is a choice too', async () => {
-    const onChoose = vi.fn(async () => {});
-    const e = entry({ state: 'conflict', payload: { notes: 'Gate fixed', crewSize: 4, same: 1 }, server: { notes: 'Gate still stuck', crewSize: 4, same: 1 } });
+  const conflict = () => entry({ state: 'conflict', payload: { notes: 'Gate fixed', crewSize: 4, same: 1 }, server: { notes: 'Gate still stuck', crewSize: 4, same: 1 } });
+
+  it('shows what differs side by side; without the kind\'s useTheirs there is no Use Theirs', () => {
+    const e = conflict();
     expect(compareRows(e)).toEqual([{ label: 'Notes', mine: 'Gate fixed', theirs: 'Gate still stuck' }]);
-    render(<ConflictCard entry={e} title="Daily Log" onChoose={onChoose} onClose={() => {}} />);
+    render(<ConflictCard entry={e} title="Daily Log" onChoose={vi.fn()} onClose={() => {}} />);
     expect(screen.getByText('Gate still stuck')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Use Theirs' }));
-    await waitFor(() => expect(onChoose).toHaveBeenCalledWith('theirs'));
+    expect(screen.queryByRole('button', { name: /Use Theirs/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Keep Mine' })).toBeTruthy();
+  });
+
+  it('Use Theirs drops the change, so it is held (HOLD_RECORD_MS), never a plain click', async () => {
+    vi.useFakeTimers();
+    try {
+      const onChoose = vi.fn(async () => {});
+      render(<ConflictCard entry={conflict()} handler={{ useTheirs: vi.fn() }} title="Daily Log" onChoose={onChoose} onClose={() => {}} />);
+      const hold = screen.getByRole('button', { name: /Use Theirs/ });
+      fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(300); });
+      expect(onChoose).not.toHaveBeenCalled();
+      await act(async () => { vi.advanceTimersByTime(HOLD_RECORD_MS); });
+      expect(onChoose).toHaveBeenCalledWith('theirs');
+    } finally { vi.useRealTimers(); }
   });
 });

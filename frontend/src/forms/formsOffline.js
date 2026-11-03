@@ -16,7 +16,9 @@
 //     answers a resend with the first entry, never a second row.
 import { api } from '../api';
 import { storeTaskFile } from '../tasks/lib';
-import { readThrough, getCached, putBlob, swapBlobRefs, blobIdsIn, deleteBlobsFor, isOffline } from '../lib/offline/store';
+import { readThrough, getCached, putBlob, swapBlobRefs, blobIdsIn, deleteBlobsFor, isOffline, adoptBlobs, blobRef, signedInEmail, deleteBlob, OfflineError } from '../lib/offline/store';
+import { currentIdentity } from '../lib/offline/identity';
+import { saveDraft, newEntryKey } from './formDraft';
 import { enqueue, registerKind } from '../lib/offline/outbox';
 
 export const KIND = 'forms:entry';
@@ -55,6 +57,11 @@ export async function prefetchForms(forms) {
  *  the value the answer carries until it uploads. Throws an OfflineError
  *  when the phone is full. */
 export async function keepPhoto(file, entryKey) {
+  // Not while acting as someone: nothing waits on the phone under Act As
+  // (outbox.js) - the photo needs signal then.
+  if (currentIdentity()?.actAs) {
+    throw new OfflineError('While you are acting as someone else, photos are not kept on this phone. Take it again when you have signal.', 'act-as');
+  }
   const id = await putBlob(file, { ref: `draft:${entryKey}`, name: file?.name || 'photo.jpg' });
   return `nexus-offline:${id}`;
 }
@@ -102,11 +109,36 @@ export const formsEntryKind = {
     const answers = await swapBlobRefs(body.answers, (blobId) => ctx.uploadOnce(blobId, (file) => uploadHeld(file, body.entryKey)));
     return api.formSubmit(templateId, { ...body, answers });
   },
-  // A 409 here means the entryKey is another person's or another form's (a
-  // reused key): Keep Mine files this entry under a fresh key.
-  rebase(payload) {
-    const key = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    return { ...payload, body: { ...payload.body, entryKey: key } };
+  // A 409 from POST /forms/{id}/entries (routers/forms.py) is either the
+  // insert race ("Could not file the entry - try again": two tries of the
+  // SAME entry crossed, the next try finds the first one by its entryKey and
+  // gets it back) - so it is retried with the same key, never a new one,
+  // which could file a second entry - or a key that is another person's or
+  // another form's ("belongs to another entry"), which no retry can fix: a
+  // refusal, fixed with "Open and Fix" (a fresh key - below).
+  classify(e) {
+    if (e?.status !== 409) return null;
+    return /another entry/i.test(String(e?.message || '')) ? 'failed' : 'unknown';
+  },
+  // "Open and Fix" for an entry the server refused on replay (a 400 with the
+  // form's own rule, a 403): the answers go back into the fill screen's draft
+  // on this phone - same entryKey, photos already uploaded as their URLs and
+  // the rest handed to the draft - and Workday opens the form, which offers
+  // the draft. Nothing the person did is lost.
+  async fix(entry, ctx) {
+    const { templateId, title, body } = entry.payload;
+    const keyTaken = /another entry/i.test(entry.error || '');
+    const entryKey = keyTaken ? newEntryKey() : body.entryKey;
+    const answers = await swapBlobRefs(body.answers, async (blobId) => {
+      const url = await ctx.uploadedUrl(blobId);
+      return url || blobRef(blobId);
+    });
+    const held = blobIdsIn(answers);
+    await adoptBlobs(held, `draft:${entryKey}`);
+    // Photos already uploaded travel as their URLs; their phone copies go.
+    for (const id of entry.blobs || []) if (!held.includes(id)) await deleteBlob(id);
+    saveDraft(templateId, { entryKey, answers, title }, signedInEmail());
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock', sub: `form:${templateId}` } }));
   },
   describe(entry) {
     return { title: entry.payload?.title || entry.label || 'Form', detail: 'Form' };

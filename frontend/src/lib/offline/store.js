@@ -115,9 +115,14 @@ async function toBuffer(blob) {
   });
 }
 
-/** Bytes every blob on this phone takes, together. */
-export async function blobBytes() {
-  try { return (await idb.getAll('blobs')).reduce((n, b) => n + (b.size || 0), 0); } catch { return 0; }
+/** Bytes the blobs on this phone take - one person's (the budget is per
+ *  person, so one crew member's backlog never blocks the next), or all. */
+export async function blobBytes(identity) {
+  try {
+    return (await idb.getAll('blobs'))
+      .filter((b) => identity === undefined || b.identity === identity)
+      .reduce((n, b) => n + (b.size || 0), 0);
+  } catch { return 0; }
 }
 
 /**
@@ -131,7 +136,7 @@ export async function putBlob(blob, { ref = '', name = '' } = {}) {
   if (size > MAX_ONE_BLOB_BYTES) {
     throw new OfflineError(`That file is ${MB(size)} MB - the most this phone keeps for one file is ${MB(MAX_ONE_BLOB_BYTES)} MB.`, 'blob-too-big');
   }
-  const used = await blobBytes();
+  const used = await blobBytes(identityKey());
   if (used + size > MAX_BLOB_BYTES) {
     throw new OfflineError(`This phone is already holding ${MB(used)} MB of photos and files waiting to send (the limit is ${MB(MAX_BLOB_BYTES)} MB). Send what is waiting when you have signal, then try again.`, 'blobs-full');
   }
@@ -156,6 +161,29 @@ export async function getBlob(id) {
 }
 
 export async function deleteBlob(id) { try { await idb.del('blobs', id); } catch { /* gone */ } }
+
+/** The blob was uploaded to `url`: kept on its own row, so it is never
+ *  uploaded twice (another try, another tab, the same photo queued again). */
+export async function markBlobUploaded(id, url) {
+  try {
+    const row = await idb.get('blobs', id);
+    if (row) await idb.put('blobs', { ...row, url });
+  } catch { /* the entry's own note still has it */ }
+}
+export async function blobUploadedUrl(id) {
+  try { return (await idb.get('blobs', id))?.url || ''; } catch { return ''; }
+}
+
+/** Outbox photos whose change is gone (a crash between steps, another
+ *  identity's leftovers): `entryIds` is every entry on the phone. */
+export async function sweepOrphanOutboxBlobs(entryIds) {
+  try {
+    for (const b of await idb.getAll('blobs')) {
+      const ref = String(b.ref || '');
+      if (ref.startsWith('outbox:') && !entryIds.has(ref.slice(7))) await idb.del('blobs', b.id);
+    }
+  } catch { /* best effort */ }
+}
 
 /** Point blobs at a new holder (a draft's photos becoming a queued entry's). */
 export async function adoptBlobs(ids, ref) {

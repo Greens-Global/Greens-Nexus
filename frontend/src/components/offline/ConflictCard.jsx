@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Modal } from '../../tasks/components';
 import { NX, FONT, btn } from '../../tasks/theme';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 const shown = (v) => {
   if (v === null || v === undefined || v === '') return '-';
@@ -36,9 +37,16 @@ export default function ConflictCard({ entry, handler, title, onChoose, onClose 
     setBusy(choice);
     try { await onChoose(choice); } finally { setBusy(''); }
   };
+  // Use Theirs throws the phone's change away - held, like any discard - and
+  // is offered only where the kind knows how to take the server's value.
+  const theirs = typeof handler?.useTheirs === 'function';
   const footer = (
     <>
-      <button type="button" style={btn('outline')} disabled={!!busy} onClick={() => choose('theirs')}>Use Theirs</button>
+      {theirs && (
+        <HoldButton label="Use Theirs" doneLabel="Kept Theirs" holdMs={HOLD_RECORD_MS} icon={null} disabled={!!busy}
+          fallbackMessage="Use the server's value and drop your change from this phone? It cannot be brought back."
+          onConfirm={() => choose('theirs')} />
+      )}
       <button type="button" style={btn('primary')} disabled={!!busy} onClick={() => choose('mine')}>Keep Mine</button>
     </>
   );
@@ -70,7 +78,9 @@ export default function ConflictCard({ entry, handler, title, onChoose, onClose 
           </table>
         )}
         <p style={{ margin: 0, color: NX.dim, fontSize: 12.5 }}>
-          Keep Mine sends your change over theirs. Use Theirs keeps what is on the server and drops your change from this phone.
+          {theirs
+            ? 'Keep Mine sends your change over theirs. Use Theirs (press and hold) keeps what is on the server and drops your change from this phone.'
+            : 'Keep Mine sends your change over theirs. To keep what is on the server instead, close this and Discard your change.'}
         </p>
       </div>
     </Modal>

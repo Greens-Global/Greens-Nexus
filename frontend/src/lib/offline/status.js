@@ -12,6 +12,7 @@ const state = {
   failed: 0,
   sending: 0,
   signedOut: false,
+  others: [],             // the same email's changes from another session
 };
 let snap = { ...state };
 const listeners = new Set();
@@ -68,11 +69,11 @@ export function bootOffline() {
 export function syncNow() { return outbox().then((m) => m.flush({ manual: true })).catch(() => null); }
 
 /** Whether the shell's offline bar has anything to say. */
-export const barShown = (s = snap) => !s.online || s.signedOut || s.waiting > 0 || s.conflicts > 0 || s.failed > 0;
+export const barShown = (s = snap) => !s.online || s.signedOut || s.waiting > 0 || s.conflicts > 0 || s.failed > 0 || (s.others?.length || 0) > 0;
 
 /** Test seam. */
 export function _resetStatus() {
-  Object.assign(state, { online: true, ready: false, entries: [], waiting: 0, conflicts: 0, failed: 0, sending: 0, signedOut: false });
+  Object.assign(state, { online: true, ready: false, entries: [], waiting: 0, conflicts: 0, failed: 0, sending: 0, signedOut: false, others: [] });
   booting = null;
   emit();
 }

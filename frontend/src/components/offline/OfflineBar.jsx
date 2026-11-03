@@ -70,6 +70,10 @@ export default function OfflineBar() {
     if (s.failed) parts.push(`${changes(s.failed)} not sent`);
     words = parts.join(', ').replace(/^./, (c) => c.toUpperCase());
     actions = <button type="button" style={chip} onClick={() => setOpen(true)}>Review</button>;
+  } else if ((s.others?.length || 0) > 0 && !s.waiting) {
+    icon = <AlertTriangle size={15} aria-hidden="true" />;
+    words = `${changes(s.others.length)} from another session ${s.others.length === 1 ? 'is' : 'are'} saved on this phone`;
+    actions = <button type="button" style={chip} onClick={() => setOpen(true)}>Review</button>;
   } else if (s.waiting > 0) {
     icon = s.sending ? <Spinner size="inline" label="Sending" /> : <CloudUpload size={15} aria-hidden="true" />;
     words = `${s.sending ? 'Sending' : 'Waiting to send'} ${changes(s.waiting)} saved on this phone`;
