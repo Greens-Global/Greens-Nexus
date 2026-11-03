@@ -40,6 +40,12 @@ const ROWS = [
   { key: 'recordAudit', title: 'Records Audit',
     what: 'Someone\'s record is missing something HR must have on file (picture ID, manager, start date, emergency contact, verified work authorization) or one of their documents has expired. Checked every morning.',
     who: 'Goes to the company\'s HR department head and backup (else its HR contact, else the Super Administrators) - one notification per company, updated until it is fixed. People > Records Audit lists everyone.' },
+  { key: 'hiringStalled', title: 'Hiring Steps Waiting',
+    what: 'A new hire has not sent their details form, an offer letter or hiring packet is waiting for Verify And Send, or a signed offer\'s hiring packet has not started. Checked every morning.',
+    who: 'Goes to whoever verifies it and the HR person who started it (else the company\'s HR department head and backup) - one notification per person, updated until nothing waits. Nothing is sent to the candidate.',
+    nums: [
+      { field: 'afterDays', label: 'Remind after', suffix: n => (n === 1 ? 'quiet day' : 'quiet days'), min: 1, max: 30 },
+    ] },
 ];
 
 export default function HrReminderSettings() {

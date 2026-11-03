@@ -50,6 +50,10 @@ DEFAULTS = {
     # Records Audit (hr_record_audit.py): missing details and expired documents,
     # one bell per company to HR every morning that something is open.
     "recordAudit":    {"enabled": True},
+    # Hiring steps waiting (hiring_stalled.py, Nov 3 2026): a details form not
+    # sent, a Verify And Send not done, a packet that never started - one bell
+    # per person once a step is this many days quiet, again every this many days.
+    "hiringStalled":  {"enabled": True, "afterDays": 3},
 }
 
 # Which list fields each type accepts.
@@ -69,6 +73,7 @@ _LABELS = {
     "esignExpiring": "Signature request expiring",
     "esignChase": "Signature chase",
     "recordAudit": "Records audit",
+    "hiringStalled": "Hiring steps waiting",
 }
 
 
@@ -149,6 +154,8 @@ def validate(payload, base: dict = None) -> dict:
                     val["firstNudgeAfterDays"], label, 1, 30, "days before the first nudge")
             if "maxNudges" in val:
                 out[key]["maxNudges"] = _clean_int(val["maxNudges"], label, 0, 10, "number of nudges")
+        if key == "hiringStalled" and "afterDays" in val:
+            out[key]["afterDays"] = _clean_int(val["afterDays"], label, 1, 30, "days")
     return out
 
 

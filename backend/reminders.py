@@ -703,6 +703,12 @@ async def reminders_loop():
             await asyncio.to_thread(hr_record_audit.run_daily)
         except Exception as e:
             print(f"[reminders] records audit loop error: {e}")
+        # Hiring steps waiting: one bell per person who can move them (hiring_stalled.py).
+        try:
+            import hiring_stalled
+            await asyncio.to_thread(hiring_stalled.run_daily)
+        except Exception as e:
+            print(f"[reminders] hiring steps waiting loop error: {e}")
         # Recurring property maintenance: 15-day reminders, and a ticket for
         # any service that came due with none opened (maintenance_services.py).
         try:
