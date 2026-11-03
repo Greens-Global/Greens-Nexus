@@ -62,35 +62,13 @@ BUCKETS = ("vacation", "sick")
 #                   bucket_of() reads this; today bucket_of() still uses
 #                   keyword matching.
 EXTRA_TYPE_METHODS = ("per_hour", "per_period", "lump", "anniversary", "tracked_only", "none")
+# The US policies carry NO extra types by default (Neil, 11/02/2026: remove
+# Bereavement, Floating Holiday and Jury Duty from the US leave card). The
+# machinery stays - HR can still add types to a policy under People > Time >
+# Time Off - these are only the out-of-the-box lists.
 EXTRA_TYPE_DEFAULTS = {
-    "us-ca": [
-        {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
-         "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
-         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-         "drawFromReasons": ["bereavement", "funeral"]},
-        {"id": "floating_holiday", "name": "Floating Holiday", "paid": True, "method": "lump",
-         "waitingDays": 90, "annualHours": 16, "balanceCapHours": 16,
-         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-         "drawFromReasons": ["floating holiday", "floater"]},
-        {"id": "jury_duty", "name": "Jury Duty", "paid": True, "method": "tracked_only",
-         "waitingDays": 0, "annualHours": 0, "balanceCapHours": 0,
-         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-         "drawFromReasons": ["jury", "jury duty"]},
-    ],
-    "us-other": [
-        {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
-         "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
-         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-         "drawFromReasons": ["bereavement", "funeral"]},
-        {"id": "floating_holiday", "name": "Floating Holiday", "paid": True, "method": "lump",
-         "waitingDays": 90, "annualHours": 16, "balanceCapHours": 16,
-         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-         "drawFromReasons": ["floating holiday", "floater"]},
-        {"id": "jury_duty", "name": "Jury Duty", "paid": True, "method": "tracked_only",
-         "waitingDays": 0, "annualHours": 0, "balanceCapHours": 0,
-         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-         "drawFromReasons": ["jury", "jury duty"]},
-    ],
+    "us-ca": [],
+    "us-other": [],
     "in": [
         {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
          "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
@@ -231,8 +209,8 @@ def clear_cutover(db: Session, company_id: str) -> bool:
 
 def policies(db: Session) -> dict:
     """Every policy by id - HR's saved copy over the defaults. Phase 1A: every
-    returned policy also carries `extraTypes` (bereavement / floating holiday /
-    jury duty on the US policies, bereavement on IN). A saved policy with its
+    returned policy also carries `extraTypes` (bereavement on IN; the US
+    policies ship with none - Neil, 11/02/2026). A saved policy with its
     own `extraTypes` wins; a saved policy with none inherits the defaults."""
     out = copy.deepcopy(DEFAULT_POLICIES)
     for pid, extras in EXTRA_TYPE_DEFAULTS.items():
@@ -409,7 +387,21 @@ def _start(emp) -> date | None:
         return None
 
 
+def benefit_exempt(emp) -> bool:
+    """US-based contractors are benefit exempt (Visesh, Teams 11/02/2026):
+    they never accrue or hold paid-leave balances, whatever a policy's
+    eligible types say - a policy edit can no longer opt them in by
+    accident. "US based" is the person's own country tag; a contractor
+    with no country is not exempted here (tag the country first). India
+    contractors keep their own rules (india_contractor_pay)."""
+    return (emp is not None
+            and (getattr(emp, "employment_type", "") or "") == "contractor"
+            and (getattr(emp, "country", "") or "").strip().upper() == "US")
+
+
 def _eligible_type(emp, pol: dict) -> bool:
+    if benefit_exempt(emp):
+        return False
     return emp is not None and (getattr(emp, "employment_type", "") or "full_time") in (pol.get("eligibleTypes") or [])
 
 
@@ -526,7 +518,10 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
            "policy": {"id": pol["id"], "name": pol["name"], "unit": pol.get("unit", "hours"),
                       "hoursPerDay": pol.get("hoursPerDay", 8), "assigned": pol.get("assigned", False)},
            "startDate": (getattr(emp, "start_date", "") or "") if emp is not None else "",
-           "employmentType": (getattr(emp, "employment_type", "") or "") if emp is not None else ""}
+           "employmentType": (getattr(emp, "employment_type", "") or "") if emp is not None else "",
+           # US-based contractors (Visesh, Teams 11/02/2026): no paid-leave
+           # benefits - the card hides and the HR table says why.
+           "benefitExempt": benefit_exempt(emp)}
     if not cut:
         return out
     today = today or _today(db, email)
@@ -639,7 +634,7 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
                      and (r.kind == "opening" or (r.effective_date or "") >= cut)
                      and (r.effective_date or "") <= today.isoformat()]
         total = sum(float(r.hours or 0) for r in type_rows)
-        type_eligible = emp is not None and (
+        type_eligible = emp is not None and not benefit_exempt(emp) and (
             not (t.get("eligibleTypes") or [])
             or (getattr(emp, "employment_type", "") or "full_time") in (t.get("eligibleTypes") or [])
         )

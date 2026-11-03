@@ -36,6 +36,25 @@ CUT = "2026-09-01"
 TODAY = date(2026, 10, 19)
 PDT = 420
 
+# The extras that used to ship on the US policies (removed 11/02/2026 -
+# Neil: the US leave card carries no Bereavement / Floating Holiday / Jury
+# Duty). The machinery stays, so the tests that exercise it save these onto
+# the policy explicitly, the way HR would.
+US_EXTRAS = [
+    {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
+     "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
+     "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+     "drawFromReasons": ["bereavement", "funeral"]},
+    {"id": "floating_holiday", "name": "Floating Holiday", "paid": True, "method": "lump",
+     "waitingDays": 90, "annualHours": 16, "balanceCapHours": 16,
+     "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+     "drawFromReasons": ["floating holiday", "floater"]},
+    {"id": "jury_duty", "name": "Jury Duty", "paid": True, "method": "tracked_only",
+     "waitingDays": 0, "annualHours": 0, "balanceCapHours": 0,
+     "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
+     "drawFromReasons": ["jury", "jury duty"]},
+]
+
 
 def _utc(local: str) -> str:
     t = datetime.strptime(local, "%Y-%m-%dT%H:%M") + timedelta(minutes=PDT)
@@ -107,33 +126,64 @@ class LeaveBalanceTests(unittest.TestCase):
         lb.set_cutover(self.db, CUT, HR_EMAIL)
         self.db.commit()
 
+    def _with_us_extras(self, extra=None):
+        pols = lb.policies(self.db)
+        extras = US_EXTRAS + ([extra] if extra else [])
+        lb.save_policies(self.db, {"us-ca": {**pols["us-ca"], "extraTypes": extras}}, HR_EMAIL)
+        self.db.commit()
+
     # ── policy and buckets ──
+    def test_us_contractors_are_benefit_exempt(self):
+        """Visesh (Teams, 11/02/2026): a US-based contractor never accrues or
+        holds paid leave, even when a policy's eligible types say contractor.
+        A full-time person on the same policy is untouched, and so is a
+        contractor with no US country tag."""
+        self._cutover()
+        pols = lb.policies(self.db)
+        us_ca = {**pols["us-ca"], "eligibleTypes": ["full_time", "part_time", "contractor", "intern"]}
+        lb.save_policies(self.db, {"us-ca": us_ca}, HR_EMAIL)
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == A).update(
+            {"employment_type": "contractor"})
+        self.db.commit()
+        b = lb.balances(self.db, A, today=TODAY)
+        self.assertTrue(b["benefitExempt"])
+        self.assertFalse(b["vacation"]["eligible"])
+        self.assertFalse(b["sick"]["eligible"])
+        self.assertEqual(b["vacation"]["accrualPerHour"], 0)
+        self.assertIsNone(b["sick"]["grant"])
+        # Same policy, full time: accrues as before.
+        b2 = lb.balances(self.db, C, today=TODAY)
+        self.assertFalse(b2["benefitExempt"])
+        self.assertTrue(b2["sick"]["eligible"])
+
     def test_nothing_shows_before_the_start_date(self):
         b = lb.balances(self.db, A, today=TODAY)
         self.assertFalse(b["live"])
         self.assertNotIn("vacation", b)
         self.assertIsNone(lb.available(self.db, A, "sick"))
 
-    def test_extra_types_default_on_every_us_policy(self):
-        """Phase 1A: US-CA / US-Other / IN carry the new types in the policy
-        payload. Phase 1B will plug them into bucket_of() and balances() -
-        for now the data just has to be present and clean."""
+    def test_us_policies_carry_no_extra_types_by_default(self):
+        """Neil, 11/02/2026: Bereavement, Floating Holiday and Jury Duty are
+        off the US leave card. The machinery stays - IN still ships
+        bereavement, and HR can add types to any policy."""
         pols = lb.policies(self.db)
         for pid in ("us-ca", "us-other", "in", "none"):
             self.assertIn("extraTypes", pols[pid])
-        ids = {t["id"] for t in pols["us-ca"]["extraTypes"]}
-        self.assertEqual(ids, {"bereavement", "floating_holiday", "jury_duty"})
+        self.assertEqual(pols["us-ca"]["extraTypes"], [])
+        self.assertEqual(pols["us-other"]["extraTypes"], [])
         self.assertEqual([t["id"] for t in pols["in"]["extraTypes"]], ["bereavement"])
         self.assertEqual(pols["none"]["extraTypes"], [])
-        bereav = next(t for t in pols["us-ca"]["extraTypes"] if t["id"] == "bereavement")
+        bereav = pols["in"]["extraTypes"][0]
         for k in ("paid", "method", "waitingDays", "annualHours", "balanceCapHours",
                   "carryoverMax", "payoutOnTerm", "eligibleTypes", "drawFromReasons"):
             self.assertIn(k, bereav)
 
     def test_bucket_of_reads_extra_types_from_policy(self):
-        """Phase 1B: with a policy, a request's `type` matches any extra
+        """Phase 1B: with a policy that carries extra types (HR added them -
+        they no longer ship on US), a request's `type` matches any extra
         type's drawFromReasons slug. Without a policy, keyword matching
         is the fallback (unchanged)."""
+        self._with_us_extras()
         pol = lb.policy_for(self.db, A)
         self.assertEqual(lb.bucket_of("Bereavement", pol), "bereavement")
         self.assertEqual(lb.bucket_of("funeral leave", pol), "bereavement")
@@ -147,6 +197,7 @@ class LeaveBalanceTests(unittest.TestCase):
         """Phase 1B: set_opening accepts `extras`, add_entry allows extra
         bucket names, and balances() surfaces them in `extraTypes`."""
         self._cutover()
+        self._with_us_extras()
         lb.set_opening(self.db, A, None, None, HR_EMAIL, extras={"bereavement": 16, "floating_holiday": 8})
         self.db.commit()
         b = lb.balances(self.db, A, today=TODAY)
@@ -188,14 +239,11 @@ class LeaveBalanceTests(unittest.TestCase):
         even when its name also keyword-matches sick / vacation. The payload
         carries drawFromReasons so the request form mirrors bucket_of()."""
         self._cutover()
-        pols = lb.policies(self.db)
-        us_ca = {**pols["us-ca"]}
-        us_ca["extraTypes"] = us_ca["extraTypes"] + [{
+        self._with_us_extras(extra={
             "id": "medical_leave", "name": "Medical Leave", "paid": True, "method": "lump",
             "waitingDays": 0, "annualHours": 40, "balanceCapHours": 40,
             "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-            "drawFromReasons": ["medical"]}]
-        lb.save_policies(self.db, {"us-ca": us_ca}, HR_EMAIL)
+            "drawFromReasons": ["medical"]})
         self.db.add(models.TimeOffRequest(id="to-1d-1", employee_email=A, type="Medical Appointment",
                                           start_date="2026-10-26", end_date="2026-10-26", status="approved",
                                           created_at="2026-10-19T00:00:00"))
@@ -216,6 +264,7 @@ class LeaveBalanceTests(unittest.TestCase):
         """Phase 1D: HR's Adjust accepts an extra type's bucket; an unknown
         bucket stays refused."""
         self._cutover()
+        self._with_us_extras()
         resp = self.client.post("/leave-balances/adjust",
                                 json={"email": A, "bucket": "bereavement", "hours": -8,
                                       "note": "Took a day before the opening import"})

@@ -429,6 +429,11 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     if scope is not None and body.company is not None and body.company.strip() not in scope:
         raise HTTPException(403, "You can't move someone to a company outside your People access")
     _validate(body.employment_type, body.status, body.identity_type)
+    # Offboarding goes through the status change (POST /employees/{eid}/status),
+    # which requires the termination date and runs the leaver steps (Neil,
+    # Teams 11/02/2026) - the generic profile save must not slip past it.
+    if body.status == "offboarded" and (row.status or "") != "offboarded":
+        raise HTTPException(400, "Use the status change to offboard - it records the termination date.")
     if body.first_name is not None and not body.first_name.strip():
         raise HTTPException(400, "first_name cannot be empty")
     fields = body.model_dump(exclude_unset=True)
@@ -5438,6 +5443,16 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
     both come here, so an offboarding is the same whichever way it runs."""
     now = datetime.now(timezone.utc).isoformat()
     did_change = body.status != row.status
+    # An offboarding always carries the termination date (Neil, Teams
+    # 11/02/2026: "Make sure on offboarded people there is a termination
+    # date"). The Offboard flow (hr_life_events) validates its last day
+    # before it ever gets here; this covers the direct status pill too.
+    if did_change and body.status == "offboarded":
+        eff = (body.effectiveDate or "").strip()[:10]
+        try:
+            datetime.strptime(eff, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, "Enter the termination date (their last day).")
     log = list(row.status_log or [])
     entry = None
     # Normalise the offboarding block independently of the status change so the

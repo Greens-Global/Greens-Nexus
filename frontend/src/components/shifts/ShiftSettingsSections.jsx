@@ -437,9 +437,11 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                   desc="Also alerts for office staff who have usual hours but no shift on the schedule that day. Time off and holidays excuse those." />
                 <MinutesField label="Left Early" aria="Left early" value={nums?.leftEarlyMin} fallback={15} onChange={(v) => patchNum({ leftEarlyMin: v })}
                   hint="Clocking out this many minutes before the shift's end counts as leaving early on the schedule." />
-                {/* Early punch alert (Neil, 11/02/2026, early_punch.py): the punch is always recorded. */}
-                <MinutesField label="Early Punch Alert" aria="Early punch alert" value={nums?.earlyPunchAlertMin} fallback={0} onChange={(v) => patchNum({ earlyPunchAlertMin: v })}
-                  hint="Tell the manager when someone punches in more than this many minutes before their shift. 0 turns it off. The punch is always recorded." />
+                {/* Early punch alert (Neil, 11/02/2026, early_punch.py): the punch is always recorded.
+                    Default 10 (Neil, Teams 11/02/2026) - the Time Clock also asks the person to
+                    confirm before a clock-in earlier than this window. */}
+                <MinutesField label="Early Punch Alert" aria="Early punch alert" value={nums?.earlyPunchAlertMin} fallback={10} onChange={(v) => patchNum({ earlyPunchAlertMin: v })}
+                  hint="Someone clocking in more than this many minutes before their shift is asked to confirm, and their manager gets a quiet notification. 0 turns it off. The punch is always recorded." />
                 {/* Stalled Time Sheet escalation (Oct 19 2026, timesheet_alerts.py). */}
                 <MinutesField label="Escalate Unapproved Time Sheets After (Days)" aria="Escalate unapproved time sheets after" unit="days" max={30}
                   value={nums?.timesheetEscalateDays} fallback={2} onChange={(v) => patchNum({ timesheetEscalateDays: v })}
@@ -584,7 +586,7 @@ const NUM_MAX = {
 // The least a number may be - 0 unless said here (a short request is at least one day).
 const NUM_MIN = { timeOffShortDays: 1 };
 const NUM_DEFAULT = {
-  defaultGraceMin: 10, noShowAlertMin: 10, leftEarlyMin: 15, earlyPunchAlertMin: 0, timesheetEscalateDays: 2, breakNudgeMin: 60, mealReminderMin: 270,
+  defaultGraceMin: 10, noShowAlertMin: 10, leftEarlyMin: 15, earlyPunchAlertMin: 10, timesheetEscalateDays: 2, breakNudgeMin: 60, mealReminderMin: 270,
   otAlertDailyLeadMin: 30, otAlertWeeklyLeadMin: 120,
   ruleMinRestHours: 0, ruleMaxDaysInRow: 0, ruleDailyOtHours: 0, ruleWeeklyOtHours: 0, ruleMaxWeekHours: 0,
   laborBudgetHours: 0, laborBudgetAmount: 0,
