@@ -103,6 +103,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const tabKeys = tabs.map(t => t.key).join(',');
   useEffect(() => {
     const actions = tabKeys.split(',').map(k => ({ id: MOBILE_IDS[k], label: MOBILE_LABEL[k], active: k === tab }));
+    window.__nexusMobileActions = actions;   // MobileNav reads it if it mounts after this
     window.dispatchEvent(new CustomEvent('nexus:mobile-actions', { detail: { actions } }));
   }, [tabKeys, tab]);
   useEffect(() => {
@@ -114,6 +115,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
     window.addEventListener('nexus:mobile-action', onTap);
     return () => {
       window.removeEventListener('nexus:mobile-action', onTap);
+      window.__nexusMobileActions = null;
       window.dispatchEvent(new CustomEvent('nexus:mobile-actions', { detail: { actions: null } }));
     };
   }, [go]);
@@ -137,13 +139,15 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
 
   return (
     <div className="it-page" data-tab={tab}>
-      <ModuleTabs tabs={tabs} active={tab} onChange={k => go({ tab: k })} mobileInline={false} overflow />
       <header className="it-head">
         <div>
           <h2 className="it-title">{copy.title}</h2>
           <p className="it-sub">{copy.sub}</p>
         </div>
       </header>
+      {/* The tabs live in the page (never behind the header search at any
+          width); phones use the bottom bar instead (style.css hides these). */}
+      <div className="it-tabs"><ModuleTabs tabs={tabs} active={tab} onChange={k => go({ tab: k })} inline /></div>
 
       {tab === 'mystuff' && (
         <MyStuffTab items={items} checkouts={checkouts} me={myEmail} isManager={isManager}

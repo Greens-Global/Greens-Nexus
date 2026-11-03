@@ -13,6 +13,7 @@ import { formatDate } from '../../lib/datetime';
 import { borrowableItems, borrowTypeOptions, filterBorrow, isFreeToBorrow } from '../model/borrow';
 import { useTypeSettings } from '../model/useTypeSettings';
 import { cleanField } from '../model/fields';
+import { todayISO } from '../model/due';
 import { addToCart, removeFromCart, useItemCart } from '../cart/useItemCart';
 import { NoPhoto } from '../ui/photos';
 import { itemsToast } from '../ui/Toast';
@@ -22,10 +23,13 @@ const CAP = 120;   // tiles drawn at once; search and the filters reach the rest
 
 const Tile = memo(function Tile({ item, free, inCart, liveCo, onOpen }) {
   const back = item.activeDueDay || (liveCo?.dueDate) || '';
+  const late = !!back && back < todayISO();
   const state = free ? null
-    : item.status === 'checked_out' ? { label: 'In Use', color: 'var(--wk-live)', note: back ? `Back ${formatDate(back)}` : '' }
+    : item.status === 'checked_out'
+      ? (late ? { label: 'Overdue', color: 'var(--wk-red)', note: `Was due ${formatDate(back)}` }
+        : { label: 'In Use', color: 'var(--wk-live)', note: back ? `Back ${formatDate(back)}` : '' })
     : item.opStatus === 'in_repair' ? { label: 'In Repair', color: '#64748b', note: '' }
-    : { label: 'Requested', color: '#64748b', note: 'Someone asked for it' };
+    : { label: 'Requested', color: '#64748b', note: '' };
   const meta = [[cleanField(item.make), cleanField(item.model)].filter(Boolean).join(' '), cleanField(item.location)].filter(Boolean).join(' · ');
   return (
     <div className={`it-tile${free ? '' : ' is-out'}`}>

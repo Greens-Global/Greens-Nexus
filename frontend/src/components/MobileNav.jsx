@@ -52,7 +52,10 @@ export default function MobileNav({ activeView, activeSub }) {
   // 'nexus:mobile-actions'; taps come back as 'nexus:mobile-action'. This is
   // how screens with internal tabs (PropertyAsset sections) populate the bar
   // without MobileNav knowing their internals.
-  const [dynActions, setDynActions] = useState(null);
+  // The last broadcast is kept on window too, so a screen that announced its
+  // actions before this bar mounted (Item Management on a fresh load) still
+  // shows them.
+  const [dynActions, setDynActions] = useState(() => (typeof window !== 'undefined' && window.__nexusMobileActions) || null);
   useEffect(() => {
     const h = e => setDynActions(e.detail?.actions || null);
     window.addEventListener('nexus:mobile-actions', h);

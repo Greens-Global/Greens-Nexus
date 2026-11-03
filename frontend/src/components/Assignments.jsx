@@ -183,7 +183,7 @@ export function AssignItemModal({ item, userEmail = '', locations = [], onClose,
   const dirty = !!pick || locChanged || skipAccept;
   const seg = (k, l) => (
     <button key={k} type="button" onClick={() => { setTab(k); setError(''); }} aria-pressed={tab === k}
-      style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: tab === k ? 'var(--card)' : 'transparent', boxShadow: tab === k ? '0 1px 3px rgba(0,0,0,.08)' : 'none', color: tab === k ? 'var(--ink)' : 'var(--muted)', fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>{l}</button>
+      style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: tab === k ? 'var(--wk-brand-tint)' : 'transparent', boxShadow: 'none', color: tab === k ? 'var(--wk-brand)' : 'var(--muted)', fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>{l}</button>
   );
 
   return (

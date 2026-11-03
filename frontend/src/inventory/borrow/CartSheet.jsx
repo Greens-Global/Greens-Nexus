@@ -172,7 +172,7 @@ export function CartSheet({ onClose, onSubmitted, isManager = false }) {
             <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 10, background: 'var(--mist)', maxWidth: 360 }}>
               {[[true, 'Myself'], [false, 'Someone Else']].map(([v, l]) => (
                 <button key={l} type="button" aria-pressed={forSelf === v} onClick={() => { setForSelf(v); if (v) { setForName(''); setForEmail(''); } }}
-                  style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', background: forSelf === v ? 'var(--card)' : 'transparent', boxShadow: forSelf === v ? '0 1px 3px rgba(0,0,0,.08)' : 'none', color: forSelf === v ? 'var(--ink)' : 'var(--muted)', fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>{l}</button>
+                  style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', background: forSelf === v ? 'var(--wk-brand-tint)' : 'transparent', boxShadow: 'none', color: forSelf === v ? 'var(--wk-brand)' : 'var(--muted)', fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>{l}</button>
               ))}
             </div>
             {!forSelf && (

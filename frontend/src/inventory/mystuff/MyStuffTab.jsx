@@ -31,6 +31,7 @@ function subLine(r, now) {
   const a = r.kind === 'assignment' ? r.row : null;
   if (co) {
     if (co.status === 'pending') return `Waiting for approval${co.approverName ? ` from ${co.approverName}` : ''}${fmtDueDate(co) ? ` · Return by ${fmtDueDate(co)}` : ''}`;
+    if (co.status === 'approved' && r.group === 'action') return `Approved - take it with a handover photo${fmtDueDate(co) ? ` · Return by ${fmtDueDate(co)}` : ''}`;
     if (co.status === 'approved') return `Approved - ${co.assignedAllocatorName ? `${co.assignedAllocatorName} hands it over` : 'waiting for the handover'}${fmtDueDate(co) ? ` · Return by ${fmtDueDate(co)}` : ''}`;
     if (co.status === 'pending_receipt') return `${co.allocatedBy || co.assignedAllocatorName || 'Your allocator'} handed it over - confirm you have it`;
     if (co.status === 'allocated') {
