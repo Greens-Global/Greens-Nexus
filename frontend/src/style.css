@@ -6242,9 +6242,7 @@ body:has(.docs-root) { overflow-x: clip; }
 .docs-toc-item:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; border-radius: 4px; }
 
 /* Implementation Guide */
-.impl-bar { width: 100%; border-radius: 999px; background: color-mix(in srgb, var(--muted) 18%, transparent); overflow: hidden; }
-.impl-bar > div { height: 100%; border-radius: 999px; background: var(--wk-brand, #2b45e1); transition: width .25s; }
-.impl-bar > div.complete { background: var(--docs-ok); }
+.impl-track { width: 100%; }   /* the bars are ui/ProgressTrack (live accent, 11/02/2026) */
 .impl-rail-progress { padding: 4px 10px 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
 .impl-rail-progress-text { font-size: 12.5px; font-weight: 600; color: var(--ink); margin-bottom: 8px; font-variant-numeric: tabular-nums; }
 .impl-err { color: #b45309; font-weight: 600; }
@@ -6259,8 +6257,8 @@ body:has(.docs-root) { overflow-x: clip; }
 .impl-tl-item.complete .impl-tl-count { color: var(--docs-ok); }
 .impl-tl-item.active { background: var(--docs-tint); }
 .impl-progress-fact { display: flex; align-items: center; gap: 10px; padding-top: 4px; }
-.impl-progress-fact .impl-bar { flex: 1; }
-.impl-progress-fact span { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.impl-progress-fact .impl-track, .impl-phase-prog .impl-track { flex: 1; min-width: 48px; }
+.impl-progress-fact > span { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .impl-audience { margin: 10px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--muted); }
 .impl-split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 40px; align-items: start; }
 .impl-main { min-width: 0; }
@@ -6338,7 +6336,7 @@ body:has(.docs-root) { overflow-x: clip; }
 }
 @media (prefers-reduced-motion: reduce) {
   .docs-howto-panel { animation: none; }
-  .docs-howto-chev, .impl-bar > div { transition: none; }
+  .docs-howto-chev { transition: none; }
 }
 
 /* Documentation: a section reached from a help search is outlined briefly. */
@@ -6669,7 +6667,7 @@ body:has(.docs-root) { overflow-x: clip; }
 .m-dim { opacity: .78; transition: opacity var(--m-panel) ease-out; }
 .m-undim { opacity: 1; transition: opacity var(--m-panel) ease-out; }
 .m-today-glow [data-today]::after { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0;
-  background: color-mix(in srgb, var(--wk-brand) 12%, transparent); animation: m-glow 1.5s ease-out 1 both; }
+  background: color-mix(in srgb, var(--wk-live) 12%, transparent); animation: m-glow 1.5s ease-out 1 both; }
 .m-roll { display: inline-flex; overflow: hidden; vertical-align: bottom; }
 .m-roll > span { display: inline-block; }
 .m-roll-up > span { animation: m-roll-up var(--m-base) var(--m-ease) both; }
@@ -7376,13 +7374,11 @@ body:has(.nx-finish-bar) { overflow-x: clip; }
 }
 /* Tasks > My Day (Oct 22 2026, tasks/MyDayView.jsx): a row's drag handle and
    Remove button show on hover or keyboard focus where there is a mouse;
-   always there on touch, where nothing hovers. The progress bar eases. */
+   always there on touch, where nothing hovers. The progress bar is ui/ProgressTrack. */
 @media (hover: hover) and (pointer: fine) {
   .nx-md-row .nx-md-reveal { opacity: 0; transition: opacity 0.12s ease; }
   .nx-md-row:hover .nx-md-reveal, .nx-md-row:focus-within .nx-md-reveal { opacity: 1; }
 }
-.nx-md-bar { transition: width 0.3s ease; }
-@media (prefers-reduced-motion: reduce) { .nx-md-bar { transition: none; } }
 
 /* Accounting: the standard table view (10/23 meeting, item 01) - a heading's
    name opens its menu, the funnel its value list (shown on hover, or always
@@ -8798,3 +8794,25 @@ body:has(.apv-phone) { overflow-x: clip; }
   .nx-track-fill { transition: width var(--dur-lg) var(--ease-out); }
   .nx-track-marker { transition: left var(--dur-lg) var(--ease-out); }
 }
+/* A warning beside a progress track (HrChecklists WarnNote): the house
+   warning look - the yellow --warn-bg wash, --warn-fg text and an icon - so on
+   a card with a track, orange means only "in progress". */
+.nx-warn-note { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 5px; vertical-align: middle;
+  background: var(--warn-bg); color: var(--warn-fg); font-size: 12px; font-weight: 600; line-height: 1.4; }
+.nx-warn-note svg { flex-shrink: 0; }
+.nx-warn-note.is-block { display: flex; align-items: flex-start; padding: 6px 10px; border-radius: 8px; font-size: 12.5px; }
+.nx-warn-note.is-block svg { margin-top: 2px; }
+
+/* The now marker (Neil, 11/02/2026, components/shifts/nowLine.js) - the live
+   accent on a time axis: a 2px --wk-live line at the current time down every
+   track of the Shifts Day view, and its "2:14 PM" label (--wk-live-ink on the
+   tint, 4.67:1 light) in a 20px row of its own at the foot of the hour header
+   (ScheduleDay's NOW_ROW padding), under the hour words, so it never covers
+   them however short the header is; near either end it stays inside the
+   track. Today's column header is the tint + a 2px underline (TODAY_HEAD in
+   nowLine.js). The line never animates: it moves once a minute and just
+   repositions, so reduced motion needs nothing. */
+.nx-now-line { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--wk-live); pointer-events: none; z-index: 1; }
+.nx-now-label { position: absolute; bottom: 3px; transform: translateX(-50%); z-index: 2; pointer-events: none; white-space: nowrap;
+  padding: 1px 5px; border-radius: 4px; line-height: 13px; font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--wk-live-ink); background: linear-gradient(var(--wk-live-tint), var(--wk-live-tint)), var(--card); box-shadow: 0 0 0 1px var(--wk-live-line); }

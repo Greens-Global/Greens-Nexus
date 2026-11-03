@@ -43,6 +43,27 @@ export function trackState(value, state) {
   return clampProgress(value) >= 1 ? 'done' : 'live';
 }
 
+// The state for progress that has a due date: done at 1, overdue once the
+// due day (YYYY-MM-DD) is before today (YYYY-MM-DD, the caller's own "today"
+// - a team zone, the browser's local day), else live. No due date = never
+// overdue. Compares ISO day strings, so no zone math happens here.
+export function dueTrackState(value, dueISO, todayISO) {
+  if (clampProgress(value) >= 1) return 'done';
+  const due = String(dueISO || '').slice(0, 10);
+  return due && todayISO && due < todayISO ? 'overdue' : 'live';
+}
+
+// The state for a count of things done (a project's tasks): from the COUNTS,
+// never a rounded percent - 199 of 200 is 100% on a label but not done.
+// `complete` (the record itself says finished, e.g. a project's Completed
+// status) is done whatever the count; nothing to count is idle, never red.
+export function countTrackState({ done = 0, total = 0, dueISO = '', todayISO = '', complete = false } = {}) {
+  if (complete) return 'done';
+  if (!total) return 'idle';
+  if (done >= total) return 'done';
+  return dueTrackState(0, dueISO, todayISO);
+}
+
 // The plain text of a node (strings, numbers, nested elements), for aria-valuetext.
 export function nodeText(node) {
   let out = '';

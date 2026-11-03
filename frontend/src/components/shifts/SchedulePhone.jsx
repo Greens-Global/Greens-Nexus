@@ -11,13 +11,14 @@ import { formatDate } from '../../lib/datetime';
 import { Avatar } from '../ShiftScheduleExtras';
 import { ShiftBlock, TimeOffBlock, HolidayBlock } from './ShiftBlock';
 import { AdherenceLine } from './WeekGrid';
-import { isoDate, dayShort, fmtHrs, todayIso, planMinutes, counts, sectionKey, shiftShortText, actualFor, actualColor, actualWord } from './shiftLib';
+import { TODAY_HEAD, TODAY_INK, plannerToday } from './nowLine';
+import { isoDate, dayShort, fmtHrs, planMinutes, counts, sectionKey, shiftShortText, actualFor, actualColor, actualWord } from './shiftLib';
 
 // The strip: one chip per day, the picked one filled, today ringed, a dot
 // for a day with a note. Scrolls sideways when the week is wider than the
 // screen (two weeks).
-export function DayStrip({ days, value, onChange, countOf, noteOn, hoursOf }) {
-  const today = todayIso();
+export function DayStrip({ days, value, onChange, countOf, noteOn, hoursOf, teamZone = '' }) {
+  const today = plannerToday(teamZone);   // the team zone's day
   return (
     <div role="tablist" aria-label="Day" className="scroll-tabs" style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '2px 2px 8px', marginBottom: 2 }}>
       {days.map((d) => {
@@ -28,8 +29,11 @@ export function DayStrip({ days, value, onChange, countOf, noteOn, hoursOf }) {
         return (
           <button key={ds} type="button" role="tab" aria-selected={on} aria-label={`${formatDate(ds)}${n ? `, ${n} shift${n === 1 ? '' : 's'}` : ''}`} onClick={() => onChange(ds)}
             style={{ flex: '1 0 auto', minWidth: 52, padding: '6px 8px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'center',
-              border: `1px solid ${on ? 'var(--wk-brand)' : isToday ? 'var(--wk-brand)' : 'var(--line)'}`,
-              background: on ? 'var(--wk-brand)' : isToday ? 'var(--wk-brand-tint)' : 'var(--card)', color: on ? '#fff' : isToday ? 'var(--wk-brand)' : 'var(--ink)' }}>
+              // Picked = the brand fill (a selection); today, when not picked,
+              // is the live accent (Neil, 11/02/2026) - tint, ring, live ink.
+              border: `1px solid ${on ? 'var(--wk-brand)' : isToday ? 'var(--wk-live)' : 'var(--line)'}`,
+              background: on ? 'var(--wk-brand)' : isToday ? 'var(--wk-live-tint)' : 'var(--card)', color: on ? '#fff' : isToday ? TODAY_INK : 'var(--ink)' }}
+            aria-current={isToday ? 'date' : undefined}>
             <div style={{ fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', lineHeight: 1.2 }}>{dayShort(d)}</div>
             <div style={{ fontSize: 10, fontWeight: 600, opacity: on ? 0.9 : 0.7, whiteSpace: 'nowrap', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 3 }}>
               {hoursOf ? fmtHrs(hoursOf(ds)) : (n ? `${n} shift${n === 1 ? '' : 's'}` : '-')}
@@ -66,20 +70,21 @@ export function PhoneRow({ avatar, name, sub, sub2, extra = null, isMe = false, 
 }
 
 // The day a phone opens on: today when it is in view, else the first day.
-export function firstDay(days) {
-  const today = todayIso();
+export function firstDay(days, teamZone = '') {
+  const today = plannerToday(teamZone);
   return days.map(isoDate).find((ds) => ds === today) || (days[0] ? isoDate(days[0]) : '');
 }
 
 export default function SchedulePhone({ days, sections, byCell, openCells, offOn, holOn, usualOf = () => null, notes, weather = {}, holidayDates, holidayNames = {}, me, prefs, teamZone, canManage,
   rowEditable, empWeekMin, dayStats, dragId, collapsed, copied, on, single = false, emptyNote = null, actualOf = null, adherence = null }) {
-  const [day, setDay] = useState(() => firstDay(days));
+  const [day, setDay] = useState(() => firstDay(days, teamZone));
   // A new range (next week) lands on today or its first day.
-  useEffect(() => { setDay((d) => (days.some((x) => isoDate(x) === d) ? d : firstDay(days))); }, [days]);
+  useEffect(() => { setDay((d) => (days.some((x) => isoDate(x) === d) ? d : firstDay(days, teamZone))); }, [days, teamZone]);
   const d = days.find((x) => isoDate(x) === day) || days[0];
   const ds = d ? isoDate(d) : '';
   const stats = d ? dayStats(d) : { shifts: 0, min: 0 };
   const hol = holidayDates.has(ds);
+  const isToday = !!ds && ds === plannerToday(teamZone);
   const press = (ctx) => ({ onContextMenu: (e) => on.menu(e, ctx), onPointerDown: (e) => on.longPress(e, ctx) });
   // Actuals (Phase 1): the day's clock result rides on the block as its bar,
   // and the row's hours line says the word when it is not on time.
@@ -116,10 +121,10 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
   return (
     <div>
       {adherence && <AdherenceLine text={adherence} style={{ whiteSpace: 'normal' }} />}
-      <DayStrip days={days} value={day} onChange={setDay} countOf={(k) => dayStats(days.find((x) => isoDate(x) === k)).shifts} noteOn={(k) => !!notes[k]} />
+      <DayStrip days={days} teamZone={teamZone} value={day} onChange={setDay} countOf={(k) => dayStats(days.find((x) => isoDate(x) === k)).shifts} noteOn={(k) => !!notes[k]} />
       <div role="list" aria-label={`Schedule for ${formatDate(ds)}`} style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', overflow: 'hidden' }}>
-        <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)', background: 'var(--bg)', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <span style={{ fontSize: 13, fontWeight: 800 }}>{d ? dayShort(d) : ''}</span>
+        <div data-day-today={isToday ? '' : undefined} style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)', background: 'var(--bg)', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, ...(isToday ? TODAY_HEAD : null) }}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: isToday ? TODAY_INK : undefined }}>{d ? dayShort(d) : ''}</span>
           <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{stats.shifts}{canManage ? ` · ${fmtHrs(stats.min)}` : ''}</span>
           {hol && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{holidayNames[ds] || 'Holiday'}</span>}
           <WeatherChip w={weather[ds]} size={12} onClick={on?.weather && weather[ds] ? () => on.weather(ds) : null} />

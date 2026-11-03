@@ -10,16 +10,30 @@ import { api } from '../api';
 import { Modal, DateField, PersonSelect, usePeople } from '../tasks/components';
 import { StatusLabel } from '../components/StatusLabel';
 import { LoadingState, ErrorBanner } from '../components/AsyncState';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatDate, formatDateTime, toDateInputValue } from '../lib/datetime';
+import ProgressTrack, { clampProgress, dueTrackState } from '../ui/ProgressTrack';
 import { GOAL_STATUS, LEVEL_LABEL, MEASURES, measureText, LBL, muted, TAP } from './lib';
 
-export function ProgressBar({ value = 0, color = 'var(--wk-brand)', label }) {
+// Performance's progress bar is the one progress track (live accent,
+// 11/02/2026): orange while it moves, green once done, red when it is late.
+// A goal's server status (backend/performance.computed_status - the same one
+// its label shows) decides, so the bar and the label never disagree: Done is
+// green, Behind / Off Track red, anything else orange. Only a bar with no
+// status (a review cycle's acknowledgements) falls back to the counts, the
+// `overdue` flag and the due date.
+const GOAL_STATES = { done: 'done', behind: 'overdue', off_track: 'overdue', on_track: 'live', at_risk: 'live', no_data: 'live' };
+export function goalTrackState({ value = 0, status, dueOn, overdue = false, today = toDateInputValue(new Date()) } = {}) {
+  if (status && GOAL_STATES[status]) return GOAL_STATES[status];
+  if (clampProgress((Number(value) || 0) / 100) >= 1) return 'done';
+  if (overdue) return 'overdue';
+  return dueTrackState(0, dueOn, today);
+}
+
+export function ProgressBar({ value = 0, label, status, dueOn, overdue = false }) {
   const v = Math.max(0, Math.min(100, Number(value) || 0));
   return (
-    <span role="progressbar" aria-valuenow={v} aria-valuemin={0} aria-valuemax={100} aria-label={label || 'Progress'}
-      style={{ display: 'block', height: 6, borderRadius: 4, background: 'var(--mist)', overflow: 'hidden', minWidth: 60 }}>
-      <span style={{ display: 'block', height: '100%', width: `${v}%`, background: color, borderRadius: 4, transition: 'width .3s ease' }} />
-    </span>
+    <ProgressTrack value={v / 100} state={goalTrackState({ value: v, status, dueOn, overdue })}
+      label={label || 'Progress'} valueText={`${Math.round(v)}%`} style={{ minWidth: 60 }} />
   );
 }
 
@@ -33,7 +47,6 @@ export function GoalStatus({ status, size = 'sm' }) {
 // status on the right. Rows sit in one hairline list (GoalList), not a box
 // each; phones put the bar on a line of its own (style.css .nx-perf-goal).
 export function GoalRow({ goal: g, onOpen, onApprove, showOwner = false }) {
-  const meta = GOAL_STATUS[g.status] || GOAL_STATUS.on_track;
   return (
     <div className="nx-perf-row" role="listitem" style={{ minWidth: 0 }}>
       <button type="button" className="nx-perf-goal" onClick={() => onOpen?.(g)}>
@@ -53,7 +66,7 @@ export function GoalRow({ goal: g, onOpen, onApprove, showOwner = false }) {
         <span className="nx-perf-prog">
           <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
             overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 5 }}>{measureText(g)}</span>
-          <ProgressBar value={g.progress} color={meta.color} label={`${g.title} progress`} />
+          <ProgressBar value={g.progress} status={g.status} dueOn={g.dueOn} label={`${g.title} progress`} />
         </span>
         <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {g.proposed && <StatusLabel label="Proposed" color="#64748b" size="sm" />}
@@ -352,7 +365,7 @@ export function GoalDetailModal({ goalId, ctx, parents = [], onClose, onChanged,
           </div>
           {g.proposed && <div style={muted}>{g.canApprove ? 'Proposed - approve it so it counts as agreed.' : 'Proposed - waiting for your manager to approve it.'}</div>}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ flex: 1 }}><ProgressBar value={g.progress} color={meta.color} /></span>
+            <span style={{ flex: 1 }}><ProgressBar value={g.progress} status={g.status} dueOn={g.dueOn} label={`${g.title} progress`} /></span>
             <span style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{measureText(g)}</span>
           </div>
           {g.measuredByNexus && (
@@ -369,7 +382,7 @@ export function GoalDetailModal({ goalId, ctx, parents = [], onClose, onChanged,
                 {g.children.map(k => (
                   <div key={k.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
                     <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k.title} <span style={muted}>· {k.ownerName}</span></span>
-                    <span style={{ width: 90 }}><ProgressBar value={k.progress} color={(GOAL_STATUS[k.status] || meta).color} /></span>
+                    <span style={{ width: 90 }}><ProgressBar value={k.progress} status={k.status} dueOn={k.dueOn} label={`${k.title} progress`} /></span>
                     <GoalStatus status={k.status} />
                   </div>
                 ))}
