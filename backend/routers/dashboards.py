@@ -325,6 +325,15 @@ def _time_off_pending(db: Session, user: dict, email: str) -> int:
 # /kpis feed. Each module block is `safe`-guarded independently so one wrong
 # query (a bad status string, a renamed column) degrades that one card to
 # zeros instead of blanking the whole board - same defensive shape as /kpis.
+def _construction_pids(db: Session, scope) -> list:
+    """The construction projects a company scope admits (11/03/2026): its
+    companies' jobs, and the untagged ones ('') only for an unwalled caller -
+    auth.company_ok, the wall routers/construction.py reads."""
+    return [p.id for p in db.query(models.ConstructionProject.id, models.ConstructionProject.company_id)
+            .filter(models.ConstructionProject.deleted_at == "").all()
+            if auth.company_ok(p.company_id or "", scope)]
+
+
 def _safe_insight(modules: list, mod_id: str, label: str, nav: str, fn):
     try:
         block = fn()
@@ -570,17 +579,25 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         _safe_insight(modules, "it", "IT", "it", it_block)
 
         def construction_block():
-            proj = db.query(M.ConstructionProject).filter(M.ConstructionProject.deleted_at == "")
+            # Company walls (11/03/2026): only the caller's companies' jobs
+            # (ConstructionProject.company_id; '' only for an unwalled caller).
+            pids = _construction_pids(db, _cscope)
+            proj = db.query(M.ConstructionProject).filter(M.ConstructionProject.deleted_at == "",
+                                                          M.ConstructionProject.id.in_(pids or [""]))
             active = proj.filter(M.ConstructionProject.status == "active").count()
             on_hold = proj.filter(M.ConstructionProject.status == "on_hold").count()
             logs_pending = db.query(M.ConstructionDailyLog).filter(
-                M.ConstructionDailyLog.status == "submitted", M.ConstructionDailyLog.deleted_at == "").count()
+                M.ConstructionDailyLog.status.in_(["submitted", "processed"]), M.ConstructionDailyLog.deleted_at == "",
+                M.ConstructionDailyLog.project_id.in_(pids or [""])).count()
             overdue_rfis = db.query(M.ConstructionRfi).filter(
-                M.ConstructionRfi.status == "open", M.ConstructionRfi.due_on != "", M.ConstructionRfi.due_on < today).count()
+                M.ConstructionRfi.status == "open", M.ConstructionRfi.due_on != "", M.ConstructionRfi.due_on < today,
+                M.ConstructionRfi.deleted_at == "", M.ConstructionRfi.project_id.in_(pids or [""])).count()
             pending_submittals = db.query(M.ConstructionSubmittal).filter(
-                M.ConstructionSubmittal.status.in_(["pending", "submitted"]), M.ConstructionSubmittal.deleted_at == "").count()
+                M.ConstructionSubmittal.status.in_(["pending", "submitted"]), M.ConstructionSubmittal.deleted_at == "",
+                M.ConstructionSubmittal.project_id.in_(pids or [""])).count()
             at_risk_milestones = db.query(M.ConstructionMilestone).filter(
-                M.ConstructionMilestone.status.in_(["at_risk", "missed"]), M.ConstructionMilestone.deleted_at == "").count()
+                M.ConstructionMilestone.status.in_(["at_risk", "missed"]), M.ConstructionMilestone.deleted_at == "",
+                M.ConstructionMilestone.project_id.in_(pids or [""])).count()
             return {
                 "stats": [
                     {"key": "active_projects", "label": "Active Projects", "value": active, "tone": "good"},
@@ -941,20 +958,25 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
         raise HTTPException(404, "No breakdown for this metric")
 
     if module == "construction":
+        pids = _construction_pids(db, _cscope) or [""]
         if metric == "logs_pending":
-            rows = db.query(M.ConstructionDailyLog).filter(M.ConstructionDailyLog.status == "submitted", M.ConstructionDailyLog.deleted_at == "").all()
+            rows = db.query(M.ConstructionDailyLog).filter(M.ConstructionDailyLog.status.in_(["submitted", "processed"]), M.ConstructionDailyLog.deleted_at == "",
+                                                           M.ConstructionDailyLog.project_id.in_(pids)).all()
             return _by_person(db, [r.author_email for r in rows], "Logs Pending Review by Author")
         projects = {p.id: p.name for p in db.query(M.ConstructionProject.id, M.ConstructionProject.name).all()}
         if metric == "overdue_rfis":
-            rows = db.query(M.ConstructionRfi).filter(M.ConstructionRfi.status == "open", M.ConstructionRfi.due_on != "", M.ConstructionRfi.due_on < today).order_by(M.ConstructionRfi.due_on).all()
+            rows = db.query(M.ConstructionRfi).filter(M.ConstructionRfi.status == "open", M.ConstructionRfi.due_on != "", M.ConstructionRfi.due_on < today,
+                                                      M.ConstructionRfi.deleted_at == "", M.ConstructionRfi.project_id.in_(pids)).order_by(M.ConstructionRfi.due_on).all()
             items = [(r.subject or r.number, f"{projects.get(r.project_id, '')} · due {_us(r.due_on)}") for r in rows]
             return _list(items, "Overdue RFIs")
         if metric == "pending_submittals":
-            rows = db.query(M.ConstructionSubmittal).filter(M.ConstructionSubmittal.status.in_(["pending", "submitted"]), M.ConstructionSubmittal.deleted_at == "").all()
+            rows = db.query(M.ConstructionSubmittal).filter(M.ConstructionSubmittal.status.in_(["pending", "submitted"]), M.ConstructionSubmittal.deleted_at == "",
+                                                            M.ConstructionSubmittal.project_id.in_(pids)).all()
             items = [(r.title or r.number, projects.get(r.project_id, '')) for r in rows]
             return _list(items, "Pending Submittals")
         if metric == "at_risk_milestones":
-            rows = db.query(M.ConstructionMilestone).filter(M.ConstructionMilestone.status.in_(["at_risk", "missed"]), M.ConstructionMilestone.deleted_at == "").order_by(M.ConstructionMilestone.target_date).all()
+            rows = db.query(M.ConstructionMilestone).filter(M.ConstructionMilestone.status.in_(["at_risk", "missed"]), M.ConstructionMilestone.deleted_at == "",
+                                                            M.ConstructionMilestone.project_id.in_(pids)).order_by(M.ConstructionMilestone.target_date).all()
             items = [(r.name, f"{projects.get(r.project_id, '')} · {r.status}") for r in rows]
             return _list(items, "At-Risk Milestones")
         raise HTTPException(404, "No breakdown for this metric")

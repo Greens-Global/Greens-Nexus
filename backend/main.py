@@ -1467,6 +1467,10 @@ def _run_migrations():
             "ALTER TABLE item_types ADD COLUMN max_loan_days INTEGER DEFAULT 0",
             # One-click stop for digest emails (legal pass, 11/02/2026) - see the Postgres list.
             "ALTER TABLE nexus_person_prefs ADD COLUMN email_optouts VARCHAR DEFAULT ''",
+            # Construction foundations (Neil, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE construction_projects ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_projects ADD COLUMN time_zone VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_daily_logs ADD COLUMN tags JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3513,6 +3517,15 @@ def _run_migrations():
         # from the email's own link or Profile > Email Settings, comma
         # separated ('' = none). models.NexusPersonPref.email_optouts.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS email_optouts VARCHAR DEFAULT ''",
+        # Construction foundations (Neil, 11/03/2026, plan
+        # https://claude.ai/artifact/B5jm924fPPQ85AEDjBoSHr): a job's company
+        # (the company wall; '' = unknown, filled at startup by
+        # construction_company.backfill), the jobsite's own time zone (from
+        # its forecast), and the tags the crew puts on a daily log (delay /
+        # safety / issue / weather). models.ConstructionProject / ConstructionDailyLog.
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS time_zone VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS tags JSON DEFAULT '[]'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4304,6 +4317,28 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] weather department seed skipped: {e}")
+    # Construction foundations (Neil, 11/03/2026): place every job without a
+    # company in one (its creator's, else its property's - the company wall),
+    # and, while AI is off, mark the AI jobs that can never run skipped
+    # (kept, never deleted). Both idempotent; one session, on every start.
+    try:
+        import construction_ai
+        import construction_company
+        import construction_worker
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            n = construction_company.backfill(db)
+            if n:
+                print(f"[startup] construction: placed {n} job(s) in their company")
+            if not construction_ai.configured():
+                k = construction_worker.skip_ai_jobs(db)
+                if k:
+                    print(f"[startup] construction: {k} queued AI job(s) skipped - AI is off")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] construction company backfill skipped: {e}")
 
 
 @asynccontextmanager
