@@ -3,9 +3,10 @@ import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/re
 
 // Workers' comp rate on a person's pay setup (Charmi, 10/27 call, item 14:
 // "it changes every year ... I would enter here in the HR module, in the
-// people's module when I'm setting that up"): People > Pay, Benefits & Bank
-// shows the rate in force and every earlier entry, and Save adds a new rate
-// for a year - without re-saving the pay when only the rate changed.
+// people's module when I'm setting that up"): People > Pay & Benefits shows
+// the rate in force and every earlier entry, and Save adds a new rate for a
+// year - without re-saving the pay when only the rate changed. Edited in
+// place since 11/03/2026 (people/PayTab.jsx).
 
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ instance: {}, accounts: [] }) }));
 vi.mock('../contexts/RoleContext', async (importOriginal) => ({
@@ -31,29 +32,29 @@ vi.mock('../api', () => {
 
 afterEach(() => { cleanup(); calls.length = 0; });
 
-async function openModal() {
-  const { CompensationModal } = await import('./HR');
+async function openEdit() {
+  const { default: PayTab } = await import('../people/PayTab');
   const toastOk = vi.fn();
   const toastErr = vi.fn();
-  const onClose = vi.fn();
-  render(<CompensationModal employee={{ id: 'e1', firstName: 'Valinda', lastName: 'Cranfill' }} onClose={onClose} toastOk={toastOk} toastErr={toastErr} />);
+  render(<PayTab employee={{ id: 'e1', firstName: 'Valinda', lastName: 'Cranfill' }} toastOk={toastOk} toastErr={toastErr} />);
   await screen.findByText(/In force now: 3.5% \(from 2026\)/);
-  return { toastOk, toastErr, onClose };
+  fireEvent.click(screen.getByRole('button', { name: /^Edit$/ }));
+  return { toastOk, toastErr };
 }
 
-describe("Pay, Benefits & Bank - Workers' Comp (10/27 item 14)", () => {
+describe("Pay & Benefits - Workers' Comp (10/27 item 14)", () => {
   it('shows the rate in force and keeps every earlier entry', async () => {
-    await openModal();
-    expect(screen.getByText("WORKERS' COMP")).toBeTruthy();
-    expect(screen.getByLabelText('RATE (% OF GROSS WAGES)').placeholder).toBe('In force: 3.5%');
+    await openEdit();
+    expect(screen.getByText("Workers' Comp")).toBeTruthy();
+    expect(screen.getByLabelText('Rate (% of Gross Wages)').placeholder).toBe('In force: 3.5%');
     expect(screen.getByText('2026 · 3.5%')).toBeTruthy();
     expect(screen.getByText('2026 · 4% (replaced)')).toBeTruthy();
   }, 30000);
 
   it('Save adds the new rate for its year, and leaves the pay record alone when only the rate changed', async () => {
-    const { toastOk } = await openModal();
-    fireEvent.change(screen.getByLabelText('EFFECTIVE YEAR'), { target: { value: '2027' } });
-    fireEvent.change(screen.getByLabelText('RATE (% OF GROSS WAGES)'), { target: { value: '4.25' } });
+    const { toastOk } = await openEdit();
+    fireEvent.change(screen.getByLabelText('Effective Year'), { target: { value: '2027' } });
+    fireEvent.change(screen.getByLabelText('Rate (% of Gross Wages)'), { target: { value: '4.25' } });
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(toastOk).toHaveBeenCalled());
     expect(calls.find((c) => c[0] === 'addWorkersCompRate')).toEqual(['addWorkersCompRate', 'e1', { year: 2027, ratePct: 4.25 }]);
@@ -61,8 +62,8 @@ describe("Pay, Benefits & Bank - Workers' Comp (10/27 item 14)", () => {
   }, 30000);
 
   it('refuses a rate outside 0-100 before saving anything', async () => {
-    const { toastErr } = await openModal();
-    fireEvent.change(screen.getByLabelText('RATE (% OF GROSS WAGES)'), { target: { value: '150' } });
+    const { toastErr } = await openEdit();
+    fireEvent.change(screen.getByLabelText('Rate (% of Gross Wages)'), { target: { value: '150' } });
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(toastErr).toHaveBeenCalledWith("The workers' comp rate is a percent of gross wages, from 0 to 100."));
     expect(calls.some((c) => c[0] === 'addWorkersCompRate' || c[0] === 'saveCompensation')).toBe(false);
