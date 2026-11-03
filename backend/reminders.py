@@ -690,6 +690,14 @@ async def reminders_loop():
             await asyncio.to_thread(hr_probation.run_daily)
         except Exception as e:
             print(f"[reminders] probation loop error: {e}")
+        # Idempotency keys (field offline, Neil 11/03/2026): stored answers
+        # older than 7 days go (idempotency.py) - a phone's outbox resends
+        # within minutes or days of the write, never a week later.
+        try:
+            import idempotency
+            await asyncio.to_thread(idempotency.purge_expired)
+        except Exception as e:
+            print(f"[reminders] idempotency purge error: {e}")
         # Federal forms edition watch (Neil, 11/02/2026): one bell per form
         # and state to HR contacts and administrators (federal_forms/watch.py).
         try:

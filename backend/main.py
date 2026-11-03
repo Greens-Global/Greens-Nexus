@@ -3513,6 +3513,10 @@ def _run_migrations():
         # from the email's own link or Profile > Email Settings, comma
         # separated ('' = none). models.NexusPersonPref.email_optouts.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS email_optouts VARCHAR DEFAULT ''",
+        # Field offline (Neil, 11/03/2026): one stored answer per
+        # Idempotency-Key the phone's outbox sends (backend/idempotency.py,
+        # models.NexusIdempotencyKey; create_all makes the table). RLS per CLAUDE.md.
+        "ALTER TABLE nexus_idempotency_keys ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
