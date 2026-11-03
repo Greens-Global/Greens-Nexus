@@ -29,9 +29,10 @@ export const PAY_CLASS_LABELS = {
 };
 
 const draftOf = (data) => Object.fromEntries((data?.classes || []).map((c) => [c.key, c.custom ? c.code : '']));
-// The form as saved: each class's own name ('' = the default) and the QuickBooks company name.
-const formOf = (data) => (data ? { codes: draftOf(data), qb: data.quickbooksCompanyName || '' } : null);
-const trimmed = (f) => (f ? { codes: Object.fromEntries(Object.entries(f.codes).map(([k, v]) => [k, (v || '').trim()])), qb: (f.qb || '').trim() } : null);
+// The form as saved: each class's own name ('' = the default), the QuickBooks
+// company name, and the TIMERHDR create time (Charmi, 11/03/2026).
+const formOf = (data) => (data ? { codes: draftOf(data), qb: data.quickbooksCompanyName || '', qbCreate: data.quickbooksCreateTime || '' } : null);
+const trimmed = (f) => (f ? { codes: Object.fromEntries(Object.entries(f.codes).map(([k, v]) => [k, (v || '').trim()])), qb: (f.qb || '').trim(), qbCreate: (f.qbCreate || '').trim() } : null);
 
 // `company` (Settings' scope picker, Oct 23) fixes the company and hides the
 // select; on its own the panel offers every company. Settings' group card
@@ -76,11 +77,12 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
   }, [company, companies]);
   useEffect(() => { load(); }, [load]);
 
-  // True once the names are saved.
-  const save = async (codes, qbName, kind) => {
+  // True once the names are saved. `qbCreate` undefined leaves the saved
+  // create time alone (Use the Default resets names, never that number).
+  const save = async (codes, qbName, kind, qbCreate = undefined) => {
     setBusy(kind);
     try {
-      const next = await api.timeExportCodesSet(company, codes, qbName);
+      const next = await api.timeExportCodesSet(company, codes, qbName, qbCreate);
       setData(next);
       toastOk?.(kind === 'reset' ? 'Payroll export codes back to the default.' : 'Payroll export codes saved.');
       return true;
@@ -90,11 +92,11 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
     } finally { setBusy(''); }
   };
 
-  const anyCustom = (data?.classes || []).some((c) => c.custom) || !!data?.quickbooksCompanyName;
+  const anyCustom = (data?.classes || []).some((c) => c.custom) || !!data?.quickbooksCompanyName || !!data?.quickbooksCreateTime;
   useEffect(() => { if (data && scoped) onOverride?.(anyCustom); }, [data, scoped, anyCustom, onOverride]);
   // Spaces alone are no change: the server trims them away.
   const dirty = rawDirty && JSON.stringify(trimmed(form)) !== JSON.stringify(saved);
-  const saveDraft = () => save(form.codes, form.qb, 'save');
+  const saveDraft = () => save(form.codes, form.qb, 'save', form.qbCreate);
   useGroupDirty(dirty, saveDraft);
   // The panel's own company select (outside Settings' scope picker) asks
   // before it drops unsaved names.
@@ -143,6 +145,19 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
               placeholder={data.quickbooksCompanyDefault || ''} aria-label="QuickBooks Company Name"
               value={form.qb} onChange={(e) => patch({ qb: e.target.value })} style={{ fontSize: 12.5 }} />
             <span style={{ fontSize: 11.5 }}>The company name in the QuickBooks IIF header. It must match the QuickBooks company file; leave it blank to use the company's name.</span>
+          </label>
+          {/* COMPANYCREATETIME (Charmi, 11/03/2026): without it the IIF carries 0
+              and QuickBooks' Timer Activities import can refuse every row. */}
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--muted)', marginTop: 12, maxWidth: 440 }}>
+            <span>QuickBooks Company Create Time</span>
+            <input className="form-input" type="text" inputMode="numeric" maxLength={12}
+              placeholder="e.g. 1361233702" aria-label="QuickBooks Company Create Time"
+              value={form.qbCreate} onChange={(e) => patch({ qbCreate: e.target.value.replace(/[^0-9]/g, '') })} style={{ fontSize: 12.5 }} />
+            <span style={{ fontSize: 11.5 }}>
+              QuickBooks checks each time file against this number; without it the import can fail every row.
+              In QuickBooks Desktop: File &gt; Utilities &gt; Export &gt; Timer Lists, open that file in Notepad and copy the
+              number at the end of its TIMERHDR line. The file is then imported with File &gt; Utilities &gt; Import &gt; Timer Activities.
+            </span>
           </label>
           <SaveRow dirty={dirty} busy={busy === 'save'} onSave={saveDraft} onDiscard={reset}
             onUseDefault={anyCustom ? () => save({}, '', 'reset') : undefined} useDefaultBusy={busy === 'reset'}

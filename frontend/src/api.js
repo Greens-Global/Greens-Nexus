@@ -2099,7 +2099,8 @@ export const api = {
   // QuickBooks IIF and Intacct memo; codes {} is Reset to Default.
   timeExportCodesGet:  (company) => req(`/timeclock/payroll/export-codes?company=${encodeURIComponent(company || '')}`),
   // quickbooksCompanyName (Oct 19): the IIF header's company; undefined leaves it, '' clears it.
-  timeExportCodesSet:  (company, codes, quickbooksCompanyName) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes, quickbooksCompanyName }) }),
+  // quickbooksCreateTime (Charmi, 11/03/2026): the TIMERHDR's COMPANYCREATETIME, same semantics.
+  timeExportCodesSet:  (company, codes, quickbooksCompanyName, quickbooksCreateTime) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes, quickbooksCompanyName, quickbooksCreateTime }) }),
   // Shift differentials + call-back pay (Oct 17): one company's rule, off by default.
   timePremiumsGet:     (company) => req(`/timeclock/payroll/premiums?company=${encodeURIComponent(company || '')}`),
   timePremiumsSet:     (company, cfg) => req('/timeclock/payroll/premiums', { method: 'PUT', body: JSON.stringify({ ...cfg, company }) }),
@@ -2608,8 +2609,9 @@ export const api = {
   // HR's correction of a finalized period (Neil, Oct 22): send the corrected card to sign, or re-lock it unchanged.
   timesheetReviewSendCorrection: (id) => req(`/timesheet-review/${id}/send-correction`, { method: 'POST' }),
   timesheetReviewRelock:         (id) => req(`/timesheet-review/${id}/relock`, { method: 'POST' }),
-  timeExportIifFinalized:       (start, end, company) =>
-    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company || '')}&finalized_only=true`, { timeoutMs: 120_000 }),
+  // `email` (Charmi, 11/03/2026): one person's finalized card as its own IIF.
+  timeExportIifFinalized:       (start, end, company, email = '') =>
+    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company || '')}${email ? `&email=${encodeURIComponent(email)}` : ''}&finalized_only=true`, { timeoutMs: 120_000 }),
   // Approve All Clean (Oct 17): items are [{id}] or [{email, start}], at most
   // 25 per call (the screen sends 10); each builds its PDF and envelope.
   timesheetReviewApproveBulk: (items, note = '') => req('/timesheet-review/approve-bulk', { method: 'POST', body: JSON.stringify({ items, note }), timeoutMs: 120_000 }),
@@ -2622,8 +2624,10 @@ export const api = {
   payrollReadiness:             (start = '', refresh = false) =>
     req(`/payroll-readiness/report?start=${start || ''}${refresh ? '&refresh=true' : ''}`, { timeoutMs: 120_000 }),
   // The export's warning: readiness of what an export of [start, end] carries.
-  payrollReadinessExportCheck:  (start, end) =>
-    req(`/payroll-readiness/export-check?start=${start || ''}&end=${end || ''}`, { timeoutMs: 120_000 }),
+  // `company` / `email` (Charmi, 11/03/2026) narrow it to the people the
+  // export actually holds - a one-company IIF used to warn about everyone.
+  payrollReadinessExportCheck:  (start, end, company = '', email = '') =>
+    req(`/payroll-readiness/export-check?start=${start || ''}&end=${end || ''}${company ? `&company=${encodeURIComponent(company)}` : ''}${email ? `&email=${encodeURIComponent(email)}` : ''}`, { timeoutMs: 120_000 }),
   payrollReadinessSettings:     (company = '') => req(`/payroll-readiness/settings?company=${encodeURIComponent(company || '')}`),
   payrollReadinessSaveSettings: (data) => req('/payroll-readiness/settings', { method: 'PUT', body: JSON.stringify(data) }),
   // Delegate My Approvals (Oct 17): a stand-in for a date range. /mine =

@@ -35,16 +35,21 @@ export function issueLines(r) {
 // the export carries are not ready - never block. The server judges hourly
 // people on every pay period overlapping the dates and salaried people on
 // the month containing the first one (/payroll-readiness/export-check), so a
-// salaried card's month export is checked on that month. Any problem reading
-// the check lets the export go ahead.
-export async function confirmExportReadiness(start, end) {
+// salaried card's month export is checked on that month. `scope` narrows the
+// check to the people the export actually holds - {company} for a company
+// batch, {email} for one person (Charmi, 11/03/2026: a one-company IIF
+// warned about all 28 people of every company). Any problem reading the
+// check lets the export go ahead.
+export async function confirmExportReadiness(start, end, scope = {}) {
   let report;
-  try { report = await api.payrollReadinessExportCheck(start, end || start); }
+  try { report = await api.payrollReadinessExportCheck(start, end || start, scope.company || '', scope.email || ''); }
   catch { return true; }
   const n = new Set((report?.rows || []).filter(r => !r.ready).map(r => r.email)).size;
   if (!n) return true;
-  return dialog.confirm(`${n} ${n === 1 ? 'person is' : 'people are'} not ready - export anyway? Payroll Readiness on this screen lists who and why.`,
-    { title: 'Payroll Readiness', confirmText: 'Export Anyway', cancelText: 'Cancel' });
+  const msg = scope.email
+    ? 'This person is not ready - export anyway? Payroll Readiness on this screen says why.'
+    : `${n} ${n === 1 ? 'person in this export is' : 'people in this export are'} not ready - export anyway? Payroll Readiness on this screen lists who and why.`;
+  return dialog.confirm(msg, { title: 'Payroll Readiness', confirmText: 'Export Anyway', cancelText: 'Cancel' });
 }
 
 export const SETTING_FIELDS = [

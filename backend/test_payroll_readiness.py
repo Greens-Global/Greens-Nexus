@@ -470,6 +470,22 @@ class ExportCheckTests(DbCase):
         emails = {r["email"] for r in res.json()["rows"]}
         self.assertIn(EMP, emails)
         self.assertNotIn(OTHER, emails)
+
+    def test_route_scopes_to_the_exports_company_or_person(self):
+        """Charmi, Teams 11/03/2026: a one-company IIF warned about every
+        company's people. The check now takes the export's company or person
+        and judges only them; an out-of-scope person is simply no rows."""
+        self._as(ADMIN)
+        base = f"/payroll-readiness/export-check?start={self.start}&end={self.end}"
+        all_rows = {r["email"] for r in self.client.get(base).json()["rows"]}
+        self.assertTrue({EMP, OTHER} <= all_rows, all_rows)
+        one_co = {r["email"] for r in self.client.get(f"{base}&company={ENT}").json()["rows"]}
+        self.assertIn(EMP, one_co)
+        self.assertNotIn(OTHER, one_co)
+        one = {r["email"] for r in self.client.get(f"{base}&email={EMP}").json()["rows"]}
+        self.assertEqual(one, {EMP})
+        self._as(MGR)
+        self.assertEqual(self.client.get(f"{base}&email={OTHER}").json()["rows"], [])
         self.assertEqual(self.client.get(
             f"/payroll-readiness/export-check?start={self.end}&end={self.start}").status_code, 400)
         self.assertEqual(self.client.get(
