@@ -595,13 +595,13 @@ class PublishReviewTests(_Case):
         # The schedule shows the removal; the empty Thursday cell keeps the story.
         r = self.client.get("/timeclock/schedule/history", params={"email": AMY, "date": THU})
         self.assertEqual([e["action"] for e in r.json()["entries"]], ["removed"])
-        # Through People: the status change calls it in the same session.
+        # Through Offboard: the leaver steps (hr.apply_status_change) call it
+        # in the same session.
+        from routers import hr as hr_router
         amy = self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == AMY).first()
         self._shift(AMY, "2026-12-01")
-        self._as(ADMIN)
-        r = self.client.post(f"/hr/employees/{amy.id}/status",
-                             json={"status": "offboarded", "reason": "left", "effectiveDate": "2026-11-30"})
-        self.assertEqual(r.status_code, 200, r.text)
+        hr_router.apply_status_change(self.db, amy, hr_router.StatusChangeIn(
+            status="offboarded", reason="left", effectiveDate="2026-11-30"), ADMIN)
         self.db.expire_all()
         self.assertEqual(self.db.query(models.ScheduledShift).filter(models.ScheduledShift.id == "s-amy-2026-12-01-09:00").first().pending_delete, 1)
 

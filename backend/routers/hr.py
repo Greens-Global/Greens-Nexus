@@ -429,11 +429,11 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     if scope is not None and body.company is not None and body.company.strip() not in scope:
         raise HTTPException(403, "You can't move someone to a company outside your People access")
     _validate(body.employment_type, body.status, body.identity_type)
-    # Offboarding goes through the status change (POST /employees/{eid}/status),
-    # which requires the termination date and runs the leaver steps (Neil,
-    # Teams 11/02/2026) - the generic profile save must not slip past it.
+    # Offboarding goes through Offboard (POST /employees/{eid}/offboard), which
+    # requires the termination date and runs the leaver steps (Neil, Teams
+    # 11/02/2026) - the generic profile save must not slip past it.
     if body.status == "offboarded" and (row.status or "") != "offboarded":
-        raise HTTPException(400, "Use the status change to offboard - it records the termination date.")
+        raise HTTPException(400, OFFBOARD_ONLY)
     if body.first_name is not None and not body.first_name.strip():
         raise HTTPException(400, "first_name cannot be empty")
     fields = body.model_dump(exclude_unset=True)
@@ -5476,6 +5476,9 @@ def _graph_remove_all_licenses(token: str, m365_id: str) -> str:
     return f"{removed} released" if removed else "none to release"
 
 
+OFFBOARD_ONLY = "Use Offboard to mark someone Left - it records the termination date and runs the leaver steps."
+
+
 @router.post("/employees/{eid}/status")
 def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
@@ -5484,21 +5487,29 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     _assert_scope(row, hr_scope(user, db))
     if body.status not in _STATUSES:
         raise HTTPException(400, f"status must be one of {_STATUSES}")
+    # One way to leave (Neil, 11/03/2026): becoming Left happens ONLY through
+    # Offboard (hr_life_events.send_separation -> apply_separation_now, today
+    # or on the last day), which records the termination date and runs every
+    # leaver step below exactly once. A person already Left may still come
+    # here to re-run a mailbox / license step (did_change is False then).
+    if body.status == "offboarded" and (row.status or "") != "offboarded":
+        raise HTTPException(400, OFFBOARD_ONLY)
     return apply_status_change(db, row, body, user["email"])
 
 
 def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, actor: str) -> dict:
     """The whole status change - the log entry, and for a leaver: items
     force-returned, tasks handed over, M365 sign-in blocked / sessions ended /
-    licenses freed / mailbox export, Nexus sessions ended. Commits. The
-    endpoint above and Offboard (hr_life_events.py - now, or on the last day)
-    both come here, so an offboarding is the same whichever way it runs."""
+    licenses freed / mailbox export, Nexus sessions ended. Commits. Offboard
+    (hr_life_events.apply_separation_now - now, or on the last day) is the
+    ONLY caller that makes someone Left; the endpoint above refuses that and
+    only changes the other statuses (or re-runs an M365 step on a leaver)."""
     now = datetime.now(timezone.utc).isoformat()
     did_change = body.status != row.status
     # An offboarding always carries the termination date (Neil, Teams
     # 11/02/2026: "Make sure on offboarded people there is a termination
     # date"). The Offboard flow (hr_life_events) validates its last day
-    # before it ever gets here; this covers the direct status pill too.
+    # before it ever gets here; this is the backstop for any other caller.
     if did_change and body.status == "offboarded":
         eff = (body.effectiveDate or "").strip()[:10]
         try:
