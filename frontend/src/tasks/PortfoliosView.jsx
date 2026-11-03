@@ -7,12 +7,13 @@ import {
   AlertTriangle, ArrowUp, ArrowDown, X, Archive, ArchiveRestore, ChevronRight, ArrowUpRight,
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { taskStats, topLevel, portfolioRowTree, portfolioDeepProjectIds } from './lib';
+import { taskStats, topLevel, portfolioRowTree, portfolioDeepProjectIds, todayISO } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, ChipMultiSelect, ViewToggle, ExportMenu } from './components';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import ProjectIcon from './ProjectIcon';
 import { projectLook } from './projectLook';
+import ProgressTrack, { dueTrackState } from '../ui/ProgressTrack';
 
 // Columns in grid order, with the sort key each header drives. A portfolio's
 // name is elastic; the rollup columns are fixed until someone drags one.
@@ -30,12 +31,13 @@ const PF_COLS = [
   { key: 'actions',  label: '',                            width: 76, fixed: true },
 ];
 
-// Progress bar (accent-coloured) used on cards and project rows.
-function ProgressBar({ pct, color, height = 8 }) {
+// Progress on cards and project rows: the one progress track (live accent,
+// 11/02/2026) - orange while tasks are still open, green at 100%, red when a
+// project's own due date has passed short of 100%.
+function ProgressBar({ pct, size = 'md', dueOn = '', label = 'Tasks complete' }) {
   return (
-    <div style={{ flex: 1, height, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
-      <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: color }} />
-    </div>
+    <ProgressTrack value={pct / 100} state={dueTrackState(pct / 100, dueOn, todayISO())} size={size}
+      label={label} valueText={`${pct}% complete`} style={{ flex: 1 }} />
   );
 }
 
@@ -365,7 +367,7 @@ export default function PortfoliosView({ onNavigate }) {
                         tasks: <span style={{ fontSize: 13, color: NX.dim }}>{looseAgg.completed}/{looseAgg.total}</span>,
                         progress: (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <ProgressBar pct={looseAgg.pct} color={NX.faint} />
+                        <ProgressBar pct={looseAgg.pct} label="No Portfolio tasks complete" />
                         <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700 }}>{looseAgg.pct}%</span>
                       </div>
                         ),
@@ -459,7 +461,7 @@ function PortfolioRow({
           tasks: <span style={{ fontSize: 13, color: NX.dim }}>{r.completed}/{r.total}</span>,
           progress: (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <ProgressBar pct={r.pct} color={accent} />
+          <ProgressBar pct={r.pct} label={`${pf.name} tasks complete`} />
           <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700 }}>{r.pct}%</span>
         </div>
           ),
@@ -589,7 +591,7 @@ function ProjectRows({ cols, projects, statsFor, empty, selected, onToggle, onOp
               tasks: <span style={{ fontSize: 12, color: NX.dim }}>{pr.completed}/{pr.total}</span>,
               progress: (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ProgressBar pct={pr.pct} color={NX.blue} height={6} />
+              <ProgressBar pct={pr.pct} size="sm" dueOn={p.dueOn} label={`${p.name} tasks complete`} />
               <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 11, fontWeight: 700 }}>{pr.pct}%</span>
             </div>
               ),
@@ -642,7 +644,7 @@ function PortfolioCard({ portfolio: pf, rollup: r, memberProjects, onOpen, onEdi
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}>
-        <ProgressBar pct={r.pct} color={accent} />
+        <ProgressBar pct={r.pct} label={`${pf.name} tasks complete`} />
         <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700 }}>{r.pct}%</span>
       </div>
       {r.overdue > 0 && (
@@ -910,7 +912,7 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
                       {onNavigate && <ArrowRight size={14} style={{ color: NX.faint, flexShrink: 0 }} />}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
-                      <ProgressBar pct={pr.pct} color={NX.green} height={6} />
+                      <ProgressBar pct={pr.pct} size="sm" dueOn={p.dueOn} label={`${p.name} tasks complete`} />
                       <span style={{ fontSize: 11.5, color: NX.dim, minWidth: 68, textAlign: 'right' }}>{pr.completed}/{pr.total} · {pr.pct}%</span>
                     </div>
                   </div>

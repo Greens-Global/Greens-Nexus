@@ -32,6 +32,7 @@ import { SkeletonBlocks, Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { Modal, DateField, ChipMultiSelect } from '../tasks/components';
 import { COUNTRIES, countryName } from '../lib/countries';
+import ProgressTrack from '../ui/ProgressTrack';
 
 // Work OS tokens (style.css --wk-*), so the light themes and dark mode come
 // for free. Status colors carry meaning only: red = late, orange = due soon,
@@ -111,18 +112,21 @@ function ownerText(s) {
   return null;
 }
 
-function ProgressBar({ done, total, segments }) {
-  const pct = total ? Math.round((done / total) * 100) : 0;
+// The track's state for one checklist (live accent, 11/02/2026): green when
+// every step is closed, red while a step is past its due date, gray when the
+// checklist was cancelled, else the live accent.
+export function checklistTrackState({ done, total, overdue, status }) {
+  if (status === 'cancelled') return 'idle';
+  if (status === 'done' || (total > 0 && done >= total)) return 'done';
+  return overdue > 0 ? 'overdue' : 'live';
+}
+
+function ProgressBar({ done, total, overdue = 0, status }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-      <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Checklist progress"
-        style={{ flex: 1, display: 'flex', gap: 3, height: 8, minWidth: 80 }}>
-        {(segments && segments.length ? segments : [{ done, total }]).map((g, i) => (
-          <div key={i} style={{ flex: Math.max(g.total, 1), background: 'var(--wk-line2)', borderRadius: 4, overflow: 'hidden' }}>
-            <div style={{ width: `${g.total ? (g.done / g.total) * 100 : 0}%`, height: '100%', background: 'var(--wk-green)', transition: 'width .3s cubic-bezier(.16,1,.3,1)' }} />
-          </div>
-        ))}
-      </div>
+      <ProgressTrack value={total ? done / total : 0} state={checklistTrackState({ done, total, overdue, status })}
+        label="Checklist progress" valueText={`${done} of ${total} done${overdue > 0 ? `, ${overdue} overdue` : ''}`}
+        style={{ flex: 1, minWidth: 80 }} />
       <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--wk-dim)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{done} of {total} Done</span>
     </div>
   );
@@ -436,7 +440,7 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
             style={{ ...ghostBtn, padding: 6 }}>{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
         </div>
         <div style={{ marginTop: 14 }}>
-          <ProgressBar done={cl.done} total={cl.total} segments={phasesAll.map(p => ({ done: p.steps.filter(isClosed).length, total: p.steps.length }))} />
+          <ProgressBar done={cl.done} total={cl.total} overdue={cl.overdue} status={cl.status} />
         </div>
         {cl.status === 'open' && (
           <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', marginTop: 14 }}>
@@ -830,7 +834,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
               </span>
               {/* Progress */}
               <span style={{ flex: '1 1 150px', minWidth: 120 }}>
-                <ProgressBar done={r.done} total={r.total} />
+                <ProgressBar done={r.done} total={r.total} overdue={r.overdue} />
               </span>
               {/* Next step */}
               <span style={{ display: 'grid', gap: 2, flex: '1.4 1 240px', minWidth: 0 }}>

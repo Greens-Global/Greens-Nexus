@@ -143,7 +143,7 @@ function CycleModal({ cycleId, onClose, onChanged, toastOk, toastErr }) {
               c.selfDue ? `Self reviews due ${formatDate(c.selfDue)}` : '', c.due ? `Due ${formatDate(c.due)}` : ''].filter(Boolean).join(' · ')}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <span style={{ flex: '1 1 200px' }}><ProgressBar value={total ? Math.round((done / total) * 100) : 0} label="Acknowledged" /></span>
+            <span style={{ flex: '1 1 200px' }}><ProgressBar value={total ? Math.round((done / total) * 100) : 0} overdue={c.status === 'active' && c.counts?.overdue > 0} label="Acknowledged" /></span>
             <span style={muted}>{done} of {total} acknowledged{c.counts?.overdue ? ` · ${c.counts.overdue} overdue` : ''}</span>
             {c.status === 'active' && (
               <button type="button" className="primary-btn" disabled={busy || !ready} style={{ ...TAP, display: 'inline-flex', alignItems: 'center', gap: 6 }}
@@ -235,7 +235,7 @@ export default function ReviewCycles({ company, companies, toastOk, toastErr }) 
                     </span>
                   </span>
                   <StatusLabel label={CYCLE_STATUS[c.status]?.label || c.status} color={CYCLE_STATUS[c.status]?.color} size="sm" />
-                  <span style={{ gridColumn: '1 / -1' }}><ProgressBar value={total ? Math.round(((c.counts?.complete || 0) / total) * 100) : 0} label={`${c.name} acknowledged`} /></span>
+                  <span style={{ gridColumn: '1 / -1' }}><ProgressBar value={total ? Math.round(((c.counts?.complete || 0) / total) * 100) : 0} overdue={c.status === 'active' && c.counts?.overdue > 0} label={`${c.name} acknowledged`} /></span>
                 </button>
               );
             })}

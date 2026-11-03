@@ -12,6 +12,7 @@ import SaveRow from './SaveRow';
 import { useDraft } from '../lib/useDraft';
 import { useGroupDirty } from '../lib/groupDirty';
 import { dialog } from '../ui/dialog';
+import ProgressTrack from '../ui/ProgressTrack';
 
 // Payroll Readiness (Neil, Oct 17 2026) - People > Time > Payroll. Before
 // payroll runs: who is not ready (approval, signature, missing punches, open
@@ -107,6 +108,12 @@ export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr, au
 
       {data && S && (
         <>
+          {/* How far the period is toward payroll (live accent, 11/02/2026):
+              orange while someone still needs attention, green once all are. */}
+          {S.people > 0 && (
+            <ProgressTrack value={S.ready / S.people} label="Payroll readiness" style={{ marginTop: 12, maxWidth: 420 }}
+              note={<><b>{S.ready} of {S.people}</b> {S.people === 1 ? 'person' : 'people'} ready for payroll</>} />
+          )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
             {chip('Ready', S.ready, 'hsl(var(--color-green))', false, () => setFilter('all'))}
             {chip(S.notReady === 1 ? 'Needs Attention' : 'Need Attention', S.notReady, '#b91c1c', filter === 'exceptions', () => setFilter('exceptions'))}

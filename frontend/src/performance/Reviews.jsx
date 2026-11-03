@@ -94,7 +94,7 @@ function GoalsBeside({ goals, scores, onScore, editable }) {
             <GoalStatus status={g.status} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ flex: 1 }}><ProgressBar value={g.progress} label={`${g.title} progress`} /></span>
+            <span style={{ flex: 1 }}><ProgressBar value={g.progress} status={g.status} dueOn={g.dueOn} label={`${g.title} progress`} /></span>
             <span style={{ ...muted, fontSize: 12, whiteSpace: 'nowrap' }}>{measureText({ ...g, metricGood: 'high' })}</span>
           </div>
           {g.measuredByNexus && <span style={{ ...muted, fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> {g.metricLabel}</span>}
