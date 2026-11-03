@@ -1051,6 +1051,23 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     has_eod = (db.query(TimeBod)
                .filter(TimeBod.employee_email == email, TimeBod.kind == "eod",
                        TimeBod.local_date == local_today).first()) if _open else None
+    # Today's expected shift (Neil, 11/02/2026: the clock's shift track) from
+    # the ONE rule, shift_expect - a published placement, else the usual-hours
+    # preset on its working days; a weather-cancelled day or no schedule is
+    # None, and the client draws no track. today_shift.lookup caches it per
+    # person and workday for a minute (this route is polled every 20-25 s)
+    # and reads it in a savepoint; the early clock-in hint below shares its
+    # expected_start. A hint only: a failure leaves it null.
+    _exp_dd = None
+    _exp = None
+    _today = {"shifts": [], "shift": None}
+    try:
+        import today_shift
+        _exp_dd = date.fromisoformat(local_today)
+        _today = today_shift.lookup(db, email, _exp_dd)
+        _exp = _today.get("exp")
+    except Exception as e:   # a hint only - never fail the clock for it
+        print(f"[timeclock] today's shift skipped for {email}: {e}")
     # Early clock-in confirm (Neil, Teams 11/02/2026): clocking in more than
     # earlyPunchAlertMin minutes (default 10) before today's expected start
     # makes the client ask "clock in anyway?" before it sends the punch. The
@@ -1058,15 +1075,14 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     # manager once it lands. Only before the first clock-in of the workday;
     # no expected start (no shift, no preset, weather-cancelled) = no ask.
     early_warning = None
-    if has_in is None:
+    if has_in is None and _exp_dd is not None:
         try:
             import early_punch
             import shift_expect
             from routers.shift_requests import settings_for
             _thr = int(settings_for(db, email).get(early_punch.SETTING, 0) or 0)
             if _thr > 0:
-                _dd = date.fromisoformat(local_today)
-                _exp = shift_expect.expected_start(db, email, _dd)
+                _dd = _exp_dd
                 _start = shift_expect.start_utc(_dd, _exp)
                 if _start is not None:
                     early_warning = {"shiftStartUtc": _start.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1094,6 +1110,15 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         # {shiftStartUtc, shiftStart, warnBeforeMin} before the first clock-in
         # of a day with an expected start, else null (see above).
         "earlyWarning": early_warning,
+        # Today's expected shift for the clock's shift track (start -> end,
+        # orange while clocked in): {start, end (HH:MM in the shift's zone),
+        # startUtc, endUtc, source: scheduled | preset, date (its work date)},
+        # or null when nothing is expected (see above). todayShifts: every
+        # shift around the workday (a split shift's placements, yesterday's
+        # overnight one, a midnight one about to start) - the browser picks
+        # the one to draw as time moves; todayShift is that pick right now.
+        "todayShift": _today.get("shift"),
+        "todayShifts": _today.get("shifts") or [],
         # Role-flagged people skip EVERY message prompt (BOD, EOD, break start/
         # end) - punches go straight through (Neil, Aug 25).
         "bodExempt": _bod_ex,

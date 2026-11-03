@@ -20,6 +20,7 @@
 import { Clock, LogOut, Coffee, Play, ArrowRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 import { LoadingState } from '../../components/AsyncState';
+import ShiftTrack from '../../components/ShiftTrack';
 import { useIsMobile } from '../../lib/useIsMobile';
 import { DashCard, navigate } from '../widgets.jsx';
 import { noteStyle } from '../workdayWidgets.jsx';
@@ -89,6 +90,15 @@ export default function MyTime({ phone }) {
                   <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Today</div>
                 </div>
               </div>
+
+              {/* Today's shift, start to end, "now" on it (Neil, 11/02/2026).
+                  A phone card grows, so it carries the times and the line; the
+                  fixed-height desktop card keeps the slim bar (its line is the
+                  hover title and what a screen reader hears), and leaves it out
+                  while a punch note already fills the header. */}
+              {vm.track && (isMobile
+                ? <ShiftTrack track={vm.track} />
+                : !note && <ShiftTrack track={vm.track} size="sm" ends={false} note={false} />)}
 
               {/* The punches the clock accepts next. The buttons are the tile's
                   own targets - the card around them opens Workday. */}
