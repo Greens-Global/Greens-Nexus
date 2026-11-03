@@ -24,7 +24,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, null
 from sqlalchemy.orm import Session
 
 import auth
@@ -599,7 +599,7 @@ def create_schedule(property_id: str, body: ScheduleBody, user: dict = Depends(r
     me = (user.get("email") or "").strip().lower()
     now = now_iso()
     svc = models.PropertyMaintenanceService(
-        id=gen_id(), property_asset_id=prop.id, parent_ticket_id=None, active=1, reminder_sent_for="",
+        id=gen_id(), property_asset_id=prop.id, parent_ticket_id=null(), active=1, reminder_sent_for="",
         last_opened_for="", last_ticket_id="", created_by_email=me, created_at=now, updated_by_email=me,
         updated_at=now, next_due="", recurrence_unit="", recurrence_every=1)
     for k, v in fields.items():

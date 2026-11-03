@@ -335,7 +335,7 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
             </div>
           </div>
           {data?.canManage && (<>
-            {s.active && !s.waitingOnCompletion && <button className="secondary-btn" disabled={busy === s.id}
+            {s.active && !s.waitingOnCompletion && !(s.kind && s.kind !== 'calendar' && s.openCount > 0) && <button className="secondary-btn" disabled={busy === s.id}
               onClick={() => act(s.id, () => api.openMaintenanceServiceNow(propertyId, s.id))}>Open Ticket Now</button>}
             <button className="secondary-btn" onClick={() => (s.kind ? setScheduling(s) : setEditing(s))}>{s.active ? 'Edit Schedule' : 'Restart'}</button>
             {s.active && <button className="secondary-btn" disabled={busy === s.id}

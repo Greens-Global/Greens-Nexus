@@ -143,6 +143,11 @@ class PreventiveTests(unittest.TestCase):
         self.assertEqual(MS.run_preventive(self.db, TODAY + timedelta(days=3))["filed"], 0)
         self.assertEqual(len(self._tickets(sid)), 1)
 
+    def test_a_property_holds_many_schedules_without_a_parent_ticket(self):
+        ids = [self._schedule(subject=f"Service {i}") for i in range(3)]   # parent_ticket_id is unique: NULLs
+        self.assertEqual(len(set(ids)), 3)
+        self.assertTrue(all(self._svc(i).parent_ticket_id is None for i in ids))
+
     def test_one_ticket_per_occurrence_whoever_races(self):
         sid = self._schedule(next_due=iso(0))
         svc = self._svc(sid)
