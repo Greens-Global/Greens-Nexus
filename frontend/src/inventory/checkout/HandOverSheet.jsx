@@ -5,40 +5,59 @@
 // refusal. Now they open the same handover sheet Requests uses, so the photo
 // is taken and any refusal is shown on the sheet. Loaded lazily by its
 // callers, so the Items code stays in its own chunk.
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useInventory } from '../../contexts/InventoryContext';
+import { useRole } from '../../contexts/RoleContext';
+import { useItemsIdentity } from '../model/identity';
 import { AllocateModal } from './AllocateModal';
 import { useCheckoutActions } from './useCheckoutActions';
 import { ItemSheet } from '../ui/Sheet';
 import { ItemsToasts } from '../ui/Toast';
 
+// `checkoutId` is a hand-over bell's ref: a checkout id, or - for a cart of
+// several items - the ORDER id; the sheet then hands the whole order over
+// (the approved items in it this person may hand over).
+export function handOverBatch(checkouts, ref, me = '', isManager = false) {
+  const lc = (s) => String(s || '').toLowerCase();
+  return checkouts.filter(c => (c.id === ref || (c.orderId && c.orderId === ref)) && c.status === 'approved'
+    && (isManager || lc(c.assignedAllocatorEmail) === lc(me)));
+}
+
 export default function HandOverSheet({ checkoutId, onClose, onDone }) {
   const { checkouts = [], items = [], refreshCheckouts, checkoutsLoading } = useInventory() || {};
+  const { canAccessModule } = useRole();
+  const { myEmail } = useItemsIdentity();
   const actions = useCheckoutActions();
-  const co = checkouts.find(c => c.id === checkoutId);
-  useEffect(() => { if (!co) refreshCheckouts?.(); }, [co]); // eslint-disable-line react-hooks/exhaustive-deps
+  const batch = handOverBatch(checkouts, checkoutId, myEmail, canAccessModule('inventory', 'manager', 'editor'));
+  const co = batch[0];
+  const known = checkouts.some(c => c.id === checkoutId || c.orderId === checkoutId);
+  useEffect(() => { if (!known) refreshCheckouts?.(); }, [known]); // eslint-disable-line react-hooks/exhaustive-deps
+  // One toast stack: the Items page draws its own; elsewhere this sheet does.
+  // (Read after mount - the page may commit in the same pass.)
+  const [pageToasts, setPageToasts] = useState(false);
+  useEffect(() => { setPageToasts(!!document.querySelector('.it-page')); }, []); // eslint-disable-line react-hooks/set-state-in-effect
 
-  if (!co || co.status !== 'approved') {
+  if (!co) {
     return (
       <>
         <ItemSheet title="Hand Over" onClose={onClose}
           footer={<button className="secondary-btn" onClick={onClose}>Close</button>}>
           <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: 0 }}>
-            {!co && checkoutsLoading ? 'Loading the request…'
-              : !co ? 'This request is not in your list any more.'
-              : 'This item has already moved on - there is nothing to hand over.'}
+            {!known && checkoutsLoading ? 'Loading the request…'
+              : !known ? 'This request is not in your list any more.'
+              : 'This has already moved on - there is nothing to hand over.'}
           </p>
         </ItemSheet>
-        <ItemsToasts />
+        {!pageToasts && <ItemsToasts />}
       </>
     );
   }
-  const photoOptional = items.find(i => i.id === co.itemId)?.pictureRequired === false;
+  const photoOptional = batch.every(c => items.find(i => i.id === c.itemId)?.pictureRequired === false);
   return (
     <>
-      <AllocateModal checkout={co} photoOptional={photoOptional} onClose={onClose}
-        onConfirm={async (p) => { await actions.handOver([co], p); onDone?.(); }} />
-      <ItemsToasts />
+      <AllocateModal checkouts={batch} photoOptional={photoOptional} onClose={onClose}
+        onConfirm={async (p) => { await actions.handOver(batch, p); onDone?.(); }} />
+      {!pageToasts && <ItemsToasts />}
     </>
   );
 }

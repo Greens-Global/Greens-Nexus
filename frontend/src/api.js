@@ -1115,6 +1115,10 @@ export const api = {
   // Narrowed to the people who can reach that ITEM's company (Nov 2026).
   getItemApproversFor:  (itemId)      => cachedGet(`/items/approvers?item_id=${encodeURIComponent(itemId)}`),
   getItemAllocatorsFor: (itemId)      => cachedGet(`/items/allocators?item_id=${encodeURIComponent(itemId)}`),
+  // The borrower's own calendar (today, first and last return date per item,
+  // in the BORROWER's zone) and Pick a New Allocator (review 11/02/2026).
+  getBorrowWindow:     (itemIds, forEmail = '') => req(`/items/borrow-window?${new URLSearchParams({ item_ids: itemIds.join(','), for_email: forEmail })}`),
+  setCheckoutAllocator: (id, d)       => req(`/items/checkouts/${encodeURIComponent(id)}/allocator`, { method: 'POST', body: JSON.stringify(d) }),
 
   // Requisitions (persisted in Supabase)
   getRequisitions:           ()              => req('/requisitions'),

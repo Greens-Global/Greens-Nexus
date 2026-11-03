@@ -53,6 +53,16 @@ export function parseItemsSub(sub) {
   return { tab: TAB_KEYS.has(tab) ? tab : '', view, itemId, legacy: !!LEGACY[base] };
 }
 
+/** The new sub for an old one ('checkouts' -> 'requests', 'catalog@x' ->
+ *  'borrow@x'), or null when `sub` is not an old Items sub. */
+export function legacyItemsSub(sub) {
+  const raw = String(sub || '');
+  const at = raw.indexOf('@');
+  const base = at >= 0 ? raw.slice(0, at) : raw;
+  if (!LEGACY[base]) return null;
+  return `${LEGACY[base]}${at >= 0 ? raw.slice(at) : ''}`;
+}
+
 /** { tab, view, itemId } -> the sub string (view and item optional). */
 export function itemsSub({ tab, view = '', itemId = '' }) {
   return `${tab || 'mystuff'}${view ? `:${view}` : ''}${itemId ? `@${itemId}` : ''}`;

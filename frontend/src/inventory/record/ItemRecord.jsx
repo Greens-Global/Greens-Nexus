@@ -29,6 +29,7 @@ import { ExtendRequestModal } from '../checkout/ExtendRequestModal';
 import { ReceiptConfirmModal } from '../checkout/ReceiptConfirmModal';
 import { EmployeeAcceptModal } from '../checkout/EmployeeAcceptModal';
 import { ForceReturnModal } from '../checkout/ForceReturnModal';
+import { PickAllocatorSheet } from '../checkout/PickAllocatorSheet';
 import { addToCart, removeFromCart, useItemCart } from '../cart/useItemCart';
 import { ImageLightbox } from '../ui/ImageLightbox';
 import { NoPhoto } from '../ui/photos';
@@ -66,7 +67,7 @@ export function stateLine(item, co, asg) {
 }
 
 export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable = true }) {
-  const { items = [], checkouts = [], itemsLoading, refreshItems, patchItemLocal } = useInventory() || {};
+  const { items = [], checkouts = [], itemsLoading, checkoutsLoading, refreshItems, patchItemLocal } = useInventory() || {};
   const { assignments, refreshAssignments } = useAssignments();
   const { canAccessModule } = useRole();
   const isManager = canAccessModule('inventory', 'manager', 'editor');
@@ -97,7 +98,7 @@ export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable 
   if (!item) {
     return (
       <ItemSheet title="Item" onClose={onClose} zIndex={Z_RECORD}>
-        {itemsLoading ? <SkeletonBlocks count={4} height={56} borderRadius={10} />
+        {(itemsLoading || checkoutsLoading) ? <SkeletonBlocks count={4} height={56} borderRadius={10} />
           : <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--muted)' }}>
               <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>This item is not in your list</div>
               <div style={{ fontSize: 13 }}>It may have been deleted, or it belongs to another company.</div>
@@ -127,17 +128,22 @@ export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable 
   if (mineCo?.status === 'pending_receipt') primary('rcpt', 'Confirm Receipt', Camera, () => setSheet({ kind: 'receipt', co: mineCo }));
   if (mineCo?.status === 'approved' && (isManager || isMyAlloc)) primary('take', 'Take It Now', Camera, () => setSheet({ kind: 'selftake', co: mineCo }));
   else if (liveCo?.status === 'approved' && (isManager || isMyAlloc)) primary('hand', 'Hand Over', Camera, () => setSheet({ kind: 'handover', co: liveCo }));
+  if (liveCo?.status === 'approved' && isManager) secondary('alloc', liveCo.assignedAllocatorEmail ? 'Change Allocator' : 'Pick a New Allocator', User, () => setSheet({ kind: 'allocator', co: liveCo }));
   if (mineAsg?.status === 'pending_acceptance') {
     primary('acc', 'Accept', CheckCircle, () => setSheet({ kind: 'asg-accept', a: mineAsg }));
     secondary('dec', 'Decline', XCircle, () => setSheet({ kind: 'asg-decline', a: mineAsg }));
   }
-  if (mineAsg?.status === 'active') primary('asg-ret', 'Start Return', RotateCcw, () => setSheet({ kind: 'asg-return', a: mineAsg, reason: 'normal' }));
+  if (mineAsg?.status === 'active') {
+    primary('asg-ret', 'Start Return', RotateCcw, () => setSheet({ kind: 'asg-return', a: mineAsg, reason: 'normal' }));
+    secondary('asg-dead', 'Report Dead', XCircle, () => setSheet({ kind: 'asg-return', a: mineAsg, reason: 'dead' }));
+    secondary('asg-lost', 'Report Lost', XCircle, () => setSheet({ kind: 'asg-return', a: mineAsg, reason: 'lost' }));
+  }
   if (mineAsg?.status === 'return_initiated' && mineAsg.returnReason === 'reassign' && !mineAsg.returnPhotoUrl) {
     primary('asg-reret', 'Return With Photo', Camera, () => setSheet({ kind: 'asg-return', a: mineAsg, reason: 'reassign' }));
   }
   if (canBorrow) {
     if (inCart.has(item.id)) secondary('cart-x', 'Remove From Cart', XIcon, () => removeFromCart(item.id, { onError: m => itemsToast(m, 'error') }));
-    else primary('cart', 'Add to Cart', ShoppingCart, () => { addToCart(item, { onError: m => itemsToast(m, 'error') }); itemsToast(`${item.name} added to your cart.`); });
+    else primary('cart', 'Add to Cart', ShoppingCart, () => addToCart(item, { onError: m => itemsToast(m, 'error'), onAdded: () => itemsToast(`${item.name} added to your cart.`) }));
   }
   if (isManager) {
     if (liveCo?.status === 'allocated' && !mineCo) secondary('force', 'Force Return', RotateCcw, () => setSheet({ kind: 'force', co: liveCo }));
@@ -279,6 +285,7 @@ export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable 
         <AllocateModal checkout={sheet.co} photoOptional={photoOptional} onClose={() => setSheet(null)}
           onConfirm={p => actions.handOver([sheet.co], p)} />
       )}
+      {sheet?.kind === 'allocator' && <PickAllocatorSheet checkout={sheet.co} onClose={() => setSheet(null)} />}
       {sheet?.kind === 'force' && (
         <ForceReturnModal checkout={sheet.co} onClose={() => setSheet(null)}
           onConfirm={(reason, condition) => actions.forceReturn([sheet.co], reason, condition)} />

@@ -6,6 +6,9 @@ import { checkoutWord, assignmentWord, itemWord } from './words';
 import { borrowableItems, borrowTypeOptions, filterBorrow } from './borrow';
 import { isTypeBorrowable, loanCapFor } from './useTypeSettings';
 import { itemTimeline } from './timeline';
+import { itemsRedirect } from '../../lib/routes';
+import { legacyItemsSub } from './routes';
+import { STATUS_META } from './status';
 
 // Items redesign (Neil, 11/02/2026) - the pure rules behind the new screens.
 const NOW = new Date('2026-11-02T12:00:00');
@@ -41,6 +44,24 @@ describe('tab routing and deep links', () => {
     expect(resolveTab(parseItemsSub('requests'), {})).toBe('mystuff');
     expect(resolveTab(parseItemsSub('requests'), { isAllocator: true })).toBe('requests');
     expect(resolveTab(parseItemsSub(''), { isManager: true })).toBe('mystuff');
+  });
+});
+
+describe('review fixes (11/02/2026)', () => {
+  it('old Items subs are mapped where addresses are resolved (replaced, never pushed)', () => {
+    expect(itemsRedirect('inventory', 'checkouts')).toEqual({ view: 'inventory', sub: 'requests' });
+    expect(itemsRedirect('inventory', 'catalog@abc')).toEqual({ view: 'inventory', sub: 'borrow@abc' });
+    expect(itemsRedirect('inventory', 'requests:approve')).toBeNull();
+    expect(itemsRedirect('tasks', 'checkouts')).toBeNull();
+    expect(legacyItemsSub('audit')).toBe('inventory:activity');
+  });
+  it('overdue and due today come from the server (the borrower\'s today)', () => {
+    // The viewer's clock says 11/02, the borrower's is already 11/03.
+    const co = { status: 'allocated', dueDate: '2026-11-02', handedOverAt: '2026-10-30T10:00:00Z', borrowerToday: '2026-11-03', overdue: true, dueToday: false };
+    expect(checkoutDueInfo(co, NOW)).toMatchObject({ overdue: true, dueToday: false, daysLeft: -1 });
+  });
+  it('Requested is slate, never orange', () => {
+    expect(STATUS_META.under_review.fg).toBe('var(--muted)');
   });
 });
 

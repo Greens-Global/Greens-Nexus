@@ -25,10 +25,16 @@ const calls = {
   removeItemFromCart: vi.fn(async () => ({})),
   getItemTypeSettings: vi.fn(async () => [{ name: 'Tools', borrowable: true, loanCapDays: 5 }]),
   getItemApproversFor: vi.fn(async () => [{ email: 'mia@greensglobal.com', name: 'Mia Boss' }]),
+  // The borrower's calendar, from the server (their zone, not the viewer's).
+  getBorrowWindow: vi.fn(async (ids) => ({ today: '2026-11-02', items: Object.fromEntries(ids.map(id => [id, id === 'gone'
+    ? { first: '2026-11-03', last: '2026-11-07', capDays: 5, available: false }
+    : { first: '2026-11-03', last: '2026-11-07', capDays: 5, available: true }])) })),
   getItemsAuditLog: vi.fn(async () => ({ rows: [], total: 0 })),
   undoAuditEntry: vi.fn(),
   getDeletedItems: vi.fn(async () => []),
   deleteExpiredItems: vi.fn(async () => ({ deleted: 2, kept: 1 })),
+  getItemAllocatorsFor: vi.fn(async () => [{ email: 'alan@greensglobal.com', name: 'Alan Hand' }]),
+  setCheckoutAllocator: vi.fn(async () => ({})),
 };
 vi.mock('../api', () => {
   const api = new Proxy({}, { get: (_, k) => calls[k] || vi.fn(async () => []) });
@@ -46,6 +52,10 @@ const { AuditLogPanel, localDayStart } = await import('./audit/AuditLogPanel');
 const { DeletedItemsModal } = await import('./manage/DeletedItemsModal');
 const { destinationFor } = await import('../components/NotificationBell');
 const { HOLD_RECORD_MS, HOLD_MAJOR_MS } = await import('../ui/HoldButton');
+const { handOverBatch } = await import('./checkout/HandOverSheet');
+const { PickAllocatorSheet } = await import('./checkout/PickAllocatorSheet');
+const { ItemsToasts, itemsToast } = await import('./ui/Toast');
+const { ItemRecord } = await import('./record/ItemRecord');
 
 const hold = async (el, ms) => {
   fireEvent.pointerDown(el, { button: 0, pointerId: 1 });
@@ -136,7 +146,7 @@ describe('returns', () => {
 
 describe('the bell and the dashboard hand over through the sheet', () => {
   it('opens the photo step instead of handing over with no photo', async () => {
-    inv.checkouts = [{ id: 'c9', itemId: 'i9', itemName: 'Drill', status: 'approved', requestedBy: 'Amy Lee' }];
+    inv.checkouts = [{ id: 'c9', itemId: 'i9', itemName: 'Drill', status: 'approved', requestedBy: 'Amy Lee', assignedAllocatorEmail: 'erin@greensglobal.com' }];
     inv.items = [{ id: 'i9', name: 'Drill', pictureRequired: true }];
     render(<HandOverSheet checkoutId="c9" onClose={() => {}} />);
     expect(await screen.findByText('Photos by You')).toBeTruthy();
@@ -206,4 +216,71 @@ describe('the Recycle Bin', () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining('1 kept'));
   });
 
+});
+
+describe('review fixes (11/02/2026)', () => {
+  it("a hand-over bell's ref may be the ORDER: the sheet hands over its approved items", () => {
+    const cos = [
+      { id: 'a', orderId: 'o1', status: 'approved', assignedAllocatorEmail: 'erin@greensglobal.com' },
+      { id: 'b', orderId: 'o1', status: 'approved', assignedAllocatorEmail: 'erin@greensglobal.com' },
+      { id: 'c', orderId: 'o1', status: 'allocated', assignedAllocatorEmail: 'erin@greensglobal.com' },
+      { id: 'd', orderId: 'o1', status: 'approved', assignedAllocatorEmail: 'alan@greensglobal.com' },
+    ];
+    expect(handOverBatch(cos, 'o1', 'erin@greensglobal.com').map(c => c.id)).toEqual(['a', 'b']);
+    expect(handOverBatch(cos, 'o1', 'erin@greensglobal.com', true).map(c => c.id)).toEqual(['a', 'b', 'd']);
+    expect(handOverBatch(cos, 'b', 'erin@greensglobal.com').map(c => c.id)).toEqual(['b']);
+  });
+
+  it('Pick a New Allocator names who hands it over', async () => {
+    render(<PickAllocatorSheet checkout={{ id: 'c1', itemId: 'i1', itemName: 'Drill', requestedBy: 'Amy' }} onClose={() => {}} />);
+    await screen.findByRole('option', { name: 'Alan Hand' });
+    fireEvent.change(screen.getByLabelText('Hands It Over'), { target: { value: 'alan@greensglobal.com' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Save/ })); });
+    expect(calls.setCheckoutAllocator).toHaveBeenCalledWith('c1', { allocator_email: 'alan@greensglobal.com', allocator_name: 'Alan Hand' });
+  });
+
+  it('a cart line no longer available is marked and left out of the request', async () => {
+    inv.items = [{ id: 'a', name: 'Drill', itemType: 'Tools' }, { id: 'gone', name: 'Saw', itemType: 'Tools' }];
+    calls.getItemCart.mockResolvedValueOnce([{ id: 's1', itemId: 'a', itemName: 'Drill', itemType: 'Tools' }, { id: 's2', itemId: 'gone', itemName: 'Saw', itemType: 'Tools' }]);
+    render(<CartSheet onClose={() => {}} />);
+    expect(await screen.findByText(/No longer available/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Request 1 Item/ })).toBeTruthy();
+  });
+
+  it('Borrow Again / Add to Cart says added only after the server took it', async () => {
+    let finish;
+    calls.addItemToCart.mockImplementationOnce(() => new Promise(res => { finish = res; }));
+    const onAdded = vi.fn();
+    cart.addToCart({ id: 'z', name: 'Z' }, { onAdded });
+    expect(onAdded).not.toHaveBeenCalled();
+    await act(async () => { finish({ id: 'srv-z' }); });
+    expect(onAdded).toHaveBeenCalledTimes(1);
+  });
+
+  it('the record waits for the checkouts before saying it is not in your list', () => {
+    inv.items = []; inv.checkoutsLoading = true;
+    render(<ItemRecord itemId="x" onClose={() => {}} />);
+    expect(screen.queryByText('This item is not in your list')).toBeNull();
+    inv.checkoutsLoading = false;
+  });
+
+  it('one toast stack: the hand-over sheet uses the page\'s when Items is open', async () => {
+    inv.checkouts = [{ id: 'c9', itemId: 'i9', itemName: 'Drill', status: 'approved', requestedBy: 'Amy', assignedAllocatorEmail: 'erin@greensglobal.com' }];
+    render(<><div className="it-page"><ItemsToasts /></div><HandOverSheet checkoutId="c9" onClose={() => {}} /></>);
+    await screen.findByText('Photos by You');
+    act(() => itemsToast('Hello'));
+    expect(document.querySelectorAll('.toast-stack')).toHaveLength(1);
+  });
+
+  it("item types are every company's: read-only below Super Administrator", async () => {
+    const { _resetTypeSettings } = await import('./model/useTypeSettings');
+    const { ManageTypesModal } = await import('./admin/ManageTypesModal');
+    _resetTypeSettings();
+    calls.getItemTypeSettings.mockResolvedValueOnce([{ name: 'Tools', borrowable: true, borrowableSet: null, maxLoanDays: 0, loanCapDays: 90, canEdit: false }]);
+    render(<ManageTypesModal types={['Tools', 'Other']} onClose={() => {}} onChanged={() => {}} toast={() => {}} />);
+    expect(await screen.findByText('Only a Super Administrator can change this.')).toBeTruthy();
+    expect(screen.getByRole('switch', { name: 'Tools is borrowable' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Longest loan for Tools' })).toBeDisabled();
+    _resetTypeSettings();
+  });
 });

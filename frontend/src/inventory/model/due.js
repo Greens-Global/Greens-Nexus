@@ -43,16 +43,20 @@ export function dueDayOf(co) {
   return todayISO(d);
 }
 
-/** { dueDay, daysLeft, overdue, dueToday } for a checkout, read in the
- *  viewer's calendar against the borrower's due date. */
+/** { dueDay, daysLeft, overdue, dueToday } for a checkout, counted against
+ *  the BORROWER's today: the server sends borrowerToday, overdue and dueToday
+ *  (backend item_due.due_fields) - the viewer's own clock is only the
+ *  fallback for a row the server has not dated yet (an optimistic one). */
 export function checkoutDueInfo(co, now = new Date()) {
   const dueDay = dueDayOf(co);
   if (!dueDay) return { dueDay: '', daysLeft: null, overdue: false, dueToday: false, due: null };
-  const today = todayISO(now);
+  const today = co.borrowerToday || todayISO(now);
   const daysLeft = daysBetween(today, dueDay);
   const live = co.status === 'allocated';
   const [y, m, d] = dueDay.split('-').map(Number);
-  return { dueDay, daysLeft, overdue: live && daysLeft < 0, dueToday: live && daysLeft === 0, due: new Date(y, m - 1, d) };
+  const overdue = typeof co.overdue === 'boolean' ? co.overdue : (live && daysLeft < 0);
+  const dueToday = typeof co.dueToday === 'boolean' ? co.dueToday : (live && daysLeft === 0);
+  return { dueDay, daysLeft, overdue, dueToday, due: new Date(y, m - 1, d) };
 }
 
 /** MM/DD/YYYY of the due day ('' when none). */

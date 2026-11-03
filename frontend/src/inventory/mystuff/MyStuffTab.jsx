@@ -5,8 +5,9 @@
 // Due Today, Your Action Needed, Waiting on Others, In Use. Each row says
 // what it is, where it stands and the one next step, right on the row; a
 // click opens the item record. Finished ones sit under History.
-import { memo, useMemo, useState } from 'react';
-import { Package, ChevronRight, RotateCcw, Camera, CheckCircle, Clock, ShoppingCart } from 'lucide-react';
+import { memo, useMemo, useRef, useState } from 'react';
+import { Package, ChevronRight, RotateCcw, Camera, CheckCircle, Clock, ShoppingCart, MoreHorizontal } from 'lucide-react';
+import AnchoredMenu from '../../components/AnchoredMenu';
 import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
 import { StatusLabel } from '../../components/StatusLabel';
 import ProgressTrack from '../../ui/ProgressTrack';
@@ -49,6 +50,26 @@ function subLine(r, now) {
   return '';
 }
 
+// Report Dead / Report Lost for an item assigned to you for good (they were
+// lost with the old Permanent panel - review 11/02/2026). Lost needs no photo.
+function AssignmentMore({ onAct, r }) {
+  const btn = useRef(null);
+  const [open, setOpen] = useState(false);
+  const pick = (kind) => { setOpen(false); onAct(kind, r); };
+  return (
+    <>
+      <button ref={btn} type="button" className="secondary-btn it-btn-sm" aria-label={`More for ${r.row.itemName}`} aria-haspopup="menu" aria-expanded={open}
+        onClick={() => setOpen(o => !o)}><MoreHorizontal size={14} /></button>
+      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} align="end" minWidth={180}
+        style={{ background: 'var(--card)', border: '1px solid var(--wk-line, var(--line))', borderRadius: 10, padding: 4, boxShadow: 'var(--wk-shadow-hov)' }}>
+        {[['asg-dead', 'Report Dead'], ['asg-lost', 'Report Lost']].map(([k, l]) => (
+          <button key={k} type="button" role="menuitem" className="it-menu-item" onClick={() => pick(k)}>{l}</button>
+        ))}
+      </AnchoredMenu>
+    </>
+  );
+}
+
 const Row = memo(function Row({ r, item, now, onOpen, onAct, isManager }) {
   const co = r.kind === 'checkout' ? r.row : null;
   const a = r.kind === 'assignment' ? r.row : null;
@@ -88,6 +109,7 @@ const Row = memo(function Row({ r, item, now, onOpen, onAct, isManager }) {
       </button>
       <StatusLabel label={w.label} color={w.color} size="sm" className="it-row-status" />
       <span className="it-row-acts">
+        {a?.status === 'active' && <AssignmentMore r={r} onAct={onAct} />}
         {secondary && (
           <button type="button" className="secondary-btn it-btn-sm" onClick={() => onAct(secondary.kind, r)}>{secondary.label}</button>
         )}
@@ -177,7 +199,7 @@ export function MyStuffTab({ items = [], checkouts = [], me, isManager, itemsLoa
                     <StatusLabel label={w.label} color={w.color} size="sm" className="it-row-status" />
                     <span className="it-row-acts">
                       {canAgain && (
-                        <button type="button" className="secondary-btn it-btn-sm" onClick={() => { addToCart(item, { onError: m => itemsToast(m, 'error') }); itemsToast(`${item.name} added to your cart.`); }}>
+                        <button type="button" className="secondary-btn it-btn-sm" onClick={() => addToCart(item, { onError: m => itemsToast(m, 'error'), onAdded: () => itemsToast(`${item.name} added to your cart.`) })}>
                           Borrow Again
                         </button>
                       )}
@@ -211,6 +233,8 @@ export function MyStuffTab({ items = [], checkouts = [], me, isManager, itemsLoa
       {sheet?.kind === 'asg-accept' && <AcceptAssignmentModal a={sheet.row} toast={itemsToast} onClose={() => setSheet(null)} onDone={() => { refreshAssignments(); setSheet(null); }} />}
       {sheet?.kind === 'asg-decline' && <DeclineAssignmentModal a={sheet.row} toast={itemsToast} onClose={() => setSheet(null)} onDone={() => { refreshAssignments(); setSheet(null); }} />}
       {sheet?.kind === 'asg-return' && <AssignmentReturnModal a={sheet.row} reason="normal" toast={itemsToast} onClose={() => setSheet(null)} onDone={() => { refreshAssignments(); setSheet(null); }} />}
+      {sheet?.kind === 'asg-dead' && <AssignmentReturnModal a={sheet.row} reason="dead" toast={itemsToast} onClose={() => setSheet(null)} onDone={() => { refreshAssignments(); setSheet(null); }} />}
+      {sheet?.kind === 'asg-lost' && <AssignmentReturnModal a={sheet.row} reason="lost" toast={itemsToast} onClose={() => setSheet(null)} onDone={() => { refreshAssignments(); setSheet(null); }} />}
       {sheet?.kind === 'asg-reassign' && <AssignmentReturnModal a={sheet.row} reason="reassign" toast={itemsToast} onClose={() => setSheet(null)} onDone={() => { refreshAssignments(); setSheet(null); }} />}
     </div>
   );

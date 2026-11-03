@@ -151,8 +151,8 @@ export function OverdueAlertModal({ checkouts, onClose, toast }) {
         <div style={{ padding:'14px 24px', borderTop:'1px solid var(--line)', display:'flex', gap:10, alignItems:'center', flexShrink:0 }}>
           <div style={{ marginLeft:'auto', display:'flex', gap:10 }}>
             <button className="secondary-btn" onClick={onClose} disabled={sending}>Cancel</button>
-            <button onClick={handleSend} disabled={sending || !sendable.length}
-              style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-orange))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (sending || !sendable.length) ? 0.55 : 1 }}>
+            <button className="primary-btn" onClick={handleSend} disabled={sending || !sendable.length}
+              style={{ display:'inline-flex', alignItems:'center', gap:7 }}>
               {sending ? <Spinner size={14} /> : <Send size={14} />}
               Send to {sendable.length || '…'}
             </button>

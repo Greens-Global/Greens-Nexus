@@ -8836,6 +8836,8 @@ body:has(.apv-phone) { overflow-x: clip; }
 .it-row-acts { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .it-row-note { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .it-row-chev { color: var(--wk-faint, var(--muted)); flex-shrink: 0; }
+.it-menu-item { display: block; width: 100%; text-align: left; padding: 8px 10px; border: none; border-radius: 7px; background: none; color: var(--ink); font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; }
+.it-menu-item:hover, .it-menu-item:focus-visible { background: var(--wk-hover); }
 .it-order-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 11px 16px; background: var(--wk-hover, var(--mist)); }
 
 .it-empty { text-align: center; padding: 48px 20px; border: 1px dashed var(--wk-line, var(--line)); border-radius: 12px; background: var(--card); }

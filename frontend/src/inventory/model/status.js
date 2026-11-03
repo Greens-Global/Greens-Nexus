@@ -47,7 +47,7 @@ export const STATUS_META = {
   checked_out:          { label: 'Checked Out',        bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   // Display-only: a merely-pending (not yet allocated) request - the list view
   // must read "Under review" like the tile view, not "Checked out" (P4 status coherence).
-  under_review:         { label: 'Requested',          bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
+  under_review:         { label: 'Requested',          bg: 'var(--mist)',                    fg: 'var(--muted)'             },
   permanently_assigned: { label: 'Assigned',          bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))'   },
   retired:              { label: 'Retired',             bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))'    },
 };

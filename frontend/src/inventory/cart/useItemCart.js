@@ -45,12 +45,12 @@ function _load(force = false) {
 }
 
 /** Add an item (optimistic; the server row id replaces the temporary one). */
-export function addToCart(item, { onError } = {}) {
+export function addToCart(item, { onError, onAdded } = {}) {
   if (!item?.id || _rows.some((r) => r.item.id === item.id)) return;
   const tempId = `cart-${item.id}-${Date.now()}`;
   _emit([..._rows, { id: tempId, item, dueDate: '' }]);
   api.addItemToCart({ item_id: item.id, item_name: item.name, item_type: item.itemType })
-    .then((saved) => _emit(_rows.map((r) => (r.id === tempId ? { ...r, id: saved?.id || tempId } : r))))
+    .then((saved) => { _emit(_rows.map((r) => (r.id === tempId ? { ...r, id: saved?.id || tempId } : r))); onAdded?.(); })
     .catch((err) => {
       _emit(_rows.filter((r) => r.id !== tempId));
       onError?.(err?.message || 'Could not add the item to your cart.');
@@ -87,13 +87,30 @@ export async function dropSubmitted(itemIds) {
 /** For tests: forget everything. */
 export function _resetCart() { _rows = []; _loaded = false; _loading = null; _subs.forEach((fn) => fn(_rows)); }
 
+// Coming back to the tab (another device may have changed the cart, or an
+// item gone out) re-reads it - once for all subscribers.
+function _onReturn() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  if (_subs.size) _load(true);
+}
+
 export function useItemCart() {
   const [rows, setRows] = useState(_rows);
   useEffect(() => {
     _subs.add(setRows);
     setRows(_rows);
     _load();
-    return () => { _subs.delete(setRows); };
+    if (_subs.size === 1 && typeof window !== 'undefined') {
+      window.addEventListener('focus', _onReturn);
+      document.addEventListener('visibilitychange', _onReturn);
+    }
+    return () => {
+      _subs.delete(setRows);
+      if (!_subs.size && typeof window !== 'undefined') {
+        window.removeEventListener('focus', _onReturn);
+        document.removeEventListener('visibilitychange', _onReturn);
+      }
+    };
   }, []);
   const inCart = useMemo(() => new Set(rows.map((r) => r.item.id)), [rows]);
   return { cart: rows, inCart, count: rows.length, reload: () => _load(true) };

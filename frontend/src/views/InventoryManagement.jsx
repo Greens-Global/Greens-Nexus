@@ -8,7 +8,7 @@
 // and every tab, queue, view and open item record is in the address, so Back
 // and links work (the old subs still land). The item record opens over any
 // tab as a sheet. The phone's bottom bar is these same tabs.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SkeletonBlocks } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
 import { useInventory } from '../contexts/InventoryContext';
@@ -74,17 +74,17 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const recordItemId = recordRef.startsWith('co:')
     ? (checkouts.find(c => c.id === recordRef.slice(3))?.itemId || '')
     : recordRef;
+  // `go` is stable: onSubChange is a fresh closure on every App render, and an
+  // effect keyed on it tore the phone's bottom bar down after any move.
+  // (Old subs are mapped where addresses are resolved - lib/routes.js
+  // itemsRedirect - and REPLACED, so nothing is rewritten here.)
+  const subChangeRef = useRef(onSubChange);
+  useEffect(() => { subChangeRef.current = onSubChange; });
   const go = useCallback((next) => {
     const sub = itemsSub(next);
-    if (onSubChange) onSubChange(sub);
+    if (subChangeRef.current) subChangeRef.current(sub);
     else window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub } }));
-  }, [onSubChange]);
-  // An old sub (or a tab this person may not open) is rewritten to the one shown.
-  useEffect(() => {
-    if (roleLoading) return;
-    const canonical = itemsSub({ tab, view, itemId: recordRef });
-    if (activeSub && activeSub !== canonical && (parsed.legacy || parsed.tab !== tab)) onSubChange?.(canonical);
-  }, [roleLoading, activeSub, tab, view, recordRef]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const openItem = useCallback((itemId) => go({ tab, view, itemId }), [go, tab, view]);
   const closeItem = useCallback(() => go({ tab, view }), [go, tab, view]);
@@ -114,6 +114,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
     };
     window.addEventListener('nexus:mobile-action', onTap);
     return () => {
+      // Only when Items leaves (go never changes), never on a move inside it.
       window.removeEventListener('nexus:mobile-action', onTap);
       window.__nexusMobileActions = null;
       window.dispatchEvent(new CustomEvent('nexus:mobile-actions', { detail: { actions: null } }));

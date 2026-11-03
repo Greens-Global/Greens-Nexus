@@ -23,6 +23,7 @@ import { ApproveCheckoutModal } from '../checkout/ApproveCheckoutModal';
 import { RejectCheckoutModal } from '../checkout/RejectCheckoutModal';
 import { AllocateModal } from '../checkout/AllocateModal';
 import { ForceReturnModal } from '../checkout/ForceReturnModal';
+import { PickAllocatorSheet } from '../checkout/PickAllocatorSheet';
 import { OverdueAlertModal } from '../admin/OverdueAlertModal';
 import { PhotoThumb } from '../ui/photos';
 import { itemsToast } from '../ui/Toast';
@@ -112,10 +113,13 @@ const ReqRow = memo(function ReqRow({ co, item, queue, now, me, isManager, onOpe
             <button type="button" className="primary-btn it-btn-sm" onClick={() => onAct('ext-approve', [co])}><CheckCircle size={13} /> Approve Extension</button>
           </>
         )}
+        {queue === 'handover' && isManager && !co.assignedAllocatorEmail && (
+          <button type="button" className="secondary-btn it-btn-sm" onClick={() => onAct('allocator', [co])}>Pick a New Allocator</button>
+        )}
         {queue === 'handover' && (
           <button type="button" className="primary-btn it-btn-sm" onClick={() => onAct('handover', [co])}><Camera size={13} /> Hand Over</button>
         )}
-        {(queue === 'overdue' || queue === 'inuse') && co.status === 'allocated' && isManager && !ext && (
+        {(queue === 'overdue' || queue === 'inuse') && co.status === 'allocated' && isManager && !ext && !mine && (
           <button type="button" className="secondary-btn it-btn-sm" onClick={() => onAct('force', [co])}><RotateCcw size={13} /> Force Return</button>
         )}
         {co.status === 'pending_receipt' && isManager && (
@@ -157,6 +161,7 @@ export function RequestsTab({ items = [], checkouts = [], isManager, view, onVie
     if (kind === 'reject') return setSheet({ kind: 'reject', cos });
     if (kind === 'handover') return setSheet({ kind: 'handover', cos });
     if (kind === 'force') return setSheet({ kind: 'force', cos });
+    if (kind === 'allocator') return setSheet({ kind: 'allocator', cos });
     try {
       if (kind === 'ext-approve') await actions.resolveExtension(cos[0], 'approve');
       if (kind === 'ext-reject') await actions.resolveExtension(cos[0], 'reject');
@@ -172,9 +177,9 @@ export function RequestsTab({ items = [], checkouts = [], isManager, view, onVie
   return (
     <div className="it-requests">
       <div className="it-toolbar">
-        <div className="it-chips scroll-tabs" role="tablist" aria-label="Queues">
+        <div className="it-chips scroll-tabs" role="group" aria-label="Queues">
           {visibleQueues.map(k => (
-            <button key={k} role="tab" aria-selected={queue === k} className={`it-chip${queue === k ? ' is-on' : ''}${k === 'overdue' && count(k) ? ' is-overdue' : ''}`}
+            <button key={k} type="button" aria-pressed={queue === k} className={`it-chip${queue === k ? ' is-on' : ''}${k === 'overdue' && count(k) ? ' is-overdue' : ''}`}
               onClick={() => onViewChange(k)}>
               {QUEUE_LABEL[k]}{count(k) > 0 && <span className="it-chip-n">{count(k)}</span>}
             </button>
@@ -204,6 +209,7 @@ export function RequestsTab({ items = [], checkouts = [], isManager, view, onVie
               {queues.returns.filter(a => !needle || [a.itemName, a.assigneeName, a.assigneeEmail].some(v => lc(v).includes(needle))).map(a => {
                 const w = assignmentWord(a);
                 const ready = a.returnPhotoUrl || a.returnReason === 'lost';
+                const ownReturn = lc(a.assigneeEmail) === lc(myEmail);
                 return (
                   <div key={a.id} className="it-row is-compact">
                     <button type="button" className="it-row-main" onClick={() => onOpenItem(a.itemId)}>
@@ -215,7 +221,8 @@ export function RequestsTab({ items = [], checkouts = [], isManager, view, onVie
                     </button>
                     <StatusLabel label={w.label} color={w.color} size="sm" className="it-row-status" />
                     <span className="it-row-acts">
-                      {ready ? <button type="button" className="primary-btn it-btn-sm" onClick={() => setSheet({ kind: 'accept-return', a })}><CheckCircle size={13} /> Accept Return</button>
+                      {ownReturn ? <span className="it-row-note">Your return</span>
+                        : ready ? <button type="button" className="primary-btn it-btn-sm" onClick={() => setSheet({ kind: 'accept-return', a })}><CheckCircle size={13} /> Accept Return</button>
                         : <span className="it-row-note">Waiting for their photo</span>}
                     </span>
                   </div>
@@ -230,7 +237,7 @@ export function RequestsTab({ items = [], checkouts = [], isManager, view, onVie
               const mine = lc(first.requestedByEmail) === lc(myEmail);
               const pending = g.cos.filter(c => c.status === 'pending');
               const approved = g.cos.filter(c => c.status === 'approved');
-              const out = g.cos.filter(c => c.status === 'allocated');
+              const out = g.cos.filter(c => c.status === 'allocated' && lc(c.requestedByEmail) !== lc(myEmail));
               return (
                 <div key={g.key} className="it-list">
                   <div className="it-order-head">
@@ -280,6 +287,7 @@ export function RequestsTab({ items = [], checkouts = [], isManager, view, onVie
         <AllocateModal checkouts={sheet.cos} photoOptional={photoOptional(sheet.cos)} onClose={() => setSheet(null)}
           onConfirm={p => actions.handOver(sheet.cos, p)} />
       )}
+      {sheet?.kind === 'allocator' && <PickAllocatorSheet checkout={sheet.cos[0]} onClose={() => setSheet(null)} />}
       {sheet?.kind === 'force' && (
         <ForceReturnModal checkouts={sheet.cos} onClose={() => setSheet(null)}
           onConfirm={(reason, condition) => actions.forceReturn(sheet.cos, reason, condition)} />

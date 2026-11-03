@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { X, Megaphone, Send, Users } from 'lucide-react';
 import { Spinner, LoadingState } from '../../components/AsyncState';
 import { api } from '../../api';
-import { useMsal } from '@azure/msal-react';
+import { useItemsIdentity } from '../model/identity';
 import { matchPeople } from '../../lib/peopleSearch';
 import { useListNav } from '../../lib/listNav';
 import { cleanName } from '../../lib/utils';
@@ -15,8 +15,8 @@ import { FL } from '../ui/styles';
 
 // ── Send Alert Modal ──────────────────────────────────────────────────────────
 export function SendAlertModal({ onClose, toast }) {
-  const { accounts } = useMsal();
-  const senderName  = cleanName(accounts[0]?.name ?? 'Manager');
+  const { myName } = useItemsIdentity();
+  const senderName  = cleanName(myName || 'Manager');
 
   const [users,      setUsers]      = useState([]);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -130,10 +130,10 @@ export function SendAlertModal({ onClose, toast }) {
         </div>
         <div style={{ padding:'14px 24px', borderTop:'1px solid var(--line)', display:'flex', gap:10, justifyContent:'flex-end', flexShrink:0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={sending}>Cancel</button>
-          <button onClick={handleSend} disabled={sending || !selected.size || !subject.trim() || !message.trim()}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-orange))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (sending || !selected.size || !subject.trim() || !message.trim()) ? 0.55 : 1 }}>
+          <button className="primary-btn" onClick={handleSend} disabled={sending || !selected.size || !subject.trim() || !message.trim()}
+            style={{ display:'inline-flex', alignItems:'center', gap:7 }}>
             {sending ? <Spinner size={14} /> : <Send size={14} />}
-            Send alert
+            Send Alert
           </button>
         </div>
       </div>

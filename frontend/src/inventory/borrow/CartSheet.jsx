@@ -44,12 +44,30 @@ export function CartSheet({ onClose, onSubmitted, isManager = false }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const today = todayISO();
-  const tomorrow = addDaysISO(today, 1);
+  // The borrower's calendar comes from the server (GET /items/borrow-window):
+  // today and each item's first and last return date in the BORROWER's zone
+  // - the person the request is for. The viewer's clock is only a fallback
+  // until it answers.
+  const [win, setWin] = useState(null);
+  const idsKey = cart.map(c => c.item.id).sort().join(',');
+  const forKey = forSelf ? '' : forEmail;
+  useEffect(() => {
+    if (!idsKey) return undefined;
+    let alive = true;
+    api.getBorrowWindow(idsKey.split(','), forKey).then(w => { if (alive) setWin(w); }).catch(() => {});
+    return () => { alive = false; };
+  }, [idsKey, forKey]);
+  const today = win?.today || todayISO();
   const itemOf = useCallback((ci) => items.find(i => i.id === ci.item.id) || ci.item, [items]);
-  const capOf = (ci) => maxReturnDate(byName, itemOf(ci).itemType, today);
+  const firstOf = (ci) => win?.items?.[ci.item.id]?.first || addDaysISO(today, 1);
+  const capOf = (ci) => win?.items?.[ci.item.id]?.last || maxReturnDate(byName, itemOf(ci).itemType, today);
+  // A line the server no longer lends (taken, lost, out of reach) is marked
+  // and left out of the request, with a note.
+  const unavailable = (ci) => !!win?.items && (!win.items[ci.item.id] || win.items[ci.item.id].available === false);
+  const lines = cart.filter(ci => !unavailable(ci));
+  const tomorrow = lines.length ? lines.map(firstOf).sort()[0] : addDaysISO(today, 1);
   // "Same Date for All" can go only as far as the shortest cap in the cart.
-  const allMax = useMemo(() => cart.reduce((m, ci) => { const c = capOf(ci); return !m || c < m ? c : m; }, ''), [cart, byName, items]); // eslint-disable-line react-hooks/exhaustive-deps
+  const allMax = useMemo(() => lines.reduce((m, ci) => { const c = capOf(ci); return !m || c < m ? c : m; }, ''), [cart, byName, items, win]); // eslint-disable-line react-hooks/exhaustive-deps
   const totalValue = cart.reduce((s, ci) => s + (Number(itemOf(ci).assetValue) || 0), 0);
   // A manager's own request is approved at once (server) - no approver to pick.
   const needApprover = !(isManager && forSelf);
@@ -78,7 +96,7 @@ export function CartSheet({ onClose, onSubmitted, isManager = false }) {
   useEffect(() => { if (cartKey) loadApprovers(); }, [cartKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const approver = approvers.find(a => a.email === approverEmail) || null;
-  const datesOk = cart.length > 0 && cart.every(ci => ci.dueDate && ci.dueDate >= tomorrow && ci.dueDate <= capOf(ci));
+  const datesOk = lines.length > 0 && lines.every(ci => ci.dueDate && ci.dueDate >= firstOf(ci) && ci.dueDate <= capOf(ci));
   const ready = datesOk && reason.trim() && (forSelf || !!forEmail) && (!needApprover || !!approver) && !busy;
 
   async function submit() {
@@ -86,7 +104,7 @@ export function CartSheet({ onClose, onSubmitted, isManager = false }) {
     setBusy(true); setError('');
     try {
       if (approver) { try { localStorage.setItem('nexus-approver-email', approver.email); } catch { /* storage blocked */ } }
-      const rows = cart.map(ci => ({ ...ci, item: { ...itemOf(ci), ...ci.item, department: itemOf(ci).department } }));
+      const rows = lines.map(ci => ({ ...ci, item: { ...itemOf(ci), ...ci.item, department: itemOf(ci).department } }));
       const results = await submitCartCheckouts(rows, {
         reason: reason.trim(), raisedBy: myName, raisedByEmail: myEmail,
         forName: forSelf ? '' : forName, forEmail: forSelf ? '' : forEmail,
@@ -97,8 +115,11 @@ export function CartSheet({ onClose, onSubmitted, isManager = false }) {
       await dropSubmitted(ok);
       if (ok.length) itemsToast(`${ok.length} request${ok.length === 1 ? '' : 's'} sent.`);
       if (failed.length) {
-        const why = results.find(r => r.status === 'rejected')?.reason?.message || 'Please try again.';
-        setError(`${failed.length} item${failed.length === 1 ? '' : 's'} did not go through (${failed.map(f => f.item.name).join(', ')}): ${why}`);
+        // Say exactly what went and what did not - never a half-sent cart in silence.
+        const sent = rows.filter((_, i) => results[i].status === 'fulfilled').map(r => r.item.name);
+        const notSent = rows.map((r, i) => ({ r, res: results[i] })).filter(x => x.res.status === 'rejected')
+          .map(x => `${x.r.item.name} (${x.res.reason?.message || 'please try again'})`);
+        setError(`${sent.length ? `Sent: ${sent.join(', ')}. ` : ''}Not sent: ${notSent.join('; ')}. The ones not sent stay in your cart.`);
         setBusy(false);
         return;
       }
@@ -117,7 +138,7 @@ export function CartSheet({ onClose, onSubmitted, isManager = false }) {
         {totalValue > 0 && <span style={{ marginRight: 'auto', fontSize: 13, color: 'var(--muted)' }}>Total value <strong style={{ color: 'var(--ink)' }}>{fmtMoney(totalValue)}</strong></span>}
         <button className="secondary-btn" onClick={onClose} disabled={busy}>Keep Browsing</button>
         <button className="primary-btn" disabled={!ready} onClick={submit} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-          {busy ? <><Spinner size={14} /> Sending…</> : <><CheckCircle size={14} /> Request {cart.length} Item{cart.length === 1 ? '' : 's'}</>}
+          {busy ? <><Spinner size={14} /> Sending…</> : <><CheckCircle size={14} /> Request {lines.length} Item{lines.length === 1 ? '' : 's'}</>}
         </button>
       </>}>
       {cart.length === 0 ? (
@@ -142,19 +163,21 @@ export function CartSheet({ onClose, onSubmitted, isManager = false }) {
               {cart.map(ci => {
                 const it = itemOf(ci);
                 const max = capOf(ci);
-                const bad = ci.dueDate && (ci.dueDate < tomorrow || ci.dueDate > max);
+                const first = firstOf(ci);
+                const gone = unavailable(ci);
+                const bad = ci.dueDate && (ci.dueDate < first || ci.dueDate > max);
                 return (
                   <div key={ci.id} className="it-row it-cart-row">
                     <span className="it-row-main" style={{ cursor: 'default' }}>
                       {it.photoUrl ? <img src={it.photoUrl} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', border: '1px solid var(--line)' }} /> : <NoPhoto size={40} />}
                       <span className="it-row-text">
                         <span className="it-row-title">{it.name}</span>
-                        <span className="it-row-sub">{[it.itemType, it.location].filter(Boolean).join(' · ')}{` · up to ${formatDate(max)}`}</span>
+                        <span className="it-row-sub">{gone ? 'No longer available - it will not be requested' : `${[it.itemType, it.location].filter(Boolean).join(' · ')} · up to ${formatDate(max)}`}</span>
                       </span>
                     </span>
                     <span className="it-row-acts">
-                      <DateBox compact value={ci.dueDate} min={tomorrow} max={max} noPast placeholder="Return by"
-                        ariaLabel={`Return date for ${it.name}`} onChange={v => setCartDue(ci.item.id, v)} style={{ width: 150, borderColor: bad ? 'var(--wk-red)' : undefined }} />
+                      {!gone && <DateBox compact value={ci.dueDate} min={first} max={max} noPast placeholder="Return by"
+                        ariaLabel={`Return date for ${it.name}`} onChange={v => setCartDue(ci.item.id, v)} style={{ width: 150, borderColor: bad ? 'var(--wk-red)' : undefined }} />}
                       <button type="button" aria-label={`Remove ${it.name}`} onClick={() => removeFromCart(ci.item.id, { onError: m => itemsToast(m, 'error') })}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 6, display: 'flex' }}>
                         <X size={15} />

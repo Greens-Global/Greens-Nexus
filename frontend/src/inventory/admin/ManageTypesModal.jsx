@@ -88,24 +88,25 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
                 const st = setting(t);
                 return (
                   <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', fontSize:12.5, color:'var(--muted)' }}>
-                    <label style={{ display:'inline-flex', alignItems:'center', gap:8, cursor:'pointer' }}>
-                      <input type="checkbox" role="switch" aria-checked={st.borrowable} checked={st.borrowable}
+                    <label style={{ display:'inline-flex', alignItems:'center', gap:8, cursor: st.canEdit ? 'pointer' : 'default' }}>
+                      <input type="checkbox" role="switch" aria-checked={st.borrowable} checked={st.borrowable} disabled={!st.canEdit}
                         aria-label={`${t} is borrowable`} style={{ accentColor:'var(--wk-brand)', cursor:'pointer' }}
                         onChange={e => saveSetting(t, { borrowable: e.target.checked }, `${t} ${e.target.checked ? 'shows' : 'no longer shows'} in Borrow.`)} />
                       <span><strong style={{ color:'var(--ink)' }}>Borrowable</strong>{st.borrowableSet == null ? ' (default)' : ''}</span>
                     </label>
-                    {st.borrowableSet != null && (
+                    {st.canEdit && st.borrowableSet != null && (
                       <button type="button" onClick={() => saveSetting(t, { use_default: true }, `${t} follows the default again.`)}
                         style={{ background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--wk-brand)', fontSize:12.5, fontWeight:600 }}>Use the Default</button>
                     )}
                     <label style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
                       Longest Loan
-                      <select className="form-input" value={st.maxLoanDays || 0} aria-label={`Longest loan for ${t}`}
+                      <select className="form-input" value={st.maxLoanDays || 0} aria-label={`Longest loan for ${t}`} disabled={!st.canEdit}
                         style={{ height:30, padding:'0 8px', fontSize:12.5, width:'auto' }}
                         onChange={e => { const d = Number(e.target.value); saveSetting(t, { max_loan_days: d }, d ? `${t} can be borrowed for up to ${d} day${d === 1 ? '' : 's'}.` : `${t} has no loan cap (up to ${LOAN_CEILING_DAYS} days).`); }}>
                         {[...new Set([...LOAN_CHOICES, st.maxLoanDays || 0])].sort((a, b) => a - b).map(d => <option key={d} value={d}>{d ? `${d} day${d === 1 ? '' : 's'}` : `No Cap (${LOAN_CEILING_DAYS} days)`}</option>)}
                       </select>
                     </label>
+                    {!st.canEdit && <span style={{ flexBasis:'100%' }}>Only a Super Administrator can change this.</span>}
                   </div>
                 );
               })()}

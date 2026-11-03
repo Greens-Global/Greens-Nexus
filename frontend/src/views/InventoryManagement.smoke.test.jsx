@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor, within } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, within, fireEvent } from '@testing-library/react';
 
 // Item Management render-smoke (Items redesign, Neil 11/02/2026). Pins the
 // NEW shape deliberately: role-based tabs (My Stuff, Borrow, Requests,
@@ -33,6 +33,8 @@ const CHECKOUTS = [
 ];
 const ASSIGNMENTS = [
   { id: 'a1', itemId: 'i3', itemName: 'iPhone 15', assigneeEmail: 'erin@greensglobal.com', assigneeName: 'Erin Test', status: 'pending_acceptance', assignedBy: 'Mia Boss', createdAt: day(-1) },
+  { id: 'a2', itemId: 'i7', itemName: 'Badge Printer', assigneeEmail: 'erin@greensglobal.com', assigneeName: 'Erin Test', status: 'active', assignedBy: 'Mia Boss', createdAt: day(-20), acceptedAt: day(-19) },
+  { id: 'a3', itemId: 'i8', itemName: 'Old Monitor', assigneeEmail: 'erin@greensglobal.com', assigneeName: 'Erin Test', status: 'return_initiated', returnReason: 'normal', returnPhotoUrl: 'https://x.test/r.jpg', assignedBy: 'Mia Boss', createdAt: day(-40) },
 ];
 
 const inv = {
@@ -96,7 +98,7 @@ describe('Item Management smoke - everyone', () => {
     await waitFor(() => expect(tabs()).toBe('My Stuff|Borrow'));
     await screen.findByText('iPhone 15');
     const groups = [...document.querySelectorAll('.it-group-h')].map(h => h.firstChild.textContent);
-    expect(groups).toEqual(['Overdue', 'Your Action Needed', 'Waiting on Others', 'History']);
+    expect(groups).toEqual(['Overdue', 'Your Action Needed', 'Waiting on Others', 'In Use', 'History']);
     // The one set of words: Overdue replaces In Use; Handed Over; Requested; Approved.
     const overdue = screen.getByRole('region', { name: 'Overdue' });
     expect(within(overdue).getByText('Ford Truck')).toBeTruthy();
@@ -125,14 +127,15 @@ describe('Item Management smoke - everyone', () => {
     expect(body()).not.toContain('Missing photo');       // no red boxes before anyone acts
   });
 
-  it('old subs land on the new tabs and the address is rewritten', async () => {
+  it('old subs land on the new tabs without pushing a second address', async () => {
+    // The address itself is mapped (and REPLACED) in lib/routes.js itemsRedirect;
+    // the screen never rewrites it, so Back leaves Items instead of looping.
     const onSub = renderAt('catalog');
     await screen.findByRole('heading', { name: 'Borrow' });
-    await waitFor(() => expect(onSub).toHaveBeenCalledWith('borrow'));
+    expect(onSub).not.toHaveBeenCalled();
     cleanup();
-    const onSub2 = renderAt('active-checkouts');
+    renderAt('active-checkouts');
     await screen.findByRole('heading', { name: 'My Stuff' });
-    await waitFor(() => expect(onSub2).toHaveBeenCalledWith('mystuff'));
     cleanup();
     // An employee sent to a manager queue lands on what they can open.
     renderAt('checkouts');
@@ -148,6 +151,26 @@ describe('Item Management smoke - everyone', () => {
     expect(within(dialog).getByRole('button', { name: /Start Return/ })).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: /Extend/ })).toBeTruthy();
     expect(within(dialog).getByRole('heading', { name: 'Timeline' })).toBeTruthy();
+  });
+});
+
+describe('Item Management review fixes (11/02/2026)', () => {
+  it('the phone bottom bar survives moves inside Items (go is stable)', async () => {
+    const { rerender } = render(<InventoryManagement activeSub="mystuff" onSubChange={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'My Stuff' });
+    rerender(<InventoryManagement activeSub="borrow" onSubChange={vi.fn()} />);   // a new closure, as App renders
+    await screen.findByRole('heading', { name: 'Borrow' });
+    expect(window.__nexusMobileActions?.map(a => `${a.label}${a.active ? '*' : ''}`)).toEqual(['My Stuff', 'Borrow*']);
+    cleanup();
+    expect(window.__nexusMobileActions).toBeNull();                                // gone only when Items leaves
+  });
+
+  it('Report Dead / Report Lost are back for an item assigned to you; Lost needs no photo', async () => {
+    renderAt('mystuff');
+    fireEvent.click(await screen.findByRole('button', { name: 'More for Badge Printer' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Report Lost' }));
+    const sheet = await screen.findByRole('dialog', { name: /Report Lost: Badge Printer/ });
+    expect(within(sheet).queryByText('Return Photo')).toBeNull();
   });
 });
 
@@ -170,9 +193,22 @@ describe('Item Management smoke - managers', () => {
     expect(screen.getByText('Your request')).toBeTruthy();                          // Erin's own Step Ladder
   });
 
+  it('never Force Return on your own checkout, never Accept Return on your own return', async () => {
+    renderAt('requests:overdue');
+    await screen.findAllByText('Ford Truck');                        // Erin's own, overdue
+    expect(screen.queryByRole('button', { name: /Force Return/ })).toBeNull();
+    cleanup();
+    renderAt('requests:returns');
+    await screen.findByText('Old Monitor');
+    expect(screen.getByText('Your return')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Accept Return/ })).toBeNull();
+    // Queue chips are toggle buttons (no tab without a panel).
+    expect(screen.getByRole('button', { name: /Returns/ }).getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('the handover queue hands over with the brand button', async () => {
     renderAt('handover');
-    const btn = await screen.findByRole('button', { name: /Hand Over/ });
+    const btn = (await screen.findAllByRole('button', { name: /^Hand Over$/ }))[0];
     expect(btn.className).toContain('primary-btn');
     expect(btn.getAttribute('style') || '').not.toContain('orange');
   });
