@@ -3,7 +3,7 @@
 // ShiftSchedule.jsx, which is the container; the grid itself is
 // components/shifts/WeekGrid.jsx (Oct 2026 rebuild, redesigned 10/02).
 import { useEffect, useState } from 'react';
-import { X, Upload, Download, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Search, Clock, CalendarDays, History } from 'lucide-react';
+import { X, Upload, Download, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Search, Clock, CalendarDays, History, UserMinus } from 'lucide-react';
 import { parseScheduleSheet } from './shiftScheduleLib';
 import { exportExcel } from '../tasks/exporting';
 import { formatDate, formatWeekday } from '../lib/datetime';
@@ -229,7 +229,7 @@ export function ShiftMenu({ menu, presets = [], canTimeOff, hasCopied, onAction,
 
 // ── Person menu (the ⋯ on a row) ────────────────────────────────────────
 // Add Shift, Add Time Off, and the person's usual hours (their shift type).
-export function PersonMenu({ menu, presets = [], usualId = '', canTimeOff, onAction, onClose }) {
+export function PersonMenu({ menu, presets = [], usualId = '', canTimeOff, canTakeOff = true, onAction, onClose }) {
   return (
     <ContextMenu x={menu.x} y={menu.y} label={`Options for ${menu.emp.name}`} onClose={onClose} width={250}>
       <MenuItem Icon={Plus} label="Add Shift" onClick={() => onAction('add')} />
@@ -241,6 +241,8 @@ export function PersonMenu({ menu, presets = [], usualId = '', canTimeOff, onAct
       {presets.map((p) => (
         <MenuItem key={p.id} role="menuitemradio" checked={usualId === p.id} label={`${p.name} · ${shiftTimeText(p)}`} onClick={() => onAction('usual', p.id)} />
       ))}
+      {canTakeOff && <MenuSep />}
+      {canTakeOff && <MenuItem Icon={UserMinus} label="Take Off the Schedule" onClick={() => onAction('offSchedule')} />}
     </ContextMenu>
   );
 }

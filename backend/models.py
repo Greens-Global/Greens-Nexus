@@ -999,6 +999,10 @@ class NexusEmployee(Base):
     # automatically; existing people still inside their window were started
     # once at release (hr_probation.backfill_existing).
     probation                = Column(JSON, default=dict)
+    # On the Schedule (Neil, 11/03/2026, shift_roster.py): 0 = the person never
+    # appears in scheduling (planner, fills, Late, no-shows, scorecard, trading);
+    # team memberships are kept. NULL / 1 = on, the default for everyone.
+    on_schedule              = Column(Integer, default=1)
 
 
 class HrRemovedIdentity(Base):

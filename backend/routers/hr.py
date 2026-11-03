@@ -97,6 +97,7 @@ class EmployeeIn(BaseModel):
     personal:        Optional[dict] = None
     compliance:      Optional[dict] = None
     notes:           Optional[str] = ""
+    on_schedule:     Optional[bool] = True   # On the Schedule (11/03/2026, shift_roster.py)
 
 
 class EmployeeUpdate(BaseModel):
@@ -258,6 +259,7 @@ def _serialize(e: NexusEmployee, db: Session = None, tiers: dict = None) -> dict
         # date, days left, whether it is ending. The list re-reads it with
         # each company's own reminder window; the profile card has the rest.
         "probation":      _probation_summary(e),
+        "onSchedule":     getattr(e, "on_schedule", 1) is None or int(getattr(e, "on_schedule", 1) or 0) != 0,
     }
 
 
@@ -397,6 +399,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         personal=body.personal or {},
         compliance=_norm_compliance(body.compliance),
         notes=body.notes or "",
+        on_schedule=0 if body.on_schedule is False else 1,
         created_by=user["email"],
         created_at=now,
         updated_at=now,

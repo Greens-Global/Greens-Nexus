@@ -216,7 +216,11 @@ def expected_starts(db: Session, emails: Iterable[str], dd: date) -> dict:
                if preset_ids else {})
     company = companies_of(db, emails_l)
     defaults = defaults_by_company(db, company.values())
-    return {em: pick_start(by_email.get(em, []), presets, assigned.get(em, ""), dd, *defaults[company.get(em, "")])
+    # Off the schedule (shift_roster, 11/03/2026): nothing is expected, so never Late.
+    off = {(e.work_email or "").lower() for e in db.query(models.NexusEmployee)
+           .filter(func.lower(models.NexusEmployee.work_email).in_(emails_l), models.NexusEmployee.on_schedule == 0).all()}
+    return {em: (None if em in off else
+                 pick_start(by_email.get(em, []), presets, assigned.get(em, ""), dd, *defaults[company.get(em, "")]))
             for em in emails_l}
 
 
@@ -233,6 +237,9 @@ def expected_shifts(db: Session, email: str, dates: Iterable[date]) -> dict:
     days = sorted(set(dates or []))
     if not em or not days:
         return {}
+    if (db.query(models.NexusEmployee.id).filter(func.lower(models.NexusEmployee.work_email) == em,
+                                                models.NexusEmployee.on_schedule == 0).first()):
+        return {dd: [] for dd in days}   # off the schedule (11/03/2026): nothing expected
     isos = [d.isoformat() for d in days]
     rows = (db.query(models.ScheduledShift)
             .filter(func.lower(models.ScheduledShift.employee_email) == em,

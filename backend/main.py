@@ -1467,6 +1467,8 @@ def _run_migrations():
             "ALTER TABLE item_types ADD COLUMN max_loan_days INTEGER DEFAULT 0",
             # One-click stop for digest emails (legal pass, 11/02/2026) - see the Postgres list.
             "ALTER TABLE nexus_person_prefs ADD COLUMN email_optouts VARCHAR DEFAULT ''",
+            # On the Schedule (Neil, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN on_schedule INTEGER DEFAULT 1",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3513,6 +3515,9 @@ def _run_migrations():
         # from the email's own link or Profile > Email Settings, comma
         # separated ('' = none). models.NexusPersonPref.email_optouts.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS email_optouts VARCHAR DEFAULT ''",
+        # On the Schedule (Neil, 11/03/2026): 0 = never placed, counted or
+        # alerted in scheduling; NULL / 1 = on. models.NexusEmployee.on_schedule.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS on_schedule INTEGER DEFAULT 1",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

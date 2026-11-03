@@ -3518,3 +3518,8 @@ api.getEntitiesFresh = () => req('/hr/entities');
 // caller's companies), and what a printed tag needs for each id.
 api.getItemByCode = (code) => req(`/items/by-code?code=${encodeURIComponent(code || '')}`);
 api.getItemTags = (ids) => req('/items/tags', { method: 'POST', body: JSON.stringify({ ids: ids || [] }) });
+// On the Schedule (Neil, 11/03/2026, backend shift_roster.py): a person switched
+// off never appears in scheduling; off turns their shifts from today on into open
+// slots and answers their ids, which the Undo hands back to put them on the person.
+api.setOnSchedule = (email, on) => req('/timeclock/schedule/on-schedule', { method: 'PUT', body: JSON.stringify({ email, on: !!on }) });
+api.undoOffSchedule = (email, shiftIds) => req('/timeclock/schedule/on-schedule/undo', { method: 'POST', body: JSON.stringify({ email, shiftIds: shiftIds || [] }) });

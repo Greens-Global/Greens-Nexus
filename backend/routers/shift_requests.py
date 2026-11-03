@@ -532,12 +532,22 @@ def _my_groups(db: Session, email: str) -> list:
             .filter(func.lower(models.ShiftGroupMember.employee_email) == email).all()]
 
 
+OFF_SCHEDULE = "You are off the schedule, so you can't take or trade shifts. Ask your manager to put you back on it."
+OFF_SCHEDULE_THEM = "This person is off the schedule. Put them back on the schedule first, or decline the request."
+
+
+def _off_schedule(db: Session) -> set:
+    import shift_roster
+    return shift_roster.off_emails(db)
+
+
 def _teammates(db: Session, email: str) -> set:
     groups = _my_groups(db, email)
     if not groups:
         return set()
-    return {(m.employee_email or "").lower() for m in db.query(models.ShiftGroupMember)
-            .filter(models.ShiftGroupMember.group_id.in_(groups)).all()} - {email, ""}
+    return ({(m.employee_email or "").lower() for m in db.query(models.ShiftGroupMember)
+             .filter(models.ShiftGroupMember.group_id.in_(groups)).all()}
+            - {email, ""} - _off_schedule(db))   # off the schedule: never a trading partner
 
 
 def _names(db: Session) -> dict:
@@ -799,6 +809,8 @@ def create_request(body: CreateIn, user: dict = Depends(get_current_user), db: S
     cfg = settings_for(db, me)
     if not cfg[_KIND_SETTING[kind]]:
         raise HTTPException(403, f"{_KIND_LABEL[kind].capitalize()} requests are turned off.")
+    if me in _off_schedule(db):
+        raise HTTPException(400, OFF_SCHEDULE)
     shift = _live_shift(db, body.shift_id)
     if not shift:
         raise HTTPException(409, "That shift is no longer available - it may have changed or already passed.")
@@ -1040,6 +1052,8 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str, force: bool = False)
     if r.kind == "open":
         if not shift or shift.employee_email or int(shift.open_slots or 0) < 1:
             raise stale
+        if (r.requester_email or "").lower() in _off_schedule(db):
+            raise HTTPException(400, OFF_SCHEDULE_THEM)
         _check_new_owner(db, r.requester_email, shift, {shift.id}, force)
         claimed = models.ScheduledShift(
             id=str(uuid.uuid4()), employee_email=r.requester_email, work_date=shift.work_date,
