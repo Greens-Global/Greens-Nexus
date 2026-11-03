@@ -8767,7 +8767,7 @@ body:has(.apv-phone) { overflow-x: clip; }
 .wd-shift-track { min-width: 0; }
 .sbclock-track { margin: -3px 2px 0; }
 .dk-session-chip.has-track { position: relative; }
-.dk-session-track { position: absolute; left: 14px; right: 14px; bottom: 3px; pointer-events: none; }
+.dk-session-track { position: absolute; left: 14px; right: 14px; bottom: 2px; pointer-events: none; }
 .dk-session-track .nx-track.is-sm { --nx-track-h: 3px; }
 
 /* Progress track (Neil, 11/02/2026, ui/ProgressTrack.jsx) - the one progress
