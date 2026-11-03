@@ -406,8 +406,8 @@ keep the diff minimal.
   when the save lands); `scene.js compact` runs before a save and a scene
   still over 2 MB is refused with a notice, never sent as a 413.
 - **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
-  on the phone (`public/manifest.webmanifest`, `public/sw.js` - a push-only
-  worker, no caching, offline is deferred) and pushes the BELL: a Web Push
+  on the phone (`public/manifest.webmanifest`, `public/sw.js` - push plus the
+  offline app shell, see Field offline below) and pushes the BELL: a Web Push
   goes out for every `NexusNotification` row with a named recipient through
   the `after_insert` listener in `backend/push.py` and the leader-only
   `push_loop` (off the event loop); broadcasts never push; never add a
@@ -429,6 +429,28 @@ keep the diff minimal.
   labor line is `GET /timeclock/schedule/labor` (hours from
   `shift_attendance._paid_minutes`, rates from the payroll history by day,
   fixed pay counted not priced, managers never see pay).
+- **Field offline (Neil, 11/03/2026: FULL OFFLINE for field work now -
+  replaces "offline is deferred"; `docs/Offline.md`):** `public/sw.js` keeps
+  the app shell (the build writes its file list - `scripts/offline-manifest.mjs`,
+  `OFFLINE_SCREENS`): pages NETWORK FIRST (never stale online, the saved copy
+  only with no signal), `/assets/*` cache first, the API NEVER cached; a new
+  deploy takes over once its files are saved and the "new version" bar asks
+  for the reload. What the field reads offline is `lib/offline/store.js`
+  `readThrough(name, fetcher)` - per person (account + Act As), cleared on
+  sign out, a different person and every Act As change; never show a cached
+  copy to anyone else. Every field change goes through the ONE outbox
+  (`lib/offline/outbox.js`, the punch-queue rules made general: an id made on
+  the phone sent as the idempotency key, saved before it is sent, retry while
+  unknown, park on no signal / 401 and replay on online / visible / sign-in,
+  a 409 kept for Keep Mine / Use Theirs - never a silent overwrite - and any
+  other 4xx Not Sent with the server's words); a kind registers in its own
+  module and gets ONE loader line in `lib/offline/kinds.js`. The server side
+  is `backend/idempotency.py` (the `Idempotency-Key` header, table
+  `nexus_idempotency_keys`, RLS on dev and prod, 7-day purge in
+  `reminders_loop`); a route with its own key keeps it (Forms' `entryKey`).
+  Never add a second outbox, a second offline cache, a caching rule for the
+  API in the worker, or a retry layer on top of api.js's GET retries.
+  `bodQueue` / `punchQueue` keep their own (time-window) rules.
 - **Forms are templates (Neil, 11/02/2026, `docs/Forms.md`):** a field form
   (inspection, incident report, vehicle check, checklist) is a `DocTemplate`
   with `doc_type='form'` - the same field list plus form-only keys (`section`,
@@ -445,7 +467,8 @@ keep the diff minimal.
   `workflows.emit` at the two choke points in `routers/forms.py` with the
   answers FLAT on `extra`; the Insights Forms card carries counts, never
   answers. Never add a second form engine, a second entry store or an
-  offline path outside the punch-queue pattern.
+  offline path outside the punch-queue pattern (the outbox above is that
+  pattern; Fill a Form already uses it - `forms/formsOffline.js`).
 - **Federal forms (Neil, 11/02/2026, `backend/federal_forms/`,
   `docs/Federal-Forms.md`):** Form W-4, Form I-9 (Section 2 by HR) and the
   Direct Deposit Authorization are filled and signed in Nexus Sign - from
