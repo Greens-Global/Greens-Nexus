@@ -4408,6 +4408,9 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
 
   async function save() {
     if (busy) return;
+    // Neil (Teams, 11/02/2026): an offboarded person always has a termination
+    // date - the server refuses the change without one.
+    if (isLeft && !effectiveDate) { toastErr('Enter the termination date (their last day).'); return; }
     if (needsDelegate && trustees.length === 0) { toastErr('Pick who should get mailbox access.'); return; }
     setBusy(true);
     try {
@@ -4512,7 +4515,11 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
               {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
             </select>
           </div>
-          <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} /></div>
+          <div>
+            <label style={FL}>{isLeft ? 'TERMINATION DATE' : 'EFFECTIVE DATE'}</label>
+            <input className="form-input" style={{ width: '100%' }} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} />
+            {isLeft && !effectiveDate && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Required - the person's last day.</div>}
+          </div>
           <div className="nx-fill"><label style={FL}>REASON</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="why the change (kept in the audit trail)" /></div>
 
           {offerChecklist && (

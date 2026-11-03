@@ -83,10 +83,23 @@ class LeftRevokesSessions(unittest.TestCase):
             db.close()
 
     def _leave(self, eid, **off):
-        body = {"status": "offboarded", "reason": "Resigned", "offboarding": off or None}
+        # An offboarding always carries the termination date (Neil, 11/02/2026).
+        body = {"status": "offboarded", "reason": "Resigned", "effectiveDate": "2026-10-20",
+                "offboarding": off or None}
         r = self.client.post(f"/hr/employees/{eid}/status", json=body)
         self.assertEqual(r.status_code, 200, r.text)
         return r.json()
+
+    def test_offboarding_requires_the_termination_date(self):
+        """Neil (Teams, 11/02/2026): the status change to Left is refused
+        without the person's last day."""
+        r = self.client.post("/hr/employees/emp-leaver/status",
+                             json={"status": "offboarded", "reason": "Resigned"})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("termination date", r.json()["detail"])
+        r = self.client.post("/hr/employees/emp-leaver/status",
+                             json={"status": "offboarded", "reason": "Resigned", "effectiveDate": "not-a-date"})
+        self.assertEqual(r.status_code, 400, r.text)
 
     def test_left_blocks_signin_ends_m365_and_nexus_sessions(self):
         out = self._leave("emp-leaver", mailboxAction="remove", freeUpLicense=True)

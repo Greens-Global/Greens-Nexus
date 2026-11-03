@@ -599,7 +599,8 @@ class PublishReviewTests(_Case):
         amy = self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == AMY).first()
         self._shift(AMY, "2026-12-01")
         self._as(ADMIN)
-        r = self.client.post(f"/hr/employees/{amy.id}/status", json={"status": "offboarded", "reason": "left"})
+        r = self.client.post(f"/hr/employees/{amy.id}/status",
+                             json={"status": "offboarded", "reason": "left", "effectiveDate": "2026-11-30"})
         self.assertEqual(r.status_code, 200, r.text)
         self.db.expire_all()
         self.assertEqual(self.db.query(models.ScheduledShift).filter(models.ScheduledShift.id == "s-amy-2026-12-01-09:00").first().pending_delete, 1)
