@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, ShoppingCart, Briefcase, Users, BookOpen } from 'lucide-react';
+import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, ShoppingCart, Briefcase, Users, BookOpen, HardHat } from 'lucide-react';
 import { useRole } from '../../contexts/RoleContext';
 import { useInventory } from '../../contexts/InventoryContext';
 import { useRequisitions } from '../../contexts/RequisitionContext';
@@ -16,6 +16,8 @@ import { api } from '../../api';
 // Sources, in the order the groups are shown:
 //   Tasks / Projects / People / Portfolios / Teams - the Task module's
 //                content through /tasks search (debounced, 2+ characters).
+//   Jobs       - construction jobs (work orders and projects) through
+//                /construction/search, walled like the module (11/03/2026).
 //   Items / Checkouts / Purchase Requests - from the data the app already
 //                holds in its contexts (local, instant).
 //   Pages      - the sidebar's screens and their sections, visible exactly
@@ -33,8 +35,10 @@ const CONTENT_GROUPS = [
   { key: 'people',     label: 'People' },
   { key: 'portfolios', label: 'Portfolios' },
   { key: 'teams',      label: 'Teams' },
+  { key: 'jobs',       label: 'Jobs' },
 ];
-const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams: [] };
+const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams: [], jobs: [] };
+const JOB_TYPE_LABEL = { work_order: 'Work Order', project: 'Project' };
 
 // Mirror of InventoryManagement's displayStatus labels, kept local so this
 // never imports the 8k-line view (and the module -> search import cycle).
@@ -117,7 +121,23 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     }, 180);
     return () => { live = false; clearTimeout(id); };
   }, [term, wantContent]);
-  const hits = wantContent && answer.term === term ? answer.data : EMPTY_HITS;
+  // Construction jobs (11/03/2026): their own walled search, same debounce,
+  // folded into the content hits so the Jobs group reads like the others.
+  const [jobAnswer, setJobAnswer] = useState({ term: '', rows: [], total: 0 });
+  useEffect(() => {
+    if (!wantContent) return undefined;
+    let live = true;
+    const id = setTimeout(() => {
+      Promise.resolve().then(() => api.searchJobs(term, 5))
+        .then((r) => { if (live) setJobAnswer({ term, rows: r?.jobs || [], total: r?.total || 0 }); })
+        .catch(() => { if (live) setJobAnswer({ term, rows: [], total: 0 }); });
+    }, 180);
+    return () => { live = false; clearTimeout(id); };
+  }, [term, wantContent]);
+  const taskHits = wantContent && answer.term === term ? answer.data : EMPTY_HITS;
+  const hits = useMemo(() => (wantContent && jobAnswer.term === term
+    ? { ...taskHits, jobs: jobAnswer.rows, totals: { ...(taskHits.totals || {}), jobs: jobAnswer.total } }
+    : taskHits), [taskHits, jobAnswer, term, wantContent]);
   // Knowledge Base pages (Oct 2026 rebuild): the server's own ranking over
   // published pages, same debounce, same "answer travels with its term" rule.
   const [kbAnswer, setKbAnswer] = useState({ term: '', rows: [] });
@@ -132,7 +152,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     return () => { live = false; clearTimeout(id); };
   }, [term, wantContent]);
   const kbRows = wantContent && kbAnswer.term === term ? kbAnswer.rows : [];
-  const searching = wantContent && (answer.term !== term || kbAnswer.term !== term);
+  const searching = wantContent && (answer.term !== term || kbAnswer.term !== term || jobAnswer.term !== term);
 
   const groups = useMemo(() => {
     if (!live) return [];
@@ -151,6 +171,11 @@ export function useNexusSearch(query, { enabled = true } = {}) {
           key: `task:${item.id}`, Icon: Check, title: item.title, done: !!item.completed,
           detail: [item.parentTitle ? `in ${item.parentTitle}` : '', item.projectName].filter(Boolean).join(' · '),
           run: () => { toTasks('mine'); setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId: item.id } })), 0); },
+        };
+        if (g.key === 'jobs') return {
+          key: `job:${item.id}`, Icon: HardHat, title: item.name,
+          detail: [JOB_TYPE_LABEL[item.jobType] || 'Project', item.code, item.address].filter(Boolean).join(' · '),
+          run: () => navigate('ops', `project:${item.id}`),
         };
         if (g.key === 'people') return {
           key: `person:${item.email}`, Icon: User, title: item.name, detail: item.email,

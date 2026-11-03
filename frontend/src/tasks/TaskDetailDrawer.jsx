@@ -10,7 +10,7 @@ import {
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma, MoveRight,
-  History, Upload, HardDrive, Image as ImageIcon, AudioLines, Warehouse,
+  History, Upload, HardDrive, Image as ImageIcon, AudioLines, Warehouse, HardHat,
 } from 'lucide-react';
 import MoveTaskModal from './MoveTaskModal';
 import MyDayToggle from './MyDayToggle';
@@ -482,6 +482,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
           onViewAllComments={() => setTab('comments')}
           onOpenTicket={() => (onBackToTicket ? onBackToTicket() : openSourceTicket(task.sourceTicketId, onClose, ticketView))}
+          onLeaveForJob={onClose}
         />
       );
       case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusHere} canComment={canComment} canPin={canEditProject} />;
@@ -1179,6 +1180,31 @@ function SourceTicketLink({ ticketId, onOpen }) {
 /** The From Cubby row: the facility and unit, who Cubby has it assigned to,
  *  whether a Cubby automation raised it, and where Cubby stands with it.
  *  Fetched when the drawer opens - the task carries only the Cubby id. */
+/** The Job chip (Neil, 11/03/2026, construction plan phase 2): a task in a
+ *  construction job's task project links back to the job. Nothing shows for
+ *  any other project, or for a job the reader may not open (the server
+ *  answers { job: null }). One cached read per project. */
+function JobRow({ projectId, onLeave }) {
+  const [job, setJob] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    Promise.resolve().then(() => api.getTaskProjectJob?.(projectId))
+      .then((r) => { if (alive) setJob(r?.job || null); }).catch(() => { if (alive) setJob(null); });
+    return () => { alive = false; };
+  }, [projectId]);
+  if (!job) return null;
+  return (
+    <Row label="Job">
+      <button type="button" data-testid="task-job-link" title="Open the job"
+        onClick={() => { onLeave?.(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'ops', sub: `project:${job.id}` } })); }}
+        style={{ ...btn('ghost'), padding: '5px 8px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <HardHat size={14} style={{ color: NX.faint }} />{job.name}
+        <span style={{ color: NX.faint, fontSize: 12 }}>{job.jobType === 'work_order' ? 'Work Order' : 'Project'}</span>
+      </button>
+    </Row>
+  );
+}
+
 function CubbyLink({ taskId }) {
   const [info, setInfo] = useState(null);   // the link | 'denied'
   useEffect(() => {
@@ -1313,7 +1339,7 @@ function ProjectsField({ task, projects, teams, myEmail, projectName, patch }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, readOnly = false, canComment = true, canEditProject = true, canEditTask = null, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, onMoveSub = null, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket }) {
+function OverviewTab({ task, patch, readOnly = false, canComment = true, canEditProject = true, canEditTask = null, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, onMoveSub = null, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket, onLeaveForJob }) {
   const isMobile = useIsMobile();
   // Whether the folding sections below have anything in them.
   const hasApproval = !!task.approvalStatus && task.approvalStatus !== 'none';
@@ -1389,6 +1415,8 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {task.cubbyTaskId && (
         <Row label="From Cubby"><CubbyLink taskId={task.id} /></Row>
       )}
+      {/* The construction Job whose task project this is (Neil, 11/03/2026). */}
+      {task.projectId && <JobRow projectId={task.projectId} onLeave={onLeaveForJob} />}
       {/* Same column and gap as the tab body, so locking moves nothing. */}
       <FieldsLock readOnly={readOnly} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <Row label="Assignee" history="assigneeIds" historyLabel="Assignees">

@@ -49,6 +49,8 @@ import { api } from '../api.js';
 import { AddItemModal } from '../views/InventoryManagement.jsx';
 // Oct 7 accounting feedback: a property's loans from the ledger (self-contained; see the file's header).
 import PropertyLoans from '../components/PropertyLoans.jsx';
+// A property's construction Jobs, read only (Neil, 11/03/2026, construction plan phase 2).
+import PropertyJobs from '../components/PropertyJobs.jsx';
 
 const cityRegion = (p) => (p.city || '') + (p.state ? ', ' + p.state : '');
 
@@ -972,6 +974,9 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       )}
       {view === 'property' && active && inferAssetKind(active) === 'property' && (
         <PropertyLoans property={active} onSaveEntityCode={(code) => setEntityCode(active.id, code)} />
+      )}
+      {view === 'property' && active && inferAssetKind(active) === 'property' && (
+        <PropertyJobs property={active} />
       )}
 
       {['warranties', 'inspections', 'documents', 'vdocs', 'utilities', 'ahj', 'vendors', 'odometer'].map((coll) => (
