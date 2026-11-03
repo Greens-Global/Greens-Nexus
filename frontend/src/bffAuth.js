@@ -8,6 +8,7 @@
 // Default (flag off) = the existing MSAL/Bearer flow, entirely unchanged.
 // See docs/BFF-Migration-Plan.md.
 import { msalInstance } from './msalInstance';
+import { clearOfflineReadCache } from './lib/offline/read';
 
 // Cookie mode is decided at RUNTIME by hostname, not a build-time flag. Prod's
 // bundle is built in GitHub Actions, which never receives VITE_BFF_MODE, so a
@@ -106,7 +107,11 @@ export function bffLogin() {
  *  A plain navigation (not fetch) so the browser follows the redirect chain to
  *  Microsoft - a POST that only cleared the cookie left the SSO session alive,
  *  so /auth/login silently re-authed and bounced the user right back in. */
-export function bffLogout() {
+export async function bffLogout() {
+  // The phone's offline read cache goes first, and is waited for (bounded):
+  // the navigation below would otherwise cut it off half done (field offline,
+  // 11/03/2026). Unsent changes in the outbox stay - they are the person's.
+  await clearOfflineReadCache();
   // Shared PC: wipe EVERYTHING this user cached in the browser before leaving, so
   // the next person to sign in on this machine can never see any of their data,
   // identity, prefs, or tokens. localStorage/sessionStorage are cleared
@@ -128,6 +133,7 @@ export function bffLogout() {
  *  store, and any Cache Storage entries. Used when a DIFFERENT user signs in on a
  *  shared browser than last time, so nothing of the old user survives. */
 async function _purgeClientData() {
+  await clearOfflineReadCache();
   try { sessionStorage.clear(); } catch { /* blocked */ }
   try { localStorage.clear(); } catch { /* blocked */ }
   try { indexedDB.deleteDatabase('nexus_store'); } catch { /* ignore */ }
@@ -245,15 +251,37 @@ function _bootPause(ms) {
 // sign-out (bffLogout wipes localStorage) and by a 401 at boot. The session
 // cookie stays the only proof of identity: every request still needs it, and
 // once there is signal a dead session goes to sign-in as before.
+// It carries when the session must have expired (the server's idle days,
+// counted from this successful boot - the session's own clock can only be
+// later); past that the phone opens on the sign-in screen, not on its copy.
 const OFFLINE_ME_KEY = 'nexus:offline-me';
-function _rememberForOffline(me) {
-  try { localStorage.setItem(OFFLINE_ME_KEY, JSON.stringify({ email: me.email, name: me.name || '' })); } catch { /* storage blocked */ }
+const DAY_MS = 24 * 3600 * 1000;
+export function _rememberForOffline(me, now = Date.now()) {
+  const days = Number(me.sessionIdleDays) > 0 ? Number(me.sessionIdleDays) : 30;
+  try { localStorage.setItem(OFFLINE_ME_KEY, JSON.stringify({ email: me.email, name: me.name || '', expiresAt: now + days * DAY_MS })); } catch { /* storage blocked */ }
 }
-function _offlineMe() {
+export function _offlineMe(now = Date.now()) {
   try {
     const me = JSON.parse(localStorage.getItem(OFFLINE_ME_KEY) || 'null');
-    return me && typeof me.email === 'string' && me.email ? { email: me.email, name: me.name || '', offline: true } : null;
+    if (!me || typeof me.email !== 'string' || !me.email) return null;
+    if (!(Number(me.expiresAt) > now)) { localStorage.removeItem(OFFLINE_ME_KEY); return null; }
+    return { email: me.email, name: me.name || '', offline: true };
   } catch { return null; }
+}
+// Is there truly no way to the server? The browser says offline, or a plain
+// request to this site (the static build stamp - no API, no session) cannot
+// get out either. A failed /api call alone is not enough: that can be the
+// API restarting behind a working connection (then: keep "Reconnecting").
+export async function _cannotReachSite() {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), 4000);
+  try {
+    await fetch('/version.json', { cache: 'no-store', signal: controller.signal });
+    return false;                                 // the site answers - only the API does not
+  } catch (e) {
+    return e?.name !== 'AbortError';               // could not leave the phone at all
+  } finally { clearTimeout(tid); }
 }
 function _bootOffline() {
   const me = _offlineMe();
@@ -326,11 +354,10 @@ export async function bffBootstrap({ onWaiting } = {}) {
       // 5xx / other -> backend still coming up, keep retrying
     } catch (e) {
       // Network error or a try that ran out its time -> backend unreachable,
-      // keep retrying. No connection at all (the request never left: a
-      // TypeError, not our own timeout) twice running, or the browser saying
-      // it is offline, opens the app on what this phone kept instead.
-      const noSignal = (typeof navigator !== 'undefined' && navigator.onLine === false) || (e?.name !== 'AbortError' && i >= 1);
-      if (noSignal && _bootOffline()) return true;
+      // keep retrying. When the phone truly cannot reach the site (offline,
+      // or not even the static build stamp answers) the app opens on what
+      // this phone kept instead - a TypeError alone is not enough.
+      if (e?.name !== 'AbortError' && await _cannotReachSite() && _bootOffline()) return true;
     }
     finally { clearTimeout(tid); }
   }

@@ -21,3 +21,18 @@ export async function offlineRead(name, fetcher) {
   store().then((m) => m.putCached(name, data)).catch(() => {});
   return data;
 }
+
+/** Clear the phone's offline read cache and WAIT for it (bounded, so a stuck
+ *  IndexedDB never holds up a sign out). Called before every sign-out
+ *  navigation - BFF (bffLogout) and MSAL (TopHeader / MobileMenu) - and on a
+ *  person change (bffAuth's purge). The outbox is left alone: unsent changes
+ *  are the person's work and only ever send as them. */
+export async function clearOfflineReadCache(maxMs = 1500) {
+  let timer;
+  try {
+    await Promise.race([
+      store().then((m) => m.clearReadCache()),
+      new Promise((resolve) => { timer = setTimeout(resolve, maxMs); }),
+    ]);
+  } catch { /* nothing kept, or no IndexedDB here */ } finally { clearTimeout(timer); }
+}
