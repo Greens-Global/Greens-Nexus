@@ -393,81 +393,89 @@ export function SignaturePad({ name = '', onAdopt, onClose, zIndex = 1400 }) {
   const strokes = useRef([]);
   const drawing = useRef(false);
 
+  // Ink (motion pass, 11/03/2026). A stroke is a run of points joined by
+  // quadratic curves through their midpoints, so a quick loop reads as a curve
+  // rather than a polygon, and every point the pointer passed through is kept
+  // (coalesced events). Finished strokes live on a layer of their own
+  // (`ink.base`, an offscreen canvas); while the pen moves, each frame - at
+  // most one per display refresh, however fast the pointer reports - copies
+  // that layer and paints only the stroke in progress, ending in a short
+  // straight reach to the pen so the ink never trails it. Undo and Clear
+  // repaint the layer from the stroke list with the same curves.
+  const ink = useRef({ raf: 0, rect: null, base: null });
+  const pen = (ctx) => { ctx.strokeStyle = SIG_INK; ctx.fillStyle = SIG_INK; ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; };
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  function paintStroke(ctx, pts) {
+    const last = pts[pts.length - 1];
+    if (pts.length === 1) { ctx.beginPath(); ctx.arc(last.x, last.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill(); return; }
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let k = 1; k <= pts.length - 2; k++) {
+      const m = mid(pts[k], pts[k + 1]);
+      ctx.quadraticCurveTo(pts[k].x, pts[k].y, m.x, m.y);
+    }
+    ctx.lineTo(last.x, last.y);
+    ctx.stroke();
+  }
+  // A canvas the size of the pad in device pixels, drawing in pad units.
+  function sizeLayer(c) {
+    const scale = window.devicePixelRatio || 1;
+    c.width = SIG_W * scale; c.height = SIG_H * scale;
+    const ctx = c.getContext('2d');
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    pen(ctx);
+    return ctx;
+  }
+  // The finished strokes onto the layer (all but the one in progress).
+  function paintBase(list) {
+    const base = ink.current.base; if (!base) return;
+    const ctx = base.getContext('2d');
+    ctx.clearRect(0, 0, SIG_W, SIG_H);
+    pen(ctx);
+    for (const st of list) paintStroke(ctx, st);
+  }
+  // The layer, then the stroke in progress (if any), onto the visible pad.
+  function present(active) {
+    const c = canvasRef.current; const base = ink.current.base;
+    if (!c || !base) return;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, SIG_W, SIG_H);
+    ctx.drawImage(base, 0, 0, SIG_W, SIG_H);
+    if (active) { pen(ctx); paintStroke(ctx, active); }
+  }
+  function redraw() {
+    paintBase(strokes.current);
+    present(null);
+    setHasInk(strokes.current.length > 0);
+  }
+  function paintFrame() {
+    ink.current.raf = 0;
+    present(drawing.current ? strokes.current[strokes.current.length - 1] : null);
+  }
+
   useEffect(() => {
     const c = canvasRef.current;
     if (!c) return;
-    const scale = window.devicePixelRatio || 1;
-    c.width = SIG_W * scale; c.height = SIG_H * scale;
-    c.getContext('2d').scale(scale, scale);
+    sizeLayer(c);
+    ink.current.base = ink.current.base || document.createElement('canvas');
+    sizeLayer(ink.current.base);
     redraw();
     // redraw reads only refs and a state setter, so a new copy each render changes nothing.
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Ink (motion pass, 11/03/2026). A stroke is a run of points joined by
-  // quadratic curves through their midpoints, so a fast loop reads as a curve
-  // rather than a polygon. While the pen moves, only the new part of the
-  // stroke is painted, once per frame - repainting every stroke on every
-  // pointer event made a long signature lag behind the hand. The ink is
-  // opaque, so a piece painted twice looks the same as once. Undo and Clear
-  // repaint everything with the same curves.
-  const ink = useRef({ raf: 0, done: 0, end: null, rect: null });
-  const pen = (ctx) => { ctx.strokeStyle = SIG_INK; ctx.fillStyle = SIG_INK; ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; };
-  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-  // Paints the curve pieces k = from..pts.length-2 of a stroke, starting at
-  // `start` (the end of the piece before), and returns where it ended.
-  function paintPieces(ctx, pts, from, start) {
-    let at = start;
-    if (from > pts.length - 2) return at;
-    ctx.beginPath();
-    ctx.moveTo(at.x, at.y);
-    for (let k = from; k <= pts.length - 2; k++) {
-      at = mid(pts[k], pts[k + 1]);
-      ctx.quadraticCurveTo(pts[k].x, pts[k].y, at.x, at.y);
-    }
-    ctx.stroke();
-    return at;
-  }
-  // The last stretch, from the curve's end to the newest point: drawn straight
-  // so the ink always reaches the pen, and replaced by a curve as points come.
-  function paintTail(ctx, pts, at) {
-    const last = pts[pts.length - 1];
-    if (pts.length === 1) { ctx.beginPath(); ctx.arc(last.x, last.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill(); return; }
-    ctx.beginPath(); ctx.moveTo(at.x, at.y); ctx.lineTo(last.x, last.y); ctx.stroke();
-  }
-  function redraw() {
-    const c = canvasRef.current; if (!c) return;
-    const ctx = c.getContext('2d');
-    ctx.clearRect(0, 0, SIG_W, SIG_H);
-    pen(ctx);
-    for (const s of strokes.current) paintTail(ctx, s, paintPieces(ctx, s, 1, s[0]));
-    setHasInk(strokes.current.length > 0);
-  }
-  // Paints what the active stroke gained since the last frame.
-  function paintFrame() {
-    const st = ink.current; st.raf = 0;
-    const c = canvasRef.current; const s = strokes.current[strokes.current.length - 1];
-    if (!c || !s) return;
-    const ctx = c.getContext('2d'); pen(ctx);
-    st.end = paintPieces(ctx, s, st.done + 1, st.end || s[0]);
-    st.done = Math.max(st.done, s.length - 2);
-    paintTail(ctx, s, st.end);
-  }
   const pos = (e, r) => ({ x: (e.clientX - r.left) * (SIG_W / r.width), y: (e.clientY - r.top) * (SIG_H / r.height) });
   const down = (e) => {
     const st = ink.current;
     st.rect = canvasRef.current.getBoundingClientRect();
-    st.done = 0; st.end = null;
     drawing.current = true;
     strokes.current.push([pos(e, st.rect)]);
-    e.target.setPointerCapture?.(e.pointerId);
+    try { e.target.setPointerCapture?.(e.pointerId); } catch { /* a pointer the browser no longer tracks */ }
     if (!hasInk) setHasInk(true);
     paintFrame();
   };
   const move = (e) => {
     if (!drawing.current) return;
     const st = ink.current; const s = strokes.current[strokes.current.length - 1];
-    // Every point the pointer passed through since the last event, not just
-    // the last one: a quick flourish otherwise loses its shape.
     const evs = e.nativeEvent?.getCoalescedEvents?.() || [];
     for (const ev of evs.length ? evs : [e]) {
       const p = pos(ev, st.rect); const q = s[s.length - 1];
@@ -480,7 +488,10 @@ export function SignaturePad({ name = '', onAdopt, onClose, zIndex = 1400 }) {
     drawing.current = false;
     const st = ink.current;
     if (st.raf) { cancelAnimationFrame(st.raf); st.raf = 0; }
-    paintFrame();
+    // The finished stroke joins the layer; the pad shows the layer alone.
+    const base = st.base;
+    if (base) { const ctx = base.getContext('2d'); pen(ctx); paintStroke(ctx, strokes.current[strokes.current.length - 1]); }
+    present(null);
   };
   useEffect(() => () => { if (ink.current.raf) cancelAnimationFrame(ink.current.raf); }, []);
 
