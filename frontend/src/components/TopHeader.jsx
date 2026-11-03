@@ -71,7 +71,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // tab's own name in the breadcrumb instead of the module's fixed name - so
   // switching tabs (e.g. Time Clock's Clock/Time Sheet/Time Off) actually
   // renames the page instead of every tab reading as the landing tab.
-  const activeTabMeta = headerTabs?.tabs?.find(t => t.key === headerTabs.active);
+  // A dropdown tab's item counts too (People > Organizational Chart, 11/03/2026).
+  const activeTabMeta = headerTabs?.tabs?.flatMap(t => [t, ...(t.items || [])]).find(t => t.key === headerTabs.active);
   const displayTitle = (headerTabs?.syncTitle && activeTabMeta)
     ? (activeTabMeta.title || activeTabMeta.label)
     : title;
@@ -357,7 +358,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
           <HeaderOverflowTabs entry={headerTabs}
             ink={<TabInk key={headerTabs.tabs.map((t) => t.key).join('|')} active={headerTabs.active} />}
             onPick={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }}
-            renderTab={({ key, label, Icon, badge }, probe) => (
+            renderTab={({ key, label, Icon, badge, items, landing }, probe) => (items && !probe ? (
+              // A dropdown tab (People, 11/03/2026) keeps only its own label in
+              // the bar, so the width measured for it is the width it takes.
+              <TabGroupButton key={key} tab={{ key, label, Icon, items, landing, badge }} active={headerTabs.active} className="hdr-tab" compact
+                onSelect={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }} />
+            ) : (
               <button key={key} type="button" tabIndex={probe ? -1 : undefined}
                 className={`hdr-tab${!probe && headerTabs.active === key ? ' active' : ''}`}
                 aria-current={!probe && headerTabs.active === key ? 'page' : undefined}
@@ -365,8 +371,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                 {Icon && <Icon size={16} strokeWidth={2} />}
                 <span>{label}</span>
                 {badge > 0 && <span className="hdr-tab-badge">{badge}</span>}
+                {items && <ChevronDown size={14} className="tab-group-caret" />}
               </button>
-            )} />
+            ))} />
         )}
         {headerTabs && !headerTabs.overflow && (
           <nav className={`hdr-tabs${headerTabs.compactGroups ? ' hdr-tabs--compact' : ''}`} aria-label="Module sections" data-tour="module-tabs">

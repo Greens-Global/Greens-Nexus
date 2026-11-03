@@ -3890,10 +3890,19 @@ export default function HR({ activeSub, onSubChange }) {
     }
   };
 
-  const TABS = [
+  // People is a dropdown (Neil, 11/03/2026): the directory itself, the
+  // Organizational Chart and Performance sit under it; a click on the tab
+  // still opens the directory. The sub keys are unchanged, so every deep
+  // link lands where it did.
+  const PEOPLE_ITEMS = [
+    { key: 'hr-people', label: 'People', Icon: Users },
+    { key: 'hr-org', label: 'Organizational Chart', Icon: Network },
+    { key: 'hr-performance', label: 'Performance', Icon: Target },
+  ].filter(t => SUBS.includes(t.key));
+  const FLAT_TABS = [
     { key: 'hr-people', label: 'People',    Icon: Users },
     { key: 'hr-hiring', label: 'Hiring',    Icon: UserPlus },
-    { key: 'hr-org',    label: 'Org Chart', Icon: Network },
+    { key: 'hr-org',    label: 'Organizational Chart', Icon: Network },
     { key: 'hr-time',   label: 'Time',      Icon: Clock },
     { key: 'hr-checklists', label: 'Checklists', Icon: ListChecks },
     // People Analytics (Neil, Oct 27 2026): the overview's headcount grown
@@ -3912,6 +3921,11 @@ export default function HR({ activeSub, onSubChange }) {
     // Roles & Access moved to the Admin module in full (Pranshu, Sep 9) - no
     // longer a People tab.
   ].filter(t => SUBS.includes(t.key));
+  const IN_PEOPLE = new Set(PEOPLE_ITEMS.map(t => t.key));
+  const TABS = PEOPLE_ITEMS.length > 1
+    ? [{ key: 'hr-people-menu', label: 'People', Icon: Users, landing: 'hr-people', items: PEOPLE_ITEMS },
+      ...FLAT_TABS.filter(t => !IN_PEOPLE.has(t.key))]
+    : FLAT_TABS;
   // The heading names the open tab (Neil, Oct 29 2026: "when we click on
   // Hiring it doesn't change the heading at the top to Hiring, it still says
   // People") - the page title, its icon and line, and the header breadcrumb.
@@ -3926,7 +3940,7 @@ export default function HR({ activeSub, onSubChange }) {
     'hr-exits': 'People leaving and their final settlement',
     'hr-performance': 'Review cycles and goals',
   };
-  const headTab = TABS.find(t => t.key === sub) || TABS[0] || { label: 'People', Icon: Users };
+  const headTab = FLAT_TABS.find(t => t.key === sub) || FLAT_TABS[0] || { label: 'People', Icon: Users };
   const HeadIcon = headTab.Icon || Users;
 
   return (
