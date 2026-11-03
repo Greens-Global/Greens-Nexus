@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { formatRangeShort, weekOfYear, formatDate, formatDateTime, formatDateLong, formatMonthDay, setDateFormat, getDateFormat } from './datetime';
+import { formatRangeShort, weekOfYear, formatDate, formatDateTime, formatDateLong, formatDayLong, formatMonthDay, setDateFormat, getDateFormat } from './datetime';
 
 describe('formatRangeShort (the Schedule date block, 10/02)', () => {
   it('names both months across a month boundary', () => {
@@ -190,5 +190,24 @@ describe('company (Pacific) time - Nexus Sign audit trails, Oct 23 2026', () => 
   it('keeps an evening signature on its Pacific day, not the next UTC one', async () => {
     const { formatPacificDate } = await import('./datetime');
     expect(formatPacificDate('2026-10-21T02:30:00+00:00')).toBe('10/20/2026');
+  });
+});
+
+describe('formatDayLong (the greeting date line, Neil 11/02/2026)', () => {
+  afterEach(() => setDateFormat('MM/DD/YYYY'));
+  it('spells the month out and adds the ordinal', () => {
+    expect(formatDayLong(new Date(2026, 10, 2))).toBe('Monday, November 2nd');
+    expect(formatDayLong(new Date(2026, 10, 1))).toBe('Sunday, November 1st');
+    expect(formatDayLong(new Date(2026, 10, 3))).toBe('Tuesday, November 3rd');
+    expect(formatDayLong(new Date(2026, 10, 11))).toBe('Wednesday, November 11th');
+    expect(formatDayLong(new Date(2026, 10, 12))).toBe('Thursday, November 12th');
+    expect(formatDayLong(new Date(2026, 10, 13))).toBe('Friday, November 13th');
+    expect(formatDayLong(new Date(2026, 10, 21))).toBe('Saturday, November 21st');
+    expect(formatDayLong(new Date(2026, 10, 22))).toBe('Sunday, November 22nd');
+    expect(formatDayLong(new Date(2026, 9, 31))).toBe('Saturday, October 31st');
+  });
+  it('reads day first for day-first people', () => {
+    setDateFormat('DD/MM/YYYY');
+    expect(formatDayLong(new Date(2026, 10, 2))).toBe('Monday, 2 November');
   });
 });

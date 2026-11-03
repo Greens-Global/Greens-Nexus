@@ -11,7 +11,7 @@ import {
   PenLine, Contact, ShoppingCart, Cake, UserMinus,
   Ticket as TicketIcon, CloudSun, Search, HardHat, Building2,
 } from 'lucide-react';
-import { formatTime, formatWeekday, formatMonthDay } from '../lib/datetime';
+import { formatTime, formatDayLong } from '../lib/datetime';
 import { api } from '../api';
 import { myTasksFootnote, MY_TASKS_RULE } from './myTasksCount';
 import { myTicketsFootnote, myTicketsFilter, MY_TICKETS_RULE } from './myTicketsCount';
@@ -1022,7 +1022,7 @@ function ClockWidget() {
       style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 3, cursor: 'pointer', overflow: 'hidden' }}>
       <div className="clock-tile-line" style={{ fontSize: 13.5, color: 'var(--wk-dim)', fontWeight: 600 }}>{greet}</div>
       <div className="clock-tile-time">{formatTime(now)}</div>
-      <div className="clock-tile-line" style={{ fontSize: 12.5, color: 'var(--wk-faint)' }}>{formatWeekday(now)}, {formatMonthDay(now)}</div>
+      <div className="clock-tile-line" style={{ fontSize: 12.5, color: 'var(--wk-faint)' }}>{formatDayLong(now)}</div>
       <div className="clock-tile-line clock-tile-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--wk-green)', fontSize: 12.5, fontWeight: 600, marginTop: 9 }}>
         <Clock size={13} /> Open Time Clock <ArrowRight size={12} />
       </div>
