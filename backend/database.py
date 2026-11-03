@@ -110,7 +110,12 @@ _shift_group_departments.wire(SessionLocal)
 
 # A job completed resolves its open linked tickets; a ticket reopened puts a
 # Complete job back to Active - whichever path moved it (Neil, 11/03/2026,
-# construction_ticket_sync.py).
+# construction_ticket_sync.py). ORDER: none needed. The resolve runs AFTER the
+# job's commit as an ordinary ticket save (routers.tickets.update_ticket) in a
+# session of its own, so every before_flush hook on TaskTicket.status - the
+# workflows observer, feature_request_sync above, a maintenance PM sync added
+# later - sees it in that save's flush like any desk resolve, wherever it is
+# wired. The reopen half writes only Construction's own job row.
 import construction_ticket_sync as _construction_ticket_sync  # noqa: E402
 _construction_ticket_sync.wire(SessionLocal)
 

@@ -53,6 +53,7 @@ class TaskProjectStamping(JobsBase):
         titles = {t.title for t in self.db.query(models.Task).filter_by(project_id=tp.id)}
         self.assertIn("Make the repair", titles)
         tpl = self.db.query(models.TaskProjectTemplate).filter_by(category="Construction Work Order").one()
+        self.assertEqual(tpl.id, f"cxtpl-work_order-{A}")    # the company is in the id
         self.assertEqual(tpl.owner_email, MGR_A)
         self.assertEqual(tpl.use_count, 1)
 
@@ -94,6 +95,48 @@ class TaskProjectStamping(JobsBase):
         b = self._new("Once", id="job-phone-1")
         self.assertEqual(a["id"], b["id"])
         self.assertEqual(self.db.query(models.ConstructionProject).filter_by(id="job-phone-1").count(), 1)
+
+
+class OldJobs(JobsBase):
+    tmp_db = _tmp.name
+
+    def test_the_first_punch_item_on_an_old_job_builds_sections_only_and_a_manager_owns_the_template(self):
+        job = self.fresh(models.ConstructionProject, "pa")
+        job.start_on = "2026-01-05"      # long started, made before the cutover, no task project
+        self.db.commit()
+        self.as_(CREW)
+        r = self.client.post("/construction/projects/pa/punch", json={"title": "Fix the latch"})
+        self.assertEqual(r.status_code, 201, r.text)
+        tp = self.fresh(models.ConstructionProject, "pa").task_project_id
+        titles = [t.title for t in self.db.query(models.Task).filter_by(project_id=tp)]
+        self.assertEqual(titles, ["Fix the latch"])     # no template tasks dated from 01/05/2026
+        self.assertIn("Punch", {s.name for s in self.db.query(models.TaskSection).filter_by(project_id=tp)})
+        tpl = self.db.get(models.TaskProjectTemplate, f"cxtpl-project-{A}")
+        self.assertEqual(tpl.owner_email, MGR_A)        # a company manager, never the crew member
+
+    def test_a_started_job_set_up_by_hand_gets_sections_only(self):
+        job = self.fresh(models.ConstructionProject, "pa")
+        job.start_on = "2026-01-05"
+        self.db.commit()
+        self.as_(MGR_A)
+        self.client.post("/construction/projects/pa/task-project", json={})
+        again = self.client.post("/construction/projects/pa/task-project", json={})   # twice: one project
+        self.assertEqual(again.status_code, 201)
+        tp = self.fresh(models.ConstructionProject, "pa").task_project_id
+        self.assertEqual(self.db.query(models.Task).filter_by(project_id=tp).count(), 0)
+        self.assertEqual(self.db.query(models.TaskProject).filter(models.TaskProject.name == "Job A").count(), 1)
+
+    def test_a_deleted_company_template_is_found_by_its_id_and_not_remade(self):
+        self.as_(MGR_A)
+        self.client.post("/construction/projects", json={"name": "One", "job_type": "work_order"})
+        tpl = self.db.get(models.TaskProjectTemplate, f"cxtpl-work_order-{A}")
+        tpl.owner_email = CREW        # even if the owner changes, the id finds it
+        tpl.deleted_at = iso()
+        self.db.commit()
+        self.client.post("/construction/projects", json={"name": "Two", "job_type": "work_order"})
+        n = (self.db.query(models.TaskProjectTemplate).filter_by(category="Construction Work Order")
+             .execution_options(include_deleted=True).count())
+        self.assertEqual(n, 1)
 
 
 class Punch(JobsBase):
