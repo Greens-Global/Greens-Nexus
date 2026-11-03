@@ -1051,6 +1051,29 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     has_eod = (db.query(TimeBod)
                .filter(TimeBod.employee_email == email, TimeBod.kind == "eod",
                        TimeBod.local_date == local_today).first()) if _open else None
+    # Early clock-in confirm (Neil, Teams 11/02/2026): clocking in more than
+    # earlyPunchAlertMin minutes (default 10) before today's expected start
+    # makes the client ask "clock in anyway?" before it sends the punch. The
+    # server never blocks an early punch - early_punch.py quietly tells the
+    # manager once it lands. Only before the first clock-in of the workday;
+    # no expected start (no shift, no preset, weather-cancelled) = no ask.
+    early_warning = None
+    if has_in is None:
+        try:
+            import early_punch
+            import shift_expect
+            from routers.shift_requests import settings_for
+            _thr = int(settings_for(db, email).get(early_punch.SETTING, 0) or 0)
+            if _thr > 0:
+                _dd = date.fromisoformat(local_today)
+                _exp = shift_expect.expected_start(db, email, _dd)
+                _start = shift_expect.start_utc(_dd, _exp)
+                if _start is not None:
+                    early_warning = {"shiftStartUtc": _start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                     "shiftStart": _exp.get("start") or "",
+                                     "warnBeforeMin": _thr}
+        except Exception as e:   # a hint only - never fail the clock for it
+            print(f"[early_punch] status hint skipped for {email}: {e}")
     return {
         "lastPunch": _serialize(last) if last else None,
         "eodRequired": _open and has_eod is None and not _bod_ex,
@@ -1068,6 +1091,9 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         # hook runs only when this is true (lib/useLocationTrail.js).
         "locationTrail": _location_trail_on(db, email),
         "bodRequired": (has_bod is None and has_in is None) and not _bod_ex,
+        # {shiftStartUtc, shiftStart, warnBeforeMin} before the first clock-in
+        # of a day with an expected start, else null (see above).
+        "earlyWarning": early_warning,
         # Role-flagged people skip EVERY message prompt (BOD, EOD, break start/
         # end) - punches go straight through (Neil, Aug 25).
         "bodExempt": _bod_ex,

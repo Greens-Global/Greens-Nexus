@@ -460,13 +460,13 @@ describe('Companies', () => {
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ mealReminderMin: 0 }, ''));
   });
 
-  // Early punch alert (Neil, 11/02/2026, early_punch.py): off (0) unless a
-  // company turns it on, clamped to 0-240, saved through the one Save row;
-  // the hint says the punch is always recorded.
-  it('saves the early punch alert minutes, off by default, through the one Save row', async () => {
+  // Early punch alert (Neil, 11/02/2026, early_punch.py): a 10-minute window
+  // out of the box (Neil, Teams 11/02/2026), clamped to 0-240, saved through
+  // the one Save row; the hint says the punch is always recorded.
+  it('saves the early punch alert minutes, 10 by default, through the one Save row', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} part="attendance" />);
     const mins = await screen.findByLabelText('Early punch alert');
-    expect(mins.value).toBe('0');
+    expect(mins.value).toBe('10');
     expect(screen.getByText('Early Punch Alert')).toBeTruthy();
     expect(screen.getByText(/0 turns it off\. The punch is always recorded\.$/)).toBeTruthy();
     expect(saveButton().disabled).toBe(true);
