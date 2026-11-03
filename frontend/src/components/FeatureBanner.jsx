@@ -74,9 +74,12 @@ const RELOAD_RECOVER_MS = 4000;
 // nothing but what the bar already has. Grouped by category in reading order.
 const TYPE_ORDER = ['New Feature', 'Improvement', 'Performance', 'Security Update', 'Bug Fix', 'Hotfix', 'Maintenance'];
 
-// `weekly`: the weekly news (this version's own updates) - worded for it, with a
-// way on to the full What's New page; a new version cannot open that page.
-function ReleasePopup({ items, total, onClose, onReload, reloading, weekly = false, onSeeAll }) {
+// `weekly`: the weekly news (this version's own updates) - worded for it.
+// Both popups end with a way on to the full What's New page (Neil, 11/03/2026):
+// the weekly one navigates there; a new version cannot open that screen in
+// this tab (the deploy deleted its files), so its button loads the new
+// version straight onto the page instead (`onOpenPage`).
+function ReleasePopup({ items, total, onClose, onReload, reloading, weekly = false, onSeeAll, onOpenPage }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -128,7 +131,8 @@ function ReleasePopup({ items, total, onClose, onReload, reloading, weekly = fal
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 20px', borderTop: '1px solid var(--nx-border, #e5e7eb)' }}>
           <button type="button" onClick={onClose} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--nx-border, #d1d5db)', background: 'transparent', color: 'inherit', fontWeight: 600, cursor: 'pointer' }}>{weekly ? 'Close' : 'Later'}</button>
-          {weekly && onSeeAll && <button type="button" onClick={onSeeAll} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--nx-border, #d1d5db)', background: 'transparent', color: 'inherit', fontWeight: 600, cursor: 'pointer' }}>See All on What&apos;s New</button>}
+          {weekly && onSeeAll && <button type="button" onClick={onSeeAll} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--nx-border, #d1d5db)', background: 'transparent', color: 'inherit', fontWeight: 600, cursor: 'pointer' }}>Open the What&apos;s New Page<ArrowRight size={14} aria-hidden="true" /></button>}
+          {!weekly && onOpenPage && <button type="button" onClick={onOpenPage} disabled={reloading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--nx-border, #d1d5db)', background: 'transparent', color: 'inherit', fontWeight: 600, cursor: 'pointer' }}>Reload and Open What&apos;s New<ArrowRight size={14} aria-hidden="true" /></button>}
           <button type="button" onClick={onReload} disabled={reloading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: 0, background: '#1f7a40', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
             <RefreshCw size={14} aria-hidden="true" />{reloading ? 'Reloading…' : 'Reload Now'}
           </button>
@@ -267,6 +271,8 @@ export default function FeatureBanner({ activeView, onNavigate }) {
   // Closing the weekly popup folds the bar away - it has been seen.
   const closePopup = () => { setPopupOpen(false); if (!update) close(); };
   const reload = () => go(() => window.location.reload());
+  // A full load, not in-app navigation: the new version, opened on What's New.
+  const reloadOntoWhatsNew = () => go(() => window.location.assign('/whats-new'));
 
   const counts = update ? release?.counts : banner.counts;
   const parts = counts ? categoryParts(counts) : [];
@@ -336,7 +342,7 @@ export default function FeatureBanner({ activeView, onNavigate }) {
       {popupOpen && (
         <ReleasePopup weekly={!update} items={update ? release?.items : banner?.items}
           total={update ? release?.total : banner?.total} reloading={reloading}
-          onClose={closePopup} onReload={reload}
+          onClose={closePopup} onReload={reload} onOpenPage={reloadOntoWhatsNew}
           onSeeAll={() => { setPopupOpen(false); onNavigate?.('whats-new'); }} />
       )}
     </div>
