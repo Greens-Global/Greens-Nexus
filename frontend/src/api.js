@@ -1651,6 +1651,8 @@ export const api = {
   // Sign-in company-policy & monitoring acknowledgment
   policyStatus:      ()          => req('/policy/status'),
   policyAccept:      (version)   => req('/policy/accept', { method: 'POST', body: JSON.stringify({ version }) }),
+  // Privacy Policy built from backend/privacy_inventory.py (signed in: + contact, services in use, admin notes)
+  privacyNoticeMe:   ()          => req('/policy/privacy-notice/me'),
 
   // ── Customizable dashboards (drag-and-drop widget layouts) ──
   dashViews:      (target)     => req(`/dashboards/views?target=${encodeURIComponent(target)}`),

@@ -5405,3 +5405,5 @@ from routers import me_sessions as me_sessions_router  # noqa: E402 - nexus_sign
 app.include_router(me_sessions_router.router)  # My Profile > Security: where you are signed in, sign out other devices, recent sign-ins (Neil, 11/02/2026)
 from routers import pdf_tools as pdf_tools_router  # noqa: E402 - writes audit_logs rows only, no new table
 app.include_router(pdf_tools_router.router)  # PDF Tools: who did what - one Audit Log row per action, never the file (Neil, 11/02/2026)
+from routers import privacy_notice as privacy_notice_router  # noqa: E402 - reads only, no new table
+app.include_router(privacy_notice_router.router)  # Privacy Policy built from privacy_inventory.py: public /policy/privacy-notice + signed-in /me (legal compliance pass, 11/02/2026)
