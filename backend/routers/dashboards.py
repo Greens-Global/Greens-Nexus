@@ -597,6 +597,8 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         _safe_insight(modules, "construction", "Construction", "ops", construction_block)
 
         def asset_block():
+            from routers.maintenance import rollup_rows
+            pm = rollup_rows(db, user)
             total_props = db.query(M.PropertyAsset).filter(M.PropertyAsset.parent_id == "").count()
             # Warranties/inspections live as generic {collection, payload} rows
             # (see routers/property_assets.py) - same date fields and windows
@@ -614,6 +616,9 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
                     {"key": "total_properties", "label": "Properties", "value": total_props, "tone": "neutral"},
                     {"key": "warranties_expiring", "label": "Warranties Expiring (90d)", "value": warranties_expiring, "tone": "warning"},
                     {"key": "inspections_due", "label": "Inspections Due (30d)", "value": inspections_due, "tone": "critical"},
+                    # Preventive maintenance (11/03/2026): overdue preventive
+                    # tickets, walled - the roll-up the Tickets desk reads.
+                    {"key": "pm_overdue", "label": "Preventive Overdue", "value": pm["overdue"], "tone": "critical"},
                 ],
                 "breakdown": [],
             }
@@ -755,7 +760,7 @@ DRILLABLE = {
     "forms": {"entries_7d", "follow_up_open"},
     "it": {"warranties_expiring", "hw_unassigned"},
     "construction": {"logs_pending", "overdue_rfis", "pending_submittals", "at_risk_milestones"},
-    "asset_management": {"warranties_expiring", "inspections_due"},
+    "asset_management": {"warranties_expiring", "inspections_due", "pm_overdue"},
     "people": {"open_candidates", "interviews_7d", "leave_pending", "docs_expiring"},
     "credential_vault": {"weak", "rotation_overdue", "pending_shares"},
 }
@@ -979,6 +984,12 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
                     items.append(((r.payload or {}).get("type") or "Inspection", f"{props.get(r.property_id, '')} · {_us(due)}"))
             items.sort(key=lambda r: r[1])
             return _list(items, "Inspections Due")
+        if metric == "pm_overdue":
+            from routers.maintenance import rollup_rows
+            rows = [o for o in rollup_rows(db, user)["properties"] if o["overdue"]]
+            items = [(o["propertyName"], f"{o['overdue']} overdue · oldest due {_us(o['oldestOverdue'])}")
+                     for o in rows]
+            return _list(items, "Preventive Overdue by Property")
         raise HTTPException(404, "No breakdown for this metric")
 
     if module == "people":
