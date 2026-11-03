@@ -745,6 +745,11 @@ class NexusGroup(Base):
     # company - [{id, hiredAs, country, region, entityId, text, createdBy,
     # createdAt, updatedAt, archivedAt}]. hiring_setup.resolve_duties picks one.
     duty_versions   = Column(JSON, default=list)
+    # The role's job description as a FILE (Neil, 11/03/2026): a PDF - or a
+    # Word file Nexus converted to one - that goes out after the offer letter
+    # in place of the typed duties. {path (in the HR documents bucket), name,
+    # pages, size, uploadedAt, uploadedBy}; {} = the typed duties are used.
+    jd_file         = Column(JSON, default=dict)
 
 
 class NexusGroupMember(Base):

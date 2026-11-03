@@ -21,8 +21,8 @@ const offerOptions = vi.fn((cid, p) => Promise.resolve({
   missing: p.worker_type === 'contractor' ? 'No offer letter is set up for a Contractor in US at Greens yet.' : '',
 }));
 const startOffer = vi.fn(() => Promise.resolve({ id: 'ev-offer', candidateId: 'c1', kind: 'offer', status: 'review' }));
-const getDocTemplates = vi.fn(() => Promise.resolve([]));
-const plainOptions = { roles: [{ id: 'jr-an', name: 'Analyst', department: 'Accounting', defaultManagerEmail: '' }], departments: ['Accounting'] };
+const getDocTemplates = vi.fn(() => Promise.resolve([{ id: 'jd-1', name: 'Job Description', publishedVersion: 1 }]));
+const plainOptions = { roles: [{ id: 'jr-an', name: 'Analyst', department: 'Accounting', defaultManagerEmail: '', hasDuties: true, jdFile: '' }], departments: ['Accounting'] };
 const hiringOptions = vi.fn(() => Promise.resolve(plainOptions));
 const people = { current: [] };
 vi.mock('../api', () => ({ api: {
@@ -71,7 +71,7 @@ describe('OfferModal', () => {
     const [cid, body] = startOffer.mock.calls[0];
     expect(cid).toBe('c1');
     expect(body.inputs).toMatchObject({ worker_type: 'employee', employment_type: 'full_time', country: 'US', role_id: 'jr-an',
-      work_location: 'Irvine, CA', merge: { probation_period: '90 days' } });
+      work_location: 'Irvine, CA', merge: { probation_period: '90 days' }, jd_template_id: 'jd-1' });
     expect(body.pay_values).toEqual({ joining_bonus: '$2,000' });            // pay never goes in merge
     expect(body.pay).toMatchObject({ base: 85000, payBasis: 'salary' });
   });
@@ -121,14 +121,44 @@ describe('OfferModal', () => {
   });
 });
 
-// Oct 22: HR sees what the packet holds for this hire, and the one Job
-// Description document is picked for them.
-describe('OfferModal - what the packet holds', () => {
-  it('lists the packet documents and picks the only job description', async () => {
-    getDocTemplates.mockResolvedValueOnce([{ id: 'jd-1', name: 'Job Description' }]);
+// Oct 22: HR sees what the packet holds for this hire. Nov 3 2026 (Neil): the
+// job description goes out after the offer letter, not in the packet - the
+// role's own file when it has one, else its duties; never an offer without one.
+describe('OfferModal - the job description after the letter', () => {
+  it('lists the packet documents and puts the job description after the letter', async () => {
     render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
     fireEvent.click(screen.getByRole('radio', { name: 'Employee' }));
-    expect(await screen.findByText(/It holds: NDA, and the job description/)).toBeTruthy();
+    expect(await screen.findByText(/It holds: NDA\./)).toBeTruthy();
+    expect(screen.getByText(/After the letter: the role's job description, with a box Jane ticks/)).toBeTruthy();
+  });
+
+  it("sends the role's own file and asks for no document", async () => {
+    startOffer.mockClear();
+    hiringOptions.mockResolvedValueOnce({ ...plainOptions, roles: [{ ...plainOptions.roles[0], jdFile: 'Analyst JD.pdf' }] });
+    render(<OfferModal candidate={cand} canSeePay={false} onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Employee' }));
+    expect(await screen.findByText(/the role's job description file \(Analyst JD\.pdf\)/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
+    next();
+    expect(screen.queryByLabelText('Job Description')).toBeNull();
+    expect(screen.getByText('Analyst JD.pdf')).toBeTruthy();
+    next();
+    fireEvent.change(screen.getByLabelText('Probation Period *'), { target: { value: '90 days' } });
+    fireEvent.click(screen.getByText('Create Offer Letter'));
+    await waitFor(() => expect(startOffer).toHaveBeenCalled());
+    expect(startOffer.mock.calls[0][1].inputs.jd_template_id).toBe('');
+  });
+
+  it('will not go on for a role with no job description', async () => {
+    hiringOptions.mockResolvedValueOnce({ ...plainOptions, roles: [{ ...plainOptions.roles[0], hasDuties: false }] });
+    render(<OfferModal candidate={cand} canSeePay={false} onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Employee' }));
+    await waitFor(() => expect(screen.getByText('US Employee Offer')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
+    next();
+    next();
+    expect(screen.getAllByText(/Analyst has no job description yet/).length).toBeGreaterThan(0);
+    expect(screen.getByText('The offer')).toBeTruthy();                    // still on the offer step
   });
 });
 

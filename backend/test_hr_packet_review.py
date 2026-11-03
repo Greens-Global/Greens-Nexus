@@ -170,8 +170,12 @@ class ReviewCase(unittest.TestCase):
         self.assertEqual(c.post(f"/esign/public/{party.token}/otp/request", json={"channel": "email"}).status_code, 200)
         r = c.post(f"/esign/public/{party.token}/otp/verify", json={"code": self.codes[party.email]})
         self.assertEqual(r.status_code, 200, r.text)
+        # Every tick box this signer owns is ticked - an offer's "I have read the job description" (Nov 3 2026).
+        req = self.db.query(models.HrSignRequest).filter_by(id=party.request_id).first()
+        ticks = {f["id"]: True for f in list(req.fields or []) + [g for d in (req.documents or []) for g in d.get("fields") or []]
+                 if f.get("type") == "check" and f.get("role") == party.role_key}
         r = c.post(f"/esign/public/{party.token}/sign", json={
-            "consent": True, "signature_kind": "typed", "signature_data": party.name,
+            "consent": True, "signature_kind": "typed", "signature_data": party.name, "field_values": ticks,
             "format_demonstrated": "pdf_rendered_in_session", "pages_viewed": 1, "pages_total": 1})
         self.assertEqual(r.status_code, 200, r.text)
 

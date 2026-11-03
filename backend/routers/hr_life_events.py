@@ -1004,6 +1004,23 @@ def packet_document_pdf(eid: str, did: str, user: dict = Depends(require_hr_read
                     headers={"Content-Disposition": f'inline; filename="{hle._safe_name(row.title)}.pdf"'})
 
 
+@router.get("/life-events/{eid}/jd-file")
+def offer_jd_file(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """The role's job description file this offer sends after the letter (Neil, 11/03/2026)."""
+    ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).first()
+    if not ev:
+        raise HTTPException(404, "Not found")
+    _event_in_scope(db, ev, hr_scope(user, db))
+    try:
+        pdf = hpd.offer_jd_pdf(ev)
+    except hle.PacketError as e:
+        raise HTTPException(e.status, str(e))
+    if pdf is None:
+        raise HTTPException(404, "This offer has no job description file.")
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="job-description.pdf"'})
+
+
 class PacketValuesIn(BaseModel):
     inputs:     Optional[dict] = None
     details:    Optional[dict] = None

@@ -1126,7 +1126,10 @@ def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
              "workStart": d.get("work_start", ""), "workEnd": d.get("work_end", ""),
              "workDays": list(d.get("work_days") or []), "timingsText": d.get("timings_text", ""),
              "schedule": timings(d).get("work_schedule", ""), "jdTemplateId": d.get("jd_template_id", ""),
-             "jdName": jd.name if jd else "", "effectiveDate": d.get("effective_date", ""),
+             "jdName": jd.name if jd else "",
+             # The role's job description file, when it goes out after the offer letter (Neil, 11/03/2026).
+             "jdFile": ((d.get("role_jd_file") or {}).get("name") or "") if d.get("jd_in_offer") else "",
+             "jdInOffer": bool(d.get("jd_in_offer")), "effectiveDate": d.get("effective_date", ""),
              "lastDay": d.get("last_day", ""), "employeeCode": d.get("employee_code", "")}
     entity = db.query(HrEntity).filter(HrEntity.id == ev.entity_id).first() if ev.entity_id else None
     out = {"event": hle.ser_event(db, ev, show_pay=can_see_pay), "packetName": setting.name or "",
@@ -1226,6 +1229,92 @@ def verify_and_send(db: Session, ev, user: dict, *, seen: dict, excluded_ack: bo
     db.commit()
 
 
+# ── the job description under the offer letter (Neil, 11/03/2026) ──────────
+# One offer letter per kind of hire; the role brings its job description -
+# its typed duties printed by the Job Description document, or its own file
+# (a PDF, or a Word file Nexus converted). It is sent INSIDE the offer
+# letter's PDF, after the letter's pages, followed by one page where the
+# candidate ticks that they read it - a required checkbox, so the signed
+# copy proves they saw the duties before accepting.
+
+JD_ACK_LABEL = "I have read the job description"
+# Where the tick box sits on the acknowledgment page (fractions, top-left).
+JD_ACK_BOX = {"x": 0.12, "y": 0.34, "w": 0.04, "h": 0.03}
+
+
+def jd_ack_page(job_title: str) -> bytes:
+    """The one-page acknowledgment that follows the job description."""
+    import io
+    from reportlab.lib.pagesizes import LETTER
+    from reportlab.pdfgen import canvas
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=LETTER)
+    pw, ph = LETTER
+    what = f"the {job_title} position" if job_title else "this position"
+    c.setFont("Helvetica-Bold", 15)
+    c.drawString(0.12 * pw, ph - 0.14 * ph, "Job Description Acknowledgment")
+    c.setFont("Helvetica", 10.5)
+    c.drawString(0.12 * pw, ph - 0.20 * ph, f"The job description for {what} is on the pages before this one.")
+    c.drawString(0.12 * pw, ph - 0.23 * ph, "Tick the box to confirm you have read it.")
+    b = JD_ACK_BOX
+    # The label beside the box Nexus Sign draws the tick in.
+    c.drawString((b["x"] + b["w"] + 0.01) * pw, ph - (b["y"] + b["h"] * 0.7) * ph, f"{JD_ACK_LABEL} for {what}.")
+    c.save()
+    return buf.getvalue()
+
+
+def attach_jd(letter_pdf: bytes, letter_fields: list, jd_pdf: bytes, jd_fields: list, *,
+              signer: str, job_title: str) -> tuple:
+    """(pdf, fields): the letter's pages, the job description's, then the
+    acknowledgment page with the signer's required tick box. The job
+    description's own boxes move with its pages."""
+    import io
+    from pypdf import PdfReader, PdfWriter
+    letter, jd = PdfReader(io.BytesIO(letter_pdf)), PdfReader(io.BytesIO(jd_pdf))
+    out = PdfWriter()
+    for page in list(letter.pages) + list(jd.pages) + list(PdfReader(io.BytesIO(jd_ack_page(job_title))).pages):
+        out.add_page(page)
+    n, m = len(letter.pages), len(jd.pages)
+    fields = list(letter_fields) + [{**f, "id": f"jd-{f['id']}", "page": int(f.get("page") or 0) + n}
+                                    for f in jd_fields]
+    fields.append({"id": "jd-ack", "role": signer, "type": "check", "label": JD_ACK_LABEL, "required": True,
+                   "page": n + m, **JD_ACK_BOX})
+    buf = io.BytesIO()
+    out.write(buf)
+    return buf.getvalue(), fields
+
+
+def offer_jd_pdf(ev) -> Optional[bytes]:
+    """The role's job description file frozen into this offer, or None when
+    the offer carries the typed duties instead."""
+    import hr_life_events as hle
+    from routers import esign
+    f = (ev.inputs or {}).get("role_jd_file") or {}
+    if not f.get("path"):
+        return None
+    got = esign._storage_fetch(esign._DOC_BUCKET, f["path"])
+    if not got.is_success:
+        raise hle.PacketError("Could not open the role's job description file - try again in a minute.", 502)
+    return got.content
+
+
+def offer_with_jd(ev, rendered: list, *, signer: str) -> list:
+    """The offer's rendered documents [(row, entry, pdf, fields)] with the job
+    description folded into the first - the offer letter."""
+    import hr_life_events as hle
+    d = ev.inputs or {}
+    jd_pdf, jd_fields = offer_jd_pdf(ev), []
+    if jd_pdf is None:
+        hit = next((r for r in rendered[1:] if r[1].get("templateId") == d.get("jd_template_id")), None)
+        if hit is None:
+            raise hle.PacketError("The job description is missing from this offer - click Edit and pick it again.", 409)
+        rendered = [r for r in rendered if r is not hit]
+        jd_pdf, jd_fields = hit[2], hit[3]
+    row, e, pdf, fields = rendered[0]
+    pdf, fields = attach_jd(pdf, fields, jd_pdf, jd_fields, signer=signer, job_title=d.get("job_title", ""))
+    return [(row, e, pdf, fields)] + rendered[1:]
+
+
 def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dict, *,
                    excluded_ack: bool, ip: str = "", user_agent: str = "") -> dict:
     """Render every document with pay, refuse anything still showing a
@@ -1244,8 +1333,8 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
         raise hle.PacketError("The person must sign first - nobody signs for the company before them.", 409)
     pay = event_pay(db, ev, setting)
     remap = p["remap"]
-    docs = []
-    for i, e in enumerate(ev.documents or []):
+    rendered = []
+    for e in ev.documents or []:
         row = db.query(Document).filter(Document.id == e["documentId"]).first()
         anchors = []
         pdf, missing = render_row(db, row, pay, anchors=anchors)
@@ -1254,11 +1343,15 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
         text = "".join(pg.extract_text() or "" for pg in PdfReader(io.BytesIO(pdf)).pages)
         if "{{" in text:
             raise hle.PacketError(f'"{row.title}" still shows an unfilled variable - fix the template or the values.', 409)
+        rendered.append((row, e, pdf, [{**f, "role": remap.get(f["role"], f["role"])} for f in signing_fields(anchors)]))
+    if ev.kind == "offer" and (ev.inputs or {}).get("jd_in_offer"):
+        rendered = offer_with_jd(ev, rendered, signer=first["key"])
+    docs = []
+    for i, (row, e, pdf, placed) in enumerate(rendered):
         path = f"esign/{uuid.uuid4()}/{hle._safe_name(row.title, 90)}.pdf"
         if not esign._storage_put(esign._DOC_BUCKET, path, pdf, "application/pdf").is_success:
             raise hle.PacketError("Could not store the documents - try again in a minute.", 502)
-        fields = [{**f, "id": f"d{i + 1}-{f['id']}", "role": remap.get(f["role"], f["role"])}
-                  for f in signing_fields(anchors)]
+        fields = [{**f, "id": f"d{i + 1}-{f['id']}"} for f in placed]
         docs.append({"name": f"{row.title}.pdf", "path": path, "fields": fields})
     # The federal forms after the documents (Neil, 11/02/2026): a US hiring
     # packet for an employee sends the W-4, the I-9 and the direct deposit
@@ -1730,14 +1823,18 @@ def with_role_docs(ids: list, role_docs) -> list:
 
 def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str) -> list:
     """Every template a packet prints for one person: its own documents, the
-    ones for their team and role, then (not on an offer) their job
-    description."""
+    ones for their team and role, then their job description - on the offer
+    when it was made with it (`jd_in_offer`, Neil 11/03/2026; a role's own
+    file is attached at send instead, `offer_jd_pdf`), else on the packet."""
     d = inputs or {}
     ids = list((setting.doc_template_ids or []) if setting is not None else [])
     ids += [t for t in block_ids(setting, d.get("department", ""), d.get("role_id", "")) if t not in ids]
     if kind != "offer":
         ids = with_role_docs(ids, d.get("role_docs"))
-    jd = d.get("jd_template_id") or "" if kind != "offer" else ""
+    if kind == "offer":
+        jd = "" if not d.get("jd_in_offer") or d.get("role_jd_file") else d.get("jd_template_id") or ""
+    else:
+        jd = "" if d.get("jd_in_offer") else d.get("jd_template_id") or ""
     if jd and jd not in ids:
         ids.append(jd)
     return ids
