@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, addressFor } from './lib/routes';
+import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, itemsRedirect, addressFor, itemLinkSub } from './lib/routes';
 import { workforceRedirect, WORKFORCE_GRANTS } from './lib/workforceAccess';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
@@ -466,6 +466,12 @@ function parsePath() {
   // Workday > Purchase Requests (/purchase/new opens the form).
   const moved = purchaseRedirect(view, segs[1] || null);
   if (moved) return moved;
+  // An item's own link (a QR tag): /itemmanagement/item/<id> -> sub item/<id>.
+  const itemLink = itemLinkSub(view, segs);
+  if (itemLink) return { view, sub: itemLink };
+  // Item Management's old subs land on the new tabs (Items redesign, 11/02/2026).
+  const items = itemsRedirect(view, segs[1] || null);
+  if (items) return items;
   // ...and a "confirm your schedule" link (Shifts Phase 3a: the email's
   // ?confirm=<id>, the bell's mine:confirm:<id>) opens My Schedule on it.
   if (view === 'shifts' && /^mine(:|$)/.test(segs[1] || '')) {
@@ -738,6 +744,9 @@ function MainApp() {
     // Purchase Requisition -> Workday > Purchase Requests (see parsePath).
     const moved = purchaseRedirect(view, sub);
     if (moved) ({ view, sub } = moved);
+    // Item Management's old subs (bells, emails, tiles) -> the new tabs (see parsePath).
+    const items = itemsRedirect(view, sub);
+    if (items) ({ view, sub } = items);
     if (view === 'shifts' && /^mine(:|$)/.test(sub || '')) {
       const confirm = ((sub || '').match(/^mine:confirm:(.+)$/) || [])[1] || '';
       view = 'myhr'; sub = confirm ? `shifts:confirm:${confirm}` : 'shifts';
@@ -810,7 +819,14 @@ function MainApp() {
       : activeView === 'dashboard' && activeSub === 'links'
         ? '/links'
         : `/${seg}${activeSub ? `/${activeSub}` : ''}`;
-    if (window.location.pathname !== path) {
+    if (window.location.pathname !== path && first) {
+      // The FIRST write only rewrites the address the app was opened at (an
+      // old alias, a default tab added) - REPLACE it: a pushed copy left the
+      // old address one Back away, and opening it again rewrote it again, so
+      // Back never left (Items redesign review, 11/02/2026).
+      window.history.replaceState(window.history.state, '', addressFor(path, { first, search: window.location.search, hash: window.location.hash }));
+      rememberEntry();
+    } else if (window.location.pathname !== path) {
       const depth = (window.history.state?.depth || 0) + 1;
       const fromLabel = viewLabel(prevLocRef.current.view);
       window.history.pushState({ depth, fromLabel }, '', addressFor(path, { first, search: window.location.search, hash: window.location.hash }));

@@ -1136,13 +1136,24 @@ def _ticket_approvals(db: Session, user: dict, ctx: dict) -> list:
     return out
 
 
-# ── Equipment (Item Management, routers/items.py - read, never edited) ───────
+# ── Equipment (Item Management, routers/items.py) ────────────────────────────
 
 def _items_manager(db: Session, user: dict, ctx: dict) -> bool:
     if "items_mgr" not in ctx:
         from routers.items import _is_items_manager
         ctx["items_mgr"] = bool(_me(user)) and not user.get("external") and _is_items_manager(user, db)
     return ctx["items_mgr"]
+
+
+def _item_wall(db: Session, user: dict, ctx: dict):
+    """The items the caller's company scope admits (routers.items.
+    visible_item_ids - the same wall the Item Management routes apply), or
+    None when the caller is unwalled. A row about an item outside it is the
+    module's 404, so it never waits on this person (Nov 2026)."""
+    if "item_wall" not in ctx:
+        from routers.items import visible_item_ids
+        ctx["item_wall"] = visible_item_ids(db, user)
+    return ctx["item_wall"]
 
 
 @source("item_checkout", "Checkout Requests", "equipment")
@@ -1159,9 +1170,12 @@ def _item_checkouts(db: Session, user: dict, ctx: dict) -> list:
     rows = (db.query(C).filter(C.status == "pending",
                                or_(func.lower(C.approver_email) == me, C.approver_email == "", C.approver_email.is_(None)))
             .order_by(C.created_at).all())
+    wall = _item_wall(db, user, ctx)
     orders: dict = {}
     for c in rows:
         if (c.requested_by_email or "").lower() == me:
+            continue
+        if wall is not None and c.item_id not in wall:
             continue
         orders.setdefault(c.order_id or c.id, []).append(c)
     out = []
@@ -1194,8 +1208,11 @@ def _item_extensions(db: Session, user: dict, ctx: dict) -> list:
     me = _me(user)
     C = models.ItemCheckout
     out = []
+    wall = _item_wall(db, user, ctx)
     for c in db.query(C).filter(C.extension_status == "pending").order_by(C.created_at).all():
         if (c.requested_by_email or "").lower() == me:
+            continue
+        if wall is not None and c.item_id not in wall:
             continue
         n = int(c.extension_days or 0)
         who = (c.requested_by_email or "").lower()
@@ -1246,8 +1263,16 @@ def _assignment_returns(db: Session, user: dict, ctx: dict) -> list:
     me = _me(user)
     A = models.ItemAssignment
     out = []
+    wall = _item_wall(db, user, ctx)
     for a in db.query(A).filter(A.status == "return_initiated").order_by(A.return_initiated_at).all():
         if (a.assignee_email or "").lower() == me:
+            continue
+        if wall is not None and a.item_id not in wall:
+            continue
+        if a.return_reason == "reassign" and not (a.return_photo_url or "").strip():
+            # A manager's Reassign the holder has not returned yet: accept-return
+            # refuses it until the photo comes (or a manager uses Recover), so it
+            # is not waiting on anyone's decision here.
             continue
         why = _RETURN_WORD.get(a.return_reason or "normal", (a.return_reason or "").title())
         who = (a.assignee_email or "").lower()

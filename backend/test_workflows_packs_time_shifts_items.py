@@ -24,6 +24,7 @@ import sys
 import tempfile
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -372,7 +373,10 @@ def test_checkout_status_change_fires_the_items_event_from_the_observer(db):
     assert ev.payload["extra"] == {"field": "status"}
     sub = ev.payload["subject"]
     assert sub["requested_by_email"] == PRIYA and sub["approver_email"] == MAX and sub["days"] == 3
-    assert sub["due_date"] == (datetime.now(timezone.utc) - timedelta(days=1) + timedelta(days=3)).date().isoformat()
+    # item_due: the due DATE is read in the borrower's zone (no Shift preset and
+    # no Shifts settings loaded here: the default, America/Los_Angeles).
+    due_at = datetime.fromisoformat(co.created_at.replace("Z", "+00:00")) + timedelta(days=3)
+    assert sub["due_date"] == due_at.astimezone(ZoneInfo("America/Los_Angeles")).date().isoformat()
     assert ev.payload["subjectLabel"] == "Hammer Drill - Priya Test"
     co.condition_note = "scratched"                          # not an observed field
     db.commit()

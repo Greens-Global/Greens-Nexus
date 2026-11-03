@@ -4,6 +4,7 @@ import { planFor, playPlan, starSpec, FLOURISH_MS } from '../lib/flourishMotion'
 import { Play, Pause, Square, MonitorUp, MonitorX, MonitorPause, Plus } from 'lucide-react';
 import { Spinner } from './AsyncState';
 import NavTip from './NavTip';
+import ShiftTrack from './ShiftTrack';
 
 // The time clock as one object (Neil, Oct 14 2026): a dial that fills with
 // today's hours toward 8, a status light in its center, wearing the color
@@ -270,6 +271,12 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
         </span>
       </button>
       </NavTip>
+      {/* Today's shift as a slim track under the head (Neil, 11/02/2026):
+          orange while it runs, green once it is done, nothing with no shift
+          today. Its line ("4h 16m left in today's shift") is the hover title
+          and what a screen reader hears - the chip keeps its two lines. The
+          folded rail has no room for it. */}
+      {vm.track && <ShiftTrack track={vm.track} size="sm" ends={false} note={false} className="sbclock-track" />}
       {alert && (
         shareAlert
           ? (

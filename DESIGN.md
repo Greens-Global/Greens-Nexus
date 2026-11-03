@@ -24,6 +24,33 @@ terminal/mono styling, neon, glassmorphism, heavy gradients.
 - Radius `--wk-r 8px`; cards `1px solid var(--wk-line2)` + `--wk-shadow 0 4px 12px rgba(29,33,57,.05)`
 - Hover depth: shadow deepens + border darkens; translateY(-1px) max.
 
+## Live accent (Neil, 11/02/2026)
+
+Mock: https://claude.ai/artifact/PwncxMck8YaSkFkQ8hmTHE. **Green stays the brand**
+(primary buttons, the active nav item, links, the N tile, anything done). **Orange
+means "in progress / now" and nothing else.**
+
+- Tokens (style.css "Live accent" block, contrast ratios in its comment):
+  `--wk-live` bars, outlines, icons, the now line (light `#ed631a` - the mock's `#ee6a24`
+  one step darker so it clears 3:1 on the canvas too - dark `#ff7a33`,
+  Warm sand `#d9581a`) · `--wk-live-ink` the only orange allowed for text (`#b8480f` /
+  `#ff9a5c` / `#a8400c`) · `--wk-live-tint` a soft wash (`#fdeee5` /
+  `rgba(255,122,51,.14)` / `#fbe4d5`) · `--wk-live-line` an outline around a tint ·
+  `--wk-live-on` text on a solid `--wk-live-ink` fill (the Act As Exit chip only).
+- Where it goes: a running shift, progress that is still moving, the current-time
+  marker and today's column, a live mode the person switched on (Act As, a company
+  picked in Settings > Applies To). Fills, outlines, bars and icons.
+- Where it never goes: a button fill, a warning (warnings stay a yellow background +
+  icon, and orange never sits on yellow), small body text (use `--wk-live-ink`), a
+  count badge. The category tints (`--wk-orange`, `.dk-chip--orange`,
+  `.dk-pill--orange`, `.card-orange`) are status colors, not the live accent.
+- Brand collision: a company whose brand color is orange / red / pink (hue <= 45 or
+  >= 330 with real saturation, `liveCollides` in `lib/brandAccent.js`) gets the live
+  family in cobalt (`#2b45e1`, dark `#7086ff`), written by the brand stylesheet.
+- `ui/ProgressTrack.jsx` is the one progress bar: solid fill (live orange, done
+  green, overdue red, idle gray), dashed remainder, optional end labels, note and
+  ringed now marker; the width moves only when motion is allowed.
+
 ## Type
 
 - Desk surfaces: **Figtree** (400–800) — friendly geometric, professional.

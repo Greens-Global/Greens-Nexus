@@ -1,3 +1,4 @@
+import { plannerToday } from './shifts/nowLine';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
@@ -198,7 +199,12 @@ describe('MyShifts week and group grid', () => {
       expect(within(grid).queryByRole('columnheader')).toBeNull();
       const strip = screen.getByRole('tablist', { name: 'Day' });
       expect(within(strip).getAllByRole('tab')).toHaveLength(7);
-      expect(within(strip).getByRole('tab', { selected: true }).getAttribute('aria-label')).toContain(`${DAY.slice(5, 7)}/${DAY.slice(8, 10)}/${DAY.slice(0, 4)}`);
+      // The strip opens on the team's today (Los Angeles), not the machine's date.
+      const teamDay = plannerToday('America/Los_Angeles');
+      expect(within(strip).getByRole('tab', { selected: true }).getAttribute('aria-label')).toContain(`${teamDay.slice(5, 7)}/${teamDay.slice(8, 10)}/${teamDay.slice(0, 4)}`);
+      // bob1 sits on the machine's date; open that day (the same day except between
+      // midnight and 8 AM UTC, when Los Angeles is still on the day before).
+      fireEvent.click(within(strip).getByRole('tab', { name: new RegExp(`${DAY.slice(5, 7)}/${DAY.slice(8, 10)}/${DAY.slice(0, 4)}`) }));
       expect(grid.querySelector('[data-member="bob@x.com"] [data-shift="bob1"]')).toBeTruthy();
     } finally { mm.mockRestore(); }
   });

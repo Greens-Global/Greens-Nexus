@@ -96,6 +96,11 @@ describe('ChecklistSection', () => {
     expect(screen.getByText('Unassigned')).toBeInTheDocument();
     expect(screen.getByText('Due 10/30/2026')).toBeInTheDocument();
     expect(screen.getByText('0 of 2 Done')).toBeInTheDocument();
+    // Live accent review (11/02/2026): the warning is the house warning look,
+    // the bar is red with a step late, and the late phase is named under it.
+    expect(screen.getByText('Unassigned').closest('.nx-warn-note')).not.toBeNull();
+    expect(screen.getByRole('progressbar', { name: 'Checklist progress' }).closest('.nx-track').className).toContain('is-overdue');
+    expect(document.querySelector('[data-behind]').textContent).toBe('Behind: Account And Access');
   });
 
   it('ticks a step through the API', async () => {

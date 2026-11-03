@@ -8,15 +8,24 @@ import { StickyNote, Users, CalendarRange } from 'lucide-react';
 import WeatherChip from './WeatherChip';
 import { formatHHMM } from '../../lib/datetime';
 import { TimeOffBlock, HolidayBlock } from './ShiftBlock';
+import { nowLineFor, useMinuteNow, plannerToday } from './nowLine';
 import { PersonCell } from './WeekGrid';
 import { toMin, durMin, fmtHrs, paidMinutes, counts, shiftState, shiftTimeText, shiftShortText, alpha, DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, unpaidLabel } from './shiftLib';
 
 const HOURS = [0, 3, 6, 9, 12, 15, 18, 21];
 const GRID = { display: 'grid', gridTemplateColumns: '180px minmax(560px, 1fr)' };
 const STICKY_LEFT = { position: 'sticky', left: 0, zIndex: 2, background: 'var(--card)', borderRight: '1px solid var(--line)' };
+// On today, the hour header keeps a row of its own under the hour words for
+// the "2:14 PM" label, so the two never overlap however short the row is.
+export const NOW_ROW = 20;
 
 export default function ScheduleDay({ date, sections, shifts, openCells, notes, weather = {}, canManage, offOn, holOn, copied, prefs, rowEditable, shiftEditable, dragId, on, single = false,
-  dragProps = () => ({}), dropProps = () => ({}), dropStyle = () => ({}), clickable = (fn) => fn }) {
+  dragProps = () => ({}), dropProps = () => ({}), dropStyle = () => ({}), clickable = (fn) => fn, teamZone = '' }) {
+  // The now line (live accent, 11/02/2026): on this day's 24-hour track at
+  // the team zone's current time, only while the day is today there.
+  const now = useMinuteNow(plannerToday(teamZone) === date);
+  const nowAt = nowLineFor(date, teamZone, now);
+  const nowLeft = nowAt ? `${nowAt.frac * 100}%` : null;
   const byEmail = {};
   shifts.forEach((s) => { if (s.date === date && s.email) (byEmail[s.email] ||= []).push(s); });
   const people = new Set(Object.keys(byEmail).filter((e) => byEmail[e].some(counts)));
@@ -53,6 +62,7 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
           backgroundImage: 'repeating-linear-gradient(to right, transparent 0, transparent calc(12.5% - 1px), var(--line) calc(12.5% - 1px), var(--line) 12.5%)' }}>
         {extra}
         {items.map((s) => bar(s, email))}
+        {nowLeft && <span className="nx-now-line" data-now-line="" style={{ left: nowLeft }} aria-hidden="true" />}
       </div>
     );
   };
@@ -90,8 +100,13 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
               </div>
             )}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', borderLeft: '1px solid var(--line)' }}>
+          <div data-hour-head="" style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', alignContent: 'start', borderLeft: '1px solid var(--line)', paddingBottom: nowAt ? NOW_ROW : 0 }}>
             {HOURS.map((h) => <div key={h} style={{ padding: '8px 4px', fontSize: 10.5, color: 'var(--muted)', fontWeight: 700 }}>{formatHHMM(`${String(h).padStart(2, '0')}:00`).replace(':00', '')}</div>)}
+            {nowAt && (
+              <span className="nx-now-label" data-now-label="" style={{ left: `clamp(32px, ${nowLeft}, calc(100% - 32px))` }}>
+                <span className="dk-sr-only">Now </span>{nowAt.label}
+              </span>
+            )}
           </div>
         </div>
         {openCells.__ungrouped && prefs.open !== false && openRow({ id: '' })}

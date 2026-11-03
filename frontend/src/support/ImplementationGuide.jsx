@@ -18,6 +18,7 @@ import {
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { useNameResolver } from '../lib/useNameResolver';
+import ProgressTrack from '../ui/ProgressTrack';
 import { IMPL_INTRO, IMPL_CONCEPTS, IMPL_DISCOVERY, IMPL_PHASES, IMPL_CHECK_IDS } from './implementationContent';
 
 const ICONS = { ClipboardList, Cloud, Palette, Building2, ShieldCheck, Users, Clock, CalendarClock, ListChecks, CheckSquare, Package, Bell, BadgeCheck, Rocket, RefreshCw, Workflow };
@@ -54,13 +55,12 @@ function SectionHeading({ children, aside }) {
   );
 }
 
+// The one progress track (live accent, 11/02/2026): orange while checks are
+// open, green when every one is ticked. `height` 5 or less is the small track.
 function Bar({ done, total, height = 6 }) {
-  const pct = total ? Math.round((done / total) * 100) : 0;
   return (
-    <div role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label={`${done} of ${total} done`}
-      className="impl-bar" style={{ height }}>
-      <div className={pct === 100 ? 'complete' : ''} style={{ width: `${pct}%` }} />
-    </div>
+    <ProgressTrack className="impl-track" size={height <= 5 ? 'sm' : 'md'} value={total ? done / total : 0}
+      label={`${done} of ${total} done`} valueText={`${done} of ${total} done`} />
   );
 }
 

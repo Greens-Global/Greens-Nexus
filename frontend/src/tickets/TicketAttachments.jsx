@@ -57,7 +57,7 @@ function TicketAttachments({ ticketId, ticketType, canDelete = false, markupSour
   const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) sendFile(f); };
   const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
   const del = async (a) => {
-    const ok = await appDialog.confirm(`Remove "${a.name}" from this ticket? It cannot be brought back.`,
+    const ok = await appDialog.confirm(`Remove "${a.name}" from this ticket? It stops showing here and cannot be brought back; the stored copy is kept with the ticket's records.`,
       { title: 'Remove Attachment', confirmText: 'Remove', danger: true });
     if (!ok) return;
     try { await api.deleteTicketAttachment(a.id); }

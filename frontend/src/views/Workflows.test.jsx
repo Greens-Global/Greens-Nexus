@@ -318,7 +318,7 @@ describe('Workflows', () => {
     expect(api.wfRuns).toHaveBeenLastCalledWith(expect.objectContaining({ before: null }));
     // Pick a To day on the calendar: the next request starts at the end of it.
     fireEvent.click(screen.getByRole('button', { name: 'To' }));
-    const day = screen.getAllByRole('button', { name: '15' }).find((b) => !b.disabled);
+    const day = screen.getAllByRole('button', { name: /^\d{2}\/15\/\d{4}$/ }).find((b) => !b.disabled);
     fireEvent.click(day);
     await waitFor(() => expect(api.wfRuns).toHaveBeenLastCalledWith(expect.objectContaining({ before: expect.stringMatching(/^\d{4}-\d{2}-15T23:59:59\.999Z$/) })));
     // The one row (10/28) is outside the range, yet the server has more:

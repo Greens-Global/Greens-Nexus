@@ -743,7 +743,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
               <span className="nt-banner-text">This note is in the Trash. Restore it to edit it again.</span>
               <button type="button" className="nt-text-btn" onClick={restore}><RotateCcw size={14} /> Restore</button>
               <HoldButton size="sm" label="Delete Forever" doneLabel="Deleted" onConfirm={deleteForever}
-                fallbackMessage={`Delete "${note.title || 'Untitled Note'}" forever? This cannot be undone.`} />
+                fallbackMessage={`Delete "${note.title || 'Untitled Note'}" forever, with its voice notes, videos and pictures? A file that is also attached somewhere else stays there. This cannot be undone.`} />
             </div>
           )}
           {conflict && (

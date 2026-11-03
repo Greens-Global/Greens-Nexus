@@ -1461,6 +1461,12 @@ def _run_migrations():
             "ALTER TABLE weather_outlook ADD COLUMN place VARCHAR DEFAULT ''",
             "ALTER TABLE weather_advisories ADD COLUMN place VARCHAR DEFAULT ''",
             "ALTER TABLE weather_decisions ADD COLUMN place VARCHAR DEFAULT ''",
+            # Items redesign (Neil, 11/02/2026) - see the Postgres list.
+            "ALTER TABLE item_checkouts ADD COLUMN requested_due_date VARCHAR DEFAULT ''",
+            "ALTER TABLE item_types ADD COLUMN borrowable BOOLEAN",
+            "ALTER TABLE item_types ADD COLUMN max_loan_days INTEGER DEFAULT 0",
+            # One-click stop for digest emails (legal pass, 11/02/2026) - see the Postgres list.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN email_optouts VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3495,6 +3501,18 @@ def _run_migrations():
         "ALTER TABLE weather_outlook ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
         "ALTER TABLE weather_advisories ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
         "ALTER TABLE weather_decisions ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
+        # Items redesign (Neil, 11/02/2026): Borrow asks for a return date on a
+        # calendar (the date the borrower picked, item_due.due_date), and each
+        # item type carries a Borrowable switch (NULL = the default) and its
+        # longest loan in days (0 = the 90-day ceiling).
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS requested_due_date VARCHAR DEFAULT ''",
+        "ALTER TABLE item_types ADD COLUMN IF NOT EXISTS borrowable BOOLEAN",
+        "ALTER TABLE item_types ADD COLUMN IF NOT EXISTS max_loan_days INTEGER DEFAULT 0",
+        # One-click stop for digest emails (the legal compliance pass,
+        # 11/02/2026, email_optout.py): the digests this person turned off
+        # from the email's own link or Profile > Email Settings, comma
+        # separated ('' = none). models.NexusPersonPref.email_optouts.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS email_optouts VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5405,3 +5423,5 @@ from routers import me_sessions as me_sessions_router  # noqa: E402 - nexus_sign
 app.include_router(me_sessions_router.router)  # My Profile > Security: where you are signed in, sign out other devices, recent sign-ins (Neil, 11/02/2026)
 from routers import pdf_tools as pdf_tools_router  # noqa: E402 - writes audit_logs rows only, no new table
 app.include_router(pdf_tools_router.router)  # PDF Tools: who did what - one Audit Log row per action, never the file (Neil, 11/02/2026)
+from routers import privacy_notice as privacy_notice_router  # noqa: E402 - reads only, no new table
+app.include_router(privacy_notice_router.router)  # Privacy Policy built from privacy_inventory.py: public /policy/privacy-notice + signed-in /me (legal compliance pass, 11/02/2026)

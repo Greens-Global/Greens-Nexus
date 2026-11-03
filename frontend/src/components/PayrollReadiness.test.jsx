@@ -167,3 +167,17 @@ describe('confirmExportReadiness', () => {
     expect(confirmMock).not.toHaveBeenCalled();
   });
 });
+
+describe('readiness track (live accent, 11/02/2026)', () => {
+  it('is the live track with the count in normal ink, never orange text', async () => {
+    render(<PayrollReadiness onOpenTimecard={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Run Check/ }));
+    await screen.findByText('Amy Test');
+    const bar = screen.getByRole('progressbar', { name: 'Payroll readiness' });
+    expect(bar.getAttribute('aria-valuenow')).toBe('67');
+    expect(bar.closest('.nx-track').className).toContain('is-live');
+    const count = screen.getByText('2 of 3');
+    expect(count.tagName).toBe('SPAN');                 // not the <b> that takes the state's ink
+    expect(count.style.color).toBe('var(--ink)');
+  });
+});

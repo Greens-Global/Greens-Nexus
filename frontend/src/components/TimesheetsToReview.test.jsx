@@ -29,6 +29,10 @@ vi.mock('./ESign', () => ({ SignModal: ({ partyId }) => <div data-testid="sign-m
 
 const TimesheetsToReview = (await import('./TimesheetsToReview')).default;
 
+// The review card is collapsed by default (11/03/2026): an alert line with
+// the count in red - the tests expand it the way a person would.
+const expandReviews = async () => fireEvent.click(await screen.findByRole('button', { name: /Time Sheets to Review/ }));
+
 const row = (over) => ({
   id: 'r1', employeeEmail: 'erin@x.com', name: 'Erin Test', periodStart: '2026-09-01', periodEnd: '2026-09-30',
   payType: 'fixed', workedMin: 9630, submittedAt: '2026-09-29T10:00:00+00:00', resubmitted: false, note: 'All in',
@@ -47,6 +51,7 @@ beforeEach(() => {
 describe('TimesheetsToReview', () => {
   it("shows each person's photo in front of their name (Neil, Oct 19)", async () => {
     render(<TimesheetsToReview onOpen={() => {}} />);
+    await expandReviews();
     const name = await screen.findByText('Erin Test');
     const avatar = document.querySelector('[data-review="erin@x.com"] [data-testid="avatar"]');
     expect(avatar.getAttribute('data-email')).toBe('erin@x.com');
@@ -57,6 +62,7 @@ describe('TimesheetsToReview', () => {
   it('lists what is waiting and approves in one click', async () => {
     const toastOk = vi.fn();
     render(<TimesheetsToReview onOpen={() => {}} toastOk={toastOk} />);
+    await expandReviews();
     expect(await screen.findByText('Erin Test')).toBeTruthy();
     expect(screen.getByText('09/01/2026 - 09/30/2026 · 160h 30m · submitted 09/29/2026')).toBeTruthy();
     expect(screen.getByText('"All in"')).toBeTruthy();
@@ -69,6 +75,7 @@ describe('TimesheetsToReview', () => {
   it('approves a closed period nobody submitted, with no Send Back', async () => {
     waiting.mockResolvedValue({ reviews: [row({ id: '', notSubmitted: true, submittedAt: '', note: '' })] });
     render(<TimesheetsToReview onOpen={() => {}} />);
+    await expandReviews();
     expect(await screen.findByText(/not submitted - period closed/)).toBeTruthy();
     expect(screen.queryByText('Send Back')).toBeNull();
     // No stray note box under it (Oct 22: every unsubmitted row showed one, the last one focused).
@@ -80,6 +87,7 @@ describe('TimesheetsToReview', () => {
 
   it('sends back with a note', async () => {
     render(<TimesheetsToReview onOpen={() => {}} />);
+    await expandReviews();
     fireEvent.click(await screen.findByText('Send Back'));
     fireEvent.change(screen.getByLabelText('What needs changing for Erin Test'), { target: { value: 'Tuesday lunch' } });
     fireEvent.click(screen.getByText('Send'));
@@ -90,6 +98,7 @@ describe('TimesheetsToReview', () => {
     waiting.mockResolvedValue({ reviews: [row({ agreeBlocker: 'This period runs to 09/30/2026. You can approve it after that day, once every day is in.' })] });
     const onOpen = vi.fn();
     render(<TimesheetsToReview onOpen={onOpen} />);
+    await expandReviews();
     expect(await screen.findByText(/This period runs to 09\/30\/2026/)).toBeTruthy();
     expect(screen.getByText('Approve').closest('button').disabled).toBe(true);
     fireEvent.click(screen.getByText('Review'));
@@ -128,6 +137,7 @@ describe('TimesheetsToReview', () => {
     const toastOk = vi.fn();
     const onOpen = vi.fn();
     render(<TimesheetsToReview onOpen={onOpen} toastOk={toastOk} />);
+    await expandReviews();
     fireEvent.click(await screen.findByText('Review All Clean (2)'));
     const dialog = screen.getByRole('dialog', { name: 'Review All Clean' });
     expect(dialog).toHaveTextContent('Tick each time sheet once you have looked it over.');
@@ -157,6 +167,7 @@ describe('TimesheetsToReview', () => {
     bulk.mockResolvedValue({ approved: 0, skipped: 0, failed: 1, results: [{ id: 'r1', status: 'failed', error: 'Storage is down.' }] });
     const toastErr = vi.fn();
     render(<TimesheetsToReview onOpen={() => {}} toastErr={toastErr} />);
+    await expandReviews();
     fireEvent.click(await screen.findByText('Review All Clean (1)'));
     fireEvent.click(screen.getByLabelText('Reviewed - Erin Test'));
     fireEvent.click(screen.getByText('Approve Reviewed (1)'));
@@ -169,6 +180,7 @@ describe('TimesheetsToReview', () => {
   it('keeps the queue compact: detail expands on click, long lists scroll in place', async () => {
     waiting.mockResolvedValue({ reviews: [row({ agreeBlocker: 'Fix this on the time sheet before you can approve - 09/01/2026: a clock-out with no clock-in.' })] });
     render(<TimesheetsToReview onOpen={() => {}} />);
+    await expandReviews();
     const detail = (await screen.findByText(/a clock-out with no clock-in/)).closest('button');
     expect(detail.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(detail);
@@ -181,6 +193,7 @@ describe('TimesheetsToReview', () => {
   it('is disabled with the reason when nothing is clean', async () => {
     waiting.mockResolvedValue({ reviews: [row({ reviewFlag: 'Look at this before approving - 09/03/2026: Unusually long shift.' })] });
     render(<TimesheetsToReview onOpen={() => {}} />);
+    await expandReviews();
     const btn = (await screen.findByText('Review All Clean (0)')).closest('button');
     expect(btn.disabled).toBe(true);
     expect(screen.getByText(/Nothing to review in one pass/)).toBeTruthy();

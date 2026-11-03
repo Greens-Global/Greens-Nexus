@@ -11,7 +11,7 @@ import {
   PenLine, Contact, ShoppingCart, Cake, UserMinus,
   Ticket as TicketIcon, CloudSun, Search, HardHat, Building2,
 } from 'lucide-react';
-import { formatTime, formatWeekday, formatMonthDay } from '../lib/datetime';
+import { formatTime, formatDayLong } from '../lib/datetime';
 import { api } from '../api';
 import { myTasksFootnote, MY_TASKS_RULE } from './myTasksCount';
 import { myTicketsFootnote, myTicketsFilter, MY_TICKETS_RULE } from './myTicketsCount';
@@ -83,10 +83,10 @@ export const KPI_CATALOG = {
   // The ticket twin of My Open Tasks (Oct 26 2026) - myTicketsCount.js.
   my_open_tickets:      { label: 'My Open Tickets',         color: 'red',    Icon: TicketIcon,    hint: 'Assigned to you',      nav: { view: 'tickets' } },
   pending_requisitions: { label: 'Requisitions to Approve', color: 'orange', Icon: ClipboardCheck, hint: 'Awaiting approval',   nav: { view: 'myhr', sub: 'purchase' } },
-  pending_inventory:    { label: 'Inventory Requests',      color: 'orange', Icon: Package,       hint: 'Awaiting approval',    nav: { view: 'inventory', sub: 'checkouts' } },
+  pending_inventory:    { label: 'Inventory Requests',      color: 'orange', Icon: Package,       hint: 'Awaiting approval',    nav: { view: 'inventory', sub: 'requests:approve' } },
   open_purchases:       { label: 'Open Purchases',          color: 'purple', Icon: Package,       hint: 'In progress',          nav: { view: 'myhr', sub: 'purchase' } },
-  my_checkouts:         { label: 'My Active Checkouts',     color: 'green',  Icon: Boxes,         hint: 'Currently with you',   nav: { view: 'inventory', sub: 'checkouts' } },
-  my_assignments:       { label: 'Items Assigned to Me',    color: 'green',  Icon: Package,       hint: 'Your equipment',       nav: { view: 'inventory' } },
+  my_checkouts:         { label: 'My Active Checkouts',     color: 'green',  Icon: Boxes,         hint: 'Currently with you',   nav: { view: 'inventory', sub: 'mystuff' } },
+  my_assignments:       { label: 'Items Assigned to Me',    color: 'green',  Icon: Package,       hint: 'Your equipment',       nav: { view: 'inventory', sub: 'mystuff' } },
   unread_notifications: { label: 'Unread Notifications',    color: 'blue',   Icon: Bell,          hint: 'Tap to review' },
   signatures_needed:    { label: 'Signatures Needed',       color: 'green',  Icon: PenLine,       hint: 'Waiting on you',       nav: { view: 'myhr' } },
   warranties_expiring:  { label: 'Warranties Expiring',     color: 'red',    Icon: ShieldCheck,   hint: 'Within 60 days',       nav: { view: 'property-asset' } },
@@ -105,8 +105,8 @@ export const SHORTCUT_TARGETS = [
   { view: 'myhr',             label: 'Workday',           Icon: Briefcase,    color: 'brand' },
   { view: 'tasks',            label: 'Tasks',             Icon: CheckSquare,  color: 'blue' },
   { view: 'inventory',        label: 'Item Management',   Icon: Package,      color: 'orange' },
-  { view: 'inventory', sub: 'catalog',   label: 'Item Management · Browse Catalog', Icon: Boxes,     color: 'orange' },
-  { view: 'inventory', sub: 'checkouts', label: 'Item Management · Checkouts',      Icon: HandCoins, color: 'orange' },
+  { view: 'inventory', sub: 'borrow',    label: 'Item Management · Borrow',         Icon: Boxes,     color: 'orange' },
+  { view: 'inventory', sub: 'requests',  label: 'Item Management · Requests',       Icon: HandCoins, color: 'orange' },
   { view: 'myhr', sub: 'purchase', label: 'Workday · Purchase Requests', Icon: ShoppingCart, color: 'purple' },
   { view: 'property-asset',   label: 'Asset Management',  Icon: Building2,    color: 'brand' },
   { view: 'sop',              label: 'Knowledge Base',    Icon: BookOpen,     color: 'brand' },
@@ -641,7 +641,7 @@ export const QUICK_ACTIONS = [
   // The Ticket module's own create form, in place (Neil, 10/08: "Add + Ticket").
   { key: 'ticket',        label: 'New Ticket',        act: 'ticket',        color: 'red',    Icon: Ticket },
   { key: 'personal-link', label: 'Add Personal Link', act: 'personal-link', color: 'purple', Icon: Link2 },
-  { key: 'request-item',  label: 'Request an Item',   view: 'inventory', sub: 'catalog', color: 'orange', Icon: Package },
+  { key: 'request-item',  label: 'Request an Item',   view: 'inventory', sub: 'borrow', color: 'orange', Icon: Package },
   { key: 'time-off',      label: 'Request Time Off',  view: 'timeclock', sub: 'timeoff',   color: 'orange', Icon: CalendarClock },
   { key: 'punch-fix',     label: 'Punch Correction',  view: 'timeclock', sub: 'timesheet', color: 'green',  Icon: Timer },
   { key: 'ask-hr',        label: 'Ask HR',            view: 'myhr',                        color: 'blue',   Icon: Contact },
@@ -652,7 +652,7 @@ export const QUICK_ACTIONS = [
   // Group grant the screen needs (same rule as a module-gated widget); a
   // person without it never sees the action offered or placed.
   { key: 'find-person',   label: 'Find a Person',     view: 'directory',                      color: 'blue',   Icon: Users },
-  { key: 'checkout-item', label: 'Check Out an Item', view: 'inventory', sub: 'checkouts',    color: 'orange', Icon: HandCoins },
+  { key: 'checkout-item', label: 'Check Out an Item', view: 'inventory', sub: 'borrow',    color: 'orange', Icon: HandCoins },
   { key: 'my-shifts',     label: 'My Shifts',         view: 'myhr', sub: 'shifts',            color: 'green',  Icon: CalendarDays },
   { key: 'briefing',      label: 'My Briefing',       view: 'briefing',                       color: 'brand',  Icon: Sun },
   { key: 'credvault',     label: 'Credentials',       view: 'credvault', module: 'credvault', color: 'purple', Icon: ShieldCheck },
@@ -1022,7 +1022,7 @@ function ClockWidget() {
       style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 3, cursor: 'pointer', overflow: 'hidden' }}>
       <div className="clock-tile-line" style={{ fontSize: 13.5, color: 'var(--wk-dim)', fontWeight: 600 }}>{greet}</div>
       <div className="clock-tile-time">{formatTime(now)}</div>
-      <div className="clock-tile-line" style={{ fontSize: 12.5, color: 'var(--wk-faint)' }}>{formatWeekday(now)}, {formatMonthDay(now)}</div>
+      <div className="clock-tile-line" style={{ fontSize: 12.5, color: 'var(--wk-faint)' }}>{formatDayLong(now)}</div>
       <div className="clock-tile-line clock-tile-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--wk-green)', fontSize: 12.5, fontWeight: 600, marginTop: 9 }}>
         <Clock size={13} /> Open Time Clock <ArrowRight size={12} />
       </div>

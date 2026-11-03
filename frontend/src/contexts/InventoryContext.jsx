@@ -30,17 +30,27 @@ export function InventoryProvider({ children }) {
   const sigRef        = useRef({ items: null, checkouts: null }); // last change-digest seen by the poll
   const itemsInFlight = useRef(false);
   const cosInFlight   = useRef(false);
+  // A refresh asked for WHILE a fetch is in flight (a save's own refresh
+  // racing the poll) is remembered and run once the fetch lands - dropping it
+  // let the poll's pre-save snapshot win (the same fix as useAssignments'
+  // _asgRefetchQueued, Items redesign 11/02/2026).
+  const itemsQueued   = useRef(false);
+  const cosQueued     = useRef(false);
+  const coalesceRef   = useRef(null);   // the pending realtime refresh (one per ~1s)
   // Consecutive error counts for backoff
   const itemsErrCount = useRef(0);
   const cosErrCount   = useRef(0);
 
-  const fetchItems = useCallback(() => {
-    if (itemsInFlight.current) return Promise.resolve(); // deduplicate
+  const fetchItems = useCallback(function run() {
+    if (itemsInFlight.current) { itemsQueued.current = true; return Promise.resolve(); }
     itemsInFlight.current = true;
     return api.getItems()
       .then(rows => { setItems(prev => keepIfSame(prev, rows)); setItemsError(null); itemsErrCount.current = 0; })
       .catch(err => { setItemsError(err?.message || 'Failed to load items'); itemsErrCount.current += 1; })
-      .finally(() => { setItemsLoading(false); itemsInFlight.current = false; });
+      .finally(() => {
+        setItemsLoading(false); itemsInFlight.current = false;
+        if (itemsQueued.current) { itemsQueued.current = false; run(); }
+      });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Optimistic local mutations - apply a known result straight to state instead
@@ -70,8 +80,8 @@ export function InventoryProvider({ children }) {
     });
   }, []);
 
-  const fetchCheckouts = useCallback(() => {
-    if (cosInFlight.current) return Promise.resolve(); // deduplicate
+  const fetchCheckouts = useCallback(function run() {
+    if (cosInFlight.current) { cosQueued.current = true; return Promise.resolve(); }
     cosInFlight.current = true;
     return api.getItemCheckouts()
       .then(rows => {
@@ -88,8 +98,27 @@ export function InventoryProvider({ children }) {
         cosErrCount.current = 0;
       })
       .catch(err => { setCheckoutsError(err?.message || 'Failed to load checkouts'); cosErrCount.current += 1; })
-      .finally(() => { setCheckoutsLoading(false); cosInFlight.current = false; });
+      .finally(() => {
+        setCheckoutsLoading(false); cosInFlight.current = false;
+        if (cosQueued.current) { cosQueued.current = false; run(); }
+      });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Realtime pings arrive in bursts (an order of eight items is eight pings):
+  // coalesce them into ONE refresh about a second after the first, through the
+  // change digest, so a burst re-pulls each list at most once. A backend with
+  // no digest (local SQLite answers '') refetches both.
+  const coalescedRefresh = useCallback(() => {
+    if (coalesceRef.current) return;
+    coalesceRef.current = setTimeout(() => {
+      coalesceRef.current = null;
+      api.getItemsSignature().then((sig) => {
+        const known = !!(sig && (sig.items || sig.checkouts));
+        if (!known || sig.items !== sigRef.current.items) { sigRef.current.items = sig?.items ?? null; fetchItems(); }
+        if (!known || sig.checkouts !== sigRef.current.checkouts) { sigRef.current.checkouts = sig?.checkouts ?? null; fetchCheckouts(); }
+      }).catch(() => { fetchItems(); fetchCheckouts(); });
+    }, 1000);
+  }, [fetchItems, fetchCheckouts]);
 
   function rowToCheckout(r) {
     return {
@@ -175,15 +204,9 @@ export function InventoryProvider({ children }) {
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'inventory_events' },
-          payload => {
-            const { status } = payload.new ?? {};
-            fetchCheckouts();
-            // Refetch items whenever catalog availability may have changed
-            // (pending covers brand-new requests flagging hasActiveRequest)
-            if (['pending', 'allocated', 'returned', 'cancelled'].includes(status)) {
-              fetchItems();
-            }
-          }
+          // Every ping goes through the coalesced, digest-gated refresh
+          // (it decides whether the items list moved too).
+          () => coalescedRefresh()
         )
         .subscribe();
     }
@@ -191,8 +214,9 @@ export function InventoryProvider({ children }) {
     return () => {
       if (eventsRef.current) supabase?.removeChannel(eventsRef.current);
       clearTimeout(pollRef.current);
+      clearTimeout(coalesceRef.current); coalesceRef.current = null;
     };
-  }, [fetchItems, fetchCheckouts, scheduleNext]);
+  }, [fetchItems, fetchCheckouts, scheduleNext, coalescedRefresh]);
 
   // ── Checkout actions ──────────────────────────────────────────────────────
 
@@ -204,13 +228,18 @@ export function InventoryProvider({ children }) {
     const beneficiaryEmail = forEmail || raisedByEmail;
     const promises = cartItems.map(cartItem => {
       const id = genCheckoutId();
-      const itemDays = cartItem.days ?? 1;
+      // The return date picked on Borrow's calendar (Neil, 11/02/2026) sets the
+      // loan on the server; days here is only the optimistic row's guess.
+      const dueDate = cartItem.dueDate || '';
+      const itemDays = dueDate
+        ? Math.max(1, Math.round((new Date(`${dueDate}T12:00:00`) - new Date(new Date().toDateString())) / 86400000))
+        : (cartItem.days ?? 1);
       const optimistic = {
         id, itemId: cartItem.item.id, itemName: cartItem.item.name,
         itemType: cartItem.item.itemType, requestedBy: beneficiaryName,
         requestedByEmail: beneficiaryEmail, raisedBy, department: cartItem.item.department,
         days: itemDays, reason, status: 'pending', createdAt: new Date().toISOString(),
-        checkoutPhotoUrl: cartItem.photoUrl || null, orderId,
+        checkoutPhotoUrl: cartItem.photoUrl || null, orderId, requestedDueDate: dueDate,
       };
       setCheckouts(prev => [optimistic, ...prev]);
       // asset_value is informational (audit log capture) - the API ignores it
@@ -220,6 +249,7 @@ export function InventoryProvider({ children }) {
         item_type: cartItem.item.itemType, requested_by: beneficiaryName,
         requested_by_email: beneficiaryEmail, raised_by: raisedBy,
         department: cartItem.item.department, days: itemDays, reason,
+        due_date: dueDate,
         asset_value: itemValue,
         checkout_photo_url: cartItem.photoUrl || '',
         checkout_photo_name: cartItem.photoName || '',

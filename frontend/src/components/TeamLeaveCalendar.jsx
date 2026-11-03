@@ -12,6 +12,7 @@ import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { ErrorBanner, SkeletonBlocks } from './AsyncState';
+import { Avatar } from '../tasks/components';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -45,9 +46,30 @@ function Chip({ e, full = false }) {
   );
 }
 
-export default function TeamLeaveCalendar() {
+// `embedded` (11/03/2026): inside the Time Off desk the section header above
+// it already says Calendar, so the card keeps only its controls as a toolbar
+// line - no second title, no outer margin.
+// Motion (11/03/2026): the month slides in the direction of travel and its
+// days cascade in - one orchestrated moment per navigation, nothing loops,
+// and reduced motion turns it all off.
+const TLC_CSS = `
+.tlc-grid { animation: tlcIn .22s ease-out; }
+.tlc-grid.tlc-r { animation: tlcInR .26s cubic-bezier(.2,.7,.3,1); }
+.tlc-grid.tlc-l { animation: tlcInL .26s cubic-bezier(.2,.7,.3,1); }
+.tlc-cell { animation: tlcCell .3s cubic-bezier(.2,.7,.3,1) backwards; }
+@keyframes tlcIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tlcInR { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+@keyframes tlcInL { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: none; } }
+@keyframes tlcCell { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .tlc-grid, .tlc-cell { animation: none !important; } }
+`;
+
+export default function TeamLeaveCalendar({ embedded = false }) {
   const isMobile = useIsMobile();
   const [month, setMonth] = useState(() => monthKey(new Date()));
+  // Which way the month moved: +1 slides in from the right, -1 from the left.
+  const [dir, setDir] = useState(0);
+  const go = (next) => setMonth((k) => { const t = typeof next === 'function' ? next(k) : next; setDir(t > k ? 1 : t < k ? -1 : 0); return t; });
   const [company, setCompany] = useState('');
   const [data, setData] = useState(null);
   const [err, setErr] = useState(false);
@@ -76,10 +98,13 @@ export default function TeamLeaveCalendar() {
   const btn = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, height: 32, padding: '0 10px', fontSize: 12.5 };
 
   return (
-    <section aria-label="Team Leave Calendar" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '14px 16px', margin: '14px 0', boxShadow: 'var(--wk-shadow)', fontFamily: 'var(--wk-font)' }}>
+    <section aria-label="Team Leave Calendar" data-tlc="" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '14px 16px', margin: embedded ? 0 : '14px 0', boxShadow: 'var(--wk-shadow)', fontFamily: 'var(--wk-font)' }}>
+      <style>{TLC_CSS}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
-        <span className="wkc-chip"><CalendarDays size={14} /></span>
-        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Team Leave Calendar</span>
+        {!embedded && (<>
+          <span className="wkc-chip"><CalendarDays size={14} /></span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Team Leave Calendar</span>
+        </>)}
         <span style={{ flex: 1 }} />
         {companies.length > 0 && (
           <select className="form-input" aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)}
@@ -89,10 +114,10 @@ export default function TeamLeaveCalendar() {
           </select>
         )}
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <button type="button" className="secondary-btn" style={btn} aria-label="Previous Month" onClick={() => setMonth((k) => shift(k, -1))}><ChevronLeft size={14} /></button>
+          <button type="button" className="secondary-btn" style={btn} aria-label="Previous Month" onClick={() => go((k) => shift(k, -1))}><ChevronLeft size={14} /></button>
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', minWidth: 120, textAlign: 'center' }}>{MONTHS[m - 1]} {y}</span>
-          <button type="button" className="secondary-btn" style={btn} aria-label="Next Month" onClick={() => setMonth((k) => shift(k, 1))}><ChevronRight size={14} /></button>
-          <button type="button" className="secondary-btn" style={btn} onClick={() => setMonth(monthKey(new Date()))}>Today</button>
+          <button type="button" className="secondary-btn" style={btn} aria-label="Next Month" onClick={() => go((k) => shift(k, 1))}><ChevronRight size={14} /></button>
+          <button type="button" className="secondary-btn" style={btn} onClick={() => go(monthKey(new Date()))}>Today</button>
         </div>
       </div>
       {data?.scope && <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>{SCOPE_LINE[data.scope] || ''}</div>}
@@ -100,7 +125,7 @@ export default function TeamLeaveCalendar() {
       {err ? <ErrorBanner message="Couldn't load the leave calendar right now." onRetry={load} />
         : data === null ? <SkeletonBlocks count={isMobile ? 3 : 1} height={isMobile ? 44 : 320} borderRadius={12} />
         : isMobile ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div key={month} className={`tlc-grid${dir > 0 ? ' tlc-r' : dir < 0 ? ' tlc-l' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {Array.from({ length: daysIn }, (_, i) => i + 1).map((d) => {
               const ds = iso(d);
               const out = onDay(ds);
@@ -120,7 +145,8 @@ export default function TeamLeaveCalendar() {
           </div>
         ) : (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4 }}>
+            <div key={month} className={`tlc-grid${dir > 0 ? ' tlc-r' : dir < 0 ? ' tlc-l' : ''}`}
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4 }}>
               {WEEKDAYS.map((w) => <div key={w} style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', padding: '0 4px 4px' }}>{w}</div>)}
               {Array.from({ length: first.getDay() }, (_, i) => <div key={`pad-${i}`} />)}
               {Array.from({ length: daysIn }, (_, i) => i + 1).map((d) => {
@@ -128,27 +154,47 @@ export default function TeamLeaveCalendar() {
                 const out = onDay(ds);
                 const hol = holidayOn(ds);
                 const weekend = [0, 6].includes(new Date(y, m - 1, d).getDay());
-                const shown = out.slice(0, 3);
+                const shown = out.slice(0, 12);
                 return (
-                  <div key={ds} style={{ minHeight: 92, borderRadius: 10, padding: '5px 6px', minWidth: 0,
+                  // 56px floor, growing with its people (11/03/2026): an
+                  // empty month reads as a calm strip, not a wall of boxes.
+                  <div key={ds} className="tlc-cell" style={{ minHeight: 56, borderRadius: 10, padding: '5px 6px', minWidth: 0, animationDelay: `${Math.min((d - 1) * 8, 190)}ms`,
                     background: ds === today ? 'var(--wk-brand-tint)' : weekend ? 'transparent' : 'var(--mist)',
                     border: `1px solid ${ds === today ? 'var(--wk-brand)' : 'var(--wk-line2)'}` }}>
-                    <div style={{ fontSize: 11.5, fontWeight: 700, color: ds === today ? 'var(--wk-brand)' : 'var(--muted)' }}>{d}</div>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: ds === today ? 'var(--wk-brand)' : weekend ? 'var(--wk-faint, var(--muted))' : 'var(--muted)' }}>{d}</div>
                     {hol.map((h) => (
                       <div key={h.name} title={`Holiday - ${h.name}`} style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</div>
                     ))}
-                    {shown.map((e) => <Chip key={e.id} e={e} />)}
-                    {out.length > shown.length && (
-                      <div title={out.slice(3).map((e) => `${e.name} - ${e.label}`).join('\n')}
-                        style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', marginTop: 3 }}>+{out.length - shown.length} More</div>
+                    {/* Photos, not name chips (11/03/2026): a day holds many
+                        more people as a face stack, details on hover, and a
+                        pending request shows as a dashed ring. */}
+                    {out.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', paddingTop: 4, paddingLeft: 2 }}>
+                        {shown.map((e) => {
+                          const pending = e.status === 'pending';
+                          const part = e.startTime && e.endTime ? ` ${hm12(e.startTime)} - ${hm12(e.endTime)}` : '';
+                          const state = pending ? (e.awaitingHr ? 'Awaiting HR Approval' : 'Pending') : 'Approved';
+                          return (
+                            <span key={e.id} title={`${e.name} - ${e.label}${part} (${state})`}
+                              style={{ display: 'inline-flex', borderRadius: '50%', marginRight: -5, marginBottom: 3,
+                                border: pending ? '1.5px dashed hsl(var(--color-orange))' : '1.5px solid var(--card)' }}>
+                              <Avatar email={e.email} name={e.name} size={22} />
+                            </span>
+                          );
+                        })}
+                        {out.length > shown.length && (
+                          <span title={out.slice(shown.length).map((e) => `${e.name} - ${e.label}`).join('\n')}
+                            style={{ marginLeft: 9, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>+{out.length - shown.length}</span>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
               })}
             </div>
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, fontSize: 11.5, color: 'var(--muted)' }}>
-              <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'hsla(var(--color-green),0.25)', marginRight: 5, verticalAlign: -1 }} />Approved</span>
-              <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, border: '1px dashed hsl(var(--color-orange))', marginRight: 5, verticalAlign: -1 }} />Pending</span>
+              <span><span style={{ display: 'inline-block', width: 11, height: 11, borderRadius: '50%', background: 'hsla(var(--color-green),0.3)', marginRight: 5, verticalAlign: -1 }} />Approved - hover a face for the details</span>
+              <span><span style={{ display: 'inline-block', width: 11, height: 11, borderRadius: '50%', border: '1.5px dashed hsl(var(--color-orange))', marginRight: 5, verticalAlign: -2 }} />Pending</span>
               <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'hsla(var(--color-blue),0.3)', marginRight: 5, verticalAlign: -1 }} />Holiday</span>
               {!entries.length && <span>Nobody is out this month.</span>}
             </div>

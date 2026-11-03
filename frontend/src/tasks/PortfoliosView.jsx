@@ -7,12 +7,13 @@ import {
   AlertTriangle, ArrowUp, ArrowDown, X, Archive, ArchiveRestore, ChevronRight, ArrowUpRight,
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { taskStats, topLevel, portfolioRowTree, portfolioDeepProjectIds } from './lib';
+import { taskStats, topLevel, portfolioRowTree, portfolioDeepProjectIds, todayISO } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, ChipMultiSelect, ViewToggle, ExportMenu } from './components';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import ProjectIcon from './ProjectIcon';
 import { projectLook } from './projectLook';
+import ProgressTrack, { countTrackState } from '../ui/ProgressTrack';
 
 // Columns in grid order, with the sort key each header drives. A portfolio's
 // name is elastic; the rollup columns are fixed until someone drags one.
@@ -30,12 +31,27 @@ const PF_COLS = [
   { key: 'actions',  label: '',                            width: 76, fixed: true },
 ];
 
-// Progress bar (accent-coloured) used on cards and project rows.
-function ProgressBar({ pct, color, height = 8 }) {
+// The list's columns on a phone (under 641px): name, progress, actions in a
+// template that fits the screen; on a computer, the person's own columns.
+const PHONE_KEYS = { name: 'minmax(0,1fr)', progress: '96px', actions: '76px' };
+export function phoneColumns(cols, template, isMobile) {
+  if (!isMobile) return { cols, template };
+  const shown = cols.filter((c) => PHONE_KEYS[c.key]);
+  return { cols: shown, template: shown.map((c) => PHONE_KEYS[c.key]).join(' ') };
+}
+
+// Progress on cards and project rows: the one progress track (live accent,
+// 11/02/2026) - orange while tasks are still open, green once every task is
+// done (from the counts, never the rounded percent) or the project is marked
+// Completed, red when a project's own due date has passed short of that,
+// gray with no tasks at all. `stats` is taskStats(); `project` only for rows
+// that are one project.
+export function ProgressBar({ stats, project = null, size = 'md', label = 'Tasks complete' }) {
+  const { completed = 0, total = 0, pct = 0 } = stats || {};
+  const state = countTrackState({ done: completed, total, dueISO: project?.dueOn || '', todayISO: todayISO(), complete: project?.status === 'completed' });
   return (
-    <div style={{ flex: 1, height, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
-      <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: color }} />
-    </div>
+    <ProgressTrack value={total ? completed / total : 0} state={state} size={size}
+      label={label} valueText={`${pct}% complete`} style={{ flex: 1 }} />
   );
 }
 
@@ -130,8 +146,12 @@ export default function PortfoliosView({ onNavigate }) {
   // scavenger hunt. Stored per user with the sort and column widths, so the
   // choice follows the person rather than the browser.
   const [view, setView] = useTableValue('portfolios', 'view', 'list');
-  const { cols: pfCols, template, startResize, resetWidth, autofitWidth, widths, wrapRef, dragProps } =
+  const { cols: allPfCols, template: wideTemplate, startResize, resetWidth, autofitWidth, widths, wrapRef, dragProps } =
     useTableColumns({ table: 'portfolios', cols: PF_COLS });
+  // A phone shows the name and the progress first and keeps the row's
+  // actions; Tasks and Projects (the count is in the progress label, the
+  // projects are one tap away) drop out so nothing scrolls sideways.
+  const { cols: pfCols, template } = phoneColumns(allPfCols, wideTemplate, isMobile);
   const toggleExpanded = (id) => setExpandedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // Projects picked for a batch move. Kept as ids, not rows: the store's
   // project objects are replaced wholesale on every refetch, so holding the
@@ -315,7 +335,7 @@ export default function PortfoliosView({ onNavigate }) {
         ) : (
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
             <div className="nx-scroll" style={{ overflowX: 'auto' }}>
-              <div ref={wrapRef} style={{ minWidth: 900, '--nx-grid': template }}>
+              <div ref={wrapRef} style={{ minWidth: isMobile ? 0 : 900, '--nx-grid': template }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
                   {pfCols.map((c) => (
                     <TableHead key={c.key} label={c.label} sortKey={c.sort} sort={sort} setSort={setSort}
@@ -365,7 +385,7 @@ export default function PortfoliosView({ onNavigate }) {
                         tasks: <span style={{ fontSize: 13, color: NX.dim }}>{looseAgg.completed}/{looseAgg.total}</span>,
                         progress: (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <ProgressBar pct={looseAgg.pct} color={NX.faint} />
+                        <ProgressBar stats={looseAgg} label="No Portfolio tasks complete" />
                         <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700 }}>{looseAgg.pct}%</span>
                       </div>
                         ),
@@ -459,7 +479,7 @@ function PortfolioRow({
           tasks: <span style={{ fontSize: 13, color: NX.dim }}>{r.completed}/{r.total}</span>,
           progress: (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <ProgressBar pct={r.pct} color={accent} />
+          <ProgressBar stats={r} label={`${pf.name} tasks complete`} />
           <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700 }}>{r.pct}%</span>
         </div>
           ),
@@ -554,6 +574,7 @@ function MoveSelectionBar({ count, portfolios, busy, onClear, onMove }) {
 // column widths are stored per user (useTableColumns), and a new column would
 // shift everyone's saved layout for a control that only shows on child rows.
 function ProjectRows({ cols, projects, statsFor, empty, selected, onToggle, onOpen, startBand = 0 }) {
+  const isMobile = useIsMobile();
   if (projects.length === 0) {
     return (
       <div style={{ background: NX.surface2, borderTop: `1px solid ${NX.border2}` }}>
@@ -573,7 +594,7 @@ function ProjectRows({ cols, projects, statsFor, empty, selected, onToggle, onOp
         const bg = isPicked ? `${NX.primary}12` : band ? NX.zebra : 'transparent';
         return (
           <div key={p.id} onClick={() => onOpen(p.id)} className="nx-row-hover" data-selected={isPicked ? 'true' : undefined}
-            style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '9px 16px 9px 54px', borderTop: `1px solid ${NX.border2}`, cursor: 'pointer', background: bg }}>
+            style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: isMobile ? '9px 16px 9px 30px' : '9px 16px 9px 54px', borderTop: `1px solid ${NX.border2}`, cursor: 'pointer', background: bg }}>
             {/* Same keying as the portfolio row above, so an expanded project
                 stays aligned with it. */}
             {cols.map((c) => <Fragment key={c.key}>{({
@@ -589,7 +610,7 @@ function ProjectRows({ cols, projects, statsFor, empty, selected, onToggle, onOp
               tasks: <span style={{ fontSize: 12, color: NX.dim }}>{pr.completed}/{pr.total}</span>,
               progress: (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ProgressBar pct={pr.pct} color={NX.blue} height={6} />
+              <ProgressBar stats={pr} project={p} size="sm" label={`${p.name} tasks complete`} />
               <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 11, fontWeight: 700 }}>{pr.pct}%</span>
             </div>
               ),
@@ -642,7 +663,7 @@ function PortfolioCard({ portfolio: pf, rollup: r, memberProjects, onOpen, onEdi
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}>
-        <ProgressBar pct={r.pct} color={accent} />
+        <ProgressBar stats={r} label={`${pf.name} tasks complete`} />
         <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700 }}>{r.pct}%</span>
       </div>
       {r.overdue > 0 && (
@@ -910,7 +931,7 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
                       {onNavigate && <ArrowRight size={14} style={{ color: NX.faint, flexShrink: 0 }} />}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
-                      <ProgressBar pct={pr.pct} color={NX.green} height={6} />
+                      <ProgressBar stats={pr} project={p} size="sm" label={`${p.name} tasks complete`} />
                       <span style={{ fontSize: 11.5, color: NX.dim, minWidth: 68, textAlign: 'right' }}>{pr.completed}/{pr.total} · {pr.pct}%</span>
                     </div>
                   </div>

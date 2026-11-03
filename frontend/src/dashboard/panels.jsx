@@ -1,7 +1,7 @@
 // Heavy dashboard widgets ported from the old Overview / Team Analytics screens
 // (Dashboard.jsx portfolio + ManagerDashboard tabs). Lazy-loaded by widgets.jsx
 // so TimeAdmin & co. stay out of the main bundle.
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { CheckCircle, XCircle, ChevronDown, Package, Mail, Filter, AlertCircle, CakeSlice, PartyPopper } from 'lucide-react';
 import { useRequisitions }  from '../contexts/RequisitionContext';
@@ -16,6 +16,10 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useIsMobile }      from '../lib/useIsMobile';
 import { Spinner, LoadingState } from '../components/AsyncState';
 import { AvatarName } from '../tasks/components';
+
+// The Items handover sheet (the handover photo, then the handover; lazy so the
+// dashboard does not load the Items module) - Items redesign, 11/02/2026.
+const HandOverSheet = lazy(() => import('../inventory/checkout/HandOverSheet'));
 
 const Card = ({ title, sub, action, children }) => (
   <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
@@ -242,18 +246,16 @@ export function ApprovalsPanel({ phone = false }) {
 
 // ── Who has what (REAL - ported from ManagerDashboard) ────────────────────────
 export function WhoHasWhatPanel({ phone = false }) {
-  const { accounts } = useMsal();
-  const myEmail = (accounts[0]?.username ?? '').toLowerCase();
-  const myName  = accounts[0]?.name ?? '';
-  const { can } = useRole();
+  // The acting identity (Act As shows the other person's queue), never MSAL's.
+  const { can, myEmail: roleEmail } = useRole();
+  const myEmail = (roleEmail || '').toLowerCase();
   const { requisitions, hwAssets } = useRequisitions();
-  const { requests: invRequests, allocateItem } = useInventory();
+  const { requests: invRequests } = useInventory();
   const { sendOverdueAlert } = useNotifications();
 
   const [dept,        setDept]        = useState('All');
   const [alertSent,   setAlertSent]   = useState({});
-  const [allocating,  setAllocating]  = useState({});
-  const [allocErrors, setAllocErrors] = useState({});
+  const [handOver,    setHandOver]    = useState(null);   // the checkout id being handed over
 
   // The LOCAL day (Oct 14): toISOString() is UTC, so after ~5 PM Pacific
   // "today" was already tomorrow and an item due today showed as overdue.
@@ -275,12 +277,13 @@ export function WhoHasWhatPanel({ phone = false }) {
   const tempItems = invRequests
     .filter(r => r.status === 'allocated')
     .map(r => {
-      const startDate = r.allocatedAt ?? r.createdAt;
-      const dueDate   = new Date(new Date(startDate).getTime() + (r.days || 1) * 86400000);
+      // The server's due date (the borrower's zone, from the handover - item_due.py).
+      const startDate = r.handedOverAt ?? r.allocatedAt ?? r.createdAt;
+      const due = r.dueDate || agendaDay(new Date(new Date(startDate).getTime() + (r.days || 1) * 86400000));
       return {
         key: r.id, employee: r.requestedBy, raisedBy: r.raisedBy, item: r.itemName,
-        dept: r.department, type: 'Temporary', since: r.allocatedAt ?? r.createdAt,
-        dueDate: agendaDay(dueDate), isOverdue: agendaDay(dueDate) < todayStr, reqId: r.id,
+        dept: r.department, type: 'Temporary', since: startDate,
+        dueDate: due, isOverdue: due < todayStr, reqId: r.id,
       };
     });
 
@@ -301,17 +304,9 @@ export function WhoHasWhatPanel({ phone = false }) {
     : all.filter(i => i.dept === dept || i.dept?.toLowerCase().includes(dept.toLowerCase()));
   const overdueCount = all.filter(i => i.isOverdue).length;
 
-  function handleAllocate(row) {
-    setAllocating(p => ({ ...p, [row.key]: true }));
-    setAllocErrors(p => ({ ...p, [row.key]: null }));
-    // The requester's bell entry is written by the server (items.py update_checkout).
-    allocateItem(row.reqId, myName).catch(err => {
-      const msg = /409|stock/i.test(err?.message || '')
-        ? `Not enough ${row.item} in stock to allocate right now.`
-        : `Couldn't allocate ${row.item} - please try again.`;
-      setAllocErrors(p => ({ ...p, [row.key]: msg }));
-    }).finally(() => setAllocating(p => ({ ...p, [row.key]: false })));
-  }
+  // Hand Over opens the Items handover sheet: the photo is evidence, and the
+  // server's answer (a refusal included) shows on the sheet, never swallowed.
+  function handleAllocate(row) { setHandOver(row.reqId); }
 
   return (
     <Card title={`Who Has What${overdueCount ? ` - ⚠ ${overdueCount} Overdue` : ''}`}
@@ -344,17 +339,10 @@ export function WhoHasWhatPanel({ phone = false }) {
                   </div>
                 </div>
                 <div>
-                  <button onClick={(e) => { e.stopPropagation(); handleAllocate(row); }} disabled={!!allocating[row.key]}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: phone ? '9px 13px' : '5px 11px', minHeight: phone ? 36 : undefined, borderRadius: 7, border: 'none', background: 'hsl(var(--color-green))', color: '#fff', fontSize: 12, fontWeight: 600, cursor: allocating[row.key] ? 'default' : 'pointer', opacity: allocating[row.key] ? 0.6 : 1, fontFamily: 'Inter,sans-serif' }}>
-                    {allocating[row.key]
-                      ? <><Spinner size={12} /> Allocating…</>
-                      : <><CheckCircle size={12} /> Mark Allocated</>}
+                  <button className="primary-btn" onClick={(e) => { e.stopPropagation(); handleAllocate(row); }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: phone ? '9px 13px' : '5px 11px', minHeight: phone ? 36 : undefined, fontSize: 12, fontWeight: 600 }}>
+                    <CheckCircle size={12} /> Hand Over
                   </button>
-                  {allocErrors[row.key] && (
-                    <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'hsl(var(--color-red))' }}>
-                      <AlertCircle size={11} style={{ flexShrink: 0 }} /> {allocErrors[row.key]}
-                    </div>
-                  )}
                 </div>
               </div>
             ))}
@@ -407,6 +395,11 @@ export function WhoHasWhatPanel({ phone = false }) {
             </div>
           ))}
         </div>
+      )}
+      {handOver && (
+        <Suspense fallback={null}>
+          <HandOverSheet checkoutId={handOver} onClose={() => setHandOver(null)} />
+        </Suspense>
       )}
     </Card>
   );

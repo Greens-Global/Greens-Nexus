@@ -247,7 +247,7 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
                 {w.month && <span style={{ fontWeight: 700, color: NX.ink }}>{w.month} </span>}{w.label}
               </div>
             ))}
-            {todayX >= 0 && todayX <= gridW && <div style={{ position: 'absolute', top: 0, height: '100%', width: 2, background: NX.blue, left: todayX }} />}
+            {todayX >= 0 && todayX <= gridW && <div data-today-line="" style={{ position: 'absolute', top: 0, height: '100%', width: 2, background: 'var(--wk-live)', left: todayX }} />}
           </div>
         </div>
         <div style={{ display: 'flex' }}>
@@ -288,7 +288,7 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
           </div>
           <div style={{ position: 'relative', width: gridW, height: gridH }}>
             {rows.map((_, i) => <div key={i} style={{ position: 'absolute', left: 0, right: 0, borderBottom: `1px solid ${NX.border2}`, top: (i + 1) * ROW_H - 1 }} />)}
-            {todayX >= 0 && todayX <= gridW && <div style={{ position: 'absolute', top: 0, height: '100%', width: 2, background: `${NX.blue}99`, left: todayX }} />}
+            {todayX >= 0 && todayX <= gridW && <div data-today-line="" style={{ position: 'absolute', top: 0, height: '100%', width: 2, background: 'color-mix(in srgb, var(--wk-live) 60%, transparent)', left: todayX, pointerEvents: 'none' }} />}
             {/* Dependency arrows: blocker → blocked (elbow connector with arrowhead). */}
             <svg style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} width={gridW} height={gridH}>
               {rows.flatMap((t) => (t.blockedByIds || []).map((bid) => {

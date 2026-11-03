@@ -220,6 +220,47 @@ def expected_starts(db: Session, emails: Iterable[str], dd: date) -> dict:
             for em in emails_l}
 
 
+def expected_shifts(db: Session, email: str, dates: Iterable[date]) -> dict:
+    """{date: [shift, ...]} - every expected shift for one person on each
+    date, earliest first, by the same rule as pick_start: the published
+    placements on that date (a split shift gives all of its live ones; a day
+    a weather call cancelled gives none, never the preset), else the
+    assigned preset on its working days. Each shift is pick_start's shape
+    ({start, end, grace, tz, source, shiftId, rowId}). What the clock's
+    shift track draws (Neil, 11/02/2026); Late and the early clock-in hint
+    stay on expected_start."""
+    em = (email or "").strip().lower()
+    days = sorted(set(dates or []))
+    if not em or not days:
+        return {}
+    isos = [d.isoformat() for d in days]
+    rows = (db.query(models.ScheduledShift)
+            .filter(func.lower(models.ScheduledShift.employee_email) == em,
+                    models.ScheduledShift.work_date.in_(isos),
+                    models.ScheduledShift.published == 1).all())
+    a = (db.query(models.ShiftAssignment)
+         .filter(func.lower(models.ShiftAssignment.employee_email) == em)
+         .order_by(models.ShiftAssignment.assigned_at.desc(), models.ShiftAssignment.id).first())
+    assigned = (a.shift_id or "") if a is not None else ""
+    preset_ids = {r.shift_id for r in rows if r.shift_id} | ({assigned} if assigned else set())
+    presets = ({p.id: p for p in db.query(models.Shift).filter(models.Shift.id.in_(sorted(preset_ids))).all()}
+               if preset_ids else {})
+    tz_default, grace_default = defaults_for(db, em)
+    out: dict = {}
+    for dd in days:
+        iso = dd.isoformat()
+        todays = [r for r in rows if (r.work_date or "") == iso]
+        if not todays:
+            first = pick_start([], presets, assigned, dd, tz_default, grace_default)
+            out[dd] = [first] if first else []
+            continue
+        live = sorted((r for r in todays if _is_live(r)),
+                      key=lambda r: (_hhmm_minutes(r.start_hhmm) if _hhmm_minutes(r.start_hhmm) is not None
+                                     else _hhmm_minutes(_FALLBACK_START), r.id or ""))
+        out[dd] = [pick_start([r], presets, "", dd, tz_default, grace_default) for r in live]
+    return out
+
+
 def expected_start(db: Session, email: str, dd: date) -> Optional[dict]:
     """One person's expected shift on `dd` (see pick_start), or None."""
     return expected_starts(db, [email], dd).get((email or "").strip().lower())

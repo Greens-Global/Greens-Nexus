@@ -58,6 +58,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
   // Compact rows (11/02/2026): the note and the fix-first text share one
   // truncated line; clicking it opens the full text. Which row is open:
   const [openKey, setOpenKey] = useState('');
+  const [openList, setOpenList] = useState(false);   // the review list, collapsed by default (11/03/2026)
   const [backFor, setBackFor] = useState('');   // review id whose Send Back note is open
   const [note, setNote] = useState('');
   const [signing, setSigning] = useState(null);  // party id being signed in place
@@ -149,10 +150,25 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
     <>
       {rows.length > 0 && (
         <div style={card}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          {/* Collapsed by default (Visesh, 11/03/2026: the open list took half
+              the screen) - an alert line with the count in red; expanding
+              shows the list and Review All Clean. */}
+          <button type="button" onClick={() => setOpenList(o => !o)} aria-expanded={openList}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'none', border: 'none',
+              cursor: 'pointer', padding: '2px 0', fontFamily: 'inherit', textAlign: 'left' }}>
+            <ChevronRight size={14} style={{ color: 'var(--muted)', flexShrink: 0, transform: openList ? 'rotate(90deg)' : 'none', transition: 'transform 140ms ease-out' }} />
             <ClipboardCheck size={15} style={{ color: 'var(--wk-brand)' }} />
-            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Time Sheets to Review</span>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{rows.length} waiting on you</span>
+            <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--ink)' }}>Time Sheets to Review</span>
+            <span style={{ background: 'var(--wk-red, #dc2626)', color: '#fff', borderRadius: 20, fontSize: 11, fontWeight: 700, padding: '1px 7px', lineHeight: 1.4 }}>{rows.length}</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>waiting on you{openList ? '' : ' - click to work the list'}</span>
+          </button>
+          {openList && (<>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0', flexWrap: 'wrap' }}>
+            {!clean.length ? (
+              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                Nothing to review in one pass - every time sheet here needs a closer look first.
+              </span>
+            ) : <span />}
             <button type="button" className="secondary-btn" disabled={!clean.length || bulkBusy}
               title={clean.length ? 'Look over every time sheet with nothing flagged, then approve the ones you have reviewed'
                 : 'Every time sheet here needs a closer look first - the note on each one says why.'}
@@ -161,11 +177,6 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
               <CheckCheck size={13} /> Review All Clean ({clean.length})
             </button>
           </div>
-          {!clean.length && (
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
-              Nothing to review in one pass - every time sheet here needs a closer look first.
-            </div>
-          )}
           {/* Compact (11/02/2026): one line per person - photo, name, period ·
               hours · status - with the note / fix-first text as one truncated
               line underneath that opens on click. The list keeps its height
@@ -240,6 +251,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
               </div>
             );})}
           </div>
+          </>)}
         </div>
       )}
       {toSign.length > 0 && (

@@ -6,7 +6,7 @@ import { offRangeProblem } from '../lib/delegationDays';
 import { SkeletonBlocks } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { StatusLabel } from './StatusLabel';
-import { Avatar, AvatarName } from '../tasks/components';
+import { Avatar, AvatarName, DateField } from '../tasks/components';
 
 // Delegate My Approvals (Neil, Oct 17 2026). Someone who approves things
 // names a stand-in for a date range (a vacation): while it is live, their
@@ -185,16 +185,20 @@ function DelegationForm({ people, admin, onSave, busy }) {
               )}
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <label style={{ flex: '0 1 160px' }}>
+              {/* DateField, never a native date box (Neil, Oct 19). A pick
+                  outside the window stays possible - the card's own
+                  validation says why Delegate is off, which beats a silently
+                  fenced calendar. */}
+              <div style={{ flex: '0 1 160px' }}>
                 <span style={label}>From</span>
-                <input type="date" className="form-input" value={start} min={minDay} max={maxDay || undefined}
-                  onChange={e => setStart(e.target.value)} aria-label="From" />
-              </label>
-              <label style={{ flex: '0 1 160px' }}>
+                <DateField value={start} max={maxDay || ''} title="From date" onChange={(v) => v && setStart(v)}
+                  style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, padding: '8px 10px', background: 'var(--card)', width: '100%' }} />
+              </div>
+              <div style={{ flex: '0 1 160px' }}>
                 <span style={label}>To</span>
-                <input type="date" className="form-input" value={end} min={start || minDay} max={maxDay || undefined}
-                  onChange={e => setEnd(e.target.value)} aria-label="To" />
-              </label>
+                <DateField value={end} max={maxDay || ''} title="To date" onChange={(v) => v && setEnd(v)}
+                  style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, padding: '8px 10px', background: 'var(--card)', width: '100%' }} />
+              </div>
               <label style={{ flex: '1 1 220px' }}>
                 <span style={label}>Note</span>
                 <input className="form-input" value={note} maxLength={400} onChange={e => setNote(e.target.value)}

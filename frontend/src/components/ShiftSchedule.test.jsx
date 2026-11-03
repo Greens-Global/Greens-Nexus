@@ -1,3 +1,4 @@
+import { plannerToday } from './shifts/nowLine';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
@@ -1204,9 +1205,12 @@ describe('On a phone', () => {
       expect(screen.queryByRole('columnheader')).toBeNull();                    // no 7-column grid
       const strip = screen.getByRole('tablist', { name: 'Day' });
       expect(within(strip).getAllByRole('tab')).toHaveLength(7);
-      // The list opens on today; every person is one row with that day's blocks.
-      expect(within(strip).getByRole('tab', { selected: true }).getAttribute('aria-label')).toContain(formatUs(today));
-      expect(document.querySelector(`[data-cell="amy@greensglobal.com|${today}"]`)).toBeTruthy();
+      // The list opens on the TEAM's today (plannerToday in the team zone - between
+      // midnight and 8 AM UTC that is still yesterday in Los Angeles); every person
+      // is one row with that day's blocks.
+      const teamToday = plannerToday('America/Los_Angeles');
+      expect(within(strip).getByRole('tab', { selected: true }).getAttribute('aria-label')).toContain(formatUs(teamToday));
+      expect(document.querySelector(`[data-cell="amy@greensglobal.com|${teamToday}"]`)).toBeTruthy();
       fireEvent.click(within(strip).getByRole('tab', { name: new RegExp(formatUs(monday)) }));
       expect(blockOf('s1')).toBeTruthy();
       expect(blockOf('s2')).toBeNull();

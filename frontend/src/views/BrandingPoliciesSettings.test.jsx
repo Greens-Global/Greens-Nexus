@@ -170,6 +170,22 @@ describe('EmailAppearancePanel', () => {
 });
 
 describe('SignInPolicyPanel', () => {
+  it('says Out of Date for a saved policy missing a required section and only loads the new default into the editor', async () => {
+    mockApi.policyConfig.mockImplementationOnce(() => Promise.resolve({
+      published: { ...PUBLISHED, publishedAt: '2026-09-26T17:00:00Z' }, draft: null,
+      outOfDate: { missing: ['Location', 'Notice at collection'], defaultVersion: '2026-11-02' },
+      default: { title: 'Company Policies & Monitoring', body: '## Notice at collection\nWhat we collect.', version: '2026-11-02' },
+      counselReview: true,
+    }));
+    render(<SignInPolicyPanel toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText(/missing Location, Notice at collection/)).toBeTruthy();
+    expect(screen.getByText(/draft for counsel review/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Start a Draft From the New Default' }));
+    expect(screen.getByLabelText('Policy Text').value).toContain('## Notice at collection');
+    expect(mockApi.policySaveDraft).not.toHaveBeenCalled();
+    expect(mockApi.policyPublish).not.toHaveBeenCalled();
+  });
+
   it('saves a draft without publishing', async () => {
     const ok = vi.fn();
     render(<SignInPolicyPanel toastOk={ok} toastErr={() => {}} />);

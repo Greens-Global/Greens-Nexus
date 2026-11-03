@@ -364,8 +364,27 @@ export function SignInPolicyPanel({ toastOk, toastErr }) {
   const lists = { accepted: report?.acceptedPeople || [], not_accepted: report?.pending || [] };
   const rows = lists[tab];
 
+  // Out of Date (11/02/2026, the legal compliance pass): a saved policy that
+  // lacks a required section (notice at collection, location, monitoring).
+  // The saved text is never rewritten - the button only loads the new
+  // default into the editor for the administrator to review and publish.
+  const ood = cfg.outOfDate;
+  const useDefault = () => { if (cfg.default) { setTitle(cfg.default.title); setBody(cfg.default.body); setShowPreview(true); } };
   return (
     <>
+      {ood && (
+        <div role="note" style={{ padding: '10px 14px', border: '1px solid hsl(var(--color-orange))', borderRadius: 10, background: 'hsla(var(--color-orange),0.07)', fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.5, marginBottom: 12 }}>
+          <strong>Out of Date.</strong> The published policy is missing {ood.missing.join(', ')}. Your text stays as it is until you publish a new version.
+          <div style={{ marginTop: 8 }}>
+            <button type="button" className="secondary-btn" onClick={useDefault} disabled={!!busy}>Start a Draft From the New Default</button>
+          </div>
+        </div>
+      )}
+      {cfg.counselReview && (
+        <div style={{ ...HINT, marginTop: 0, marginBottom: 10 }}>
+          The default text is a draft for counsel review, not legal advice. Have your counsel review the policy and the Privacy Policy (Legal) before you rely on them.
+        </div>
+      )}
       <div style={{ padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--paper)', fontSize: 12.5, color: 'var(--muted)', marginBottom: 16 }}>
         <strong style={{ color: 'var(--ink)' }}>Current version: {formatPolicyVersion(pub.version)}</strong>
         {pub.publishedAt ? ` - published ${formatDateTime(pub.publishedAt)}${pub.publishedBy ? ` by ${pub.publishedBy}` : ''}.` : ' - the original policy.'}

@@ -1380,10 +1380,10 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       ) : view === 'day' ? (
         <ScheduleDay single={single} date={start} sections={sections} shifts={shown} openCells={openCells} notes={notes} weather={weather} canManage={managing} offOn={offOn} holOn={holOn}
           copied={copied} prefs={prefs} rowEditable={rowEditable} shiftEditable={shiftEditable} dragId={drag?.id} on={gridOn}
-          dragProps={dragProps} dropProps={dropProps} dropStyle={dropStyle} clickable={clickable} />
+          dragProps={dragProps} dropProps={dropProps} dropStyle={dropStyle} clickable={clickable} teamZone={teamZone} />
       ) : view === 'month' ? (
         <ScheduleMonth days={days} shifts={shown.filter((s) => s.email)} openShifts={shown.filter((s) => !s.email)} timeoff={data.timeoff || []}
-          holidayDates={holidayDates} holidayNames={holidayNames} notes={notes} visibleEmails={visibleEmails} names={names} people={empByEmail} weekStart={weekStart} onOpenDay={openDay} />
+          holidayDates={holidayDates} holidayNames={holidayNames} notes={notes} visibleEmails={visibleEmails} names={names} people={empByEmail} weekStart={weekStart} onOpenDay={openDay} teamZone={teamZone} />
       ) : groupBy === 'shift' ? (
         <ShiftTypeWeek days={days} shifts={shown} presets={presets} names={names} teamZone={teamZone}
           onOpen={(s) => openShiftEditor(s, s.email, s.date)} />

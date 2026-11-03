@@ -5,10 +5,10 @@ import re
 import threading
 import uuid
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import or_, func, text as sa_text
+from sqlalchemy import and_, false as sa_false, or_, func, text as sa_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -26,9 +26,9 @@ _VALID_TRANSITIONS = {
     "allocated":        {"approved", "pending_receipt"},
     "returned":         {"allocated"},
     # P1-3: a stuck pending_receipt (allocator handed over, employee never confirmed
-    # receipt) previously had NO exit - allow it to be cancelled (manager-guarded in
-    # update_checkout / the reconcile-state endpoint).
-    "cancelled":        {"pending", "approved", "rejected", "pending_receipt"},
+    # receipt) is cancelled ONLY through the reconcile-state endpoint (an items
+    # manager) - never by a PATCH, the requester's included (Nov 2026).
+    "cancelled":        {"pending", "approved", "rejected"},
 }
 
 _ROLE_LEVEL = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
@@ -70,6 +70,27 @@ require_items_admin  = require_level_or_module(_ROLE_LEVEL["manager"], "inventor
 require_items_delete = require_level_or_module(_ROLE_LEVEL["owner"],   "inventory", "full")
 
 
+def require_custom_field_delete(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """require_items_delete's rule (Super Administrator, or an Inventory grant
+    at Full) for DELETE /custom-fields, refusing with 403 - never 401. The
+    frontend reads a 401 as a dead session (token refresh, then a full
+    sign-in), so a manager or Inventory editor who clicked Delete was bounced
+    as if signed out (11/02/2026). 401 stays get_current_user's, for a missing
+    or invalid session. The shared auth.require_level* gates still answer 401
+    and are left as they are: tests across the suite pin that status."""
+    if _can_delete_items(user, db):
+        return user
+    raise HTTPException(403, "Only a Super Administrator or someone with Full Inventory access can delete a custom field.")
+
+
+def _can_delete_items(user: dict, db: Session) -> bool:
+    """require_items_delete's rule, for checks inside a handler: a Super
+    Administrator, or an Inventory grant at Full."""
+    from auth import _module_level, _MODULE_LEVEL_RANK
+    return (user.get("level", 1) >= _ROLE_LEVEL["owner"]
+            or _module_level(user["email"], "inventory", db) >= _MODULE_LEVEL_RANK["full"])
+
+
 def _is_items_manager(user: dict, db) -> bool:
     """Inline version of require_items_admin for checks INSIDE handlers:
     global manager+ OR an Access-Group grant of inventory at editor or above.
@@ -79,6 +100,196 @@ def _is_items_manager(user: dict, db) -> bool:
     from auth import _module_level, _MODULE_LEVEL_RANK
     return (user.get("level", 1) >= _ROLE_LEVEL["manager"]
             or _module_level(user["email"], "inventory", db) >= _MODULE_LEVEL_RANK["editor"])
+
+
+# ── Company walls (Neil green-lit, 11/02/2026) ────────────────────────────────
+# An item carries company_id (stamped from its creator); a checkout and an
+# assignment belong to their ITEM's company. On every route:
+#   * lists keep only rows whose item the caller's company_scope admits
+#     (scope None = unwalled - a Super Administrator, or levels 1-3 while the
+#     walls are off - so nothing changes for them);
+#   * an act on one row outside the scope answers 404, never 403
+#     (auth.assert_company), so existence never leaks across the wall;
+#   * the PARTIES to a row - a checkout's requester and allocator, an
+#     assignment's assignee - always see and act on their own row: they hold
+#     the item, and a wall must never strand it with them. The wall governs
+#     everyone acting on somebody else's row (managers, approvers).
+
+_LIVE_CHECKOUT = ["pending", "approved", "pending_receipt", "allocated"]
+
+# ── LOCK ORDER (Nov 2026 review) - one order for every Items write ────────────
+#   1. the ITEM row(s), FOR UPDATE, in item-id order (_lock_items);
+#   2. then the order's advisory lock (pg_advisory_xact_lock(hashtext(order_id)));
+#   3. then the checkout rows (an order's in checkout-id order) or the
+#      assignment row.
+# A route that only knows a checkout / assignment id reads its item_id
+# WITHOUT a lock first, then follows 1-2-3. Any two Items transactions then
+# wait in the same direction and can never deadlock (an Approve All against
+# a reconcile, an accept-return against a reassign, offboarding against a
+# handover). create_checkout, assign_item, reassign_item, bulk_assign,
+# reconcile_item_state, update_checkout, accept_assignment(_return),
+# cancel_assignment and force_return_person all follow it.
+
+
+def _lock_items(db: Session, item_ids) -> dict:
+    """Step 1 of the lock order: {item id: Item}, locked in id order."""
+    ids = sorted({i for i in item_ids if i})
+    if not ids:
+        return {}
+    return {it.id: it for it in db.query(Item).filter(Item.id.in_(ids)).order_by(Item.id).with_for_update().all()}
+
+
+def _me(user: dict) -> str:
+    return (user.get("email") or "").strip().lower()
+
+
+def _scope(user: dict, db: Session):
+    import auth
+    return auth.company_scope(user, db)
+
+
+def _item_ok(item, scope) -> bool:
+    """Does `scope` admit this item (None = an item that no longer exists)?"""
+    import auth
+    return auth.company_ok((getattr(item, "company_id", "") or "") if item is not None else "", scope)
+
+
+def _wall_item(item, user: dict, db: Session) -> None:
+    """404 when the caller's company scope does not admit `item`."""
+    import auth
+    auth.assert_company((getattr(item, "company_id", "") or "") if item is not None else "", user, db)
+
+
+def _wall_item_id(item_id: str, user: dict, db: Session) -> None:
+    """_wall_item for a row that only carries the item's id."""
+    import auth
+    if auth.company_scope(user, db) is None:
+        return
+    found = db.query(Item.company_id).filter(Item.id == item_id).first()
+    auth.assert_company((found[0] if found else "") or "", user, db)
+
+
+def _checkout_party(row, user: dict) -> bool:
+    me = _me(user)
+    return bool(me) and me in ((row.requested_by_email or "").lower(),
+                               (row.assigned_allocator_email or "").lower())
+
+
+def _assignment_party(a, user: dict) -> bool:
+    me = _me(user)
+    return bool(me) and me == (a.assignee_email or "").lower()
+
+
+def _wall_checkout(row, user: dict, db: Session) -> None:
+    if not _checkout_party(row, user):
+        _wall_item_id(row.item_id, user, db)
+
+
+def _wall_assignment(a, user: dict, db: Session) -> None:
+    if not _assignment_party(a, user):
+        _wall_item_id(a.item_id, user, db)
+
+
+def visible_item_ids(db: Session, user: dict, scope="unset") -> Optional[set]:
+    """The ids of every item the caller's company scope admits, or None when
+    the caller is unwalled (then nothing needs filtering). Lists and the
+    Approvals sources (approvals_inbox) filter their rows through it."""
+    import auth
+    if scope == "unset":
+        scope = auth.company_scope(user, db)
+    if scope is None:
+        return None
+    if not scope:
+        return set()
+    return {r[0] for r in db.query(Item.id).filter(Item.company_id.in_(list(scope))).all()}
+
+
+def walled_item_rows(q, model, db: Session, user: dict):
+    """Filter a query of ItemCheckout / ItemAssignment rows to the items the
+    caller's company scope admits - for readers OUTSIDE this router (the
+    Insights counts, the daily briefing) so they agree with the Item
+    Management lists and the Approvals badge. Unwalled: unchanged."""
+    allowed = visible_item_ids(db, user)
+    if allowed is None:
+        return q
+    return q.filter(model.item_id.in_(sorted(allowed))) if allowed else q.filter(sa_false())
+
+
+def _display_name(db: Session, email: str) -> str:
+    """The People name for an email ("Visesh Lodha"), else one made from it."""
+    em = (email or "").strip().lower()
+    if not em:
+        return ""
+    row = (db.query(NexusEmployee.first_name, NexusEmployee.last_name)
+           .filter(func.lower(NexusEmployee.work_email) == em).first())
+    name = f"{(row[0] or '') if row else ''} {(row[1] or '') if row else ''}".strip()
+    return name or _title_case_email(em)
+
+
+def _nexus_person(db: Session, email: str):
+    em = (email or "").strip().lower()
+    if not em:
+        return None
+    return (db.query(NexusEmployee)
+            .filter(func.lower(NexusEmployee.work_email) == em)
+            .filter(or_(NexusEmployee.status.is_(None), NexusEmployee.status != "offboarded")).first())
+
+
+def _require_person(db: Session, email: str, user: dict, what: str = "person") -> None:
+    """People pickers are the curated Nexus People list (CLAUDE.md): a
+    requester, assignee or allocator must be a current Nexus person inside
+    the caller's company scope. One message for both misses, so the answer
+    never says whether someone exists across the wall."""
+    import auth
+    em = (email or "").strip().lower()
+    if not em or _nexus_person(db, em) is None or not auth.person_in_scope(em, auth.company_scope(user, db), db):
+        raise HTTPException(400, f"Pick the {what} from the Nexus People list.")
+
+
+def _tag_item(response, item_id: str) -> None:
+    """Name the item on the response (X-Item-Id) so the audit middleware
+    threads a checkout / assignment step into that item's history."""
+    if response is not None and item_id:
+        response.headers["X-Item-Id"] = item_id
+
+
+def _refuse_lost(item) -> None:
+    """A lost item stays out of circulation until an items manager marks it
+    found (changes its status in Item Management)."""
+    if item is not None and (item.op_status or "") == "lost":
+        raise HTTPException(400, f'"{item.name}" is marked Lost. An items manager must mark it found '
+                                 "(change its status) before it can be checked out or assigned again.")
+
+
+def _inventory_desk_for(db: Session, company_id: str, exclude=()) -> list:
+    """Who staffs the Inventory desk for one company's item: the holders of an
+    Inventory grant at Editor or Full (the Access Group grant - not every
+    manager-tier person) whose own company scope admits `company_id`.
+    Current Nexus people only, sorted, never anyone in `exclude`."""
+    import auth
+    from auth import _MODULE_LEVEL_RANK
+    from models import NexusGroup, NexusGroupMember
+    gids = []
+    for gid, mods in db.query(NexusGroup.id, NexusGroup.allowed_modules).filter(
+            NexusGroup.allowed_modules.like("%inventory%")).all():
+        for part in (mods or "").split(","):
+            mid, _, lvl = part.strip().partition(":")
+            if mid == "inventory" and _MODULE_LEVEL_RANK.get(lvl, _MODULE_LEVEL_RANK["viewer"]) >= _MODULE_LEVEL_RANK["editor"]:
+                gids.append(gid)
+                break
+    if not gids:
+        return []
+    skip = {(e or "").lower() for e in exclude}
+    emails = {(m[0] or "").lower() for m in db.query(NexusGroupMember.email)
+              .filter(NexusGroupMember.group_id.in_(gids)).all()} - skip - {""}
+    out = []
+    for em in sorted(emails):
+        if _nexus_person(db, em) is None:
+            continue
+        scope = auth.company_scope({"email": em, "level": auth.level_for(em, db)}, db)
+        if auth.company_ok(company_id or "", scope):
+            out.append(em)
+    return out
 
 _SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
@@ -97,7 +308,17 @@ def _validate_photo_url(url: Optional[str], field: str) -> None:
 
 
 def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
-            ref_id: str = "", item_name: str = "", requested_by: str = "") -> None:
+            ref_id: str = "", item_name: str = "", requested_by: str = "",
+            about_email: str = "", company: Optional[str] = None, action: str = "") -> NexusNotification:
+    """One bell row. `requested_by` is a DISPLAY name (shown on the card) -
+    the company is stamped from an EMAIL: `company` when the caller knows the
+    item's, else the company of `about_email` (the requester / assignee the
+    notice is about), else the recipient's. It decides who sees a broadcast
+    (recipient '') through the bell's company wall. Stamping it from the
+    display name (as before Nov 2026) always gave '' - so once the walls
+    were armed, every items broadcast went to the Super Administrators only."""
+    if company is None:
+        company = company_of(about_email or recipient, db) if (about_email or recipient) else ""
     row = NexusNotification(
         id=str(uuid.uuid4()),
         type=type,
@@ -107,15 +328,85 @@ def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
         ref_id=ref_id,
         item_name=item_name,
         requested_by=requested_by,
-        action="",
+        action=action or "",
         actioned=False,
         read_by="",
-        # Company wall: a broadcast is about `requested_by`; a personal one is for
-        # `recipient` - stamp that person's company so the bell obeys the wall.
-        company=company_of(requested_by or recipient, db),
+        company=company or "",
         created_at=datetime.now(timezone.utc).isoformat(),
     )
     db.add(row)
+    return row
+
+
+# The Hand Over button on an allocator's bell (the bell opens the Items
+# handover sheet for the checkout - or the whole order - in ref_id).
+_HAND_OVER_ACTION = json.dumps({"kind": "allocate", "label": "Hand Over"})
+
+
+def _bells(db: Session, ntype: str, ref_id: str, recipient=None, title_prefix: str = "") -> list:
+    """The un-actioned bells of one workflow (type + ref), optionally for one
+    recipient and/or whose title starts with `title_prefix`."""
+    q = db.query(NexusNotification).filter(
+        NexusNotification.type == ntype,
+        NexusNotification.ref_id == ref_id,
+        NexusNotification.actioned == False,  # noqa: E712
+    )
+    if recipient is not None:
+        q = q.filter(NexusNotification.recipient == (recipient or "").lower())
+    rows = q.all()
+    if title_prefix:
+        rows = [n for n in rows if (n.title or "").startswith(title_prefix)]
+    return rows
+
+
+def _notify_team(db: Session, *, type: str, recipients: list, title: str, body: str,
+                 ref_id: str, item_name: str = "", requested_by: str = "",
+                 about_email: str = "", company: str = "", broadcast: bool = False) -> None:
+    """One bell per person per workflow, updated in place (re-surfaced as
+    unread) when it fires again: a named row for each of `recipients`, and -
+    with `broadcast`, or when nobody is named - the managers' '' broadcast
+    stamped with the item's company (the bell's company wall decides who of
+    the manager tier sees it; a broadcast never Web Pushes)."""
+    people = sorted({(r or "").strip().lower() for r in recipients if (r or "").strip()})
+
+    def _upsert(em: str) -> None:
+        live = _bells(db, type, ref_id, em)
+        if live:
+            for n in live:
+                n.title, n.body, n.read_by = title, body, ""
+            return
+        _notify(db, type=type, recipient=em, title=title, body=body, ref_id=ref_id,
+                item_name=item_name, requested_by=requested_by, about_email=about_email,
+                company=(company or None) if not em else None)
+
+    if broadcast or not people:
+        _upsert("")
+    for em in people:
+        _upsert(em)
+
+
+def _desk_bell(db: Session, *, type: str, title: str, body: str, ref_id: str, company: str,
+               approver: str = "", exclude=(), item_name: str = "", requested_by: str = "",
+               about_email: str = "") -> None:
+    """The bell for a decision Item Management staff make (Nov 2026 review):
+      * the approver the requester picked, when there is one - to them alone;
+      * otherwise the managers' broadcast stamped with the ITEM's company -
+        exactly who saw it before (every manager with the walls off; the
+        manager tier inside that company's wall once armed) - plus a named
+        bell (and so a Web Push) for each Inventory desk holder
+        (_inventory_desk_for) below the manager tier, who cannot see a
+        broadcast. Never the manager tier by name, so a push reaches the
+        desk, not every manager in the company."""
+    approver = (approver or "").strip().lower()
+    common = dict(type=type, title=title, body=body, ref_id=ref_id, item_name=item_name,
+                  requested_by=requested_by, about_email=about_email, company=company)
+    if approver:
+        _notify_team(db, recipients=[approver], **common)
+        return
+    import auth
+    named = [em for em in _inventory_desk_for(db, company, exclude=exclude)
+             if auth.level_for(em, db) < _ROLE_LEVEL["manager"]]
+    _notify_team(db, recipients=named, broadcast=True, **common)
 
 
 def _notify_op_status_declaration(db: Session, *, op_status: str, person_email: str,
@@ -225,8 +516,13 @@ def _custom_field_to_dict(f: ItemCustomField) -> dict:
     }
 
 
-def _checkout_to_dict(c: ItemCheckout) -> dict:
+def _checkout_to_dict(c: ItemCheckout, zones=None) -> dict:
+    """`zones` (item_due.Zones) dates dueDate in the borrower's own zone;
+    without it (a payload built where no db is at hand) it reads the
+    default zone. dueAt / dueDate are blank until the item changes hands."""
+    import item_due
     return {
+        **item_due.due_fields(c, zones),
         "id":                      c.id,
         "itemId":                  c.item_id,
         "itemName":                c.item_name,
@@ -263,6 +559,9 @@ def _checkout_to_dict(c: ItemCheckout) -> dict:
         "extensionStatus":         c.extension_status         or "",
         "approverEmail":           c.approver_email           or "",
         "approverName":            c.approver_name            or "",
+        # The return date picked on the calendar (YYYY-MM-DD, the borrower's
+        # zone) - what a request shows before the handover; '' = a days request.
+        "requestedDueDate":        c.requested_due_date       or "",
     }
 
 
@@ -270,6 +569,8 @@ def _checkout_to_dict(c: ItemCheckout) -> dict:
 
 class ItemCreate(BaseModel):
     name:           str
+    # Optional (Add Item's Serial field, 11/02/2026): blank = the next GG-#####.
+    serial_number:  Optional[str] = ""
     item_type:      Optional[str] = "Other"
     make:           Optional[str] = ""
     model:          Optional[str] = ""
@@ -326,6 +627,9 @@ class ItemImportRow(BaseModel):
 
 class ItemImportRequest(BaseModel):
     items: list[ItemImportRow]
+    # A row whose serial belongs to an item in the Recycle Bin is skipped and
+    # reported unless the import says to restore those items (Nov 2026).
+    restore_deleted: Optional[bool] = False
 
 
 @router.get("")
@@ -353,23 +657,37 @@ def list_items(
     _scope = auth.company_scope(user, db)
     if _scope is not None:
         items = [i for i in items if auth.company_ok(getattr(i, "company_id", ""), _scope)]
+    return _items_with_activity(db, items)
 
+
+def _items_with_activity(db: Session, items, only_ids=None) -> list:
+    """Item dicts with their live checkout activity - the ONE enrichment GET
+    /items and GET /items/by-code share (Items phase 4 review L7), so a
+    scanned item offers exactly the actions its list row would. `only_ids`
+    narrows the checkout read to those items (one scanned item)."""
     # Enrich each item with live checkout activity so ALL users (not just
     # managers who see every checkout) know when an item is taken or under
     # review - prevents submitting a cart that will 409 at the server.
-    active_cos = db.query(
+    active_q = db.query(
         ItemCheckout.item_id,
         ItemCheckout.requested_by,
+        ItemCheckout.requested_by_email,
         ItemCheckout.status,
         ItemCheckout.created_at,
         ItemCheckout.days,
         ItemCheckout.allocated_at,
         ItemCheckout.handed_over_at,
+        ItemCheckout.requested_due_date,
     ).filter(
-        ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"])
-    ).all()
+        ItemCheckout.status.in_(_LIVE_CHECKOUT)
+    )
+    if only_ids is not None:
+        active_q = active_q.filter(ItemCheckout.item_id.in_(list(only_ids)))
+    active_cos = active_q.all()
     active_map = {row.item_id: row for row in active_cos}
 
+    import item_due
+    zones = item_due.Zones(db)
     result = []
     for i in items:
         d = _item_to_dict(i)
@@ -377,20 +695,17 @@ def list_items(
         # hasActiveRequest: true when a checkout blocks new requests (not yet allocated)
         d["hasActiveRequest"] = co is not None and co.status in ("pending", "approved", "pending_receipt")
         # activeRequestedBy / activeDueDate: for "In Use - [Name] - available in X days".
-        # The clock starts at physical handover (allocated/handed-over), not at the
-        # request - approval delay must not eat into the employee's checkout days.
+        # The clock starts at the physical handover (item_due - the one clock):
+        # approval delay must not eat into the employee's checkout days.
+        # activeDueDay is that due date in the borrower's own time zone.
         d["activeRequestedBy"] = co.requested_by if co else None
+        d["activeDueDate"] = None
+        d["activeDueDay"] = None
         if co and co.days:
-            try:
-                from datetime import timedelta
-                start_iso = co.allocated_at or co.handed_over_at or co.created_at
-                start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
-                due = start + timedelta(days=int(co.days))
-                d["activeDueDate"] = due.isoformat()
-            except Exception:
-                d["activeDueDate"] = None
-        else:
-            d["activeDueDate"] = None
+            at = item_due.due_at(co)
+            if at is not None:
+                d["activeDueDate"] = at.isoformat()
+                d["activeDueDay"] = item_due.due_date(co, zones.get(co.requested_by_email)).isoformat()
         result.append(d)
     return result
 
@@ -402,23 +717,30 @@ def items_signature(db: Session = Depends(get_db)):
     change?" for ~70 bytes instead of re-pulling the whole ~1000-item catalog every
     30s - that single poll was ~95% of the database's pooler egress. The client
     re-fetches the full list only when a digest flips; realtime still drives the
-    instant updates. `items` covers item rows PLUS the active-checkout enrichment
-    the list carries (so an availability change flips it too); `checkouts` covers
-    the checkouts list. Casting the whole row to text means ANY column change moves
-    the hash - no column list to keep in sync. On a backend that can't hash
-    server-side (local SQLite dev), returns empty strings and the client just falls
+    instant updates. `items` covers item rows PLUS the checkouts the list's
+    availability enrichment reads; `checkouts` covers the checkouts list.
+
+    Cheap aggregate (Nov 2026): the old digest cast EVERY row of both tables to
+    text and md5'd the joined string on every poll of every open tab. Now each
+    table is summarized as row count + the sum of its rows' `xmin` (the id of
+    the transaction that last wrote the row): any insert or delete moves the
+    count, any update gives the row a new xmin and moves the sum - with no row
+    serialized at all. A false "changed" only costs one refetch; it is a
+    "did anything change?" probe, never data. On a backend without xmin
+    (local SQLite dev) it returns empty strings and the client just falls
     back to always-fetching, exactly as before."""
+    if db.get_bind().dialect.name != "postgresql":
+        return {"items": "", "checkouts": ""}
     try:
         row = db.execute(sa_text(
             "SELECT "
-            "  md5(coalesce((SELECT string_agg(t::text, ',' ORDER BY t.id) FROM items t "
-            "     WHERE t.deleted_at IS NULL OR t.deleted_at = ''), '') || '::' || "
-            "     coalesce((SELECT string_agg(c::text, ',' ORDER BY c.id) FROM item_checkouts c "
-            "     WHERE c.status IN ('pending','approved','pending_receipt','allocated')), '')) AS items_sig, "
-            "  md5(coalesce((SELECT string_agg(c::text, ',' ORDER BY c.id) FROM item_checkouts c), '')) AS co_sig"
+            "  (SELECT count(*)::text || '.' || coalesce(sum(xmin::text::bigint), 0)::text FROM items) AS i_sig, "
+            "  (SELECT count(*)::text || '.' || coalesce(sum(xmin::text::bigint), 0)::text FROM item_checkouts) AS c_sig"
         )).first()
-        return {"items": (row[0] or ""), "checkouts": (row[1] or "")}
+        items_sig, co_sig = (row[0] or ""), (row[1] or "")
+        return {"items": f"{items_sig}:{co_sig}", "checkouts": co_sig}
     except Exception:
+        db.rollback()
         return {"items": "", "checkouts": ""}
 
 
@@ -564,12 +886,18 @@ def create_item(body: ItemCreate, response: Response, user: dict = Depends(requi
     # user's catalogue.
     _validate_photo_url(body.photo_url, "photo_url")
     now = datetime.now(timezone.utc).isoformat()
+    # A serial typed on Add Item is the unit's own (a manufacturer's or an
+    # asset tag); it must be free - a clash is a 409 with the reason. Blank =
+    # the next Nexus-assigned GG-#####.
+    own_serial = _clean_field(body.serial_number)[:80]
+    if own_serial:
+        _check_serial_free(db, Item(id=""), own_serial)
     # Retry the rare serial race: two simultaneous adds can compute the same next
     # GG-##### and collide on the unique index. Recompute and retry a few times.
-    for attempt in range(5):
+    for attempt in range(5 if not own_serial else 1):
         item = Item(
             id=str(uuid.uuid4()),
-            serial_number=_fmt_serial(_serial_start(db)),
+            serial_number=own_serial or _fmt_serial(_serial_start(db)),
             company_id=company_of(user, db),   # company wall: stamp creator's company
             name=name,
             item_type=_normalize_type(body.item_type, _type_canon(db)),
@@ -608,6 +936,8 @@ def create_item(body: ItemCreate, response: Response, user: dict = Depends(requi
             return _item_to_dict(item)
         except IntegrityError:
             db.rollback()
+    if own_serial:
+        raise HTTPException(409, f"Serial {own_serial} is already used by another item.")
     raise HTTPException(409, "Could not assign a unique serial number - please try again.")
 
 
@@ -622,14 +952,36 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
     # duplicating), yet two genuinely identical units keep two slots and never
     # collapse. A blank-serial row only creates a NEW unit when no unclaimed match
     # is left - then it gets the next Nexus-assigned GG-#####.
+    #
+    # Company walls (Nov 2026): rows match ONLY the caller's own items - an item
+    # of another company is never updated by somebody else's spreadsheet - and
+    # never an item in the Recycle Bin unless `restore_deleted` asks for it (a
+    # matched deleted item is then restored). A serial already taken by an
+    # item the import may not touch is reported in `conflicts` and skipped
+    # (the serial index is unique - creating a second one was a 500).
+    scope = _scope(user, db)
     by_serial: dict[str, Item] = {}
     sig_pool: dict[tuple, deque] = defaultdict(deque)
+    taken: dict[str, str] = {}         # serial -> why this import may not use it
     for it in db.query(Item).all():
         s = (it.serial_number or "").strip().lower()
+        mine = _item_ok(it, scope)
+        deleted = bool(it.deleted_at)
+        if not mine:
+            if s:
+                taken.setdefault(s, "used by an item you cannot edit")
+            continue
+        if deleted and not body.restore_deleted:
+            if s:
+                taken.setdefault(s, "belongs to an item in the Recycle Bin - restore it first")
+            continue
         if s:
             by_serial.setdefault(s, it)
-        sig_pool[_content_sig(it.name, it.item_type, it.make, it.model, it.year,
-                              it.department, it.location, it.ownership_type)].append(it)
+        if not deleted:
+            sig_pool[_content_sig(it.name, it.item_type, it.make, it.model, it.year,
+                                  it.department, it.location, it.ownership_type)].append(it)
+    conflicts: list = []
+    restored = 0
 
     claimed: set[str] = set()          # existing items already matched this import
     next_serial = _serial_start(db)    # scanned once - see _serial_start
@@ -689,6 +1041,10 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
         serial = (row.serial_number or "").strip()
         if serial:
             existing = by_serial.get(serial.lower())   # same serial = same unit (repeats collapse)
+            if existing is None and serial.lower() in taken:
+                conflicts.append({"name": name, "serial": serial, "reason": taken[serial.lower()]})
+                skipped += 1
+                continue
         else:
             existing = _claim_by_sig(_content_sig(name, item_type, make, model, year, department, location, ownership))
 
@@ -696,6 +1052,9 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
             # Update descriptive fields in place. Serial, status, photo, and the
             # assignment lifecycle are deliberately preserved.
             claimed.add(existing.id)   # so a later blank-serial row can't re-match this unit by content
+            if existing.deleted_at:     # only reachable with restore_deleted
+                _restore(existing)
+                restored += 1
             existing.name          = name
             existing.item_type     = item_type
             existing.make          = make
@@ -712,7 +1071,7 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
             # Honour a serial the CSV supplied; otherwise assign the next GG-#####,
             # skipping any already taken in the DB or earlier in this same file.
             if not serial:
-                while _fmt_serial(next_serial).lower() in by_serial:
+                while _fmt_serial(next_serial).lower() in by_serial or _fmt_serial(next_serial).lower() in taken:
                     next_serial += 1
                 serial = _fmt_serial(next_serial)
                 next_serial += 1
@@ -743,7 +1102,8 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
     db.commit()
     # Report any types this import created so the UI can refresh the type list.
     return {"created": created, "updated": updated, "skipped": skipped,
-            "added_types": sorted(set(added_types))}
+            "added_types": sorted(set(added_types)), "restored": restored,
+            "conflicts": conflicts}
 
 
 # ── Persistent cart (must be before /{item_id} wildcards) ────────────────────
@@ -760,16 +1120,17 @@ def get_cart(user: dict = Depends(get_current_user), db: Session = Depends(get_d
     return [{"id": r.id, "itemId": r.item_id, "itemName": r.item_name, "itemType": r.item_type, "addedAt": r.added_at} for r in rows]
 
 @router.post("/cart")
-def add_to_cart(body: CartAddBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def add_to_cart(body: CartAddBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db), response: Response = None):
     email = (user.get("preferred_username") or user.get("email") or "").lower()
     # Validate item exists and is requestable
     item = db.query(Item).filter(Item.id == body.item_id).first()
-    if not item:
+    if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
     import auth   # company wall: can't request another company's item
     auth.assert_company(getattr(item, "company_id", "") or "", user, db)
     if item.ownership_type != "transient":
         raise HTTPException(400, "Only transient items can be added to cart")
+    _refuse_lost(item)
     if item.status != "available":
         raise HTTPException(409, f'"{item.name}" is not currently available')
     existing = db.query(ItemCartEntry).filter(ItemCartEntry.user_email == email, ItemCartEntry.item_id == body.item_id).first()
@@ -782,6 +1143,7 @@ def add_to_cart(body: CartAddBody, user: dict = Depends(get_current_user), db: S
     )
     db.add(entry)
     db.commit()
+    _tag_item(response, item.id)
     return {"id": entry.id, "itemId": entry.item_id, "itemName": entry.item_name, "itemType": entry.item_type, "addedAt": entry.added_at}
 
 @router.delete("/cart/{item_id}")
@@ -797,6 +1159,33 @@ def clear_cart(user: dict = Depends(get_current_user), db: Session = Depends(get
     db.query(ItemCartEntry).filter(ItemCartEntry.user_email == email).delete()
     db.commit()
     return {"ok": True}
+
+
+def _check_ownership_change(db: Session, item: Item, new_ownership: str) -> None:
+    """An item someone holds (or has asked for) keeps its ownership: flipping
+    it mid-flight strands the checkout or assignment (a transient item
+    "permanently assigned", a permanent one checked out). Recover it first."""
+    if not new_ownership or new_ownership == (item.ownership_type or ""):
+        return
+    live_co = db.query(ItemCheckout.id).filter(
+        ItemCheckout.item_id == item.id, ItemCheckout.status.in_(_LIVE_CHECKOUT)).first()
+    live_asg = db.query(ItemAssignment.id).filter(
+        ItemAssignment.item_id == item.id,
+        ItemAssignment.status.in_(["pending_acceptance", "active", "return_initiated"])).first()
+    if live_co or live_asg:
+        raise HTTPException(409, f'"{item.name}" is checked out or assigned right now - recover it before '
+                                 "changing whether it is Permanent or Temporary.")
+
+
+def _check_serial_free(db: Session, item: Item, serial: str) -> None:
+    """Serials are unique (ix_items_serial_unique): a clash is a 409 with a
+    reason, never the database's 500."""
+    s = (serial or "").strip()
+    if not s:
+        return
+    clash = (db.query(Item.id).filter(func.lower(Item.serial_number) == s.lower(), Item.id != item.id).first())
+    if clash:
+        raise HTTPException(409, f"Serial {s} is already used by another item.")
 
 
 @router.patch("/{item_id}")
@@ -825,6 +1214,7 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_ite
         ot = body.ownership_type.strip().lower()
         if ot and ot not in ("permanent", "transient"):
             raise HTTPException(400, "ownership_type must be 'permanent' or 'transient'")
+        _check_ownership_change(db, item, ot)
         item.ownership_type = ot
     # P1-3: lifecycle `status` is derived-only - no raw write here (see ItemUpdate and
     # POST /items/{id}/reconcile-state). op_status below is the operational field.
@@ -884,6 +1274,7 @@ def delete_item(item_id: str, user: dict = Depends(require_items_delete), db: Se
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
+    _wall_item(item, user, db)
     active = db.query(ItemCheckout).filter(
         ItemCheckout.item_id == item_id,
         ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"]),
@@ -930,7 +1321,9 @@ def bulk_delete_items(body: BulkDeleteRequest, user: dict = Depends(require_item
             ItemAssignment.status.in_(["pending_acceptance", "active", "return_initiated"]),
         ).all()
     }
-    items = db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all()
+    scope = _scope(user, db)
+    items = [it for it in db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all()
+             if _item_ok(it, scope)]   # another company's item reads as not found
     found_ids = {it.id for it in items}
 
     blocked, deleted = [], 0
@@ -955,20 +1348,50 @@ def bulk_delete_items(body: BulkDeleteRequest, user: dict = Depends(require_item
 @router.get("/deleted")
 def list_deleted_items(user: dict = Depends(require_items_delete), db: Session = Depends(get_db)):
     """The recycle bin - soft-deleted items, most-recently-deleted first, so a
-    bad 'select all + delete' is recoverable (Ankush). Items older than the
-    retention window are purged for good first (lazy cleanup - ISO timestamps are
-    all UTC, so a string compare is chronological)."""
-    from datetime import timedelta
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=_RECYCLE_BIN_DAYS)).isoformat()
-    expired = db.query(Item).filter(
-        Item.deleted_at.isnot(None), Item.deleted_at != "", Item.deleted_at < cutoff).all()
-    if expired:
-        for it in expired:
-            db.delete(it)
-        db.commit()
+    bad 'select all + delete' is recoverable (Ankush). A READ: nothing is
+    deleted here (Nov 2026 - it used to purge expired rows for good on every
+    open). Deleting forever is POST /items/recycle-bin/delete-expired, an
+    explicit act."""
+    scope = _scope(user, db)
     rows = db.query(Item).filter(Item.deleted_at.isnot(None), Item.deleted_at != "") \
              .order_by(Item.deleted_at.desc()).limit(2000).all()
-    return [_item_to_dict(i) for i in rows]
+    return [_item_to_dict(i) for i in rows if _item_ok(i, scope)]
+
+
+@router.post("/recycle-bin/delete-expired")
+def delete_expired_forever(user: dict = Depends(require_items_delete), db: Session = Depends(get_db)):
+    """Delete forever the items that have sat in the Recycle Bin longer than
+    the retention window (_RECYCLE_BIN_DAYS), within the caller's company
+    scope. An explicit act (the screen should confirm it with a hold - it
+    cannot be taken back), never a side effect of a read. An item that was
+    ever checked out or assigned, is linked from a ticket or was the fulfilled
+    item of a purchase request is KEPT - deleting it would orphan the rows
+    that point at it - and is counted in `kept`."""
+    from datetime import timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=_RECYCLE_BIN_DAYS)).isoformat()
+    scope = _scope(user, db)
+    expired = [it for it in db.query(Item).filter(
+        Item.deleted_at.isnot(None), Item.deleted_at != "", Item.deleted_at < cutoff).all()
+        if _item_ok(it, scope)]
+    ids = [it.id for it in expired]
+    with_history = set()
+    if ids:
+        with_history |= {r[0] for r in db.query(ItemCheckout.item_id).filter(ItemCheckout.item_id.in_(ids)).all()}
+        with_history |= {r[0] for r in db.query(ItemAssignment.item_id).filter(ItemAssignment.item_id.in_(ids)).all()}
+        # Other modules point at items too: a ticket about the equipment, a
+        # purchase request fulfilled into it.
+        from models import Requisition, TicketItemLink
+        with_history |= {r[0] for r in db.query(TicketItemLink.item_id).filter(TicketItemLink.item_id.in_(ids)).all()}
+        with_history |= {r[0] for r in db.query(Requisition.fulfilled_item_id)
+                         .filter(Requisition.fulfilled_item_id.in_(ids)).all()}
+    deleted = 0
+    for it in expired:
+        if it.id in with_history:
+            continue
+        db.delete(it)
+        deleted += 1
+    db.commit()
+    return {"deleted": deleted, "kept": len(expired) - deleted}
 
 
 class RestoreRequest(BaseModel):
@@ -984,6 +1407,7 @@ def restore_item(item_id: str, user: dict = Depends(require_items_delete), db: S
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
         raise HTTPException(404, "Item not found")
+    _wall_item(item, user, db)
     if not item.deleted_at:
         raise HTTPException(409, "Item is not deleted")
     _restore(item)
@@ -997,7 +1421,10 @@ def bulk_restore_items(body: RestoreRequest, user: dict = Depends(require_items_
     if not ids:
         return {"restored": 0}
     restored = 0
+    scope = _scope(user, db)
     for it in db.query(Item).filter(Item.id.in_(ids), Item.deleted_at.isnot(None), Item.deleted_at != "").all():
+        if not _item_ok(it, scope):
+            continue
         _restore(it)
         restored += 1
     db.commit()
@@ -1054,8 +1481,18 @@ def bulk_update_items(body: BulkUpdateRequest, user: dict = Depends(require_item
             changes["asset_value"] = 0.0
 
     updated = 0
+    blocked = []
     op_changed = "op_status" in changes
+    scope = _scope(user, db)
     for it in db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
+        if not _item_ok(it, scope):
+            continue                      # another company's item: not found, untouched
+        if "ownership_type" in changes:
+            try:
+                _check_ownership_change(db, it, changes["ownership_type"])
+            except HTTPException:
+                blocked.append({"id": it.id, "name": it.name, "reason": "checked out or assigned"})
+                continue
         for k, v in changes.items():
             setattr(it, k, v)
         # A batch can't attach a per-item person, so drop any stale declaration when
@@ -1065,7 +1502,7 @@ def bulk_update_items(body: BulkUpdateRequest, user: dict = Depends(require_item
             it.op_status_person_name  = ""
         updated += 1
     db.commit()
-    return {"updated": updated}
+    return {"updated": updated, "blocked": blocked}
 
 
 # ── Custom fields ─────────────────────────────────────────────────────────────
@@ -1142,7 +1579,7 @@ def update_custom_field(field_id: str, body: CustomFieldIn, user: dict = Depends
 
 
 @router.delete("/custom-fields/{field_id}")
-def delete_custom_field(field_id: str, user: dict = Depends(require_items_delete), db: Session = Depends(get_db)):
+def delete_custom_field(field_id: str, user: dict = Depends(require_custom_field_delete), db: Session = Depends(get_db)):
     f = db.query(ItemCustomField).filter(ItemCustomField.id == field_id).first()
     if not f:
         raise HTTPException(404, "Custom field not found")
@@ -1183,7 +1620,112 @@ def add_item_type(body: ItemTypeIn, user: dict = Depends(require_items_admin), d
     return _type_names(db)
 
 
-@router.delete("/types/{name}")
+# ── Type settings: Borrowable and the longest loan (Neil, 11/02/2026) ────────
+# Borrow lists only the types people can borrow. Each type has a switch; until
+# an admin flips it, a type is borrowable when it has temporary (checkout)
+# items or no items yet, and not when every item of it is permanent (laptops,
+# phones). Its longest loan caps the return date Borrow offers; 0 = the
+# 90-day ceiling every checkout already had.
+
+_LOAN_CEILING_DAYS = 90
+
+
+def _type_row(db: Session, name: str):
+    """The type row for `name`, matched the way type names are kept unique
+    (_type_key: case, spacing and plural folding - "Tool" finds "Tools")."""
+    key = _type_key(name)
+    if not key:
+        return None
+    rows = db.query(ItemType).all()
+    exact = (name or "").strip().lower()
+    return (next((r for r in rows if (r.name or "").strip().lower() == exact), None)
+            or next((r for r in rows if _type_key(r.name) == key), None))
+
+
+def _loan_cap(db: Session, type_name: str) -> int:
+    """The most days a Borrow request may ask for on an item of this type."""
+    row = _type_row(db, type_name)
+    cap = int(getattr(row, "max_loan_days", 0) or 0) if row else 0
+    return min(cap, _LOAN_CEILING_DAYS) if cap > 0 else _LOAN_CEILING_DAYS
+
+
+def _type_borrowable(row, transient: int, permanent: int) -> bool:
+    """The effective switch: the admin's when set, else the default rule."""
+    if row is not None and row.borrowable is not None:
+        return bool(row.borrowable)
+    return transient > 0 or permanent == 0
+
+
+class ItemTypeSettingsIn(BaseModel):
+    borrowable:    Optional[bool] = None   # None = leave as it is
+    use_default:   Optional[bool] = False  # True = back to the default rule
+    max_loan_days: Optional[int] = None    # 0 = no type cap (the 90-day ceiling)
+
+
+def _type_settings(db: Session, user: dict) -> list:
+    """Item types are shared by every company (Neil, 11/02/2026: records
+    every company shares are Super Administrator only), so the default rule
+    reads ALL companies' items - one walled company's stock never decides
+    another's Borrow - while the counts shown are only the caller's own."""
+    import auth
+    _seed_types_if_empty(db)
+    scope = _scope(user, db)
+    every: dict = defaultdict(lambda: [0, 0])    # type key -> [transient, permanent], all companies
+    mine: dict = defaultdict(lambda: [0, 0])     # the same, inside the caller's walls
+    for it in db.query(Item).filter(or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
+        k = _type_key(it.item_type)
+        i = 0 if (it.ownership_type or "transient") == "transient" else 1
+        every[k][i] += 1
+        if _item_ok(it, scope):
+            mine[k][i] += 1
+    can_edit = auth.is_global_admin(user, db)
+    out = []
+    for r in db.query(ItemType).order_by(ItemType.sort_order, ItemType.name).all():
+        t, p = every.get(_type_key(r.name), [0, 0])
+        mt, mp = mine.get(_type_key(r.name), [0, 0])
+        cap = int(r.max_loan_days or 0)
+        out.append({"name": r.name, "borrowable": _type_borrowable(r, t, p),
+                    "borrowableSet": None if r.borrowable is None else bool(r.borrowable),
+                    "maxLoanDays": cap,
+                    "loanCapDays": min(cap, _LOAN_CEILING_DAYS) if cap > 0 else _LOAN_CEILING_DAYS,
+                    "temporaryCount": mt, "permanentCount": mp, "canEdit": can_edit})
+    return out
+
+
+@router.get("/types/settings")
+def list_item_type_settings(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Each type with its Borrowable switch (effective, and the admin's own
+    choice or null), its longest loan and how many items of it the caller can
+    see. Borrow reads it to hide the types people cannot borrow."""
+    return _type_settings(db, user)
+
+
+@router.patch("/types/{name:path}")
+def update_item_type_settings(name: str, body: ItemTypeSettingsIn, user: dict = Depends(get_current_user),
+                              db: Session = Depends(get_db)):
+    # Every company shares the type list - only a Super Administrator (or a
+    # flagged global group) changes its Borrowable switch or longest loan.
+    # {name:path}: a type like "Radios/Phones" is a name, not two segments.
+    import auth
+    if not auth.is_global_admin(user, db):
+        raise HTTPException(403, "Only a Super Administrator can change this.")
+    row = _type_row(db, name)
+    if row is None:
+        raise HTTPException(404, "Item type not found")
+    if body.use_default:
+        row.borrowable = None
+    elif body.borrowable is not None:
+        row.borrowable = bool(body.borrowable)
+    if body.max_loan_days is not None:
+        days = int(body.max_loan_days)
+        if days < 0 or days > _LOAN_CEILING_DAYS:
+            raise HTTPException(400, f"The longest loan is 0 (no cap) to {_LOAN_CEILING_DAYS} days")
+        row.max_loan_days = days
+    db.commit()
+    return _type_settings(db, user)
+
+
+@router.delete("/types/{name:path}")
 def delete_item_type(name: str, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     if name.strip().lower() == "other":
         raise HTTPException(400, "“Other” is the fallback type and can't be removed.")
@@ -1212,6 +1754,9 @@ class CheckoutIn(BaseModel):
     order_id:            Optional[str] = ""
     approver_email:      Optional[str] = ""   # manager who should receive the approval notification
     approver_name:       Optional[str] = ""
+    # The return date picked on Borrow's calendar (YYYY-MM-DD, the borrower's
+    # own zone - Neil, 11/02/2026). When given it sets `days`; see item_due.
+    due_date:            Optional[str] = ""
 
     def validate_days(self):
         if not (1 <= self.days <= 90):
@@ -1244,19 +1789,40 @@ class CheckoutStatusUpdate(BaseModel):
     handed_over_at:            Optional[str] = ""
 
 
+_HISTORY_CAP = 2000
+
+
 @router.get("/checkouts")
-def list_checkouts(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    q = db.query(ItemCheckout).order_by(ItemCheckout.created_at.desc())
+def list_checkouts(history_limit: int = _HISTORY_CAP, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """Every LIVE checkout the caller may see (pending, approved, handed over,
+    in use - never capped: a cap used to drop live rows once the table passed
+    2,000, so an item someone holds vanished from every list), plus the most
+    recent finished ones up to `history_limit` (at most 5,000). Managers see
+    their companies' rows (the wall) and their own; everyone else their own
+    as requester or allocator. Newest first."""
+    me = _me(user)
+    mine = or_(func.lower(ItemCheckout.requested_by_email) == me,
+               func.lower(ItemCheckout.assigned_allocator_email) == me)
+    base = db.query(ItemCheckout)
     if not _is_items_manager(user, db):
-        q = q.filter(or_(
-            ItemCheckout.requested_by_email == user["email"],
-            ItemCheckout.assigned_allocator_email == user["email"],
-        ))
-    return [_checkout_to_dict(c) for c in q.limit(2000).all()]
+        base = base.filter(mine)
+    else:
+        allowed = visible_item_ids(db, user)
+        if allowed is not None:
+            base = base.filter(or_(ItemCheckout.item_id.in_(list(allowed)), mine) if allowed else mine)
+    cap = max(0, min(int(history_limit or 0), 5000))
+    live = base.filter(ItemCheckout.status.in_(_LIVE_CHECKOUT)).order_by(ItemCheckout.created_at.desc()).all()
+    done = (base.filter(ItemCheckout.status.notin_(_LIVE_CHECKOUT))
+            .order_by(ItemCheckout.created_at.desc()).limit(cap).all()) if cap else []
+    rows = sorted(live + done, key=lambda c: c.created_at or "", reverse=True)
+    import item_due
+    zones = item_due.Zones(db)
+    return [_checkout_to_dict(c, zones) for c in rows]
 
 
 @router.post("/checkouts", status_code=201)
-def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db), response: Response = None):
     body.validate_days()
     body.validate_lengths()
     if not body.reason.strip():
@@ -1272,10 +1838,56 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     item = db.query(Item).filter(Item.id == body.item_id).with_for_update().first()
     if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
+    _wall_item(item, user, db)   # company wall: never another company's item (404)
     if item.ownership_type != "transient":
         raise HTTPException(400, "Only transient items can be checked out")
+    _refuse_lost(item)
+    type_row = _type_row(db, item.item_type)
+    if type_row is not None and type_row.borrowable is False and not _is_items_manager(user, db):
+        # Borrowable is what Borrow lists; an items manager may still check
+        # one out (for themselves or for a crew member).
+        raise HTTPException(400, f"{item.item_type} items are not borrowable")
+    # Who it is for: anyone may raise a request on someone's behalf (ops staff
+    # checking items out for a crew member - Neil), but that person must be a
+    # current Nexus person inside the caller's company scope; so must the
+    # manager it is addressed to.
+    _validate_photo_url(body.checkout_photo_url, "checkout_photo_url")
+    requester_email = (body.requested_by_email or "").lower().strip() or _me(user)
+    if requester_email != _me(user):
+        _require_person(db, requester_email, user, "person this request is for")
+    if (body.approver_email or "").strip():
+        _require_person(db, body.approver_email, user, "manager to approve this request")
+        # The approver must reach the ITEM's company - a manager walled out of
+        # it could never see, let alone approve, the request (review, Nov 2026).
+        if not _person_reaches(db, body.approver_email, item.company_id or ""):
+            raise HTTPException(400, "Pick a manager who looks after this item's company.")
     if item.status != "available":
         raise HTTPException(409, f'"{item.name}" is no longer available - it may have just been taken by someone else')
+
+    # The return date (Neil, 11/02/2026): the date picked on the calendar sets
+    # the loan length - the days from the borrower's today to it - capped by
+    # the type's longest loan. An older client still sends a number of days,
+    # capped the same way.
+    import item_due
+    picked_iso = ""
+    cap = _loan_cap(db, item.item_type)
+    if (body.due_date or "").strip():
+        try:
+            picked = date.fromisoformat(body.due_date.strip()[:10])
+        except ValueError:
+            raise HTTPException(400, "The return date must be a date (YYYY-MM-DD)")
+        tz = item_due.zone_for(db, requester_email)
+        days = item_due.loan_days(picked, tz)
+        if days < 1:
+            raise HTTPException(400, "Pick a return date after today")
+        if days > cap:
+            last = item_due.local_today(tz) + timedelta(days=cap)
+            raise HTTPException(400, f"{item.item_type or 'This item'} can be borrowed for up to {cap} days - "
+                                     f"pick a return date on or before {last.strftime('%m/%d/%Y')}")
+        body.days = days
+        picked_iso = picked.isoformat()
+    elif body.days > cap:
+        raise HTTPException(400, f"{item.item_type or 'This item'} can be borrowed for up to {cap} days")
 
     # Verify no active checkout exists for this item (race condition guard)
     active = db.query(ItemCheckout).filter(
@@ -1295,8 +1907,7 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     # Managers and above (or an inventory editor+ grant) don't need a separate
     # approval for their own checkouts
     is_manager = _is_items_manager(user, db)
-    requester_email = body.requested_by_email.lower()
-    user_email = user.get("email", "").lower()
+    user_email = _me(user)
     self_checkout = is_manager and requester_email == user_email
     initial_status = "approved" if self_checkout else "pending"
 
@@ -1304,8 +1915,8 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     row = ItemCheckout(
         id=server_id,
         item_id=body.item_id,
-        item_name=body.item_name,
-        item_type=body.item_type or "",
+        item_name=item.name,                        # the catalog's, never the client's copy
+        item_type=item.item_type or body.item_type or "",
         requested_by=body.requested_by,
         requested_by_email=requester_email,
         raised_by=body.raised_by,
@@ -1315,12 +1926,13 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
         status=initial_status,
         created_at=now,
         resolved_at=now if self_checkout else "",
-        resolved_by=body.requested_by if self_checkout else "",
+        resolved_by=_display_name(db, user_email) if self_checkout else "",
         checkout_photo_url=body.checkout_photo_url or "",
         checkout_photo_name=body.checkout_photo_name or "",
         order_id=order_id,
         approver_email=(body.approver_email or "").lower().strip(),
         approver_name=(body.approver_name or "").strip(),
+        requested_due_date=picked_iso,
     )
     db.add(row)
     if initial_status == "pending":
@@ -1335,11 +1947,7 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
         # Only an UN-actioned notification counts as "already notified" - a
         # re-request rejoining an old order must ping the manager again even
         # though the order's original notification was long since handled.
-        already_notified = order_id and db.query(NexusNotification).filter(
-            NexusNotification.ref_id == order_id,
-            NexusNotification.type == "checkout_pending",
-            NexusNotification.actioned == False,
-        ).first()
+        already_notified = _bells(db, "checkout_pending", order_id) if order_id else []
         # Item count + total $ value of the order so far (this row included) -
         # the manager sees what's at stake before approving. autoflush is off,
         # so the current row is counted manually.
@@ -1357,76 +1965,167 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
                       + ".\nPlease review, approve or reject.")
         if not already_notified:
             # Targeted: only the manager the employee picked gets the notification.
-            # Empty approver (legacy clients / managers raising on behalf) falls back
-            # to the all-managers broadcast. The request itself remains visible in
-            # every manager's Checkouts tab regardless - anyone can still approve.
-            _notify(db, type="checkout_pending", recipient=(body.approver_email or "").lower().strip(),
-                    title=f"Checkout Request - {body.requested_by}",
-                    body=notif_body,
-                    ref_id=ref_for_notif, item_name=body.item_name, requested_by=body.requested_by)
+            # No approver picked (legacy clients / managers raising on behalf): the
+            # managers' broadcast, now stamped with the ITEM's company (it carried
+            # no company, so once the walls were armed only the Super
+            # Administrators saw it), plus the Inventory desk by name - _desk_bell.
+            # The request itself stays in every items manager's Checkouts tab.
+            _desk_bell(db, type="checkout_pending", approver=body.approver_email or "",
+                       exclude=[requester_email],
+                       title=f"Checkout Request - {body.requested_by}", body=notif_body,
+                       ref_id=ref_for_notif, item_name=item.name, requested_by=body.requested_by,
+                       about_email=requester_email, company=item.company_id or "")
         else:
             # Subsequent cart items: refresh the count/value on the existing
-            # notification (the realtime ping pushes the new body to open bells)
-            already_notified.body = notif_body
+            # notification(s) (the realtime ping pushes the new body to open bells)
+            for n in already_notified:
+                n.body = notif_body
     db.commit()
     _fire_item_event(server_id, initial_status, row.requested_by_email or "")
-    return _checkout_to_dict(row)
+    _tag_item(response, row.item_id)
+    return _checkout_to_dict(row, item_due.Zones(db))
+
+
+def _maybe_request_confirmed(db: Session, row: ItemCheckout) -> None:
+    """The order's ONE "Request confirmed" bell, once every item has settled
+    (allocated, returned, rejected or cancelled) and at least one is with the
+    requester - whichever item settles last. autoflush is off: `row`'s new
+    status is counted by hand."""
+    unsettled = db.query(ItemCheckout).filter(
+        ItemCheckout.order_id == row.order_id, ItemCheckout.id != row.id,
+        ItemCheckout.status.notin_(["allocated", "returned", "cancelled", "rejected"]),
+    ).count()
+    if unsettled:
+        return
+    with_them = db.query(ItemCheckout).filter(
+        ItemCheckout.order_id == row.order_id, ItemCheckout.id != row.id,
+        ItemCheckout.status == "allocated").count() + (1 if row.status == "allocated" else 0)
+    if not with_them or _bells(db, "allocated", row.order_id, row.requested_by_email, title_prefix="Request confirmed"):
+        return
+    _notify(db, type="allocated", recipient=row.requested_by_email,
+            title=f"Request confirmed: {with_them} item{'' if with_them == 1 else 's'} with you",
+            body=f"All {with_them} items from your request are confirmed. Please return them within {row.days} day(s).",
+            ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
+
+
+def _settle_handover_bells(db: Session, row: ItemCheckout, prev_status: str) -> None:
+    """Keep the two handover bells true once `row` has moved on (Nov 2026 -
+    they used to linger after the work was done):
+      * the allocator's "Hand over" bell (allocate_request) lists only the
+        items still waiting for them (approved) - actioned when none is left
+        (the item handed over, rejected or cancelled);
+      * the requester's "Confirm receipt" bell counts only the items still
+        to confirm (pending_receipt) - actioned when none is left (receipt
+        confirmed, or the handover cancelled).
+    One bell per order (or per solo checkout), updated in place. autoflush is
+    off, so `row`'s new status is applied by hand."""
+    ref = row.order_id or row.id
+    sibs = (db.query(ItemCheckout).filter(ItemCheckout.order_id == row.order_id, ItemCheckout.id != row.id).all()
+            if row.order_id else [])
+    alloc = (row.assigned_allocator_email or "").lower()
+    if prev_status == "approved" and row.status != "approved":
+        _action_notif(db, "allocator_needed", row.id)   # offboarding's "Pick a New Allocator"
+    if alloc and prev_status == "approved" and row.status != "approved":
+        waiting = [s.item_name for s in sibs
+                   if s.status == "approved" and (s.assigned_allocator_email or "").lower() == alloc]
+        for n in _bells(db, "allocate_request", ref, alloc):
+            if not waiting:
+                n.actioned = True
+            elif len(waiting) == 1:
+                n.title, n.body = f"Hand over: {waiting[0]}", f"Please hand {waiting[0]} over to {row.requested_by}."
+            else:
+                n.title = f"Hand over {len(waiting)} items to {row.requested_by}"
+                n.body = f"Please hand over: {', '.join(waiting)}."
+    if prev_status == "pending_receipt" and row.status != "pending_receipt":
+        left = [s for s in sibs if s.status == "pending_receipt"]
+        for n in _bells(db, "allocated", ref, row.requested_by_email, title_prefix="Confirm receipt"):
+            if not left:
+                n.actioned = True
+            else:
+                n.title = f"Confirm receipt: {len(left)} item{'s' if len(left) != 1 else ''}"
+                n.body = (f"{left[0].item_name} has been handed over. Please confirm receipt and upload a photo."
+                          if len(left) == 1 else
+                          f"{len(left)} items from your request have been handed over. "
+                          "Please confirm receipt and upload a photo for each.")
 
 
 @router.patch("/checkouts/{checkout_id}")
-def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    # P1-2: lock the checkout row itself up front. Previously FOR UPDATE was only taken
-    # on the ORDER siblings (below), so a SOLO (no-order) checkout took no lock at all -
-    # a concurrent approve + cancel could both read status="pending" and both proceed.
-    # Locking the row here serializes those transitions for the solo path too.
-    row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).with_for_update().first()
-    if not row:
+def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db), response: Response = None):
+    # LOCK ORDER (see _lock_items): the item(s), then the order's advisory
+    # lock, then the order's rows in id order - never "this row first, then
+    # its siblings". "Approve All" / "Hand Over All" / "Return All" fire one
+    # PATCH per item in parallel; locking the own row first meant two of them
+    # could each hold one row and wait on the other's (a deadlock Postgres
+    # broke by failing one Approve). Locking the rows also serializes the
+    # order-level notification batching below, so each transaction sees the
+    # previous one's commit (one bell per order). A SOLO checkout locks its
+    # item, then its own row (P1-2: a concurrent approve + cancel could
+    # otherwise both read "pending").
+    head = db.query(ItemCheckout.order_id, ItemCheckout.item_id).filter(ItemCheckout.id == checkout_id).first()
+    if head is None:
         # Was a 200 {"ok": false} fake-success - clients checking resp.ok showed
         # success on a vanished/stale checkout (Jul 14 audit family).
         raise HTTPException(404, "Checkout not found")
-
-    if row.order_id:
-        # Serialize concurrent updates within the same order. "Approve All" /
-        # "Hand Over All" / "Return All" fire one PATCH per item in parallel;
-        # without this lock each transaction reads its siblings as unchanged
-        # and the order-level notification batching below double-fires (one
-        # notification per item instead of one per order). FOR UPDATE makes
-        # the transactions queue, so each sees the previous one's commit.
-        db.query(ItemCheckout).filter(
-            ItemCheckout.order_id == row.order_id
-        ).with_for_update().all()
-        db.refresh(row)
+    order_id = head[0] or ""
+    item_ids = [r[0] for r in db.query(ItemCheckout.item_id).filter(ItemCheckout.order_id == order_id).all()] \
+        if order_id else [head[1]]
+    locked_items = _lock_items(db, item_ids + [head[1]])
+    row = None
+    if order_id:
+        if db.get_bind().dialect.name == "postgresql":
+            db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:oid))"), {"oid": order_id})
+        for r in (db.query(ItemCheckout).filter(ItemCheckout.order_id == order_id)
+                  .order_by(ItemCheckout.id).with_for_update().all()):
+            if r.id == checkout_id:
+                row = r
+    if row is None:
+        row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).with_for_update().first()
+    if not row:
+        raise HTTPException(404, "Checkout not found")
+    _wall_checkout(row, user, db)   # company wall: 404 unless a party or in scope
 
     # Validate photo URLs to prevent fake evidence from external sources
     _validate_photo_url(body.checkout_photo_url, "checkout_photo_url")
     _validate_photo_url(body.receipt_photo_url,  "receipt_photo_url")
     _validate_photo_url(body.return_photo_url,   "return_photo_url")
 
+    me = _me(user)
     items_mgr = _is_items_manager(user, db)   # manager+ OR inventory grant editor+
+    is_allocator = bool(row.assigned_allocator_email) and row.assigned_allocator_email.lower() == me
+    is_requester = bool(row.requested_by_email) and row.requested_by_email.lower() == me
     if body.status in ("approved", "rejected") and not items_mgr:
         raise HTTPException(403, "Manager or above required to approve or reject checkouts")
-    if body.status == "approved" and not (body.assigned_allocator_email or "").strip():
-        raise HTTPException(400, "Pick who should allocate this item before approving")
+    if body.status == "approved":
+        if not (body.assigned_allocator_email or "").strip():
+            raise HTTPException(400, "Pick who should allocate this item before approving")
+        _require_person(db, body.assigned_allocator_email, user, "allocator")
     if body.status == "pending_receipt":
-        is_assignee = row.assigned_allocator_email and row.assigned_allocator_email.lower() == user["email"]
-        if not is_assignee and not items_mgr:
+        if not is_allocator and not items_mgr:
             raise HTTPException(403, "Only the assigned allocator or a manager can initiate handover")
     if body.status == "allocated":
-        is_assignee  = row.assigned_allocator_email and row.assigned_allocator_email.lower() == user["email"]
-        is_requester = row.requested_by_email and row.requested_by_email.lower() == user["email"]
-        if not is_assignee and not is_requester and not items_mgr:
+        if not is_allocator and not is_requester and not items_mgr:
             raise HTTPException(403, "Only the assigned allocator, the requester, or a manager can confirm handover")
-    if body.status == "returned" and user["level"] < 2 and not items_mgr \
-            and row.requested_by_email.lower() != user["email"]:
-        raise HTTPException(403, "You can only return your own items")
+        # Evidence (Nov 2026): the requester only CONFIRMS RECEIPT of an item the
+        # allocator has handed over - they never hand it to themselves straight
+        # from "approved", skipping the allocator and the handover photo.
+        if is_requester and not is_allocator and not items_mgr and row.status != "pending_receipt":
+            raise HTTPException(403, "Your allocator hands the item over first - confirm receipt once they have.")
+    if body.status == "returned" and not (is_requester or is_allocator or items_mgr):
+        # Evidence (Nov 2026): the holder, the allocator who handed it over, or an
+        # items manager checks an item back in - not any supervisor.
+        raise HTTPException(403, "Only the person holding the item, its allocator or an items manager can check it back in")
     if body.status == "cancelled":
         # P1-7: the requester can always self-cancel; a manager (or inventory
         # editor+ grant) may also cancel a still-pending/approved checkout on
         # someone's behalf (symmetric with assignment force-cancel). The
-        # requester is then told WHO cancelled it (below).
-        is_requester = row.requested_by_email.lower() == user["email"].lower()
+        # requester is then told WHO cancelled it (below). A handed-over item
+        # (pending_receipt) is cancelled only by an items manager through
+        # POST /items/{id}/reconcile-state (Nov 2026): the item is physically
+        # with someone, so the requester cannot just make the record vanish.
         if not is_requester and not items_mgr:
             raise HTTPException(403, "You can only cancel your own checkouts")
+        if row.status == "pending_receipt":
+            raise HTTPException(409, "This item was already handed over - ask an items manager to cancel the handover")
         if items_mgr and not is_requester and row.status not in ("pending", "approved"):
             raise HTTPException(409, "A manager can only cancel a pending or approved checkout")
 
@@ -1435,7 +2134,11 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
         raise HTTPException(409, f"Cannot move a '{row.status}' checkout to '{body.status}'")
 
     now = datetime.now(timezone.utc).isoformat()
-    item = db.query(Item).filter(Item.id == row.item_id).first()
+    item = locked_items.get(row.item_id) or db.query(Item).filter(Item.id == row.item_id).first()
+    prev_status = row.status
+    actor_name = _display_name(db, me)   # who acted comes from the session, never the client
+    if body.status in ("approved", "pending_receipt", "allocated"):
+        _refuse_lost(item)   # a lost item is not approved, handed over or received until found
 
     # Photos are evidence: the handover, the receipt and the return each need one,
     # unless the item is flagged photo-optional (picture_required False, e.g. keys).
@@ -1444,8 +2147,10 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
     #   - pending_receipt: the allocator chose "employee takes the photo", so the
     #     evidence is the receipt photo the employee uploads on the next step;
     #   - a lost item (nothing to photograph);
-    #   - a check-in on the holder's behalf with a reason (force return - the
-    #     holder is not there to photograph it; the reason is the record).
+    #   - a check-in by an ITEMS MANAGER on the holder's behalf with a reason
+    #     (force return - the holder is not there to photograph it; the reason
+    #     is the record). The allocator returning it on the holder's behalf
+    #     still needs a photo (Nov 2026): they have the item in hand.
     if not item or item.picture_required is None or item.picture_required:
         def _has(*urls):
             return any((u or "").strip() for u in urls)
@@ -1457,14 +2162,13 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
             raise HTTPException(400, "A receipt photo is required")
         if body.status == "returned" and not _has(body.return_photo_url):
             lost = (body.condition or "ok").lower().strip() == "lost"
-            on_behalf = (row.requested_by_email or "").lower() != user["email"].lower() \
-                and _has(body.condition_note)
+            on_behalf = items_mgr and not is_requester and _has(body.condition_note)
             if not lost and not on_behalf:
                 raise HTTPException(400, "A return photo is required (unless the item is lost)")
 
     if body.status in ("approved", "rejected"):
         row.resolved_at = now
-        row.resolved_by = body.resolved_by or ""
+        row.resolved_by = actor_name
         if body.status == "approved":
             row.assigned_allocator_email = (body.assigned_allocator_email or "").lower().strip()
             row.assigned_allocator_name  = (body.assigned_allocator_name  or "").strip()
@@ -1473,9 +2177,8 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
 
     elif body.status == "cancelled":
         row.resolved_at = now
-        # P1-7: record WHO cancelled - the acting user's name if the client didn't
-        # supply one (a manager cancelling on behalf otherwise recorded no actor).
-        row.resolved_by = body.resolved_by or _title_case_email(user["email"])
+        # P1-7: record WHO cancelled - the acting user, from the session.
+        row.resolved_by = actor_name
 
     elif body.status == "pending_receipt":
         # Supervisor confirmed physical handover; employee will upload receipt photo
@@ -1485,7 +2188,7 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
         if body.checkout_photo_url:
             row.checkout_photo_url  = body.checkout_photo_url
             row.checkout_photo_name = body.checkout_photo_name or ""
-        row.allocated_by = body.allocated_by or ""
+        row.allocated_by = actor_name
 
     elif body.status == "allocated":
         coming_from_pending_receipt = row.status == "pending_receipt"
@@ -1504,7 +2207,9 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
             row.receipt_photo_url  = body.receipt_photo_url  or ""
             row.receipt_photo_name = body.receipt_photo_name or ""
         row.allocated_at = now
-        row.allocated_by = body.allocated_by or row.allocated_by or ""
+        # The allocator who handed it over stays on record when the requester
+        # confirms receipt; a direct handover records whoever handed it over.
+        row.allocated_by = (row.allocated_by or actor_name) if coming_from_pending_receipt else actor_name
         if item:
             item.status = "checked_out"
 
@@ -1539,12 +2244,7 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
             row.extension_days   = 0
             row.extension_reason = ""
             row.extension_status = ""
-            stale_ext = db.query(NexusNotification).filter(
-                NexusNotification.type == "extension_pending",
-                NexusNotification.actioned == False,
-                NexusNotification.ref_id == checkout_id,
-            ).first()
-            if stale_ext:
+            for stale_ext in _bells(db, "extension_pending", checkout_id):
                 stale_ext.actioned = True
 
     row.status = body.status
@@ -1565,13 +2265,9 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
             ).count()
             if sibling_pending > 0:
                 ref_ids = []  # don't action yet - order not fully resolved
-        if ref_ids:
-            pending_notif = db.query(NexusNotification).filter(
-                NexusNotification.type == "checkout_pending",
-                NexusNotification.actioned == False,
-                NexusNotification.ref_id.in_(ref_ids),
-            ).first()
-            if pending_notif:
+        for ref in ref_ids:
+            # Every named copy (approver, or each items manager) clears together.
+            for pending_notif in _bells(db, "checkout_pending", ref):
                 pending_notif.actioned = True
 
     if body.status in ("approved", "rejected"):
@@ -1665,10 +2361,12 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                     existing_alloc.title   = alloc_title
                     existing_alloc.body    = alloc_body
                     existing_alloc.read_by = ""
+                    existing_alloc.action  = existing_alloc.action or _HAND_OVER_ACTION
                 else:
                     _notify(db, type="allocate_request", recipient=row.assigned_allocator_email,
                             title=alloc_title, body=alloc_body,
-                            ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
+                            ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by,
+                            action=_HAND_OVER_ACTION)
         else:
             # Solo item (no order) - one notification per action
             if body.status == "approved":
@@ -1680,7 +2378,8 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                     _notify(db, type="allocate_request", recipient=row.assigned_allocator_email,
                             title=f"Hand over: {row.item_name}",
                             body=f"Please hand {row.item_name} over to {row.requested_by}.",
-                            ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+                            ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by,
+                            action=_HAND_OVER_ACTION)
             else:
                 _notify(db, type="rejected", recipient=row.requested_by_email,
                         title=f"Checkout rejected: {row.item_name}",
@@ -1701,12 +2400,10 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
             notif_title = f"Confirm receipt: {handed} item{'s' if handed != 1 else ''}"
             notif_body = (f"{row.item_name} has been handed over. Please confirm receipt and upload a photo." if handed == 1
                           else f"{handed} items from your request have been handed over. Please confirm receipt and upload a photo for each.")
-            existing = db.query(NexusNotification).filter(
-                NexusNotification.ref_id == row.order_id,
-                NexusNotification.recipient == (row.requested_by_email or "").lower(),
-                NexusNotification.type == "allocated",
-                NexusNotification.actioned == False,
-            ).first()
+            # Only the "Confirm receipt" bell - the order's "Request confirmed"
+            # bell carries the same type and ref.
+            existing = next(iter(_bells(db, "allocated", row.order_id, row.requested_by_email,
+                                        title_prefix="Confirm receipt")), None)
             if existing:
                 existing.title   = notif_title
                 existing.body    = notif_body
@@ -1721,24 +2418,12 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                     body=f"{row.item_name} has been handed over to you. Please confirm receipt and upload a photo.",
                     ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
     elif body.status == "allocated":
-        # For order batches: only notify once, when ALL items in the order are allocated
+        # For order batches: only notify once, when ALL items in the order are
+        # allocated. A sibling that was rejected or cancelled is settled too -
+        # leaving "rejected" out meant an order with one rejected item never
+        # got its "Request confirmed" (Nov 2026).
         if row.order_id:
-            sibling_not_allocated = db.query(ItemCheckout).filter(
-                ItemCheckout.order_id == row.order_id,
-                ItemCheckout.id != checkout_id,
-                ItemCheckout.status.notin_(["allocated", "returned", "cancelled"]),
-            ).count()
-            if sibling_not_allocated == 0:
-                # All items now allocated - send one consolidated notification
-                order_count = db.query(ItemCheckout).filter(
-                    ItemCheckout.order_id == row.order_id,
-                    ItemCheckout.status == "allocated",
-                ).count() + 1  # +1 for current item (not yet committed)
-                _notify(db, type="allocated", recipient=row.requested_by_email,
-                        title=f"Request confirmed: {order_count} item{'' if order_count == 1 else 's'} with you",
-                        body=f"All {order_count} items from your request are confirmed. Please return them within {row.days} day(s).",
-                        ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
-            # else: don't send individual notifications mid-batch
+            _maybe_request_confirmed(db, row)   # else: no individual notifications mid-batch
         else:
             _notify(db, type="allocated", recipient=row.requested_by_email,
                     title=f"Item confirmed: {row.item_name}",
@@ -1800,16 +2485,26 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                     body=f"Your request for {row.item_name} was cancelled by {actor}.",
                     ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
 
+    if row.order_id and body.status in ("rejected", "cancelled"):
+        # The LAST item of an order to settle may be a rejection or a cancel:
+        # the items already handed over still get their "Request confirmed".
+        _maybe_request_confirmed(db, row)
+    _settle_handover_bells(db, row, prev_status)
     db.commit()
     _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
-    return _checkout_to_dict(row)
+    import item_due
+    _tag_item(response, row.item_id)
+    return _checkout_to_dict(row, item_due.Zones(db))
 
 
 # ── Extension requests ────────────────────────────────────────────────────────
 
 class ExtensionRequest(BaseModel):
-    days:   int
+    days:   Optional[int] = 1
     reason: Optional[str] = ""
+    # The new return date picked on the calendar (Neil, 11/02/2026); when
+    # given it sets the extra days (the new date minus the current due date).
+    new_due_date: Optional[str] = ""
 
 
 class ExtensionResolve(BaseModel):
@@ -1818,7 +2513,7 @@ class ExtensionResolve(BaseModel):
 
 
 @router.post("/checkouts/{checkout_id}/extension")
-def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Depends(get_current_user), db: Session = Depends(get_db), response: Response = None):
     """Employee asks for more days on an item they currently hold."""
     # P1-2: lock the checkout row so two concurrent extension requests can't both pass
     # the "already pending" check below - otherwise they double-create the pending
@@ -1826,6 +2521,7 @@ def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Dep
     row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).with_for_update().first()
     if not row:
         raise HTTPException(404, "Checkout not found")
+    _wall_checkout(row, user, db)
     if row.status != "allocated":
         raise HTTPException(400, "Extensions can only be requested for items in use")
     if (row.requested_by_email or "").lower() != user["email"].lower() and not _is_items_manager(user, db):
@@ -1834,7 +2530,28 @@ def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Dep
         raise HTTPException(400, "An extension request is already awaiting approval")
     if not (body.reason or "").strip():
         raise HTTPException(400, "A reason is required to request an extension")
-    days = max(1, min(90, int(body.days or 1)))
+    import item_due
+    if (body.new_due_date or "").strip():
+        try:
+            new_due = date.fromisoformat(body.new_due_date.strip()[:10])
+        except ValueError:
+            raise HTTPException(400, "The new return date must be a date (YYYY-MM-DD)")
+        current = item_due.due_date(row, item_due.zone_for(db, row.requested_by_email))
+        if current is None:
+            raise HTTPException(400, "This checkout has no due date yet")
+        days = (new_due - current).days
+        if days < 1:
+            raise HTTPException(400, f"Pick a date after the current due date ({current.strftime('%m/%d/%Y')})")
+        if new_due <= item_due.local_today(item_due.zone_for(db, row.requested_by_email)):
+            raise HTTPException(400, "Pick a new return date after today")
+    else:
+        days = max(1, int(body.days or 1))
+    # An extension is the manager-approved exception to the type's longest
+    # loan, so it is held only to the 90-day ceiling for the whole loan.
+    if (row.days or 0) >= _LOAN_CEILING_DAYS:
+        raise HTTPException(400, f"This loan is already at the {_LOAN_CEILING_DAYS}-day limit - ask an items manager to return and re-lend it")
+    if (row.days or 0) + days > _LOAN_CEILING_DAYS:
+        raise HTTPException(400, f"A checkout can run for at most {_LOAN_CEILING_DAYS} days in all")
 
     row.extension_days   = days
     row.extension_reason = (body.reason or "").strip()
@@ -1842,19 +2559,29 @@ def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Dep
 
     # Neil: title leads with the ITEM and the days - the requester is already
     # shown on the card. Reason goes on its own line (bell renders pre-line).
-    _notify(db, type="extension_pending", recipient="",
-            title=f"Extension Request - {row.item_name} (+{days} day{'s' if days != 1 else ''})",
-            body=f"{row.requested_by} requested {days} more day{'s' if days != 1 else ''} for {row.item_name}."
-                 + (f"\nReason: {row.extension_reason}" if row.extension_reason else ""),
-            ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+    # The manager the requester picked, else the managers' broadcast stamped
+    # with the ITEM's company plus the Inventory desk by name (_desk_bell) - it
+    # was a broadcast stamped with no company, invisible to walled managers.
+    item = db.query(Item.company_id).filter(Item.id == row.item_id).first()
+    company = (item[0] if item else "") or ""
+    approver = (row.approver_email or "").lower().strip()
+    if approver == (row.requested_by_email or "").lower():
+        approver = ""
+    _desk_bell(db, type="extension_pending", approver=approver, exclude=[row.requested_by_email],
+               title=f"Extension Request - {row.item_name} (+{days} day{'s' if days != 1 else ''})",
+               body=f"{row.requested_by} requested {days} more day{'s' if days != 1 else ''} for {row.item_name}."
+                    + (f"\nReason: {row.extension_reason}" if row.extension_reason else ""),
+               ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by,
+               about_email=row.requested_by_email or "", company=company)
 
     db.commit()
     _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
-    return _checkout_to_dict(row)
+    _tag_item(response, row.item_id)
+    return _checkout_to_dict(row, item_due.Zones(db))
 
 
 @router.post("/checkouts/{checkout_id}/extension/resolve")
-def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Depends(get_current_user), db: Session = Depends(get_db), response: Response = None):
     """Manager approves or rejects a pending extension request."""
     if not _is_items_manager(user, db):
         raise HTTPException(403, "Manager or above required to resolve extensions")
@@ -1863,6 +2590,7 @@ def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Dep
     row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).with_for_update().first()
     if not row:
         raise HTTPException(404, "Checkout not found")
+    _wall_item_id(row.item_id, user, db)   # the manager decides only for their companies
     if row.extension_status != "pending":
         raise HTTPException(400, "No pending extension request on this checkout")
 
@@ -1872,6 +2600,13 @@ def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Dep
 
     ext_days = row.extension_days or 0
     if action == "approve":
+        import item_due
+        if (row.requested_due_date or "").strip():
+            # The picked date moves with the extension (item_due's rule reads it
+            # when the handover came on the day of the request).
+            current = item_due.due_date(row, item_due.zone_for(db, row.requested_by_email))
+            if current is not None:
+                row.requested_due_date = (current + timedelta(days=ext_days)).isoformat()
         row.days = (row.days or 1) + ext_days
         _notify(db, type="extension_approved", recipient=row.requested_by_email,
                 title=f"Extension approved: {row.item_name}",
@@ -1889,18 +2624,80 @@ def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Dep
     row.extension_reason = ""
     row.extension_status = ""
 
-    # Clear the managers' extension_pending notification
-    pending_notif = db.query(NexusNotification).filter(
-        NexusNotification.type == "extension_pending",
-        NexusNotification.actioned == False,
-        NexusNotification.ref_id == checkout_id,
-    ).first()
-    if pending_notif:
+    # Clear the managers' extension_pending notification (every named copy)
+    for pending_notif in _bells(db, "extension_pending", checkout_id):
         pending_notif.actioned = True
 
     db.commit()
     _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
-    return _checkout_to_dict(row)
+    import item_due
+    _tag_item(response, row.item_id)
+    return _checkout_to_dict(row, item_due.Zones(db))
+
+
+# ── The borrower's calendar (Items redesign, 11/02/2026) ──────────────────────
+# Borrow's date boxes come from here, not from the viewer's clock: today, the
+# first and the last return date allowed, all in the BORROWER's zone (the
+# person the request is for - the signed-in one, or "Someone Else").
+
+@router.get("/borrow-window")
+def borrow_window(item_ids: str = "", for_email: str = "", user: dict = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    import item_due
+    who = (for_email or "").strip().lower() or _me(user)
+    if who != _me(user):
+        _require_person(db, who, user, "person this request is for")
+    tz = item_due.zone_for(db, who)
+    today = item_due.local_today(tz)
+    scope = _scope(user, db)
+    out = {}
+    ids = [s for s in (item_ids or "").split(",") if s.strip()][:100]
+    for it in db.query(Item).filter(Item.id.in_(ids)).all() if ids else []:
+        if not _item_ok(it, scope) or it.deleted_at:
+            continue
+        cap = _loan_cap(db, it.item_type)
+        out[it.id] = {"first": (today + timedelta(days=1)).isoformat(),
+                      "last": (today + timedelta(days=cap)).isoformat(), "capDays": cap,
+                      "available": it.status == "available" and (it.op_status or "") != "lost"}
+    return {"today": today.isoformat(), "zone": tz, "for": who, "items": out}
+
+
+# ── Pick a New Allocator (Items redesign, 11/02/2026) ─────────────────────────
+# Offboarding leaves an approved checkout with nobody to hand it over (the
+# allocator_needed bell). An items manager names the new allocator here; the
+# old bell is actioned and the new allocator is belled with Hand Over.
+
+class AllocatorIn(BaseModel):
+    allocator_email: str
+    allocator_name:  Optional[str] = ""
+
+
+@router.post("/checkouts/{checkout_id}/allocator")
+def set_checkout_allocator(checkout_id: str, body: AllocatorIn, user: dict = Depends(get_current_user),
+                           db: Session = Depends(get_db), response: Response = None):
+    if not _is_items_manager(user, db):
+        raise HTTPException(403, "Only an items manager picks who hands it over")
+    row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).with_for_update().first()
+    if not row:
+        raise HTTPException(404, "Checkout not found")
+    _wall_item_id(row.item_id, user, db)
+    if row.status != "approved":
+        raise HTTPException(409, "Only an approved checkout waiting for its handover gets a new allocator")
+    email = (body.allocator_email or "").strip().lower()
+    if not email:
+        raise HTTPException(400, "Pick who should hand it over")
+    _require_person(db, email, user, "allocator")
+    row.assigned_allocator_email = email
+    row.assigned_allocator_name = (body.allocator_name or "").strip() or _display_name(db, email)
+    _action_notif(db, "allocator_needed", row.id)
+    _notify(db, type="allocate_request", recipient=email, title=f"Hand over: {row.item_name}",
+            body=f"Please hand {row.item_name} over to {row.requested_by}.",
+            ref_id=row.id, item_name=row.item_name, requested_by=row.requested_by, action=_HAND_OVER_ACTION)
+    db.commit()
+    _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
+    import item_due
+    _tag_item(response, row.item_id)
+    return _checkout_to_dict(row, item_due.Zones(db))
 
 
 # ── Reconcile lifecycle state ─────────────────────────────────────────────────
@@ -1921,6 +2718,7 @@ def reconcile_item_state(item_id: str, body: ReconcileStateIn,
     item = db.query(Item).filter(Item.id == item_id).with_for_update().first()
     if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
+    _wall_item(item, user, db)
 
     cancelled_id = ""
     if (body.cancel_checkout_id or "").strip():
@@ -1934,8 +2732,9 @@ def reconcile_item_state(item_id: str, body: ReconcileStateIn,
             raise HTTPException(409, "Only a stuck pending_receipt checkout can be cancelled here")
         co.status      = "cancelled"
         co.resolved_at = _now_iso()
-        co.resolved_by = _title_case_email(user["email"])
+        co.resolved_by = _display_name(db, user["email"])
         cancelled_id   = co.id
+        _settle_handover_bells(db, co, "pending_receipt")   # the "Confirm receipt" bell goes
         # Tell the requester their unconfirmed handover was cancelled by a manager.
         if co.requested_by_email:
             _notify(db, type="cancelled", recipient=co.requested_by_email,
@@ -2167,15 +2966,21 @@ class AutoPhotoRequest(BaseModel):
 
 @router.post("/auto-photos")
 def auto_fill_photos(body: AutoPhotoRequest, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
-    if not _ANTHROPIC_API_KEY:
-        raise HTTPException(503, "AI photo fill is not configured - add ANTHROPIC_API_KEY to the backend app settings")
+    # The image searches (Google when configured, else the keyless Openverse)
+    # need no AI, so AI being off is no reason to refuse (Nov 2026 - this used
+    # to 503 without an Anthropic key). Claude's web search is used only when
+    # the AI switch is on AND a key is set (ai_switch - Neil, Oct 29 2026),
+    # and only when no Google key exists at all.
+    import ai_switch
+    ai_ok = bool(_ANTHROPIC_API_KEY) and ai_switch.enabled()
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         raise HTTPException(503, "Supabase storage is not configured on the backend")
 
     results = []
+    scope = _scope(user, db)
     for item_id in body.item_ids[:5]:  # cap per call - the client batches
         item = db.query(Item).filter(Item.id == item_id).first()
-        if not item:
+        if not item or not _item_ok(item, scope):
             results.append({"item_id": item_id, "status": "not_found"})
             continue
         if item.photo_url and not body.replace:
@@ -2197,7 +3002,7 @@ def auto_fill_photos(body: AutoPhotoRequest, user: dict = Depends(require_items_
                 sources = _openverse_image_candidates(desc)
             if not sources and desc != item.name:
                 sources = _openverse_image_candidates(item.name)
-            if not sources and not _GOOGLE_CSE_KEY:
+            if not sources and not _GOOGLE_CSE_KEY and ai_ok:
                 try:
                     sources = _find_product_page_urls(item)
                 except Exception:
@@ -2271,12 +3076,9 @@ def _now_iso():
 
 
 def _action_notif(db: Session, ntype: str, ref_id: str):
-    n = db.query(NexusNotification).filter(
-        NexusNotification.type == ntype,
-        NexusNotification.ref_id == ref_id,
-        NexusNotification.actioned == False,
-    ).first()
-    if n:
+    """Action a workflow's bell - every named copy of it (one per items
+    manager since Nov 2026), not just the first row found."""
+    for n in _bells(db, ntype, ref_id):
         n.actioned = True
 
 
@@ -2291,6 +3093,16 @@ def _activate_assignment_direct(a: "ItemAssignment", item: "Item", now: str):
         item.ownership_type = "permanent"
         item.assigned_to_email, item.assigned_to_name, item.assigned_at = a.assignee_email, a.assignee_name, now
         item.assigned_to_location = ""  # a person now holds it - drop any prior location assignment
+
+
+def _lock_assignment(db: Session, assignment_id: str):
+    """LOCK ORDER (_lock_items) for a route that knows only the assignment:
+    read its item_id unlocked, lock the item, then lock the assignment."""
+    head = db.query(ItemAssignment.item_id).filter(ItemAssignment.id == assignment_id).first()
+    if head is None:
+        return None
+    _lock_items(db, [head[0]])
+    return db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
 
 
 def _clear_batch_assign_notif(db: Session, assignee_email: str):
@@ -2312,11 +3124,28 @@ def _clear_batch_assign_notif(db: Session, assignee_email: str):
 
 
 @router.get("/assignments")
-def list_assignments(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    q = db.query(ItemAssignment).order_by(ItemAssignment.created_at.desc())
+def list_assignments(history_limit: int = 1000, user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Every LIVE assignment (awaiting acceptance, active, being returned -
+    never capped: a cap used to drop live rows once the table passed 1,000)
+    plus the most recent finished ones up to `history_limit` (at most 5,000).
+    Managers see their companies' items (the wall) and their own; everyone
+    else their own. Newest first."""
+    me = _me(user)
+    mine = func.lower(ItemAssignment.assignee_email) == me
+    base = db.query(ItemAssignment)
     if not _is_items_manager(user, db):
-        q = q.filter(ItemAssignment.assignee_email == user["email"])
-    return [_assignment_to_dict(a) for a in q.limit(1000).all()]
+        base = base.filter(mine)
+    else:
+        allowed = visible_item_ids(db, user)
+        if allowed is not None:
+            base = base.filter(or_(ItemAssignment.item_id.in_(list(allowed)), mine) if allowed else mine)
+    cap = max(0, min(int(history_limit or 0), 5000))
+    live = base.filter(ItemAssignment.status.in_(_LIVE_ASSIGN)).order_by(ItemAssignment.created_at.desc()).all()
+    done = (base.filter(ItemAssignment.status.notin_(_LIVE_ASSIGN))
+            .order_by(ItemAssignment.created_at.desc()).limit(cap).all()) if cap else []
+    rows = sorted(live + done, key=lambda a: a.created_at or "", reverse=True)
+    return [_assignment_to_dict(a) for a in rows]
 
 
 @router.post("/{item_id}/assign", status_code=201)
@@ -2326,6 +3155,9 @@ def assign_item(item_id: str, body: AssignmentCreate, user: dict = Depends(requi
     item = db.query(Item).filter(Item.id == item_id).with_for_update().first()
     if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
+    _wall_item(item, user, db)
+    _refuse_lost(item)
+    _require_person(db, body.assignee_email, user, "person to assign it to")
     if item.ownership_type != "permanent":
         # Accepting an assignment force-flips ownership to permanent - a silent
         # one-way change that pulls the item out of the checkout catalogue.
@@ -2368,9 +3200,12 @@ def assign_item(item_id: str, body: AssignmentCreate, user: dict = Depends(requi
 def reassign_item(item_id: str, body: AssignmentCreate, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     """Start the return flow for the current holder; accepting that return
     auto-creates the next assignment for the new person."""
-    item = db.query(Item).filter(Item.id == item_id).first()
-    if not item:
+    item = db.query(Item).filter(Item.id == item_id).with_for_update().first()
+    if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
+    _wall_item(item, user, db)
+    _refuse_lost(item)
+    _require_person(db, body.assignee_email, user, "person to reassign it to")
     cur = db.query(ItemAssignment).filter(
         ItemAssignment.item_id == item_id, ItemAssignment.status == "active").with_for_update().first()
     if not cur:
@@ -2405,6 +3240,7 @@ def assign_item_to_location(item_id: str, body: AssignLocationIn, user: dict = D
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
+    _wall_item(item, user, db)
     loc = (body.location or "").strip()
     item.location = loc
     item.assigned_to_location = ""  # retire the legacy "assigned to a place" flag
@@ -2441,7 +3277,10 @@ def bulk_assign_to_location(body: BulkAssignLocationIn, user: dict = Depends(req
     if not ids:
         return {"assigned": 0, "skipped": []}
     assigned = 0
+    scope = _scope(user, db)
     for it in db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
+        if not _item_ok(it, scope):
+            continue                      # another company's item: untouched
         it.location = loc
         it.assigned_to_location = ""
         assigned += 1
@@ -2466,15 +3305,21 @@ def bulk_assign_to_person(body: BulkAssignPersonIn, user: dict = Depends(require
     name  = (body.assignee_name or "").strip()
     if not ids or not email:
         return {"assigned": 0, "skipped": []}
-    blocked = _bulk_assign_blocked(db, ids)
+    _require_person(db, email, user, "person to assign them to")
+    # P1-1: lock the item rows FIRST (in id order), then scan for live claims:
+    # create_checkout and assign_item lock the item row too, so nothing can
+    # slip a claim in after the scan. Scanning before the locks (as before
+    # Nov 2026) left exactly that window open.
+    scope = _scope(user, db)
+    locked = [it for it in db.query(Item).filter(
+        Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == ""))
+        .order_by(Item.id).with_for_update().all() if _item_ok(it, scope)]
+    blocked = _bulk_assign_blocked(db, [it.id for it in locked]) if locked else set()
     assigned, names = 0, []
     first_asg_id = ""
-    # P1-1: lock the item rows so a concurrent single-assign / checkout can't slip a
-    # live claim in between the block scan above and the inserts below.
-    for it in db.query(Item).filter(
-            Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).with_for_update().all():
-        if it.ownership_type != "permanent":
-            blocked.add(it.id)   # temporary items are checked out, never person-assigned
+    for it in locked:
+        if it.ownership_type != "permanent" or (it.op_status or "") == "lost":
+            blocked.add(it.id)   # temporary items are checked out, never person-assigned; lost ones wait to be found
             continue
         if it.id in blocked:
             continue
@@ -2509,15 +3354,16 @@ def bulk_assign_to_person(body: BulkAssignPersonIn, user: dict = Depends(require
 
 
 @router.post("/assignments/{assignment_id}/accept")
-def accept_assignment(assignment_id: str, body: AssignmentAccept, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def accept_assignment(assignment_id: str, body: AssignmentAccept, user: dict = Depends(get_current_user), db: Session = Depends(get_db), response: Response = None):
     _validate_photo_url(body.photo_url, "photo_url")
-    a = db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
+    a = _lock_assignment(db, assignment_id)
     if not a:
         raise HTTPException(404, "Assignment not found")
-    if a.assignee_email != user["email"]:
+    if (a.assignee_email or "").lower() != _me(user):
         raise HTTPException(403, "Only the assignee can accept this assignment")
     if a.status != "pending_acceptance":
         raise HTTPException(409, "Assignment is not awaiting acceptance")
+    _refuse_lost(db.query(Item).filter(Item.id == a.item_id).first())
     # Photo is OPTIONAL on permanent-assignment acceptance (Neil, Jul 17) -
     # checkout handover/receipt/return photos remain mandatory elsewhere.
     a.status = "active"
@@ -2537,15 +3383,16 @@ def accept_assignment(assignment_id: str, body: AssignmentAccept, user: dict = D
     _action_notif(db, "perm_assign", a.id)
     _clear_batch_assign_notif(db, a.assignee_email)   # P1-4: clear the bulk-assign summary
     db.commit()
+    _tag_item(response, a.item_id)
     return _assignment_to_dict(a)
 
 
 @router.post("/assignments/{assignment_id}/decline")
-def decline_assignment(assignment_id: str, body: AssignmentReturnInit, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def decline_assignment(assignment_id: str, body: AssignmentReturnInit, user: dict = Depends(get_current_user), db: Session = Depends(get_db), response: Response = None):
     a = db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
     if not a:
         raise HTTPException(404, "Assignment not found")
-    if a.assignee_email != user["email"]:
+    if (a.assignee_email or "").lower() != _me(user):
         raise HTTPException(403, "Only the assignee can decline")
     if a.status != "pending_acceptance":
         raise HTTPException(409, "Assignment is not awaiting acceptance")
@@ -2558,74 +3405,147 @@ def decline_assignment(assignment_id: str, body: AssignmentReturnInit, user: dic
     _action_notif(db, "perm_assign", a.id)
     _clear_batch_assign_notif(db, a.assignee_email)   # P1-4: clear the bulk-assign summary
     db.commit()
+    _tag_item(response, a.item_id)
     return _assignment_to_dict(a)
 
 
+def _item_company(db: Session, item_id: str) -> str:
+    found = db.query(Item.company_id).filter(Item.id == item_id).first()
+    return (found[0] if found else "") or ""
+
+
+def _drop_reassign_chain(db: Session, a: "ItemAssignment", why_manager: str, why_person: str) -> None:
+    """A reassignment that will not go ahead: tell the manager who started it
+    (else the desk - _desk_bell) and the person who was promised the item,
+    then clear next_assignee_* so nothing dangles (P1-6)."""
+    if not a.next_assignee_email:
+        return
+    dropped_name = a.next_assignee_name or a.next_assignee_email
+    dropped_email = a.next_assignee_email
+    if a.assigned_by_email:
+        _notify(db, type="perm_update", recipient=a.assigned_by_email,
+                title=f"Reassignment cancelled: {a.item_name}",
+                body=why_manager.format(item=a.item_name, person=dropped_name),
+                ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name, about_email=a.assignee_email)
+    else:
+        _desk_bell(db, type="perm_update", title=f"Reassignment cancelled: {a.item_name}",
+                   body=why_manager.format(item=a.item_name, person=dropped_name), ref_id=a.id,
+                   company=_item_company(db, a.item_id), exclude=[a.assignee_email],
+                   item_name=a.item_name, requested_by=a.assignee_name, about_email=a.assignee_email)
+    _notify(db, type="perm_update", recipient=dropped_email,
+            title=f"Reassignment cancelled: {a.item_name}",
+            body=why_person.format(item=a.item_name, person=dropped_name),
+            ref_id=a.id, item_name=a.item_name, requested_by=dropped_name)
+    a.next_assignee_email = ""
+    a.next_assignee_name = ""
+
+
+def _clear_please_return(db: Session, a: "ItemAssignment") -> None:
+    """The holder's "Please return" bell from a Reassign (perm_assign on the
+    assignment) is done once they send the return, or it is checked in."""
+    for n in _bells(db, "perm_assign", a.id, a.assignee_email, title_prefix="Please return"):
+        n.actioned = True
+
+
 @router.post("/assignments/{assignment_id}/initiate-return")
-def initiate_assignment_return(assignment_id: str, body: AssignmentReturnInit, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def initiate_assignment_return(assignment_id: str, body: AssignmentReturnInit, user: dict = Depends(get_current_user), db: Session = Depends(get_db), response: Response = None):
     _validate_photo_url(body.photo_url, "photo_url")
     a = db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
     if not a:
         raise HTTPException(404, "Assignment not found")
-    if a.assignee_email != user["email"] and not _is_items_manager(user, db):
+    _wall_assignment(a, user, db)
+    if (a.assignee_email or "").lower() != _me(user) and not _is_items_manager(user, db):
         raise HTTPException(403, "Only the assignee or a manager can initiate a return")
     if a.status not in ("active", "return_initiated"):
         raise HTTPException(409, "Assignment is not active")
     reason = (body.reason or "normal").lower()
     if reason not in ("normal", "dead", "lost"):
         raise HTTPException(400, "reason must be normal, dead or lost")
-    if reason != "lost" and not body.photo_url and a.status == "active":
+    # Evidence: a return needs a photo unless the item is lost - the reassign
+    # path included (Nov 2026: a manager's Reassign puts the row in
+    # return_initiated with no photo, and the holder's return then went
+    # through without one). A photo already on the row counts, so sending the
+    # return again never needs a second one.
+    new_photo = (body.photo_url or "").strip()
+    if reason != "lost" and not new_photo and not (a.return_photo_url or "").strip():
         raise HTTPException(400, "A return photo is required (unless the item is lost)")
-    keep_chain = a.return_reason == "reassign"   # reassignment return keeps its target
+    # A reassignment return keeps its target - unless the holder reports the
+    # item lost or dead, which the accept step must see (it then drops the chain).
+    keep_chain = a.return_reason == "reassign" and reason == "normal"
+    first_time = a.status == "active"
     a.status = "return_initiated"
     if not keep_chain:
         a.return_reason = reason
-    a.return_photo_url, a.return_photo_name = body.photo_url or "", body.photo_name or ""
-    a.return_note = (body.note or "").strip()
-    a.return_initiated_at = _now_iso()
+    if new_photo:                 # never wipe a photo already given
+        a.return_photo_url, a.return_photo_name = new_photo, body.photo_name or ""
+    if (body.note or "").strip():
+        a.return_note = body.note.strip()
+    if first_time or not a.return_initiated_at:
+        a.return_initiated_at = _now_iso()
     flag = {"dead": "ITEM DEAD - ", "lost": "ITEM LOST - ", "reassign": "Reassignment - "}.get(a.return_reason, "")
-    _notify(db, type="perm_return", recipient="",
-            title=f"{flag}Return to confirm: {a.item_name}",
-            body=f"{a.assignee_name or a.assignee_email} initiated a return of {a.item_name}"
-                 + (f' - "{a.return_note}"' if a.return_note else ".")
-                 + " Verify and accept it in Checkouts > Assignments.",
-            ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
+    # One bell per return, per person, updated in place when the holder sends
+    # it again (never a second broadcast) - the desk's rule (_desk_bell).
+    _desk_bell(db, type="perm_return", company=_item_company(db, a.item_id), exclude=[a.assignee_email],
+               title=f"{flag}Return to confirm: {a.item_name}",
+               body=f"{a.assignee_name or a.assignee_email} initiated a return of {a.item_name}"
+                    + (f' - "{a.return_note}"' if a.return_note else ".")
+                    + " Verify and accept it in Checkouts > Assignments.",
+               ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name,
+               about_email=a.assignee_email)
+    _clear_please_return(db, a)
     db.commit()
+    _tag_item(response, a.item_id)
     return _assignment_to_dict(a)
 
 
 @router.post("/assignments/{assignment_id}/accept-return")
-def accept_assignment_return(assignment_id: str, body: AssignmentReturnAccept, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def accept_assignment_return(assignment_id: str, body: AssignmentReturnAccept, user: dict = Depends(get_current_user), db: Session = Depends(get_db), response: Response = None):
     if user["level"] < 2 and not _is_items_manager(user, db):
         raise HTTPException(403, "Supervisor or above required to accept returns")
-    a = db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
+    a = _lock_assignment(db, assignment_id)
     if not a:
         raise HTTPException(404, "Assignment not found")
+    _wall_item_id(a.item_id, user, db)   # the checker-in is never a party - always walled
+    if (a.assignee_email or "").lower() == _me(user):
+        # The holder never signs off their own return (Nov 2026) - someone else
+        # looks at the item and the photo.
+        raise HTTPException(403, "You can't accept your own return - another supervisor or items manager checks it in")
     if a.status != "return_initiated":
         raise HTTPException(409, "No return awaiting acceptance")
+    if a.return_reason != "lost" and not (a.return_photo_url or "").strip():
+        # The reassign path: the manager asked for it back, the holder has not
+        # returned it with a photo yet. Recover takes it back without one.
+        raise HTTPException(400, "The holder has not returned it with a photo yet - ask them to return it from "
+                                 "My Items, or use Recover to take it back without one")
     dispo = body.disposition if body.disposition in ("stock", "retired") else "stock"
+    lost = a.return_reason == "lost"
     a.status = "closed"
     a.disposition = dispo
-    # Auth tokens carry only the email - derive a readable name ("Visesh Lodha",
-    # not visesh.lodha@greensglobal.com) for everything user-facing.
-    a.return_accepted_by, a.return_accepted_at = _title_case_email(user["email"]), _now_iso()
-    item = db.query(Item).filter(Item.id == a.item_id).first()
+    a.return_accepted_by, a.return_accepted_at = _display_name(db, user["email"]), _now_iso()
+    item = db.query(Item).filter(Item.id == a.item_id).first()   # locked by _lock_assignment
     if item:
         item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
         item.status = "retired" if dispo == "retired" else "available"
+        if lost:
+            # M1 (Nov 2026): a lost return is recorded as LOST - before, it went
+            # straight back to stock as if it were on the shelf. It stays out of
+            # circulation (_refuse_lost) until an items manager marks it found.
+            item.op_status = "lost"
+            item.op_status_person_email = (a.assignee_email or "").lower()
+            item.op_status_person_name = a.assignee_name or ""
+            _notify_op_status_declaration(db, op_status="lost", person_email=item.op_status_person_email,
+                                          person_name=item.op_status_person_name, item_name=item.name)
     _notify(db, type="perm_update", recipient=a.assignee_email,
             title=f"Return accepted: {a.item_name}",
             body=f"Your return of {a.item_name} was accepted by {a.return_accepted_by}. You are no longer responsible for it.",
             ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
     _action_notif(db, "perm_return", a.id)
+    _clear_please_return(db, a)
     # Reassignment chain: spawn the next assignment automatically - but ONLY if the
-    # item actually ends up back in stock (available). P1-6: if the accepting manager
-    # dispositioned it retired/dead/lost, the promised next assignee would otherwise be
-    # silently dropped while the reassign modal claimed it was on its way. Tell both the
-    # manager and the promised assignee it was cancelled, and clear next_assignee_* so
-    # nothing dangles.
-    if a.return_reason == "reassign" and a.next_assignee_email:
-        if item and item.status == "available":
+    # item actually ends up back in stock and in service. P1-6: retired, lost or
+    # dead on return, the promised next assignee is told it is not coming.
+    if a.next_assignee_email:
+        if item and item.status == "available" and not lost and a.return_reason == "reassign":
             nxt = ItemAssignment(
                 id=f"ASG-{uuid.uuid4().hex[:10].upper()}", item_id=a.item_id, item_name=a.item_name,
                 assignee_email=a.next_assignee_email, assignee_name=a.next_assignee_name,
@@ -2638,22 +3558,15 @@ def accept_assignment_return(assignment_id: str, body: AssignmentReturnAccept, u
                     body=f"{a.item_name} has been reassigned to you. Please accept it with a photo in My Items.",
                     ref_id=nxt.id, item_name=a.item_name, requested_by=nxt.assignee_name)
         else:
-            dropped_name  = a.next_assignee_name or a.next_assignee_email
-            dropped_email = a.next_assignee_email
-            if a.assigned_by_email:
-                _notify(db, type="perm_update", recipient=a.assigned_by_email,
-                        title=f"Reassignment cancelled: {a.item_name}",
-                        body=f"{a.item_name} was accepted back as '{dispo}', so the pending reassignment "
-                             f"to {dropped_name} did not go ahead. Assign it again once it is back in service.",
-                        ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
-            _notify(db, type="perm_update", recipient=dropped_email,
-                    title=f"Reassignment cancelled: {a.item_name}",
-                    body=f"{a.item_name} was going to be reassigned to you but was taken out of service on return, "
-                         "so it will not be coming to you. No action needed.",
-                    ref_id=a.id, item_name=a.item_name, requested_by=dropped_name)
-            a.next_assignee_email = ""
-            a.next_assignee_name  = ""
+            word = "lost" if lost else (a.return_reason if a.return_reason == "dead" else dispo)
+            _drop_reassign_chain(
+                db, a,
+                "{item} was accepted back as '" + word + "', so the pending reassignment to {person} "
+                "did not go ahead. Assign it again once it is back in service.",
+                "{item} was going to be reassigned to you but was taken out of service on return, "
+                "so it will not be coming to you. No action needed.")
     db.commit()
+    _tag_item(response, a.item_id)
     return _assignment_to_dict(a)
 
 
@@ -2661,24 +3574,58 @@ def force_return_person(db: Session, email: str, actor_email: str) -> dict:
     """Force-return everything a departing person holds so no equipment stays out
     to a worker who has left. Called by HR offboarding - Items stays the single
     source of truth for these state transitions. Operates in the CALLER's session
-    (the caller commits); no per-item notifications, as this is a bulk admin action.
+    (the caller commits); no per-item notifications, as this is a bulk admin
+    action - except the ones somebody else is waiting on (M8, Nov 2026).
 
-      • Handed-over checkouts (pending_receipt / allocated) -> returned, item freed.
-      • Not-yet-handed checkouts (pending / approved)       -> cancelled.
-      • Live permanent assignments                          -> closed, item back to stock.
+      • Handed-over checkouts (pending_receipt / allocated) -> returned, item freed;
+        a pending extension is cleared with its managers' bell.
+      • Not-yet-handed checkouts (pending / approved)       -> cancelled; the
+        approval and hand-over bells are actioned.
+      • Live permanent assignments                          -> closed, item back to stock;
+        a reassignment in flight is dropped and the person promised the item
+        (and the manager who started it) is told.
+      • Somebody else's approved checkout the leaver was to HAND OVER (the
+        allocator) -> allocator cleared, their hand-over bell actioned and the
+        desk asked to pick a new one (_desk_bell). Rows past the handover keep
+        the leaver as the allocator of record.
 
-    Returns {"checkouts": n, "assignments": n}."""
+    Returns {"checkouts": n, "assignments": n} (the leaver's own rows)."""
     email = (email or "").strip().lower()
     if not email:
         return {"checkouts": 0, "assignments": 0}
     now = _now_iso()
-    actor = _title_case_email(actor_email)
+    actor = _display_name(db, actor_email)
 
-    checkouts = db.query(ItemCheckout).filter(
-        func.lower(ItemCheckout.requested_by_email) == email,
-        ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"]),
-    ).with_for_update().all()
+    # LOCK ORDER (_lock_items): every item the leaver touches first, then rows.
+    _lock_items(db, [r[0] for r in db.query(ItemCheckout.item_id).filter(
+        or_(func.lower(ItemCheckout.requested_by_email) == email,
+            func.lower(ItemCheckout.assigned_allocator_email) == email),
+        ItemCheckout.status.in_(_LIVE_CHECKOUT)).all()]
+        + [r[0] for r in db.query(ItemAssignment.item_id).filter(
+            func.lower(ItemAssignment.assignee_email) == email,
+            ItemAssignment.status.in_(_LIVE_ASSIGN)).all()])
+
+    touched = db.query(ItemCheckout).filter(
+        or_(func.lower(ItemCheckout.requested_by_email) == email,
+            func.lower(ItemCheckout.assigned_allocator_email) == email),
+        ItemCheckout.status.in_(_LIVE_CHECKOUT),
+    ).order_by(ItemCheckout.id).with_for_update().all()
+    checkouts = [c for c in touched if (c.requested_by_email or "").lower() == email]
+    for c in touched:
+        if c in checkouts or c.status != "approved":
+            continue
+        # The leaver was to hand this item over to someone else.
+        for n in _bells(db, "allocate_request", c.order_id or c.id, email):
+            n.actioned = True
+        c.assigned_allocator_email, c.assigned_allocator_name = "", ""
+        _desk_bell(db, type="allocator_needed", ref_id=c.id, company=_item_company(db, c.item_id),
+                   exclude=[c.requested_by_email],
+                   title=f"Pick a New Allocator: {c.item_name}",
+                   body=f"{c.item_name} was approved for {c.requested_by}, but the person who was to hand it "
+                        "over has left. An items manager can hand it over from Item Management > Checkouts.",
+                   item_name=c.item_name, requested_by=c.requested_by, about_email=c.requested_by_email)
     for c in checkouts:
+        prev = c.status
         handed_over = c.status in ("pending_receipt", "allocated")
         c.status = "returned" if handed_over else "cancelled"
         if handed_over:
@@ -2687,11 +3634,21 @@ def force_return_person(db: Session, email: str, actor_email: str) -> dict:
             item = db.query(Item).filter(Item.id == c.item_id).first()
             if item and item.status == "checked_out":
                 item.status = "available"
+        else:
+            c.resolved_at, c.resolved_by = now, actor
+        if (c.extension_status or "") == "pending":
+            c.extension_days, c.extension_reason, c.extension_status = 0, "", ""
+            _action_notif(db, "extension_pending", c.id)
+        if prev == "pending":
+            _action_notif(db, "checkout_pending", c.id)
+            if c.order_id:
+                _action_notif(db, "checkout_pending", c.order_id)
+        _settle_handover_bells(db, c, prev)
 
     assignments = db.query(ItemAssignment).filter(
         func.lower(ItemAssignment.assignee_email) == email,
         ItemAssignment.status.in_(_LIVE_ASSIGN),
-    ).with_for_update().all()
+    ).order_by(ItemAssignment.id).with_for_update().all()
     for a in assignments:
         a.status = "closed"
         a.disposition = "stock"
@@ -2700,24 +3657,31 @@ def force_return_person(db: Session, email: str, actor_email: str) -> dict:
         if item:
             item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
             item.status = "available"
+        _drop_reassign_chain(
+            db, a,
+            "{item} was taken back when its holder was offboarded, so the pending reassignment to "
+            "{person} did not go ahead. Assign it again if needed.",
+            "{item} was going to be reassigned to you, but its holder left and it was taken back "
+            "into stock, so it will not be coming to you automatically. No action needed.")
+        _action_notif(db, "perm_assign", a.id)
+        _action_notif(db, "perm_return", a.id)
 
     return {"checkouts": len(checkouts), "assignments": len(assignments)}
 
 
 @router.post("/assignments/{assignment_id}/cancel")
-def cancel_assignment(assignment_id: str, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+def cancel_assignment(assignment_id: str, user: dict = Depends(require_items_admin), db: Session = Depends(get_db), response: Response = None):
     """Manager cancel / force-recover. Pending -> cancelled; active/returning -> closed, item back to stock."""
-    a = db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
+    a = _lock_assignment(db, assignment_id)
     if not a:
         raise HTTPException(404, "Assignment not found")
+    _wall_item_id(a.item_id, user, db)
     if a.status not in _LIVE_ASSIGN:
         raise HTTPException(409, "Assignment is already closed")
     was_pending = a.status == "pending_acceptance"
     a.status = "cancelled" if was_pending else "closed"
     a.disposition = "" if was_pending else "stock"
-    # Auth tokens carry only the email - derive a readable name ("Visesh Lodha",
-    # not visesh.lodha@greensglobal.com) for everything user-facing.
-    a.return_accepted_by, a.return_accepted_at = _title_case_email(user["email"]), _now_iso()
+    a.return_accepted_by, a.return_accepted_at = _display_name(db, user["email"]), _now_iso()
     item = db.query(Item).filter(Item.id == a.item_id).first()
     if item and not was_pending:
         item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
@@ -2728,27 +3692,17 @@ def cancel_assignment(assignment_id: str, user: dict = Depends(require_items_adm
                  + ("" if was_pending else " You are no longer responsible for it."),
             ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
     # P1-6: if this was a reassign-in-flight, a next assignee was promised the item.
-    # Force-recover closes the assignment without spawning that next assignment, so tell
-    # the manager and the promised assignee it was cancelled, and clear next_assignee_*.
-    if a.return_reason == "reassign" and a.next_assignee_email:
-        dropped_name  = a.next_assignee_name or a.next_assignee_email
-        dropped_email = a.next_assignee_email
-        if a.assigned_by_email:
-            _notify(db, type="perm_update", recipient=a.assigned_by_email,
-                    title=f"Reassignment cancelled: {a.item_name}",
-                    body=f"{a.item_name} was force-recovered, so the pending reassignment to "
-                         f"{dropped_name} did not go ahead. Assign it again if needed.",
-                    ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
-        _notify(db, type="perm_update", recipient=dropped_email,
-                title=f"Reassignment cancelled: {a.item_name}",
-                body=f"{a.item_name} was going to be reassigned to you but was recovered by a manager, "
-                     "so it will not be coming to you. No action needed.",
-                ref_id=a.id, item_name=a.item_name, requested_by=dropped_name)
-        a.next_assignee_email = ""
-        a.next_assignee_name  = ""
+    # Force-recover closes the assignment without spawning that next assignment.
+    _drop_reassign_chain(
+        db, a,
+        "{item} was force-recovered, so the pending reassignment to {person} did not go ahead. "
+        "Assign it again if needed.",
+        "{item} was going to be reassigned to you but was recovered by a manager, "
+        "so it will not be coming to you. No action needed.")
     _action_notif(db, "perm_assign", a.id)
     _action_notif(db, "perm_return", a.id)
     db.commit()
+    _tag_item(response, a.item_id)
     return _assignment_to_dict(a)
 
 
@@ -2775,9 +3729,11 @@ def _nexus_people_only(db: Session, rows):
 
 
 @router.get("/approvers")
-def list_approvers(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_approvers(item_id: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Manager-level users an employee can address their checkout request to.
-    Open to all authenticated users - only names/emails/roles are exposed."""
+    Open to all authenticated users - only names/emails/roles are exposed.
+    With `item_id`, only those whose own company scope admits that ITEM's
+    company - the ones who can actually see and approve the request."""
     import cache
 
     def _load():
@@ -2785,12 +3741,15 @@ def list_approvers(user: dict = Depends(get_current_user), db: Session = Depends
             [role for role, level in _ROLE_LEVEL.items() if level >= _ROLE_LEVEL["manager"]]
         )).order_by(NexusRole.email).all()
         return _nexus_people_only(db, rows)
-    # Same payload for every caller; role changes invalidate via the watch.
-    return cache.role_holders.get_or_load("approvers", _load)
+    # Same payload for every caller; role changes invalidate via the watch. The
+    # company wall is applied after the cache: a walled caller is offered only
+    # managers inside their scope (one outside it could never see the request).
+    people = _people_in_scope(db, user, cache.role_holders.get_or_load("approvers", _load))
+    return _people_for_item(db, user, people, item_id)
 
 
 @router.get("/allocators")
-def list_allocators(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_allocators(item_id: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if not _is_items_manager(user, db):
         raise HTTPException(403, "Manager or above required")
     import cache
@@ -2801,8 +3760,40 @@ def list_allocators(user: dict = Depends(get_current_user), db: Session = Depend
         )).order_by(NexusRole.email).all()
         return _nexus_people_only(db, rows)
     # Permission check stays OUTSIDE the cache; the payload itself is the same
-    # for everyone who passes it.
-    return cache.role_holders.get_or_load("allocators", _load)
+    # for everyone who passes it - the company wall is applied after it.
+    people = _people_in_scope(db, user, cache.role_holders.get_or_load("allocators", _load))
+    return _people_for_item(db, user, people, item_id)
+
+
+def _person_reaches(db: Session, email: str, company_id: str) -> bool:
+    """Does this person's OWN company scope admit `company_id`?"""
+    import auth
+    em = (email or "").strip().lower()
+    return bool(em) and auth.company_ok(company_id or "", auth.company_scope({"email": em, "level": auth.level_for(em, db)}, db))
+
+
+def _people_for_item(db: Session, user: dict, people: list, item_id: str) -> list:
+    """Narrow a picker to the people who can reach one item's company (the
+    item itself is walled: another company's id is a 404)."""
+    if not (item_id or "").strip():
+        return people
+    item = db.query(Item).filter(Item.id == item_id.strip()).first()
+    if item is None:
+        raise HTTPException(404, "Item not found")
+    _wall_item(item, user, db)
+    return [p for p in people if _person_reaches(db, p.get("email", ""), item.company_id or "")]
+
+
+def _people_in_scope(db: Session, user: dict, people: list) -> list:
+    """Picker rows whose person the caller's company scope admits."""
+    import auth
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return people
+    companies = auth.company_of_email_map(db)   # one read, not one per row
+    blank_ok = auth.admits_blank(scope)
+    return [p for p in people
+            if auth.company_ok(companies.get((p.get("email") or "").lower(), ""), scope, shared_when_blank=blank_ok)]
 
 
 # ── Report ────────────────────────────────────────────────────────────────────
@@ -2814,7 +3805,15 @@ _REPORT_HEADERS = [
 ]
 
 
-def _report_rows(db: Session, *, department, item_type, status, requested_by=None):
+def _us_day(iso: str) -> str:
+    """MM/DD/YYYY for the stored UTC timestamp's date (US format everywhere)."""
+    try:
+        return datetime.fromisoformat(str(iso or "")[:10]).strftime("%m/%d/%Y")
+    except ValueError:
+        return ""
+
+
+def _report_rows(db: Session, *, department, item_type, status, requested_by=None, scope=None):
     q = db.query(ItemCheckout, Item).outerjoin(
         Item, ItemCheckout.item_id == Item.id
     ).order_by(ItemCheckout.created_at.desc())
@@ -2831,14 +3830,15 @@ def _report_rows(db: Session, *, department, item_type, status, requested_by=Non
             q = q.filter(or_(*[ItemCheckout.requested_by.ilike(f"%{n}%") for n in names]))
     rows = []
     for c, item in q.all():
+        if scope is not None and not _item_ok(item, scope):
+            continue                      # company wall: only the caller's companies' items
         rows.append([
             c.item_name, item.item_type if item else "", item.make if item else "",
             item.model if item else "", c.department, item.location if item else "",
             item.default_owner if item else "", item.ownership_type if item else "",
             c.status, c.requested_by, c.days, c.reason,
-            c.created_at[:10] if c.created_at else "",
-            c.allocated_at[:10] if c.allocated_at else "", c.allocated_by or "",
-            c.returned_at[:10] if c.returned_at else "", c.condition_note or "",
+            _us_day(c.created_at), _us_day(c.allocated_at), c.allocated_by or "",
+            _us_day(c.returned_at), c.condition_note or "",
         ])
     return rows
 
@@ -2853,7 +3853,8 @@ def export_report(
     user: dict = Depends(require_items_admin),
     db: Session = Depends(get_db),
 ):
-    rows  = _report_rows(db, department=department, item_type=item_type, status=status, requested_by=requested_by)
+    rows  = _report_rows(db, department=department, item_type=item_type, status=status,
+                         requested_by=requested_by, scope=_scope(user, db))
     stamp = datetime.utcnow().strftime("%Y%m%d")
 
     if format == "pdf":
@@ -2918,10 +3919,28 @@ def items_audit_log(
     q:      Optional[str] = None,
     limit:  int = 100,
     offset: int = 0,
+    start:  Optional[str] = None,   # ISO instant, inclusive - the viewer's local midnight
+    end:    Optional[str] = None,   # ISO instant, exclusive
     user: dict = Depends(require_items_admin),
     db: Session = Depends(get_db),
 ):
     query = db.query(AuditLog).filter(AuditLog.resource_type.in_(["items", "item_checkouts", "inventory-requests"]))
+    # Company wall: a walled manager reads the history of their companies'
+    # items (and those items' checkouts), plus the rows with no record id
+    # (bulk edits, imports) written by people of their companies.
+    scope = _scope(user, db)
+    if scope is not None:
+        item_ids = sorted(visible_item_ids(db, user, scope) or [])
+        co_ids = [r[0] for r in db.query(ItemCheckout.id).filter(ItemCheckout.item_id.in_(item_ids)).all()] if item_ids else []
+        actors = [(e[0] or "").lower() for e in db.query(NexusEmployee.work_email)
+                  .filter(NexusEmployee.company.in_(list(scope))).all() if e[0]] if scope else []
+        conds = []
+        if item_ids or co_ids:
+            conds.append(AuditLog.resource_id.in_(item_ids + co_ids))
+        if actors:
+            conds.append(and_(or_(AuditLog.resource_id.is_(None), AuditLog.resource_id == ""),
+                              func.lower(AuditLog.user_email).in_(actors)))
+        query = query.filter(or_(*conds)) if conds else query.filter(sa_false())
     if q:
         needle = q.strip()
         query = query.filter(or_(
@@ -2930,6 +3949,20 @@ def items_audit_log(
             AuditLog.action.contains(needle),
             AuditLog.resource_id.contains(needle),
         ))
+    # The date filter runs here, not on the page the browser holds (Nov 2026):
+    # the screen sends the bounds of the days picked in the viewer's own zone.
+    # Stored timestamps are UTC ISO strings, so the bounds are compared as UTC.
+    for bound, op in ((start, "ge"), (end, "lt")):
+        if not (bound or "").strip():
+            continue
+        try:
+            at = datetime.fromisoformat(bound.strip().replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(400, "start / end must be ISO date-times")
+        at = (at if at.tzinfo else at.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).isoformat()
+        query = query.filter(AuditLog.timestamp >= at if op == "ge" else AuditLog.timestamp < at)
+    limit = max(1, min(int(limit or 100), 500))
+    offset = max(0, int(offset or 0))
     total = query.count()
     rows  = query.order_by(AuditLog.timestamp.desc()).offset(offset).limit(limit).all()
     return {
@@ -2951,24 +3984,135 @@ def items_audit_log(
 _UNDO_ITEM_COLS = {
     "name", "item_type", "make", "model", "year", "department", "location",
     "default_owner", "ownership_type", "serial_number",
-    "op_status", "op_status_person_name", "asset_value", "photo_url",
+    "op_status", "op_status_person_name", "op_status_person_email", "asset_value", "photo_url",
 }
 
 
 class AuditUndoRequest(BaseModel):
     audit_id: int
-    fields: Optional[dict] = None   # {audit_field_name: previous_value} for an edit reversal
+    # IGNORED since Nov 2026 - the server reads the before-values recorded with
+    # the edit (_before_values). Kept so older clients still validate.
+    fields: Optional[dict] = None
+
+
+def _before_values(db: Session, row: AuditLog, item: Item) -> dict:
+    """What an "Updated item" audit row changed FROM (H4 + review, Nov 2026).
+
+    The before-values are the ones recorded WITH that edit: audit_capture
+    writes an audit_changes row ({field: {b: before, a: after}}) for every
+    database row a request changes, in the same transaction, and
+    audit_changes.request_id joins the audit row. The client's `fields` and
+    the request bodies other audit rows copied are never used (bulk edits,
+    imports and assign-location carry no item id there, and a cleared field
+    was not recorded at all - a value rebuilt from them could be stale).
+
+    Refused (409) when the edit has no field-level record (before Nexus kept
+    one, Oct 20 2026), when a before-value was not recorded in full, or when
+    ANY later change touched one of the same fields of this item - whatever
+    made it (an edit, a bulk edit, an import, an undo, a background job):
+    undoing the older edit would silently overwrite it."""
+    from models import AuditChange
+    rows = (db.query(AuditChange)
+            .filter(AuditChange.request_id == (row.request_id or "\x00"),
+                    AuditChange.table_name == "items", AuditChange.record_id == item.id)
+            .order_by(AuditChange.id).all()) if row.request_id else []
+    if not rows:
+        raise HTTPException(409, "This change has no record of the values it replaced, so it can't be undone "
+                                 "safely - edit the item instead.")
+    before: dict = {}
+    for ch in rows:
+        try:
+            changes = json.loads(ch.changes or "{}")
+        except (TypeError, ValueError):
+            changes = {}
+        for col, f in (changes.items() if isinstance(changes, dict) else []):
+            if col not in _UNDO_ITEM_COLS or col in before or not isinstance(f, dict):
+                continue
+            b = f.get("b")
+            if "r" in f or f.get("bu") or "b" not in f or (isinstance(b, str) and "... [truncated" in b):
+                raise HTTPException(409, f"The previous {col.replace('_', ' ')} was not recorded in full, "
+                                         "so this change can't be undone - edit the item instead.")
+            before[col] = "" if b is None else b
+    if not before:
+        return {}
+    for later in (db.query(AuditChange)
+                  .filter(AuditChange.table_name == "items", AuditChange.record_id == item.id,
+                          AuditChange.id > rows[-1].id)
+                  .order_by(AuditChange.id).all()):
+        try:
+            cols = set(json.loads(later.changes or "{}"))
+        except (TypeError, ValueError):
+            cols = set()
+        hit = sorted(cols & set(before))
+        if hit:
+            when = (later.at or "")[:10]
+            raise HTTPException(409, f"{item.name} changed again after this edit ({', '.join(c.replace('_', ' ') for c in hit)}"
+                                     + (f", {_us_day(when)}" if when else "") + ") - undo the newer change first, "
+                                     "or edit the item.")
+    return before
+
+
+def _apply_undo_fields(db: Session, item: Item, values: dict) -> dict:
+    """Put `values` back on `item` through the same rules an edit obeys
+    (update_item): storage-only photos, a known ownership that does not
+    strand a live checkout / assignment, a known op status, the type list,
+    a non-empty name and a serial no other item uses (409, never a 500)."""
+    applied = {}
+    canon = None
+    for k, v in values.items():
+        if k not in _UNDO_ITEM_COLS:
+            continue
+        if k == "asset_value":
+            try:
+                v = float(v or 0)
+            except (TypeError, ValueError):
+                v = 0.0
+        elif k == "photo_url":
+            v = str(v or "").strip()
+            _validate_photo_url(v, "photo_url")
+        elif k == "ownership_type":
+            v = str(v or "").strip().lower()
+            if v not in ("permanent", "transient"):
+                raise HTTPException(400, "The previous ownership can't be restored")
+            _check_ownership_change(db, item, v)
+        elif k == "op_status":
+            v = str(v or "").strip()
+            if v and v not in _OP_STATUSES:
+                raise HTTPException(400, "The previous status can't be restored")
+        elif k == "item_type":
+            canon = canon or _type_canon(db)
+            v = _normalize_type(v, canon)
+        elif k == "name":
+            v = str(v or "").strip()
+            if not v:
+                raise HTTPException(400, "Name cannot be empty")
+        elif k == "serial_number":
+            v = str(v or "").strip()
+            _check_serial_free(db, item, v)
+        else:
+            v = str(v if v is not None else "").strip()
+        setattr(item, k, v)
+        applied[k] = v
+    # Reverted off a person-bound state: drop the stale person.
+    if "op_status" in applied and applied["op_status"] not in _OP_STATUS_PERSON:
+        item.op_status_person_email = ""
+        item.op_status_person_name = ""
+    return applied
 
 
 @router.post("/audit-undo")
 def undo_audit_entry(body: AuditUndoRequest, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     """Revert a single item add / edit / delete recorded in the audit log.
 
-    Edits restore the previous values the client reconstructed from the log;
-    adds are soft-deleted; deletes are restored. The original entry is marked
-    undone and a new canonical entry (carrying a "reason") records the reversal.
+    Edits restore the before-values recorded with the edit itself
+    (_before_values - the client's `fields` are ignored) through the edit
+    rules (_apply_undo_fields); adds are soft-deleted and deletes restored,
+    which needs the same level as DELETE / restore (require_items_delete).
+    The audit row is locked, so two Undo clicks cannot both pass the "already
+    undone" check. The original entry is marked undone and a new canonical
+    entry (carrying a "reason") records the reversal.
     """
-    row = db.query(AuditLog).filter(AuditLog.id == body.audit_id).first()
+    row = db.query(AuditLog).filter(AuditLog.id == body.audit_id).with_for_update().first()
     if not row or row.resource_type != "items":
         raise HTTPException(404, "Audit entry not found")
     if row.undone_at:
@@ -2978,9 +4122,16 @@ def undo_audit_entry(body: AuditUndoRequest, user: dict = Depends(require_items_
     iid    = row.resource_id or ""
     email  = user["email"]
     now    = datetime.now(timezone.utc).isoformat()
-    item   = db.query(Item).filter(Item.id == iid).first() if iid else None
+    item   = db.query(Item).filter(Item.id == iid).with_for_update().first() if iid else None
+    if item is not None:
+        _wall_item(item, user, db)
 
     applied, reason, new_action = {}, "", ""
+    if (action.startswith("added item") or action.startswith("deleted item")) and not _can_delete_items(user, db):
+        # Undoing an add deletes the item; undoing a delete restores it - the
+        # same acts as DELETE /items/{id} and its restore, so the same level.
+        raise HTTPException(403, "Only a Super Administrator or someone with Full Inventory access can undo "
+                                 "an item being added or deleted.")
 
     if action.startswith("added item"):
         if not item:
@@ -2989,10 +4140,14 @@ def undo_audit_entry(body: AuditUndoRequest, user: dict = Depends(require_items_
             raise HTTPException(409, "That item is already deleted")
         active = db.query(ItemCheckout).filter(
             ItemCheckout.item_id == iid,
-            ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"]),
+            ItemCheckout.status.in_(_LIVE_CHECKOUT),
         ).count()
-        if active:
-            raise HTTPException(409, "Can't undo - the item has an active checkout against it")
+        live_asg = db.query(ItemAssignment).filter(
+            ItemAssignment.item_id == iid,
+            ItemAssignment.status.in_(["pending_acceptance", "active", "return_initiated"]),
+        ).count()
+        if active or live_asg:
+            raise HTTPException(409, "Can't undo - the item is checked out or assigned right now")
         _soft_delete(item, email)
         reason, new_action = "Undo - removed the added item", f"Deleted item {iid}"
 
@@ -3001,29 +4156,15 @@ def undo_audit_entry(body: AuditUndoRequest, user: dict = Depends(require_items_
             raise HTTPException(404, "That item no longer exists")
         if not item.deleted_at:
             raise HTTPException(409, "That item is not deleted")
-        item.deleted_at = ""
-        item.deleted_by = ""
+        _restore(item)
         reason, new_action = "Undo - restored the deleted item", f"Restored item {iid}"
 
     elif action.startswith("updated item"):
         if not item:
             raise HTTPException(404, "That item no longer exists")
-        for k, v in (body.fields or {}).items():
-            if k not in _UNDO_ITEM_COLS:
-                continue
-            if k == "asset_value":
-                try:
-                    v = float(v or 0)
-                except (TypeError, ValueError):
-                    v = 0.0
-            setattr(item, k, v)
-            applied[k] = v
+        applied = _apply_undo_fields(db, item, _before_values(db, row, item))
         if not applied:
             raise HTTPException(400, "Nothing to restore for this change")
-        # If op_status was reverted off a person-bound state, drop the stale person.
-        if "op_status" in applied and applied["op_status"] not in _OP_STATUS_PERSON:
-            item.op_status_person_email = ""
-            item.op_status_person_name  = ""
         reason, new_action = "Undo - restored previous value(s)", f"Updated item {iid}"
 
     else:
@@ -3039,6 +4180,181 @@ def undo_audit_entry(body: AuditUndoRequest, user: dict = Depends(require_items_
         action=new_action, resource_type="items", resource_id=iid,
         details=json.dumps(details), ip_address="",
     ))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # The serial index caught a clash a concurrent edit made after the check.
+        db.rollback()
+        raise HTTPException(409, "That serial is already used by another item")
     return {"ok": True, "undone_id": row.id}
 
+
+# ── QR tags and phone scan (Items phase 4, Neil 11/02/2026) ──────────────────
+# A printed tag carries the item's own link (<app>/itemmanagement/item/<id>);
+# no secret token rides in it - the link needs a sign-in and every read here
+# is walled exactly like GET /items (a 404, never a 403, outside the caller's
+# companies, so a tag never says whether an item exists elsewhere). The
+# scanner also takes a bare serial ("GG-00042", "gg 42", "42") and the item id.
+# Neil green-lit editing Visesh's Items files for this on 11/02/2026.
+_ITEM_LINK_RE = re.compile(r"/(?:itemmanagement|inventory)/item(?:/|:)([A-Za-z0-9_.~%-]{1,120})/?$", re.IGNORECASE)
+_TAG_MAX = 600   # 20 sheets of 30 - more is a second print
+
+
+def _compact(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def _live_items_q(db: Session):
+    return db.query(Item).filter(or_(Item.deleted_at.is_(None), Item.deleted_at == ""))
+
+
+def _walled(q, scope, company_col=None):
+    """`q` narrowed to the caller's companies IN the query (review L5) - the
+    same rule as auth.company_ok: scope None admits everything, otherwise only
+    rows whose company is in the scope (an untagged row is never admitted)."""
+    if scope is None:
+        return q
+    col = company_col if company_col is not None else Item.company_id
+    return q.filter(col.in_(sorted(scope)))
+
+
+class SeveralItemsMatch(Exception):
+    """A loose serial that fits more than one item the caller may see."""
+    def __init__(self, choices):
+        super().__init__("several")
+        self.choices = choices
+
+
+def resolve_item_code(db: Session, code: str, scope=None):
+    """(Item, how) for a scanned or typed code - an item link, an item id or a
+    serial - or (None, "") when nothing matches. Every query is walled by
+    `scope` (company_scope) itself, so a match outside the caller's
+    companies is never even read. A loose serial that fits several items
+    raises SeveralItemsMatch with the choices (review L6)."""
+    from urllib.parse import unquote, urlsplit
+    raw = (code or "").strip()[:512]
+    if not raw:
+        return None, ""
+
+    def live():
+        return _walled(_live_items_q(db), scope)
+    is_url = "://" in raw
+    path = raw
+    if is_url:
+        try:
+            path = urlsplit(raw).path or ""
+        except ValueError:
+            path = ""
+    m = _ITEM_LINK_RE.search(path) if path.startswith("/") else None
+    if m:
+        found = live().filter(Item.id == unquote(m.group(1))).first()
+        return (found, "link") if found else (None, "")
+    if is_url:
+        return None, ""   # another site's link is never a serial
+    found = live().filter(Item.id == raw).first()
+    if found:
+        return found, "id"
+    found = live().filter(func.lower(Item.serial_number) == raw.lower()).first()
+    if found:
+        return found, "serial"
+    # The printed serial typed by hand: "gg 42", "GG00042" and "42" all mean
+    # GG-00042 - tried before the loose match below.
+    digits = re.fullmatch(r"(?:gg)?\s*-?\s*0*(\d{1,9})", raw, re.IGNORECASE)
+    if digits:
+        want = _fmt_serial(int(digits.group(1))).lower()
+        found = live().filter(func.lower(Item.serial_number) == want).first()
+        if found:
+            return found, "serial"
+    # An old or outside serial read with different spacing or dashes. Only
+    # the id, serial and company of the caller's own items are read here.
+    key = _compact(raw)
+    if len(key) >= 3:
+        rows = _walled(
+            db.query(Item.id, Item.serial_number, Item.company_id)
+              .filter(or_(Item.deleted_at.is_(None), Item.deleted_at == ""))
+              .filter(Item.serial_number.isnot(None), Item.serial_number != ""),
+            scope).all()
+        ids = [r.id for r in rows if _compact(r.serial_number) == key]
+        if len(ids) > 1:
+            several = live().filter(Item.id.in_(ids[:20])).order_by(Item.serial_number, Item.name).all()
+            raise SeveralItemsMatch([
+                {"id": it.id, "name": it.name, "serialNumber": it.serial_number or "", "location": it.location or ""}
+                for it in several
+            ])
+        if ids:
+            found = live().filter(Item.id == ids[0]).first()
+            if found:
+                return found, "serial"
+    return None, ""
+
+
+def _company_names(db: Session, ids) -> dict:
+    from models import HrEntity
+    wanted = sorted({i for i in ids if i})
+    if not wanted:
+        return {}
+    return {e.id: e.name or "" for e in db.query(HrEntity).filter(HrEntity.id.in_(wanted)).all()}
+
+
+@router.get("/by-code")
+def item_by_code(code: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The item a scanned tag or a typed serial names, walled like GET /items."""
+    scope = _scope(user, db)
+    try:
+        item, how = resolve_item_code(db, code, scope)
+    except SeveralItemsMatch as many:
+        raise HTTPException(409, {"message": "Several items match - pick one", "choices": many.choices})
+    if item is None or not _item_ok(item, scope):
+        raise HTTPException(404, "No item you can see matches that code")
+    mine = company_of(user, db)
+    names = _company_names(db, [item.company_id or "", mine])
+    d = _items_with_activity(db, [item], only_ids=[item.id])[0]
+    d["companyName"] = names.get(item.company_id or "", "") or names.get(mine, "")
+    d["matchedBy"] = how
+    return d
+
+
+class ItemTagsIn(BaseModel):
+    ids: list[str] = []
+
+
+@router.post("/tags")
+def item_tags(body: ItemTagsIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """What a printed tag needs for each item (name, serial and the company name -
+    white-label: the item's company, else the printer's own), in the order
+    asked and walled; an id outside the caller's companies is left off.
+    `publicBase` is the address every QR code carries (review M1): the app's
+    public URL, so a tag printed from a preview or a local tab still opens
+    Nexus; empty on a local server, where the sheet uses its own origin."""
+    ids = list(dict.fromkeys(i for i in (body.ids or []) if i))
+    if len(ids) > _TAG_MAX:
+        raise HTTPException(400, f"Print at most {_TAG_MAX} tags at a time")
+    base = _tag_public_base()
+    if not ids:
+        return {"tags": [], "publicBase": base}
+    scope = _scope(user, db)
+    rows = {i.id: i for i in _walled(_live_items_q(db).filter(Item.id.in_(ids)), scope).all()}
+    mine = company_of(user, db)
+    names = _company_names(db, [r.company_id or "" for r in rows.values()] + [mine])
+    out = []
+    for iid in ids:
+        it = rows.get(iid)
+        if it is None:
+            continue
+        out.append({
+            "id": it.id, "name": it.name, "serialNumber": it.serial_number or "",
+            "itemType": it.item_type or "", "location": it.location or "",
+            "companyName": names.get(it.company_id or "", "") or names.get(mine, ""),
+        })
+    return {"tags": out, "publicBase": base}
+
+
+def _tag_public_base() -> str:
+    """The Nexus frontend's public address for QR tags: NEXUS_APP_URL, else the
+    Azure-derived one (app_url.app_url). A local server (neither set) sends
+    "" - its guess would be a localhost port the tag cannot reach anyway."""
+    import os
+    import app_url
+    if not (os.getenv("NEXUS_APP_URL", "").strip() or os.getenv("WEBSITE_SITE_NAME", "").strip()):
+        return ""
+    return app_url.app_url()

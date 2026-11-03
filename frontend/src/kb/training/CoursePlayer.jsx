@@ -11,6 +11,8 @@ import { useToast, errText } from '../components/Toast';
 import { goKb, fmtDate, plural } from '../lib';
 import { OrderAnswer, ShortAnswer, PhotoAnswer, hasAnswer } from './QuestionInputs';
 import { RateCourse } from './CourseFeedback';
+import { courseTrackState } from './MyTraining';
+import ProgressTrack from '../../ui/ProgressTrack';
 
 function Quiz({ course, onDone }) {
   const toast = useToast();
@@ -177,7 +179,7 @@ export default function CoursePlayer({ id, me }) {
                 <div style={{ padding: '4px 10px 10px' }}>
                   <div className="kb-title" style={{ fontSize: 16 }}>{course.title}</div>
                   <div className="kb-meta">{course.code} · v{course.major} · about {plural(course.est_minutes, 'minute')}{course.due_date ? ` · due ${fmtDate(course.due_date)}` : ''}</div>
-                  <div className="kb-progress" style={{ marginTop: 8 }}><i style={{ width: `${course.my_pct}%` }} /></div>
+                  <ProgressTrack value={(course.my_pct || 0) / 100} state={courseTrackState(course)} label="Course progress" style={{ marginTop: 8 }} />
                 </div>
                 {course.lessons.map((L, i) => (
                   <div key={L._id} className={`kb-lesson${cur === L._id ? ' on' : ''}`} onClick={() => setCur(L._id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setCur(L._id); }}>

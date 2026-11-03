@@ -199,6 +199,31 @@ def save_my_date_format(body: DateFormatIn, user: dict = Depends(get_current_use
     return {"date_format": row.date_format}
 
 
+# Digest emails (the legal compliance pass, 11/02/2026, email_optout.py): the
+# person's own switches, and what the one-click "Stop These Emails" link in
+# each digest calls once the signed-in app opens. Only ever your own.
+class EmailOptoutIn(BaseModel):
+    kind: str
+    on: bool
+
+
+@router.get("/me/email-optouts")
+def my_email_optouts(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import email_optout
+    return email_optout.prefs(db, user["email"])
+
+
+@router.put("/me/email-optouts")
+def save_my_email_optout(body: EmailOptoutIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import email_optout
+    if body.kind not in email_optout.KINDS:
+        raise HTTPException(status_code=422, detail="Unknown email")
+    try:
+        return email_optout.set_on(db, user["email"], body.kind, body.on)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 @router.get("")
 def get_all_roles(
     user: dict = Depends(require_administrator),

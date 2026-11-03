@@ -9,6 +9,7 @@ import { ZONE_GROUPS, MAX_ZONES, LOCAL_TZ, currentZones, setZones, zoneOptionLab
 import { Spinner } from './AsyncState';
 import EmailSettingsPanel from '../tasks/MyEmailSettings';
 import KbTrainingEmailPref from './KbTrainingEmailPref';
+import DigestEmailPrefs from './DigestEmailPrefs';
 import { DATE_FORMATS, getDateFormat, setDateFormat, formatDate, formatDateTime } from '../lib/datetime';
 import { Modal, useIsMobile } from '../tasks/components';
 import { SettingCard, SettingRow, SwitchRow } from './settings/SettingsUI';
@@ -386,6 +387,8 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
       <>
         {/* Training emails (WP 2.4, Oct 29 2026) - for everyone, Tasks access or not. */}
         <KbTrainingEmailPref />
+        {/* Digest emails, each with its one-click stop link (11/02/2026). */}
+        <DigestEmailPrefs />
         {emailUnavailable ? (
           <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
             Task email settings aren&apos;t available for your account because you don&apos;t have access to the Tasks module.

@@ -26,6 +26,14 @@ describe('RecordModal validation', () => {
     expect(screen.getByLabelText(/Scope \/ Item Covered/)).toBeTruthy();
     expect(screen.getByLabelText(/Contact Email/)).toBeTruthy();
   });
+  it('offers the Next Service Odometer on a vehicle service record only', () => {
+    render(<RecordModal coll="vservice" row={null} onSave={vi.fn()} onDelete={vi.fn()} onClose={vi.fn()} active={{ id: 'v1', name: 'Van', kind: 'vehicle' }} />);
+    expect(screen.getByLabelText(/Next Service Odometer/)).toBeTruthy();
+    cleanup();
+    render(<RecordModal coll="vservice" row={null} onSave={vi.fn()} onDelete={vi.fn()} onClose={vi.fn()} active={{ id: 'e1', name: 'Loader', kind: 'equipment' }} />);
+    expect(screen.queryByLabelText(/Next Service Odometer/)).toBeNull();
+    expect(screen.getByLabelText(/Next Service Due/)).toBeTruthy();
+  });
   it('removes through an in-modal confirmation, not window.confirm', () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true);
     const onDelete = vi.fn();

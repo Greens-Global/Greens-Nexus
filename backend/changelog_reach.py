@@ -333,7 +333,8 @@ def digest_html(entries: list, base_url: str) -> str:
             f"<h2 style='margin:0 0 12px'>What's New in Nexus this week</h2><ul style='padding-left:18px'>{''.join(items)}</ul>"
             f"<p><a href='{escape(base_url)}/whats-new'>See everything in What's New</a></p>"
             f"<p style='color:#5b6472;font-size:12px'>You get this because you turned on the weekly digest in "
-            f"What's New &gt; Follow.</p></div>")
+            f"What's New &gt; Follow. <a href='{escape(base_url)}/?stopEmail=whats_new_digest' "
+            f"style='color:#5b6472'>Stop These Emails</a></p></div>")
 
 
 def send_digests_if_due(db, now: datetime = None) -> int:
