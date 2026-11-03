@@ -108,6 +108,11 @@ _wf_observer.wire(SessionLocal)
 import shift_group_departments as _shift_group_departments  # noqa: E402
 _shift_group_departments.wire(SessionLocal)
 
+# A preventive maintenance ticket closed by any path writes its maintenance
+# record and moves a floating schedule on (11/03/2026, maintenance_pm_sync.py).
+import maintenance_pm_sync as _maintenance_pm_sync  # noqa: E402
+_maintenance_pm_sync.wire(SessionLocal)
+
 
 class Base(DeclarativeBase):
     pass

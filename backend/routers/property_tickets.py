@@ -22,11 +22,12 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import auth
 import maintenance_services
 import models
 import property_links
@@ -116,6 +117,10 @@ def _summary(t, prop_names: dict, lead_id: str, photos: dict, names: dict, desk:
         "needsAction": status in property_links.CLOSED_STATES and worked and t.id not in logged,
         "parentTicketId": t.parent_ticket_id or "",
         "isServiceParent": t.id in service_parents,
+        # Preventive maintenance (11/03/2026): the schedule, its due day, the
+        # equipment it is about.
+        "serviceId": t.service_id or "", "pmDueOn": t.pm_due_on or "",
+        "equipmentAssetId": t.equipment_asset_id or "",
         "canOpen": desk or me in T._ticket_readers(t),
         "watching": me in watchers,
     }
@@ -155,16 +160,21 @@ def _record_out(r, by_id: dict) -> dict:
 def _service_out(svc, by_id: dict, records: dict, full: bool = True) -> dict:
     """A recurring service: its parent ticket and every child under it, each
     with its date and cost (the logged record's, else what the ticket has)."""
-    parent = by_id.get(svc.parent_ticket_id)
+    preventive = maintenance_services.is_preventive(svc)
+    parent = None if preventive else by_id.get(svc.parent_ticket_id)
     family = [parent] if parent else []
-    family += sorted([t for t in by_id.values() if t.parent_ticket_id == svc.parent_ticket_id],
-                     key=lambda t: t.created_at or "")
+    if preventive:
+        family += sorted([t for t in by_id.values() if t.service_id == svc.id], key=lambda t: t.created_at or "")
+    else:
+        family += sorted([t for t in by_id.values() if t.parent_ticket_id == svc.parent_ticket_id],
+                         key=lambda t: t.created_at or "")
 
     def row(t):
         rec = records.get(t.id)
         status = t.status if (t.status and t.status != "new") else "open"
         return {"id": t.id, "codeLabel": ticket_no(t.code), "subject": t.subject, "status": status,
-                "isParent": t.id == svc.parent_ticket_id,
+                "isParent": (not preventive) and t.id == svc.parent_ticket_id,
+                "pmDueOn": t.pm_due_on or "",
                 "date": (rec.service_date if rec else "") or (t.resolved_at or t.created_at or "")[:10],
                 # The logged record is the property's history; a ticket's own
                 # vendor / cost (not yet logged) is the desk's, like _summary.
@@ -182,7 +192,34 @@ def _service_out(svc, by_id: dict, records: dict, full: bool = True) -> dict:
             "nextDue": svc.next_due, "recurrenceUnit": svc.recurrence_unit or "",
             "recurrenceEvery": svc.recurrence_every or 1,
             "recurrenceLabel": maintenance_services.recurrence_label(svc.recurrence_unit or "", svc.recurrence_every or 1),
-            "active": bool(svc.active), "tickets": rows, "totals": totals, "totalCost": usd}
+            "active": bool(svc.active), "tickets": rows, "totals": totals, "totalCost": usd,
+            **_preventive_out(svc, family)}
+
+
+def _preventive_out(svc, family: list) -> dict:
+    """What the schedule editor and the Preventive list read (11/03/2026).
+    A service set from a ticket answers kind '' and the editor offers it the
+    old fields only."""
+    tpl = svc.template or {}
+    today = date.today().isoformat()
+    live = [t for t in family if (t.status or "") not in property_links.CLOSED_STATES]
+    return {"kind": svc.kind or "", "kindLabel": maintenance_services.KIND_LABEL.get(svc.kind or "", ""),
+            "scheduleLabel": (maintenance_services.schedule_label(svc) if maintenance_services.is_preventive(svc)
+                              else maintenance_services.recurrence_label(svc.recurrence_unit or "",
+                                                                         svc.recurrence_every or 1)),
+            "description": tpl.get("description") or "", "priority": tpl.get("priority") or "medium",
+            "application": tpl.get("application") or "", "departmentId": tpl.get("hr_department_id") or "",
+            "location": tpl.get("location") or "", "assigneeEmail": svc.assignee_email or "",
+            "assetId": svc.asset_id or "", "itemId": svc.item_id or "", "checklist": list(svc.checklist or []),
+            "leadDays": int(svc.lead_days or 0), "meterField": svc.meter_field or "",
+            "meterEvery": svc.meter_every or 0, "meterNext": svc.meter_next or 0, "meterLast": svc.meter_last or 0,
+            "meterNextLabel": maintenance_services.meter_label(svc.meter_field, svc.meter_next)
+            if svc.meter_field else "",
+            "meterLastLabel": maintenance_services.meter_label(svc.meter_field, svc.meter_last)
+            if svc.meter_field else "",
+            "openCount": len(live),
+            "overdueCount": len([t for t in live if t.pm_due_on and t.pm_due_on < today]),
+            "waitingOnCompletion": (svc.kind or "") == "floating" and not svc.next_due}
 
 
 @router.get("/property-assets/{property_id}/tickets")
@@ -192,8 +229,7 @@ def property_tickets(property_id: str, user: dict = Depends(require_asset_read),
         raise HTTPException(404, "Property not found")
     ids = property_links.group_ids(db, prop, user)        # private / deleted parcels left out
     rows = db.query(models.TaskTicket).filter(models.TaskTicket.property_asset_id.in_(ids)).all()
-    import auth   # company wall - same confinement as the desk queue (list_tickets)
-    scope = auth.company_scope(user, db)
+    scope = auth.company_scope(user, db)   # company wall - same confinement as the desk queue (list_tickets)
     if scope is not None:
         rows = [t for t in rows if (t.company_id or "") in scope]
     by_id = {t.id: t for t in rows}
@@ -208,6 +244,11 @@ def property_tickets(property_id: str, user: dict = Depends(require_asset_read),
     records = {r.ticket_id: r for r in recs}
     services = (db.query(models.PropertyMaintenanceService)
                 .filter(models.PropertyMaintenanceService.parent_ticket_id.in_(list(by_id) or [""])).all())
+    # Preventive schedules (11/03/2026) sit on the property itself.
+    M = models.PropertyMaintenanceService
+    services += [s for s in db.query(M).filter(M.property_asset_id.in_(ids),
+                                               M.kind.in_(maintenance_services.KINDS)).all()
+                 if auth.company_ok((s.template or {}).get("company_id") or "", scope)]
     names = _names(db, {t.assignee_email for t in rows} | {t.requester_email for t in rows})
     desk = T._has_desk_grant(user, db)
     me = (user.get("email") or "").lower()
@@ -240,6 +281,11 @@ def property_tickets(property_id: str, user: dict = Depends(require_asset_read),
             "services": sorted([_service_out(s, by_id, records, full) for s in services],
                                key=lambda s: (not s["active"], s["nextDue"])),
             "spend": spend, "spendTotals": spend_totals,
+            # Preventive maintenance (11/03/2026): open and overdue at this
+            # property (and its parcels), for the Maintenance tab's header.
+            "preventive": {"open": len([x for x in open_ if x["serviceId"] and x["pmDueOn"]]),
+                           "overdue": len([x for x in open_ if x["serviceId"] and x["pmDueOn"]
+                                           and x["pmDueOn"] < date.today().isoformat()])},
             "canWalkthrough": property_links.may_walkthrough(db, user),
             "canFollow": can_manage, "canManage": can_manage}
 
@@ -331,6 +377,26 @@ class ServicePatch(BaseModel):
     recurrence_unit: Optional[str] = None
     recurrence_every: Optional[int] = None
     active: Optional[bool] = None
+    # Preventive schedules (11/03/2026) - maintenance_services.clean_schedule.
+    kind: Optional[str] = None
+    subject: Optional[str] = None
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    application: Optional[str] = None
+    hr_department_id: Optional[str] = None
+    location: Optional[str] = None
+    assignee_email: Optional[str] = None
+    asset_id: Optional[str] = None
+    item_id: Optional[str] = None
+    checklist: Optional[list] = None
+    lead_days: Optional[int] = None
+    meter_every: Optional[float] = None
+    meter_next: Optional[float] = None
+
+
+_PREVENTIVE_KEYS = {"kind", "subject", "description", "priority", "application", "hr_department_id", "location",
+                    "assignee_email", "asset_id", "item_id", "checklist", "lead_days", "meter_every", "meter_next",
+                    "next_due", "recurrence_unit", "recurrence_every"}
 
 
 def _require_manage(db: Session, user: dict, property_id: str):
@@ -445,6 +511,8 @@ def update_service(property_id: str, service_id: str, body: ServicePatch,
     prop = _require_manage(db, user, property_id)
     svc = _service_or_404(db, prop, user, service_id)
     data = body.model_dump(exclude_unset=True)
+    if maintenance_services.is_preventive(svc):
+        return _update_preventive(db, user, prop, svc, data)
     if {"next_due", "recurrence_unit", "recurrence_every"} & set(data):
         next_due, unit, every = _schedule_fields(
             data.get("next_due", svc.next_due), data.get("recurrence_unit", svc.recurrence_unit),
@@ -470,7 +538,7 @@ def update_service(property_id: str, service_id: str, body: ServicePatch,
 
 
 @router.post("/property-assets/{property_id}/services/{service_id}/open-now", status_code=201)
-def open_service_now(property_id: str, service_id: str,
+def open_service_now(property_id: str, service_id: str, background_tasks: BackgroundTasks = None,
                      user: dict = Depends(require_asset_read), db: Session = Depends(get_db)):
     """Open the upcoming service's ticket now instead of waiting for the due
     date - the schedule then moves on exactly as if it had opened itself."""
@@ -478,6 +546,8 @@ def open_service_now(property_id: str, service_id: str,
     svc = _service_or_404(db, prop, user, service_id)
     if not svc.active:
         raise HTTPException(409, "This service is stopped - restart it first.")
+    if maintenance_services.is_preventive(svc):
+        return _open_preventive_now(db, user, svc, background_tasks)
     if svc.last_opened_for == svc.next_due:
         raise HTTPException(409, "The ticket for this service date is already open.")
     last = db.get(models.TaskTicket, svc.last_ticket_id) if svc.last_ticket_id else None
@@ -488,3 +558,101 @@ def open_service_now(property_id: str, service_id: str,
     t = maintenance_services.open_child(db, svc, (user.get("email") or "").strip().lower(), automatic=False)
     db.commit()
     return {"ticketId": t.id, "code": t.code, "nextDue": svc.next_due if svc.active else None}
+
+
+# ── Preventive schedules (Construction plan phase 5, Neil 11/03/2026) ────────
+# The recurring service above, set up straight on the property instead of
+# from a resolved ticket: fixed dates, N after the last completion, or by the
+# asset's meter (maintenance_services.py). Kept by the same people (the
+# property's asset manager, Asset Management editors, administrators), with
+# the same row lock and the same daily scan - never a second scheduler.
+
+class ScheduleBody(BaseModel):
+    kind: str = "calendar"
+    subject: str = ""
+    description: Optional[str] = ""
+    priority: Optional[str] = "medium"
+    application: Optional[str] = ""
+    hr_department_id: str = ""
+    location: Optional[str] = ""
+    assignee_email: Optional[str] = ""
+    asset_id: Optional[str] = ""
+    item_id: Optional[str] = ""
+    checklist: Optional[list] = None
+    lead_days: Optional[int] = 0
+    next_due: Optional[str] = ""
+    recurrence_unit: Optional[str] = "month"
+    recurrence_every: Optional[int] = 1
+    meter_every: Optional[float] = None
+    meter_next: Optional[float] = None
+
+
+@router.post("/property-assets/{property_id}/schedules", status_code=201)
+def create_schedule(property_id: str, body: ScheduleBody, user: dict = Depends(require_asset_read),
+                    db: Session = Depends(get_db)):
+    prop = _require_manage(db, user, property_id)
+    if not property_links.is_listed(prop, user):
+        raise HTTPException(400, "Preventive schedules sit on a property - pick the property the work is at.")
+    data = body.model_dump()
+    data["checklist"] = data.get("checklist") or []
+    fields = maintenance_services.clean_schedule(db, user, prop, data)
+    me = (user.get("email") or "").strip().lower()
+    now = now_iso()
+    svc = models.PropertyMaintenanceService(
+        id=gen_id(), property_asset_id=prop.id, parent_ticket_id=None, active=1, reminder_sent_for="",
+        last_opened_for="", last_ticket_id="", created_by_email=me, created_at=now, updated_by_email=me,
+        updated_at=now, next_due="", recurrence_unit="", recurrence_every=1)
+    for k, v in fields.items():
+        setattr(svc, k, v)
+    db.add(svc)
+    db.commit()
+    return {"serviceId": svc.id, "nextDue": svc.next_due or None,
+            "scheduleLabel": maintenance_services.schedule_label(svc)}
+
+
+def _update_preventive(db: Session, user: dict, prop, svc, data: dict) -> dict:
+    me = (user.get("email") or "").strip().lower()
+    if set(data) & _PREVENTIVE_KEYS:
+        if data.get("kind") is None:
+            data.pop("kind", None)
+        fields = maintenance_services.clean_schedule(db, user, prop, data, svc)
+        for k, v in fields.items():
+            setattr(svc, k, v)
+    if "active" in data:
+        if data["active"] and not svc.active and svc.kind in ("calendar", "floating"):
+            d = maintenance_services.parse_ymd(svc.next_due)
+            if d is not None and d < date.today():
+                raise HTTPException(400, "Set a due date that is not in the past to restart this schedule.")
+        svc.active = 1 if data["active"] else 0
+    # The schedule files as whoever last saved it (maintenance_services.run_as).
+    svc.updated_by_email, svc.updated_at = me, now_iso()
+    db.commit()
+    return {"ok": True, "nextDue": svc.next_due or None, "scheduleLabel": maintenance_services.schedule_label(svc)}
+
+
+def _open_preventive_now(db: Session, user: dict, svc, background_tasks) -> dict:
+    """Open Now for a preventive schedule: the coming occurrence's ticket,
+    filed as the caller (who keeps the schedule), exactly as the scan would.
+    A meter schedule opens for its next reading; a floating one only once the
+    last ticket is done."""
+    if maintenance_services.open_ticket_of(db, svc) is not None and svc.kind != "calendar":
+        raise HTTPException(409, "This schedule's ticket is still open - finish it first.")
+    if svc.kind == "meter":
+        due_on, key = date.today().isoformat(), f"m:{float(svc.meter_next or 0):g}"
+    else:
+        d = maintenance_services.parse_ymd(svc.next_due)
+        if d is None:
+            raise HTTPException(409, "The next ticket opens when the last one is done.")
+        due_on = key = d.isoformat()
+    bt = background_tasks if background_tasks is not None else BackgroundTasks()
+    try:
+        made = maintenance_services.file_preventive(db, svc, due_on, key, user, bt, automatic=False)
+    except HTTPException:
+        db.rollback()
+        raise
+    if made is None:
+        raise HTTPException(409, "The ticket for this due date is already open.")
+    if background_tasks is None:
+        maintenance_services.run_after(bt)
+    return {"ticketId": made["id"], "code": made.get("code") or "", "nextDue": svc.next_due or None}
+

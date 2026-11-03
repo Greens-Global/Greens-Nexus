@@ -3846,6 +3846,14 @@ class TaskTicket(Base):
     # people and HR for its company, hidden from the desk, reports and every
     # other reader by the hook in database.py. Set server-side only.
     confidential_desk     = Column(String, default="", index=True)
+    # Preventive maintenance (11/03/2026, maintenance_services.py): the day a
+    # preventive ticket is due (its occurrence's date; '' on every other
+    # ticket) - the Preventive queue's Overdue and the per-site roll-up read
+    # it. equipment_asset_id: the vehicle / equipment (PropertyAsset.id) the
+    # ticket is about, beside its property - a scanned equipment tag or a
+    # schedule on that asset sets it.
+    pm_due_on             = Column(String, default="", index=True)
+    equipment_asset_id    = Column(String, default="", index=True)
 
 
 class TicketEmailLog(Base):
@@ -6106,6 +6114,27 @@ class PropertyMaintenanceService(Base):
     created_at         = Column(String, default="")
     updated_by_email   = Column(String, default="")
     updated_at         = Column(String, default="")
+    # Preventive maintenance (Construction plan phase 5, Neil 11/03/2026): the
+    # same row, set up straight on the property (Asset Management > Maintenance)
+    # instead of from a ticket. kind '' = the service above, set from a parent
+    # ticket (parent_ticket_id); 'calendar' = fixed dates (next_due, rolled on
+    # by recurrence_*); 'floating' = recurrence_* after the last completion;
+    # 'meter' = each time the asset's reading passes meter_next. A preventive
+    # schedule has NO parent ticket: parent_ticket_id is NULL (the column is
+    # unique and NULLs never collide). Its tickets are filed through
+    # tickets.file_ticket (maintenance_services.file_preventive), one per
+    # occurrence (PropertyMaintenanceOccurrence), and run as updated_by_email.
+    kind               = Column(String, default="")
+    asset_id           = Column(String, default="")   # a vehicle / equipment asset (PropertyAsset.id), optional
+    item_id            = Column(String, default="")   # an Item (items.id), optional
+    assignee_email     = Column(String, default="")   # who each ticket goes to ('' = the team's default)
+    checklist          = Column(JSON, default=list)   # ["Change the filter", ...] - each ticket's checklist
+    lead_days          = Column(Integer, default=0)   # file the ticket this many days before it is due
+    meter_field        = Column(String, default="")   # the asset's reading: odometer | hours
+    meter_every        = Column(Float, default=0)     # every so many miles / hours
+    meter_next         = Column(Float, default=0)     # the reading the next ticket is due at
+    meter_last         = Column(Float, default=0)     # the reading last seen by the scan
+    overdue_alerted_for = Column(String, default="")  # the occurrence the preventive.overdue event went out for
 
 
 # ── Marketing: Google Ads (Oct 2026, read-only) ──────────────────────────────
@@ -9949,3 +9978,20 @@ class PerfBonusPlanLog(Base):
     snapshot   = Column(JSON, default=dict)
     changed_by = Column(String, default="")
     changed_at = Column(String, default="")
+
+
+class PropertyMaintenanceOccurrence(Base):
+    """One due occurrence of a preventive schedule and the ticket filed for it
+    (Construction plan phase 5, 11/03/2026). The unique (service_id, due_key)
+    is the idempotency key: the scan, Open Now and a racing worker can never
+    file a second ticket for the same occurrence. due_key is the due date
+    (YYYY-MM-DD) for calendar / floating schedules and 'm:<reading>' for a
+    meter schedule. New table - RLS (main.py list)."""
+    __tablename__ = "property_maintenance_occurrences"
+    __table_args__ = (UniqueConstraint("service_id", "due_key", name="ux_pm_occurrence_key"),)
+    id         = Column(String, primary_key=True)
+    service_id = Column(String, nullable=False, index=True)
+    due_key    = Column(String, nullable=False)
+    due_on     = Column(String, default="")   # YYYY-MM-DD the ticket is due
+    ticket_id  = Column(String, default="", index=True)
+    created_at = Column(String, default="")

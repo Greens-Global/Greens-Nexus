@@ -3777,6 +3777,24 @@
       "volume": "normal"
     },
     {
+      "changes": [],
+      "entity": "ticket",
+      "group": "Preventive Maintenance",
+      "key": "preventive.generated",
+      "label": "Preventive Ticket Is Filed",
+      "module": "tickets",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "ticket",
+      "group": "Preventive Maintenance",
+      "key": "preventive.overdue",
+      "label": "Preventive Ticket Is Overdue",
+      "module": "tickets",
+      "volume": "normal"
+    },
+    {
       "changes": [
         "probation.status",
         "probation.end"

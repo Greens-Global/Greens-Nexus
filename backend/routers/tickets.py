@@ -275,6 +275,10 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "source": _nz(getattr(t, "source", "")),
             # Confidential desk (Oct 27 2026): "hr" = an Ask HR request.
             "confidentialDesk": _nz(getattr(t, "confidential_desk", "")),
+            # Preventive maintenance (11/03/2026, maintenance_services.py):
+            # the day a preventive ticket is due, and the equipment it is about.
+            "pmDueOn": _nz(getattr(t, "pm_due_on", "")),
+            "equipmentAssetId": _nz(getattr(t, "equipment_asset_id", "")),
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
 
 
@@ -647,6 +651,9 @@ class TicketBody(BaseModel):
     # Mark an Issue on the Map (Charmi, Oct 20 2026): the spot on the
     # property's site map - checked and stored by ticket_map_spot.py.
     map_spot: Optional[dict] = None
+    # Scan to Request (11/03/2026): the vehicle / equipment asset at the
+    # property this is about - checked by maintenance_services.check_equipment.
+    equipment_asset_id: Optional[str] = ""
 
 
 class TicketUpdate(BaseModel):
@@ -1192,7 +1199,8 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
 
 
 def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict, db: Session,
-                arrived_by: str = "", whats_new: dict | None = None, confidential_desk: str = "") -> dict:
+                arrived_by: str = "", whats_new: dict | None = None, confidential_desk: str = "",
+                server_fields=None) -> dict:
     """Everything POST /task-tickets does - THE way a ticket is created, so
     one that arrives by email (ticket_inbound.py, `source="email"`) goes
     through the same checks, approval gate, default assignee, SLA, receipts
@@ -1203,7 +1211,12 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     `confidential_desk` ("hr" - hr_tickets.file_ask_hr, never the payload):
     an Ask HR request (ticket_confidential.py). It files into the requester's
     company's HR desk - no approval gate, the company's HR contact as its
-    default assignee, HR (not the service desk) told when nobody holds it."""
+    default assignee, HR (not the service desk) told when nobody holds it.
+
+    `server_fields(t)` (server code only, never a route's payload): called on
+    the new row before it is written, so server-owned columns - a preventive
+    ticket's schedule and due day (maintenance_services.file_preventive) -
+    land in the same transaction as the ticket."""
     if confidential_desk and confidential_desk not in ticket_confidential.DESKS:
         raise HTTPException(422, "Unknown confidential desk.")
     # The ticket's channel is named `arrived_by` here only because `source`
@@ -1235,6 +1248,8 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
                                              _has_desk_grant(user, db))
     import ticket_map_spot   # Mark an Issue on the Map: checked before anything is written
     spot = ticket_map_spot.clean(db, body.map_spot, prop)
+    import maintenance_services   # Scan to Request: the equipment, checked before anything is written
+    equipment = maintenance_services.check_equipment(db, user, body.equipment_asset_id, prop)
     prop_manager = property_links.manager_email(db, prop) if prop is not None else ""
     # Same never-trust-the-client-alone posture requester_email just got above.
     company_id = _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
@@ -1278,6 +1293,7 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
         t.property_asset_id, t.property_name = prop.id, property_links.display_name(prop)
         t.property_locked = 1 if body.property_locked else 0
         t.property_unit = unit
+        t.equipment_asset_id = equipment
     # Approval gate, decided by the TYPE's admin switch (requiresApproval in the
     # ticket taxonomy, read at this moment) and never trusted from the client, so a
     # caller cannot post approval_status="approved" to skip it.
@@ -1297,6 +1313,8 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     if t.assignee_email and t.status == "open":
         ticket_sla.set_status(t, "in_progress")   # born assigned = already being worked (see update_ticket)
     ticket_sla.sync(t)   # awaiting approval = the SLA clock waits too
+    if server_fields is not None:
+        server_fields(t)
     db.add(t)
     log_activity(db, type="created", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,

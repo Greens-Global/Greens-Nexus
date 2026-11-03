@@ -1469,6 +1469,22 @@ def _run_migrations():
             "ALTER TABLE item_types ADD COLUMN max_loan_days INTEGER DEFAULT 0",
             # One-click stop for digest emails (legal pass, 11/02/2026) - see the Postgres list.
             "ALTER TABLE nexus_person_prefs ADD COLUMN email_optouts VARCHAR DEFAULT ''",
+            # Preventive maintenance (Construction plan phase 5, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE property_maintenance_services ADD COLUMN kind VARCHAR DEFAULT ''",
+            "ALTER TABLE property_maintenance_services ADD COLUMN asset_id VARCHAR DEFAULT ''",
+            "ALTER TABLE property_maintenance_services ADD COLUMN item_id VARCHAR DEFAULT ''",
+            "ALTER TABLE property_maintenance_services ADD COLUMN assignee_email VARCHAR DEFAULT ''",
+            "ALTER TABLE property_maintenance_services ADD COLUMN checklist JSON DEFAULT '[]'",
+            "ALTER TABLE property_maintenance_services ADD COLUMN lead_days INTEGER DEFAULT 0",
+            "ALTER TABLE property_maintenance_services ADD COLUMN meter_field VARCHAR DEFAULT ''",
+            "ALTER TABLE property_maintenance_services ADD COLUMN meter_every FLOAT DEFAULT 0",
+            "ALTER TABLE property_maintenance_services ADD COLUMN meter_next FLOAT DEFAULT 0",
+            "ALTER TABLE property_maintenance_services ADD COLUMN meter_last FLOAT DEFAULT 0",
+            "ALTER TABLE property_maintenance_services ADD COLUMN overdue_alerted_for VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN pm_due_on VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN equipment_asset_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_pm_due_on ON task_tickets (pm_due_on)",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_equipment_asset_id ON task_tickets (equipment_asset_id)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3518,6 +3534,28 @@ def _run_migrations():
         # from the email's own link or Profile > Email Settings, comma
         # separated ('' = none). models.NexusPersonPref.email_optouts.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS email_optouts VARCHAR DEFAULT ''",
+        # Preventive maintenance (Construction plan phase 5, Neil 11/03/2026,
+        # maintenance_services.py): a recurring service set straight on the
+        # property - fixed dates, N after the last completion, or by the
+        # asset's meter - with its asset / item, assignee, checklist and lead
+        # days; each ticket's due day and equipment; and the new occurrence
+        # table (the idempotency key per schedule + due date) - RLS.
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT ''",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS asset_id VARCHAR DEFAULT ''",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS item_id VARCHAR DEFAULT ''",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS assignee_email VARCHAR DEFAULT ''",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS checklist JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS lead_days INTEGER DEFAULT 0",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS meter_field VARCHAR DEFAULT ''",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS meter_every DOUBLE PRECISION DEFAULT 0",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS meter_next DOUBLE PRECISION DEFAULT 0",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS meter_last DOUBLE PRECISION DEFAULT 0",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS overdue_alerted_for VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS pm_due_on VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS equipment_asset_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_pm_due_on ON task_tickets (pm_due_on)",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_equipment_asset_id ON task_tickets (equipment_asset_id)",
+        "ALTER TABLE property_maintenance_occurrences ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5430,3 +5468,5 @@ from routers import pdf_tools as pdf_tools_router  # noqa: E402 - writes audit_l
 app.include_router(pdf_tools_router.router)  # PDF Tools: who did what - one Audit Log row per action, never the file (Neil, 11/02/2026)
 from routers import privacy_notice as privacy_notice_router  # noqa: E402 - reads only, no new table
 app.include_router(privacy_notice_router.router)  # Privacy Policy built from privacy_inventory.py: public /policy/privacy-notice + signed-in /me (legal compliance pass, 11/02/2026)
+from routers import maintenance as maintenance_router  # noqa: E402
+app.include_router(maintenance_router.router)  # Maintenance in the field: overdue per site, Scan to Request, My Work (Construction plan phase 5, 11/03/2026)
