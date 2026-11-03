@@ -89,7 +89,7 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
 
   useEffect(loadLogs, [loadLogs]);
   // Keep today's prefill and the job's field lists on the phone while there is signal.
-  useEffect(() => { if (project) prefetchJob(project); }, [project]);
+  useEffect(() => { if (project) prefetchJob(project); }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startToday = async () => {
     if (!project) return;

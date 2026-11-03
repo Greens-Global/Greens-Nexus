@@ -103,7 +103,7 @@ export default function FieldTicketSheet({ project, today, onClose, onSent }) {
               Extra work on {project.name}: what was done, the hours and materials, signed by the customer. A manager prices it later.
             </p>
           </div>
-          <button className="secondary-btn" onClick={onClose} aria-label="Close" style={{ padding: 8, alignSelf: 'flex-start' }}><X size={16} /></button>
+          <button className="secondary-btn" onClick={onClose} aria-label="Close" style={{ padding: 8, minWidth: 40, minHeight: 40, alignSelf: 'flex-start' }}><X size={18} /></button>
         </div>
         {error && <div role="alert" style={{ fontSize: '0.84rem', color: 'hsl(var(--color-red))' }}>{error}</div>}
         {queued ? (
@@ -124,9 +124,10 @@ export default function FieldTicketSheet({ project, today, onClose, onSent }) {
                 onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Moved the gas line 6 ft north at the owner's request" />
             </div>
             <div style={row}>
-              <label className="form-label" style={{ margin: 0 }}>Work Date
+              <div>
+                <span className="form-label" style={{ display: 'block' }}>Work Date</span>
                 <DateField value={workDate} onChange={(v) => setWorkDate(v || '')} title="Work Date" />
-              </label>
+              </div>
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>

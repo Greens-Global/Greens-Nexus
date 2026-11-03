@@ -48,7 +48,7 @@ function AddRecord({ project, onAdded }) {
     <label className="form-label" style={{ margin: 0 }}>{label}<input className="form-input" value={f[k] || ''} onChange={set(k)} placeholder={ph} /></label>
   );
   const date = (k, label) => (
-    <label className="form-label" style={{ margin: 0 }}>{label}<DateField value={f[k] || ''} onChange={(v) => setF((x) => ({ ...x, [k]: v || '' }))} title={label} /></label>
+    <div><span className="form-label" style={{ display: 'block' }}>{label}</span><DateField value={f[k] || ''} onChange={(v) => setF((x) => ({ ...x, [k]: v || '' }))} title={label} /></div>
   );
   return (
     <form onSubmit={add} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }} aria-label="Add a Closeout Record">

@@ -19,6 +19,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useRole } from '../contexts/RoleContext';
 import { Folder, MapPin, Users, Calendar, ChevronRight, ArrowLeft, Plus, ExternalLink } from 'lucide-react';
 import { api } from '../api';
+import { readThrough } from '../lib/offline/store';
 // Shared rather than local copies: AsyncState is the codebase's one loading /
 // error idiom, and a fourth hand-rolled banner is a fourth thing to restyle.
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
@@ -316,7 +317,9 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
 
   const load = useCallback(() => {
     setError('');
-    api.getConstructionOverview()
+    // Through the phone (field offline, 11/03/2026): with no signal the jobs
+    // open from what this phone saved.
+    readThrough('construction:overview', () => api.getConstructionOverview())
       .then(setData)
       .catch((e) => { setData({ projects: [] }); setError(e.message || 'Could not load construction data.'); });
   }, []);
@@ -327,7 +330,7 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
   // or not loaded yet): read it on its own.
   const loadSingle = useCallback(() => {
     if (!openId) { setSingle(null); return; }
-    Promise.resolve().then(() => api.getConstructionProject?.(openId))
+    readThrough(`construction:project:${openId}`, () => api.getConstructionProject(openId))
       .then((p) => setSingle(p || null))
       .catch((e) => { setSingle({ error: e.message || 'Could not open this project.' }); });
   }, [openId]);

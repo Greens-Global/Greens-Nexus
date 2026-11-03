@@ -153,7 +153,7 @@ def _weather_text(o: dict) -> str:
     unit = o.get("tempUnit") or "°F"
     if o.get("high") is not None and o.get("low") is not None:
         bits.append(f"high {round(o['high'])}{unit} / low {round(o['low'])}{unit}")
-    if o.get("chance"):
+    if (o.get("chance") or 0) >= 10:      # a 1% chance is no news on a jobsite
         bits.append(f"{int(o['chance'])}% chance of rain")
     if (o.get("windMax") or 0) >= 15:
         bits.append(f"wind to {round(o['windMax'])} {o.get('windUnit') or 'mph'}")
@@ -183,7 +183,7 @@ def weather_for(db: Session, p, day: str) -> dict | None:
         observed = cur.get("temp")
     return {"text": _weather_text(o), "code": o.get("code"), "high": o.get("high"), "low": o.get("low"),
             "chance": o.get("chance"), "flag": o.get("flag") or "",
-            "temperatureF": observed if observed is not None else o.get("high"),
+            "temperatureF": round(observed if observed is not None else (o.get("high") or 0)),
             "observedAt": _now() if observed is not None else "", "source": "forecast"}
 
 

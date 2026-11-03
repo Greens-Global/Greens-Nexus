@@ -205,7 +205,7 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
   const status = PROJECT_STATUS[project.status];
   // Keep what the field needs on the phone while there is signal (the punch
   // list, today's log prefill, the photos, the changes) - offline tomorrow.
-  useEffect(() => { prefetchJob(project); }, [project]);
+  useEffect(() => { prefetchJob(project); }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }} data-job-page={project.id}>

@@ -40,6 +40,8 @@ export const OFFLINE_SCREENS = [
   // field tabs (punch, photos, changes, closeout), Site Activity with the daily
   // log, and the outbox kinds. The manager-only weekly report is not here.
   'src/construction/constructionOffline.js',
+  'src/views/Operations.jsx',
+  'src/construction/ConstructionDashboard.jsx',
   'src/construction/DailyLogCapture.jsx',
   'src/construction/SiteActivity.jsx',
   'src/construction/job/JobPage.jsx',

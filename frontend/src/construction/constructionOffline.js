@@ -47,8 +47,16 @@ export const loadLogs = (jobId, opts) => readThrough(`construction:logs:${jobId}
 export const loadProjects = (opts) => readThrough('construction:projects', () => api.getConstructionProjects(), opts);
 
 /** Save what the field needs for this job while there is signal (quietly). */
+const prefetched = new Map();
+const PREFETCH_EVERY_MS = 5 * 60 * 1000;
 export async function prefetchJob(job) {
   if (!job?.id || isOffline()) return;
+  // Once a job every few minutes: the screens call this on every visit, and
+  // the rate limiter counts every read.
+  const last = prefetched.get(job.id) || 0;
+  if (Date.now() - last < PREFETCH_EVERY_MS) return;
+  prefetched.set(job.id, Date.now());
+  await new Promise((r) => setTimeout(r, 1500));   // after the screen's own reads
   const day = job.today || '';
   for (const load of [() => loadSchedule(job.id), () => loadPrefill(job.id, day), () => loadTimeline(job.id),
     () => loadChanges(job.id), () => loadLogs(job.id)]) {
