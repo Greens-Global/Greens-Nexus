@@ -14,6 +14,7 @@
 import { daysUntil, formatDate, normLabel, toNumber, acresOf } from './format.js';
 import { inferAssetKind, ASSET_SCHEMAS } from './vehicleFields.js';
 import { baseStage } from './stages.js';
+import { nextService } from './nextService.js';
 
 /**
  * Compute portfolio-wide summary stats from the full data store.
@@ -163,16 +164,17 @@ export function assetSignals(asset, store) {
         : { l: 'Registration', v: 'Current', t: 'ok' }
     );
 
+    // The one next-service rule (lib/nextService.js) - the fleet card's track reads it too.
     const serviceRecords = (store.vservice || []).filter((x) => x.propertyId === asset.id);
-    const nextServiceDue = snap['next service due'];
-    const serviceDays = daysUntil(nextServiceDue);
+    const service = nextService(asset, store);
+    const serviceDays = service ? service.daysLeft : null;
     signals.push(
-      serviceDays == null
+      service && service.state === 'overdue'
+        ? { l: 'Service', v: 'Overdue', t: 'bad' }
+        : serviceDays == null
         ? serviceRecords.length
           ? { l: 'Service', v: serviceRecords.length + ' on file', t: 'info' }
           : { l: 'Service', v: 'None Logged', t: 'mut' }
-        : serviceDays < 0
-        ? { l: 'Service', v: 'Overdue', t: 'bad' }
         : serviceDays <= 30
         ? { l: 'Service', v: 'Due ' + serviceDays + 'd', t: 'warn' }
         : { l: 'Service', v: 'Current', t: 'ok' }

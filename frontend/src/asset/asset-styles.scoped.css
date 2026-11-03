@@ -142,6 +142,35 @@
   .nexus-asset-root .pt-portfolio-grid{grid-template-columns:1fr}
 }
 
+/* Fleet face of the portfolio tile - vehicles and equipment (Neil, 11/02/2026, mock
+   https://claude.ai/artifact/PwncxMck8YaSkFkQ8hmTHE section 2; TileCard.jsx FleetTile).
+   Status is a soft label (green / slate / red); orange is the live accent only - the
+   ProgressTrack to the next service and the outline of the card last opened. */
+.nexus-asset-root .fleet-card{position:relative;display:flex;flex-direction:column;gap:12px;height:100%;min-width:0;padding:14px 14px 13px;border-radius:14px;border:1px solid var(--border-color);background:var(--bg-card);box-shadow:var(--shadow-sm);font-family:Inter,sans-serif}
+.nexus-asset-root .fleet-card.is-selected,
+.nexus-asset-root .fleet-card.is-selected:hover{border-color:var(--wk-live) !important;box-shadow:0 0 0 1px var(--wk-live),var(--shadow-sm) !important}
+.nexus-asset-root .fleet-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-width:0}
+.nexus-asset-root .fleet-title{min-width:0;flex:1}
+.nexus-asset-root .fleet-name{margin:0;font-size:.94rem;font-weight:700;line-height:1.25;letter-spacing:-.005em;color:var(--text-primary);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+.nexus-asset-root .fleet-id{margin-top:2px;font-size:.78rem;color:var(--text-secondary);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nexus-asset-root .fleet-top .nx-label{flex-shrink:0;margin-top:1px}
+.nexus-asset-root .fleet-photo{position:relative;aspect-ratio:16/8;border-radius:10px;background:color-mix(in srgb,var(--text-primary) 4%,var(--bg-card));color:var(--text-muted);display:grid;place-items:center;overflow:hidden}
+/* Fleet photos are mostly product shots on white: shown whole, on white, as the old tile did. */
+.nexus-asset-root .fleet-photo.has-photo{background:#fff}
+.nexus-asset-root .fleet-photo img{width:100%;height:100%;object-fit:contain;display:block}
+.nexus-asset-root .fleet-sil{width:78%;max-height:86%;height:auto}
+.nexus-asset-root .fleet-private{position:absolute;top:8px;left:8px;font-size:.68rem;font-weight:700;color:#fff;padding:2px 8px;border-radius:999px;background:rgba(0,0,0,.5)}
+.nexus-asset-root .fleet-who{display:flex;align-items:center;gap:8px;min-width:0;font-size:.8rem;color:var(--text-primary)}
+.nexus-asset-root .fleet-av{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:.64rem;font-weight:700;letter-spacing:.02em;background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border-color)}
+.nexus-asset-root .fleet-person{min-width:0;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nexus-asset-root .fleet-updated{margin-left:auto;flex-shrink:0;font-size:.74rem;color:var(--text-muted);white-space:nowrap}
+.nexus-asset-root .fleet-due{font-size:.8rem;font-weight:600;color:var(--text-secondary)}
+.nexus-asset-root .fleet-due.is-overdue{color:var(--bad-fg)}
+.nexus-asset-root .fleet-facts{margin-top:auto;display:flex;justify-content:space-between;gap:12px;min-width:0;font-size:.76rem;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.nexus-asset-root .fleet-facts > span{white-space:nowrap}
+.nexus-asset-root .fleet-where{min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:right}
+.nexus-asset-root .fleet-facts > span:only-child{text-align:left}
+
 /* The Save / Cancel bar slides up from the bottom edge. */
 @keyframes saveBarUp{ from { transform: translateY(100%); } to { transform: translateY(0); }
 }

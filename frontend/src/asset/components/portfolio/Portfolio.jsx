@@ -55,7 +55,7 @@ const VIEW_TABS = [
  * intentional (lets you see full-portfolio breakdowns while narrowing your view) rather than a
  * bug, but flagging it here since it's easy to "fix" by accident while touching this code.
  */
-export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serverOk, metrics = {} }) {
+export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serverOk, metrics = {}, store = null, selectedId = null }) {
   const [stageFilter, setStageFilter] = useState('');
   const [regionFilter, setRegionFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -159,7 +159,7 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
   const renderTiles = () =>
     topLevelAssets.map((asset) => {
       const secondaries = childrenOf(asset.id);
-      return <TileCard key={asset.id} pr={asset} openProperty={openProperty} secondaries={secondaries} metric={metrics[asset.id]} />;
+      return <TileCard key={asset.id} pr={asset} openProperty={openProperty} secondaries={secondaries} metric={metrics[asset.id]} store={store} selected={asset.id === selectedId} />;
     });
 
   return (

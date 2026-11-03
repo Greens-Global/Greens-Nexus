@@ -87,6 +87,9 @@ export const RECORD_TYPES = {
       { k: 'vendor', label: 'Shop / Vendor' },
       { k: 'cost', label: 'Cost' },
       { k: 'nextDue', label: 'Next Service Due', type: 'date' },
+      // The odometer the next service is due at (fleet cards, 11/02/2026: "1,120 mi to next
+      // service" - lib/nextService.js). Optional; a date alone still tracks by date.
+      { k: 'nextMileage', label: 'Next Service Odometer (mi)', type: 'number' },
       { k: 'docFile', label: 'Invoice / Receipt', type: 'file', nameKey: 'docFileName', full: true },
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
@@ -100,7 +103,7 @@ export const RECORD_TYPES = {
         } },
       { label: 'Odometer', plain: (r) => r.mileage ? formatNumber(r.mileage) + ' mi' : '-' },
       { label: 'Cost', plain: (r) => costText(r.cost) },
-      { label: 'Next Due', mono: (r) => r.nextDue ? formatDate(r.nextDue) : '-' },
+      { label: 'Next Due', mono: (r) => [r.nextDue ? formatDate(r.nextDue) : '', r.nextMileage ? formatNumber(r.nextMileage) + ' mi' : ''].filter(Boolean).join(' or ') || '-' },
       { label: 'Doc', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : '-') },
     ],
     sort: byDateDesc,

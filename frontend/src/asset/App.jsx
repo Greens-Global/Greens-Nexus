@@ -65,6 +65,11 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
 
   const [view, setView] = useState('portfolio');       // 'portfolio' | a strip tab or record collection key (lib/navigation.js)
   const [activeId, setActiveId] = useState(null);        // currently open asset's id, or null
+  // The asset last opened (fleet cards, Neil 11/02/2026): Back to the portfolio outlines its
+  // card in the live accent, so you land where you were. State only - the portfolio's address
+  // stays PORTFOLIO_SUB and an open asset keeps its own "a:<id>:<view>" URL.
+  const [lastOpenedId, setLastOpenedId] = useState(null);
+  if (activeId && activeId !== lastOpenedId) setLastOpenedId(activeId);
   const [leaveAsk, setLeaveAsk] = useState(false);        // "unsaved changes" confirm dialog
   const [pendingNav, setPendingNav] = useState(null);     // navigation to run after that dialog resolves
   const [filters, setFilters] = useState({});             // per-tab search text, keyed by tab (or shared group)
@@ -952,7 +957,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       {view === 'portfolio' && !active && panel === 'trash' && (
         <TrashPanel deleted={deletedProperties} onRecover={recoverAsset} onPurge={purgeAsset} recordsOf={recordsOf} onClose={() => setPanel(null)} />
       )}
-      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} metrics={metrics} />}
+      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} metrics={metrics} store={store} selectedId={lastOpenedId} />}
 
       {view === 'property' && active?.assembled && !active.parentId && <AssemblageParcels lead={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} />}
       {view === 'property' && active && !editState.editing && (
