@@ -521,6 +521,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
   const [timeoffSort, setTimeoffSort] = useState(null);   // null = server order (newest first)
   const [timeoffYear, setTimeoffYear] = useState('');     // '' = all years (Neil, Oct 21)
   const [timeoffMonth, setTimeoffMonth] = useState('');   // '01'..'12', '' = all months
+  // Time Off is sections, not a stack (11/03/2026): requests | calendar |
+  // balances | delegations | history, one on screen at a time. It opens on
+  // Requests - the decisions - because a work tool fills the first screen
+  // with what needs attention.
+  const [timeoffSection, setTimeoffSection] = useState('requests');
+  const [timeoffSearch, setTimeoffSearch] = useState('');   // find one person in a production-size register
   const rangeText = `${formatDate(start)} - ${formatDate(end)}`;
 
   // Unsaved-changes guards for the edit/on-behalf/add-punch modals: an
@@ -1081,8 +1087,30 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
       {/* Time-off register - requests table, pending rows carry the decisions */}
       {view === 'timeoff' && (
         <>
-        {(() => {
-          const inRange = timeoff.filter(r => inPeriod(r, timeoffYear, timeoffMonth));
+        {/* Sections, not a stack (11/03/2026): the requests register, the team
+            calendar and HR's leave panels each get a segment - one tool on
+            screen at a time, the shape BambooHR / Rippling give this same
+            screen - instead of five tools down one long scrolling page. */}
+        <div role="tablist" aria-label="Time Off sections" style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 8, background: 'var(--wk-hover)', marginBottom: 12 }}>
+          {[['requests', 'Requests', pendingCount],
+            ['calendar', 'Calendar', 0],
+            ...(hrPanels && !hrTeam ? [['balances', 'Balances', 0], ['delegations', 'Delegations', 0], ['history', 'History', 0]] : [])].map(([k, label, n]) => {
+            const on = timeoffSection === k;
+            return (
+              <button key={k} type="button" role="tab" aria-selected={on} onClick={() => setTimeoffSection(k)}
+                style={{ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 12.5, fontWeight: 600,
+                  background: on ? 'var(--wk-card, var(--card))' : 'transparent', color: on ? 'var(--wk-ink, var(--ink))' : 'var(--wk-dim, var(--muted))',
+                  boxShadow: on ? '0 1px 3px rgba(29,33,57,.12)' : 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {label}
+                {n > 0 && <span title="Waiting on a decision" style={{ background: 'var(--wk-red)', color: '#fff', borderRadius: 20, fontSize: 11, fontWeight: 700, padding: '1px 7px', lineHeight: 1.4 }}>{n}</span>}
+              </button>
+            );
+          })}
+        </div>
+        {timeoffSection === 'requests' && (() => {
+          const q = timeoffSearch.trim().toLowerCase();
+          const inRange = timeoff.filter(r => inPeriod(r, timeoffYear, timeoffMonth)
+            && (!q || (r.name || r.email || '').toLowerCase().includes(q) || (r.type || '').toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q)));
           const counts = countByStatus(inRange);
           const shownRows = filterAndSortTimeoff(inRange, timeoffFilter, timeoffSort);
           // width auto: .form-input is 100% wide by default, which threw each
@@ -1116,6 +1144,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                 </button>
               );
             })}
+          </div>
+          <div style={{ position: 'relative', flex: '0 1 220px' }}>
+            <Search size={13} style={{ position: 'absolute', left: 10, top: 9, color: 'var(--muted)' }} />
+            <input value={timeoffSearch} onChange={e => setTimeoffSearch(e.target.value)} placeholder="Search by name" aria-label="Search time-off requests"
+              style={{ width: '100%', padding: '7px 10px 7px 30px', borderRadius: 10, border: '1px solid var(--line)', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', fontFamily: 'inherit' }} />
           </div>
           <select className="form-input" aria-label="Year" value={timeoffYear} onChange={e => setTimeoffYear(e.target.value)} style={periodSel}>
             <option value="">All Years</option>
@@ -1151,11 +1184,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
           ) : shownRows.length === 0 && (
             <div style={{ padding: '20px 16px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
               {timeoff.length === 0 ? 'No time-off requests yet.'
+                : q ? 'Nothing matches your search.'
                 : timeoffYear || timeoffMonth ? 'No requests in that period.'
                 : timeoffFilter === 'pending' ? 'No requests are waiting for a decision.'
                 : `No ${timeoffFilter} requests.`}
               {timeoff.length > 0 && (
-                <button type="button" className="secondary-btn" onClick={() => { setTimeoffFilter('all'); setTimeoffYear(''); setTimeoffMonth(''); }}
+                <button type="button" className="secondary-btn" onClick={() => { setTimeoffFilter('all'); setTimeoffYear(''); setTimeoffMonth(''); setTimeoffSearch(''); }}
                   style={{ fontSize: 12, padding: '4px 10px', marginLeft: 8 }}>Show All</button>
               )}
             </div>
@@ -1223,17 +1257,19 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
         </div>
         </>);
         })()}
-        <Suspense fallback={<SkeletonBlocks count={1} height={220} />}>
-          <TeamLeaveCalendar />
-        </Suspense>
-        {hrPanels && !hrTeam && (<>
+        {timeoffSection === 'calendar' && (
+          <Suspense fallback={<SkeletonBlocks count={1} height={220} />}>
+            <TeamLeaveCalendar />
+          </Suspense>
+        )}
+        {timeoffSection === 'balances' && hrPanels && !hrTeam && (<>
           <Suspense fallback={<SkeletonBlocks count={1} height={120} />}>
             <LeaveYearEndPreview toastOk={toastOk} toastErr={toastErr} />
           </Suspense>
           <LeaveBalancesAdmin toastOk={toastOk} toastErr={toastErr} />
-          <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />
-          <LeaveHistory />
         </>)}
+        {timeoffSection === 'delegations' && hrPanels && !hrTeam && <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />}
+        {timeoffSection === 'history' && hrPanels && !hrTeam && <LeaveHistory />}
         </>
       )}
 
