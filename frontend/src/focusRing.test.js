@@ -18,6 +18,7 @@ const css = fs.readFileSync(path.join(SRC, 'style.css'), 'utf8');
 // owner removes the reset.
 const OWNER_HELD = new Set([
   'views/InventoryManagement.jsx',
+  'inventory/ui/photos.jsx',
   'components/Assignments.jsx',
   'asset/components/asset/AddAssetModal.jsx',
   'asset/components/shared/FieldInput.jsx',
