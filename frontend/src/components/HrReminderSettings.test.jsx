@@ -13,6 +13,7 @@ const DEFAULTS = {
   esignExpiring: { enabled: true, daysBefore: [3, 2, 1, 0] },
   esignChase: { enabled: true, firstNudgeAfterDays: 3, maxNudges: 3 },
   recordAudit: { enabled: true },
+  hiringStalled: { enabled: true, afterDays: 3 },
 };
 const clone = (o) => JSON.parse(JSON.stringify(o));
 

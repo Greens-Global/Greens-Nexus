@@ -1784,7 +1784,7 @@ export const DOCS = [
           'Pick the four things that change per person: the Role (job title), the Pay (Pay & Benefits access needed - or write it out, e.g. "$22.00 per hour plus commission"), the Timings (start and end time and the work days, or a description), and the Job Description. Add the start date and the date the offer expires, and the supervisor.',
           'Choose who fills in their details. "They Fill Them In" emails the candidate a link (no login needed) to enter their legal name, address, phone, an emergency contact and everything on the packet\'s Details Form; the documents are generated the moment they send it. "I Will" lets you type the details now.',
           'Click Send Details Link or Generate Documents. Whoever holds the Verified By role (normally HR) is asked to check the documents once they exist. Nothing goes to the candidate to sign yet.',
-          'The details link works once and stops working after the offer expires. If they lost it or made a mistake, open the packet and click Send Link Again - the old link stops working.',
+          'The details link works once and stops working after the offer expires. If they lost it or made a mistake, open the packet and click Send Link Again - the old link stops working. Nexus never sends a new link by itself, but once a hiring step has gone quiet for 3 days (a details form not sent, a packet waiting for Verify And Send, or a signed offer whose packet did not start), the verifier and the HR person who started it get one notification listing what waits on them - change or disable it under Settings > Emails & Reminders > HR & Compliance Reminders > Hiring Steps Waiting.',
         ],
       },
       {

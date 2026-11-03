@@ -107,6 +107,9 @@ def jobs() -> list[dict]:
              "Daily", "hiring"),
         _job("hr_record_audit", "Records Audit", "Missing details and expired documents, one bell per company.",
              "Daily"),
+        _job("hiring_stalled", "Hiring Steps Waiting",
+             "One bell per person when a details form, a Verify And Send or a hiring packet start has waited "
+             "too long. Off stops the bell only.", "Daily"),
         _job("federal_forms", "Federal Forms Edition Watch",
              "Warns HR contacts and administrators when the bundled Form W-4 or Form I-9 edition is expiring or "
              "expired. Off stops the warning only: an expired edition is still refused at send.", "Daily", "hiring"),
