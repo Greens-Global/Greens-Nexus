@@ -439,6 +439,11 @@ class Requisition(Base):
     # log/notifications name the real submitter instead of guessing (Jul 2026).
     submitted_by_email = Column(String, default="")
     submitted_by_name  = Column(String, default="")
+    # The construction job this purchase is for (Neil, 11/03/2026, plan
+    # phase 4 - a construction_projects id, '' = none). Optional; set only to
+    # a job the requester may read (construction_money.check_job_tag). The
+    # job's Money tab lists it as "Requested, Not Yet Billed".
+    job_id = Column(String, default="", index=True)
 
 
 class HardwareAsset(Base):
@@ -2407,6 +2412,13 @@ class TimePunch(Base):
     # Duplicate Day (Oct 27 2026): a punch HR's "Replace existing" voided -
     # the batch that replaced it, so undoing that batch brings it back.
     replaced_by_batch = Column(String, default="", index=True)
+    # Where the work was done (Neil, 11/03/2026, construction plan phase 2):
+    # the jobsite key of that person-day's shift placement
+    # ('project-<id>' a construction job, 'site-<id>' a company site -
+    # jobsites.py), stamped on the IN punch at punch-in (construction_labor.
+    # stamp_jobsite). '' = no placement named one. NEVER folded into
+    # `category`: the leave rule (_leave_class) reads category.
+    jobsite          = Column(String, default="", index=True)
     # Add Time From Record (Oct 27 2026): where a punch came from when it was
     # not the clock - 'hr_record' = HR keyed it in from a paper time sheet or
     # another record (its batch is batch_id -> time_entry_batches). '' = as
@@ -3855,6 +3867,14 @@ class TaskTicket(Base):
     # people and HR for its company, hidden from the desk, reports and every
     # other reader by the hook in database.py. Set server-side only.
     confidential_desk     = Column(String, default="", index=True)
+    # Preventive maintenance (11/03/2026, maintenance_services.py): the day a
+    # preventive ticket is due (its occurrence's date; '' on every other
+    # ticket) - the Preventive queue's Overdue and the per-site roll-up read
+    # it. equipment_asset_id: the vehicle / equipment (PropertyAsset.id) the
+    # ticket is about, beside its property - a scanned equipment tag or a
+    # schedule on that asset sets it.
+    pm_due_on             = Column(String, default="", index=True)
+    equipment_asset_id    = Column(String, default="", index=True)
 
 
 class TicketEmailLog(Base):
@@ -4777,6 +4797,9 @@ from construction_models import (  # noqa: E402,F401  (import for side effect: t
     ConstructionProject, ConstructionDailyLog, ConstructionMedia, ConstructionAIJob,
     ConstructionWeeklyReport, ConstructionMilestone, ConstructionRfi,
     ConstructionSubmittal, ConstructionActivity,
+    ConstructionJobLink,
+    ConstructionPhotoPair, ConstructionPunchMeta, ConstructionFieldTicket,
+    ConstructionChangeOrder, ConstructionCloseoutRecord,
 )
 
 
@@ -6115,6 +6138,32 @@ class PropertyMaintenanceService(Base):
     created_at         = Column(String, default="")
     updated_by_email   = Column(String, default="")
     updated_at         = Column(String, default="")
+    # Preventive maintenance (Construction plan phase 5, Neil 11/03/2026): the
+    # same row, set up straight on the property (Asset Management > Maintenance)
+    # instead of from a ticket. kind '' = the service above, set from a parent
+    # ticket (parent_ticket_id); 'calendar' = fixed dates (next_due, rolled on
+    # by recurrence_*); 'floating' = recurrence_* after the last completion;
+    # 'meter' = each time the asset's reading passes meter_next. A preventive
+    # schedule has NO parent ticket: parent_ticket_id is NULL (the column is
+    # unique and NULLs never collide). Its tickets are filed through
+    # tickets.file_ticket (maintenance_services.file_preventive), one per
+    # occurrence (PropertyMaintenanceOccurrence), and run as updated_by_email.
+    kind               = Column(String, default="")
+    asset_id           = Column(String, default="")   # a vehicle / equipment asset (PropertyAsset.id), optional
+    item_id            = Column(String, default="")   # an Item (items.id), optional
+    assignee_email     = Column(String, default="")   # who each ticket goes to ('' = the team's default)
+    checklist          = Column(JSON, default=list)   # ["Change the filter", ...] - each ticket's checklist
+    lead_days          = Column(Integer, default=0)   # file the ticket this many days before it is due
+    meter_field        = Column(String, default="")   # the asset's reading: odometer | hours
+    meter_every        = Column(Float, default=0)     # every so many miles / hours
+    meter_next         = Column(Float, default=0)     # the reading the next ticket is due at
+    meter_last         = Column(Float, default=0)     # the reading last seen by the scan
+    overdue_alerted_for = Column(String, default="")  # the occurrence the preventive.overdue event went out for
+    # What the schedule needs from a person (review, 11/03/2026): "" =
+    # nothing, "owner" = nobody left to file as (save it again),
+    # "reading:<value>" = a meter jump to confirm before it files, "reset:<value>"
+    # = the reading went down and the schedule was rebased on it.
+    attention          = Column(String, default="")
 
 
 # ── Marketing: Google Ads (Oct 2026, read-only) ──────────────────────────────
@@ -7450,6 +7499,10 @@ class ExpenseReimbursement(Base):
     history         = Column(JSON, default=list)      # [{at, by, action, note}]
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
+    # The construction job it was bought for (Neil, 11/03/2026, plan phase 4;
+    # '' = none) - optional, a job the employee may read. Listed on the job's
+    # Money tab; never a cost keyed into Nexus (the books stay the record).
+    job_id          = Column(String, default="", index=True)
 
 
 class TicketSavedReply(Base):
@@ -9789,6 +9842,10 @@ class DocFormEntry(Base):
     linked_ticket_id = Column(String, default="")
     linked_task_id   = Column(String, default="")
     linked_asset_id  = Column(String, default="")
+    # The construction job the entry is for (Neil, 11/03/2026, plan phase 2):
+    # picked on Fill a Form, else the job of the jobsite shift it was filled
+    # from (routers/forms.py _entry_job); the Job's Field tab lists them.
+    linked_project_id = Column(String, default="", index=True)
     deleted_at       = Column(String, default="")
 class NexusSignIn(Base):
     """One BFF sign-in (sign_in_watch.record, Neil 11/02/2026): who, when, from
@@ -9964,3 +10021,39 @@ class PerfBonusPlanLog(Base):
     snapshot   = Column(JSON, default=dict)
     changed_by = Column(String, default="")
     changed_at = Column(String, default="")
+
+
+class NexusIdempotencyKey(Base):
+    """One answered write per Idempotency-Key (field offline, Neil 11/03/2026,
+    backend/idempotency.py). The phone's outbox sends every queued change
+    with the key it made when the change was saved; a resend of a write
+    that already landed (its answer was lost to a dead signal) gets this
+    stored answer back instead of a second row. Only 2xx answers are kept,
+    for 7 days (reminders_loop -> idempotency.purge_expired). RLS on (main.py)."""
+    __tablename__ = "nexus_idempotency_keys"
+    __table_args__ = (UniqueConstraint("user_email", "idem_key", name="ux_idempotency_user_key"),)
+    id              = Column(String, primary_key=True)
+    idem_key        = Column(String, nullable=False)
+    user_email      = Column(String, nullable=False, default="")
+    route           = Column(String, default="")        # "POST /construction/logs/{log_id}/media"
+    request_hash    = Column(String, default="")        # sha256 of method + path + body
+    response_status = Column(Integer, default=200)
+    response_json   = Column(Text, default="")
+    created_at      = Column(String, default="", index=True)
+
+
+class PropertyMaintenanceOccurrence(Base):
+    """One due occurrence of a preventive schedule and the ticket filed for it
+    (Construction plan phase 5, 11/03/2026). The unique (service_id, due_key)
+    is the idempotency key: the scan, Open Now and a racing worker can never
+    file a second ticket for the same occurrence. due_key is the due date
+    (YYYY-MM-DD) for calendar / floating schedules and 'm:<reading>' for a
+    meter schedule. New table - RLS (main.py list)."""
+    __tablename__ = "property_maintenance_occurrences"
+    __table_args__ = (UniqueConstraint("service_id", "due_key", name="ux_pm_occurrence_key"),)
+    id         = Column(String, primary_key=True)
+    service_id = Column(String, nullable=False, index=True)
+    due_key    = Column(String, nullable=False)
+    due_on     = Column(String, default="")   # YYYY-MM-DD the ticket is due
+    ticket_id  = Column(String, default="", index=True)
+    created_at = Column(String, default="")

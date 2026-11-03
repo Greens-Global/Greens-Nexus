@@ -1473,6 +1473,56 @@ def _run_migrations():
             "ALTER TABLE nexus_person_prefs ADD COLUMN email_optouts VARCHAR DEFAULT ''",
             # On the Schedule (Neil, 11/03/2026) - see the Postgres list.
             "ALTER TABLE nexus_employees ADD COLUMN on_schedule INTEGER DEFAULT 1",
+            # Construction foundations (Neil, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE construction_projects ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_projects ADD COLUMN time_zone VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_daily_logs ADD COLUMN tags JSON DEFAULT '[]'",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_construction_reports_week_version ON construction_weekly_reports (project_id, week_start, version)",
+            # The Job, connected (Neil, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE construction_projects ADD COLUMN job_type VARCHAR DEFAULT 'project'",
+            "ALTER TABLE construction_projects ADD COLUMN task_project_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_milestones ADD COLUMN migrated_task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_rfis ADD COLUMN responder_email VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_submittals ADD COLUMN approver_email VARCHAR DEFAULT ''",
+            "ALTER TABLE time_punches ADD COLUMN jobsite VARCHAR DEFAULT ''",
+            "ALTER TABLE doc_form_entries ADD COLUMN linked_project_id VARCHAR DEFAULT ''",
+            # Preventive maintenance (Construction plan phase 5, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE property_maintenance_services ADD COLUMN kind VARCHAR DEFAULT ''",
+            "ALTER TABLE property_maintenance_services ADD COLUMN asset_id VARCHAR DEFAULT ''",
+            "ALTER TABLE property_maintenance_services ADD COLUMN item_id VARCHAR DEFAULT ''",
+            "ALTER TABLE property_maintenance_services ADD COLUMN assignee_email VARCHAR DEFAULT ''",
+            "ALTER TABLE property_maintenance_services ADD COLUMN checklist JSON DEFAULT '[]'",
+            "ALTER TABLE property_maintenance_services ADD COLUMN lead_days INTEGER DEFAULT 0",
+            "ALTER TABLE property_maintenance_services ADD COLUMN meter_field VARCHAR DEFAULT ''",
+            "ALTER TABLE property_maintenance_services ADD COLUMN meter_every FLOAT DEFAULT 0",
+            "ALTER TABLE property_maintenance_services ADD COLUMN meter_next FLOAT DEFAULT 0",
+            "ALTER TABLE property_maintenance_services ADD COLUMN meter_last FLOAT DEFAULT 0",
+            "ALTER TABLE property_maintenance_services ADD COLUMN overdue_alerted_for VARCHAR DEFAULT ''",
+            "ALTER TABLE property_maintenance_services ADD COLUMN attention VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN pm_due_on VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN equipment_asset_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_pm_due_on ON task_tickets (pm_due_on)",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_equipment_asset_id ON task_tickets (equipment_asset_id)",
+            # Construction money (Neil, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE construction_projects ADD COLUMN intacct_project_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_projects ADD COLUMN intacct_entity VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN job_id VARCHAR DEFAULT ''",
+            "ALTER TABLE expense_reimbursements ADD COLUMN job_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_requisitions_job_id ON requisitions (job_id)",
+            "CREATE INDEX IF NOT EXISTS ix_expense_reimbursements_job_id ON expense_reimbursements (job_id)",
+            # Field and Closeout (Neil, 11/03/2026, plan phase 3) - see the Postgres list.
+            "ALTER TABLE construction_projects ADD COLUMN superintendent_email VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_projects ADD COLUMN closeout JSON DEFAULT '{}'",
+            "ALTER TABLE construction_daily_logs ADD COLUMN delays JSON DEFAULT '[]'",
+            "ALTER TABLE construction_daily_logs ADD COLUMN prefill JSON DEFAULT '{}'",
+            "ALTER TABLE construction_daily_logs ADD COLUMN weather_source VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_daily_logs ADD COLUMN signed_name VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_daily_logs ADD COLUMN signed_at VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_media ADD COLUMN tags JSON DEFAULT '[]'",
+            "ALTER TABLE construction_media ADD COLUMN location_text VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_media ADD COLUMN source_media_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_media ADD COLUMN task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_weekly_reports ADD COLUMN pair_ids JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2001,6 +2051,7 @@ def _run_migrations():
         "ALTER TABLE construction_rfis ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_submittals ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_activity ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_job_links ENABLE ROW LEVEL SECURITY",
         # New table (Sept 2026): create_all made it with RLS off, same gap as
         # every table above - close it here, not in a checklist someone forgets.
         "ALTER TABLE ticket_teams_message ENABLE ROW LEVEL SECURITY",
@@ -3529,6 +3580,100 @@ def _run_migrations():
         # On the Schedule (Neil, 11/03/2026): 0 = never placed, counted or
         # alerted in scheduling; NULL / 1 = on. models.NexusEmployee.on_schedule.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS on_schedule INTEGER DEFAULT 1",
+        # Field offline (Neil, 11/03/2026): one stored answer per
+        # Idempotency-Key the phone's outbox sends (backend/idempotency.py,
+        # models.NexusIdempotencyKey; create_all makes the table). RLS per CLAUDE.md.
+        "ALTER TABLE nexus_idempotency_keys ENABLE ROW LEVEL SECURITY",
+        # Construction foundations (Neil, 11/03/2026, plan
+        # https://claude.ai/artifact/B5jm924fPPQ85AEDjBoSHr): a job's company
+        # (the company wall; '' = unknown, filled at startup by
+        # construction_company.backfill), the jobsite's own time zone (from
+        # its forecast), and the tags the crew puts on a daily log (delay /
+        # safety / issue / weather). models.ConstructionProject / ConstructionDailyLog.
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS time_zone VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS tags JSON DEFAULT '[]'",
+        # One weekly report per project, week and version - two workers (or two
+        # Generate clicks) never both write the same version (review, 11/03/2026).
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_construction_reports_week_version ON construction_weekly_reports (project_id, week_start, version)",
+        # The Job, connected (Neil, 11/03/2026, plan phase 2): a job's type
+        # (work_order | project - every older job is a project), its task
+        # project (schedule, milestones, punch), the task milestone each old
+        # construction milestone became (construction_tasks.migrate_milestones),
+        # the Nexus person who owes an RFI's answer / decides a submittal (the
+        # Approvals inbox), and the jobsite a punch was made at (stamped at
+        # punch-in from that person-day's shift placement - never `category`,
+        # which the leave rule reads). models.ConstructionProject /
+        # ConstructionMilestone / ConstructionRfi / ConstructionSubmittal / TimePunch.
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS job_type VARCHAR DEFAULT 'project'",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS task_project_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_milestones ADD COLUMN IF NOT EXISTS migrated_task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_rfis ADD COLUMN IF NOT EXISTS responder_email VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_submittals ADD COLUMN IF NOT EXISTS approver_email VARCHAR DEFAULT ''",
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS jobsite VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_time_punches_jobsite ON time_punches (jobsite)",
+        # ... and the construction job a form entry was filed for. models.DocFormEntry.
+        "ALTER TABLE doc_form_entries ADD COLUMN IF NOT EXISTS linked_project_id VARCHAR DEFAULT ''",
+        # Preventive maintenance (Construction plan phase 5, Neil 11/03/2026,
+        # maintenance_services.py): a recurring service set straight on the
+        # property - fixed dates, N after the last completion, or by the
+        # asset's meter - with its asset / item, assignee, checklist and lead
+        # days; each ticket's due day and equipment; and the new occurrence
+        # table (the idempotency key per schedule + due date) - RLS.
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT ''",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS asset_id VARCHAR DEFAULT ''",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS item_id VARCHAR DEFAULT ''",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS assignee_email VARCHAR DEFAULT ''",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS checklist JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS lead_days INTEGER DEFAULT 0",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS meter_field VARCHAR DEFAULT ''",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS meter_every DOUBLE PRECISION DEFAULT 0",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS meter_next DOUBLE PRECISION DEFAULT 0",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS meter_last DOUBLE PRECISION DEFAULT 0",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS overdue_alerted_for VARCHAR DEFAULT ''",
+        "ALTER TABLE property_maintenance_services ADD COLUMN IF NOT EXISTS attention VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS pm_due_on VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS equipment_asset_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_pm_due_on ON task_tickets (pm_due_on)",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_equipment_asset_id ON task_tickets (equipment_asset_id)",
+        "ALTER TABLE property_maintenance_occurrences ENABLE ROW LEVEL SECURITY",
+        # Construction money (Neil, 11/03/2026, plan phase 4): a job's
+        # existing Intacct Project-Job code and the entity it books to (read
+        # from the books through the accounting proxy, construction_money.py),
+        # and the job a purchase request or a reimbursement was for ('' =
+        # none). models.ConstructionProject / Requisition / ExpenseReimbursement.
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS intacct_project_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS intacct_entity VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS job_id VARCHAR DEFAULT ''",
+        "ALTER TABLE expense_reimbursements ADD COLUMN IF NOT EXISTS job_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_requisitions_job_id ON requisitions (job_id)",
+        "CREATE INDEX IF NOT EXISTS ix_expense_reimbursements_job_id ON expense_reimbursements (job_id)",
+        # Field and Closeout (Neil, 11/03/2026, plan phase 3 - construction_field.py,
+        # construction_changes.py, construction_closeout.py): a job's
+        # superintendent (the missing-log bell) and closeout state; a daily
+        # log's delay lines, what it was drafted from, where its weather came
+        # from and its typed-name signature; a photo's own tags, spot, the
+        # photo a markup was drawn on and the punch item it proves; the
+        # before / after pairs a weekly report keeps. Five new tables (photo
+        # pairs, punch meta, field tickets, change orders, closeout records):
+        # create_all makes them, RLS here. models / construction_models.
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS superintendent_email VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS closeout JSON DEFAULT '{}'",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS delays JSON DEFAULT '[]'",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS prefill JSON DEFAULT '{}'",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS weather_source VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS signed_name VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS signed_at VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_media ADD COLUMN IF NOT EXISTS tags JSON DEFAULT '[]'",
+        "ALTER TABLE construction_media ADD COLUMN IF NOT EXISTS location_text VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_media ADD COLUMN IF NOT EXISTS source_media_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_media ADD COLUMN IF NOT EXISTS task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_weekly_reports ADD COLUMN IF NOT EXISTS pair_ids JSON DEFAULT '[]'",
+        "ALTER TABLE construction_photo_pairs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_punch_meta ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_field_tickets ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_change_orders ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_closeout_records ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4320,6 +4465,44 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] weather department seed skipped: {e}")
+    # Construction foundations (Neil, 11/03/2026): place every job without a
+    # company in one, ONCE (its property's entity, else its creator's - the
+    # company wall; `python construction_company.py` is the read-only dry
+    # run), and, while AI is off, mark the AI jobs that can never run skipped
+    # (kept, never deleted).
+    try:
+        import construction_ai
+        import construction_company
+        import construction_worker
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            n = construction_company.backfill(db)   # once (its nexus_settings mark)
+            if n is not None:
+                print(f"[startup] construction: placed {n} job(s) in their company (one-time pass)")
+            if not construction_ai.configured():
+                k = construction_worker.skip_ai_jobs(db)
+                if k:
+                    print(f"[startup] construction: {k} queued AI job(s) skipped - AI is off")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] construction company backfill skipped: {e}")
+    # The Job, connected (Neil, 11/03/2026): each construction milestone moves
+    # into its job's task project once (construction_tasks.migrate_milestones -
+    # idempotent on construction_milestones.migrated_task_id; the old rows stay).
+    try:
+        import construction_tasks
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            n = construction_tasks.migrate_all(db)
+            if n:
+                print(f"[startup] construction: moved {n} milestone(s) into their jobs' task projects")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] construction milestone move skipped: {e}")
 
 
 @asynccontextmanager
@@ -4427,6 +4610,14 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(construction_weather_loop()))
         except Exception as e:
             print(f"[startup] construction weather loop skipped: {e}")
+        try:
+            # Field and Closeout (Neil, 11/03/2026): the morning "yesterday's
+            # daily log is missing" bell, once per job and day, never for a
+            # day a Weather Call cancelled. See construction_field.field_loop.
+            from construction_field import field_loop as construction_field_loop
+            _tasks.append(_a.create_task(construction_field_loop()))
+        except Exception as e:
+            print(f"[startup] construction field loop skipped: {e}")
         try:
             # Shifts Phase 1 (Oct 2026): the no-show scan - every minute, one
             # bell per manager / scheduler per team-day for anyone not clocked
@@ -5441,3 +5632,13 @@ from routers import pdf_tools as pdf_tools_router  # noqa: E402 - writes audit_l
 app.include_router(pdf_tools_router.router)  # PDF Tools: who did what - one Audit Log row per action, never the file (Neil, 11/02/2026)
 from routers import privacy_notice as privacy_notice_router  # noqa: E402 - reads only, no new table
 app.include_router(privacy_notice_router.router)  # Privacy Policy built from privacy_inventory.py: public /policy/privacy-notice + signed-in /me (legal compliance pass, 11/02/2026)
+from routers import construction_jobs as construction_jobs_router  # noqa: E402 - construction_job_links: create_all + explicit RLS line
+app.include_router(construction_jobs_router.router)  # Construction: the Job, connected - schedule and punch (Tasks), Start Job (Tickets), crew and hours, forms, equipment, property, search (Neil, 11/03/2026)
+from routers import maintenance as maintenance_router  # noqa: E402
+app.include_router(maintenance_router.router)  # Maintenance in the field: overdue per site, Scan to Request, My Work (Construction plan phase 5, 11/03/2026)
+from routers import construction_money as construction_money_router  # noqa: E402 - no new table (columns on construction_projects / requisitions / expense_reimbursements)
+app.include_router(construction_money_router.router)  # Construction: a job's Money - budget, requested, actual from the books by Project-Job, changes, forecast; job tags on requests (Neil, 11/03/2026)
+from routers import construction_field as construction_field_router  # noqa: E402 - photo pairs / punch meta: create_all + explicit RLS lines
+app.include_router(construction_field_router.router)  # Construction: the self-drafting daily log, the photo timeline, before and after, Mark Up, the photo report (Neil, 11/03/2026, phase 3)
+from routers import construction_handover as construction_handover_router  # noqa: E402 - field tickets / change orders / closeout records: create_all + explicit RLS lines
+app.include_router(construction_handover_router.router)  # Construction: field tickets, change orders through Nexus Sign, closeout to Asset Management and Items (Neil, 11/03/2026, phase 3)

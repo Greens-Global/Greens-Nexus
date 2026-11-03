@@ -49,6 +49,8 @@ import { api } from '../api.js';
 import { AddItemModal } from '../views/InventoryManagement.jsx';
 // Oct 7 accounting feedback: a property's loans from the ledger (self-contained; see the file's header).
 import PropertyLoans from '../components/PropertyLoans.jsx';
+// A property's construction Jobs, read only (Neil, 11/03/2026, construction plan phase 2).
+import PropertyJobs from '../components/PropertyJobs.jsx';
 
 const cityRegion = (p) => (p.city || '') + (p.state ? ', ' + p.state : '');
 
@@ -966,6 +968,10 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       {view === 'property' && active && !editState.editing && (
         <AssetOverview asset={active} store={store} onTab={navigate} onGoTo={goToLogEntry}
           onEdit={(field) => { if (field) setHighlight({ tab: 'property', section: '', field: String(field).toLowerCase(), item: '', at: Date.now() }); editGuard.startEdit?.(); }} />
+      )}
+      {/* The property's construction Jobs, right under the overview cards. */}
+      {view === 'property' && active && !editState.editing && inferAssetKind(active) === 'property' && (
+        <PropertyJobs property={active} />
       )}
       {view === 'property' && active && (
         <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} />

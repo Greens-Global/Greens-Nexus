@@ -97,10 +97,11 @@ class JobsiteTests(unittest.TestCase):
                                       weather_decider_emails=json.dumps([MGR]), teams_chat_id="chat-1", created_by=BOSS))
         self.db.add(models.ConstructionProject(id="red", name="Redding Solar Farm", address="1 Solar Way, Redding, CA",
                                                latitude=REDDING_LAT, longitude=-122.39, status="active", deleted_at="",
-                                               manager_emails=[MGR], worker_emails=[], executive_emails=[]))
+                                               manager_emails=[MGR], worker_emails=[], executive_emails=[],
+                                               company_id=ENT))
         self.db.add(models.ConstructionProject(id="bar", name="Barstow Lot", address="", latitude=0.0, longitude=0.0,
                                                status="active", deleted_at="", manager_emails=[MGR], worker_emails=[],
-                                               executive_emails=[]))
+                                               executive_emails=[], company_id=ENT))
         for i, (em, js) in enumerate(((ANN, RED), (BOB, RED), (CAL, ""))):
             self.db.add(models.ShiftGroupMember(id=f"m{i}", group_id=GROUP, employee_email=em))
             self.db.add(models.ScheduledShift(id=f"s-{em}", employee_email=em, work_date=DAY, start_hhmm="07:00",
@@ -273,6 +274,32 @@ class JobsiteTests(unittest.TestCase):
         sched = self.client.get("/timeclock/schedule", params={"start": DAY, "end": DAY}).json()
         self.assertIn(new["id"], [o["id"] for o in sched["jobsites"]])
         self.assertEqual({s["id"]: s["jobsite"] for s in sched["scheduled"]}[f"s-{ANN}"], RED)
+
+    def test_another_companys_jobsite_is_never_offered_matched_or_saved(self):
+        """Company walls (Neil, 11/03/2026): the picker lists only the caller's
+        companies' projects, a shift cannot name another company's, and "+ New
+        Jobsite" at the same address makes the caller's own project instead of
+        returning the other company's."""
+        self.db.add(models.ConstructionProject(id="other", name="Other Co Yard", address="9 Far Rd, Fresno, CA",
+                                               latitude=36.7, longitude=-119.7, status="active", deleted_at="",
+                                               manager_emails=["someone@else.example"], worker_emails=[],
+                                               executive_emails=[], company_id="ent-other"))
+        self.db.commit()
+        self._as(BOSS)
+        sched = self.client.get("/timeclock/schedule", params={"start": DAY, "end": DAY}).json()
+        ids = [o["id"] for o in sched["jobsites"]]
+        self.assertIn(RED, ids)
+        self.assertNotIn("project-other", ids)
+        base = {"employee_email": CAL, "work_date": "2026-10-16", "start_hhmm": "07:00", "end_hhmm": "15:30",
+                "group_id": GROUP, "jobsite": "project-other"}
+        r = self.client.post("/timeclock/schedule", json=base)
+        self.assertEqual((r.status_code, r.json()["detail"]), (400, "Pick a jobsite from the list."))
+        with mock.patch.object(construction_weather, "geocode", return_value=False):
+            r = self.client.post("/timeclock/jobsites", json={"name": "Our Yard", "address": "9 Far Rd, Fresno, CA"})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertNotEqual(r.json()["id"], "project-other")
+        mine = self.db.query(models.ConstructionProject).filter(models.ConstructionProject.name == "Our Yard").first()
+        self.assertEqual(mine.company_id, ENT)
 
     def test_a_jobsite_from_its_google_maps_link_keeps_that_exact_point(self):
         """Pranshu, 11/02/2026: a project is placed like a work site - the

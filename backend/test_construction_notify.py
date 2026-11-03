@@ -142,7 +142,7 @@ class DailyLogNotificationTests(_Base):
     def test_the_bell_links_back_to_the_jobsite_dashboard(self):
         notify.log_submitted(self.db, self.project, self._log())
         self.db.commit()
-        self.assertIn('"sub": "construction-dashboard"', self._bells()[0].action)
+        self.assertIn(f'"sub": "activity:{self.project.id}"', self._bells()[0].action)
 
 
 class PublishedReportTests(_Base):
@@ -233,7 +233,7 @@ class DraftSchedulerTests(_Base):
         import construction_report
         self._real_gen = construction_report.generate
 
-        def fake_generate(db, project, week_start, actor):
+        def fake_generate(db, project, week_start, actor, **kw):
             self.drafted.append((project.id, week_start, actor))
             r = models.ConstructionWeeklyReport(
                 id=str(uuid.uuid4()), project_id=project.id, week_start=week_start,
@@ -293,7 +293,7 @@ class DraftSchedulerTests(_Base):
         self.db.commit()
         first = {"done": False}
 
-        def half_broken(db, project, week_start, actor):
+        def half_broken(db, project, week_start, actor, **kw):
             if not first["done"]:
                 first["done"] = True
                 raise RuntimeError("model timeout")

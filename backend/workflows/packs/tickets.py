@@ -190,6 +190,20 @@ event("ticket.approval_decided", entity="ticket", label="Ticket Approval Is Deci
                      {"activity": "approved", "decision": "approve", "note": ""},
                      type="access_request", approval_status="approved", actor="max.miller@greensglobal.com"))
 
+# Preventive maintenance (Construction plan phase 5, 11/03/2026): a schedule
+# in Asset Management > Maintenance filed its ticket, and that ticket's due
+# day passed while it was open - emitted by maintenance_services.py
+# (file_preventive / the daily scan), the schedule's details FLAT on extra.
+_PM_EXTRA = {"scheduleId": "svc-1", "schedule": "HVAC Filter Change", "dueOn": "2026-12-01",
+             "property": "Greens Storage Temecula", "propertyId": "gst"}
+event("preventive.generated", entity="ticket", label="Preventive Ticket Is Filed", module="tickets",
+      group="Preventive Maintenance",
+      sample=_sample(extra=dict(_PM_EXTRA, kind="calendar", automatic=True), actor="pat.owner@greensglobal.com",
+                     title="HVAC Filter Change", type="other", priority="medium"))
+event("preventive.overdue", entity="ticket", label="Preventive Ticket Is Overdue", module="tickets",
+      group="Preventive Maintenance",
+      sample=_sample(extra=dict(_PM_EXTRA, daysOverdue=3), actor="", title="HVAC Filter Change", type="other"))
+
 
 # ── action plumbing ──────────────────────────────────────────────────────────
 def _wf_name(ctx) -> str:

@@ -12,6 +12,7 @@ import { usePopupNudge } from '../lib/usePopupNudge';
 import { SHEET_SHADOW, SHEET_EDGE } from '../lib/sheetStack';
 import { useIsMobile } from '../lib/useIsMobile';
 import { Spinner } from './AsyncState';
+import JobTagSelect from './JobTagSelect';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { currencyOptions } from '../asset/lib/currency';
 import { DateField, PersonSelect, AvatarName } from '../tasks/components';
@@ -119,9 +120,9 @@ function ReceiptPicker({ files, onFiles, compact = false }) {
 // The form follows the category (Oct 18 2026): "What Did You Buy?" made no
 // sense for a trip or a meal. The category comes first; the one description
 // field, who was paid and the purpose are worded for that kind of expense.
-const blankForm = () => ({ item: '', category: '', amount: '', currency: 'USD', purchaseDate: '', vendor: '', details: '', approver: '' });
+const blankForm = () => ({ item: '', category: '', amount: '', currency: 'USD', purchaseDate: '', vendor: '', details: '', approver: '', jobId: '' });
 const formFrom = (r) => ({ item: r.item, category: r.category, amount: String(r.amount), currency: r.currency,
-  purchaseDate: r.purchaseDate, vendor: r.vendor, details: r.details, approver: r.approverEmail });
+  purchaseDate: r.purchaseDate, vendor: r.vendor, details: r.details, approver: r.approverEmail, jobId: r.jobId || '' });
 
 /** New claim, or the fix of a sent-back one (`editing`). */
 function ClaimForm({ people, editing = null, onDone, flash }) {
@@ -143,6 +144,7 @@ function ClaimForm({ people, editing = null, onDone, flash }) {
         // Other's own words are the description itself - no second "what kind" box.
         category_other: f.category === 'other' ? f.item.trim().slice(0, 100) : '',
         purchase_date: f.purchaseDate, vendor: f.vendor.trim(), details: f.details.trim(), approver_email: f.approver, receipts,
+        job_id: f.jobId || '',
       };
       const row = editing ? await api.resubmitReimbursement(editing.id, body) : await api.createReimbursement(body);
       flash(`Sent to ${row.approverName || 'your approver'} for approval`);
@@ -203,6 +205,8 @@ function ClaimForm({ people, editing = null, onDone, flash }) {
         <PersonSelect id="rb-approver" value={f.approver || null} onChange={(v) => setF((x) => ({ ...x, approver: v || '' }))}
           people={people.map((p) => ({ email: p.email, name: p.name || p.email }))} placeholder="My Manager" noneLabel="My Manager"
           style={{ borderRadius: 10, padding: '9px 13px', fontSize: 13.5, fontWeight: 400 }} />
+        <JobTagSelect id="rb-job" value={f.jobId} onChange={(v) => setF((x) => ({ ...x, jobId: v }))} label="Job (Optional)"
+          labelStyle={lbl} style={full} hint="Bought for a construction job? Pick it - it shows on the job's Money tab." />
         <label style={lbl}>Receipts{editing && editing.receipts.length ? ` (${editing.receipts.length} already attached)` : ''}</label>
         <ReceiptPicker files={files} onFiles={setFiles} />
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>No receipt yet? Send it now and add it later. HR approves it once the receipt is attached.</div>
@@ -253,6 +257,7 @@ function ClaimRow({ r, as, onChanged, onEdit, flash }) {
         <span>{categoryText(r)}</span>
         {r.purchaseDate && <span>Bought {formatDate(r.purchaseDate + 'T12:00:00')}</span>}
         {r.vendor && <span>{r.vendor}</span>}
+        {r.jobName && <span>Job: {r.jobName}</span>}
         <span>Filed {formatDate(r.createdAt)}</span>
         {r.paidOn && <span>Paid {formatDate(r.paidOn + 'T12:00:00')}{r.paymentMethod ? ` · ${PAY_LABEL[r.paymentMethod] || r.paymentMethod}` : ''}{r.paymentRef ? ` · ${r.paymentRef}` : ''}</span>}
       </div>

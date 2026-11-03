@@ -202,9 +202,23 @@ export function validateAnswers(defs, answers = {}) {
   return errs;
 }
 
-/** The site a shift is worked at: its own, else its team's. '' = unknown. */
-export const shiftSite = (shift, teams) => shift?.workSiteId
-  || (teams || []).find((t) => t.id === shift?.groupId)?.workSiteId || '';
+/** The site a shift is worked at: its own, else its team's. '' = unknown.
+ *  A shift placed at a jobsite (Neil, 11/03/2026 - scheduled_shifts.jobsite)
+ *  is worked THERE: 'site-<id>' is that company site; 'project-<id>' is a
+ *  construction job, not the team's site, so only the company-wide forms show
+ *  on it (and the entry is filed for the job - jobOfShift). */
+export const shiftSite = (shift, teams) => {
+  const js = String(shift?.jobsite || '');
+  if (js.startsWith('site-')) return js.slice(5);
+  if (js.startsWith('project-')) return shift?.workSiteId || '';
+  return shift?.workSiteId || (teams || []).find((t) => t.id === shift?.groupId)?.workSiteId || '';
+};
+
+/** The construction job a shift is placed at ('' = none). */
+export const jobOfShift = (shift) => {
+  const js = String(shift?.jobsite || '');
+  return js.startsWith('project-') ? js.slice(8) : '';
+};
 
 /** The forms a shift card offers (GET /forms/mine rows): Show On Shift Cards
  *  on, and company-wide or for this shift's site. */

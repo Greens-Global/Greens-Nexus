@@ -86,13 +86,24 @@ class ConstructionMediaPrivateTests(unittest.TestCase):
 
         with mock.patch.object(files.httpx, "post", return_value=_Resp()), \
                 mock.patch("httpx.Client", _Client):
-            self.assertEqual(construction_pdf._fetch(PHOTO), b"img")
+            self.assertEqual(construction_pdf._fetch(PHOTO, "p1"), b"img")
         self.assertEqual(len(seen), 1)
         self.assertIn("/object/sign/construction-media/", seen[0])
 
     def test_the_worker_uses_the_same_helper(self):
-        import construction_worker
-        self.assertIs(construction_worker.fetchable_url, files.fetchable_url)
+        """Every server-side fetch goes through construction_storage.fetch_url,
+        which signs through files.fetchable_url (11/03/2026)."""
+        from services import construction_storage as storage
+        with mock.patch.object(files.httpx, "post", return_value=_Resp()):
+            self.assertIn("/object/sign/construction-media/", storage.fetch_url(PHOTO, "p1"))
+
+    def test_the_pdf_refuses_a_link_outside_the_jobs_storage(self):
+        import construction_pdf
+        for u in ("https://example.com/x.jpg", f"{PUB}/task-files/secret.pdf",
+                  f"{PUB}/construction-media/construction/other/abc.jpg",
+                  "http://169.254.169.254/latest/meta-data"):
+            with self.assertRaises(ValueError):
+                construction_pdf._fetch(u, "p1")
 
 
 if __name__ == "__main__":

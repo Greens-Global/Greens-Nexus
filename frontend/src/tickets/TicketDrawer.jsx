@@ -56,6 +56,7 @@ import { TicketConversation } from './TicketConversation';
 import { STOP_VOICE_FIRST } from '../lib/voice';
 import { TicketAttachments } from './TicketAttachments';
 import { TicketActivity } from './TicketActivity';
+import TicketJobAction from './TicketJobAction';
 
 // The drawer's Help With field: a pick saves at once, a typed "Other" answer
 // saves when the field loses focus - never one save per keystroke (each save
@@ -616,6 +617,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         {canEscalate && (
           <button style={{ ...btn('outline'), color: NX.amber }} onClick={escalate} title="Alert the department head this ticket needs instant care"><ArrowUp size={14} /> Escalate</button>
         )}
+        {/* Start Job / Open Job (Neil, 11/03/2026): a ticket that needs a crew,
+            materials or more than a day gets a construction Job. Never on Ask HR. */}
+        {!confidential && <TicketJobAction ticketId={t.id} onOpen={inline ? undefined : closeDrawer} />}
         {!CLOSED_STATES.includes(t.status) ? (
           // canEditStatus, not canWorking - Mark Resolved is the same "raw
           // status jump" the requester is carved out of above; their only

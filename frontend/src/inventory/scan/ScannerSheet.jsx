@@ -16,14 +16,19 @@ import { api } from '../../api';
 import { cameraSupport, startCamera, stopStream, videoTrack, torchSupported, setTorch, cameraErrorKind, cameraHelp } from './camera';
 import { createDecoder, startScanLoop } from './decoder';
 import { resolveScannedCode, searchItems } from './resolve';
+import { openPlace } from '../../maintenance/placeLink';
 
 const fetchByCodeDefault = (code) => api.getItemByCode(code);
+// A site or equipment tag (Scan to Request, 11/03/2026): its sheet in Tickets.
+const defaultPlace = (r) => openPlace(r.propertyId, r.assetId);
 
 /**
  * props: items (what the screen holds), onFound(item), onClose,
- * and for tests: deps { startCamera, createDecoder, fetchByCode, support }.
+ * onPlace({ propertyId, assetId }) for a site / equipment tag (default: open
+ * its sheet in Tickets), and for tests: deps { startCamera, createDecoder,
+ * fetchByCode, support }.
  */
-export default function ScannerSheet({ items = [], onFound, onClose, deps = {} }) {
+export default function ScannerSheet({ items = [], onFound, onPlace, onClose, deps = {} }) {
   const open = deps.startCamera || startCamera;
   const makeDecoder = deps.createDecoder || createDecoder;
   const fetchByCode = deps.fetchByCode || fetchByCodeDefault;
@@ -60,9 +65,10 @@ export default function ScannerSheet({ items = [], onFound, onClose, deps = {} }
     // with the light off and Scan Again starts it fresh.
     stopAll();
     if (r.status === 'found') { onFound?.(r.item); return; }
+    if (r.status === 'place') { (onPlace || defaultPlace)(r); return; }
     setResult({ ...r, raw: code });
     setPhase('result');
-  }, [items, fetchByCode, onFound, stopAll]);
+  }, [items, fetchByCode, onFound, onPlace, stopAll]);
 
   const begin = useCallback(async () => {
     stopAll();
@@ -127,6 +133,7 @@ export default function ScannerSheet({ items = [], onFound, onClose, deps = {} }
     const r = await resolveScannedCode(code, { items, fetchByCode });
     setTypedBusy(false);
     if (r.status === 'found') { stopAll(); onFound?.(r.item); return; }
+    if (r.status === 'place') { stopAll(); (onPlace || defaultPlace)(r); return; }
     setResult({ ...r, raw: code });
   };
 

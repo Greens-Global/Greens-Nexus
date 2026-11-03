@@ -610,7 +610,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   // picture goes back there as a PNG attachment (api.attachMarkup), and any
   // source with a Nexus link opens it.
   const source = board ? note.source : null;
-  const attachable = !trashed && ['task', 'ticket'].includes(source?.kind) && !!source?.id;
+  const attachable = !trashed && ['task', 'ticket', 'construction_media'].includes(source?.kind) && !!source?.id;
   const openHref = source && isAppPath(source.url) ? source.url : '';
   const attachBack = async () => {
     if (!boardApi || attaching) { if (!boardApi) toast('The board is still loading'); return; }
@@ -619,9 +619,11 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
       const blob = await exportPng(boardApi, { scale: 2, background: true });
       if (!blob) throw new Error('the board is still loading');
       const name = exportFileName({ ...note, title: note.title || 'Mark Up' }, 'png');
-      const url = await storeTaskFile(new File([blob], name, { type: 'image/png' }), undefined, BOARD_THUMB_FOLDER(note.id));
-      if (!url) throw new Error('the picture could not be stored');
-      await api.attachMarkup(source, { url, name, size: `${Math.max(1, Math.round(blob.size / 1024))} KB` });
+      // A job photo's markup goes into the job's own photo storage (api.attachMarkup).
+      const toJob = source.kind === 'construction_media';
+      const url = toJob ? '' : await storeTaskFile(new File([blob], name, { type: 'image/png' }), undefined, BOARD_THUMB_FOLDER(note.id));
+      if (!url && !toJob) throw new Error('the picture could not be stored');
+      await api.attachMarkup(source, { url, name, size: `${Math.max(1, Math.round(blob.size / 1024))} KB`, blob });
       toast(`Attached to ${source.label}`);
     } catch (e) {
       toast(`Could not attach: ${e?.message || 'try again'}`);

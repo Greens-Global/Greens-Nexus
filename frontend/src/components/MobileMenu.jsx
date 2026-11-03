@@ -12,6 +12,7 @@ import NavCount from './NavCount';
 import NavMore from './NavMore';
 import { useOffscreenCounts } from '../lib/useOffscreenCounts';
 import { WORKFORCE_GRANTS } from '../lib/workforceAccess';
+import { clearOfflineReadCache } from '../lib/offline/read';
 
 // Sub-screens per module - the same sub ids the views' tab strips use, so a
 // tap deep-links exactly where the in-page tab would. Modules absent here
@@ -236,7 +237,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
           <ChevronRight size={17} />
         </button>
         <button className="mobile-menu-row signout"
-          onClick={() => BFF_MODE ? bffLogout() : instance.logoutRedirect({ account, postLogoutRedirectUri: window.location.origin + window.location.pathname })}>
+          onClick={() => (BFF_MODE ? bffLogout() : clearOfflineReadCache().then(() => instance.logoutRedirect({ account, postLogoutRedirectUri: window.location.origin + window.location.pathname })))}>
           <span>Sign Out</span>
           <LogOut size={16} />
         </button>

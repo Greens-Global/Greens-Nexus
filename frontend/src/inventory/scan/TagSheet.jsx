@@ -92,7 +92,13 @@ export function TagLabel({ tag, layout, index, qr }) {
 // `origin` (tests) pins the address the QR codes carry; otherwise it is the
 // app's public address from POST /items/tags (`publicBase`, review M1), and
 // this tab's own origin only when the server did not send one.
-export default function TagSheet({ items, onClose, origin = '', loadQr }) {
+// loadTags(ids) / payloadFor(tag, base) (Scan to Request, 11/03/2026): a
+// property's site and equipment tags print on this same sheet - the rows come
+// from POST /maintenance/tags and each code carries the tag's own path.
+const itemTags = (ids) => api.getItemTags(ids);
+const itemPayload = (t, base) => qrPayload(t.id, base);
+
+export default function TagSheet({ items, onClose, origin = '', loadQr, loadTags = itemTags, payloadFor = itemPayload, emptyText = '' }) {
   const ids = useMemo(() => (items || []).map((i) => i.id), [items]);
   const [tags, setTags] = useState(null);         // null = loading
   const [publicBase, setPublicBase] = useState('');
@@ -122,7 +128,7 @@ export default function TagSheet({ items, onClose, origin = '', loadQr }) {
   // The tag rows (names, serials, company names) from the server, walled.
   useEffect(() => {
     let live = true;
-    api.getItemTags(ids)
+    loadTags(ids)
       .then((res) => {
         if (!live) return;
         const list = Array.isArray(res) ? res : (Array.isArray(res?.tags) ? res.tags : []);
@@ -148,12 +154,12 @@ export default function TagSheet({ items, onClose, origin = '', loadQr }) {
       if (!live) return;
       const next = {};
       for (const t of tags) {
-        try { next[t.id] = make(qrPayload(t.id, base)); } catch { /* an unprintable id stays blank */ }
+        try { next[t.id] = make(payloadFor(t, base)); } catch { /* an unprintable id stays blank */ }
       }
       setQrs(next);
     }).catch(() => { if (live) setNote('The QR codes could not be made - reload the page and try again.'); });
     return () => { live = false; };
-  }, [tags, base, loadQr]);
+  }, [tags, base, loadQr]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fit the sheets to a narrow window (a phone): the screen preview only.
   useEffect(() => {
@@ -209,7 +215,7 @@ export default function TagSheet({ items, onClose, origin = '', loadQr }) {
         {tags == null ? (
           <div style={{ maxWidth: `${PAGE.w}in`, margin: '0 auto' }}><SkeletonBlocks count={3} height={180} borderRadius={8} /></div>
         ) : count === 0 ? (
-          <div style={{ textAlign: 'center', padding: '56px 16px', color: 'var(--muted)', fontSize: 13.5 }}>None of these items can be tagged by you. Close this and pick items from your own companies.</div>
+          <div style={{ textAlign: 'center', padding: '56px 16px', color: 'var(--muted)', fontSize: 13.5 }}>{emptyText || 'None of these items can be tagged by you. Close this and pick items from your own companies.'}</div>
         ) : (
           <div className="nx-tag-pages" style={{ zoom }}>
             {pages.map((page, p) => (

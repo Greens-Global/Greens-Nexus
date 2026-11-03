@@ -22,7 +22,7 @@ describe('queue list', () => {
     expect(QUEUES[0].key).toBe('needs_reply');
     expect(QUEUES[QUEUES.length - 1].key).toBe('raised');
     expect(DEFAULT_QUEUE).toBe('needs_reply');
-    expect(QUEUES.map((q) => q.key)).toEqual(['needs_reply', 'unassigned', 'mine', 'due_soon', 'waiting', 'open', 'done', 'route', 'approve', 'raised']);
+    expect(QUEUES.map((q) => q.key)).toEqual(['needs_reply', 'unassigned', 'mine', 'due_soon', 'waiting', 'open', 'done', 'route', 'approve', 'preventive', 'raised']);
   });
   it('labels are Title Case and Unassigned carries the alarm tone', () => {
     for (const q of QUEUES) expect(q.label).toMatch(/^[A-Z]/);

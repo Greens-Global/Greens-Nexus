@@ -236,3 +236,101 @@ def egnyte_ready() -> bool:
     unconfigured would lose the update for an operator problem."""
     return bool(os.getenv("EGNYTE_DOMAIN", "").strip()
                 and os.getenv("EGNYTE_TOKEN", "").strip())
+
+
+# ── Where a media URL may point (11/03/2026) ─────────────────────────────────
+# Photo links come from the browser, and the server later FETCHES them - into
+# Egnyte, into the thumbnail job and into the PDF that is emailed to
+# executives. Unchecked, a link to an internal address or to another bucket's
+# private file would be downloaded and sent out. So a media row may only
+# name an object in the construction-media bucket, under its own job's
+# folder (`construction/<project id>/`), and every fetch goes through
+# `fetch_url`, which refuses anything else.
+#
+# A laptop with no Supabase (SUPABASE_URL unset) keeps the inline data: URL
+# path (is_inline) and nothing else - there is no storage to check a link
+# against, so no link is accepted.
+BUCKET = "construction-media"
+_OBJECT = re.compile(r"^construction/([A-Za-z0-9-]{1,64})/[A-Za-z0-9][A-Za-z0-9._-]{0,180}$")
+MISSING_STORAGE = "Photo storage is not set up on this server - only small files can be attached."
+
+
+def _supabase_base() -> str:
+    return os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+
+
+def public_prefix() -> str:
+    base = _supabase_base()
+    return f"{base}/storage/v1/object/public/{BUCKET}/" if base else ""
+
+
+def object_path(url: str) -> str:
+    """The object path ('construction/<project>/<file>') behind a canonical
+    construction-media URL, or '' when the URL is anything else."""
+    prefix = public_prefix()
+    u = (url or "").strip()
+    if not prefix or not u.startswith(prefix):
+        return ""
+    path = u[len(prefix):].split("?", 1)[0].split("#", 1)[0]
+    if ".." in path or "\\" in path or "//" in path or not _OBJECT.match(path):
+        return ""
+    return path
+
+
+def path_ok(path: str, project_id: str) -> bool:
+    """Is `path` an object under this job's own folder?"""
+    m = _OBJECT.match(path or "")
+    return bool(m) and ".." not in path and m.group(1) == (project_id or "")
+
+
+def url_ok(url: str, project_id: str) -> bool:
+    return path_ok(object_path(url), project_id)
+
+
+def check_media(*, url: str, storage_path: str, thumbnail_url: str, project_id: str) -> str:
+    """'' when a media row's links are acceptable for this job, else the
+    reason (for a 422). `storage_path` must be the URL's own object."""
+    url = (url or "").strip()
+    if not _supabase_base():
+        if url and not is_inline(url):
+            return MISSING_STORAGE
+        if (storage_path or "").strip() or (thumbnail_url or "").strip():
+            return MISSING_STORAGE
+        return ""
+    if is_inline(url):
+        return "Upload the file to Nexus storage first - files cannot be stored inside the log."
+    if not url:
+        return "The file's storage link is missing."
+    path = object_path(url)
+    if not path_ok(path, project_id):
+        return "That file is not in this job's photo storage."
+    if (storage_path or "").strip() and storage_path.strip() != path:
+        return "The file's storage path does not match its link."
+    if (thumbnail_url or "").strip() and not url_ok(thumbnail_url, project_id):
+        return "That thumbnail is not in this job's photo storage."
+    return ""
+
+
+def check_document_urls(urls, project_id: str) -> str:
+    """'' when every submittal document link is a file in this job's storage."""
+    if not isinstance(urls, list):
+        return "Documents must be a list of links."
+    for u in urls:
+        if not isinstance(u, str) or not url_ok(u, project_id):
+            return "Every document must be a file in this job's storage."
+    return ""
+
+
+def fetch_url(media_or_url, project_id: str | None = None) -> str:
+    """The URL the SERVER may GET for a media row (or a bare URL): a signed
+    URL for its construction-media object. Raises ValueError for anything
+    that is not a Nexus construction-media object under the job's folder -
+    the one gate every server-side fetch (Egnyte filing, thumbnails, the AI
+    caption, the PDF) passes through."""
+    url = getattr(media_or_url, "url", media_or_url) or ""
+    pid = project_id if project_id is not None else getattr(media_or_url, "project_id", "")
+    path = object_path(url)
+    if not path_ok(path, pid or ""):
+        raise ValueError("refused to fetch a file outside this job's photo storage")
+    from routers.files import fetchable_url
+    return fetchable_url(url)

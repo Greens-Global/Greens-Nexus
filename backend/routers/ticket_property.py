@@ -83,7 +83,7 @@ def suggest(text: str = "", user: dict = Depends(get_current_user), db: Session 
 @router.get("/units/{property_id}")
 def units(property_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     prop = db.get(models.PropertyAsset, property_id)
-    if prop is None or not property_links.is_listed(prop, user):
+    if prop is None or not property_links.is_listed(prop, user, db):
         raise HTTPException(404, "Property not found")
     o = L.unit_options(db, prop)
     return {"units": o["units"], "source": o["source"], "strict": o["strict"], "required": L.unit_required(db, prop)}

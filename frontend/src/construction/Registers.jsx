@@ -10,42 +10,50 @@
 // These three are what the weekly report's Critical Milestones, RFIs and
 // Submittals sections print. Until now nothing could populate them, so those
 // sections came out empty on every report.
-import { useCallback, useEffect, useState } from 'react';
-import { Flag, HelpCircle, FileCheck, Plus, Trash2, Sparkles, AlertTriangle } from 'lucide-react';
+//
+// 11/03/2026 (Neil, plan item 14): soft status labels; a row opens as a sheet
+// with its fields editable (an RFI's answer, responder and due date, a
+// submittal's dates and revision) and one Save row; days open and a red
+// Overdue label from the row's own dates against the jobsite's today; dates
+// are DateField boxes, never the browser's; Remove is pressed and held
+// (ui/HoldButton.jsx, HOLD_RECORD_MS) and is a soft delete server-side; the
+// AI's milestone suggestion shows only while AI is on.
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Flag, HelpCircle, FileCheck, Plus, Sparkles, AlertTriangle, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
+import { StatusLabel } from '../components/StatusLabel';
+import { SettingRow, SettingCard, Switch } from '../components/settings/SettingsUI';
+import SaveRow from '../components/SaveRow';
+import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
+import { Modal, DateField } from '../tasks/components';
+import { useDraft } from '../lib/useDraft';
+import { useRole } from '../contexts/RoleContext';
+import { useNexusPeople } from './lib/jobForm';
 import { formatDate } from '../lib/datetime';
+import { CARD, TONE, personName } from './ui';
+import { useConstructionMeta } from './lib/meta';
+import { isOverdue, daysOpen, browserTodayISO } from './lib/registers';
 
-const CARD = {
-  backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)',
-  borderRadius: 12, padding: 24, marginBottom: 24, boxShadow: 'var(--shadow-sm)',
-};
-
-// Chip colors carry meaning, so they are assigned by what the status MEANS to a
-// manager scanning the list, not by register. Red is "someone is blocked or a
-// date was missed", amber is "at risk", green is "closed out", grey is "not
-// started". A reader learns the palette once across all three.
-const TONE = {
-  grey:  { bg: 'var(--border-color)',            fg: 'var(--text-secondary)' },
-  blue:  { bg: 'hsl(var(--color-blue))',         fg: '#fff' },
-  green: { bg: 'hsl(var(--color-green))',        fg: '#fff' },
-  amber: { bg: 'hsl(var(--color-amber, 38 92% 45%))', fg: '#fff' },
-  red:   { bg: 'hsl(var(--color-red))',          fg: '#fff' },
-};
-
+// What a status MEANS to a manager scanning the list, the same palette across
+// all three: red is "someone is blocked or a date was missed", yellow is "at
+// risk", green is "closed out", slate is "not started / open", blue is "out
+// with someone". Never orange - that is in progress only (style.css).
 const REGISTERS = {
   milestones: {
     label: 'Milestones',
     icon: Flag,
-    blurb: 'Schedule milestones for this jobsite. AI can suggest one looks hit; only you can confirm it.',
+    blurb: 'Schedule milestones for this jobsite. They print in the weekly report under Critical Milestones.',
+    blurbAi: 'Schedule milestones for this jobsite. AI can suggest one looks hit; only you can confirm it.',
     emptyTitle: 'No milestones yet',
     emptyHint: 'Add the dates this job is measured against. They print in the weekly report under Critical Milestones.',
     addLabel: 'Add Milestone',
+    noun: 'Milestone',
     statuses: {
-      upcoming: ['Upcoming', 'grey'],
-      at_risk:  ['At Risk', 'amber'],
-      hit:      ['Hit', 'green'],
-      missed:   ['Missed', 'red'],
+      upcoming: ['Upcoming', TONE.slate],
+      at_risk:  ['At Risk', TONE.yellow],
+      hit:      ['Hit', TONE.green],
+      missed:   ['Missed', TONE.red],
     },
     // `key` is the request field (snake_case, matching _REGISTER_FIELDS on the
     // server); `read` pulls the same value back off the camelCase response.
@@ -53,14 +61,15 @@ const REGISTERS = {
       { key: 'name', read: 'name', label: 'Milestone', placeholder: 'e.g. Foundation pour complete', required: true },
       { key: 'target_date', read: 'targetDate', label: 'Target Date', type: 'date' },
       { key: 'actual_date', read: 'actualDate', label: 'Actual Date', type: 'date' },
-      { key: 'description', read: 'description', label: 'Notes', placeholder: 'Optional' },
+      { key: 'critical', read: 'critical', label: 'Critical Path', type: 'switch', sheetOnly: true },
+      { key: 'description', read: 'description', label: 'Notes', placeholder: 'Optional', multiline: true },
     ],
     title: (r) => r.name,
-    meta: (r) => [
+    meta: (r, names) => [
       r.targetDate && `Target ${formatDate(r.targetDate, r.targetDate)}`,
       r.actualDate && `Actual ${formatDate(r.actualDate, r.actualDate)}`,
-      r.critical && 'Critical path',
-      r.confirmedBy && `Confirmed by ${r.confirmedBy}`,
+      r.critical && 'Critical Path',
+      r.confirmedBy && `Confirmed by ${personName(r.confirmedBy, names)}`,
     ],
   },
   rfis: {
@@ -70,23 +79,32 @@ const REGISTERS = {
     emptyTitle: 'No RFIs yet',
     emptyHint: 'Log a request for information so the week it stayed open is on the record.',
     addLabel: 'Add RFI',
+    noun: 'RFI',
     statuses: {
-      open:     ['Open', 'red'],
-      answered: ['Answered', 'blue'],
-      closed:   ['Closed', 'green'],
-      void:     ['Void', 'grey'],
+      open:     ['Open', TONE.slate],
+      answered: ['Answered', TONE.blue],
+      closed:   ['Closed', TONE.green],
+      void:     ['Void', TONE.gray],
     },
     fields: [
       { key: 'number', read: 'number', label: 'Number', placeholder: 'RFI-014' },
       { key: 'subject', read: 'subject', label: 'Subject', placeholder: 'What is being asked about', required: true },
       { key: 'question', read: 'question', label: 'Question', placeholder: 'The question as submitted', multiline: true },
-      { key: 'ball_in_court', read: 'ballInCourt', label: 'Ball In Court', placeholder: 'Party owing the response' },
+      { key: 'ball_in_court', read: 'ballInCourt', label: 'Ball In Court', placeholder: 'The party who owes the answer' },
+      // The Nexus person who answers it (11/03/2026): the RFI waits in their Approvals.
+      { key: 'responder_email', read: 'responderEmail', label: 'Answered By', type: 'person', placeholder: 'No one named' },
+      { key: 'submitted_on', read: 'submittedOn', label: 'Sent On', type: 'date' },
       { key: 'due_on', read: 'dueOn', label: 'Response Due', type: 'date' },
       { key: 'answer', read: 'answer', label: 'Answer', placeholder: 'Fill in when it comes back', multiline: true },
+      { key: 'answered_on', read: 'answeredOn', label: 'Answered On', type: 'date', sheetOnly: true },
+      { key: 'schedule_impact_days', read: 'scheduleImpactDays', label: 'Schedule Impact (Days)', type: 'number', sheetOnly: true },
     ],
     title: (r) => [r.number, r.subject].filter(Boolean).join(' · ') || 'Untitled RFI',
-    meta: (r) => [
+    // What the named responder may write themselves (routers/construction.py RESPONDER_FIELDS).
+    ownerKey: 'responderEmail', ownerFields: ['answer', 'answered_on', 'status'], ownerStatuses: ['answered'],
+    meta: (r, names) => [
       r.ballInCourt && `Ball in court: ${r.ballInCourt}`,
+      r.responderEmail && `Answered by ${personName(r.responderEmail, names)}`,
       r.dueOn && `Due ${formatDate(r.dueOn, r.dueOn)}`,
       r.answeredOn && `Answered ${formatDate(r.answeredOn, r.answeredOn)}`,
       r.scheduleImpactDays ? `${r.scheduleImpactDays} day schedule impact` : '',
@@ -99,22 +117,31 @@ const REGISTERS = {
     emptyTitle: 'No submittals yet',
     emptyHint: 'Track what has gone out for approval and what came back marked up.',
     addLabel: 'Add Submittal',
+    noun: 'Submittal',
     statuses: {
-      pending:           ['Pending', 'grey'],
-      submitted:         ['Submitted', 'blue'],
-      approved:          ['Approved', 'green'],
-      approved_as_noted: ['Approved As Noted', 'green'],
-      revise_resubmit:   ['Revise And Resubmit', 'amber'],
-      rejected:          ['Rejected', 'red'],
+      pending:           ['Pending', TONE.slate],
+      submitted:         ['Submitted', TONE.blue],
+      approved:          ['Approved', TONE.green],
+      approved_as_noted: ['Approved As Noted', TONE.green],
+      revise_resubmit:   ['Revise And Resubmit', TONE.yellow],
+      rejected:          ['Rejected', TONE.red],
     },
     fields: [
       { key: 'number', read: 'number', label: 'Number', placeholder: 'SUB-007' },
       { key: 'title', read: 'title', label: 'Title', placeholder: 'What was submitted', required: true },
       { key: 'spec_section', read: 'specSection', label: 'Spec Section', placeholder: 'e.g. 03 30 00' },
+      { key: 'submitted_on', read: 'submittedOn', label: 'Sent On', type: 'date' },
       { key: 'due_on', read: 'dueOn', label: 'Response Due', type: 'date' },
+      { key: 'returned_on', read: 'returnedOn', label: 'Returned On', type: 'date', sheetOnly: true },
+      { key: 'revision', read: 'revision', label: 'Revision', type: 'number', sheetOnly: true },
+      // The Nexus person who decides it (11/03/2026): it waits in their Approvals.
+      { key: 'approver_email', read: 'approverEmail', label: 'Decided By', type: 'person', placeholder: 'No one named' },
     ],
     title: (r) => [r.number, r.title].filter(Boolean).join(' · ') || 'Untitled submittal',
-    meta: (r) => [
+    ownerKey: 'approverEmail', ownerFields: ['status', 'returned_on'],
+    ownerStatuses: ['approved', 'approved_as_noted', 'revise_resubmit', 'rejected'],
+    meta: (r, names) => [
+      r.approverEmail && `Decided by ${personName(r.approverEmail, names)}`,
       r.specSection && `Spec ${r.specSection}`,
       r.dueOn && `Due ${formatDate(r.dueOn, r.dueOn)}`,
       r.returnedOn && `Returned ${formatDate(r.returnedOn, r.returnedOn)}`,
@@ -126,23 +153,51 @@ const REGISTERS = {
 const KINDS = Object.keys(REGISTERS);
 
 function Chip({ cfg, status }) {
-  const [label, tone] = cfg.statuses[status] || cfg.statuses[Object.keys(cfg.statuses)[0]];
-  const t = TONE[tone];
+  const [label, color] = cfg.statuses[status] || cfg.statuses[Object.keys(cfg.statuses)[0]];
+  return <StatusLabel size="sm" label={label} color={color} />;
+}
+
+// One field's control: a DateField for a date (never the browser's own box -
+// it follows the computer's region), a switch, a number, a text area or box.
+function FieldControl({ f, value, onChange, disabled, autoFocus, people }) {
+  if (f.type === 'person') {
+    // The curated Nexus People list (getPeopleDirectory) - never M365.
+    const known = (people || []).some((p) => p.email === value);
+    return (
+      <select className="form-input" value={value || ''} disabled={disabled} aria-label={f.label}
+        onChange={(e) => onChange(e.target.value)} style={{ width: '100%' }}>
+        <option value="">{f.placeholder || 'No one'}</option>
+        {value && !known && <option value={value}>{value}</option>}
+        {(people || []).map((p) => <option key={p.email} value={p.email}>{p.name || p.email}</option>)}
+      </select>
+    );
+  }
+  if (f.type === 'date') {
+    return <DateField value={value || ''} onChange={(v) => onChange(v || '')} placeholder="Pick a Date" title={f.label} disabled={disabled} />;
+  }
+  if (f.type === 'switch') {
+    return <Switch checked={!!value} onChange={onChange} disabled={disabled} label={f.label} />;
+  }
+  if (f.multiline) {
+    return (
+      <textarea className="form-input" rows={3} value={value || ''} placeholder={f.placeholder || ''} disabled={disabled}
+        aria-label={f.label} onChange={(e) => onChange(e.target.value)} style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }} />
+    );
+  }
   return (
-    <span style={{
-      backgroundColor: t.bg, color: t.fg, fontSize: '0.7rem',
-      padding: '2px 8px', borderRadius: 4, fontWeight: 600, whiteSpace: 'nowrap',
-    }}>{label}</span>
+    <input className="form-input" type={f.type === 'number' ? 'number' : 'text'} min={f.type === 'number' ? 0 : undefined}
+      autoFocus={autoFocus} value={value ?? ''} placeholder={f.placeholder || ''} disabled={disabled} aria-label={f.label}
+      onChange={(e) => onChange(f.type === 'number' ? e.target.value : e.target.value)} />
   );
 }
 
 // ── Add form ────────────────────────────────────────────────────────────────
-function AddForm({ cfg, onCancel, onSave }) {
+function AddForm({ cfg, onCancel, onSave, people }) {
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const required = cfg.fields.filter((f) => f.required);
-  const ready = required.every((f) => (form[f.key] || '').trim());
+  const ready = required.every((f) => String(form[f.key] || '').trim());
 
   const submit = async (e) => {
     e.preventDefault();
@@ -168,18 +223,11 @@ function AddForm({ cfg, onCancel, onSave }) {
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-        {cfg.fields.map((f, i) => (
+        {cfg.fields.filter((f) => !f.sheetOnly).map((f, i) => (
           <div key={f.key} style={f.multiline ? { gridColumn: '1 / -1' } : undefined}>
             <label className="form-label">{f.label}</label>
-            {f.multiline ? (
-              <textarea className="form-input" rows={3} value={form[f.key] || ''}
-                placeholder={f.placeholder || ''}
-                onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} />
-            ) : (
-              <input className="form-input" type={f.type || 'text'} autoFocus={i === 0}
-                value={form[f.key] || ''} placeholder={f.placeholder || ''}
-                onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} />
-            )}
+            <FieldControl f={f} value={form[f.key]} autoFocus={i === 0} people={people}
+              onChange={(v) => setForm((prev) => ({ ...prev, [f.key]: v }))} />
           </div>
         ))}
       </div>
@@ -193,15 +241,109 @@ function AddForm({ cfg, onCancel, onSave }) {
   );
 }
 
+// ── One row, opened: a sheet from the right ─────────────────────────────────
+function RegisterSheet({ kind, row, canReview, today, onClose, onSaved, onRemoved, people, myEmail }) {
+  const cfg = REGISTERS[kind];
+  // The person named to answer / decide it gives the answer or the decision,
+  // and nothing else (the server holds the same line).
+  const isOwner = !canReview && !!cfg.ownerKey && !!myEmail && String(row[cfg.ownerKey] || '').toLowerCase() === myEmail;
+  const mayEdit = (key) => canReview || (isOwner && cfg.ownerFields.includes(key));
+  const saved = useMemo(() => {
+    const out = { status: row.status || Object.keys(cfg.statuses)[0] };
+    for (const f of cfg.fields) out[f.key] = row[f.read] ?? (f.type === 'switch' ? false : '');
+    return out;
+  }, [row, cfg]);
+  const { draft, patch, dirty, reset } = useDraft(saved);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const missing = cfg.fields.some((f) => f.required && !String(draft[f.key] || '').trim());
+  const open = daysOpen(kind, row, today);
+  const late = isOverdue(kind, row, today);
+
+  const save = async () => {
+    if (!dirty || busy || missing) return;
+    setBusy(true); setError('');
+    const body = {};
+    for (const [k, v] of Object.entries(draft)) {
+      if (JSON.stringify(v) === JSON.stringify(saved[k])) continue;
+      const f = cfg.fields.find((x) => x.key === k);
+      body[k] = f?.type === 'number' ? Number(v || 0) : v;
+    }
+    try {
+      const next = await api.updateConstructionRegisterItem(kind, row.id, body);
+      setBusy(false);
+      onSaved(next);
+    } catch (e) {
+      setBusy(false);
+      setError(e.message || 'Could not save that.');
+    }
+  };
+
+  return (
+    <Modal title={cfg.title(row) || cfg.noun} onClose={onClose} width={640} isDirty={dirty} onSave={save}>
+      {error && <ErrorBanner message={error} onRetry={() => setError('')} />}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        <Chip cfg={cfg} status={row.status} />
+        {late && <StatusLabel size="sm" label="Overdue" color={TONE.red} />}
+        {open != null && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{open} day{open === 1 ? '' : 's'} open</span>}
+      </div>
+      <div style={{ flexShrink: 0 }}>
+      <SettingCard>
+        <SettingRow title="Status" htmlFor={`reg-status-${row.id}`}
+          control={(
+            <select id={`reg-status-${row.id}`} className="form-input" value={draft.status} disabled={!mayEdit('status')}
+              onChange={(e) => patch({ status: e.target.value })} style={{ width: 200 }}>
+              {Object.entries(cfg.statuses)
+                .filter(([v]) => canReview || v === row.status || (cfg.ownerStatuses || []).includes(v))
+                .map(([v, [label]]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+          )} />
+        {cfg.fields.map((f) => (
+          (f.multiline || (f.type !== 'date' && f.type !== 'switch' && f.type !== 'number')) ? (
+            <SettingRow key={f.key} title={f.label}>
+              <div style={{ width: '100%' }}>
+                <FieldControl f={f} value={draft[f.key]} disabled={!mayEdit(f.key)} people={people} onChange={(v) => patch({ [f.key]: v })} />
+              </div>
+            </SettingRow>
+          ) : (
+            <SettingRow key={f.key} title={f.label}
+              control={<FieldControl f={f} value={draft[f.key]} disabled={!mayEdit(f.key)} people={people} onChange={(v) => patch({ [f.key]: v })} />} />
+          )
+        ))}
+      </SettingCard>
+      </div>
+      {isOwner && (
+        <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} saveDisabled={missing}
+          note="You were named to give this answer." />
+      )}
+      {canReview && (
+        <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} saveDisabled={missing}
+          note={missing ? 'Fill in the required field first.' : undefined}>
+          <HoldButton label="Remove" doneLabel="Removed" holdMs={HOLD_RECORD_MS} size="sm"
+            onConfirm={() => api.deleteConstructionRegisterItem(kind, row.id).then(() => onRemoved(row))}
+            fallbackMessage={`Remove this ${cfg.noun.toLowerCase()}? It stays on any report that already printed it.`} />
+        </SaveRow>
+      )}
+    </Modal>
+  );
+}
+
 // ── Register list ───────────────────────────────────────────────────────────
-export default function Registers({ project, canReview }) {
-  const [kind, setKind] = useState(KINDS[0]);
+// `kinds` (11/03/2026): the Job page's RFIs And Submittals tab shows those two
+// only - its milestones live in the job's task project (the Schedule tab).
+export default function Registers({ project, canReview, onChanged, kinds = KINDS, title = 'Schedule And Correspondence' }) {
+  const [kind, setKind] = useState(kinds[0]);
+  const { myEmail } = useRole();
+  const people = useNexusPeople();
   // Cached per kind so switching tabs back does not re-fetch and flash a
   // loading state over a list the user was just reading.
   const [rows, setRows] = useState({});
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
+  const [openRow, setOpenRow] = useState(null);
+  const { aiEnabled } = useConstructionMeta();
   const cfg = REGISTERS[kind];
+  const today = project.today || browserTodayISO();
 
   const load = useCallback((k) => {
     setError('');
@@ -217,37 +359,12 @@ export default function Registers({ project, canReview }) {
 
   const list = rows[kind];
 
+  const changed = () => { load(kind); onChanged?.(); };
+
   const save = async (form) => {
     await api.createConstructionRegisterItem(project.id, kind, form);
     setAdding(false);
-    load(kind);
-  };
-
-  const setStatus = async (row, status) => {
-    // Optimistic: a status dropdown that freezes for a round trip gets clicked
-    // twice. Reload on either outcome so a rejected change snaps back rather
-    // than leaving the list lying.
-    setRows((prev) => ({
-      ...prev,
-      [kind]: (prev[kind] || []).map((r) => (r.id === row.id ? { ...r, status } : r)),
-    }));
-    try {
-      await api.updateConstructionRegisterItem(kind, row.id, { status });
-    } catch (e) {
-      setError(e.message || 'Could not update that.');
-    } finally {
-      load(kind);
-    }
-  };
-
-  const remove = async (row) => {
-    try {
-      await api.deleteConstructionRegisterItem(kind, row.id);
-    } catch (e) {
-      setError(e.message || 'Could not remove that.');
-    } finally {
-      load(kind);
-    }
+    changed();
   };
 
   return (
@@ -255,9 +372,9 @@ export default function Registers({ project, canReview }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
           <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>
-            Schedule And Correspondence
+            {title}
           </h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>{cfg.blurb}</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>{(aiEnabled && cfg.blurbAi) || cfg.blurb}</p>
         </div>
         {canReview && !adding && (
           <button className="primary-btn" onClick={() => setAdding(true)} style={{ flexShrink: 0 }}>
@@ -267,13 +384,13 @@ export default function Registers({ project, canReview }) {
       </div>
 
       <div className="scroll-tabs" style={{ display: 'flex', gap: 8, margin: '16px 0 20px' }}>
-        {KINDS.map((k) => {
+        {kinds.map((k) => {
           const KIcon = REGISTERS[k].icon;
           const active = k === kind;
           const count = rows[k]?.length;
           return (
             <button key={k} onClick={() => { setKind(k); setAdding(false); setError(''); }}
-              className={active ? 'primary-btn' : 'secondary-btn'}
+              className={active ? 'primary-btn' : 'secondary-btn'} aria-pressed={active}
               style={{ padding: '6px 14px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
               <KIcon size={14} />{REGISTERS[k].label}
               {count ? <span style={{ opacity: 0.7, marginLeft: 2 }}>({count})</span> : null}
@@ -284,7 +401,7 @@ export default function Registers({ project, canReview }) {
 
       {error && <ErrorBanner message={error} onRetry={() => load(kind)} />}
 
-      {adding && <AddForm cfg={cfg} onCancel={() => setAdding(false)} onSave={save} />}
+      {adding && <AddForm cfg={cfg} onCancel={() => setAdding(false)} onSave={save} people={people} />}
 
       {list === undefined ? (
         <SkeletonBlocks count={3} height={72} borderRadius={8} />
@@ -298,63 +415,74 @@ export default function Registers({ project, canReview }) {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {list.map((r) => (
-            <div key={r.id} style={{
-              backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-              borderRadius: 8, padding: 16, display: 'flex', gap: 12,
-              justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap',
-            }}>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <strong style={{ fontSize: '0.95rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                    {cfg.title(r)}
-                  </strong>
-                  <Chip cfg={cfg} status={r.status} />
-                  {/* A suggestion, never a state change - see ConstructionMilestone.
-                      Shown next to the status so the manager can act on it in place. */}
-                  {kind === 'milestones' && r.aiDetectedAt && !r.confirmedBy && (
-                    <span title="AI saw evidence this milestone was reached. Set the status to confirm."
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.7rem',
-                        fontWeight: 600, color: 'hsl(var(--color-blue))',
-                      }}>
-                      <Sparkles size={11} />AI suggests this is hit
-                    </span>
-                  )}
-                </div>
-                {(() => {
-                  const meta = cfg.meta(r).filter(Boolean);
-                  return meta.length ? (
+          {list.map((r) => {
+            const late = isOverdue(kind, r, today);
+            const days = daysOpen(kind, r, today);
+            const meta = cfg.meta(r, project.names).filter(Boolean);
+            return (
+              <div key={r.id} role="button" tabIndex={0} data-register-row={r.id}
+                onClick={() => setOpenRow(r)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenRow(r); } }}
+                style={{
+                  backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)',
+                  borderRadius: 8, padding: 16, display: 'flex', gap: 12, cursor: 'pointer',
+                  justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap',
+                }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <strong style={{ fontSize: '0.95rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                      {cfg.title(r)}
+                    </strong>
+                    <Chip cfg={cfg} status={r.status} />
+                    {late && <StatusLabel size="sm" label="Overdue" color={TONE.red} />}
+                    {days != null && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{days} day{days === 1 ? '' : 's'} open</span>
+                    )}
+                    {/* A suggestion, never a state change - see ConstructionMilestone.
+                        Shown next to the status so the manager can act on it in place. */}
+                    {aiEnabled && kind === 'milestones' && r.aiDetectedAt && !r.confirmedBy && (
+                      <span title="AI saw evidence this milestone was reached. Set the status to confirm."
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.75rem',
+                          fontWeight: 600, color: 'hsl(var(--color-blue))',
+                        }}>
+                        <Sparkles size={11} />AI suggests this is hit
+                      </span>
+                    )}
+                  </div>
+                  {meta.length > 0 && (
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
                       {meta.join(' · ')}
                     </div>
-                  ) : null;
-                })()}
-                {(r.question || r.description) && (
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: '8px 0 0' }}>
-                    {r.question || r.description}
-                  </p>
-                )}
-              </div>
-
-              {canReview && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                  <select className="form-input" value={r.status || ''}
-                    onChange={(e) => setStatus(r, e.target.value)}
-                    style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto' }}>
-                    {Object.entries(cfg.statuses).map(([v, [label]]) => (
-                      <option key={v} value={v}>{label}</option>
-                    ))}
-                  </select>
-                  <button className="secondary-btn" title="Remove" onClick={() => remove(r)}
-                    style={{ padding: 6 }}>
-                    <Trash2 size={14} />
-                  </button>
+                  )}
+                  {(r.question || r.description) && (
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: '8px 0 0' }}>
+                      {r.question || r.description}
+                    </p>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}
+                  onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                  {canReview && (
+                    <HoldButton label="Remove" doneLabel="Removed" holdMs={HOLD_RECORD_MS} size="sm"
+                      onConfirm={() => api.deleteConstructionRegisterItem(kind, r.id).then(changed)}
+                      fallbackMessage={`Remove this ${cfg.noun.toLowerCase()}? It stays on any report that already printed it.`} />
+                  )}
+                  <ChevronRight size={16} style={{ color: 'var(--text-secondary)' }} aria-hidden="true" />
+                </div>
+              </div>
+            );
+          })}
         </div>
+      )}
+
+      {openRow && (
+        <RegisterSheet kind={kind} row={openRow} canReview={canReview} today={today} people={people}
+          myEmail={String(myEmail || '').toLowerCase()}
+          onClose={() => setOpenRow(null)}
+          onSaved={() => { setOpenRow(null); changed(); }}
+          onRemoved={() => { setOpenRow(null); changed(); }} />
       )}
     </div>
   );

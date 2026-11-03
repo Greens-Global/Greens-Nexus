@@ -325,6 +325,15 @@ def _time_off_pending(db: Session, user: dict, email: str) -> int:
 # /kpis feed. Each module block is `safe`-guarded independently so one wrong
 # query (a bad status string, a renamed column) degrades that one card to
 # zeros instead of blanking the whole board - same defensive shape as /kpis.
+def _construction_pids(db: Session, scope) -> list:
+    """The construction projects a company scope admits (11/03/2026): its
+    companies' jobs, and the untagged ones ('') only for an unwalled caller -
+    auth.company_ok, the wall routers/construction.py reads."""
+    return [p.id for p in db.query(models.ConstructionProject.id, models.ConstructionProject.company_id)
+            .filter(models.ConstructionProject.deleted_at == "").all()
+            if auth.company_ok(p.company_id or "", scope)]
+
+
 def _safe_insight(modules: list, mod_id: str, label: str, nav: str, fn):
     try:
         block = fn()
@@ -570,17 +579,27 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         _safe_insight(modules, "it", "IT", "it", it_block)
 
         def construction_block():
-            proj = db.query(M.ConstructionProject).filter(M.ConstructionProject.deleted_at == "")
+            # Company walls (11/03/2026): only the caller's companies' jobs
+            # (ConstructionProject.company_id; '' only for an unwalled caller).
+            pids = _construction_pids(db, _cscope)
+            proj = db.query(M.ConstructionProject).filter(M.ConstructionProject.deleted_at == "",
+                                                          M.ConstructionProject.id.in_(pids or [""]))
             active = proj.filter(M.ConstructionProject.status == "active").count()
             on_hold = proj.filter(M.ConstructionProject.status == "on_hold").count()
             logs_pending = db.query(M.ConstructionDailyLog).filter(
-                M.ConstructionDailyLog.status == "submitted", M.ConstructionDailyLog.deleted_at == "").count()
+                M.ConstructionDailyLog.status.in_(["submitted", "processed"]), M.ConstructionDailyLog.deleted_at == "",
+                M.ConstructionDailyLog.project_id.in_(pids or [""])).count()
             overdue_rfis = db.query(M.ConstructionRfi).filter(
-                M.ConstructionRfi.status == "open", M.ConstructionRfi.due_on != "", M.ConstructionRfi.due_on < today).count()
+                M.ConstructionRfi.status == "open", M.ConstructionRfi.due_on != "", M.ConstructionRfi.due_on < today,
+                M.ConstructionRfi.deleted_at == "", M.ConstructionRfi.project_id.in_(pids or [""])).count()
             pending_submittals = db.query(M.ConstructionSubmittal).filter(
-                M.ConstructionSubmittal.status.in_(["pending", "submitted"]), M.ConstructionSubmittal.deleted_at == "").count()
-            at_risk_milestones = db.query(M.ConstructionMilestone).filter(
-                M.ConstructionMilestone.status.in_(["at_risk", "missed"]), M.ConstructionMilestone.deleted_at == "").count()
+                M.ConstructionSubmittal.status.in_(["pending", "submitted"]), M.ConstructionSubmittal.deleted_at == "",
+                M.ConstructionSubmittal.project_id.in_(pids or [""])).count()
+            # One source (Neil, 11/03/2026): the jobs' task-project milestones
+            # past due or due within a week - construction_tasks.risky_milestones.
+            import construction_tasks
+            at_risk_milestones = len(construction_tasks.risky_milestones(
+                db, proj.filter(M.ConstructionProject.status.in_(["active", "on_hold"])).all()))
             return {
                 "stats": [
                     {"key": "active_projects", "label": "Active Projects", "value": active, "tone": "good"},
@@ -597,6 +616,8 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         _safe_insight(modules, "construction", "Construction", "ops", construction_block)
 
         def asset_block():
+            from routers.maintenance import rollup_rows
+            pm = rollup_rows(db, user)
             total_props = db.query(M.PropertyAsset).filter(M.PropertyAsset.parent_id == "").count()
             # Warranties/inspections live as generic {collection, payload} rows
             # (see routers/property_assets.py) - same date fields and windows
@@ -614,6 +635,9 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
                     {"key": "total_properties", "label": "Properties", "value": total_props, "tone": "neutral"},
                     {"key": "warranties_expiring", "label": "Warranties Expiring (90d)", "value": warranties_expiring, "tone": "warning"},
                     {"key": "inspections_due", "label": "Inspections Due (30d)", "value": inspections_due, "tone": "critical"},
+                    # Preventive maintenance (11/03/2026): overdue preventive
+                    # tickets, walled - the roll-up the Tickets desk reads.
+                    {"key": "pm_overdue", "label": "Preventive Overdue", "value": pm["overdue"], "tone": "critical"},
                 ],
                 "breakdown": [],
             }
@@ -722,7 +746,12 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
                 s["drill"] = s["key"] in DRILLABLE.get(m["id"], ())
         return {"modules": [m for m in modules if m["stats"] or m["breakdown"] or m.get("table") or m.get("trend") or m.get("funnel")]}
 
-    out = cache.dashboard_insights.get_or_load((), _compute)
+    # Keyed on the viewer's company wall (11/03/2026): every walled block
+    # (tasks, tickets, requisitions, inventory, forms, construction) reads
+    # auth.company_scope, so viewers with the same scope share one entry and a
+    # viewer in another company never gets the first loader's numbers.
+    key = (auth.scope_key(auth.company_scope(user, db)),)
+    out = cache.dashboard_insights.get_or_load(key, _compute)
     return {**out, "at": _now()}
 
 
@@ -755,7 +784,7 @@ DRILLABLE = {
     "forms": {"entries_7d", "follow_up_open"},
     "it": {"warranties_expiring", "hw_unassigned"},
     "construction": {"logs_pending", "overdue_rfis", "pending_submittals", "at_risk_milestones"},
-    "asset_management": {"warranties_expiring", "inspections_due"},
+    "asset_management": {"warranties_expiring", "inspections_due", "pm_overdue"},
     "people": {"open_candidates", "interviews_7d", "leave_pending", "docs_expiring"},
     "credential_vault": {"weak", "rotation_overdue", "pending_shares"},
 }
@@ -941,21 +970,30 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
         raise HTTPException(404, "No breakdown for this metric")
 
     if module == "construction":
+        pids = _construction_pids(db, _cscope) or [""]
         if metric == "logs_pending":
-            rows = db.query(M.ConstructionDailyLog).filter(M.ConstructionDailyLog.status == "submitted", M.ConstructionDailyLog.deleted_at == "").all()
+            rows = db.query(M.ConstructionDailyLog).filter(M.ConstructionDailyLog.status.in_(["submitted", "processed"]), M.ConstructionDailyLog.deleted_at == "",
+                                                           M.ConstructionDailyLog.project_id.in_(pids)).all()
             return _by_person(db, [r.author_email for r in rows], "Logs Pending Review by Author")
         projects = {p.id: p.name for p in db.query(M.ConstructionProject.id, M.ConstructionProject.name).all()}
         if metric == "overdue_rfis":
-            rows = db.query(M.ConstructionRfi).filter(M.ConstructionRfi.status == "open", M.ConstructionRfi.due_on != "", M.ConstructionRfi.due_on < today).order_by(M.ConstructionRfi.due_on).all()
+            rows = db.query(M.ConstructionRfi).filter(M.ConstructionRfi.status == "open", M.ConstructionRfi.due_on != "", M.ConstructionRfi.due_on < today,
+                                                      M.ConstructionRfi.deleted_at == "", M.ConstructionRfi.project_id.in_(pids)).order_by(M.ConstructionRfi.due_on).all()
             items = [(r.subject or r.number, f"{projects.get(r.project_id, '')} · due {_us(r.due_on)}") for r in rows]
             return _list(items, "Overdue RFIs")
         if metric == "pending_submittals":
-            rows = db.query(M.ConstructionSubmittal).filter(M.ConstructionSubmittal.status.in_(["pending", "submitted"]), M.ConstructionSubmittal.deleted_at == "").all()
+            rows = db.query(M.ConstructionSubmittal).filter(M.ConstructionSubmittal.status.in_(["pending", "submitted"]), M.ConstructionSubmittal.deleted_at == "",
+                                                            M.ConstructionSubmittal.project_id.in_(pids)).all()
             items = [(r.title or r.number, projects.get(r.project_id, '')) for r in rows]
             return _list(items, "Pending Submittals")
         if metric == "at_risk_milestones":
-            rows = db.query(M.ConstructionMilestone).filter(M.ConstructionMilestone.status.in_(["at_risk", "missed"]), M.ConstructionMilestone.deleted_at == "").order_by(M.ConstructionMilestone.target_date).all()
-            items = [(r.name, f"{projects.get(r.project_id, '')} · {r.status}") for r in rows]
+            import construction_tasks
+            jobs = db.query(M.ConstructionProject).filter(M.ConstructionProject.id.in_(pids or [""]),
+                                                          M.ConstructionProject.deleted_at == "",
+                                                          M.ConstructionProject.status.in_(["active", "on_hold"])).all()
+            words = {"missed": "Missed", "at_risk": "At Risk"}
+            items = [(t.title or "Milestone", f"{job.name} · {words[state]} · due {_us(t.due_on)}")
+                     for job, t, state in construction_tasks.risky_milestones(db, jobs)]
             return _list(items, "At-Risk Milestones")
         raise HTTPException(404, "No breakdown for this metric")
 
@@ -979,6 +1017,12 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
                     items.append(((r.payload or {}).get("type") or "Inspection", f"{props.get(r.property_id, '')} · {_us(due)}"))
             items.sort(key=lambda r: r[1])
             return _list(items, "Inspections Due")
+        if metric == "pm_overdue":
+            from routers.maintenance import rollup_rows
+            rows = [o for o in rollup_rows(db, user)["properties"] if o["overdue"]]
+            items = [(o["propertyName"], f"{o['overdue']} overdue · oldest due {_us(o['oldestOverdue'])}")
+                     for o in rows]
+            return _list(items, "Preventive Overdue by Property")
         raise HTTPException(404, "No breakdown for this metric")
 
     if module == "people":

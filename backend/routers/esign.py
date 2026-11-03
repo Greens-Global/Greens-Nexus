@@ -3261,6 +3261,18 @@ def _link_hook(event: str, db: Session, req: HrSignRequest, *args) -> None:
               "completed": perf_reviews.on_completed}.get(event)
         if fn:
             perf_reviews.safe(fn, db, req, *args)
+    elif kind in ("change_order", "owner_signoff"):
+        # Construction (Neil, 11/03/2026, phase 3): a change order the owner or
+        # client signs (construction_changes.py - signing moves the job's
+        # contract value and finish) and the owner's sign-off on substantial
+        # completion (construction_closeout.py).
+        import construction_changes
+        import construction_closeout
+        mod = construction_changes if kind == "change_order" else construction_closeout
+        fn = {"declined": mod.on_declined, "voided": mod.on_voided, "completed": mod.on_completed,
+              "expired": getattr(mod, "on_expired", None)}.get(event)
+        if fn:
+            mod.safe(fn, db, req, *args)
     elif kind == "kb_policy":
         # A Knowledge Base policy signed through Nexus Sign (kb_policy_sign.py, Oct 29 2026).
         import kb_policy_sign

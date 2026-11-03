@@ -42,9 +42,13 @@ def _data(**kw):
 
 class SectionSetTests(unittest.TestCase):
     def test_the_four_sections_of_the_sample(self):
-        self.assertEqual([k for k, _ in cr.SECTIONS],
+        """The sample's four lead; the real-health sections (11/03/2026,
+        phase 3) follow them, all assembled from rows."""
+        self.assertEqual([k for k, _ in cr.SECTIONS][:4],
                          ["summary_of_progress", "rfis_and_submittals",
                           "cost_exposures", "critical_milestones"])
+        self.assertEqual([k for k, _ in cr.SECTIONS][4:],
+                         ["job_health", "punch_list", "change_orders", "weather_and_delays"])
 
     def test_only_the_progress_summary_is_model_written(self):
         """A milestone date or an RFI number restated by a model is a
@@ -70,8 +74,24 @@ class AssembleTests(unittest.TestCase):
             rfis=[_rfi("33-RIML", "Grease Interceptor Change")],
             submittals=[_sub("131100-1-RIML", "Pool Equipment")]), {})
         lines = s["rfis_and_submittals"]["text"].split("\n")
-        self.assertEqual(lines[0], "RFI# 33-RIML- Grease Interceptor Change")
+        # An open RFI carries its status and age (11/03/2026, phase 3).
+        self.assertTrue(lines[0].startswith("RFI# 33-RIML- Grease Interceptor Change (Open, "), lines[0])
+        self.assertIn("days open", lines[0])
         self.assertEqual(lines[1], "Submittal-131100-1-RIML-Pool Equipment")
+
+    def test_open_rfis_lead_oldest_first_with_overdue_said(self):
+        today = "2026-11-10"
+        old = _rfi("1", "Old")
+        old.submitted_on, old.due_on = "2026-10-01", "2026-10-15"
+        new = _rfi("2", "New")
+        new.submitted_on = "2026-11-08"
+        done = _rfi("3", "Done", status="answered")
+        d = _data(rfis=[done, new, old])
+        d["today"] = today
+        lines = cr.assemble(None, types.SimpleNamespace(name="P"), d, {})["rfis_and_submittals"]["text"].split("\n")
+        self.assertEqual(lines[0], "RFI# 1- Old (Open, 40 days open, overdue since 10/15/2026)")
+        self.assertEqual(lines[1], "RFI# 2- New (Open, 2 days open)")
+        self.assertEqual(lines[2], "RFI# 3- Done (Answered)")
 
     def test_a_void_rfi_is_not_printed(self):
         s = cr.assemble(None, types.SimpleNamespace(name="P"), _data(
@@ -102,20 +122,20 @@ class AssembleTests(unittest.TestCase):
 
 class MilestoneLineTests(unittest.TestCase):
     def test_matches_the_samples_shape(self):
-        """'All columns complete 6/30' - what, then when."""
+        """'All columns complete 06/30/2026' - what, then when, in MM/DD/YYYY
+        (11/03/2026: US formats everywhere)."""
         self.assertEqual(cr._milestone_line(_ms("All columns complete", "2026-06-30")),
-                         "All columns complete 6/30")
+                         "All columns complete 06/30/2026")
 
     def test_actual_date_wins_over_target(self):
         """A hit milestone is reported by the day it landed, not the day it was
         aimed at."""
         self.assertEqual(
             cr._milestone_line(_ms("Slab pour", target="2026-07-14", actual="2026-07-19")),
-            "Slab pour 7/19")
+            "Slab pour 07/19/2026")
 
-    def test_a_different_year_is_shown(self):
-        line = cr._milestone_line(_ms("Framing", "2027-09-15"))
-        self.assertTrue(line.endswith("/27"), line)
+    def test_a_different_year_is_shown_in_full(self):
+        self.assertEqual(cr._milestone_line(_ms("Framing", "2027-09-15")), "Framing 09/15/2027")
 
     def test_a_milestone_with_no_date_still_prints(self):
         self.assertEqual(cr._milestone_line(_ms("Topping out")), "Topping out")

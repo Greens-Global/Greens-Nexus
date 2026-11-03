@@ -94,10 +94,56 @@ def viewable(prop, user) -> bool:
     return prop is not None and not ((prop.payload or {}).get("private") and not can_see_private(user))
 
 
-def is_listed(prop, user) -> bool:
-    """Offered in the ticket property picker / accepted as a link target."""
+_UNSET = object()
+
+
+def asset_scope(db, user):
+    """The caller's property-asset scope rows (nexus_access_scopes): None =
+    every asset, else the ids they are narrowed to - the rule
+    routers/property_assets._reach applies to the workspace."""
+    from auth import scoped_ids
+    return scoped_ids(((user or {}).get("email") or ""), "property-asset", db) if db is not None else None
+
+
+def in_scope(prop, allowed) -> bool:
+    return allowed is None or (prop is not None and prop.id in allowed)
+
+
+def is_listed(prop, user, db=None, allowed=_UNSET) -> bool:
+    """Offered in the ticket property picker / accepted as a link target.
+    With `db` (or a precomputed `allowed`), the caller's property-asset scope
+    rows narrow it too (review, 11/03/2026) - a person narrowed to some
+    properties never lists, links or scans another."""
+    if allowed is _UNSET:
+        allowed = asset_scope(db, user)
     return (viewable(prop, user) and not (prop.payload or {}).get("deleted")
-            and asset_kind(prop) == "property")
+            and asset_kind(prop) == "property" and in_scope(prop, allowed))
+
+
+def property_company(db, prop) -> str:
+    """The company (HrEntity id) a property belongs to, as far as Asset
+    Management says: its own `companyId`, else the HrEntity named like its
+    Operating Entity, else its asset manager's company; '' = unknown. A
+    preventive schedule's team must be of this company when it is known."""
+    if prop is None:
+        return ""
+    pl = prop.payload or {}
+    cid = str(pl.get("companyId") or "").strip()
+    if cid and db.get(models.HrEntity, cid) is not None:
+        return cid
+    entity = str(pl.get("entity") or "").strip().lower()
+    if entity:
+        for e in db.query(models.HrEntity).all():
+            if (e.name or "").strip().lower() == entity:
+                return e.id
+    mgr = manager_email(db, prop)
+    if mgr:
+        from sqlalchemy import func
+        emp = (db.query(models.NexusEmployee)
+               .filter(func.lower(models.NexusEmployee.work_email) == mgr).first())
+        if emp is not None and (emp.company or "").strip():
+            return emp.company.strip()
+    return ""
 
 
 def display_name(prop) -> str:
@@ -107,7 +153,7 @@ def display_name(prop) -> str:
 def require_linkable(db, property_id: str, user: dict):
     pid = (property_id or "").strip()
     prop = db.get(models.PropertyAsset, pid) if pid else None
-    if prop is None or not is_listed(prop, user):
+    if prop is None or not is_listed(prop, user, db):
         raise HTTPException(400, "That property is not available in Asset Management - pick another one.")
     return prop
 
@@ -184,6 +230,18 @@ def is_asset_editor(db, user: dict) -> bool:
     if user.get("level", 0) >= _LEVELS["administrator"]:
         return True
     return _grant_rank(db, user, "property-asset") >= _MODULE_LEVEL_RANK["editor"]
+
+
+def is_asset_reader(db, user: dict) -> bool:
+    """May open Asset Management at all (the property-asset viewer grant, or
+    an administrator) - what the scanned place sheet shows a ticket summary to."""
+    from auth import _LEVELS, _MODULE_LEVEL_RANK
+    user = user or {}
+    if user.get("external"):
+        return False
+    if user.get("level", 0) >= _LEVELS["administrator"]:
+        return True
+    return _grant_rank(db, user, "property-asset") >= _MODULE_LEVEL_RANK["viewer"]
 
 
 def may_follow(db, user: dict, prop) -> bool:

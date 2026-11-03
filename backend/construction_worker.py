@@ -26,16 +26,16 @@ THREE THINGS THIS HAD TO GET RIGHT, none of them obvious:
 """
 import asyncio
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 
 import construction_ai
 import models
 from database import SessionLocal
 from services import egnyte as egnyte_svc
 from services import construction_storage as storage
-from routers.files import fetchable_url
 import job_switch
 
 # Distinct from asana_sync's 728100177 - see note 1 above.
@@ -87,8 +87,11 @@ def _file_one(db, media) -> None:
     project = (db.query(models.ConstructionProject)
                .filter(models.ConstructionProject.id == media.project_id).first())
     log = (db.query(models.ConstructionDailyLog)
-           .filter(models.ConstructionDailyLog.id == media.daily_log_id).first())
-    if not project or not log:
+           .filter(models.ConstructionDailyLog.id == media.daily_log_id).first()) if media.daily_log_id else None
+    # A job photo (no daily log - the photo timeline, a punch Done photo, an
+    # attached Mark Up; 11/03/2026) files under the day it was taken.
+    day = log.log_date if log else ((media.taken_at or media.uploaded_at or "")[:10])
+    if not project or (media.daily_log_id and not log) or not day:
         raise ValueError("media has no project or daily log")
     if not media.url:
         raise ValueError("media has no source URL to fetch")
@@ -103,14 +106,17 @@ def _file_one(db, media) -> None:
 
     # The bytes live in Supabase. Pull them back rather than asking the phone to
     # upload twice - the worker has bandwidth, the jobsite does not.
+    # storage.fetch_url refuses anything that is not this job's own object in
+    # construction-media (11/03/2026): the link came from a browser.
+    src = storage.fetch_url(media)
     with httpx.Client(timeout=_DOWNLOAD_TIMEOUT) as c:
-        resp = c.get(fetchable_url(media.url))   # private bucket: signed URL
+        resp = c.get(src)   # private bucket: signed URL
         resp.raise_for_status()
         raw = resp.content
     if not raw:
         raise ValueError("source object is empty")
 
-    folder = storage.daily_log_folder(_project_folder(db, project), log.log_date)
+    folder = storage.daily_log_folder(_project_folder(db, project), day)
     name = storage.media_filename(
         uploaded_by=media.uploaded_by or "", taken_at=media.taken_at or "",
         uploaded_at=media.uploaded_at or "", kind=media.kind,
@@ -190,8 +196,13 @@ def _derive_thumbnail(db, media) -> None:
     # bucket, which is precisely what is absent when a row ends up inline.
     if storage.is_inline(media.url):
         return
+    # The thumbnail is written beside its own validated object, never at a
+    # path a client chose (11/03/2026).
+    if not storage.path_ok(media.storage_path or "", media.project_id or ""):
+        raise ValueError("media has no valid storage path for a thumbnail")
+    src = storage.fetch_url(media)
     with httpx.Client(timeout=_DOWNLOAD_TIMEOUT) as c:
-        resp = c.get(fetchable_url(media.url))   # private bucket: signed URL
+        resp = c.get(src)   # private bucket: signed URL
         resp.raise_for_status()
         raw = resp.content
 
@@ -210,6 +221,8 @@ def _derive_thumbnail(db, media) -> None:
     img.save(buf, format="JPEG", quality=storage.THUMBNAIL_QUALITY, optimize=True)
 
     path = storage.thumbnail_path(media.storage_path or "")
+    if not storage.path_ok(path, media.project_id or ""):
+        raise ValueError("thumbnail path is outside the job's folder")
     media.thumbnail_url = _supabase_put(path, buf.getvalue(), "image/jpeg")
 
 
@@ -299,7 +312,7 @@ def _run_ai_job(db, job) -> None:
         # The model fetches the URL itself, so it gets a signed one: the
         # bucket is private and the canonical URL answers it with an error.
         out = construction_ai.caption_photo(
-            url=m.url if raw is not None else fetchable_url(m.url or ""),
+            url=m.url if raw is not None else storage.fetch_url(m),
             mime_type=m.mime_type or "", raw=raw,
             worker_note=m.description or "")
         m.ai_caption = (out.get("caption") or "")[:500]
@@ -356,6 +369,35 @@ def _run_ai_job(db, job) -> None:
     raise ValueError(f"unknown job kind {job.kind!r}")
 
 
+AI_KINDS = ("media_caption", "log_summarize")
+
+
+def skip_ai_jobs(db=None) -> int:
+    """Mark every queued AI job skipped - for when AI is off, so they can
+    never run (ai_switch). Never deletes: the rows stay as the history of what
+    was asked. A log a summary job was holding at 'submitted' is already
+    ready for review (submitted IS ready). Returns how many. Commits."""
+    own = db is None
+    db = db or SessionLocal()
+    try:
+        rows = (db.query(models.ConstructionAIJob)
+                .filter(models.ConstructionAIJob.status == "queued",
+                        models.ConstructionAIJob.kind.in_(AI_KINDS)).all())
+        for j in rows:
+            j.status, j.finished_at = "skipped", _now()
+            j.error = "AI is off on this server - nothing to run."
+        if rows:
+            db.commit()
+        return len(rows)
+    except Exception as e:
+        db.rollback()
+        print(f"[construction] skipping AI jobs failed: {e}")
+        return 0
+    finally:
+        if own:
+            db.close()
+
+
 def run_ai_jobs_once() -> dict:
     """Drain queued AI jobs whose dependencies are done.
 
@@ -365,6 +407,10 @@ def run_ai_jobs_once() -> dict:
     if job_switch.off("construction_ai"):   # Workflows > Automations switch
         return {"done": 0, "failed": 0, "dead": 0, "skipped": 0, "blocked": 0}
     counts = {"done": 0, "failed": 0, "dead": 0, "skipped": 0, "blocked": 0}
+    # AI off (ai_switch): the AI kinds can never run, so they are marked
+    # skipped instead of sitting at 'queued' forever (11/03/2026).
+    if not construction_ai.configured():
+        counts["skipped"] += skip_ai_jobs()
     # Two independent integrations, so two independent gates. Running thumbnails
     # only when the Anthropic key happens to be set would make the grid's
     # performance depend on a setting that has nothing to do with it.
@@ -436,18 +482,21 @@ def _model_weekday(d: date) -> int:
     """ConstructionProject counts 0=Sunday..6=Saturday; Python counts
     Monday=0..Sunday=6. Getting this backwards would cut every draft on the
     wrong day, quietly."""
-    return (d.weekday() + 1) % 7
+    import construction_company
+    return construction_company.model_weekday(d)
 
 
 def week_start_for(d: date, week_starts_on: int) -> date:
     """The start of the week `d` falls in, for a project whose week begins on
     `week_starts_on`. Crews run Sun-Sat or Mon-Sun depending on the payroll week
-    the superintendent already thinks in, so this is per project, not global."""
-    back = (_model_weekday(d) - (week_starts_on or 0)) % 7
-    return d - timedelta(days=back)
+    the superintendent already thinks in, so this is per project, not global.
+    ONE rule (11/03/2026): construction_company.week_start_for, which the
+    Generate button's endpoint reads too."""
+    import construction_company
+    return construction_company.week_start_for(d, week_starts_on)
 
 
-def cut_due_drafts(today: date = None) -> dict | None:
+def cut_due_drafts(today: date = None, now: datetime = None) -> dict | None:
     """Draft this week's report for every project whose report day is today.
 
     The draft covers the week IN PROGRESS - a Friday cut on a Mon-Sun project
@@ -458,11 +507,18 @@ def cut_due_drafts(today: date = None) -> dict | None:
     Idempotent by existence, not by a timestamp: a project that already has a
     report row for this week_start is skipped. That is what makes a restart, a
     second tick in the same minute, or a manager who drafted it early all safe,
-    with no extra state to keep correct."""
-    if job_switch.off("construction_ai"):   # Workflows > Automations switch
-        return None
+    with no extra state to keep correct.
+
+    Each project's day is its JOBSITE's day (construction_company.local_today,
+    11/03/2026) - a Friday cut is the Friday on site, not in UTC - so `today`
+    (a test's fixed date) applies to every project only when given.
+
+    The construction_ai switch (Workflows > Automations) stops the MODEL, not
+    the report: with it off, or AI off on the server, the draft is still cut,
+    written without AI (construction_report.draft_offline)."""
+    import construction_company
+    use_ai = not job_switch.off("construction_ai")
     counts = {"cut": 0, "skipped": 0, "failed": 0}
-    today = today or datetime.now(timezone.utc).date()
     db = SessionLocal()
     try:
         _acquire_sweep_lock(db)   # same lock as the sweep: one worker cuts drafts
@@ -471,9 +527,14 @@ def cut_due_drafts(today: date = None) -> dict | None:
                             models.ConstructionProject.archived == False,  # noqa: E712
                             models.ConstructionProject.deleted_at == "").all())
         for p in projects:
-            if _model_weekday(today) != (p.report_day if p.report_day is not None else 5):
+            day = today or construction_company.local_today(db, p, now)
+            if _model_weekday(day) != (p.report_day if p.report_day is not None else 5):
                 continue
-            ws = week_start_for(today, p.week_starts_on or 0).isoformat()
+            ws = week_start_for(day, construction_company.week_starts(p)).isoformat()
+            # The lock is transaction-scoped and every project commits, so it
+            # is taken again for each one: two workers never both pass the
+            # existence check for the same project (review, 11/03/2026).
+            _acquire_sweep_lock(db)
             existing = (db.query(models.ConstructionWeeklyReport)
                         .filter(models.ConstructionWeeklyReport.project_id == p.id,
                                 models.ConstructionWeeklyReport.week_start == ws,
@@ -487,10 +548,15 @@ def cut_due_drafts(today: date = None) -> dict | None:
                 # The same generator the Generate button calls. A second drafting
                 # path would drift from it - the mistake CLAUDE.md records
                 # against the Asana sync's two inbound paths.
-                r = construction_report.generate(db, p, ws, "system")
+                r = construction_report.generate(db, p, ws, "system", use_ai=use_ai)
                 construction_notify.draft_cut(db, p, r)
                 db.commit()
                 counts["cut"] += 1
+            except IntegrityError:
+                # Another worker cut this week a moment ago (the unique
+                # project/week/version index): theirs stands.
+                db.rollback()
+                counts["skipped"] += 1
             except Exception as e:
                 db.rollback()
                 # A model outage must not stop the next project being drafted,
@@ -518,11 +584,12 @@ async def construction_sweep_loop() -> None:
         try:
             await asyncio.to_thread(sweep_once)
             await asyncio.to_thread(run_ai_jobs_once)
-            # Once a day, not every minute: the work is a model call per project
-            # and the existence check would otherwise re-run 1440 times to do
-            # nothing. The date string is the guard, so a restart re-checks today
-            # exactly once more - which the existence check absorbs.
-            today = datetime.now(timezone.utc).date().isoformat()
+            # Once an hour, not every minute: each project's report day is its
+            # jobsite's own day (11/03/2026), which starts at a different UTC
+            # hour per zone, so a once-a-UTC-day check would cut a Pacific
+            # site's Friday draft on Thursday evening or miss it. The existence
+            # check makes every later pass in the same week do nothing.
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
             if today != last_draft_day:
                 cut = await asyncio.to_thread(cut_due_drafts)
                 # Switched off (None) = not done today: a switch flipped back on

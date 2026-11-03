@@ -54,6 +54,7 @@ import { isSearchShortcut, isPhone } from '../lib/keys';
 import { useBuildModeMenu, BuildModeChip } from '../devnotes/BuildModeChip';   // Build Mode (Oct 24 2026)
 import { ToolsSection, ActAsFinder } from './ToolsMenu';   // profile menu Tools (Oct 25 2026)
 import { useActionCounts } from '../lib/useActionCounts';
+import { clearOfflineReadCache } from '../lib/offline/read';
 
 const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
 
@@ -262,10 +263,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     if (e.key === 'Enter' && search.rows[activeIdx]) { e.preventDefault(); pickSearch(search.rows[activeIdx]); }
   }
 
-  function handleSignOut() {
+  async function handleSignOut() {
     // BFF mode: there is no MSAL session to end - kill the server session and
     // clear the cookie via /api/auth/logout instead.
     if (BFF_MODE) { bffLogout(); return; }
+    // The phone's offline copy goes before the redirect can cut it off (field offline, 11/03/2026).
+    await clearOfflineReadCache();
     instance.logoutRedirect({
       account,
       postLogoutRedirectUri: window.location.origin + window.location.pathname,

@@ -778,6 +778,11 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
         recipients = _recipients_for(db, t, event_type, cfg)
         if not requester_hears(event_type, actor_email, t.requester_email or "", kw):
             recipients = [(e, r) for e, r in recipients if r != "requester"]
+        # A preventive ticket's requester is the schedule's keeper, not someone
+        # who asked for help (review L1, 11/03/2026): no receipt, no resolved
+        # mail, no satisfaction survey - the property's Maintenance tab is theirs.
+        if (getattr(t, "source", "") or "") == "preventive":
+            recipients = [(e, r) for e, r in recipients if r != "requester"]
         # only_roles: caller wants a subset (e.g. decide_approval re-queues
         # "created" for just the IT Admins after releasing the approval gate,
         # without re-emailing the requester their submission receipt).
