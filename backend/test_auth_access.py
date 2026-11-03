@@ -50,6 +50,7 @@ KNOWN_PUBLIC = {
     "/unit-map/t/{token}",                 # customer unit map (/find/<token>): HMAC-signed {model, unit}; one unit + geometry, never occupancy (routers/unit_map.py)
     "/unit-map/u",                         # Cubby template link: per-facility HMAC key -> the signed token; same customer view
     "/branding/config",                    # login screen needs it pre-auth
+    "/policy/privacy-notice",              # the public /privacy page, linked from the login screen (legal pass, 11/02/2026)
     "/stepup/config",                      # same posture
     # Boot-failure beacon from public/guard.js: fired while the app cannot
     # load, by a user who usually has no session. Per-IP throttled, every

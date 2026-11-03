@@ -10,6 +10,7 @@
 // the same words from the same box only once per session.
 import { useEffect } from 'react';
 import { api } from '../api';
+import { detectCrisis } from '../lib/crisisSupport';
 
 export const MISS_PAUSE_MS = 1500;
 // Which search box a logged search came from (kb_search_log.source).
@@ -20,6 +21,9 @@ const sent = new Set();
 export function logHelpSearch(q, results, source) {
   const text = String(q || '').trim();
   if (text.length < 3) return;
+  // Crisis support (11/02/2026): never log words that express suicidal
+  // intent or self-harm (the server refuses them too, kb_search.log_miss).
+  if (detectCrisis(text)) return;
   const key = `${source}|${text.toLowerCase()}`;
   if (sent.has(key)) return;
   sent.add(key);
@@ -37,7 +41,7 @@ export function logHelpSearch(q, results, source) {
 export function useSearchMissLogger(q, results, ready = true) {
   useEffect(() => {
     const text = String(q || '').trim();
-    if (!ready || results > 0 || text.length < 3) return undefined;
+    if (!ready || results > 0 || text.length < 3 || detectCrisis(text)) return undefined;
     const t = setTimeout(() => logHelpSearch(text, 0, 'help'), MISS_PAUSE_MS);
     return () => clearTimeout(t);
   }, [q, results, ready]);

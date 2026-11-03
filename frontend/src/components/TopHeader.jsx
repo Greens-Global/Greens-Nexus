@@ -7,6 +7,7 @@ import { HeaderOverflowTabs, TabGroupButton, useHeaderTabs } from "./ModuleTabs"
 import TabInk from "./TabInk";
 import MyProfileModal from "./MyProfileModal";
 import QuickCreate from "./QuickCreate";   // the "+" Create menu (Oct 29 2026)
+import { readStopEmail, setPendingEmailStop } from "../lib/emailStop";
 
 // ?emailSettings=1 - the "Email Settings" link in task emails; it opens
 // Profile on its Email Settings section (Neil, Oct 13 2026). Read when this
@@ -20,6 +21,10 @@ function _profileLinkFromUrl() {
   if (typeof window === 'undefined') return '';
   const q = new URLSearchParams(window.location.search);
   if (q.get('emailSettings') === '1') return 'email';
+  // ?stopEmail=<kind>: a digest's "Stop These Emails" link (11/02/2026,
+  // lib/emailStop.js) - Profile opens on the email section and turns it off.
+  const stop = readStopEmail(window.location.search);
+  if (stop) { setPendingEmailStop(stop); return 'email'; }
   const section = q.get('profile') || '';
   return /^[a-z]+$/.test(section) ? section : '';
 }
@@ -29,8 +34,8 @@ function takeProfileLink() {
   const section = PROFILE_LINK;
   PROFILE_LINK = '';
   const q = new URLSearchParams(window.location.search);
-  if (q.has('emailSettings') || q.has('profile')) {
-    q.delete('emailSettings'); q.delete('profile');
+  if (q.has('emailSettings') || q.has('profile') || q.has('stopEmail')) {
+    q.delete('emailSettings'); q.delete('profile'); q.delete('stopEmail');
     const rest = q.toString();
     window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
   }

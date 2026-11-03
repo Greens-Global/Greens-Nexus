@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { crisisCheck } from '../lib/crisisSupport';
 import {
   User, Phone, Mail, Heart, Building2, CalendarDays, MapPin, Network,
   FileText, Download, CalendarOff, Pencil, Check, X, BadgeCheck,
@@ -430,6 +431,9 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
 
   const submitAsk = async () => {
     if (!askForm.message.trim()) return;
+    // Crisis support (11/02/2026): resources card first when the message
+    // expresses suicidal intent or self-harm; the request is still sent.
+    await crisisCheck(askForm.message);
     setAskBusy(true);
     try {
       // Filed as an HR ticket; the file goes on it through the ticket upload

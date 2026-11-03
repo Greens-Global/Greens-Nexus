@@ -12,6 +12,7 @@ import { api } from '../api';
 import { guideFor, openSource } from './askNexusSources';
 import { logHelpSearch } from './helpLog';
 import HelpFeedback from './HelpFeedback';
+import { detectCrisis, showCrisisSupport } from '../lib/crisisSupport';
 
 const BRAND = 'var(--wk-brand, #2b45e1)';
 
@@ -98,10 +99,22 @@ export default function AskNexus({ question, allow, onFileTicket, onOpened, styl
     if (!q) return undefined;
     const mine = ++seq.current;
     setRes(null); setError('');
+    // Crisis support (11/02/2026): a question that expresses suicidal intent
+    // or self-harm gets the resources card and no answer; the server makes
+    // the same check and never generates one either (crisis_support.py).
+    if (detectCrisis(q)) {
+      setRes({ answer: '', sources: [], crisis: true });
+      showCrisisSupport();
+      return undefined;
+    }
     let guide;
     try { guide = guideFor(q, allow); } catch { guide = []; }
     api.helpAsk(q, guide)
-      .then((r) => { if (seq.current === mine) setRes(r || { answer: '', sources: [] }); })
+      .then((r) => {
+        if (seq.current !== mine) return;
+        if (r?.crisis) showCrisisSupport({ resources: r.crisis.resources });
+        setRes(r?.crisis ? { answer: '', sources: [], crisis: true } : (r || { answer: '', sources: [] }));
+      })
       .catch((e) => {
         if (seq.current !== mine) return;
         setError(e?.status === 429 ? (e.message || 'You have asked a lot in the last hour. Try again later, or file a ticket.')
@@ -114,7 +127,7 @@ export default function AskNexus({ question, allow, onFileTicket, onOpened, styl
   const sources = (res?.sources || []).map((s, i) => ({ ...s, label: res?.offline ? '' : String(s.n || i + 1) }));
   const cite = (num) => sources.find((s) => Number(s.n) === num) || null;
   const answered = !!(res && !res.offline && res.answer);
-  const notCovered = !!(res && !res.offline && (!res.grounded || !res.answer));
+  const notCovered = !!(res && !res.offline && !res.crisis && (!res.grounded || !res.answer));
   // The offline fallback is still a question nobody answered.
   useEffect(() => { if (res?.offline) logHelpSearch(q, (res.sources || []).length, 'ask'); }, [res, q]);
 
@@ -156,7 +169,12 @@ export default function AskNexus({ question, allow, onFileTicket, onOpened, styl
       )}
 
       {answered && <div><AnswerText text={res.answer} cite={cite} open={(src) => { onOpened?.(); openSource(src); }} /></div>}
-      {res && !res.offline && !res.answer && (
+      {res?.crisis && (
+        <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5 }}>
+          If you are thinking about suicide or hurting yourself, you are not alone. In the US call or text 988; in India call Tele-MANAS at 14416. In an emergency call 911 (US) or 112 (India).
+        </div>
+      )}
+      {res && !res.offline && !res.crisis && !res.answer && (
         <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>The guides and the Knowledge Base do not cover this yet.</div>
       )}
 

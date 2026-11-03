@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { crisisCheck } from '../../lib/crisisSupport';
 import { MessageCircleQuestion } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate } from '../../lib/datetime';
@@ -153,7 +154,8 @@ export default function AskAccountantDialog({ line, onClose, onAsked }) {
     if (Object.keys(m).length) return;
     setBusy(true);
     setError('');
-    api.askAccountant({ ...line, question: question.trim(), accountant: chosen })
+    // Crisis support (11/02/2026): resources card first; the message still goes out.
+    crisisCheck(question).then(() => api.askAccountant({ ...line, question: question.trim(), accountant: chosen }))
       .then((t) => onAsked?.(t))
       .catch((err) => { setError(err?.message || 'Could not send the question.'); setBusy(false); });
   };
