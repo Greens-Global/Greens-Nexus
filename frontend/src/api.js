@@ -3540,3 +3540,14 @@ api.getItemTags = (ids) => req('/items/tags', { method: 'POST', body: JSON.strin
 // slots and answers their ids, which the Undo hands back to put them on the person.
 api.setOnSchedule = (email, on) => req('/timeclock/schedule/on-schedule', { method: 'PUT', body: JSON.stringify({ email, on: !!on }) });
 api.undoOffSchedule = (email, shiftIds) => req('/timeclock/schedule/on-schedule/undo', { method: 'POST', body: JSON.stringify({ email, shiftIds: shiftIds || [] }) });
+// Construction foundations (Neil, 11/03/2026; routers/construction.py): one
+// job (its health row, the project URL /construction/project:<id>), the Edit
+// Job sheet's save, the server's AI status (every AI chip hides while it is
+// off), the one way back from Approved (a reason on the record), a manager
+// removing a draft's photo (a reason), and the review queue for one jobsite.
+api.getConstructionProject = (projectId) => req(`/construction/projects/${encodeURIComponent(projectId)}`);
+api.updateConstructionProject = (projectId, data) => req(`/construction/projects/${encodeURIComponent(projectId)}`, { method: 'PATCH', body: JSON.stringify(data) });
+api.getConstructionMeta = () => cachedGet('/construction/meta', 300_000);
+api.reopenConstructionLog = (logId, reason) => req(`/construction/logs/${logId}/reopen`, { method: 'POST', body: JSON.stringify({ reason }) });
+api.removeConstructionMedia = (mediaId, reason = '') => req(`/construction/media/${mediaId}${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`, { method: 'DELETE' });
+api.getConstructionReviewQueueFor = (projectId) => req(`/construction/review-queue?project_id=${encodeURIComponent(projectId || '')}`);

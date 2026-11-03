@@ -292,17 +292,14 @@ def _section(ai_text: str, sources: list) -> dict:
 
 
 def _milestone_line(m) -> str:
-    """"All columns complete 6/30" - the sample's shape: what, then when.
+    """"All columns complete 06/30/2026" - the sample's shape: what, then when.
 
     Prefers the ACTUAL date once one is set, because a hit milestone is reported
-    by the day it landed, not the day it was aimed at."""
+    by the day it landed, not the day it was aimed at. Always MM/DD/YYYY
+    (11/03/2026 - US formats everywhere; "6/30/27" read as a typo)."""
     when = (m.actual_date or m.target_date or "").strip()
     if when:
-        try:
-            d = date.fromisoformat(when[:10])
-            when = f"{d.month}/{d.day}" + (f"/{str(d.year)[2:]}" if d.year != date.today().year else "")
-        except ValueError:
-            pass
+        when = _us(when)
     label = (m.name or "").strip() or "Unnamed milestone"
     return f"{label} {when}".strip()
 
@@ -358,17 +355,23 @@ def assemble(db, project, data: dict, ai: dict) -> dict:
     return s
 
 
-def generate(db, project, week_start: str, actor_email: str):
+def generate(db, project, week_start: str, actor_email: str, use_ai: bool = True):
     """Create or regenerate the draft for one week.
 
     A PUBLISHED report is never overwritten - regenerating produces a new version
-    that supersedes it, because an executive may already be holding a link to the
-    old one and silently changing what that link resolves to is how a report
-    stops being trustworthy."""
+    that will supersede it, because an executive may already be holding a link to
+    the old one and silently changing what that link resolves to is how a report
+    stops being trustworthy. The published one STAYS published (and visible to
+    its executives) until the new version is itself published - publish_report
+    marks it superseded then (11/03/2026); before, a regenerate hid the week's
+    report from everyone until a manager got round to publishing again.
+
+    `use_ai=False` (the construction_ai switch is off) writes the draft
+    without the model even when AI is on for the server."""
     data = gather(db, project, week_start)
     # No key is a first-class state, not an error - the row-derived three
     # quarters of this document do not need a model at all.
-    ai = draft(project, data) if configured() else draft_offline(project, data)
+    ai = draft(project, data) if (use_ai and configured()) else draft_offline(project, data)
     start, end = data["weekStart"], data["weekEnd"]
 
     existing = (db.query(models.ConstructionWeeklyReport)
@@ -378,20 +381,25 @@ def generate(db, project, week_start: str, actor_email: str):
                 .order_by(models.ConstructionWeeklyReport.version.desc()).first())
 
     from routers.construction import gen_id
+    from sqlalchemy import func
     now = _now()
-    if existing and existing.status == "published":
+    # A new row takes the next version past EVERY row of the week, removed
+    # ones included: (project, week, version) is unique (11/03/2026).
+    top = (db.query(func.max(models.ConstructionWeeklyReport.version))
+           .filter(models.ConstructionWeeklyReport.project_id == project.id,
+                   models.ConstructionWeeklyReport.week_start == start).scalar()) or 0
+    if existing and existing.status in ("published", "superseded"):
         r = models.ConstructionWeeklyReport(
             id=gen_id(), project_id=project.id, week_start=start, week_end=end,
-            version=(existing.version or 1) + 1, supersedes_id=existing.id,
+            version=top + 1, supersedes_id=existing.id,
             created_at=now)
         db.add(r)
-        existing.status = "superseded"
     elif existing:
         r = existing
     else:
         r = models.ConstructionWeeklyReport(
             id=gen_id(), project_id=project.id, week_start=start, week_end=end,
-            version=1, created_at=now)
+            version=top + 1, created_at=now)
         db.add(r)
 
     r.title = ai.get("title") or f"Week of {_us(start)}"
@@ -407,7 +415,7 @@ def generate(db, project, week_start: str, actor_email: str):
     r.recommendations = ai.get("recommendations") or []
     r.executive_summary = ai.get("executive_summary") or ""
     r.status = "draft"
-    r.ai_model = _MODEL if ai.get("source") != "fallback" else "fallback (no ANTHROPIC_API_KEY)"
+    r.ai_model = _MODEL if ai.get("source") != "fallback" else "fallback (no AI)"
     r.generated_by = actor_email
     r.generated_at = now
     r.modified_at = now

@@ -1473,6 +1473,11 @@ def _run_migrations():
             "ALTER TABLE nexus_person_prefs ADD COLUMN email_optouts VARCHAR DEFAULT ''",
             # On the Schedule (Neil, 11/03/2026) - see the Postgres list.
             "ALTER TABLE nexus_employees ADD COLUMN on_schedule INTEGER DEFAULT 1",
+            # Construction foundations (Neil, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE construction_projects ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_projects ADD COLUMN time_zone VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_daily_logs ADD COLUMN tags JSON DEFAULT '[]'",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_construction_reports_week_version ON construction_weekly_reports (project_id, week_start, version)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3533,6 +3538,18 @@ def _run_migrations():
         # Idempotency-Key the phone's outbox sends (backend/idempotency.py,
         # models.NexusIdempotencyKey; create_all makes the table). RLS per CLAUDE.md.
         "ALTER TABLE nexus_idempotency_keys ENABLE ROW LEVEL SECURITY",
+        # Construction foundations (Neil, 11/03/2026, plan
+        # https://claude.ai/artifact/B5jm924fPPQ85AEDjBoSHr): a job's company
+        # (the company wall; '' = unknown, filled at startup by
+        # construction_company.backfill), the jobsite's own time zone (from
+        # its forecast), and the tags the crew puts on a daily log (delay /
+        # safety / issue / weather). models.ConstructionProject / ConstructionDailyLog.
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS time_zone VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS tags JSON DEFAULT '[]'",
+        # One weekly report per project, week and version - two workers (or two
+        # Generate clicks) never both write the same version (review, 11/03/2026).
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_construction_reports_week_version ON construction_weekly_reports (project_id, week_start, version)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4324,6 +4341,29 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] weather department seed skipped: {e}")
+    # Construction foundations (Neil, 11/03/2026): place every job without a
+    # company in one, ONCE (its property's entity, else its creator's - the
+    # company wall; `python construction_company.py` is the read-only dry
+    # run), and, while AI is off, mark the AI jobs that can never run skipped
+    # (kept, never deleted).
+    try:
+        import construction_ai
+        import construction_company
+        import construction_worker
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            n = construction_company.backfill(db)   # once (its nexus_settings mark)
+            if n is not None:
+                print(f"[startup] construction: placed {n} job(s) in their company (one-time pass)")
+            if not construction_ai.configured():
+                k = construction_worker.skip_ai_jobs(db)
+                if k:
+                    print(f"[startup] construction: {k} queued AI job(s) skipped - AI is off")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] construction company backfill skipped: {e}")
 
 
 @asynccontextmanager

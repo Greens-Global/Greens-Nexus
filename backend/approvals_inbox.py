@@ -1512,23 +1512,29 @@ def _kb_reviews(db: Session, user: dict, ctx: dict) -> list:
 
 @source("construction_log_review", "Daily Log Reviews", "work")
 def _construction_logs(db: Session, user: dict, ctx: dict) -> list:
-    """Daily logs submitted on a jobsite where the caller is one of the
-    project's named managers (the people the "Daily Log Ready to Review"
-    bell goes to), still to approve - the review queue's statuses, and only
-    projects the caller may review (_may_review). Never the caller's own
-    log. A manager by role reviews any project on the review queue; only the
-    named ones are asked, so only theirs wait here."""
-    from routers.construction import _emails, _may_review, _visible_projects
+    """Daily logs submitted on a jobsite where the caller is one of its
+    reviewers (construction_notify.reviewers - the project's named managers,
+    else the manager tier of its company: exactly who the "Daily Log Ready to
+    Review" bell goes to), still to approve - the review queue's statuses,
+    and only projects the caller may review (_may_review, inside their
+    company wall). Never the caller's own log. A manager by role reviews any
+    project of their company on the review queue; only the reviewers are
+    asked, so only theirs wait here."""
+    import construction_ai
+    from construction_notify import reviewers
+    from routers.construction import _may_review, _tags, _visible_projects
     me = _me(user)
     if not me:
         return []
     P, L = models.ConstructionProject, models.ConstructionDailyLog
-    named = [p for p in db.query(P).filter(P.deleted_at == "").all() if me in _emails(p.manager_emails)]
+    named = [p for p in db.query(P).filter(P.deleted_at == "").all() if me in reviewers(db, p)]
     if not named:
         return []
-    projects = {p.id: p for p in _visible_projects(db, user) if p.id in {n.id for n in named} and _may_review(user, p)}
+    projects = {p.id: p for p in _visible_projects(db, user)
+                if p.id in {n.id for n in named} and _may_review(db, user, p)}
     if not projects:
         return []
+    ai_on = construction_ai.configured()
     out = []
     for lg in (db.query(L).filter(L.project_id.in_(sorted(projects)), L.status.in_(("submitted", "processed")),
                                   L.deleted_at == "").order_by(L.log_date).all()):
@@ -1536,18 +1542,22 @@ def _construction_logs(db: Session, user: dict, ctx: dict) -> list:
             continue
         p = projects[lg.project_id]
         who = (lg.author_email or "").lower()
-        flags = len(lg.ai_safety_flags or [])
+        # The crew's own tags (11/03/2026); the AI's words only while AI is on.
+        tags = ", ".join(t.title() for t in _tags(getattr(lg, "tags", None)))
+        flags = len(lg.ai_safety_flags or []) if ai_on else 0
         out.append(row("construction_log_review", lg.id, person_email=who, person_name=_name(db, ctx, who) if who else "",
                        title=f"Daily Log - {p.name} ({_us_day(lg.log_date)})",
-                       detail=_short(lg.ai_summary or lg.notes_raw or "") or "Read the log, then approve it or ask for more.",
+                       detail=_short((lg.ai_summary if ai_on else "") or lg.notes_raw or "")
+                       or "Read the log, then approve it or ask for more.",
                        created_at=lg.submitted_at or lg.created_at, actions=(a_open("Review"),),
-                       link={"view": "ops", "sub": "construction-dashboard"},
+                       link={"view": "ops", "sub": f"activity:{p.id}"},
                        facts=(("Jobsite", p.name or ""), ("Day", _us_day(lg.log_date)),
                               ("Crew", str(lg.crew_size) if lg.crew_size else ""),
                               ("Hours", f"{lg.hours_worked:g}" if lg.hours_worked else ""),
                               ("Weather", lg.weather or ""),
+                              ("Flagged", tags),
                               ("Safety Flags", str(flags) if flags else ""),
-                              ("AI Summary", "Still being read" if not lg.ai_processed_at else ""))))
+                              ("AI Summary", "Still being read" if ai_on and not lg.ai_processed_at else ""))))
     return out
 
 

@@ -13,42 +13,65 @@
 // The project picker is one searchable field rather than cards: getting here
 // means you already know which site you want, and a second grid of project
 // tiles would just be the dashboard again.
+//
+// 11/03/2026: the jobsite is in the URL (/construction/activity:<id> -
+// Operations.jsx), so "Open Site Activity" on a project and a bell land on
+// it; the review queue shows only the picked jobsite; "today" is the
+// jobsite's own date (the server's clock for it); names, never addresses;
+// nothing about AI while AI is off; an approved log reopens only with a reason.
 import { useCallback, useEffect, useState } from 'react';
-import { ClipboardList, Folder, MapPin, Plus } from 'lucide-react';
+import { ClipboardList, Folder, MapPin, Plus, RotateCcw } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
-import { CARD, ROW, LOG_STATUS, editable } from './ui';
+import { StatusLabel } from '../components/StatusLabel';
+import { dialog } from '../ui/dialog';
+import { CARD, ROW, LOG_STATUS, TAG_COLOR, editable, personName, tagLabel } from './ui';
 import Empty from './Empty';
 import ConstructionInbox from './ConstructionInbox';
 import ReviewQueue from './ReviewQueue';
 import DailyLogCapture from './DailyLogCapture';
 import WeeklyReports from './WeeklyReports';
 import SearchPicker from './SearchPicker';
+import { useConstructionMeta } from './lib/meta';
 import { formatDate } from '../lib/datetime';
 
-export default function SiteActivity() {
+// The browser's own date - only when the server has not said the jobsite's.
+function browserToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export default function SiteActivity({ projectId: routeId = '', onProjectChange }) {
   const { can } = useRole();
-  const canReview = !!can?.('manager');
+  const { aiEnabled } = useConstructionMeta();
 
   const [projects, setProjects] = useState(null);
-  const [projectId, setProjectId] = useState('');
+  const [pickedId, setPickedId] = useState('');
   const [logs, setLogs] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [capturing, setCapturing] = useState(null);
+  const [queueKey, setQueueKey] = useState(0);
 
   useEffect(() => {
     api.getConstructionOverview()
-      .then((d) => {
-        const list = d?.projects || [];
-        setProjects(list);
-        // Land on a site rather than on a "pick one" prompt: one jobsite is the
-        // common case, and a worker opening this tab wants today's log.
-        setProjectId((prev) => prev || list[0]?.id || '');
-      })
+      .then((d) => setProjects(d?.projects || []))
       .catch((e) => { setProjects([]); setError(e.message || 'Could not load projects.'); });
   }, []);
+
+  // The URL's jobsite wins; else the one picked here; else the first - one
+  // jobsite is the common case, and a worker opening this tab wants today's log.
+  const list = projects || [];
+  const projectId = (routeId && list.some((p) => p.id === routeId) ? routeId : '')
+    || (pickedId && list.some((p) => p.id === pickedId) ? pickedId : '') || list[0]?.id || '';
+  const project = list.find((p) => p.id === projectId) || null;
+  const canReview = !!project?.canEdit || !!can?.('manager');
+
+  const pick = (id) => {
+    setPickedId(id);
+    if (onProjectChange) onProjectChange(id);
+  };
 
   const loadLogs = useCallback(() => {
     if (!projectId) { setLogs([]); return; }
@@ -61,21 +84,33 @@ export default function SiteActivity() {
 
   useEffect(loadLogs, [loadLogs]);
 
-  const project = (projects || []).find((p) => p.id === projectId) || null;
-
   const startToday = async () => {
     if (!project) return;
     setBusy(true);
     try {
-      // Jobsite-local date, not UTC: a log filed at 6pm Pacific must not land on
-      // tomorrow because the server is on UTC.
-      const d = new Date();
-      const logDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      setCapturing(await api.startConstructionLog(project.id, { log_date: logDate }));
+      // The JOBSITE's date (the server's clock for it, construction_company),
+      // not UTC and not the phone's: a log filed at 6 PM on a Pacific site must
+      // not land on tomorrow.
+      setCapturing(await api.startConstructionLog(project.id, { log_date: project.today || browserToday() }));
     } catch (e) {
       setError(e.message || 'Could not start a daily log.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  // The one way back from Approved: a manager, with a reason on the record.
+  const reopen = async (l) => {
+    const reason = await dialog.prompt('Why is this log being reopened? The crew member sees the reason.', {
+      title: 'Reopen Daily Log', confirmText: 'Reopen', required: true, placeholder: 'e.g. Crew count is wrong',
+    });
+    if (!reason) return;
+    try {
+      await api.reopenConstructionLog(l.id, reason);
+      loadLogs();
+      setQueueKey((k) => k + 1);
+    } catch (e) {
+      setError(e.message || 'Could not reopen the log.');
     }
   };
 
@@ -118,7 +153,7 @@ export default function SiteActivity() {
               <SearchPicker
                 id="site-activity-project"
                 value={projectId}
-                onChange={setProjectId}
+                onChange={pick}
                 placeholder="Pick a jobsite"
                 searchPlaceholder="Search jobsites…"
                 options={projects.slice()
@@ -137,8 +172,12 @@ export default function SiteActivity() {
             </div>
           )}
 
-          {/* Managers first: what is waiting on them outranks the archive. */}
-          {canReview && <ReviewQueue />}
+          {/* Managers first: what is waiting on them outranks the archive -
+              this jobsite's logs only (11/03/2026). */}
+          {canReview && project && (
+            <ReviewQueue key={`${project.id}-${queueKey}`} projectId={project.id}
+              onDecided={loadLogs} />
+          )}
 
           <div style={CARD}>
             <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Daily Logs</h3>
@@ -158,6 +197,7 @@ export default function SiteActivity() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {logs.map((l) => {
                   const s = LOG_STATUS[l.status] || LOG_STATUS.draft;
+                  const text = (aiEnabled && l.aiSummary) || l.notes;
                   return (
                     <div key={l.id} style={ROW} role={editable(l) ? 'button' : undefined}
                       tabIndex={editable(l) ? 0 : undefined}
@@ -168,31 +208,43 @@ export default function SiteActivity() {
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                             <strong style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{formatDate(l.logDate, l.logDate)}</strong>
-                            <span style={{ backgroundColor: s.bg, color: s.fg, fontSize: '0.7rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{s.label}</span>
+                            <StatusLabel size="sm" label={s.label} color={s.color} />
+                            {(l.tags || []).map((t) => <StatusLabel key={t} size="sm" label={tagLabel(t)} color={TAG_COLOR[t]} />)}
                             {/* Advisory, never enforced - see _within_geofence. Shown so a
                                 manager can weigh it, not to accuse anyone. */}
                             {!l.geofenceOk && (
-                              <span title="Recorded outside the jobsite geofence" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.7rem', color: 'hsl(var(--color-amber, 38 92% 45%))', fontWeight: 600 }}>
-                                <MapPin size={11} />Off-site
+                              <span title="Recorded outside the jobsite geofence" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                <MapPin size={11} />Off-Site
                               </span>
                             )}
                           </div>
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
-                            {l.authorEmail}
+                            {l.authorName || personName(l.authorEmail)}
                             {l.crewSize ? ` · crew of ${l.crewSize}` : ''}
                             {l.hoursWorked ? ` · ${l.hoursWorked}h` : ''}
                           </div>
                         </div>
+                        {canReview && l.status === 'approved' && (
+                          <button type="button" className="secondary-btn" style={{ fontSize: 12.5, flexShrink: 0 }}
+                            onClick={(e) => { e.stopPropagation(); reopen(l); }}>
+                            <RotateCcw size={13} />Reopen
+                          </button>
+                        )}
                       </div>
-                      {/* The AI summary when it exists, the worker's own words until
-                          then. Never both - the summary is derived from the notes and
-                          showing the pair just makes the row twice as tall. */}
-                      {(l.aiSummary || l.notes) && (
+                      {/* The AI summary when AI is on and it exists, the worker's own
+                          words otherwise. Never both - the summary is derived from the
+                          notes and showing the pair just makes the row twice as tall. */}
+                      {text && (
                         <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
-                          {l.aiSummary || l.notes}
+                          {text}
                         </p>
                       )}
-                      {l.status === 'submitted' && !l.aiProcessedAt && (
+                      {l.status === 'needs_info' && l.reviewNote && (
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                          <strong>{l.reviewedByName || personName(l.reviewedBy) || 'Your manager'} asks:</strong> {l.reviewNote}
+                        </div>
+                      )}
+                      {aiEnabled && l.status === 'submitted' && !l.aiProcessedAt && (
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
                           Queued for AI processing
                         </div>
@@ -206,7 +258,7 @@ export default function SiteActivity() {
 
           {/* Below the logs, in the order the week runs: the crew files logs, the
               report is cut from them. */}
-          {project && <WeeklyReports project={project} canReview={canReview} />}
+          {project && <WeeklyReports key={project.id} project={project} canReview={canReview} />}
         </>
       )}
 
@@ -214,7 +266,7 @@ export default function SiteActivity() {
         <DailyLogCapture
           log={capturing} project={project}
           onClose={() => { setCapturing(null); loadLogs(); }}
-          onSubmitted={() => { setCapturing(null); loadLogs(); }}
+          onSubmitted={() => { setCapturing(null); loadLogs(); setQueueKey((k) => k + 1); }}
         />
       )}
     </div>

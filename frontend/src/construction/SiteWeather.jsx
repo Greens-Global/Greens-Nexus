@@ -10,7 +10,14 @@
 // Data: GET /construction/weather (one row per site, routers/construction.py)
 // and GET /weather for a project's own card - both the widget's Open-Meteo
 // cache, so a site costs one outbound call per ten minutes whoever looks.
+//
+// ONE rain source for today (11/03/2026): the first wet hour and its chance
+// come from the server's site row (the company's Weather Watch thresholds) on
+// the strip AND the card - the card used to work out its own from a looser
+// rule, so the two could disagree about the same sky. On a phone the week's
+// rows drop the sky words and the range bar so nothing is clipped.
 import { useCallback, useEffect, useState } from 'react';
+import { useIsMobile } from '../lib/useIsMobile';
 import { CloudSun, MapPin, Umbrella, Wind, Thermometer, AlertTriangle, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
@@ -19,6 +26,7 @@ import { formatDate, formatTime, formatWeekday } from '../lib/datetime';
 import { sky, TONE, hourLabel, rainStart } from '../dashboard/weatherLib';
 import { ForecastPopup } from '../dashboard/weatherWidget.jsx';
 import { CARD } from './ui';
+import { StatusLabel } from '../components/StatusLabel';
 
 const REFRESH_MS = 15 * 60 * 1000;
 const deg = (v) => (v == null ? '-' : `${Math.round(v)}°`);
@@ -30,9 +38,11 @@ function FlagChip({ weather }) {
   if (!f) return null;
   const Icon = f === 'wind' ? Wind : f === 'heat' ? Thermometer : f === 'storm' ? AlertTriangle : Umbrella;
   const label = f === 'rain' ? 'Rain' : f === 'storm' ? 'Storms' : f === 'wind' ? 'Wind' : 'Heat';
+  // A soft label (components/StatusLabel.jsx), the icon beside it - not a
+  // solid red pill (11/03/2026).
   return (
-    <span title={weather.flagDetail} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: '#fff', background: RED, borderRadius: 999, padding: '2px 8px' }}>
-      <Icon size={11} /> {label}
+    <span title={weather.flagDetail} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: RED, flexShrink: 0 }}>
+      <Icon size={12} aria-hidden="true" /><StatusLabel size="sm" label={label} color="#dc2626" />
     </span>
   );
 }
@@ -99,13 +109,19 @@ export function SiteWeatherStrip({ onOpen }) {
 export function SiteWeatherCard({ project }) {
   const has = !!(project.latitude && project.longitude);
   const [data, setData] = useState(null);
+  const [site, setSite] = useState(null);
   const [err, setErr] = useState('');
   const [open, setOpen] = useState(false);
+  const isMobile = useIsMobile();
   const load = useCallback(() => {
     if (!has) return;
     api.weather(project.latitude, project.longitude, 'imperial').then((d) => { setData(d); setErr(''); })
       .catch((e) => setErr(e?.message || 'Weather is unavailable right now.'));
-  }, [has, project.latitude, project.longitude]);
+    // Today's rain, the same words the strip uses (the server's row for this site).
+    Promise.resolve().then(() => api.getConstructionWeather?.())
+      .then((d) => setSite(((d && d.sites) || []).find((s) => s.projectId === project.id)?.weather || null))
+      .catch(() => setSite(null));
+  }, [has, project.id, project.latitude, project.longitude]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => pollWhileVisible(load, REFRESH_MS), [load]);
 
@@ -125,28 +141,45 @@ export function SiteWeatherCard({ project }) {
   const c = data?.current, t = data?.today, days = data?.daily || [];
   const sk = data ? sky(c.code, c.isDay) : null;
   const rgb = TONE[sk?.tone || 'cloud'];
-  const rain = data ? rainStart(data.hourly) : null;
+  const rain = data && !site ? rainStart(data.hourly) : null;
+  const todayWords = site ? (site.rainFrom ? rainWords(site) : 'No rain expected today')
+    : rain ? (rain === data.hourly[0] ? 'Rain now' : `Rain from ${hourLabel(rain.time)}`) + (rain.precipChance != null ? ` · ${rain.precipChance}%` : '')
+    : 'No rain expected today';
+  const wetToday = site ? !!site.rainFrom : !!rain;
+  // Today's row says what the line above says; later days read the daily max.
+  const dayRain = (d, i) => {
+    if (i === 0 && site) return site.rainFrom ? { wet: true, text: `${site.rainChance ?? d.precipChance ?? 0}%` } : { wet: false, text: 'Dry' };
+    const wet = (d.precipChance ?? 0) >= 20;
+    return { wet, text: wet ? `${d.precipChance}%` : 'Dry' };
+  };
+  const cols = isMobile
+    ? 'minmax(0, 1.4fr) 20px 44px 30px 30px'
+    : 'minmax(80px, 1fr) 22px minmax(70px, 1.2fr) 64px 36px minmax(60px, 2fr) 36px';
   const lo = Math.min(...days.map((d) => d.low)), hi = Math.max(...days.map((d) => d.high)), span = Math.max(1, hi - lo);
   return (
     <div style={{ ...CARD, backgroundImage: data ? `linear-gradient(160deg, rgba(${rgb},0.12), transparent 60%)` : undefined }} aria-label="Site weather">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>Weather At This Site</h3>
-        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><MapPin size={12} /> {project.address || `${project.latitude}, ${project.longitude}`}</span>
+        <FlagChip weather={site} />
+        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '100%' }}>
+          <MapPin size={12} style={{ flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.address || `${project.latitude}, ${project.longitude}`}</span>
+        </span>
         {data && <button type="button" className="secondary-btn" style={{ marginLeft: 'auto', fontSize: 12.5 }} onClick={() => setOpen(true)}>Full Forecast</button>}
       </div>
       {err && !data ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{err}</div>
         : !data ? <SkeletonBlocks count={2} height={44} borderRadius={8} /> : (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12, minWidth: 0 }}>
               <sk.Icon size={44} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.5} />
-              <div>
+              <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 34, fontWeight: 800, lineHeight: 1, letterSpacing: '-.02em' }}>{deg(c.temp)}</span>
                   <span style={{ fontWeight: 700 }}>{sk.text}</span>
                   <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>H {deg(t.high)} · L {deg(t.low)} · Wind {Math.round(c.wind ?? 0)} {data.units.wind}</span>
                 </div>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: rain ? BLUE : 'var(--text-secondary)', marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <Umbrella size={12} /> {rain ? (rain === data.hourly[0] ? 'Rain now' : `Rain from ${hourLabel(rain.time)}`) + (rain.precipChance != null ? ` · ${rain.precipChance}%` : '') : 'No rain expected today'}
+                <div data-today-rain="" style={{ fontSize: 12.5, fontWeight: 700, color: wetToday ? BLUE : 'var(--text-secondary)', marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Umbrella size={12} /> {todayWords}
                 </div>
               </div>
             </div>
@@ -154,17 +187,20 @@ export function SiteWeatherCard({ project }) {
               {days.slice(0, 5).map((d, i) => {
                 const ds = sky(d.code, true);
                 const left = ((d.low - lo) / span) * 100, width = Math.max(4, ((d.high - d.low) / span) * 100);
+                const r = dayRain(d, i);
                 return (
-                  <div key={d.date} style={{ display: 'grid', gridTemplateColumns: 'minmax(80px, 1fr) 22px minmax(70px, 1.2fr) 64px 36px minmax(60px, 2fr) 36px', gap: 8, alignItems: 'center', padding: '6px 0', borderTop: i ? '1px solid var(--border-color)' : 'none', fontSize: 12.5 }}>
-                    <span style={{ fontWeight: i === 0 ? 800 : 600 }}>{i === 0 ? 'Today' : formatWeekday(d.date, 'short')} <span style={{ color: 'var(--text-secondary)', fontWeight: 500, fontSize: 11.5 }}>{formatDate(d.date)}</span></span>
-                    <ds.Icon size={16} style={{ color: `rgb(${TONE[ds.tone]})` }} strokeWidth={1.8} />
-                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ds.text}</span>
-                    <span style={{ fontWeight: 700, color: (d.precipChance ?? 0) >= 20 ? BLUE : 'var(--text-secondary)' }}>{(d.precipChance ?? 0) >= 20 ? `${d.precipChance}%` : 'Dry'}</span>
+                  <div key={d.date} style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, alignItems: 'center', padding: '6px 0', borderTop: i ? '1px solid var(--border-color)' : 'none', fontSize: 12.5, minWidth: 0 }}>
+                    <span style={{ fontWeight: i === 0 ? 800 : 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i === 0 ? 'Today' : formatWeekday(d.date, 'short')} <span style={{ color: 'var(--text-secondary)', fontWeight: 500, fontSize: 11.5 }}>{formatDate(d.date)}</span></span>
+                    <ds.Icon size={16} style={{ color: `rgb(${TONE[ds.tone]})` }} strokeWidth={1.8} aria-label={ds.text} />
+                    {!isMobile && <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ds.text}</span>}
+                    <span style={{ fontWeight: 700, color: r.wet ? BLUE : 'var(--text-secondary)' }}>{r.text}</span>
                     <span style={{ color: 'var(--text-secondary)', textAlign: 'right' }}>{deg(d.low)}</span>
-                    <span style={{ position: 'relative', height: 6, borderRadius: 99, background: 'var(--border-color)' }}>
-                      <span style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: 0, bottom: 0, borderRadius: 99, background: 'linear-gradient(90deg, #38bdf8, #fbbf24 70%, #f97316)' }} />
-                    </span>
-                    <span style={{ fontWeight: 700 }}>{deg(d.high)}</span>
+                    {!isMobile && (
+                      <span style={{ position: 'relative', height: 6, borderRadius: 99, background: 'var(--border-color)' }}>
+                        <span style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: 0, bottom: 0, borderRadius: 99, background: 'linear-gradient(90deg, #38bdf8, #fbbf24 70%, #f97316)' }} />
+                      </span>
+                    )}
+                    <span style={{ fontWeight: 700, textAlign: isMobile ? 'right' : undefined }}>{deg(d.high)}</span>
                   </div>
                 );
               })}

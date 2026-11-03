@@ -42,6 +42,12 @@ vi.mock('../api', () => ({ api: {
   // strip is covered on its own in ConstructionInbox.test.jsx.
   getNotifications: vi.fn(),
   markNotifRead: vi.fn(),
+  // 11/03/2026: the AI status (everything AI hides while it is off), one
+  // project, the people pickers and the property list of Edit Job.
+  getConstructionMeta: vi.fn(),
+  getConstructionProject: vi.fn(),
+  getPeopleDirectory: vi.fn(),
+  getTicketProperties: vi.fn(),
 } }));
 
 // The capture screen talks to Supabase Storage directly. Stubbed at the helper
@@ -63,6 +69,7 @@ vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true })
 
 import { api } from '../api';
 import { uploadConstructionMedia } from './lib/upload';
+import { resetConstructionMeta } from './lib/meta';
 import ConstructionDashboard from './ConstructionDashboard';
 import ReviewQueue from './ReviewQueue';
 import WeeklyReports from './WeeklyReports';
@@ -95,6 +102,11 @@ const log = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetConstructionMeta();
+  api.getConstructionMeta.mockResolvedValue({ aiEnabled: false });
+  api.getConstructionProject.mockResolvedValue(null);
+  api.getPeopleDirectory.mockResolvedValue([]);
+  api.getTicketProperties.mockResolvedValue({ properties: [] });
   api.getConstructionOverview.mockResolvedValue({
     totalWorkforce: 6, activeSites: 1, safetyFlags: 1, pendingReview: 1,
     logsThisWeek: 3, projects: [project],
@@ -278,10 +290,12 @@ describe('Registers', () => {
         createdAt: '2026-07-20T00:00:00Z',
       }],
     }[kind] || []));
+    // With AI on (Neil or Visesh turned it on), the AI's suggestion is a prompt
+    // to confirm, never a state change.
+    api.getConstructionMeta.mockResolvedValue({ aiEnabled: true });
     render(<Registers project={project} canReview />);
     await waitFor(() => expect(screen.getByText('Foundation complete')).toBeInTheDocument());
-    // The AI suggestion is a prompt to confirm, never a state change.
-    expect(screen.getByText(/AI suggests this is hit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/AI suggests this is hit/i)).toBeInTheDocument();
   });
 
   it('renders read-only for a worker', async () => {

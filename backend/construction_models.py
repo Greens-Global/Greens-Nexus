@@ -23,7 +23,7 @@ locks out is the public anon key. CLAUDE.md records this gap as recurring, so
 it is automated instead of documented. **A NEW TABLE ADDED HERE NEEDS ITS OWN
 LINE IN THAT LIST** - nothing enforces this for you.
 """
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, Float, Index, Integer, JSON, String, Text
 from database import Base
 
 
@@ -34,13 +34,19 @@ class ConstructionProject(Base):
     reporting cadence that mean nothing to a leased building or a software
     project.
 
-    INDEPENDENT OF THE TASK MODULE (Sagar, Aug 4). There is deliberately no
-    task_project_id and no import from the tasks packages: a construction project
-    is not a TaskProject and must not be modeled as one, joined to one, or made
-    to depend on one. A jobsite outlives any punch list kept about it, and the
-    two have different lifecycles, permissions and audiences. If the two ever
-    need to reference each other, that belongs in a separate mapping table owned
-    by whoever wants the link - not as a column here."""
+    JOBS MAY CONNECT TO TASKS FULLY (Neil, 11/03/2026, plan
+    https://claude.ai/artifact/B5jm924fPPQ85AEDjBoSHr: "utilize any connection
+    to better the product"). This replaces Sagar's 08/04/2026 rule that kept a
+    construction project independent of the Task module: a job may have its own
+    task project (schedule, milestones, punch list), job items may become tasks
+    and tasks may point back at the job. A construction project is still its
+    own record - the jobsite, its daily logs, media and weekly reports live
+    here - and the link is made where it is needed, not by folding one into
+    the other.
+
+    `company_id` (11/03/2026) is the HrEntity the job belongs to - the company
+    wall (auth.company_scope / company_ok) every construction read and write
+    checks. '' = unknown: visible only to callers the walls do not confine."""
     __tablename__ = "construction_projects"
     id                 = Column(String, primary_key=True)
     name               = Column(String, nullable=False)
@@ -81,6 +87,15 @@ class ConstructionProject(Base):
     modified_at        = Column(String, default="")
     archived           = Column(Boolean, default=False)
     deleted_at         = Column(String, default="")   # soft delete
+    # The company wall (11/03/2026) - see the docstring. Stamped from the
+    # creator's company; the startup backfill (construction_company.py)
+    # fills older rows from the creator or the linked property.
+    company_id         = Column(String, default="", index=True)
+    # The jobsite's own IANA zone, kept from its forecast (Open-Meteo answers
+    # the zone of the point). '' = not known yet; readers fall back to the
+    # company's team zone (construction_company.zone_of). Weekly report weeks
+    # and a log's date are cut in this zone.
+    time_zone          = Column(String, default="")
 
 
 class ConstructionDailyLog(Base):
@@ -119,6 +134,10 @@ class ConstructionDailyLog(Base):
     gps_longitude  = Column(Float, default=0.0)
     gps_accuracy_m = Column(Float, default=0.0)
     geofence_ok    = Column(Boolean, default=True)
+    # What the crew flagged themselves (11/03/2026): any of delay | safety |
+    # issue | weather. Replaces the AI's safety flags on every screen while AI
+    # is off - a person said it, so it counts whether or not a model ran.
+    tags           = Column(JSON, default=list)
     # ── AI-derived (write-once) ──
     ai_summary        = Column(Text, default="")     # professional prose
     ai_work_completed = Column(JSON, default=list)   # [{activity, trade, location, confidence}]
@@ -270,7 +289,9 @@ class ConstructionAIJob(Base):
     # not lose the update. The row lands with egnyte_status='pending' and the
     # sweep retries until the record copy is filed.
     subject_id    = Column(String, default="", index=True)   # media / log / report id
-    status        = Column(String, default="queued", index=True)  # queued|running|done|error|dead
+    status        = Column(String, default="queued", index=True)  # queued|running|done|error|dead|skipped
+    # skipped (11/03/2026): an AI job that can never run because AI is off
+    # (ai_switch). Kept, never deleted - the row is the history of what was asked.
     attempts      = Column(Integer, default=0)
     max_attempts  = Column(Integer, default=4)
     # A voice note gates its log's summary (the transcript is an input), so
@@ -300,6 +321,11 @@ class ConstructionWeeklyReport(Base):
     `version` increments on publish. A published report is immutable; an edit
     produces v2, and the executive's link keeps resolving to the newest."""
     __tablename__ = "construction_weekly_reports"
+    # One row per project, week and version (11/03/2026): two workers cutting
+    # the same week, or two Generate clicks, cannot both write version 1 -
+    # the loser reads the winner's row. Also in main.py's migration lists.
+    __table_args__ = (Index("uq_construction_reports_week_version", "project_id", "week_start", "version",
+                            unique=True),)
     id              = Column(String, primary_key=True)
     project_id      = Column(String, nullable=False, index=True)
     week_start      = Column(String, nullable=False, index=True)   # YYYY-MM-DD
