@@ -216,6 +216,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
     window.addEventListener('nexus:open-punch-request', onOpenReq);
     return () => { window.removeEventListener('nexus:open-timecard', onOpen); window.removeEventListener('nexus:open-punch-request', onOpenReq); };
   }, [openTimecard, focusPunchRequest]);
+  // Time sheets waiting on my review or signature - the Payroll tab badge
+  // (11/03/2026: the tabs lead the page now, so the count must be visible
+  // from every tab, not only where the list renders).
+  const [reviewCount, setReviewCount] = useState(0);
   // Contractor invoices waiting on HR (Oct 21) - the Invoices tab badge. HR only, never the manager tier.
   const [invoiceDrafts, setInvoiceDrafts] = useState(0);
   const loadInvoiceDrafts = useCallback(() => {
@@ -540,23 +544,15 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)' }}>
-      {/* No summary tiles on top (Neil, Oct 20: "unnecessary clutter, the
-          information is already there") - the Team Hours and Time Sheets to
-          Review tiles went; the list below carries its own count. */}
-      {/* Timesheets submitted to me and not decided yet (Sep 29). */}
-      <TimesheetsToReview toastOk={toastOk} toastErr={toastErr}
-        onOpen={(r) => openTimecard(r.employeeEmail, r.periodStart, r.payType)} />
-
-      {/* Monitoring alerts live on Workforce Analytics now (Charmi, Sep 25: the
-          block listing every person took half this screen). One line stays
-          here: how many, and the way to the list. */}
-      <MonitoringAlertsLine />
-
       {/* Sub-screen nav - these are PAGES of a complex module, so they get the
           Documents-style underline tab band (icons, brand underline, hairline
-          base) instead of floating pills that merged into the content. */}
+          base) instead of floating pills that merged into the content.
+          The band LEADS the page (Visesh, 11/03/2026: with the review list
+          above it, reaching Time Off meant scrolling past the whole panel
+          first) - the review list now lives under Payroll, where its Review
+          button opens the time sheet anyway, and its count rides this tab. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
-        {[['payroll', 'Payroll', Banknote],
+        {[['payroll', 'Payroll', Banknote, reviewCount, true],
           ['actions', 'Action Log', Inbox, new Set(punchReqs.map(punchReqKey)).size + exBlocking, true],
           ['timeoff', 'Time Off', CalendarOff, pendingCount, decidableCount > 0],
           ...(hrTeam ? [] : [['invoices', 'Invoices', Receipt, invoiceDrafts, true]]),
@@ -590,6 +586,20 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
             </button>
           ))}
         </>)}
+      </div>
+
+      {/* No summary tiles on top (Neil, Oct 20: "unnecessary clutter, the
+          information is already there"). Timesheets submitted to me and not
+          decided yet (Sep 29) - shown on Payroll only, but kept mounted so
+          the tab badge stays current from any tab. */}
+      <div style={view === 'payroll' ? undefined : { display: 'none' }}>
+        <TimesheetsToReview toastOk={toastOk} toastErr={toastErr} onCount={(n) => setReviewCount(n || 0)}
+          onOpen={(r) => openTimecard(r.employeeEmail, r.periodStart, r.payType)} />
+
+        {/* Monitoring alerts live on Workforce Analytics now (Charmi, Sep 25:
+            the block listing every person took half this screen). One line
+            stays here: how many, and the way to the list. */}
+        <MonitoringAlertsLine />
       </div>
 
       {/* Range picker - shared by Insights and the Action Log's missing punches (both scan a range) */}
@@ -1075,7 +1085,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
           const inRange = timeoff.filter(r => inPeriod(r, timeoffYear, timeoffMonth));
           const counts = countByStatus(inRange);
           const shownRows = filterAndSortTimeoff(inRange, timeoffFilter, timeoffSort);
-          const periodSel = { fontSize: 12, padding: '4px 6px' };
+          // width auto: .form-input is 100% wide by default, which threw each
+          // select onto its own full-width line above the table (11/03/2026).
+          const periodSel = { fontSize: 12, padding: '4px 28px 4px 8px', width: 'auto' };
           const chips = TIMEOFF_FILTERS.filter(([k]) => k !== 'cancelled' || counts.cancelled > 0 || timeoffFilter === 'cancelled');
           const sortHead = (key, label, style) => {
             const on = timeoffSort?.key === key;
@@ -1120,9 +1132,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
           </button>
         </div>
         {/* Six fixed columns: on a phone the table scrolls sideways inside its
-            card instead of cutting off Approver and Status (phone pass, Oct 29 2026). */}
-        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflowX: 'auto', overflowY: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', minWidth: 790, gap: 10, padding: '10px 14px', background: 'var(--wk-hover)', fontSize: 12.5, fontWeight: 500, color: 'var(--wk-dim)' }}>
+            card instead of cutting off Approver and Status (phone pass, Oct 29 2026).
+            The list scrolls INSIDE the card past ~a screen of rows
+            (11/03/2026: All (344) made the page itself a long scroll and put
+            the leave calendar and HR panels out of reach) - the header row
+            stays pinned while the rows move. */}
+        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'auto', maxHeight: '62vh', overscrollBehavior: 'contain', boxShadow: 'var(--wk-shadow)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', minWidth: 790, gap: 10, padding: '10px 14px', position: 'sticky', top: 0, zIndex: 1,
+            background: 'var(--card)', backgroundImage: 'linear-gradient(var(--wk-hover), var(--wk-hover))', boxShadow: '0 1px 0 var(--line)', fontSize: 12.5, fontWeight: 500, color: 'var(--wk-dim)' }}>
             <span>{sortHead('name', 'Requested By')}</span><span>Type</span><span>{sortHead('period', 'Period')}</span><span>Days</span><span>Approver</span>
             <span style={{ display: 'flex', justifyContent: 'flex-end' }}>{sortHead('status', 'Status')}</span>
           </div>
