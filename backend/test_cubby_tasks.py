@@ -30,7 +30,30 @@ STAFF = [{"manager_id": "m1", "manager_name": "Amy Bolanos", "manager_email": AM
 
 TABLES = (models.Task, models.TaskProject, models.TaskActivity, models.CubbyTaskLink, models.CubbyTask,
           models.CubbyFacility, models.CubbyUnit, models.NexusEmployee, models.NexusRole, models.NexusSetting,
-          models.NexusNotification)
+          models.NexusNotification, models.TaskComment, models.TaskNotification)
+
+
+def _note(nid, tid, message, who="Sagar Shoundik", at="2026-11-01T08:00:00"):
+    return {"id": nid, "manager_note_id_int": int(nid), "task_id": tid, "message": message,
+            "manager_name": who, "manager_id": "m2", "created_at": at}
+
+
+def _comments(task_id):
+    db = SessionLocal()
+    try:
+        return [(c.author_email, c.body) for c in db.query(models.TaskComment)
+                .filter(models.TaskComment.task_id == task_id).order_by(models.TaskComment.created_at).all()]
+    finally:
+        db.close()
+
+
+def _bells(email):
+    db = SessionLocal()
+    try:
+        return [n.title for n in db.query(models.TaskNotification)
+                .filter(models.TaskNotification.for_email == email).all()]
+    finally:
+        db.close()
 
 
 def _api_task(tid, title, due="2026-11-07", unit="u1", updated="2026-10-30T08:54:16Z", desc=""):
@@ -50,11 +73,13 @@ class World:
         self.api_open = {}        # Cubby's open list, as cubby_sync saved it: tid -> API row
         self.api_status = {}      # what tasks/search answers for a task no longer open
         self.wh = {}              # warehouse rows by tid
+        self.notes = []           # warehouse manager_notes rows on tasks
         self.writes = []          # tasks/update bodies sent to Cubby
         self.write_ok = True
         monkeypatch.setattr(cubby_warehouse, "configured", lambda: True)
         monkeypatch.setattr(cubby_warehouse, "task_rows", lambda since: list(self.wh.values()))
         monkeypatch.setattr(cubby_warehouse, "manager_rows", lambda: list(STAFF))
+        monkeypatch.setattr(cubby_warehouse, "note_rows", lambda since: list(self.notes))
         monkeypatch.setattr(cubby, "_post", self._post)
         monkeypatch.setattr(job_switch, "off", lambda key: False)
         monkeypatch.setattr(task_notify, "notify_task_event", lambda *a, **k: None)
@@ -395,3 +420,104 @@ def test_overview_lists_what_settings_shows(world):
         db.close()
     assert info["facilityName"] == "Greens Storage Temecula" and info["unitName"] == "A014"
     assert info["assignedNames"] == ["Amy Bolanos"] and info["automated"] is False
+    assert info["url"] == "https://app.cubbystorage.com/tasks/all"   # Find in Cubby: no deep link exists
+
+
+# ── Notes, and what Cubby did is Cubby's (Sagar, 11/03/2026) ─────────────────
+
+def test_a_note_typed_in_cubby_becomes_a_comment_once(world):
+    world.api_open = {"task_20": _api_task("task_20", "Sample Task for Nexus Test")}
+    world.wh = {"task_20": _wh_task("task_20", "Sample Task for Nexus Test", people=["Amy Bolanos"])}
+    world.notes = [_note("501", "task_20", "Adding a note from Cubby", at="2026-11-01T08:00:00"),
+                   _note("502", "task_other", "On some other task")]
+    s = world.sync()
+    t = _tasks()["task_20"]
+    assert s["notes"] == 1
+    assert _comments(t.id) == [(cubby_tasks.CUBBY_ACTOR, "[Cubby · Sagar Shoundik · 2026-11-01]\nAdding a note from Cubby")]
+    assert _link("task_20").note_ids == ["501"]
+    # The backfill (older than the link) told nobody; a note typed after the
+    # link exists bells the task's people like any comment.
+    assert "New Comment on a Task" not in _bells(AMY)
+    world.notes.append(_note("503", "task_20", "Tenant called back", at="2099-01-01T00:00:00"))
+    s = world.sync()
+    assert s["notes"] == 1 and len(_comments(t.id)) == 2
+    assert "New Comment on a Task" in _bells(AMY)
+    # Again: nothing twice.
+    assert world.sync()["notes"] == 0 and len(_comments(t.id)) == 2 and _link("task_20").note_ids == ["501", "503"]
+
+
+def test_a_notes_problem_costs_nothing_else(world, monkeypatch):
+    def boom(since):
+        raise cubby_warehouse.WarehouseError("BigQuery did not answer (NotFound): manager_notes")
+    monkeypatch.setattr(cubby_warehouse, "note_rows", boom)
+    world.api_open = {"task_21": _api_task("task_21", "Sweep aisle B")}
+    world.wh = {"task_21": _wh_task("task_21", "Sweep aisle B", people=["Amy Bolanos"])}
+    s = world.sync()
+    assert s["status"] == "ok" and s["created"] == 1 and s["notes"] == 0
+    assert s["warehouse"] == "ok" and "manager_notes" in s["notesWarehouse"]
+    assert task_assignees(_tasks()["task_21"]) == [AMY]
+
+
+def test_the_owner_is_not_a_collaborator_and_the_date_is_cubbys(world):
+    world.api_open = {"task_22": _api_task("task_22", "Test task from Cubby", due="2026-11-07")}
+    world.wh = {"task_22": _wh_task("task_22", "Test task from Cubby", people=["Amy Bolanos"])}
+    world.sync()
+    t = _tasks()["task_22"]
+    assert OWNER not in [e.lower() for e in (t.follower_emails or [])]
+    assert t.due_history[-1]["by"] == cubby_tasks.CUBBY_ACTOR and t.due_history[-1]["source"] == "cubby"
+    # Cubby moves the date: still Cubby's move, never the owner's.
+    world.api_open["task_22"] = _api_task("task_22", "Test task from Cubby", due="2026-11-06", updated="2026-11-03T13:54:00Z")
+    world.sync()
+    t = _tasks()["task_22"]
+    assert t.due_on == "2026-11-06" and len(t.due_history) == 2
+    assert t.due_history[-1] == {**t.due_history[-1], "from": "2026-11-07", "to": "2026-11-06",
+                                 "by": cubby_tasks.CUBBY_ACTOR, "source": "cubby"} and "undo" not in t.due_history[-1]
+    # Cubby reassigns: the owner is still not subscribed by it...
+    world.wh["task_22"]["assigned_managers"] = ["Sagar Shoundik"]
+    world.sync()
+    assert OWNER not in [e.lower() for e in (_tasks()["task_22"].follower_emails or [])]
+    # ...but an owner who chose to follow in Nexus stays.
+    db = SessionLocal()
+    try:
+        update_task(t.id, TaskUpdate(follower_emails=[OWNER]), BackgroundTasks(), OWNER_USER, db)
+    finally:
+        db.close()
+    world.wh["task_22"]["assigned_managers"] = ["Amy Bolanos"]
+    world.sync()
+    assert OWNER in [e.lower() for e in (_tasks()["task_22"].follower_emails or [])]
+
+
+# ── The warehouse query (prod, 11/03/2026) ───────────────────────────────────
+
+def test_a_warehouse_without_updated_at_is_read_again_by_created_at(monkeypatch):
+    """BigQuery's tasks table has no `updated_at` (prod answered "Unrecognized
+    name: updated_at; Did you mean created_at?" and 183 tasks came in with
+    nobody assigned). The query falls back to created_at by itself, and the
+    rows still carry an (empty) updated_at."""
+    monkeypatch.setenv("CUBBY_BQ_CREDENTIALS_JSON", '{"type": "service_account"}')
+    asked = []
+
+    def run(sql, params):
+        asked.append(sql)
+        if "updated_at" in sql:
+            raise cubby_warehouse.WarehouseError(
+                "BigQuery did not answer (BadRequest): Unrecognized name: updated_at; Did you mean created_at? at [1:260]")
+        return [{"task_id": "t1", "status": "OPEN", "assigned_managers": ["Pat Lee"],
+                 "assigned_manager_groups": None, "created_at": "2026-11-01T08:00:00"}]
+
+    monkeypatch.setattr(cubby_warehouse, "_run", run)
+    rows = cubby_warehouse.task_rows(None)
+    assert len(asked) == 2 and "updated_at" not in asked[1] and "created_at >= @since" in asked[1]
+    assert rows[0]["assigned_managers"] == ["Pat Lee"] and rows[0]["updated_at"] == ""
+    assert "updated_at" in cubby_warehouse.tasks_sql() and "ORDER BY updated_at" in cubby_warehouse.tasks_sql()
+
+
+def test_any_other_warehouse_error_still_raises(monkeypatch):
+    monkeypatch.setenv("CUBBY_BQ_CREDENTIALS_JSON", '{"type": "service_account"}')
+
+    def run(sql, params):
+        raise cubby_warehouse.WarehouseError("BigQuery did not answer (Forbidden)")
+
+    monkeypatch.setattr(cubby_warehouse, "_run", run)
+    with pytest.raises(cubby_warehouse.WarehouseError):
+        cubby_warehouse.task_rows(None)
