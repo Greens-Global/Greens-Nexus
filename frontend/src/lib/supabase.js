@@ -16,12 +16,15 @@
 // createClient back) - never a second client.
 import { RealtimeClient } from '@supabase/realtime-js';
 import { StorageClient } from '@supabase/storage-js';
+// The release number supabase-js reports; storage-js and realtime-js are pinned
+// to the same exact version in package.json (supabase-js, a devDependency, too).
+import { version as SUPABASE_VERSION } from '@supabase/realtime-js/dist/module/lib/version.js';
 
 const url  = import.meta.env.VITE_SUPABASE_URL  ?? '';
 const key  = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
 
-// What supabase-js 2.107.0 sent from a browser, kept so requests look the same.
-const HEADERS = { 'X-Client-Info': 'supabase-js/2.107.0; runtime=web' };
+// What supabase-js sends from a browser, kept so requests look the same.
+const HEADERS = { 'X-Client-Info': `supabase-js/${SUPABASE_VERSION}; runtime=web` };
 
 export function createNexusSupabase(supabaseUrl, supabaseKey) {
   const trimmed = supabaseUrl.trim();
