@@ -21,8 +21,25 @@ export const QUEUES = [
   { key: 'done',        label: 'Done' },
   { key: 'route',       label: 'To Route',    hideWhenEmpty: true, onlyDesk: true },
   { key: 'approve',     label: 'To Approve',  hideWhenEmpty: true },
+  // Preventive maintenance (11/03/2026): the live tickets a schedule filed
+  // (serviceId), the next clock first; the tab's count is the overdue ones when
+  // there are any (counts.preventiveOverdue), in the alarm tone.
+  { key: 'preventive',  label: 'Preventive',  hideWhenEmpty: true, sort: { key: 'clock', dir: 'asc' } },
   { key: 'raised',      label: 'Raised by Me' },
 ];
+
+/** The local calendar day of `now`, YYYY-MM-DD - a preventive ticket's due
+ *  day (pmDueOn) is a plain date. */
+const dayOf = (now) => {
+  const d = new Date(now);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
+/** A live preventive ticket whose due day has passed. */
+export function preventiveOverdue(t, now = Date.now()) {
+  return isLive(t) && !!t.serviceId && !!t.pmDueOn && t.pmDueOn < dayOf(now);
+}
 export const DEFAULT_QUEUE = 'needs_reply';
 const WAITING_STATES = ['waiting_user', 'waiting_vendor', 'on_hold', 'waiting'];
 const DEFAULT_SORT = { key: 'updated', dir: 'desc' };
@@ -72,6 +89,7 @@ export function queueMatches(key, t, ctx = {}) {
     case 'route': return !!ctx.onDesk && t.approvalStatus === 'pending' && !t.approverId;
     case 'approve': return !!me && t.approvalStatus === 'pending' && lower(t.approverId) === me;
     case 'raised': return !!me && lower(t.requesterId) === me;
+    case 'preventive': return isLive(t) && !!t.serviceId;
     default: return false;
   }
 }
@@ -79,8 +97,10 @@ export function queueMatches(key, t, ctx = {}) {
 /** Every queue's count over the whole list - what the tabs show. */
 export function queueCounts(tickets, ctx) {
   const counts = Object.fromEntries(QUEUES.map((q) => [q.key, 0]));
+  counts.preventiveOverdue = 0;
   for (const t of tickets) {
     for (const q of QUEUES) if (queueMatches(q.key, t, ctx)) counts[q.key] += 1;
+    if (preventiveOverdue(t, ctx?.now ?? Date.now())) counts.preventiveOverdue += 1;
   }
   return counts;
 }

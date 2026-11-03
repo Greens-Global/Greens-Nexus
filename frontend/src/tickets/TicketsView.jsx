@@ -56,6 +56,7 @@ import { TicketActionDialog } from './TicketActionDialog';
 import { CreateTicketModal } from './CreateTicketModal';
 import { TicketDrawer } from './TicketDrawer';
 import { TicketBoard } from './TicketBoard';
+import PreventiveRollup from '../maintenance/PreventiveRollup';
 
 // Re-exported: tests and other modules import these from TicketsView.
 export { TicketActionDialog, CreateTicketModal, TicketDrawer };
@@ -94,6 +95,7 @@ const QUEUE_EMPTY = {
   route: { title: 'Nothing to Route', hint: 'No gated request is waiting for an approver.' },
   approve: { title: 'Nothing to Approve', hint: 'No request is parked on your decision.' },
   raised: { title: 'No Tickets Raised', hint: 'Tickets you raise will show up here.' },
+  preventive: { title: 'No Preventive Work Open', hint: 'Tickets filed by preventive maintenance schedules show up here.' },
 };
 
 export default function TicketsView() {
@@ -624,7 +626,12 @@ export default function TicketsView() {
   // All Open and Raised by Me carry none.
   const queueTabs = useMemo(() => {
     const shown = QUEUES.filter((q) => !(q.onlyDesk && !itAdmin) && !(q.hideWhenEmpty && !counts[q.key]));
-    const tab = (q) => ({ key: q.key, label: q.label, badge: UNCOUNTED.has(q.key) ? 0 : counts[q.key], tone: q.tone });
+    // Preventive counts what is overdue when anything is, in the alarm tone
+    // (the red count is the overdue preventive tickets), else what is open.
+    const late = counts.preventiveOverdue || 0;
+    const tab = (q) => (q.key === 'preventive'
+      ? { key: q.key, label: q.label, badge: late || counts[q.key], tone: late ? 'alarm' : q.tone }
+      : { key: q.key, label: q.label, badge: UNCOUNTED.has(q.key) ? 0 : counts[q.key], tone: q.tone });
     return [
       ...shown.filter((q) => q.key !== 'raised').map(tab),
       ...ticketViews.map((v) => ({ key: `view:${v.id}`, label: v.name })),
@@ -692,6 +699,9 @@ export default function TicketsView() {
           )}
         </div>
       )}
+
+      {/* Overdue per site over the Preventive queue (11/03/2026). */}
+      {activeTab === 'preventive' && <PreventiveRollup />}
 
       {/* The toolbar - the same shape on List, Board and Reports: how the
           tickets are shown on the left; search, Filters and the one overflow

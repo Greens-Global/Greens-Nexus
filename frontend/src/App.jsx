@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, itemsRedirect, addressFor, itemLinkSub } from './lib/routes';
+import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, itemsRedirect, addressFor, itemLinkSub, ticketPlaceSub } from './lib/routes';
 import { workforceRedirect, WORKFORCE_GRANTS } from './lib/workforceAccess';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
@@ -371,7 +371,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   switch (activeView) {
     case "dashboard":          return <Dashboard onNavigate={onNavigate} activeSub={activeSub} onSubChange={onSubChange} />;
     case "tasks":              return <TasksProvider><Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} /></TasksProvider>;
-    case "tickets":            return <TasksProvider><Tickets /></TasksProvider>;
+    case "tickets":            return <TasksProvider><Tickets activeSub={activeSub} onSubChange={onSubChange} /></TasksProvider>;
     case "sop":                return <SOP activeSub={activeSub} onSubChange={onSubChange} />;
     case "it":                 return <IT activeSub={activeSub} onSubChange={onSubChange} />;
     case "ops":                return <Operations activeSub={activeSub} onSubChange={onSubChange} />;
@@ -469,6 +469,9 @@ function parsePath() {
   // An item's own link (a QR tag): /itemmanagement/item/<id> -> sub item/<id>.
   const itemLink = itemLinkSub(view, segs);
   if (itemLink) return { view, sub: itemLink };
+  // A site / equipment tag: /tickets/place/<property>[/<asset>] -> sub place/...
+  const place = ticketPlaceSub(view, segs);
+  if (place) return { view, sub: place };
   // Item Management's old subs land on the new tabs (Items redesign, 11/02/2026).
   const items = itemsRedirect(view, segs[1] || null);
   if (items) return items;

@@ -16,6 +16,8 @@
 // The address-bar half (two path segments -> one sub) is itemLinkSub in
 // lib/routes.js, which App.jsx already loads - first paint stays as it was.
 
+import { parsePlacePath } from '../../maintenance/placeLink';
+
 export const ITEM_PATH_SEGMENT = 'itemmanagement';
 const SUB_RE = /^item[/:](.+)$/;
 
@@ -68,6 +70,10 @@ export function parseScannedCode(text) {
       try { id = decodeURIComponent(id); } catch { /* keep the raw segment */ }
       return { kind: 'item', id };
     }
+    // A site or equipment tag (Scan to Request, 11/03/2026) - the same one
+    // scanner opens the place's sheet instead of an item.
+    const place = /^https?:$/i.test(u.protocol) ? parsePlacePath(u.pathname) : null;
+    if (place) return { kind: 'place', ...place };
     return { kind: 'foreign', url: raw };
   }
   return { kind: 'code', code: raw };

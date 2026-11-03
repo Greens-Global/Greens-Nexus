@@ -61,6 +61,8 @@ export async function resolveScannedCode(text, { items = [], fetchByCode } = {})
   const parsed = parseScannedCode(text);
   if (parsed.kind === 'empty') return { status: 'empty' };
   if (parsed.kind === 'foreign') return { status: 'foreign', url: parsed.url };
+  // A site / equipment tag: the scanner opens the place, nothing to look up here.
+  if (parsed.kind === 'place') return { status: 'place', propertyId: parsed.propertyId, assetId: parsed.assetId };
   const local = findLocalItems(items, parsed);
   if (local.length === 1) return { status: 'found', item: local[0], via: 'local' };
   if (local.length > 1) return { status: 'several', items: local, code: parsed.code };
