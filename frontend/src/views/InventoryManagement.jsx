@@ -1,107 +1,34 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, useDeferredValue, memo } from 'react';
-import { Package, Plus, Search, CheckCircle, Clock, XCircle, RotateCcw, Camera, AlertCircle, X, ChevronDown, UploadCloud, FileSpreadsheet, Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart, ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box, FileText, ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2, Tag, Settings2 } from 'lucide-react';
+import { Package, Plus, Search, CheckCircle, Clock, XCircle, RotateCcw, Camera, AlertCircle, X, ChevronDown, UploadCloud, FileSpreadsheet, Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart, ShoppingCart, Filter, ZoomIn, Box, FileText, ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2, Tag, Settings2 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
-import { useInventory }     from '../contexts/InventoryContext';
+import { useInventory } from '../contexts/InventoryContext';
 import { useNotifications } from '../contexts/NotificationContext';
-import { useRole }          from '../contexts/RoleContext';
-import { api }              from '../api';
+import { useRole } from '../contexts/RoleContext';
+import { api } from '../api';
 import { usePeopleDirectory } from '../lib/queries';
-import { supabase }         from '../lib/supabase';
-import { useMsal }          from '@azure/msal-react';
+import { supabase } from '../lib/supabase';
+import { useMsal } from '@azure/msal-react';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
-import { cleanName }        from '../lib/utils';
-import { useNameResolver }  from '../lib/useNameResolver';
-import { formatDate, formatDateLong, formatDateTime, formatMonthDay, formatTime, formatWeekday } from '../lib/datetime';
+import { cleanName } from '../lib/utils';
+import { useNameResolver } from '../lib/useNameResolver';
+import { formatDateLong, formatMonthDay } from '../lib/datetime';
 import { useAssignments, MyPermanentPanel, AssignmentsQueue, AssignItemModal } from '../components/Assignments';
 import { renderNotifBody } from '../components/NotificationBell';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import { toViewUrl } from '../lib/storageView';
 import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-// Controlled item types - mirror _ITEM_TYPES in backend/routers/items.py. Add/edit
-// is dropdown-only; unrecognised types on import are saved as "Other" (Neil).
-const ITEM_TYPES = ['Computer', 'Peripheral', 'Networking', 'Server', 'Storage', 'IP Camera', 'Devices', 'Tools', 'Equipment', 'Vehicles', 'Furniture', 'Keys', 'Other'];
-
-// Canonicalise a free-typed item type: case-insensitive + singular→plural
-// ("device" → "Devices"). Unknown types (e.g. "IP Camera") are kept as-is so
-// imported types stay first-class. Mirrors _normalize_type on the backend.
-const _TYPE_CANON = ITEM_TYPES.reduce((m, t) => {
-  m[t.toLowerCase()] = t;
-  if (t.endsWith('s')) m[t.slice(0, -1).toLowerCase()] = t;
-  return m;
-}, {});
-function normalizeType(raw) {
-  const s = cleanField(raw);
-  if (!s) return 'Other';
-  return _TYPE_CANON[s.toLowerCase()] || s;
-}
-
-const TYPE_DEFAULT_OWNER = {
-  Devices:   'IT',
-  Tools:     'Construction (MCD)',
-  Vehicles:  'Construction',
-  Equipment: '',
-  Keys:      'Operations (Oversite)',
-  Other:     '',
-};
-
-const TYPE_META = {
-  Devices:   { Icon: Monitor,  color: 'hsl(var(--color-blue))',   bg: 'hsla(var(--color-blue),0.12)'   },
-  Tools:     { Icon: Wrench,   color: 'hsl(var(--color-orange))', bg: 'hsla(var(--color-orange),0.12)' },
-  Vehicles:  { Icon: Car,      color: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)'  },
-  Equipment: { Icon: Box,      color: 'hsl(var(--color-purple))', bg: 'hsla(var(--color-purple),0.12)' },
-  Keys:      { Icon: Key,      color: 'hsl(var(--color-red))',    bg: 'hsla(var(--color-red),0.12)'    },
-  Other:     { Icon: Package,  color: 'var(--muted)',             bg: 'var(--mist)'                    },
-};
-
-const STATUS_META = {
-  available:            { label: 'Available',          bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))'  },
-  unassigned:           { label: 'Unassigned',         bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))' },
-  location_assigned:    { label: 'Assigned · Location', bg: 'hsla(var(--color-blue),0.12)',  fg: 'hsl(var(--color-blue))'   },
-  checked_out:          { label: 'Checked out',        bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
-  // Display-only: a merely-pending (not yet allocated) request - the list view
-  // must read "Under review" like the tile view, not "Checked out" (P4 status coherence).
-  under_review:         { label: 'Under review',       bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
-  permanently_assigned: { label: 'Perm. Assigned',    bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))'   },
-  retired:              { label: 'Retired',             bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))'    },
-};
-
-// Operational status (Neil) - condition/deployment state of a unit, SEPARATE from
-// the lifecycle `status` above (which checkouts/assignments drive automatically).
-// '' = unset. Mirror _OP_STATUSES in backend/routers/items.py if you change this.
-const OP_STATUSES = ['deployed', 'in_storage', 'in_repair', 'needs_replacement', 'retired', 'lost'];
-// Recycle bin retention - keep in sync with _RECYCLE_BIN_DAYS in routers/items.py.
-const RECYCLE_BIN_DAYS = 30;
-const OP_STATUS_META = {
-  deployed:          { label: 'Deployed',          bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
-  in_storage:        { label: 'In storage',        bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
-  in_repair:         { label: 'In repair',         bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
-  needs_replacement: { label: 'Needs replacement', bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
-  // "Written off" (not "Retired") so the op-status column doesn't clash with the
-  // lifecycle "Retired" in the adjacent column (P4 copy). Backend value stays 'retired'.
-  retired:           { label: 'Written off',       bg:'var(--mist)',                    fg:'var(--muted)'             },
-  lost:              { label: 'Lost',              bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
-};
-// Op statuses declared AGAINST a person (lost/retired): they show a "Declared by"
-// person field, notify that person, and group on the Who-Has-It board as
-// Person → Status → Item. Mirror _OP_STATUS_PERSON in backend/routers/items.py.
-const OP_STATUS_PERSON = new Set(['lost', 'retired']);
-
-// Display status: a permanent item that nobody holds is "Unassigned", not
-// "Available" - green Available implies it could be checked out, which
-// permanent items can't be. A permanent item placed at a location with no
-// person holding it counts as assigned to that location (Neil, Jul 17), so
-// batch "assign to location" visibly lands instead of still reading Unassigned.
-function displayStatus(item) {
-  if (item.ownershipType === 'permanent' && item.status === 'available') {
-    return (!item.assignedToEmail && item.location) ? 'location_assigned' : 'unassigned';
-  }
-  return item.status;
-}
+import { ITEM_TYPES, TYPE_META, STATUS_META, OP_STATUSES, RECYCLE_BIN_DAYS, OP_STATUS_META, OP_STATUS_PERSON, displayStatus, CHECKOUT_STATUS_META, MANAGER_CHECKOUT_STATUS_META, DEPARTMENTS } from '../inventory/model/status';
+import { cleanField, suggestKnown } from '../inventory/model/fields';
+import { checkoutDueInfo, fmtDueDate } from '../inventory/model/due';
+import { fmtMoney, requestNo } from '../inventory/model/format';
+import { sortItemsBy, nextSort } from '../inventory/model/sort';
+import { parseItemsFile, triggerDownload, downloadItemsCsv, downloadImportTemplate } from '../inventory/model/csv';
+import { diffItemEdit } from '../inventory/model/itemEdit';
+import { formatAuditDetails, orderActivitySummary, fmtAuditStamp, auditName, auditEventMeta, _auditFg, _auditBg, buildAuditDiffs, auditDayKey, auditDayLabel, auditTime, auditInitials, EMPTY, buildGlobalFeed, feedUndoInfo, feedSummary } from '../inventory/model/auditFeed';
+import { TYPE_DEPT_FALLBACK, suggestAllocator } from '../inventory/model/allocator';
 
 // First image on a paste event (screenshot Ctrl+V) as an upload-ready File -
 // wire onto photo modals so every upload spot also accepts a pasted image.
@@ -114,25 +41,6 @@ function imageFromPaste(e) {
   }
   return null;
 }
-
-const CHECKOUT_STATUS_META = {
-  pending:         { label: 'Pending',            bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))', Icon: Clock },
-  approved:        { label: 'Awaiting handover',  bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: Package },
-  pending_receipt: { label: 'Confirm receipt',    bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))', Icon: Camera },
-  allocated:       { label: 'In use',             bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))',  Icon: CheckCircle },
-  rejected:        { label: 'Rejected',           bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
-  returned:        { label: 'Returned',           bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: RotateCcw },
-  cancelled:       { label: 'Cancelled',          bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
-};
-
-// Manager-facing variant: at pending_receipt the ball is in the EMPLOYEE's court -
-// "Confirm Receipt" (the employee's call to action) would read as the manager's job.
-const MANAGER_CHECKOUT_STATUS_META = {
-  ...CHECKOUT_STATUS_META,
-  pending_receipt: { label: 'Employee to confirm', bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))', Icon: Clock },
-};
-
-const DEPARTMENTS = ['All', 'IT', 'Construction', 'Operations', 'Accounting', 'Facilities', 'Marketing', 'HR'];
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -560,37 +468,6 @@ export function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES
   );
 }
 
-// ── Edit Item Modal ────────────────────────────────────────────────────────────
-// The Edit form submits every field; send only the ones that actually changed so
-// the audit log reflects the real edit (not "changed everything"). Maps the
-// snake_case payload keys to the camelCase item fields for comparison.
-const _EDIT_FIELD_MAP = {
-  name: 'name', item_type: 'itemType', make: 'make', model: 'model', year: 'year',
-  department: 'department', default_owner: 'defaultOwner', ownership_type: 'ownershipType',
-  status: 'status', op_status: 'opStatus', location: 'location', photo_url: 'photoUrl',
-  op_status_person_email: 'opStatusPersonEmail', op_status_person_name: 'opStatusPersonName',
-  picture_required: 'pictureRequired', asset_value: 'assetValue',
-};
-function diffItemEdit(item, data) {
-  const out = {};
-  for (const [k, camel] of Object.entries(_EDIT_FIELD_MAP)) {
-    if (!(k in data)) continue;
-    const nv = data[k], ov = item[camel];
-    let same;
-    if (k === 'asset_value')           same = (Number(nv) || 0) === (Number(ov) || 0);
-    else if (k === 'picture_required') same = !!nv === (ov !== false);
-    else                               same = String(nv ?? '') === String(ov ?? '');
-    if (!same) out[k] = nv;
-  }
-  // If op_status changed to a person-bound status, carry the person fields too so
-  // the server can record/notify, even if those strings happened to match.
-  if ('op_status' in out && OP_STATUS_PERSON.has(out.op_status)) {
-    if ('op_status_person_email' in data) out.op_status_person_email = data.op_status_person_email;
-    if ('op_status_person_name'  in data) out.op_status_person_name  = data.op_status_person_name;
-  }
-  return out;
-}
-
 function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
   const [name,          setName]          = useState(item.name);
   const [itemType,      setItemType]      = useState(item.itemType || 'Other');
@@ -814,161 +691,6 @@ function DeleteItemModal({ item, onClose, onConfirm }) {
       </div>
     </div>
   );
-}
-
-// ── Import helpers ──────────────────────────────────────────────────────────────
-// Maps a parsed spreadsheet (array-of-rows, header first) to item rows. Works
-// for CSV, XLSX, and XLS because SheetJS produces the same matrix for all three
-// - and it strips the UTF-8 BOM Excel prepends to the first header cell (the
-// reason "Name column not found" fired on a file that clearly had one). Jun 16.
-function mapItemsMatrix(matrix, customFields = []) {
-  const grid = (matrix || []).filter(r => Array.isArray(r) && r.some(c => String(c ?? '').trim() !== ''));
-  if (grid.length < 2) return { rows: [], error: 'File looks empty - needs a header row plus at least one item.' };
-  const header = grid[0].map(h => String(h ?? '').trim().toLowerCase());
-  const idx = {
-    serial_number: header.findIndex(h => ['serial','serial number','serial_number','serial no','asset tag','asset_tag'].includes(h)),
-    name:          header.findIndex(h => ['name','item','item name'].includes(h)),
-    item_type:     header.findIndex(h => ['type','item_type','item type'].includes(h)),
-    make:          header.findIndex(h => h === 'make'),
-    model:         header.findIndex(h => h === 'model'),
-    year:          header.findIndex(h => h === 'year'),
-    department:    header.findIndex(h => ['department','dept'].includes(h)),
-    default_owner: header.findIndex(h => ['owner','default_owner','default owner'].includes(h)),
-    ownership_type:header.findIndex(h => ['ownership','ownership_type','ownership type'].includes(h)),
-    location:      header.findIndex(h => ['location','site'].includes(h)),
-  };
-  if (idx.name === -1) return { rows: [], error: 'Could not find a "Name" column in the header.' };
-  // Map any header that matches a custom field's label → that field's key.
-  const cfCols = (customFields || [])
-    .map(f => ({ key: f.fieldKey, col: header.findIndex(h => h === f.label.trim().toLowerCase()) }))
-    .filter(x => x.col > -1);
-  const rows = grid.slice(1).map(cells => {
-    const get = i => (i > -1 ? String(cells[i] ?? '').trim() : '');
-    const name = get(idx.name);
-    const item_type = normalizeType(get(idx.item_type));
-    const ownership_type = get(idx.ownership_type) || 'transient';
-    const custom_fields = {};
-    for (const { key, col } of cfCols) {
-      const v = get(col);
-      if (v) custom_fields[key] = v;
-    }
-    return {
-      name, serial_number: get(idx.serial_number), item_type, make: get(idx.make), model: get(idx.model), year: get(idx.year),
-      department: get(idx.department), default_owner: get(idx.default_owner),
-      ownership_type: ownership_type.toLowerCase(),
-      location: get(idx.location),
-      custom_fields,
-      _valid: !!name,
-      _unknownType: !!item_type && !ITEM_TYPES.includes(item_type),
-    };
-  });
-  return { rows, error: null };
-}
-
-// Read a spreadsheet file (csv/xlsx/xls) into the item-row shape. SheetJS is
-// dynamically imported so it only loads when someone actually imports a file.
-async function parseItemsFile(file, customFields = []) {
-  const XLSX = await import('xlsx');
-  const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array' });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) return { rows: [], error: 'That file has no sheets to read.' };
-  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
-  return mapItemsMatrix(matrix, customFields);
-}
-
-// Spreadsheets use "N/A", "-", "none" etc. to mean "no value" - treat a whole-field
-// placeholder as blank so it never renders (e.g. Model showing "DS-2CD2143G2-IU N/A").
-const NA_TOKENS = new Set(['', 'n/a', 'na', 'n.a.', 'n.a', 'none', 'null', 'nil', '-', '–', '-']);
-const cleanField = v => { const s = String(v ?? '').trim(); return NA_TOKENS.has(s.toLowerCase()) ? '' : s; };
-
-// Levenshtein edit distance - used only to catch import typos in free-text fields
-// (Department / Location). Small inputs, so the plain two-row DP is plenty.
-function _editDistance(a, b) {
-  a = String(a).toLowerCase(); b = String(b).toLowerCase();
-  if (a === b) return 0;
-  const m = a.length, n = b.length;
-  if (!m) return n; if (!n) return m;
-  let prev = Array.from({ length: n + 1 }, (_, i) => i);
-  let cur  = new Array(n + 1);
-  for (let i = 1; i <= m; i++) {
-    cur[0] = i;
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
-    }
-    [prev, cur] = [cur, prev];
-  }
-  return prev[n];
-}
-
-// A value that ALMOST matches an existing one (a typo) but isn't an exact match.
-// Returns the existing value to suggest, or '' when the value is blank, already a
-// known value, or too different to be a confident typo. This is what stops a
-// misspelled "Constrcuction" from creating a phantom department that no filter
-// finds - the import preview offers the correct spelling with one click.
-function suggestKnown(value, known) {
-  const v = String(value ?? '').trim();
-  if (!v || !known?.length) return '';
-  const lower = v.toLowerCase();
-  if (known.some(k => String(k).toLowerCase() === lower)) return '';   // already valid
-  let best = '', bestD = Infinity;
-  for (const k of known) {
-    const d = _editDistance(v, k);
-    if (d < bestD) { bestD = d; best = k; }
-  }
-  // Confident-typo window: distance 1-2, scaled to length so short words don't
-  // false-match ("IT" is not a typo of "HR").
-  const tol = v.length <= 4 ? 1 : 2;
-  return (best && bestD > 0 && bestD <= tol) ? best : '';
-}
-
-function csvField(v) { const s = String(v ?? ''); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
-
-function triggerDownload(filename, blob) {
-  const url = URL.createObjectURL(blob); const a = document.createElement('a');
-  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-}
-
-// Export the DISPLAY status (Unassigned / Assigned · Location / Checked out …)
-// rather than the raw lifecycle string, so who-has-what round-trips (P4). The
-// unclear "Lifecycle"/"Status" pair is renamed to "Status" (deployment state) and
-// "Condition" (op-status). Extra columns are ignored on re-import.
-function itemDisplayStatusLabel(i) {
-  const s = displayStatus(i);
-  if (s === 'location_assigned') return i.location ? `Assigned · ${i.location}` : 'Assigned · Location';
-  return STATUS_META[s]?.label || s || '';
-}
-function downloadItemsCsv(items, customFields = []) {
-  // Serial leads the export so re-importing this file updates rows in place
-  // (the importer matches on serial, not name). Display status + holder columns +
-  // every custom field follow the core columns, so a round-trip carries the full record.
-  const cf = customFields || [];
-  const header = ['Serial','Name','Type','Make','Model','Year','Department','Owner','Ownership','Location','Status','Condition','Assigned To Name','Assigned To Email', ...cf.map(f => f.label)];
-  const lines = [header.map(csvField).join(',')];
-  for (const i of items) {
-    const base = [i.serialNumber,i.name,i.itemType,i.make,i.model,i.year,i.department,i.defaultOwner,i.ownershipType,i.location,
-      itemDisplayStatusLabel(i), OP_STATUS_META[i.opStatus]?.label || i.opStatus || '',
-      i.assignedToName || '', i.assignedToEmail || ''];
-    const extra = cf.map(f => (i.customFields && i.customFields[f.fieldKey] != null) ? i.customFields[f.fieldKey] : '');
-    lines.push([...base, ...extra].map(csvField).join(','));
-  }
-  triggerDownload(`items-catalog-${new Date().toISOString().slice(0,10)}.csv`, new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' }));
-}
-
-function downloadImportTemplate(customFields = []) {
-  // Leave Serial blank for new units - Nexus assigns one. Keep a row's serial to
-  // update that exact unit on re-import. Custom-field columns are appended so the
-  // template stays in sync with whatever fields have been defined.
-  const cf = customFields || [];
-  const header = ['Serial','Name','Type','Make','Model','Year','Department','Owner','Ownership','Location', ...cf.map(f => f.label)];
-  const samples = [
-    ['', 'Dell XPS 15 Laptop','Devices','Dell','XPS 15','2023','IT','IT Department','permanent','GSE'],
-    ['', 'DeWalt Cordless Drill','Tools','DeWalt','DCD777C2','','Construction','Tool Crib','transient','GSVC'],
-    ['', 'Ford F-150 Pickup','Vehicles','Ford','F-150','2022','Construction','Fleet Team','permanent','Yard'],
-  ];
-  const lines = [header, ...samples.map(r => [...r, ...cf.map(() => '')])].map(r => r.map(csvField).join(','));
-  triggerDownload('items-import-template.csv', new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' }));
 }
 
 // ── Import Modal ───────────────────────────────────────────────────────────────
@@ -1441,21 +1163,6 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
   );
 }
 
-// ── In-Use Summary - replaces the full workflow tracker once an item is with the
-//    employee: all they need is how long they have left, plus Extend / Return. ──
-function checkoutDueInfo(checkout) {
-  // The checkout period starts when the item physically changes hands -
-  // approval delay must not eat into the employee's days.
-  const start = checkout.allocatedAt || checkout.handedOverAt || checkout.createdAt;
-  const due = new Date(start);
-  due.setDate(due.getDate() + (checkout.days || 1));
-  const msLeft   = due - Date.now();
-  const daysLeft = Math.ceil(msLeft / 86400000);
-  return { due, daysLeft };
-}
-
-const fmtMoney = v => '$' + Math.round(Number(v) || 0).toLocaleString('en-US');
-
 // Live viewport check - phone layouts render genuinely different structures
 // (cards instead of tables) rather than squeezing the desktop UI sideways.
 function useIsMobile(bp = 640) {
@@ -1467,13 +1174,6 @@ function useIsMobile(bp = 640) {
     return () => mq.removeEventListener('change', h);
   }, [bp]);
   return mobile;
-}
-
-// Short request number derived from the order/checkout id - Neil: tag the
-// backend request number on the front end and make it searchable
-// ("hey, I'm talking about request number 818").
-function requestNo(key) {
-  return (key || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase();
 }
 
 // Highlights the active search query inside a name - flashes on arrival (CSS
@@ -1491,13 +1191,6 @@ function HighlightMatch({ text, query }) {
       {text.slice(idx + q.length)}
     </>
   );
-}
-
-// Neil: show the actual date, not just days - "you have it for 4 days,
-// until 06-14-2026".
-function fmtDueDate(co) {
-  const d = checkoutDueInfo(co).due;
-  return formatDate(d);
 }
 
 function InUseSummary({ checkout }) {
@@ -1533,182 +1226,6 @@ function InUseSummary({ checkout }) {
       )}
     </div>
   );
-}
-
-// ── Audit helpers ─────────────────────────────────────────────────────────────
-function formatAuditDetails(action, rawDetails) {
-  let d = {};
-  try { d = JSON.parse(rawDetails || '{}'); } catch { return rawDetails || '-'; }
-  const a = (action || '').toLowerCase();
-  const skip = new Set(['path', 'status']);
-
-  // Everything important is **bold** (rendered via the notification bold parser)
-  const money = v => '$' + Math.round(Number(v) || 0).toLocaleString('en-US');
-
-  if (a.includes('checkout') || a.includes('checked out')) {
-    const parts = [];
-    if (d.item_name) parts.push(`**${d.item_name}**`);
-    if (d.item_type) parts.push(`(${d.item_type})`);
-    if (d.days)      parts.push(`for **${d.days} day${d.days !== 1 ? 's' : ''}**`);
-    if (Number(d.asset_value) > 0) parts.push(`· worth **${money(d.asset_value)}**`);
-    if (d.reason)    parts.push(`- "${d.reason}"`);
-    if (d.department) parts.push(`[${d.department}]`);
-    return parts.length ? parts.join(' ') : '-';
-  }
-  if (a.includes('deleted item cart') || (a.includes('cart') && a.includes('delet'))) {
-    return 'Removed item from cart';
-  }
-  if (a.includes('added item') || a.includes('deleted item') || a.includes('imported')) {
-    const parts = [];
-    if (d.name || d.item_name) parts.push(`**${d.name || d.item_name}**`);
-    if (d.item_type)  parts.push(`(${d.item_type})`);
-    if (d.make || d.model) parts.push([d.make, d.model].filter(Boolean).join(' '));
-    if (Number(d.asset_value) > 0) parts.push(`· worth **${money(d.asset_value)}**`);
-    if (d.location)   parts.push(`@ ${d.location}`);
-    if (d.ownership_type) parts.push(d.ownership_type === 'permanent' ? '· permanent' : '· temporary');
-    return parts.length ? parts.join(' ') : '-';
-  }
-  if (a.includes('approved')) {
-    const parts = [];
-    if (d.item_name) parts.push(`**${d.item_name}**`);
-    if (d.allocator_name) parts.push(`→ assigned to **${d.allocator_name}**`);
-    return parts.length ? parts.join(' ') : '-';
-  }
-  if (a.includes('rejected')) {
-    const parts = [];
-    if (d.item_name) parts.push(`**${d.item_name}**`);
-    if (d.reason)    parts.push(`Reason: "${d.reason}"`);
-    return parts.join(' - ') || '-';
-  }
-  if (a.includes('return')) {
-    return d.item_name ? `**${d.item_name}** returned${d.condition_note ? ` - ${d.condition_note}` : ''}` : '-';
-  }
-  if (a.includes('allocated') || a.includes('hand over')) {
-    return d.item_name ? `**${d.item_name}** handed over${d.requested_by ? ` to **${d.requested_by}**` : ''}` : '-';
-  }
-
-  // Generic fallback - drop path/status, render remaining keys with bold values
-  const entries = Object.entries(d).filter(([k, v]) => !skip.has(k) && v !== null && v !== undefined && v !== '');
-  return entries.length ? entries.map(([k, v]) => `${k.replace(/_/g, ' ')}: **${v}**`).join(' · ') : '-';
-}
-
-function orderActivitySummary(orderItems) {
-  const first = orderItems[0];
-  const returned  = orderItems.filter(c => c.status === 'returned');
-  const rejected  = orderItems.filter(c => c.status === 'rejected');
-  const cancelled = orderItems.filter(c => c.status === 'cancelled');
-
-  const fmtFull = iso => formatDate(iso) + ' at ' + formatTime(iso);
-  const duration = (fromIso, toIso) => {
-    const ms = new Date(toIso) - new Date(fromIso);
-    if (ms <= 0) return null;
-    const totalMins = Math.round(ms / 60000);
-    const days  = Math.floor(totalMins / 1440);
-    const hours = Math.floor((totalMins % 1440) / 60);
-    const mins  = totalMins % 60;
-    const parts = [];
-    if (days)  parts.push(`${days} day${days  !== 1 ? 's' : ''}`);
-    if (hours) parts.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
-    if (!days && !hours && mins) parts.push(`${mins} minute${mins !== 1 ? 's' : ''}`);
-    return parts.join(' and ') || null;
-  };
-
-  const who    = first.requestedBy;
-  const items  = orderItems.length > 1 ? `${orderItems.length} items` : first.itemName;
-  const them   = orderItems.length > 1 ? 'them' : 'it';
-
-  if (cancelled.length === orderItems.length) {
-    return `${who} cancelled their request for ${items} on ${fmtFull(first.createdAt)}.`;
-  }
-  if (rejected.length === orderItems.length) {
-    const reason = rejected[0].rejectReason;
-    return `${who} requested ${items} on ${fmtFull(first.createdAt)} - request was rejected${reason ? ` ("${reason}")` : ''}.`;
-  }
-  if (returned.length > 0) {
-    const allocator = returned[0].assignedAllocatorName || 'the allocator';
-    const returnTs  = returned[0].returnedAt;
-    const dur       = returnTs ? duration(first.createdAt, returnTs) : null;
-    return `${who} checked out ${items} on ${fmtFull(first.createdAt)} and returned ${them} to ${allocator}${returnTs ? ` on ${fmtFull(returnTs)}` : ''}${dur ? ` for a total of ${dur}` : ''}.`;
-  }
-  return null;
-}
-
-// ── Audit Log Panel ───────────────────────────────────────────────────────────
-// Audit rows are stored as NAIVE UTC (no timezone suffix) - parsing them raw
-// makes JS treat them as local time, which is the "wrong timestamps" Sai saw.
-// Force UTC parse, display as California time per Neil.
-function fmtAuditStamp(iso) {
-  if (!iso) return '';
-  const d = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
-  return formatDateTime(d, '', 'America/Los_Angeles') + ' PT';
-}
-
-// Audit rows store raw emails and full checkout IDs - display friendly forms:
-// "Visesh Lodha" instead of the address, "Req #F1AC60E7" instead of
-// ICHK-CAF2CE90-F1AC60E7 (Visesh: make the log human-understandable).
-function auditName(email) {
-  const local = (email || '').split('@')[0];
-  return local.split(/[._]/).filter(Boolean).map(p => p[0].toUpperCase() + p.slice(1)).join(' ') || email || '-';
-}
-
-// Icon + tone + plain-English verb for an audit action, so the log reads like a
-// story instead of a code dump.
-function auditEventMeta(action) {
-  const a = (action || '').toLowerCase();
-  if (a.includes('imported'))                              return { Icon: UploadCloud, tone: 'green',  verb: 'Imported' };
-  if (a.includes('added'))                                 return { Icon: Plus,        tone: 'green',  verb: 'Added' };
-  if (a.includes('deleted'))                               return { Icon: Trash2,      tone: 'red',    verb: 'Deleted' };
-  if (a.includes('checked out') || a.includes('checkout')) return { Icon: ShoppingCart, tone: 'orange', verb: 'Checked out' };
-  if (a.includes('return'))                                return { Icon: RotateCcw,   tone: 'green',  verb: 'Returned' };
-  if (a.includes('restore'))                               return { Icon: RotateCcw,   tone: 'green',  verb: 'Restored' };
-  if (a.includes('assign'))                                return { Icon: User,        tone: 'blue',   verb: 'Assigned' };
-  if (a.includes('allocat') || a.includes('hand'))         return { Icon: Package,     tone: 'blue',   verb: 'Handed over' };
-  if (a.includes('approved'))                              return { Icon: CheckCircle, tone: 'green',  verb: 'Approved' };
-  if (a.includes('rejected'))                              return { Icon: AlertCircle, tone: 'red',    verb: 'Rejected' };
-  if (a.includes('updated') || a.includes('edited'))       return { Icon: Pencil,      tone: 'blue',   verb: 'Updated' };
-  return { Icon: History, tone: 'muted', verb: action || 'Event' };
-}
-const _auditFg = tone => tone === 'muted' ? 'var(--muted)' : `hsl(var(--color-${tone}))`;
-const _auditBg = tone => tone === 'muted' ? 'var(--mist)'  : `hsla(var(--color-${tone}),0.12)`;
-
-// Fields tracked for the "what changed" diff, with friendly labels.
-const _AUDIT_FIELDS = [
-  ['name', 'Name'], ['serial_number', 'Serial'], ['item_type', 'Type'], ['make', 'Make'],
-  ['model', 'Model'], ['year', 'Year'], ['department', 'Department'], ['location', 'Location'],
-  ['default_owner', 'Default owner'], ['ownership_type', 'Ownership'], ['status', 'Lifecycle'],
-  ['op_status', 'Op status'], ['op_status_person_name', 'Declared by'], ['asset_value', 'Asset value'],
-  ['photo_url', 'Photo'],
-];
-// Walk an item's events oldest→newest and tag each with the fields that CHANGED
-// against the running snapshot, so the timeline can show green (new) / red (old)
-// instead of a flat dump of the current values.
-function buildAuditDiffs(rows) {
-  const prev = {};
-  let firstFieldEvent = true;
-  return rows.map(r => {
-    let d = {}; try { d = JSON.parse(r.details || '{}'); } catch { /* ignore */ }
-    const a = (r.action || '').toLowerCase();
-    const fieldEvent = a.includes('added') || a.includes('updated') || a.includes('edited') || a.includes('imported');
-    const isAdd = a.includes('added') || a.includes('imported');
-    let changes = null, baseline = false;
-    if (fieldEvent) {
-      changes = [];
-      // The first field-event we see is the baseline snapshot - we have no prior
-      // state to diff against, so don't paint the whole thing as "changed". An
-      // actual Add stays green (those values really were set on creation).
-      baseline = firstFieldEvent && !isAdd;
-      for (const [f, label] of _AUDIT_FIELDS) {
-        if (!(f in d)) continue;
-        const to = String(d[f] ?? '');
-        const from = (f in prev) ? String(prev[f] ?? '') : null;
-        if (from === null) { if (to && to !== '0') changes.push({ field: f, label, from: null, to }); }
-        else if (from !== to) changes.push({ field: f, label, from, to });
-        prev[f] = to;
-      }
-      firstFieldEvent = false;
-    }
-    return { row: r, changes, baseline, isAdd: fieldEvent ? isAdd : false };
-  });
 }
 
 // Interactive per-item history - clicking a log row opens this: the item's whole
@@ -1795,34 +1312,6 @@ function AuditHistoryModal({ item, onClose, onOpenItem }) {
   );
 }
 
-// ── Activity feed helpers ─────────────────────────────────────────────────────
-// Day bucket for grouping (PT - same zone the timestamps render in). en-CA gives
-// YYYY-MM-DD which both sorts and compares against <input type="date"> values.
-function auditDayKey(iso) {
-  if (!iso) return '';
-  const d = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
-  return d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
-}
-function auditDayLabel(key) {
-  if (!key) return '';
-  const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
-  const yKey = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
-  if (key === todayKey) return 'Today';
-  if (key === yKey)     return 'Yesterday';
-  const [y, m, d] = key.split('-').map(Number);
-  const day = new Date(y, m - 1, d);
-  return `${formatWeekday(day, 'short')}, ${formatDate(day)}`;
-}
-function auditTime(iso) {
-  if (!iso) return '';
-  const d = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
-  return d.toLocaleTimeString('en-US', { timeZone:'America/Los_Angeles', hour:'numeric', minute:'2-digit', hour12:true });
-}
-function auditInitials(email) {
-  return (email || '?').split(/[\s@._]+/).filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase() || '?';
-}
-const EMPTY = '∅';
-
 // Render an audit field value: photos show as a thumbnail (old = dim/red ring,
 // new = green ring), everything else as text. Broken images fall back to a label.
 function PhotoChip({ url, kind }) {
@@ -1839,118 +1328,6 @@ function auditVal(field, value, kind) {
   // Show the friendly ownership words everywhere, never the raw "transient" (Neil).
   if (field === 'ownership_type' && value) return value === 'permanent' ? 'Permanent' : 'Temporary';
   return value === '' || value == null ? EMPTY : value;
-}
-
-// Walk EVERY item's events oldest→newest, keeping a per-item running snapshot so
-// each edit can be shown as "old → new" (the backend only records new values).
-// Returns newest-first, each entry tagged with field changes, baseline flag, and
-// the undo "reason" carried on reverse entries.
-function buildGlobalFeed(rows) {
-  const asc  = [...rows].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
-  const snap = {};   // resource_id → { field: value }
-  const seen = {};   // resource_id → have we set a baseline yet?
-  const out = asc.map(r => {
-    let d = {}; try { d = JSON.parse(r.details || '{}'); } catch { /* ignore */ }
-    const a = (r.action || '').toLowerCase();
-    const rid = r.resource_id || '';
-    const fieldEvent = a.includes('added') || a.includes('updated') || a.includes('edited') || a.includes('imported');
-    const isAdd = a.includes('added') || a.includes('imported');
-    let changes = null, baseline = false;
-    if (fieldEvent && rid) {
-      const s = snap[rid] || (snap[rid] = {});
-      baseline = !seen[rid] && !isAdd;
-      changes = [];
-      for (const [f, label] of _AUDIT_FIELDS) {
-        if (!(f in d)) continue;
-        const to = String(d[f] ?? '');
-        const from = (f in s) ? String(s[f] ?? '') : null;
-        if (from === null) { if (to && to !== '0') changes.push({ field:f, label, from:null, to }); }
-        else if (from !== to) changes.push({ field:f, label, from, to });
-        s[f] = to;
-      }
-      seen[rid] = true;
-    } else if (fieldEvent) {
-      // Bulk add/edit (no single resource_id) - show the submitted values flat.
-      changes = [];
-      for (const [f, label] of _AUDIT_FIELDS) {
-        if (!(f in d)) continue;
-        const to = String(d[f] ?? '');
-        if (to && to !== '0') changes.push({ field:f, label, from:null, to });
-      }
-    }
-    return { row:r, details:d, changes, baseline, isAdd, reason: d.reason || '' };
-  });
-  return out.reverse();
-}
-
-// Which entries can be undone, and the reverse payload to send. Edits restore the
-// reconstructed previous values; single-item adds delete; single-item deletes
-// restore. Bulk ops and the baseline (no known "before") are not undoable.
-function feedUndoInfo(entry) {
-  const r = entry.row;
-  if (r.undone_at) return null;
-  const rid = r.resource_id || '';
-  if (!rid) return null;
-  const a = (r.action || '').toLowerCase();
-  if (a.startsWith('added item'))   return { kind:'add', confirm:'Undo this? The item will be moved to the Recycle Bin.' };
-  if (a.startsWith('deleted item')) return { kind:'del', confirm:'Undo this? The item will be restored from the Recycle Bin.' };
-  if (a.startsWith('updated item')) {
-    if (entry.baseline || !entry.changes) return null;
-    const fields = {};
-    for (const c of entry.changes) if (c.from !== null) fields[c.field] = c.from;
-    if (!Object.keys(fields).length) return null;
-    return { kind:'edit', confirm:'Undo this? The previous value(s) will be put back.', fields };
-  }
-  return null;
-}
-
-// "make, model and location" / "make, model, year and 2 others"
-function humanList(arr, max = 4) {
-  if (arr.length <= 1) return arr[0] || '';
-  if (arr.length > max) {
-    const extra = arr.length - max;
-    return `${arr.slice(0, max).join(', ')} and ${extra} other${extra !== 1 ? 's' : ''}`;
-  }
-  return `${arr.slice(0, -1).join(', ')} and ${arr[arr.length - 1]}`;
-}
-const _q = (v) => `“${v}”`;
-
-// One-line plain-English summary for the collapsed card - written like a sentence
-// a non-technical user can read. The full field/value detail (with the red→green
-// animation) lives behind "Show details". Returns null for non-field events so
-// the caller falls back to the humanised details text.
-function feedSummary(entry) {
-  const ch = entry.changes;
-  if (ch) {
-    const n = ch.length;
-    // An item created with its values set.
-    if (entry.isAdd) return n ? `Added to Items with ${n} detail${n !== 1 ? 's' : ''} filled in.` : 'Added to Items.';
-    // A photo change is the action people recognise - always name it, even on a
-    // first record (don't bury it under a generic "first record" message).
-    const photo = ch.find(c => c.field === 'photo_url');
-    if (photo) {
-      const verb = photo.to === '' ? 'Removed the photo'
-        : (entry.baseline || photo.from == null || photo.from === '') ? 'Added the photo'
-        : 'Updated the photo';
-      const others = ch.filter(c => c.field !== 'photo_url');
-      if (!others.length || entry.baseline) return verb + '.';
-      return `${verb}, and ${others.length === 1 ? `changed the ${others[0].label.toLowerCase()}` : `updated ${others.length} other fields`}.`;
-    }
-    if (entry.baseline) return `This is the first record we have for this item - here’s what it looked like (${n} detail${n !== 1 ? 's' : ''}).`;
-    if (n === 0)        return 'Saved with no changes.';
-    if (n === 1) {
-      const c = ch[0];
-      const label = c.label.toLowerCase();
-      if (c.to === '')      return `Cleared the ${label}${c.from ? ` (was ${_q(c.from)})` : ''}.`;
-      if (c.from == null || c.from === '') return `Set the ${label} to ${_q(c.to)}.`;
-      return `Changed the ${label} from ${_q(c.from)} to ${_q(c.to)}.`;
-    }
-    return `Changed ${humanList(ch.map(c => c.label.toLowerCase()))}.`;
-  }
-  const a = (entry.row.action || '').toLowerCase();
-  if (a.startsWith('deleted item'))  return 'Moved to the Recycle Bin.';
-  if (a.startsWith('restored item')) return 'Restored from the Recycle Bin.';
-  return null;
 }
 
 const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLocate, onChanged }) {
@@ -2235,14 +1612,6 @@ function StageTracker({ checkout }) {
     </div>
   );
 }
-
-// ── Cart Drawer ────────────────────────────────────────────────────────────────
-// Item type → department fallback for the approver suggestion when a restored
-// cart entry doesn't carry its department.
-const TYPE_DEPT_FALLBACK = {
-  Tools: 'construction', Vehicles: 'construction',
-  Devices: 'it', Keys: 'operations', Equipment: 'operations',
-};
 
 function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDaysChange, showApprover = false, items = [] }) {
   const [reason, setReason] = useState('');
@@ -3408,41 +2777,6 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
     </>
   );
 });
-
-// ── Sortable table headers (Catalog + Manage list views) ──────────────────────
-// Click a column to sort asc, click again for desc, third click clears back to
-// the default (available-first, then name). Shared by the employee catalog and
-// the manager catalog/manage tables so the behaviour is identical (Neil, Jun 16).
-const SORT_ACCESSORS = {
-  name:     i => i.name || '',
-  type:     i => i.itemType || '',
-  make:     i => i.make || '',
-  model:    i => i.model || '',
-  location: i => i.location || '',
-  status:   i => displayStatus(i) || i.status || '',
-};
-
-function sortItemsBy(list, sortKey, sortDir) {
-  // Default ordering when no column is chosen: available first, then alpha.
-  if (!sortKey || !SORT_ACCESSORS[sortKey]) {
-    return [...list].sort((a, b) => {
-      const aA = a.status === 'available' ? 0 : 1, bA = b.status === 'available' ? 0 : 1;
-      if (aA !== bA) return aA - bA;
-      return (a.name || '').localeCompare(b.name || '');
-    });
-  }
-  const get = SORT_ACCESSORS[sortKey];
-  const sorted = [...list].sort((a, b) =>
-    String(get(a)).localeCompare(String(get(b)), undefined, { numeric: true, sensitivity: 'base' }));
-  return sortDir === 'desc' ? sorted.reverse() : sorted;
-}
-
-// Advance a column's sort: none → asc → desc → none.
-function nextSort(prev, colKey) {
-  if (prev.key !== colKey) return { key: colKey, dir: 'asc' };
-  if (prev.dir === 'asc')  return { key: colKey, dir: 'desc' };
-  return { key: null, dir: 'asc' };
-}
 
 function SortableTh({ label, colKey, sort, onSort }) {
   const active = sort.key === colKey;
@@ -6448,37 +5782,6 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
       )}
     </div>
   );
-}
-
-// ── Approve Modal (manager picks allocator) - supports single or batch ────────
-// Default allocator by department - the person who usually hands over that
-// department's items (Neil: Construction → Sahil, Operations → Valinda).
-// Matched by first name against the allocators list so it survives email changes.
-const DEPT_ALLOCATOR_HINTS = {
-  construction: ['sahil'],
-  operations:   ['valinda'],
-  it:           ['visesh'],
-};
-
-function suggestAllocator(items, allocators) {
-  if (!items.length || !allocators.length) return null;
-  // Majority department across the cart decides the default
-  const counts = {};
-  for (const co of items) {
-    const d = (co.department || '').toLowerCase().trim();
-    if (d) counts[d] = (counts[d] || 0) + 1;
-  }
-  const majority = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
-  if (!majority) return null;
-  const hints = DEPT_ALLOCATOR_HINTS[majority];
-  if (!hints) return null;
-  for (const hint of hints) {
-    const match = allocators.find(a =>
-      (a.name || '').toLowerCase().includes(hint) || (a.email || '').toLowerCase().includes(hint)
-    );
-    if (match) return { ...match, majorityDept: majority };
-  }
-  return null;
 }
 
 function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm, currentUserEmail, currentUserName }) {

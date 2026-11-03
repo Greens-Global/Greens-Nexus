@@ -204,10 +204,13 @@
     "type=\"date\"": 7
   },
   "views/InventoryManagement.jsx": {
-    "type=\"date\"": 5,
-    "toLocaleDateString(": 3,
-    "toLocaleTimeString(": 1,
+    "type=\"date\"": 4,
     "type={...date...}": 1
+  },
+  "inventory/model/auditFeed.js": {
+    "type=\"date\"": 1,
+    "toLocaleDateString(": 3,
+    "toLocaleTimeString(": 1
   },
   "views/IT.jsx": {
     "toLocaleTimeString(": 2
