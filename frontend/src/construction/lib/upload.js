@@ -128,6 +128,20 @@ export async function toWebSafe(file) {
 }
 
 // ── Upload ──────────────────────────────────────────────────────────────────
+// Storage's own error, in words a worker can act on. A bucket that does not
+// exist (the construction-media bucket was never created on dev - 11/03/2026)
+// answers "Bucket not found"; saying so plainly beats a raw 404.
+export const NO_BUCKET = 'Photo storage is not set up yet - ask an administrator. Your notes, crew size and hours will still save.';
+
+export function uploadErrorWords(error) {
+  const msg = String(error?.message || error?.error || '');
+  const code = String(error?.statusCode ?? error?.status ?? '');
+  if (/bucket not found/i.test(msg) || (code === '404' && /bucket/i.test(msg)) || /the related resource does not exist/i.test(msg)) {
+    return NO_BUCKET;
+  }
+  return msg || 'Upload failed';
+}
+
 const safeExt = (file) => {
   const e = (file.name || '').split('.').pop();
   return (e && /^[a-z0-9]{1,5}$/i.test(e) ? e : 'bin').toLowerCase();
@@ -205,7 +219,7 @@ export async function uploadConstructionMedia(file, { projectId }) {
     upsert: false,
     cacheControl: '31536000',   // ids are unique, so the object is immutable
   });
-  if (error || !data) return { payload: null, error: error?.message || 'Upload failed' };
+  if (error || !data) return { payload: null, error: uploadErrorWords(error) };
 
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
 

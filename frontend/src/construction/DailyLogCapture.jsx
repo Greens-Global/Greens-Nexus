@@ -7,7 +7,12 @@
 //     they press Submit the bytes are already gone.
 //   - A failed upload is retryable in place and never blocks the others.
 //   - Nothing is required. A log of three photos and no typing is valid and is
-//     the common case; the AI writes the prose afterwards.
+//     the common case.
+//   - The crew can flag the day themselves - Delay, Safety, Issue, Weather
+//     (11/03/2026): what a person said counts whether or not any AI ran.
+//   - Where the phone is goes with the log when the person allows location
+//     (navigator.geolocation) - optional, asked once, never blocks a thing; the
+//     server records the advisory geofence check from it.
 //
 // Mobile capture uses the hidden-input `capture="environment"` trick, the same
 // pattern as tickets/TicketsView.jsx and tasks/QuickCreateTask.jsx. There is no
@@ -16,13 +21,35 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Camera, Video, Mic, Paperclip, X, Send, AlertTriangle,
-  RotateCcw, Square, Trash2, CheckCircle2,
+  RotateCcw, Square, Trash2, CheckCircle2, MapPin,
 } from 'lucide-react';
 import { api } from '../api';
 import { uploadConstructionMedia, validate, kindOf, filesFromPaste } from './lib/upload';
 import { formatDate } from '../lib/datetime';
 import { useVoiceRecorder, clock, STOP_VOICE_FIRST } from '../lib/voice';
+import { useIsMobile } from '../lib/useIsMobile';
 import DictateButton from '../components/DictateButton';
+import { LOG_TAGS, TAG_COLOR } from './ui';
+
+// Where the phone is, if the person allows it - one quick, low-power fix,
+// never waited on: a jobsite with no signal or a "no" files the log anyway.
+function usePhoneLocation() {
+  const [fix, setFix] = useState(null);
+  useEffect(() => {
+    const geo = typeof navigator !== 'undefined' ? navigator.geolocation : null;
+    if (!geo || typeof geo.getCurrentPosition !== 'function') return undefined;
+    let live = true;
+    try {
+      geo.getCurrentPosition(
+        (pos) => { if (live && pos?.coords) setFix({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy }); },
+        () => { /* refused or unavailable: the log files without it */ },
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 300000 },
+      );
+    } catch { /* a browser that throws here simply has no location */ }
+    return () => { live = false; };
+  }, []);
+  return fix;
+}
 
 // One row per file the worker picked, tracked client-side until the server has
 // a media row for it. `status` drives the whole strip:
@@ -55,8 +82,12 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   const [notes, setNotes] = useState(log.notes || '');
   const [crew, setCrew] = useState(log.crewSize || '');
   const [hours, setHours] = useState(log.hoursWorked || '');
+  const [tags, setTags] = useState(log.tags || []);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const fix = usePhoneLocation();
+  const isMobile = useIsMobile();
+  const toggleTag = (k) => setTags((t) => (t.includes(k) ? t.filter((x) => x !== k) : [...t, k]));
   const camRef = useRef(null);
   const vidRef = useRef(null);
   const fileRef = useRef(null);
@@ -129,7 +160,14 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   const notesRef = useRef(null);
 
   const remove = async (item) => {
-    if (item.media) { try { await api.deleteConstructionMedia(item.media.id); } catch { /* soft delete is best effort */ } }
+    // A photo already filed is evidence (11/03/2026): when the server keeps it
+    // (409 - a reported photo), it stays on the strip and the reason shows.
+    if (item.media) {
+      try { await api.deleteConstructionMedia(item.media.id); } catch (e) {
+        setError(e.message || 'Could not remove that file.');
+        return;
+      }
+    }
     setItems((prev) => prev.filter((i) => i.key !== item.key));
   };
 
@@ -149,8 +187,10 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   // notes, crew and hours only exist in component state until this runs.
   const patchLog = () => api.updateConstructionLog(log.id, {
     notes_raw: notes,
+    tags,
     ...(crew !== '' ? { crew_size: Number(crew) } : {}),
     ...(hours !== '' ? { hours_worked: Number(hours) } : {}),
+    ...(fix ? { gps_latitude: fix.lat, gps_longitude: fix.lng, gps_accuracy_m: fix.acc || 0 } : {}),
   });
 
   // Save & Close used to call onClose directly, so everything the worker had
@@ -201,10 +241,21 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
             </p>
           </div>
           {/* Saves too. An X that discards what was typed is the same data loss
-              as the old Save & Close, just with less warning. */}
-          <button className="secondary-btn" onClick={saveAndClose} disabled={submitting || recording}
-            style={{ padding: 8 }} title={recording ? STOP_VOICE_FIRST : 'Save and close'}><X size={16} /></button>
+              as the old Save & Close, just with less warning. On a phone the
+              close lives in the bar at the bottom, within thumb reach. */}
+          {!isMobile && (
+            <button className="secondary-btn" onClick={saveAndClose} disabled={submitting || recording}
+              style={{ padding: 8 }} title={recording ? STOP_VOICE_FIRST : 'Save and close'} aria-label="Save and close"><X size={16} /></button>
+          )}
         </div>
+
+        {/* Sent back: the reviewer's question, where the answer gets written. */}
+        {log.status === 'needs_info' && log.reviewNote && (
+          <div data-review-note="" style={{ marginTop: 16, padding: '10px 14px', borderRadius: 8, fontSize: '0.85rem',
+            background: 'var(--bg-primary)', border: '1px solid var(--border-color)', lineHeight: 1.5 }}>
+            <strong>{log.reviewedByName || 'Your manager'} asks:</strong> {log.reviewNote}
+          </div>
+        )}
 
         {(error || voice.error) && (
           <div style={{
@@ -323,28 +374,63 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
             <div>
-              <label className="form-label">Crew size</label>
-              <input className="form-input" type="number" inputMode="numeric" min="0" value={crew}
+              <label className="form-label" htmlFor="dl-crew">Crew Size</label>
+              <input id="dl-crew" className="form-input" type="number" inputMode="numeric" min="0" value={crew}
                 onChange={(e) => setCrew(e.target.value)} placeholder="e.g. 6" />
             </div>
             <div>
-              <label className="form-label">Hours worked</label>
-              <input className="form-input" type="number" inputMode="decimal" min="0" step="0.5" value={hours}
+              <label className="form-label" htmlFor="dl-hours">Hours Worked</label>
+              <input id="dl-hours" className="form-input" type="number" inputMode="decimal" min="0" step="0.5" value={hours}
                 onChange={(e) => setHours(e.target.value)} placeholder="e.g. 8" />
             </div>
           </div>
+
+          {/* The crew's own flags (11/03/2026): one tap each, the reviewer
+              sees them first and the dashboard counts them. */}
+          <div style={{ marginTop: 14 }}>
+            <div className="form-label" id="dl-flags">Flag Today</div>
+            <div role="group" aria-labelledby="dl-flags" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {LOG_TAGS.map((t) => {
+                const on = tags.includes(t.key);
+                return (
+                  <button key={t.key} type="button" aria-pressed={on} onClick={() => toggleTag(t.key)}
+                    style={{
+                      minHeight: 40, padding: '8px 14px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit',
+                      fontSize: '0.85rem', fontWeight: 600,
+                      border: `1px solid ${on ? TAG_COLOR[t.key] : 'var(--border-color)'}`,
+                      background: on ? `color-mix(in srgb, ${TAG_COLOR[t.key]} 12%, transparent)` : 'var(--bg-card)',
+                      color: on ? TAG_COLOR[t.key] : 'var(--text-primary)',
+                    }}>
+                    {on ? <CheckCircle2 size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> : null}{t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {fix && (
+            <div style={{ marginTop: 10, fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <MapPin size={12} />Your location goes with this log.
+            </div>
+          )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border-color)' }}>
-          <div style={{ flex: 1, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
+          {isMobile && (
+            <button className="secondary-btn" onClick={saveAndClose} disabled={submitting || recording}
+              style={{ padding: 10, minWidth: 44, minHeight: 44 }} title={recording ? STOP_VOICE_FIRST : 'Save and close'}
+              aria-label="Save and close"><X size={18} /></button>
+          )}
+          <div style={{ flex: 1, minWidth: 90, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
             {recording ? STOP_VOICE_FIRST
               : pending > 0 ? `Uploading ${pending}…`
               : failed > 0 ? `${attached} attached, ${failed} failed`
                 : attached > 0 ? `${attached} attached` : 'Nothing attached yet'}
           </div>
-          <button className="secondary-btn" onClick={saveAndClose} disabled={submitting || recording}>
-            {submitting ? 'Saving…' : 'Save & Close'}
-          </button>
+          {!isMobile && (
+            <button className="secondary-btn" onClick={saveAndClose} disabled={submitting || recording}>
+              {submitting ? 'Saving…' : 'Save & Close'}
+            </button>
+          )}
           {/* No inline background: .primary-btn already carries var(--pine) and
               dims itself at :disabled. */}
           <button className="primary-btn" onClick={submit} disabled={!canSubmit}

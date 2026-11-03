@@ -3518,3 +3518,14 @@ api.getEntitiesFresh = () => req('/hr/entities');
 // caller's companies), and what a printed tag needs for each id.
 api.getItemByCode = (code) => req(`/items/by-code?code=${encodeURIComponent(code || '')}`);
 api.getItemTags = (ids) => req('/items/tags', { method: 'POST', body: JSON.stringify({ ids: ids || [] }) });
+// Construction foundations (Neil, 11/03/2026; routers/construction.py): one
+// job (its health row, the project URL /construction/project:<id>), the Edit
+// Job sheet's save, the server's AI status (every AI chip hides while it is
+// off), the one way back from Approved (a reason on the record), a manager
+// removing a draft's photo (a reason), and the review queue for one jobsite.
+api.getConstructionProject = (projectId) => req(`/construction/projects/${encodeURIComponent(projectId)}`);
+api.updateConstructionProject = (projectId, data) => req(`/construction/projects/${encodeURIComponent(projectId)}`, { method: 'PATCH', body: JSON.stringify(data) });
+api.getConstructionMeta = () => cachedGet('/construction/meta', 300_000);
+api.reopenConstructionLog = (logId, reason) => req(`/construction/logs/${logId}/reopen`, { method: 'POST', body: JSON.stringify({ reason }) });
+api.removeConstructionMedia = (mediaId, reason = '') => req(`/construction/media/${mediaId}${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`, { method: 'DELETE' });
+api.getConstructionReviewQueueFor = (projectId) => req(`/construction/review-queue?project_id=${encodeURIComponent(projectId || '')}`);

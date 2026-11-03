@@ -6,28 +6,26 @@
 // away on every section that was changed - a manager who cannot see what they
 // overwrote will not trust the edit.
 //
-// Publishing is deliberately a separate, confirmed act. A published report is
-// immutable server-side and an executive may act on it, so it does not share a
-// button with "save my wording".
+// Publishing is deliberately a separate, confirmed act - pressed and held
+// (ui/HoldButton.jsx, Neil Oct 30 2026). A published report is immutable
+// server-side and an executive may act on it, so it does not share a button
+// with "save my wording".
+//
+// 11/03/2026: the week is picked (the project's week, on the jobsite's clock -
+// the server's `weekStart`, the same rule the Friday scheduler cuts by); a
+// published week stays readable until its new version is published; nothing
+// about AI shows while AI is off.
 import { useCallback, useEffect, useState } from 'react';
 import {
   FileText, Sparkles, Download, Send, RotateCcw, AlertTriangle, Lock, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
-
-const CARD = {
-  backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)',
-  borderRadius: 12, padding: 24, marginBottom: 24, boxShadow: 'var(--shadow-sm)',
-};
-
-const STATUS = {
-  draft:      { label: 'Draft',      bg: 'var(--border-color)',     fg: 'var(--text-secondary)' },
-  in_review:  { label: 'In review',  bg: 'hsl(var(--color-blue))',  fg: '#fff' },
-  approved:   { label: 'Approved',   bg: 'hsl(var(--color-green))', fg: '#fff' },
-  published:  { label: 'Published',  bg: 'hsl(var(--color-green))', fg: '#fff' },
-  superseded: { label: 'Superseded', bg: 'var(--border-color)',     fg: 'var(--text-secondary)' },
-};
+import { StatusLabel } from '../components/StatusLabel';
+import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
+import { CARD, REPORT_STATUS as STATUS, personName } from './ui';
+import { useConstructionMeta } from './lib/meta';
+import { weekChoices } from './lib/weeks';
 
 // Mirrors construction_report.SECTIONS - the four sections of the sample
 // report. Keep the two in step; the server is the authority on order (it sends
@@ -57,20 +55,11 @@ const DERIVED_HINT = {
   critical_milestones: 'Assembled from the Milestones register.',
 };
 
-// Monday of the current week, jobsite-local. The server takes week_start and
-// derives the end, so this must agree with how a crew thinks about "this week".
-function thisMonday() {
-  const d = new Date();
-  const back = (d.getDay() + 6) % 7;
-  d.setDate(d.getDate() - back);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function Section({ sectionKey, section, locked, onChange }) {
+function Section({ sectionKey, section, locked, onChange, showAiOriginal }) {
   const [showAi, setShowAi] = useState(false);
   const label = LABELS[sectionKey] || sectionKey.replace(/_/g, ' ');
   const text = section?.text ?? section?.ai_text ?? '';
-  const edited = !!section?.edited_at && section.text !== section.ai_text;
+  const edited = showAiOriginal && !!section?.edited_at && section.text !== section.ai_text;
   const editable = EDITABLE.has(sectionKey) && !locked;
 
   // A section with no prose and no rows behind it is noise on this screen.
@@ -85,19 +74,19 @@ function Section({ sectionKey, section, locked, onChange }) {
             title="See what the AI originally wrote"
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0,
                      display: 'inline-flex', alignItems: 'center', gap: 3,
-                     fontSize: '0.7rem', color: 'var(--text-secondary)', fontFamily: 'inherit' }}>
-            {showAi ? <ChevronDown size={11} /> : <ChevronRight size={11} />}edited
+                     fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'inherit' }}>
+            {showAi ? <ChevronDown size={11} /> : <ChevronRight size={11} />}Edited
           </button>
         )}
         {(section?.sources || []).length > 0 && (
-          <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
             {section.sources.length} source{section.sources.length === 1 ? '' : 's'}
           </span>
         )}
         {/* Says where the text comes from, so a manager who cannot type here
             knows what to change instead of assuming the field is broken. */}
         {!editable && !locked && DERIVED_HINT[sectionKey] && (
-          <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
             {DERIVED_HINT[sectionKey]}
           </span>
         )}
@@ -132,6 +121,9 @@ export default function WeeklyReports({ project, canReview }) {
   const [edits, setEdits] = useState({});
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const { aiEnabled } = useConstructionMeta();
+  const weeks = weekChoices(project);
+  const [week, setWeek] = useState(weeks[0]);
 
   // openId is set functionally rather than read here: as a dependency it would
   // make every tab click re-run the effect and refetch the whole list.
@@ -150,14 +142,12 @@ export default function WeeklyReports({ project, canReview }) {
   const generate = async () => {
     setBusy('generate'); setError('');
     try {
-      const r = await api.generateConstructionReport(project.id, { week_start: thisMonday() });
+      const r = await api.generateConstructionReport(project.id, { week_start: week || weeks[0] });
       setEdits({});
       setReports((prev) => [r, ...(prev || []).filter((x) => x.id !== r.id)]);
       setOpenId(r.id);
     } catch (e) {
-      // Drafting spends model tokens over the network; a 502 here is far more
-      // likely than a bug, so it says so rather than "something went wrong".
-      setError(e.message || 'Could not draft the report. The AI service may be unavailable.');
+      setError(e.message || (aiEnabled ? 'Could not draft the report. The AI service may be unavailable.' : 'Could not draft the report.'));
     } finally { setBusy(''); }
   };
 
@@ -195,6 +185,9 @@ export default function WeeklyReports({ project, canReview }) {
     } finally { setBusy(''); }
   };
 
+  // Held, not clicked (HoldButton): the button finishes only when the server
+  // did; a refusal shows under it. The week's earlier published version steps
+  // aside on the server, so the list is read again.
   const publish = async () => {
     if (!open) return;
     setBusy('publish'); setError('');
@@ -206,8 +199,7 @@ export default function WeeklyReports({ project, canReview }) {
       }
       const r = await api.publishConstructionReport(open.id);
       setReports((prev) => (prev || []).map((x) => (x.id === r.id ? r : x)));
-    } catch (e) {
-      setError(e.message || 'Could not publish the report.');
+      load();
     } finally { setBusy(''); }
   };
 
@@ -229,9 +221,18 @@ export default function WeeklyReports({ project, canReview }) {
           </p>
         </div>
         {canReview && (
-          <button className="primary-btn" onClick={generate} disabled={!!busy}>
-            <Sparkles size={15} />{busy === 'generate' ? 'Drafting…' : 'Generate This Week'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <label htmlFor="report-week" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Week</label>
+            <select id="report-week" className="form-input" value={week} onChange={(e) => setWeek(e.target.value)}
+              style={{ width: 'auto', padding: '6px 10px', fontSize: '0.85rem' }}>
+              {weeks.map((w, i) => (
+                <option key={w} value={w}>{i === 0 ? `This Week (${formatDate(w, w)})` : `Week of ${formatDate(w, w)}`}</option>
+              ))}
+            </select>
+            <button className="primary-btn" onClick={generate} disabled={!!busy}>
+              {aiEnabled && <Sparkles size={15} />}{busy === 'generate' ? 'Drafting…' : 'Draft Report'}
+            </button>
+          </div>
         )}
       </div>
 
@@ -256,7 +257,7 @@ export default function WeeklyReports({ project, canReview }) {
             No reports yet
           </div>
           <p style={{ fontSize: '0.85rem', maxWidth: 460, margin: '0 auto' }}>
-            A report is drafted from the daily logs a manager has approved this week. Approve some logs first, then generate.
+            A report is drafted from the daily logs a manager has approved that week. Approve some logs first, then draft it.
           </p>
         </div>
       ) : (
@@ -274,8 +275,7 @@ export default function WeeklyReports({ project, canReview }) {
                            fontWeight: on ? 600 : 400 }}>
                   {formatDate(r.weekStart, r.weekStart)}
                   {r.version > 1 && <span style={{ color: 'var(--text-secondary)' }}>v{r.version}</span>}
-                  <span style={{ backgroundColor: s.bg, color: s.fg, fontSize: '0.65rem',
-                                 padding: '1px 6px', borderRadius: 3, fontWeight: 600 }}>{s.label}</span>
+                  <StatusLabel size="sm" label={s.label} color={s.color} />
                 </button>
               );
             })}
@@ -287,19 +287,20 @@ export default function WeeklyReports({ project, canReview }) {
                 <strong style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{open.title}</strong>
                 {locked && open.status === 'published' && (
                   <span title="A published report is immutable. Generate again to create a new version."
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem',
-                             color: 'var(--text-secondary)' }}><Lock size={11} />locked</span>
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.75rem',
+                             color: 'var(--text-secondary)' }}><Lock size={11} />Locked</span>
                 )}
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 18 }}>
                 {formatDate(open.weekStart, open.weekStart)} to {formatDate(open.weekEnd, open.weekEnd)}
                 {open.stats?.logs != null && ` · ${open.stats.logs} approved log${open.stats.logs === 1 ? '' : 's'}`}
                 {open.stats?.crewDays ? ` · ${open.stats.crewDays} crew-days` : ''}
-                {open.stats?.safetyFlags ? ` · ${open.stats.safetyFlags} safety flag${open.stats.safetyFlags === 1 ? '' : 's'}` : ''}
+                {aiEnabled && open.stats?.safetyFlags ? ` · ${open.stats.safetyFlags} safety flag${open.stats.safetyFlags === 1 ? '' : 's'}` : ''}
               </div>
 
               {order.map((k) => (
                 <Section key={k} sectionKey={k} section={merged(k)} locked={locked}
+                  showAiOriginal={aiEnabled && !!open.aiWritten}
                   onChange={(key, val) => setEdits((e) => ({ ...e, [key]: val }))} />
               ))}
 
@@ -308,7 +309,7 @@ export default function WeeklyReports({ project, canReview }) {
                 <div style={{ flex: 1, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                   {Object.keys(edits).length
                     ? `${Object.keys(edits).length} unsaved edit${Object.keys(edits).length === 1 ? '' : 's'}`
-                    : open.publishedAt ? `Published by ${open.approvedBy}` : 'No unsaved changes'}
+                    : open.publishedAt ? `Published by ${open.approvedByName || personName(open.approvedBy)}` : 'No unsaved changes'}
                 </div>
                 <button className="secondary-btn" onClick={downloadPdf} disabled={!!busy}>
                   <Download size={15} />{busy === 'pdf' ? 'Rendering…' : 'PDF'}
@@ -324,10 +325,11 @@ export default function WeeklyReports({ project, canReview }) {
                       disabled={!!busy || !Object.keys(edits).length}>
                       {busy === 'save' ? 'Saving…' : 'Save'}
                     </button>
-                    <button className="primary-btn" onClick={publish} disabled={!!busy}
-                      title="Publishing freezes this report. Later edits create a new version.">
-                      <Send size={15} />{busy === 'publish' ? 'Publishing…' : 'Publish'}
-                    </button>
+                    <span title="Publishing freezes this report and sends it to the executives. Later edits create a new version.">
+                      <HoldButton label="Publish" doneLabel="Published" icon={Send} holdMs={HOLD_RECORD_MS} className="nx-hold-send"
+                        disabled={!!busy && busy !== 'publish'} onConfirm={publish}
+                        fallbackMessage="Publish this report? It is frozen and sent to the executives." />
+                    </span>
                   </>
                 )}
               </div>

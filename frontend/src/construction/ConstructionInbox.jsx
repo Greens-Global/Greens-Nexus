@@ -24,10 +24,11 @@ import { formatDateTime } from '../lib/datetime';
 // reproduce: the global bell indexes its map with no fallback and crashes on a
 // type it has not been taught.
 const KIND = {
-  construction_log_submitted:  { Icon: ClipboardList, color: 'var(--color-orange)', label: 'Ready to review' },
-  construction_log_needs_info: { Icon: AlertCircle,   color: 'var(--color-red)',    label: 'Sent back' },
+  construction_log_submitted:  { Icon: ClipboardList, color: 'var(--color-blue)',   label: 'Ready to Review' },
+  construction_log_needs_info: { Icon: AlertCircle,   color: 'var(--color-red)',    label: 'Sent Back' },
   construction_log_approved:   { Icon: CheckCircle,   color: 'var(--color-green)',  label: 'Approved' },
-  construction_report_draft:   { Icon: FileText,      color: 'var(--color-blue)',   label: 'Draft ready' },
+  construction_log_reopened:   { Icon: AlertCircle,   color: 'var(--color-blue)',   label: 'Reopened' },
+  construction_report_draft:   { Icon: FileText,      color: 'var(--color-blue)',   label: 'Draft Ready' },
   construction_report_published: { Icon: FileText,    color: 'var(--color-green)',  label: 'Published' },
 };
 const FALLBACK = { Icon: Bell, color: 'var(--color-blue)', label: 'Update' };
@@ -71,17 +72,18 @@ export default function ConstructionInbox() {
   return (
     <div style={{
       backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)',
-      borderLeft: '3px solid hsl(var(--color-orange))', borderRadius: 12,
+      borderRadius: 12,
       padding: 20, marginBottom: 24, boxShadow: 'var(--shadow-sm)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <Bell size={16} style={{ color: 'hsl(var(--color-orange))' }} />
+        <Bell size={16} style={{ color: 'var(--text-secondary)' }} />
         <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
           Needs Your Attention
         </span>
+        {/* The normal count, never an orange badge - orange means in progress only. */}
         <span style={{
-          fontSize: '0.7rem', fontWeight: 800, color: '#fff', borderRadius: 999,
-          background: 'hsl(var(--color-orange))', padding: '2px 8px',
+          fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', borderRadius: 999,
+          background: 'var(--bg-primary)', border: '1px solid var(--border-color)', padding: '1px 8px',
         }}>{unread.length}</span>
       </div>
 
