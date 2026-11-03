@@ -153,16 +153,33 @@ def _role_from_grants(grants: dict, mode: str) -> str:
     return REQUESTER
 
 
+def company_scope(user: dict, db: Session):
+    """The company wall for TICKETS: auth.company_scope, except that an
+    Administrator sees every company's tickets (hotfix 11/04/2026, Pranshu
+    with Neil's approval - the 11/02 tier change had walled them off the
+    desk). Every other module keeps the Administrator walled. An Act As
+    identity passes only when the real actor is an Administrator too."""
+    import auth
+    admin = auth._LEVELS["administrator"]
+    real_ok = not user.get("acting_as") or int(user.get("real_level", 0) or 0) >= admin
+    if not user.get("external") and int(user.get("level", 0) or 0) >= admin and real_ok:
+        return None
+    return auth.company_scope(user, db)
+
+
+def assert_company(record_company: str, user: dict, db: Session) -> None:
+    """auth.assert_company over the tickets wall above (404 across it)."""
+    import auth
+    if not auth.company_ok(record_company or "", company_scope(user, db)):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 def ticket_role(user: dict, db: Session, mode: str | None = None, company: str | None = None) -> str:
     """requester / agent / supervisor for the signed-in `user` dict.
 
     `company`: the ticket's company when the question is about one ticket.
-    An Administrator supervises the desk only within their companies (Neil,
-    11/02/2026: walled, the switch on or off) - on another company's ticket
-    their grants decide, like anyone's. A Super Administrator supervises
-    everywhere. With no company (the desk as a whole) an Administrator is a
-    supervisor of their own companies' desk - every ticket read is walled
-    by company on its own."""
+    An Administrator supervises every company's desk (hotfix 11/04/2026,
+    see company_scope above); a Super Administrator everywhere."""
     import auth
     if user.get("external"):
         return REQUESTER
@@ -170,7 +187,7 @@ def ticket_role(user: dict, db: Session, mode: str | None = None, company: str |
     if level >= auth._LEVELS["owner"]:
         return SUPERVISOR
     if level >= auth._LEVELS["administrator"]:
-        if company is None or auth.company_ok(company or "", auth.company_scope(user, db)):
+        if company is None or auth.company_ok(company or "", company_scope(user, db)):
             return SUPERVISOR
     grants = auth._grants_for(user.get("email") or "", db)
     return _role_from_grants(grants, mode or desk_access_mode(db))

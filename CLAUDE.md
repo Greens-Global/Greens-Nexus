@@ -162,7 +162,12 @@ keep the diff minimal.
   (`frontend/scripts/check-role-copy.mjs` fails the lint). An Administrator
   is ALWAYS company-walled (`auth.company_scope`, walls switch on or off);
   only level 5 or a member of a group flagged `is_global_admin` passes the
-  walls (`auth.is_global_admin` - no level-4 fallback). Only a Super
+  walls (`auth.is_global_admin` - no level-4 fallback).
+  Exception - TICKETS (hotfix 11/04/2026, Pranshu with Neil's approval):
+  an Administrator sees and works every company's tickets; ticket code reads
+  `ticket_roles.company_scope` / `ticket_roles.assert_company`, never
+  `auth.company_scope`, for a ticket record. People pickers, departments,
+  approvers and desk settings stay walled; Ask HR tickets stay HR's. Only a Super
   Administrator flags or touches a flagged group, sets the walls, or grants
   administrator / owner. The five Super Administrators (Neil, Visesh,
   Charmi, Pranshu, Sagar) were set ONCE by `super_admins_seed.apply_once`
