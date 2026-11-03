@@ -156,6 +156,13 @@ def sweep_orphaned_objects(db) -> int:
     from datetime import datetime, timedelta, timezone
     from sqlalchemy import text
 
+    # The deployed API only (Neil, 11/02/2026): a laptop's database does not
+    # know every row the shared bucket serves, so on a laptop with the service
+    # key this sweep would delete live objects it simply had never heard of.
+    # Gated here, in the function, so no caller can forget it.
+    import leader
+    if not leader.is_deployed_worker():
+        return 0
     url, key = _creds()
     if not (url and key):
         return 0
