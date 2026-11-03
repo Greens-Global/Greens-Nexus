@@ -12,6 +12,7 @@ import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { ErrorBanner, SkeletonBlocks } from './AsyncState';
+import { Avatar } from '../tasks/components';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -153,7 +154,7 @@ export default function TeamLeaveCalendar({ embedded = false }) {
                 const out = onDay(ds);
                 const hol = holidayOn(ds);
                 const weekend = [0, 6].includes(new Date(y, m - 1, d).getDay());
-                const shown = out.slice(0, 3);
+                const shown = out.slice(0, 12);
                 return (
                   // 56px floor, growing with its people (11/03/2026): an
                   // empty month reads as a calm strip, not a wall of boxes.
@@ -164,18 +165,36 @@ export default function TeamLeaveCalendar({ embedded = false }) {
                     {hol.map((h) => (
                       <div key={h.name} title={`Holiday - ${h.name}`} style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</div>
                     ))}
-                    {shown.map((e) => <Chip key={e.id} e={e} />)}
-                    {out.length > shown.length && (
-                      <div title={out.slice(3).map((e) => `${e.name} - ${e.label}`).join('\n')}
-                        style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', marginTop: 3 }}>+{out.length - shown.length} More</div>
+                    {/* Photos, not name chips (11/03/2026): a day holds many
+                        more people as a face stack, details on hover, and a
+                        pending request shows as a dashed ring. */}
+                    {out.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', paddingTop: 4, paddingLeft: 2 }}>
+                        {shown.map((e) => {
+                          const pending = e.status === 'pending';
+                          const part = e.startTime && e.endTime ? ` ${hm12(e.startTime)} - ${hm12(e.endTime)}` : '';
+                          const state = pending ? (e.awaitingHr ? 'Awaiting HR Approval' : 'Pending') : 'Approved';
+                          return (
+                            <span key={e.id} title={`${e.name} - ${e.label}${part} (${state})`}
+                              style={{ display: 'inline-flex', borderRadius: '50%', marginRight: -5, marginBottom: 3,
+                                border: pending ? '1.5px dashed hsl(var(--color-orange))' : '1.5px solid var(--card)' }}>
+                              <Avatar email={e.email} name={e.name} size={22} />
+                            </span>
+                          );
+                        })}
+                        {out.length > shown.length && (
+                          <span title={out.slice(shown.length).map((e) => `${e.name} - ${e.label}`).join('\n')}
+                            style={{ marginLeft: 9, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>+{out.length - shown.length}</span>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
               })}
             </div>
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, fontSize: 11.5, color: 'var(--muted)' }}>
-              <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'hsla(var(--color-green),0.25)', marginRight: 5, verticalAlign: -1 }} />Approved</span>
-              <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, border: '1px dashed hsl(var(--color-orange))', marginRight: 5, verticalAlign: -1 }} />Pending</span>
+              <span><span style={{ display: 'inline-block', width: 11, height: 11, borderRadius: '50%', background: 'hsla(var(--color-green),0.3)', marginRight: 5, verticalAlign: -1 }} />Approved - hover a face for the details</span>
+              <span><span style={{ display: 'inline-block', width: 11, height: 11, borderRadius: '50%', border: '1.5px dashed hsl(var(--color-orange))', marginRight: 5, verticalAlign: -2 }} />Pending</span>
               <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'hsla(var(--color-blue),0.3)', marginRight: 5, verticalAlign: -1 }} />Holiday</span>
               {!entries.length && <span>Nobody is out this month.</span>}
             </div>
