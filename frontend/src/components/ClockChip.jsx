@@ -9,11 +9,11 @@ import ShiftTrack from './ShiftTrack';
 // The time clock as one object (Neil, Oct 14 2026): a dial that fills with
 // today's hours toward 8, a status light in its center, wearing the color
 // of where you are - green clocked in, amber on a break, red off the clock
-// - and a transport control under it: Play, Pause, Stop, always all three.
-// The lit one is where you are; it is outlined, and the outline slides to
-// the next when the state changes. Play is Punch In when off the clock and
-// Resume on a break; Pause starts a break; Stop punches out. Each button
-// wears the color of where it takes you. Pausing lifts a coffee cup out of
+// - and a transport control under it holding only the actions you can take
+// (Neil, 11/03/2026). Play is Punch In when off the clock and End Break on
+// a break; Pause starts a break; Stop punches out. Each button wears the
+// color of where it takes you; the clocked-in green is the clock's own
+// (--sb-green), not the brand color. Pausing lifts a coffee cup out of
 // the button for a moment; resuming runs a sweep around the dial. Used by
 // the sidebar (wide, or a column when folded) and the phone sheet. It draws
 // only what it is handed (the engine's view-model, lib/timeclockStore.js,
@@ -69,6 +69,17 @@ function captureTitle(capture) {
 // (its numbers). The span keeps each button's slot in the transport grid.
 function Tip({ label, detail, tone, side, children }) {
   return <span className="sbtt"><NavTip label={label} detail={detail} tone={tone} side={side}>{children}</NavTip></span>;
+}
+
+// One place in the transport. Off, it stays mounted so it can animate away
+// (the button shrinks and fades, then the gap closes) and back; meanwhile it
+// is inert - out of the tab order and hidden from screen readers.
+function Slot({ on, children }) {
+  return (
+    <span className={`sbtr-slot${on ? '' : ' is-gone'}`} aria-hidden={on ? undefined : true} inert={!on}>
+      <span className="sbtr-slot-in">{children}</span>
+    </span>
+  );
 }
 
 // The flourish for a punch the server accepted (Neil, Oct 14 2026). It is
@@ -179,58 +190,50 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
     : capture?.missing ? 'Second screen not shared - share it too' : '');
   const shareAlert = !!capture && (capture.needed || capture.missing) && !vm.note && !vm.lost;
   const stateLabel = off ? 'Clocked Out' : onBreak ? 'On Break' : 'Clocked In';
-  const lit = off ? 0 : onBreak ? 1 : 0;
-  const vertical = variant === 'rail';   // which of Play / Pause / Stop is where you are
+  const vertical = variant === 'rail';
   const busyAny = !!(vm.busy || vm.breakBusy);
 
-  // Play: Punch In when off the clock, End Break on a break, the lit (inert)
-  // state while clocked in. Pause: Start Break, or the lit state on a break.
-  // Stop: Punch Out (Retry with a parked punch); off the clock it is dim.
-  // A button you can press is named by what it does, one line, nothing more
-  // (Neil, Oct 14 2026: the Punch In tip "should just say Punch In"); one you
-  // cannot press right now says why underneath (`sub`). "End Break" rather
-  // than "Resume": it says which thing ends.
-  const play = off
-    ? { label: 'Punch In', onClick: a.punchIn && after(a.punchIn), lit: true, tone: 'in' }
-    : onBreak
-      ? { label: 'End Break', onClick: after(a.toggleBreak), lit: false, next: true, tone: 'in' }
-      : { label: 'Clocked In', sub: 'You are on the clock', onClick: null, lit: true };
-  const pause = off
-    ? { label: 'Start Break', sub: 'Punch in first', onClick: null, dim: true }
-    : onBreak
-      ? { label: 'On Break', sub: 'Press End Break to get back to work', onClick: null, lit: true }
-      : { label: 'Start Break', onClick: after(a.toggleBreak), lit: false, tone: 'break' };
-  const stop = off
-    ? { label: 'Punch Out', sub: 'You are not punched in', onClick: null, dim: true }
-    : { label: vm.lost ? 'Retry Punch Out' : 'Punch Out', sub: vm.lost ? 'The last punch has not recorded' : undefined, onClick: after(a.punchOut), lit: false, tone: 'out' };
+  // Only what you can press (Neil, 11/03/2026, option 1 of
+  // https://claude.ai/artifact/XF7n68JMgh5gaCEmQFVtkw): the dial says where
+  // you are, so the transport shows only the ways out of it - off the clock
+  // Play (Punch In); working Pause and Stop; on a break Play (End Break) and
+  // Stop. A button that is no longer an option shrinks away and the gap
+  // closes behind it (`Slot`); one that becomes an option grows back in.
+  // Each is named by what it does, one line (Neil, Oct 14 2026: the Punch In
+  // tip "should just say Punch In"); only a Retry says why underneath.
+  // "End Break" rather than "Resume": it says which thing ends.
+  const play = onBreak
+    ? { label: 'End Break', onClick: after(a.toggleBreak), next: true }
+    : { label: 'Punch In', onClick: a.punchIn && after(a.punchIn) };
+  const stop = { label: vm.lost ? 'Retry Punch Out' : 'Punch Out', sub: vm.lost ? 'The last punch has not recorded' : undefined };
   const side = vertical ? 'right' : 'top';
 
   const transport = (
     <div className={`sbtr sbtr--${tone}`} role="group" aria-label="Punch">
-      {/* --sb-lit: which slot it sits on; the stylesheet moves it by a slot
-          AND the gap between slots (sliding by its own width alone left it
-          a gap short of Pause: Neil, Oct 14 2026). The outline is ONE element
-          so the move is a transition - a re-keyed one mounted in place and
-          never slid; only the landing pop inside it is re-keyed. */}
-      <span className="sbtr-lit" style={{ '--sb-lit': lit }} aria-hidden="true"><i className="sbtr-land" key={`${tone}-${lit}`} /></span>
-      <Tip label={play.label} detail={play.sub} tone={play.tone} side={side}>
-        <button ref={playRef} type="button" className={`sbtr-btn sbtr-btn--play${play.lit ? ' is-lit' : ''}${play.next ? ' is-next' : ''}${!play.onClick ? ' is-inert' : ''}`}
-          onClick={play.onClick || undefined} disabled={busyAny} aria-disabled={!play.onClick || undefined} aria-pressed={play.lit && !off ? true : undefined} aria-label={play.label}>
-          {vm.busy === 'in' ? <Spinner size={12} /> : <Play />}
-        </button>
-      </Tip>
-      <Tip label={pause.label} detail={pause.sub} tone={pause.tone} side={side}>
-        <button ref={pauseRef} type="button" className={`sbtr-btn sbtr-btn--pause${pause.lit ? ' is-lit' : ''}${pause.dim ? ' is-dim' : ''}${!pause.onClick ? ' is-inert' : ''}`}
-          onClick={pause.onClick || undefined} disabled={busyAny} aria-disabled={!pause.onClick || undefined} aria-pressed={pause.lit ? true : undefined} aria-label={pause.label}>
-          {vm.breakBusy ? <Spinner size={12} /> : <Pause />}
-        </button>
-      </Tip>
-      <Tip label={stop.label} detail={stop.sub} tone={stop.tone} side={side}>
-        <button ref={stopRef} type="button" className={`sbtr-btn sbtr-btn--stop${stop.dim ? ' is-dim' : ''}${!stop.onClick ? ' is-inert' : ''}`}
-          onClick={stop.onClick || undefined} disabled={busyAny} aria-disabled={!stop.onClick || undefined} aria-label={stop.label}>
-          {vm.busy === true || vm.busy === 'out' ? <Spinner size={12} /> : <Square />}
-        </button>
-      </Tip>
+      <Slot on={off || onBreak}>
+        <Tip label={play.label} tone="in" side={side}>
+          <button ref={playRef} type="button" className={`sbtr-btn sbtr-btn--play${play.next ? ' is-next' : ''}`}
+            onClick={play.onClick || undefined} disabled={busyAny || !play.onClick} aria-label={play.label}>
+            {vm.busy === 'in' ? <Spinner size={12} /> : <Play />}
+          </button>
+        </Tip>
+      </Slot>
+      <Slot on={state === 'in'}>
+        <Tip label="Start Break" tone="break" side={side}>
+          <button ref={pauseRef} type="button" className="sbtr-btn sbtr-btn--pause"
+            onClick={after(a.toggleBreak)} disabled={busyAny} aria-label="Start Break">
+            {vm.breakBusy ? <Spinner size={12} /> : <Pause />}
+          </button>
+        </Tip>
+      </Slot>
+      <Slot on={!off}>
+        <Tip label={stop.label} detail={stop.sub} tone="out" side={side}>
+          <button ref={stopRef} type="button" className="sbtr-btn sbtr-btn--stop"
+            onClick={after(a.punchOut)} disabled={busyAny} aria-label={stop.label}>
+            {vm.busy === true || vm.busy === 'out' ? <Spinner size={12} /> : <Square />}
+          </button>
+        </Tip>
+      </Slot>
       {flourish && flourish !== 'sweep' && <Flourish key={flourish} kind={flourish} anchor={fxAnchor} />}
     </div>
   );

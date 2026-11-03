@@ -25,10 +25,11 @@
 // decisions, the Filter sheet. Every decision still comes back through
 // `decide` below; nothing bulk-approves there.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, ChevronRight, ArrowUpRight, Users, Search, Inbox, Flame, Hourglass, History, ListChecks, Building2, Layers, UserRound, Keyboard, X } from 'lucide-react';
+import { CheckCircle2, ChevronRight, ArrowUpRight, Users, Search, Inbox, Flame, Hourglass, History, ListChecks, Building2, Layers, UserRound, Keyboard, X, SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { PrioritySignal, StatusLabel } from '../components/StatusLabel';
 import { RecommendationChip, recommendationReasons } from '../components/RecommendationChip';
 import { useTableValue } from '../tasks/tableCols';
+import AnchoredMenu from '../components/AnchoredMenu';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { ForChip } from '../components/DelegateApprovals';
@@ -107,6 +108,13 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
   const [reviewing, setReviewing] = useState(null);
   const [sortKey, setSortKey] = useTableValue('approvals-inbox', 'sort', 'oldest');
   const [groupBy, setGroupBy] = useTableValue('approvals-inbox', 'groupBy', '');
+  // Customize (Neil, 11/03/2026): how the list is laid out - Group By, Sort
+  // and whether groups start open or folded - is each person's own, kept in
+  // their profile (the same on every computer and on the phone). '' means
+  // "the default": Kind, Oldest First, and groups open except Department's.
+  const [groupsStartPref, setGroupsStart] = useTableValue('approvals-inbox', 'groupsStart', '');
+  const [customizing, setCustomizing] = useState(false);
+  const customizeBtn = useRef(null);
   const [prioFilter, setPrioFilter] = useState('all');
   const [ageFilter, setAgeFilter] = useState(0);              // 0 | 3 | 7 days waiting at least
   const [query, setQuery] = useState('');
@@ -290,13 +298,19 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
   const actRows = useMemo(() => rows.filter((r) => r.scope === 'act'), [rows]);
   const who = data?.who || {};
   const seesAll = !!(who.isHr || who.isAdmin);
-  const effectiveGroupBy = groupBy || (seesAll ? 'department' : 'kind');
+  // Kind for everyone by default (Neil, 11/03/2026 - HR and administrators
+  // used to default to Department; it is one pick away under Customize).
+  const effectiveGroupBy = groupBy || 'kind';
   // All in the rail with the list by department: every department starts
   // folded, like the Schedule's All Teams; a click opens one (Pranshu, Oct 31
-  // 2026). `collapsed` then holds the departments opened instead.
-  const foldAll = kind === 'all' && effectiveGroupBy === 'department';
+  // 2026) - now the default of Customize's Groups Start, which a person may
+  // change for any grouping. `collapsed` then holds the groups opened instead.
+  const groupsStart = groupsStartPref || (effectiveGroupBy === 'department' ? 'folded' : 'open');
+  const foldAll = kind === 'all' && effectiveGroupBy !== 'none' && groupsStart === 'folded';
+  const customized = !!groupBy || sortKey !== 'oldest' || !!groupsStartPref;
+  const resetView = () => { setGroupBy(''); setSortKey('oldest'); setGroupsStart(''); };
   const isOpen = (key) => (foldAll ? collapsed.has(key) : !collapsed.has(key));
-  useEffect(() => { setCollapsed(new Set()); }, [kind, effectiveGroupBy]);
+  useEffect(() => { setCollapsed(new Set()); }, [kind, effectiveGroupBy, groupsStart]);
   const counts = useMemo(() => {
     const c = { all: 0 };
     decideRows.forEach((r) => { const n = r.count || 1; c.all += n; c[r.group] = (c[r.group] || 0) + n; });
@@ -458,21 +472,50 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
           <Search size={14} aria-hidden="true" />
           <input type="search" className="form-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name, request, detail or department" aria-label="Search approvals" />
         </div>
-        <label>Group by
-          <select className="form-select" value={effectiveGroupBy} onChange={(e) => setGroupBy(e.target.value)} aria-label="Group approvals by">
-            {GROUP_BYS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
-          </select>
-        </label>
         <label>Priority
           <select className="form-select" value={prioFilter} onChange={(e) => setPrioFilter(e.target.value)} aria-label="Filter by priority">
             {PRIORITY_FILTERS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
           </select>
         </label>
-        <label>Sort
-          <select className="form-select" value={sortKey} onChange={(e) => setSortKey(e.target.value)} aria-label="Sort approvals">
-            {SORTS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-          </select>
-        </label>
+        <button type="button" ref={customizeBtn} className={`apv-customize${customizing ? ' is-open' : ''}`} onClick={() => setCustomizing((v) => !v)}
+          aria-haspopup="dialog" aria-expanded={customizing} aria-label={`Customize - grouped by ${GROUP_BYS.find((g) => g.key === effectiveGroupBy)?.label || 'Kind'}`}>
+          <SlidersHorizontal size={14} aria-hidden="true" />
+          <span>Customize</span>
+          <span className="apv-customize-now">{effectiveGroupBy === 'none' ? 'No Grouping' : `By ${GROUP_BYS.find((g) => g.key === effectiveGroupBy)?.label || 'Kind'}`}</span>
+        </button>
+        <AnchoredMenu anchorRef={customizeBtn} open={customizing} onClose={() => setCustomizing(false)} align="end" role="dialog"
+          aria-label="Customize your approvals" className="apv-customize-panel" minWidth={300}>
+          <div className="apv-cz-head">
+            <strong>Customize Your List</strong>
+            <span>Saved for you - the same on every computer and on your phone.</span>
+          </div>
+          <label className="apv-cz-row">Group By
+            <select className="form-select" value={effectiveGroupBy} onChange={(e) => setGroupBy(e.target.value)} aria-label="Group approvals by">
+              {GROUP_BYS.map((g) => <option key={g.key} value={g.key}>{g.label}{g.key === 'kind' ? ' (Default)' : ''}</option>)}
+            </select>
+          </label>
+          <label className="apv-cz-row">Sort
+            <select className="form-select" value={sortKey} onChange={(e) => setSortKey(e.target.value)} aria-label="Sort approvals">
+              {SORTS.map((o) => <option key={o.key} value={o.key}>{o.label}{o.key === 'oldest' ? ' (Default)' : ''}</option>)}
+            </select>
+          </label>
+          {effectiveGroupBy !== 'none' && (
+            <div className="apv-cz-row" role="group" aria-label="Groups start">
+              <span>Groups Start</span>
+              <span className="apv-cz-seg">
+                {[['open', 'Open'], ['folded', 'Folded']].map(([k, label]) => (
+                  <button key={k} type="button" aria-pressed={groupsStart === k} onClick={() => setGroupsStart(k)}>{label}</button>
+                ))}
+              </span>
+            </div>
+          )}
+          <div className="apv-cz-foot">
+            <button type="button" className="apv-link" onClick={resetView} disabled={!customized}>
+              <RotateCcw size={13} aria-hidden="true" /> Reset to Default
+            </button>
+            <button type="button" className="secondary-btn" onClick={() => setCustomizing(false)}>Done</button>
+          </div>
+        </AnchoredMenu>
         {!phone && <button type="button" className="apv-keys-btn" onClick={() => setShowKeys(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)"><Keyboard size={15} /></button>}
       </div>
       {(dept || company || ageFilter > 0) && (
