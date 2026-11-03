@@ -1,73 +1,49 @@
-// Item Management - A manager closes a checkout as returned.
-// Moved out of views/InventoryManagement.jsx unchanged (items split, Nov 2 2026).
+// Item Management - An items manager checks an item back in for its holder.
+// A question (the centered card) confirmed by holding (Items redesign, Neil
+// 11/02/2026): it cannot be taken back. HOLD_RECORD_MS for one item,
+// HOLD_MAJOR_MS for several. It asks Good / Damaged / Lost - a Lost item is
+// marked lost (the server rule) and never goes back to Available. The reason
+// is stored on the checkout and in the activity log.
 import { useState } from 'react';
 import { RotateCcw } from 'lucide-react';
-import { Spinner } from '../../components/AsyncState';
-import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
-import UnsavedChangesPrompt from '../../components/UnsavedChangesPrompt';
-import { FL } from '../ui/styles';
+import HoldButton, { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../../ui/HoldButton';
+import { ItemQuestion, LABEL, HINT } from '../ui/Sheet';
+import { ConditionPicker } from './ReturnModal';
 
-// ── Force Return Modal ────────────────────────────────────────────────────────
-// Manager reclaims an item without the holder's action. Reason is mandatory -
-// it is stored on the checkout and shows up in the audit trail (Neil: "leaves
-// 100% of the control with the manager here and an auditable log of why").
 export function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
   const list = checkouts || [checkout];
   const multi = list.length > 1;
   const holders = [...new Set(list.map(c => c.requestedBy))];
-  const [reason, setReason] = useState('');
-  const [busy,   setBusy]   = useState(false);
-  const [error,  setError]  = useState('');
+  const [reason,    setReason]    = useState('');
+  const [condition, setCondition] = useState('ok');
 
-  function submit() {
-    if (!reason.trim() || busy) return;
-    setBusy(true); setError('');
-    Promise.resolve(onConfirm(reason.trim()))
-      .then(onClose)
-      .catch(err => { setError(err?.message || 'Could not check the item back in.'); setBusy(false); });
-  }
-
-  const dirty = reason.trim() !== '';
-  const guard = useUnsavedGuard(dirty, onClose, dirty ? submit : undefined);
-
+  const ready = !!reason.trim();
   return (
-    <div role="dialog" aria-modal="true"
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'min(85dvh, 640px)', display:'flex', flexDirection:'column' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Force return{multi ? ` ${list.length} Items` : ''}</h3>
-        <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16, lineHeight:1.5 }}>
-          Check {multi ? <strong>{list.length} items</strong> : <strong>{list[0].itemName}</strong>} back
-          in on behalf of <strong>{holders.length === 1 ? holders[0] : `${holders.length} people`}</strong>.
-          Use this when the holder can't or won't return it in the app. The reason is recorded on
-          {multi ? ' every checkout' : ' the checkout'} and in the activity log.
-        </p>
-        {multi && (
-          <div style={{ overflowY:'auto', minHeight:0, background:'var(--mist)', borderRadius:10, padding:'10px 14px', marginBottom:14 }}>
-            {list.map(c => (
-              <div key={c.id} style={{ fontSize:12, color:'var(--muted)', paddingLeft:4 }}>
-                · {c.itemName}{holders.length > 1 ? <span style={{ opacity:.75 }}> - {c.requestedBy}</span> : null}
-              </div>
-            ))}
-          </div>
-        )}
-        <label style={FL}>REASON <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-        <textarea rows={3} autoFocus className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
-          placeholder="e.g. Collected from site office - employee on leave"
-          value={reason} onChange={e => setReason(e.target.value)} />
-        {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:8 }}>{error}</p>}
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:18 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button disabled={!reason.trim() || busy} onClick={submit}
-            style={{ background:'hsl(var(--color-orange))', color:'#fff', border:'none', borderRadius:8, padding:'8px 18px', fontWeight:700, fontSize:13.5, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:7, fontFamily:'Inter,sans-serif', opacity: (!reason.trim() || busy) ? 0.6 : 1 }}>
-            {busy ? <Spinner size={14} /> : <RotateCcw size={14} />} Check back in
-          </button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
-          onSave={dirty ? guard.saveAndClose : undefined} saving={guard.saving || busy} />
+    <ItemQuestion title={multi ? `Force Return ${list.length} Items?` : `Force Return ${list[0].itemName}?`} onClose={onClose}
+      isDirty={ready}
+      footer={<>
+        <button className="secondary-btn" onClick={onClose}>Keep Checked Out</button>
+        <HoldButton label="Hold to Check In" doneLabel="Checked In" icon={RotateCcw}
+          holdMs={multi ? HOLD_MAJOR_MS : HOLD_RECORD_MS} disabled={!ready}
+          fallbackMessage={`Check ${multi ? `${list.length} items` : list[0].itemName} back in for ${holders.length === 1 ? holders[0] : `${holders.length} people`}?`}
+          onConfirm={() => Promise.resolve(onConfirm(reason.trim(), condition)).then(() => undefined)}
+          onDone={onClose} />
+      </>}>
+      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
+        For <strong style={{ color: 'var(--ink)' }}>{holders.length === 1 ? holders[0] : `${holders.length} people`}</strong>, when they cannot return it in the app themselves.
+      </p>
+      {multi && (
+        <ul style={{ margin: '0 0 14px', padding: '8px 12px', listStyle: 'none', background: 'var(--mist)', borderRadius: 10, maxHeight: 140, overflowY: 'auto', display: 'grid', gap: 2 }}>
+          {list.map(c => <li key={c.id} style={{ fontSize: 12.5, color: 'var(--muted)' }}>{c.itemName}{holders.length > 1 ? ` - ${c.requestedBy}` : ''}</li>)}
+        </ul>
       )}
-    </div>
+      <span style={LABEL}>Condition</span>
+      <ConditionPicker value={condition} onChange={setCondition} />
+      {condition === 'lost' && <p style={HINT}>It is marked Lost and cannot be borrowed until someone marks it found.</p>}
+      <label style={{ ...LABEL, marginTop: 14 }} htmlFor="force-reason">Reason</label>
+      <textarea id="force-reason" rows={3} autoFocus className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13.5 }}
+        placeholder="e.g. Collected from the site office - the holder is on leave"
+        value={reason} onChange={e => setReason(e.target.value)} />
+    </ItemQuestion>
   );
 }

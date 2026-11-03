@@ -1,7 +1,9 @@
-// Item Management - Manage > Manage: the item list, filters, KPIs and batch tools.
-// Moved out of views/InventoryManagement.jsx unchanged (items split, Nov 2 2026).
+// Item Management - Inventory > Table: the item list, filters, KPIs and batch tools.
+// Items redesign (Neil, 11/02/2026): a name opens the item record; a missing
+// photo is a quiet filter (Missing Photo), not a red banner; a batch edit that
+// skipped rows (checked out or assigned) says which.
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
-import { Package, Plus, Search, AlertCircle, X, ChevronDown, UploadCloud, FileSpreadsheet, Download, Pencil, Trash2, FileBarChart, ArrowUpDown, Tag, Settings2 } from 'lucide-react';
+import { Package, Plus, Search, X, ChevronDown, UploadCloud, FileSpreadsheet, Download, Pencil, Trash2, FileBarChart, ArrowUpDown, Tag, Settings2, ImageOff } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
 import { api } from '../../api';
 import { ITEM_TYPES, displayStatus } from '../model/status';
@@ -13,7 +15,8 @@ import { BatchEditModal } from './BatchEditModal';
 import { BatchPhotoModal } from './BatchPhotoModal';
 import { ManageRow, ManageCard } from './ManageRow';
 
-export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', cardFilter = null, search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, onManageTypes, itemTypes = ITEM_TYPES, filterControls, kpiStrip, highlightId, onHighlightDone }) {
+export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', cardFilter = null, search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, onManageTypes, itemTypes = ITEM_TYPES, filterControls, kpiStrip, highlightId, onHighlightDone, overdueIds = null }) {
+  const [missingOnly, setMissingOnly] = useState(false);   // the quiet Missing Photo filter
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [exportMenu,         setExportMenu]         = useState(false); // Export ▾ dropdown
   const [manageMenu,         setManageMenu]         = useState(false); // Manage ▾ dropdown (admin extras)
@@ -48,9 +51,11 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
       || (cardFilter === 'unassigned'           && displayStatus(i) === 'unassigned')
       || (cardFilter === 'location_assigned'    && displayStatus(i) === 'location_assigned')
       || (cardFilter === 'permanently_assigned' && i.status === 'permanently_assigned')
-      || (cardFilter === 'checked_out'          && i.status === 'checked_out');
-    return mS && mD && mT && mO && mL && mM && mC;
-  }), [items, search, deptFilter, typeFilter, ownershipFilter, locationFilter, modelFilter, cardFilter]);
+      || (cardFilter === 'checked_out'          && i.status === 'checked_out')
+      || (cardFilter === 'overdue'              && !!overdueIds?.has(i.id));
+    const mP = !missingOnly || (!i.photoUrl && i.pictureRequired !== false);
+    return mS && mD && mT && mO && mL && mM && mC && mP;
+  }), [items, search, deptFilter, typeFilter, ownershipFilter, locationFilter, modelFilter, cardFilter, missingOnly, overdueIds]);
 
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
     let av, bv;
@@ -94,7 +99,7 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     setScrollTop(0);
-  }, [search, deptFilter, typeFilter, ownershipFilter, locationFilter, modelFilter, cardFilter, sortCol, sortDir]);
+  }, [search, deptFilter, typeFilter, ownershipFilter, locationFilter, modelFilter, cardFilter, missingOnly, sortCol, sortDir]);
   const vStart = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
   const vEnd   = Math.min(sorted.length, vStart + Math.ceil(viewportH / ROW_H) + OVERSCAN * 2);
   const vSlice = sorted.slice(vStart, vEnd);
@@ -177,6 +182,12 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
         const res = await api.bulkUpdateItems(ids, fields);
         const n = res?.updated ?? ids.length;
         parts.push(`updated ${n} item${n !== 1 ? 's' : ''}`);
+        // The server skips rows it may not change (checked out or assigned
+        // right now) and says which - say so rather than claim every row.
+        const blocked = res?.blocked || [];
+        if (blocked.length) {
+          toast?.(`${blocked.length} not changed (${blocked.slice(0, 4).map(b => b.name).join(', ')}${blocked.length > 4 ? ` and ${blocked.length - 4} more` : ''}): checked out or assigned right now.`, 'error');
+        }
       }
       if (assignment) {
         if (assignment.kind === 'location') {
@@ -226,11 +237,11 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
   const SortTh = ({ col, label }) => {
     const active = sortCol === col;
     return (
-      <th onClick={() => toggleSort(col)}
-        style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color: active ? 'var(--ink)' : 'var(--muted)', whiteSpace:'nowrap', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', cursor:'pointer', userSelect:'none', background:'var(--mist)' }}>
+      <th onClick={() => toggleSort(col)} aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+        style={{ textAlign:'left', padding:'10px 14px', fontWeight:600, color: active ? 'var(--ink)' : 'var(--muted)', whiteSpace:'nowrap', fontSize:12.5, cursor:'pointer', userSelect:'none', background:'var(--mist)' }}>
         <span style={{ display:'inline-flex', alignItems:'center', gap:3 }}>
           {label}
-          <ArrowUpDown size={11} style={{ opacity: active ? 1 : 0.35, color: active ? 'var(--pine)' : 'inherit', transform: active && sortDir === 'desc' ? 'scaleY(-1)' : 'none' }} />
+          <ArrowUpDown size={11} style={{ opacity: active ? 1 : 0.35, color: active ? 'var(--wk-brand)' : 'inherit', transform: active && sortDir === 'desc' ? 'scaleY(-1)' : 'none' }} />
         </span>
       </th>
     );
@@ -325,7 +336,7 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
                   {[
                     onManageTypes        && { icon: Tag,         label: 'Manage Types',      onClick: onManageTypes },
                     onManageCustomFields && { icon: Plus,        label: 'Add Custom Field',  onClick: onManageCustomFields },
-                    canDelete && onShowDeleted && { icon: Trash2, label: 'Deleted Items',    onClick: onShowDeleted },
+                    canDelete && onShowDeleted && { icon: Trash2, label: 'Recycle Bin',      onClick: onShowDeleted },
                   ].filter(Boolean).map(({ icon: MIcon, label, onClick }) => (
                     <button key={label} onClick={() => { setManageMenu(false); onClick(); }}
                       style={{ display:'flex', alignItems:'center', gap:8, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif', fontSize:13, fontWeight:600, color:'var(--ink)' }}
@@ -346,21 +357,22 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
           <button className="primary-btn" onClick={() => { setBatchTab('fields'); setBatchOpen(true); }}
             title={`Batch edit the ${selItems.length} selected item${selItems.length !== 1 ? 's' : ''}`}
             style={{ display:'inline-flex', alignItems:'center', gap:7 }}>
-            <Pencil size={14} /> Batch edit ({selItems.length})
+            <Pencil size={14} /> Batch Edit ({selItems.length})
           </button>
         )}
         {/* Assignment moved INTO Batch Edit (Neil) - no separate Assign button. */}
         {/* Batch delete */}
         {canDelete && selected.size > 0 && (
-          <button className="primary-btn" onClick={() => setBatchDeleteConfirm(true)}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-red))' }}>
+          <button className="secondary-btn" onClick={() => setBatchDeleteConfirm(true)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7 }}>
             <Trash2 size={14} /> Delete {selected.size}
           </button>
         )}
-        {missingPhotos > 0 && selected.size === 0 && (
-          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, fontSize:12.5, color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'6px 12px', border:'1px solid hsla(var(--color-red),0.25)' }}>
-            <AlertCircle size={14} /> {missingPhotos} item{missingPhotos !== 1 ? 's' : ''} missing photo
-          </div>
+        {(missingPhotos > 0 || missingOnly) && (
+          <button type="button" className={`it-chip${missingOnly ? ' is-on' : ''}`} aria-pressed={missingOnly}
+            onClick={() => setMissingOnly(v => !v)} style={{ marginLeft:'auto' }}>
+            <ImageOff size={13} /> Missing Photo <span className="it-chip-n">{missingPhotos}</span>
+          </button>
         )}
       </div>
 
@@ -387,7 +399,7 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
             </span>
           </label>
           {sorted.map(item => (
-            <ManageCard key={item.id} item={item} isSelected={selected.has(item.id)} highlight={flashId === item.id}
+            <ManageCard key={item.id} item={item} isSelected={selected.has(item.id)} highlight={flashId === item.id} overdue={!!overdueIds?.has(item.id)}
               onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
               onDetails={onDetails} onPreview={setPhotoPreview} canDelete={canDelete} />
           ))}
@@ -403,12 +415,13 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
                     checked={selected.size === filtered.length && filtered.length > 0}
                     ref={el => { if (el) el.indeterminate = selected.size > 0 && selected.size < filtered.length; }}
                     onChange={toggleAll}
-                    style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
+                    aria-label="Select all shown"
+                    style={{ cursor:'pointer', accentColor:'var(--wk-brand)' }} />
                 </th>
                 <SortTh col="name" label="Item" />
                 <SortTh col="serial" label="Serial" />
                 <SortTh col="type" label="Type" />
-                <SortTh col="dept" label="Dept" />
+                <SortTh col="dept" label="Department" />
                 <SortTh col="location" label="Location" />
                 <SortTh col="status" label="Status" />
                 <th style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--mist)' }}></th>
@@ -418,7 +431,7 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
               {/* Spacer for the rows scrolled past above the viewport */}
               {padTop > 0 && <tr aria-hidden="true"><td colSpan={8} style={{ height:padTop, padding:0, border:'none' }} /></tr>}
               {vSlice.map(item => (
-                <ManageRow key={item.id} item={item} isSelected={selected.has(item.id)} highlight={flashId === item.id}
+                <ManageRow key={item.id} item={item} isSelected={selected.has(item.id)} highlight={flashId === item.id} overdue={!!overdueIds?.has(item.id)}
                   onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
                   onDetails={onDetails} onPreview={setPhotoPreview} canDelete={canDelete} />
               ))}

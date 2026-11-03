@@ -1,5 +1,9 @@
 // Item Management - The Recycle Bin.
-// Moved out of views/InventoryManagement.jsx unchanged (items split, Nov 2 2026).
+// Items redesign (Neil, 11/02/2026): a sheet from the right, and "Delete
+// Expired Forever" - held to confirm (HOLD_MAJOR_MS: many records, cannot be
+// taken back) - removes the items past the retention window through
+// POST /items/recycle-bin/delete-expired. The server keeps any item that has
+// checkout or assignment history and says how many it kept.
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { RotateCcw, X, Trash2 } from 'lucide-react';
 import { SkeletonBlocks } from '../../components/AsyncState';
@@ -8,6 +12,7 @@ import { useNameResolver } from '../../lib/useNameResolver';
 import { formatDateLong } from '../../lib/datetime';
 import { RECYCLE_BIN_DAYS } from '../model/status';
 import { useEscapeKey } from '../ui/hooks';
+import HoldButton, { HOLD_MAJOR_MS } from '../../ui/HoldButton';
 
 // ── Recycle Bin (deleted items) ───────────────────────────────────────────────
 // Soft-deleted items, restorable (Ankush). Shows "Deleted In" = location at the
@@ -41,6 +46,7 @@ export function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
   const fmtWhen = iso => formatDateLong(iso, '');
   // Days remaining before this item is purged for good (deleted_at + retention).
   const daysLeft = iso => { try { return Math.max(0, Math.ceil((new Date(iso).getTime() + RECYCLE_BIN_DAYS * 864e5 - Date.now()) / 864e5)); } catch { return null; } };
+  const expired = (rows || []).filter(i => i.deletedAt && daysLeft(i.deletedAt) === 0).length;
 
   async function restore(ids) {
     if (!ids.length || busy) return;
@@ -58,14 +64,23 @@ export function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
   }
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:680, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
+    <div role="dialog" aria-modal="true" className="modal-overlay" style={{ zIndex:4100 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column' }}>
         <div style={{ padding:'20px 24px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div>
             <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Recycle Bin</h3>
             <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{rows ? `${rows.length} deleted item${rows.length !== 1 ? 's' : ''}` : 'Loading…'} · kept for {RECYCLE_BIN_DAYS} days, then permanently deleted</p>
           </div>
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            {expired > 0 && (
+              <HoldButton size="sm" label="Delete Expired Forever" doneLabel="Deleted" holdMs={HOLD_MAJOR_MS}
+                fallbackMessage={`Delete the ${expired} item${expired === 1 ? '' : 's'} past ${RECYCLE_BIN_DAYS} days forever? This cannot be undone.`}
+                onConfirm={() => api.deleteExpiredItems().then(res => {
+                  const kept = res?.kept || 0;
+                  toast?.(`Deleted ${res?.deleted ?? 0} expired item${res?.deleted === 1 ? '' : 's'} forever${kept ? ` · ${kept} kept (they have checkout or assignment history)` : ''}.`);
+                  load();
+                })} />
+            )}
             {selected.size > 0 && (
               <button onClick={() => restore([...selected])} disabled={busy}
                 style={{ display:'inline-flex', alignItems:'center', gap:6, background:'var(--pine)', color:'#fff', border:'none', borderRadius:8, padding:'7px 12px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>

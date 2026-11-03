@@ -1,9 +1,12 @@
-// Item Management - Manage > Who Has What: by person and by location.
-// Moved out of views/InventoryManagement.jsx unchanged (items split, Nov 2 2026).
+// Item Management - Inventory > Who Has What: by person and by location.
+// Items redesign (Neil, 11/02/2026): an item opens its record; the board is
+// built once per load with Map lookups (it scanned every holder per item and
+// every item per checkout, which crawled on a catalog of thousands).
 import { useState, useMemo, memo } from 'react';
 import { Search, X, MapPin, ZoomIn, ChevronRight, Users, User } from 'lucide-react';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { TYPE_META, MANAGER_CHECKOUT_STATUS_META } from '../model/status';
+import { checkoutWord } from '../model/words';
 import { checkoutDueInfo } from '../model/due';
 import { fmtMoney } from '../model/format';
 import { useEscapeKey } from '../ui/hooks';
@@ -34,7 +37,7 @@ function WhwItemDetailCard({ item, checkout, holderName, onClose, onAct, actLabe
   ].filter(Boolean);
   return (
     <div role="dialog" aria-modal="true"
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:4300, display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, width:'100%', maxWidth:380, overflow:'hidden', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
         {/* Full photo, never cropped - the box grows to the image's own ratio */}
@@ -66,21 +69,25 @@ function WhwItemDetailCard({ item, checkout, holderName, onClose, onAct, actLabe
 // ── Who Has It Tab ────────────────────────────────────────────────────────────
 // Per-person view of every allocation: searchable, split into permanent
 // assignments and transient checkouts - Neil's "permanent vs transient" ask.
-export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckouts }) {
+export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckouts, onOpenItem }) {
   const [search, setSearch] = useState('');
   const [view, setView] = useState('person'); // 'person' | 'location' (Neil: split Who Has What)
   const [photoPreview, setPhotoPreview] = useState(null);
   const [detail, setDetail] = useState(null);
   const nameOf = useNameResolver(); // never show a raw email as the holder label (P4 names)
+  const itemById = useMemo(() => new Map(items.map(i => [i.id, i])), [items]);
+  // The record replaces the old detail card when the screen can open it.
+  const show = (d) => (onOpenItem ? onOpenItem(d.item?.id || d.checkout?.itemId) : setDetail(d));
 
   // Transient: live checkouts grouped by holder
   const holders = useMemo(() => {
     const map = new Map(); // key → { name, transient: [], permanent: [], declared: [] }
+    const byName = new Map(); // lower-case display name → holder (one lookup, not a scan)
+    const add = (key, name) => { const h = { name, transient: [], permanent: [], declared: [] }; map.set(key, h); byName.set(name.toLowerCase(), h); return h; };
     for (const c of checkouts) {
       if (!['approved','pending_receipt','allocated'].includes(c.status) || !c.requestedBy) continue;
       const key = (c.requestedByEmail || c.requestedBy).toLowerCase();
-      if (!map.has(key)) map.set(key, { name: nameOf(c.requestedByEmail, c.requestedBy), transient: [], permanent: [], declared: [] });
-      map.get(key).transient.push(c);
+      (map.get(key) || add(key, nameOf(c.requestedByEmail, c.requestedBy))).transient.push(c);
     }
     // Permanent: only items tagged to a REAL person via the assignment flow.
     // No defaultOwner fallback - that's a department label, not a holder, and
@@ -98,9 +105,9 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
         // Resolve through People so a stale stored name ("Neil") still shows
         // the full directory name ("Neil Kadakia").
         const display = nameOf(email, owner);
-        const existing = [...map.values()].find(h => h.name.toLowerCase() === display.toLowerCase() || h.name.toLowerCase() === owner.toLowerCase());
+        const existing = byName.get(display.toLowerCase()) || byName.get(owner.toLowerCase());
         if (existing) { existing.permanent.push(i); continue; }
-        map.set(key, { name: display, transient: [], permanent: [], declared: [] });
+        add(key, display);
       }
       map.get(key).permanent.push(i);
     }
@@ -114,9 +121,9 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
       const key = email || `decl-${owner.toLowerCase()}`;
       if (!map.has(key)) {
         const display = nameOf(email, owner);
-        const existing = [...map.values()].find(h => h.name.toLowerCase() === display.toLowerCase() || h.name.toLowerCase() === owner.toLowerCase());
+        const existing = byName.get(display.toLowerCase()) || byName.get(owner.toLowerCase());
         if (existing) { existing.declared.push(i); continue; }
-        map.set(key, { name: display, transient: [], permanent: [], declared: [] });
+        add(key, display);
       }
       map.get(key).declared.push(i);
     }
@@ -135,7 +142,7 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
 
   // Neil: "this person's holding $6,000 worth of items" - total value in hand
   const holderValue = h =>
-    h.transient.reduce((s, c) => s + (Number(items.find(i => i.id === c.itemId)?.assetValue) || 0), 0) +
+    h.transient.reduce((s, c) => s + (Number(itemById.get(c.itemId)?.assetValue) || 0), 0) +
     h.permanent.reduce((s, i) => s + (Number(i.assetValue) || 0), 0);
 
   // By-location view - everything physically AT a place (Neil: "search GSE, see
@@ -201,7 +208,7 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
                   {p.items.map(i => {
                     const who = holderOf(i);
                     return (
-                      <div key={i.id} onClick={() => setDetail({ item: i, holderName: who })} title="View item details"
+                      <div key={i.id} onClick={() => show({ item: i, holderName: who })} title="View item details"
                         style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                         <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={i.name} query={search} /></span>
@@ -251,17 +258,17 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
                 {/* Transient */}
                 {h.transient.length > 0 && (
                   <div>
-                    <div style={{ fontSize:10.5, fontWeight:800, color:'hsl(var(--color-orange))', letterSpacing:'.06em', marginBottom:7 }}>CHECKED OUT (TEMPORARY)</div>
+                    <div style={{ fontSize:12, fontWeight:600, color:'var(--muted)', marginBottom:7 }}>Checked Out (Temporary)</div>
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                       {h.transient.map(c => {
                         const { daysLeft } = checkoutDueInfo(c);
                         const inUse = c.status === 'allocated';
-                        const itemPhoto = items.find(i => i.id === c.itemId)?.photoUrl || c.checkoutPhotoUrl;
+                        const itemPhoto = itemById.get(c.itemId)?.photoUrl || c.checkoutPhotoUrl;
                         return (
                           // Row click → item detail card (photo + facts); the
                           // card's action button deep-links into Checkouts
-                          <div key={c.id} onClick={() => setDetail({
-                              item: items.find(i => i.id === c.itemId) || null,
+                          <div key={c.id} onClick={() => show({
+                              item: itemById.get(c.itemId) || null,
                               checkout: c, holderName: h.name,
                               act: () => { setDetail(null); onOpenCheckouts?.({ q: c.itemName }); },
                               actLabel: 'Open in Checkouts',
@@ -270,12 +277,12 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
                             style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
                             onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
                             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                            <span style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background: inUse ? (daysLeft < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))') : 'hsl(var(--color-blue))' }} />
+                            <span style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background: inUse ? (daysLeft < 0 ? 'var(--wk-red)' : 'var(--wk-live)') : '#64748b' }} />
                             <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={c.itemName} query={search} /></span>
-                            <span style={{ fontSize:11, color: inUse && daysLeft < 0 ? 'hsl(var(--color-red))' : 'var(--muted)', flexShrink:0, fontWeight: inUse && daysLeft < 0 ? 700 : 400 }}>
+                            <span style={{ fontSize:12, color: inUse && daysLeft < 0 ? 'var(--bad-fg)' : 'var(--muted)', flexShrink:0, fontWeight: inUse && daysLeft < 0 ? 600 : 400 }}>
                               {inUse
-                                ? (daysLeft < 0 ? `overdue ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'due today' : `${daysLeft}d left`)
-                                : MANAGER_CHECKOUT_STATUS_META[c.status]?.label}
+                                ? (daysLeft < 0 ? `Overdue ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'Due today' : `${daysLeft}d left`)
+                                : checkoutWord(c).label}
                             </span>
                             {itemPhoto && (
                               <button onClick={e => { e.stopPropagation(); setPhotoPreview(itemPhoto); }}
@@ -294,12 +301,12 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
                 {/* Permanent */}
                 {h.permanent.length > 0 && (
                   <div>
-                    <div style={{ fontSize:10.5, fontWeight:800, color:'hsl(var(--color-blue))', letterSpacing:'.06em', marginBottom:7 }}>PERMANENTLY ASSIGNED</div>
+                    <div style={{ fontSize:12, fontWeight:600, color:'var(--muted)', marginBottom:7 }}>Permanently Assigned</div>
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                       {h.permanent.map(i => (
                         // Row click → item detail card; its action button opens
                         // Assignments (force recover / reassign live there)
-                        <div key={i.id} onClick={() => setDetail({
+                        <div key={i.id} onClick={() => show({
                             item: i, holderName: h.name,
                             act: () => { setDetail(null); onOpenCheckouts?.({ segment: 'assignments' }); },
                             actLabel: 'Open in Assignments',
@@ -327,10 +334,10 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
                 {/* Declared (lost / retired) - Person → Status → Item */}
                 {h.declared.length > 0 && (
                   <div>
-                    <div style={{ fontSize:10.5, fontWeight:800, color:'hsl(var(--color-red))', letterSpacing:'.06em', marginBottom:7 }}>DECLARED</div>
+                    <div style={{ fontSize:12, fontWeight:600, color:'var(--muted)', marginBottom:7 }}>Declared</div>
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                       {h.declared.map(i => (
-                        <div key={i.id} onClick={() => setDetail({ item: i, holderName: h.name })}
+                        <div key={i.id} onClick={() => show({ item: i, holderName: h.name })}
                           title="View item details"
                           style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}

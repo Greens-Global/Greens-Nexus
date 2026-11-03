@@ -44,11 +44,11 @@ export const STATUS_META = {
   available:            { label: 'Available',          bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))'  },
   unassigned:           { label: 'Unassigned',         bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))' },
   location_assigned:    { label: 'Assigned · Location', bg: 'hsla(var(--color-blue),0.12)',  fg: 'hsl(var(--color-blue))'   },
-  checked_out:          { label: 'Checked out',        bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
+  checked_out:          { label: 'Checked Out',        bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   // Display-only: a merely-pending (not yet allocated) request - the list view
   // must read "Under review" like the tile view, not "Checked out" (P4 status coherence).
-  under_review:         { label: 'Under review',       bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
-  permanently_assigned: { label: 'Perm. Assigned',    bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))'   },
+  under_review:         { label: 'Requested',          bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
+  permanently_assigned: { label: 'Assigned',          bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))'   },
   retired:              { label: 'Retired',             bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))'    },
 };
 
@@ -60,12 +60,12 @@ export const OP_STATUSES = ['deployed', 'in_storage', 'in_repair', 'needs_replac
 export const RECYCLE_BIN_DAYS = 30;
 export const OP_STATUS_META = {
   deployed:          { label: 'Deployed',          bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
-  in_storage:        { label: 'In storage',        bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
-  in_repair:         { label: 'In repair',         bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
-  needs_replacement: { label: 'Needs replacement', bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
+  in_storage:        { label: 'In Storage',        bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
+  in_repair:         { label: 'In Repair',         bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
+  needs_replacement: { label: 'Needs Replacement', bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
   // "Written off" (not "Retired") so the op-status column doesn't clash with the
   // lifecycle "Retired" in the adjacent column (P4 copy). Backend value stays 'retired'.
-  retired:           { label: 'Written off',       bg:'var(--mist)',                    fg:'var(--muted)'             },
+  retired:           { label: 'Written Off',       bg:'var(--mist)',                    fg:'var(--muted)'             },
   lost:              { label: 'Lost',              bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
 };
 // Op statuses declared AGAINST a person (lost/retired): they show a "Declared by"
@@ -86,20 +86,20 @@ export function displayStatus(item) {
 }
 
 export const CHECKOUT_STATUS_META = {
-  pending:         { label: 'Pending',            bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))', Icon: Clock },
-  approved:        { label: 'Awaiting handover',  bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: Package },
-  pending_receipt: { label: 'Confirm receipt',    bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))', Icon: Camera },
-  allocated:       { label: 'In use',             bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))',  Icon: CheckCircle },
+  pending:         { label: 'Requested',          bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))', Icon: Clock },
+  approved:        { label: 'Approved',           bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: Package },
+  pending_receipt: { label: 'Handed Over',        bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))', Icon: Camera },
+  allocated:       { label: 'In Use',             bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))',  Icon: CheckCircle },
   rejected:        { label: 'Rejected',           bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
   returned:        { label: 'Returned',           bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: RotateCcw },
-  cancelled:       { label: 'Cancelled',          bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
+  cancelled:       { label: 'Canceled',           bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
 };
 
 // Manager-facing variant: at pending_receipt the ball is in the EMPLOYEE's court -
 // "Confirm Receipt" (the employee's call to action) would read as the manager's job.
 export const MANAGER_CHECKOUT_STATUS_META = {
   ...CHECKOUT_STATUS_META,
-  pending_receipt: { label: 'Employee to confirm', bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))', Icon: Clock },
+  pending_receipt: { label: 'Handed Over', bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))', Icon: Clock },
 };
 
 export const DEPARTMENTS = ['All', 'IT', 'Construction', 'Operations', 'Accounting', 'Facilities', 'Marketing', 'HR'];

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight, Sparkles, ArrowRight, Flag, Award, PenLine, Users, BookOpen, Unlock, Camera } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
@@ -10,6 +10,11 @@ import { setPendingOpen }    from '../lib/pendingOpen';
 import { Spinner } from './AsyncState';
 import { openNotificationTarget } from '../lib/openTarget';
 import { RaiseNotice } from './PriorityBar';
+
+// The Items handover sheet (photo, then the handover) - lazy, so the bell
+// never pulls the Items module into the first paint (Items redesign, Neil
+// green-lit editing Visesh's Items files, 11/02/2026).
+const HandOverSheet = lazy(() => import('../inventory/checkout/HandOverSheet'));
 
 // Resolved dynamically from MSAL account - see myName below
 
@@ -40,6 +45,8 @@ const TYPE_META = {
   checkout_pending: { icon: ShoppingCart, label: 'Checkout request',     color: 'var(--color-orange)' },
   item_returned:    { icon: RotateCcw,    label: 'Item returned',        color: 'var(--color-green)'  },
   allocate_request: { icon: Package,      label: 'Allocation needed',    color: 'var(--color-orange)' },
+  // Offboarding took the allocator away from an approved checkout (Nov 2026).
+  allocator_needed: { icon: User,         label: 'Pick a New Allocator', color: 'var(--color-orange)' },
   allocated:        { icon: CheckCircle,  label: 'Item allocated',       color: 'var(--color-green)'  },
   approved:         { icon: CheckCircle,  label: 'Request approved',     color: 'var(--color-green)'  },
   rejected:         { icon: XCircle,      label: 'Request rejected',     color: 'var(--color-red)'    },
@@ -120,14 +127,19 @@ function groupByRequest(list) {
 // navigate nowhere.
 export function destinationFor(n) {
   switch (n.type) {
+    // Item Management (Items redesign, 11/02/2026): the new tabs and queues -
+    // inventory/model/routes.js (the old subs still land there too).
     case 'allocate_request':
-      // The assigned allocator's handover queue - supervisors land on their
-      // "To Hand Over" tab, managers on the Checkouts queue (both via 'handover').
-      return ['inventory', 'handover'];
+      // The allocator's (or a manager's) handover queue.
+      return ['inventory', 'requests:handover'];
+    case 'allocator_needed':
+      // The checkout whose allocator left: its item opens over the queue.
+      return ['inventory', n.refId ? `requests:handover@co:${n.refId}` : 'requests:handover'];
     case 'checkout_pending':
     case 'extension_pending':
+      return ['inventory', 'requests:approve'];   // manager work queue
     case 'item_returned':
-      return ['inventory', 'checkouts'];   // manager work queue
+      return ['inventory', 'requests:done'];
     case 'approved':
     case 'rejected':
     case 'cancelled':
@@ -135,20 +147,13 @@ export function destinationFor(n) {
     case 'extension_resolved':
     case 'extension_approved':
     case 'extension_declined':
-      return ['inventory', 'myitems'];
     case 'perm_assign':
-      // Permanent assignments live under My Items → Permanent, not Active
-      // Checkouts - MyCheckoutsPanel switches its own tab on this sub.
-      return ['inventory', 'permanent'];
     case 'perm_update':
-      // Assignment updates (accepted / return confirmed) belong with the
-      // assignment itself under My Items → Permanent - without this case these
-      // cards navigated nowhere.
-      return ['inventory', 'permanent'];
+      // The person's own items, checkouts and assignments together.
+      return ['inventory', 'mystuff'];
     case 'perm_return':
-      // Manager verifies/accepts the return under Checkouts → Assignments
-      // (Permanent) → Returns to Accept, not the Temporary checkouts list.
-      return ['inventory', 'assignment-returns'];
+      // The manager accepts the return under Requests > Returns.
+      return ['inventory', 'requests:returns'];
     case 'req_fulfill':      // allocator's To Fulfill queue
     case 'req_pending':      // approver's queue
     case 'req_update':
@@ -171,7 +176,7 @@ export function destinationFor(n) {
 
 export default function NotificationBell({ onNavigate }) {
   const { notifications: allNotifications, unreadCount, markRead, markAllRead, dismiss, restore, markActioned, pendingApprovalId, clearPendingApproval, openPanelSignal } = useNotifications();
-  const { approveRequest, allocateItem, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
+  const { approveRequest, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
   const { can, myGrantedModules } = useRole();
@@ -187,7 +192,6 @@ export default function NotificationBell({ onNavigate }) {
   const [raising,        setRaising]        = useState(false);
   const [rejectingId,    setRejectingId]    = useState(null);
   const [rejectReason,   setRejectReason]   = useState('');
-  const [allocatingId,   setAllocatingId]   = useState(null);
   const [approvingId,    setApprovingId]    = useState(null);
   const [pickedAllocator,setPickedAllocator]= useState('');
   const [approvingBusy,  setApprovingBusy]  = useState(false);
@@ -485,17 +489,16 @@ export default function NotificationBell({ onNavigate }) {
     setRejectReason('');
   }
 
-  // Lets the assigned allocator hand the item over directly from the bell -
-  // no need to navigate to Inventory Management first.
+  // Lets the assigned allocator hand the item over directly from the bell:
+  // the Items handover sheet opens (the photo is evidence - calling
+  // allocateItem with none was refused by the server and the refusal was
+  // swallowed). The bell clears itself once the handover lands.
+  const [handOverFor, setHandOverFor] = useState(null);   // the bell row
   function handleInlineAllocate(n) {
     const refId = n.refId ?? '';
-    if (!refId || allocatingId) return;
-    setAllocatingId(n.id);
-    allocateItem(refId, myName).then(() => {
-      markActioned(n.id);
-      dismiss(n.id);
-      // The requester's bell entry is written by the server (items.py update_checkout).
-    }).catch(() => {}).finally(() => setAllocatingId(null));
+    if (!refId) return;
+    setOpen(false);
+    setHandOverFor(n);
   }
 
   // Tickets is the desk's own module - grant-gated to supervisor+ (App.jsx
@@ -922,10 +925,8 @@ export default function NotificationBell({ onNavigate }) {
                         {n.action && n.action.kind === 'allocate' && (
                           <button
                             className="nx-ntf-link"
-                            onClick={e => { e.stopPropagation(); handleInlineAllocate(n); }}
-                            disabled={allocatingId === n.id}
-                            style={{ opacity: allocatingId === n.id ? 0.6 : 1 }}>
-                            {allocatingId === n.id ? 'Allocating…' : n.action.label}
+                            onClick={e => { e.stopPropagation(); handleInlineAllocate(n); }}>
+                            {n.action.label}
                             <ArrowRight size={13} aria-hidden="true" />
                           </button>
                         )}
@@ -1007,6 +1008,12 @@ export default function NotificationBell({ onNavigate }) {
         </div>
       </div>
       {raising && <RaiseNotice onClose={() => setRaising(false)} myEmail={myEmail} />}
+      {handOverFor && (
+        <Suspense fallback={null}>
+          <HandOverSheet checkoutId={handOverFor.refId} onClose={() => setHandOverFor(null)}
+            onDone={() => { markActioned(handOverFor.id); dismiss(handOverFor.id); }} />
+        </Suspense>
+      )}
     </>
   );
 }

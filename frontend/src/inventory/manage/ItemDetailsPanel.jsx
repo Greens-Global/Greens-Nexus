@@ -63,9 +63,8 @@ export function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved
   const guard = useUnsavedGuard(dirty, onClose, canEdit ? save : undefined);
 
   return (
-    <div role="dialog" aria-modal="true" style={{ position:'fixed', inset:0, zIndex:1200 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.4)' }} />
-      <div style={{ position:'absolute', top:0, right:0, height:'100vh', width:'min(520px,96vw)', background:'var(--card)', boxShadow:'-12px 0 48px rgba(0,0,0,0.22)', display:'flex', flexDirection:'column' }}>
+    <div role="dialog" aria-modal="true" className="modal-overlay" style={{ zIndex:4100 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column', padding:0 }}>
         <div style={{ padding:'18px 22px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
           <div style={{ width:46, height:46, borderRadius:9, overflow:'hidden', flexShrink:0, border:'1px solid var(--line)', background: item.photoUrl ? 'transparent' : (TYPE_META[item.itemType]||TYPE_META.Other).bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
             {item.photoUrl ? <img src={item.photoUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />

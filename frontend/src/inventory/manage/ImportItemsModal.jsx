@@ -37,7 +37,7 @@ function ImportEditCell({ value, suggestion, onChange, placeholder }) {
   );
 }
 
-export function ImportItemsModal({ onClose, onImport, customFields = [], knownDepts = [], knownLocations = [] }) {
+export function ImportItemsModal({ onClose, onImport, onRestoreConflicts, customFields = [], knownDepts = [], knownLocations = [] }) {
   const [rows,      setRows]      = useState(null);
   const [parseErr,  setParseErr]  = useState('');
   const [importing, setImporting] = useState(false);
@@ -94,20 +94,48 @@ export function ImportItemsModal({ onClose, onImport, customFields = [], knownDe
   const guard = useUnsavedGuard(dirty, onClose, undefined);
 
   return (
-    <div role="dialog" aria-modal="true"
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+    <div role="dialog" aria-modal="true" className="modal-overlay" style={{ zIndex:4100 }}
       onClick={e => e.target === e.currentTarget && !importing && guard.requestClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:920, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'92vh', overflowY:'auto' }}>
+      <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column', padding:28 }}>
         {done ? (
           <>
-            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>Import complete</h3>
+            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>Import Complete</h3>
             <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:20 }}>
               <strong>{done.created}</strong> items added{done.updated ? <>, <strong>{done.updated}</strong> updated</> : null}. <strong>{done.skipped}</strong> rows skipped.
               {done.added_types?.length ? <> <strong>{done.added_types.length}</strong> new type{done.added_types.length !== 1 ? 's' : ''} created: {done.added_types.join(', ')}.</> : null}
               New rows each get a Nexus serial. Re-importing the same file updates units in place - matched by <strong>Serial</strong>,
               or by content for rows without one - so it won't create duplicates. To change fields, edit the exported file or use Batch Edit.
-              Photos must be added manually in the Manage tab - one item at a time.
+              Add photos on Inventory (Batch Edit, Photos).
+              {done.restored ? <> <strong>{done.restored}</strong> item{done.restored !== 1 ? 's' : ''} brought back from the Recycle Bin.</> : null}
             </p>
+            {/* Rows whose serial belongs to an item this import may not touch
+                (another company's, or one in the Recycle Bin) were skipped -
+                list them, and offer to bring the Recycle Bin ones back. */}
+            {done.conflicts?.length > 0 && (
+              <div style={{ border:'1px solid var(--wk-line2, var(--line))', borderRadius:12, padding:'12px 14px', marginBottom:20 }}>
+                <div style={{ fontWeight:700, fontSize:13.5, marginBottom:6 }}>{done.conflicts.length} row{done.conflicts.length !== 1 ? 's' : ''} not imported</div>
+                <ul style={{ margin:0, padding:0, listStyle:'none', display:'grid', gap:4, maxHeight:180, overflowY:'auto' }}>
+                  {done.conflicts.map((c, i) => (
+                    <li key={`${c.serial}-${i}`} style={{ fontSize:12.5, color:'var(--muted)' }}>
+                      <strong style={{ color:'var(--ink)' }}>{c.name || 'Row'}</strong> · Serial {c.serial} · {c.reason}
+                    </li>
+                  ))}
+                </ul>
+                {onRestoreConflicts && done.conflicts.some(c => /recycle|deleted/i.test(c.reason || '')) && (
+                  <button className="secondary-btn" style={{ marginTop:10 }} disabled={importing}
+                    onClick={() => {
+                      setImporting(true);
+                      Promise.resolve(onRestoreConflicts(rows.filter(r => r._valid)))
+                        .then(res => setDone(res))
+                        .catch(err => setImportErr(err?.message || 'Could not bring them back.'))
+                        .finally(() => setImporting(false));
+                    }}>
+                    Import Again and Restore Them From the Recycle Bin
+                  </button>
+                )}
+                {importErr && <p style={{ fontSize:12.5, color:'var(--bad-fg)', margin:'8px 0 0' }}>{importErr}</p>}
+              </div>
+            )}
             <div style={{ display:'flex', justifyContent:'flex-end' }}><button className="primary-btn" onClick={onClose}>Done</button></div>
           </>
         ) : (

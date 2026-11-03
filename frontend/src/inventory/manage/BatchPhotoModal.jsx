@@ -10,6 +10,7 @@ import { useEscapeKey } from '../ui/hooks';
 import { uploadToSupabase } from '../ui/upload';
 import { TypeBadge } from '../ui/badges';
 import { BatchTabs } from './BatchTabs';
+import { useAiEnabled } from '../model/useAiEnabled';
 
 // ── Batch Photo Modal ─────────────────────────────────────────────────────────
 const PHOTO_TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', 'Other'];
@@ -19,6 +20,7 @@ const PHOTO_TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', '
 // (Visesh) sets one image on every shown item at once, and AI fill now lives here
 // (Neil: AI fill belongs in batch photo edit, never on the Manage bar).
 export function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate, toast }) {
+  const aiOn = useAiEnabled();   // the AI photo finder shows only when AI is on (Items redesign, 11/02/2026)
   useEscapeKey(onClose);
   const [urlInputs,  setUrlInputs]  = useState({});
   const [saving,     setSaving]     = useState({});
@@ -183,8 +185,8 @@ export function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, o
   }
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:680, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
+    <div role="dialog" aria-modal="true" className="modal-overlay" style={{ zIndex:4100 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column' }}>
         {/* Header */}
         <div style={{ padding:'18px 24px 16px', borderBottom:'1px solid var(--line)', flexShrink:0 }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
@@ -275,7 +277,7 @@ export function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, o
                     style={{ height:30, padding:'0 10px', fontSize:12, fontWeight:600, background:'none', border:'1px solid var(--line)', borderRadius:7, cursor:'pointer', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:4, color:'var(--muted)', opacity: isUploading ? 0.5 : 1 }}>
                     {isUploading ? <Spinner size={12} /> : <><UploadCloud size={12} /> Upload</>}
                   </button>
-                  {!currentUrl && (
+                  {aiOn && !currentUrl && (
                     <button onClick={() => aiFillOne(item)} disabled={aiRow[item.id]}
                       title="Find a product photo for this item with AI"
                       style={{ height:30, padding:'0 10px', fontSize:12, fontWeight:600, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:7, cursor:aiRow[item.id]?'default':'pointer', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:4, opacity:aiRow[item.id]?0.6:1 }}>
@@ -295,7 +297,7 @@ export function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, o
           styled, never the browser's native dialog. */}
       {confirmState && (
         <div onClick={e => e.target === e.currentTarget && setConfirmState(null)}
-          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:1300, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:4300, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
           <div style={{ background:'var(--card)', borderRadius:14, padding:'22px 24px', width:'100%', maxWidth:400, boxShadow:'var(--shadow-lg)' }}>
             <h3 style={{ margin:'0 0 7px', fontSize:15, fontWeight:700 }}>Apply to all {items.length} item{items.length !== 1 ? 's' : ''}?</h3>
             <p style={{ margin:'0 0 18px', fontSize:13, color:'var(--muted)', lineHeight:1.55 }}>{confirmState.message}</p>

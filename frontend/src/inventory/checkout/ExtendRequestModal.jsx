@@ -1,76 +1,78 @@
-// Item Management - Ask for more days on a checkout.
-// Moved out of views/InventoryManagement.jsx unchanged (items split, Nov 2 2026).
+// Item Management - Ask for more time: pick the new return date (Neil, 11/02/2026).
+// A sheet from the right. The server works out the extra days from the
+// current due date and keeps the whole loan inside its 90-day ceiling.
 import { useState } from 'react';
 import { Clock } from 'lucide-react';
 import { Spinner } from '../../components/AsyncState';
-import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
-import UnsavedChangesPrompt from '../../components/UnsavedChangesPrompt';
-import { FL } from '../ui/styles';
+import { DateBox } from '../ui/DateBox';
+import { formatDate } from '../../lib/datetime';
+import { addDaysISO, daysBetween, dueDayOf } from '../model/due';
+import { ItemSheet, LABEL, HINT, ERROR } from '../ui/Sheet';
 
-// ── Extend Request Modal ───────────────────────────────────────────────────────
-export function ExtendRequestModal({ checkout, onClose, onSubmit }) {
-  const [days,   setDays]   = useState(1);
+export const LOAN_CEILING_DAYS = 90;
+
+/** The latest new return date an extension may ask for (the loan's start +
+ *  the 90-day ceiling), as YYYY-MM-DD. */
+export function extensionMax(co) {
+  const start = co?.handedOverAt || co?.allocatedAt;
+  if (!start) return '';
+  const d = new Date(start);
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return addDaysISO(iso, LOAN_CEILING_DAYS);
+}
+
+export function ExtendRequestModal({ checkout, onClose, onSubmit, zIndex }) {
+  const current = dueDayOf(checkout);
+  const min = current ? addDaysISO(current, 1) : '';
+  const max = extensionMax(checkout);
+  const [date,   setDate]   = useState('');
   const [reason, setReason] = useState('');
   const [busy,   setBusy]   = useState(false);
   const [error,  setError]  = useState('');
 
+  const extra = date && current ? daysBetween(current, date) : 0;
+  const ready = !!date && extra >= 1 && (!max || date <= max) && !!reason.trim();
+
   function submit() {
-    if (busy || !reason.trim()) return;
+    if (!ready || busy) return;
     setBusy(true); setError('');
-    Promise.resolve(onSubmit({ days, reason: reason.trim() }))
+    Promise.resolve(onSubmit({ newDueDate: date, days: extra, reason: reason.trim() }))
       .then(onClose)
-      .catch(err => { setError(err?.message || 'Could not submit extension request.'); setBusy(false); });
+      .catch(err => { setError(err?.message || 'Could not send the extension request.'); setBusy(false); });
   }
 
-  const dirty = days !== 1 || reason.trim() !== '';
-  const guard = useUnsavedGuard(dirty, onClose, reason.trim() ? submit : undefined);
-
   return (
-    <div role="dialog" aria-modal="true"
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request an Extension</h3>
-        <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
-          Ask for more time with <strong>{checkout.itemName}</strong>. A manager will review your request.
-        </p>
-
-        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-          <div>
-            <label style={FL}>HOW MANY MORE DAYS? <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <button onClick={() => setDays(d => Math.max(1, d - 1))}
-                style={{ width:32, height:32, borderRadius:8, border:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:16, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Inter,sans-serif' }}>−</button>
-              <input type="number" min={1} max={90} value={days}
-                onChange={e => setDays(Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
-                style={{ width:56, textAlign:'center', padding:'7px 4px', border:'1px solid var(--line)', borderRadius:8, fontSize:15, fontWeight:700, fontFamily:'Inter,sans-serif', background:'var(--card)' }} />
-              <button onClick={() => setDays(d => Math.min(90, d + 1))}
-                style={{ width:32, height:32, borderRadius:8, border:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:16, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Inter,sans-serif' }}>+</button>
-              <span style={{ fontSize:13, fontWeight:700, color:'hsl(var(--color-blue))' }}>{days} extra day{days !== 1 ? 's' : ''}</span>
-            </div>
-          </div>
-          <div>
-            <label style={FL}>WHY DO YOU NEED MORE TIME? <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-            <textarea rows={2} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
-              placeholder="e.g. Site work running longer than planned"
-              value={reason} onChange={e => setReason(e.target.value)} />
-          </div>
+    <ItemSheet title="Request More Time" onClose={onClose} zIndex={zIndex}
+      isDirty={!!date || reason.trim() !== ''} onSave={ready ? submit : undefined}
+      footer={<>
+        <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="primary-btn" disabled={!ready || busy} onClick={submit}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          {busy ? <><Spinner size={14} /> Sending…</> : <><Clock size={14} /> Send Request</>}
+        </button>
+      </>}>
+      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 18px', lineHeight: 1.5 }}>
+        <strong style={{ color: 'var(--ink)' }}>{checkout.itemName}</strong> is due {current ? formatDate(current) : 'soon'}. A manager reviews the new date.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div>
+          <span style={LABEL}>New Return Date</span>
+          <DateBox value={date} onChange={v => setDate(v && min && v < min ? min : v)} min={min} max={max} noPast
+            ariaLabel="New Return Date" style={{ width: '100%' }} />
+          <p style={HINT}>
+            {extra >= 1 ? `${extra} more day${extra === 1 ? '' : 's'}.` : `After ${current ? formatDate(current) : 'the current due date'}`}
+            {max ? ` The latest is ${formatDate(max)}.` : ''}
+          </p>
         </div>
-
-        {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:12 }}>{error}</p>}
-
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" disabled={busy || !reason.trim()}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center', opacity: (!reason.trim() && !busy) ? 0.5 : 1 }} onClick={submit}>
-            {busy ? <><Spinner size={14} /> Sending…</> : <><Clock size={14} /> Request extension</>}
-          </button>
+        <div>
+          <label style={LABEL} htmlFor="extend-reason">Why Do You Need More Time?</label>
+          <textarea id="extend-reason" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13.5 }}
+            placeholder="e.g. The site work is running a week longer than planned"
+            value={reason} onChange={e => setReason(e.target.value)} />
         </div>
+        {date && extra < 1 && <p style={ERROR}>Pick a date after {formatDate(current)}.</p>}
+        {error && <p style={ERROR}>{error}</p>}
       </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
-          onSave={reason.trim() ? guard.saveAndClose : undefined} saving={guard.saving || busy} />
-      )}
-    </div>
+    </ItemSheet>
   );
 }

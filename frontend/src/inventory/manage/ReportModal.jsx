@@ -38,10 +38,9 @@ export function ReportModal({ onClose, checkouts, initial }) {
   }
 
   return (
-    <div role="dialog" aria-modal="true"
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+    <div role="dialog" aria-modal="true" className="modal-overlay" style={{ zIndex:4100 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+      <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column', padding:28 }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom: (initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All') ? 6 : 16 }}>Export Report</h3>
         {((initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All')) && (
           <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Pre-filled from your current filters - adjust below, then export as PDF or Excel.</p>

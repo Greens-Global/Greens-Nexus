@@ -62,8 +62,8 @@ export function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onC
   const guard = useUnsavedGuard(dirty, onClose, canSave ? submit : undefined);
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background:'var(--card)', borderRadius:16, padding:'22px 28px 20px', width:'100%', maxWidth:480, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh, 680px)', display:'flex', flexDirection:'column' }}>
+    <div role="dialog" aria-modal="true" className="modal-overlay" style={{ zIndex:4100 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column', padding:'22px 28px 20px' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
           <BatchTabs tab="fields" onTab={onSwitchTab} />
           <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>

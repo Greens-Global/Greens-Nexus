@@ -1,5 +1,8 @@
 // Item Management - Item types (borrowed by Settings).
-// Moved out of views/InventoryManagement.jsx unchanged (items split, Nov 2 2026).
+// Items redesign (Neil, 11/02/2026): each type has a Borrowable switch - on
+// by default for a type people check out, off for a permanent-only type
+// (laptops, phones); Borrow lists only borrowable types - and its Longest
+// Loan, which caps the return date Borrow offers. Both save on change.
 import { useState } from 'react';
 import { Plus, X, Tag } from 'lucide-react';
 import { Spinner } from '../../components/AsyncState';
@@ -7,6 +10,9 @@ import { api } from '../../api';
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../../components/UnsavedChangesPrompt';
 import HoldButton from '../../ui/HoldButton';
+import { useTypeSettings, LOAN_CEILING_DAYS } from '../model/useTypeSettings';
+
+const LOAN_CHOICES = [0, 1, 3, 7, 14, 30, 60, 90];
 
 // Manager-curated item types (Neil): managers extend the list here; a CSV import
 // can never invent a type, so people can't spray in ridiculous ones by convenience.
@@ -14,6 +20,12 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
   const [list, setList] = useState(types);
   const [newType, setNewType] = useState('');
   const [busy, setBusy] = useState(false);
+  const settings = useTypeSettings();
+  const setting = (t) => settings.byName.get(String(t).toLowerCase());
+  async function saveSetting(t, patch, done) {
+    try { await settings.save(t, patch); toast?.(done); }
+    catch (e) { toast?.(e?.message || 'Could not save that.', 'error'); }
+  }
 
   async function add() {
     const name = newType.trim();
@@ -41,8 +53,8 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
   const guard = useUnsavedGuard(dirty, onClose, dirty ? async () => { await add(); onClose(); } : undefined);
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background:'var(--card)', borderRadius:16, padding:'22px 26px 20px', width:'100%', maxWidth:440, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh,640px)', display:'flex', flexDirection:'column' }}>
+    <div role="dialog" aria-modal="true" className="modal-overlay" style={{ zIndex:4100 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column', padding:'22px 26px 20px' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
           <h3 style={{ margin:0, fontSize:16, fontWeight:700, display:'inline-flex', alignItems:'center', gap:7 }}><Tag size={16} /> Manage Item Types</h3>
           <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
@@ -72,6 +84,31 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
                     fallbackMessage={(counts[t] || 0) > 0 ? `${counts[t]} item${counts[t] !== 1 ? 's' : ''} use this - remove anyway?` : 'Remove this type?'} />
                 )}
               </div>
+              {setting(t) && (() => {
+                const st = setting(t);
+                return (
+                  <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', fontSize:12.5, color:'var(--muted)' }}>
+                    <label style={{ display:'inline-flex', alignItems:'center', gap:8, cursor:'pointer' }}>
+                      <input type="checkbox" role="switch" aria-checked={st.borrowable} checked={st.borrowable}
+                        aria-label={`${t} is borrowable`} style={{ accentColor:'var(--wk-brand)', cursor:'pointer' }}
+                        onChange={e => saveSetting(t, { borrowable: e.target.checked }, `${t} ${e.target.checked ? 'shows' : 'no longer shows'} in Borrow.`)} />
+                      <span><strong style={{ color:'var(--ink)' }}>Borrowable</strong>{st.borrowableSet == null ? ' (default)' : ''}</span>
+                    </label>
+                    {st.borrowableSet != null && (
+                      <button type="button" onClick={() => saveSetting(t, { use_default: true }, `${t} follows the default again.`)}
+                        style={{ background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--wk-brand)', fontSize:12.5, fontWeight:600 }}>Use the Default</button>
+                    )}
+                    <label style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+                      Longest Loan
+                      <select className="form-input" value={st.maxLoanDays || 0} aria-label={`Longest loan for ${t}`}
+                        style={{ height:30, padding:'0 8px', fontSize:12.5, width:'auto' }}
+                        onChange={e => { const d = Number(e.target.value); saveSetting(t, { max_loan_days: d }, d ? `${t} can be borrowed for up to ${d} day${d === 1 ? '' : 's'}.` : `${t} has no loan cap (up to ${LOAN_CEILING_DAYS} days).`); }}>
+                        {[...new Set([...LOAN_CHOICES, st.maxLoanDays || 0])].sort((a, b) => a - b).map(d => <option key={d} value={d}>{d ? `${d} day${d === 1 ? '' : 's'}` : `No Cap (${LOAN_CEILING_DAYS} days)`}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                );
+              })()}
             </div>
           ))}
         </div>

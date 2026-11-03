@@ -1,5 +1,9 @@
-// Item Management - Manage > Activity Log: the global feed with undo.
-// Moved out of views/InventoryManagement.jsx unchanged (items split, Nov 2 2026).
+// Item Management - Inventory > Activity: the global feed with undo.
+// Items redesign (Neil, 11/02/2026): the date range and the paging run on the
+// server (start / end instants from the viewer's own midnights, offset +
+// total), so a range finds everything in it, not only what the first page
+// held; an Undo the server refuses (409 "changed again" / "no record") shows
+// the server's own words on that entry.
 import { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { Search, RotateCcw, X, ChevronDown, History } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks, Spinner } from '../../components/AsyncState';
@@ -9,6 +13,14 @@ import { renderNotifBody } from '../../components/NotificationBell';
 import { formatAuditDetails, auditEventMeta, _auditFg, _auditBg, auditDayKey, auditDayLabel, auditTime, auditInitials, buildGlobalFeed, feedUndoInfo, feedSummary } from '../model/auditFeed';
 import { auditVal } from './auditVal';
 import { AuditHistoryModal } from './AuditHistoryModal';
+import { DateBox } from '../ui/DateBox';
+
+const PAGE = 100;
+/** The instant the viewer's local day `iso` (YYYY-MM-DD) starts, plus `days`. */
+export function localDayStart(iso, days = 0) {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  return new Date(y, (m || 1) - 1, (d || 1) + days).toISOString();
+}
 
 export const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLocate, onChanged }) {
   const [query,   setQuery]   = useState('');
@@ -20,6 +32,9 @@ export const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenIte
   const [to,      setTo]      = useState('');
   const [confirmUndo, setConfirmUndo] = useState(null); // audit row id awaiting confirm
   const [undoing,     setUndoing]     = useState(null); // audit row id in flight
+  const [undoError,   setUndoError]   = useState({});   // audit row id -> the server's refusal
+  const [total,       setTotal]       = useState(0);
+  const [moreBusy,    setMoreBusy]    = useState(false);
   const [expanded,    setExpanded]    = useState(() => new Set()); // cards showing field detail
   const toggleExpand = (id) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const nameOf = useNameResolver(); // email → real display name (never show a raw email)
@@ -45,41 +60,51 @@ export const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenIte
     return log.resource_id ? { id: log.resource_id, name: '' } : null;
   };
 
+  const params = useCallback((offset = 0) => {
+    const p = { limit: PAGE, offset };
+    if (query.trim()) p.q = query.trim();
+    if (from) p.start = localDayStart(from);
+    if (to) p.end = localDayStart(to, 1);
+    return p;
+  }, [query, from, to]);
   const load = useCallback(() => {
     setLoading(true);
-    const params = { limit: 300 };
-    if (query.trim()) params.q = query.trim();
-    api.getItemsAuditLog(params)
-      .then(res => { setLogs(res.rows || []); setError(''); })
+    api.getItemsAuditLog(params(0))
+      .then(res => { setLogs(res.rows || []); setTotal(res.total || 0); setError(''); })
       .catch(() => setError('Could not load activity log.'))
       .finally(() => setLoading(false));
-  }, [query]);
+  }, [params]);
   useEffect(() => { const t = setTimeout(load, query ? 350 : 0); return () => clearTimeout(t); }, [load, query]);
+  const loadMore = () => {
+    setMoreBusy(true);
+    api.getItemsAuditLog(params(logs.length))
+      .then(res => { setLogs(prev => [...prev, ...(res.rows || []).filter(r => !prev.some(p => p.id === r.id))]); setTotal(res.total || 0); })
+      .catch(() => setError('Could not load more of the activity log.'))
+      .finally(() => setMoreBusy(false));
+  };
 
   async function doUndo(entry) {
     const info = feedUndoInfo(entry);
     if (!info) return;
     setConfirmUndo(null);
     setUndoing(entry.row.id);
+    setUndoError(prev => ({ ...prev, [entry.row.id]: '' }));
     try {
       await api.undoAuditEntry(entry.row.id, info.fields || null);
       await load();
       onChanged?.();
     } catch (e) {
-      setError(e?.message || 'Could not undo that change.');
+      // The server says why (409: it changed again since, or there is no
+      // earlier record to restore) - show exactly that on this entry.
+      setUndoError(prev => ({ ...prev, [entry.row.id]: e?.message || 'The server did not undo this change.' }));
     } finally {
       setUndoing(null);
     }
   }
 
-  // Build → date-filter → group by day (newest first).
+  // Build → group by day (newest first). The range is the server's.
   const groups = useMemo(() => {
-    const feed = buildGlobalFeed(logs).filter(e => {
-      const k = auditDayKey(e.row.timestamp);
-      if (from && k < from) return false;
-      if (to   && k > to)   return false;
-      return true;
-    });
+    const feed = buildGlobalFeed(logs);
     const gs = [];
     for (const e of feed) {
       const k = auditDayKey(e.row.timestamp);
@@ -88,7 +113,7 @@ export const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenIte
       g.list.push(e);
     }
     return gs;
-  }, [logs, from, to]);
+  }, [logs]);
 
   const shown = groups.reduce((n, g) => n + g.list.length, 0);
 
@@ -111,17 +136,17 @@ export const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenIte
           {query && <button className="search-clear" onClick={() => setQuery('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
         </div>
         <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-          <label style={{ fontSize:10.5, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}>
-            From <input type="date" className="form-input" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)} style={{ height:32, fontSize:12, padding:'0 8px' }} />
-          </label>
-          <label style={{ fontSize:10.5, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}>
-            To <input type="date" className="form-input" value={to} min={from || undefined} onChange={e => setTo(e.target.value)} style={{ height:32, fontSize:12, padding:'0 8px' }} />
-          </label>
+          <span style={{ fontSize:12.5, fontWeight:600, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:6 }}>
+            From <DateBox compact value={from} max={to} onChange={setFrom} ariaLabel="From date" placeholder="Any day" style={{ width:140 }} />
+          </span>
+          <span style={{ fontSize:12.5, fontWeight:600, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:6 }}>
+            To <DateBox compact value={to} min={from} onChange={setTo} ariaLabel="To date" placeholder="Any day" style={{ width:140 }} />
+          </span>
           {(from || to) && <button className="secondary-btn" style={{ height:32, padding:'0 12px', fontSize:12 }} onClick={() => { setFrom(''); setTo(''); }}>Clear</button>}
         </div>
       </div>
       <p style={{ fontSize:12.5, color:'var(--muted)', margin:'0 0 14px' }}>
-        {shown} {shown === 1 ? 'entry' : 'entries'}{(from || to) ? ' in range' : ''} · newest first · edits show <span style={{ color:'hsl(var(--color-red))' }}>old</span> → <span style={{ color:'hsl(var(--color-green))' }}>new</span>, and most changes can be undone
+        {total || shown} {(total || shown) === 1 ? 'entry' : 'entries'}{(from || to) ? ' in range' : ''} · newest first · edits show <span style={{ color:'hsl(var(--color-red))' }}>old</span> → <span style={{ color:'hsl(var(--color-green))' }}>new</span>, and most changes can be undone
       </p>
 
       {error ? (
@@ -137,7 +162,7 @@ export const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenIte
         <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
           {groups.map(g => (
             <div key={g.k}>
-              <div style={{ fontSize:10.5, fontWeight:800, letterSpacing:'.08em', textTransform:'uppercase', color:'var(--muted)', margin:'0 0 9px 2px' }}>{auditDayLabel(g.k)}</div>
+              <div style={{ fontSize:12.5, fontWeight:600, color:'var(--muted)', margin:'0 0 9px 2px' }}>{auditDayLabel(g.k)}</div>
               <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
                 {g.list.map(e => {
                   const r = e.row;
@@ -155,7 +180,7 @@ export const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenIte
                       <div style={{ minWidth:0, flex:1 }}>
                         {/* Header: badge · item name · type · time */}
                         <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-                          <span style={{ fontSize:10, fontWeight:800, textTransform:'uppercase', letterSpacing:'.04em', padding:'2px 7px', borderRadius:5, color:_auditFg(t), background:_auditBg(t) }}>{verb(r.action, e.baseline)}</span>
+                          <span style={{ fontSize:11.5, fontWeight:600, padding:'1px 8px', borderRadius:999, color:_auditFg(t), background:_auditBg(t) }}>{verb(r.action, e.baseline)}</span>
                           {it && (it.name
                             ? <span onClick={() => setHistory(it)} title="Open this item’s full history"
                                 style={{ fontSize:13, fontWeight:700, color:'var(--ink)', cursor:'pointer', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'46vw' }}>{it.name}</span>
@@ -181,7 +206,7 @@ export const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenIte
                           <div style={{ display:'flex', flexDirection:'column', gap:5, padding:'9px 11px', borderRadius:8, background:'var(--mist)', border:'1px solid var(--line)', marginTop:7, animation:'auditReveal .22s ease' }}>
                             {e.changes.map((c, ci) => (
                               <div key={ci} style={{ fontSize:12.5, lineHeight:1.6, wordBreak:'break-word', display:'flex', flexWrap:'wrap', alignItems:'baseline', gap:7, animation:'auditReveal .3s ease both', animationDelay:`${ci * 45}ms` }}>
-                                <span style={{ color:'var(--muted)', fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em', minWidth:96 }}>{c.label}</span>
+                                <span style={{ color:'var(--muted)', fontSize:12, fontWeight:600, minWidth:96 }}>{c.label}</span>
                                 {!e.baseline && c.from !== null && (
                                   <>
                                     <span style={{ color:'hsl(var(--color-red))', textDecoration: c.field === 'photo_url' ? 'none' : 'line-through', padding:'1px 5px', borderRadius:4, animation:'auditOldFlash 1s ease both', animationDelay:`${ci * 45}ms` }}>{auditVal(c.field, c.from, 'from')}</span>
@@ -217,6 +242,9 @@ export const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenIte
                           </div>
                         </div>
 
+                        {undoError[r.id] && (
+                          <p role="alert" style={{ margin:'8px 0 0', fontSize:12.5, color:'var(--bad-fg)' }}>{undoError[r.id]}</p>
+                        )}
                         {/* Inline undo confirmation */}
                         {confirmUndo === r.id && undo && (
                           <div style={{ marginTop:8, padding:'11px 13px', borderRadius:9, border:'1px solid hsla(40,90%,45%,0.5)', background:'hsla(40,90%,50%,0.08)' }}>
@@ -234,6 +262,11 @@ export const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenIte
               </div>
             </div>
           ))}
+          {logs.length < total && (
+            <button type="button" className="it-more" onClick={loadMore} disabled={moreBusy}>
+              {moreBusy ? 'Loading…' : `Show ${Math.min(PAGE, total - logs.length)} More`}
+            </button>
+          )}
         </div>
       )}
       {history && <AuditHistoryModal item={history} onClose={() => setHistory(null)} onOpenItem={onOpenItem} />}
