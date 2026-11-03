@@ -121,6 +121,17 @@ export function checklistTrackState({ done, total, overdue, status }) {
   return overdue > 0 ? 'overdue' : 'live';
 }
 
+// The phases (in checklist order) that hold an open step past its due date -
+// "Behind: Day One, Week One" under the bar.
+export function behindPhases(items = []) {
+  const out = [];
+  items.forEach(s => {
+    const name = s.phase || 'Steps';
+    if (s.overdue && !isClosed(s) && !out.includes(name)) out.push(name);
+  });
+  return out;
+}
+
 function ProgressBar({ done, total, overdue = 0, status }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -132,10 +143,22 @@ function ProgressBar({ done, total, overdue = 0, status }) {
   );
 }
 
+// A warning on a checklist card or row (live accent, 11/02/2026): the house
+// warning look - the yellow wash, its text color and an icon - never orange,
+// which on these cards means only "in progress" (the progress track).
+export function WarnNote({ children, block = false }) {
+  return (
+    <span className={`nx-warn-note${block ? ' is-block' : ''}`}>
+      <AlertTriangle size={12} aria-hidden="true" />
+      <span>{children}</span>
+    </span>
+  );
+}
+
 function Avatar({ name, empty }) {
   return (
     <span aria-hidden="true" style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9.5, fontWeight: 700,
-      background: empty ? 'transparent' : 'var(--wk-brand-tint)', color: empty ? 'var(--wk-orange)' : 'var(--wk-brand)', border: empty ? '1.5px dashed var(--wk-orange)' : 'none' }}>
+      background: empty ? 'var(--warn-bg)' : 'var(--wk-brand-tint)', color: empty ? 'var(--warn-fg)' : 'var(--wk-brand)', border: empty ? '1.5px dashed var(--warn-fg)' : 'none' }}>
       {empty ? '?' : initials(name)}
     </span>
   );
@@ -190,7 +213,7 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
     { label: 'Nexus People', people: people.filter(p => !roleSet.has(p.email)) },
   ];
 
-  const dueColor = late ? 'var(--wk-red)' : soon ? 'var(--wk-orange)' : 'var(--wk-dim)';
+  const dueColor = late ? 'var(--wk-red)' : soon ? 'var(--warn-fg)' : 'var(--wk-dim)';
   return (
     <div style={{ borderRadius: 8, background: open ? 'var(--wk-hover)' : 'transparent', transition: 'background .15s', opacity: busy ? 0.6 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', minHeight: 44 }}>
@@ -220,7 +243,7 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flex: '0 1 190px', minWidth: 0, fontSize: 12.5, color: 'var(--wk-dim)' }}>
             <Avatar name={step.ownerName || step.ownerEmail} empty={!step.ownerEmail} />
             <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {ownerText(step) || <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>Unassigned</span>}
+              {ownerText(step) || <WarnNote>Unassigned</WarnNote>}
               <span style={{ color: 'var(--wk-faint)' }}> · {step.ownerRoleLabel}</span>
             </span>
           </span>
@@ -349,11 +372,11 @@ function PhaseBlock({ phase, isLast, state, defaultOpen, renderStep }) {
 // --- One checklist ---------------------------------------------------------
 
 function Stat({ label, value, tone }) {
-  const color = tone === 'red' ? 'var(--wk-red)' : tone === 'orange' ? 'var(--wk-orange)' : tone === 'green' ? 'var(--wk-green)' : 'var(--wk-ink)';
+  const color = tone === 'red' ? 'var(--wk-red)' : tone === 'warn' ? 'var(--warn-fg)' : tone === 'green' ? 'var(--wk-green)' : 'var(--wk-ink)';
   return (
     <div style={{ display: 'grid', gap: 1, minWidth: 70 }}>
       <span style={{ fontSize: 20, fontWeight: 700, color: value ? color : 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>{value}</span>
-      <span style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{label}</span>
+      {tone === 'warn' && value ? <WarnNote>{label}</WarnNote> : <span style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{label}</span>}
     </div>
   );
 }
@@ -374,6 +397,7 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
     });
     return out;
   }, [cl.items]);
+  const behind = behindPhases(cl.items);
   const currentIdx = phasesAll.findIndex(p => p.steps.some(s => !isClosed(s)));
   const match = s => filter === 'all' ? true : filter === 'open' ? !isClosed(s) : filter === 'overdue' ? s.overdue : (me && ownsStep(s, me) && !isClosed(s));
   const phases = phasesAll.map(p => ({ ...p, steps: p.steps.filter(match) })).filter(p => p.steps.length);
@@ -429,7 +453,7 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
             <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', marginTop: 2 }}>
               {cl.anchorDate
                 ? <>{cl.audit ? 'Audit from' : look.anchor} {formatDate(cl.anchorDate)}{cl.status === 'open' && anchorDays !== null ? ` · ${anchorDays === 0 ? 'today' : anchorDays > 0 ? `in ${anchorDays} days` : `${-anchorDays} days ago`}` : ''}</>
-                : <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>{ANCHOR_LABEL[cl.kind]} not set yet</span>}
+                : <WarnNote>{ANCHOR_LABEL[cl.kind]} not set yet</WarnNote>}
               {cl.exitType ? ` · ${EXIT_LABEL[cl.exitType] || cl.exitType}` : ''}
             </div>
           </div>
@@ -441,11 +465,16 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
         </div>
         <div style={{ marginTop: 14 }}>
           <ProgressBar done={cl.done} total={cl.total} overdue={cl.overdue} status={cl.status} />
+          {/* The bar is one track now; this line keeps "which phase is behind"
+              in view, collapsed or open. */}
+          {cl.status === 'open' && behind.length > 0 && (
+            <div data-behind="" style={{ marginTop: 6, fontSize: 12.5, color: 'var(--bad-fg)', fontWeight: 600 }}>Behind: {behind.join(', ')}</div>
+          )}
         </div>
         {cl.status === 'open' && (
           <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', marginTop: 14 }}>
             <Stat label="Overdue" value={cl.overdue} tone="red" />
-            <Stat label="Due This Week" value={weekDue} tone="orange" />
+            <Stat label="Due This Week" value={weekDue} tone="warn" />
             <Stat label="Steps Left" value={cl.total - cl.done} />
             {me && <Stat label="Yours" value={mine} />}
           </div>
@@ -456,14 +485,14 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
             <span>Task: <b style={{ color: 'var(--wk-ink)', fontWeight: 600 }}>{cl.task.title}</b>{' '}
               {cl.task.projectName
                 ? <>in {cl.task.projectName}{cl.task.sectionName ? `, section ${cl.task.sectionName}` : ''}</>
-                : <span style={{ color: 'var(--wk-orange)' }}>- not in a project yet; pick one in Settings &gt; Hiring &amp; Onboarding, with the company picked, &gt; Checklists &gt; Where Checklist Tasks Go</span>}
+                : <WarnNote>Not in a project yet; pick one in Settings &gt; Hiring &amp; Onboarding, with the company picked, &gt; Checklists &gt; Where Checklist Tasks Go</WarnNote>}
             </span>
             <button onClick={() => openTask(cl.task.id)} style={{ ...ghostBtn, padding: '3px 8px', fontSize: 12 }}>Open Task</button>
           </div>
         )}
         {cl.kind === 'onboarding' && !cl.anchorDate && cl.status === 'open' && (
-          <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--wk-orange)', display: 'flex', gap: 6, alignItems: 'center' }}>
-            <AlertTriangle size={13} /> Add a start date to the profile - most due dates count from it.
+          <div style={{ marginTop: 12 }}>
+            <WarnNote block>Add a start date to the profile - most due dates count from it.</WarnNote>
           </div>
         )}
       </div>
@@ -782,7 +811,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
             <button onClick={() => { setKind('all'); setFocus(''); }} style={ghostBtn}><X size={12} /> {focus === 'overdue' ? 'Overdue only' : focus === 'mine' ? 'Waiting on you' : KIND_LABEL_OF(kind)}</button>
           )}
           {unassigned > 0 && focus !== 'unassigned' && (
-            <button onClick={() => pickFocus('unassigned')} style={{ ...ghostBtn, color: 'var(--wk-orange)', borderColor: 'var(--wk-orange)' }}>{unassigned} Unassigned Step{unassigned === 1 ? '' : 's'}</button>
+            <button onClick={() => pickFocus('unassigned')} style={{ ...ghostBtn, color: 'var(--warn-fg)', background: 'var(--warn-bg)', borderColor: 'var(--warn-fg)' }}><AlertTriangle size={12} aria-hidden="true" /> {unassigned} Unassigned Step{unassigned === 1 ? '' : 's'}</button>
           )}
           {companiesInUse.length > 1 && (
             <select value={company} onChange={e => setCompany(e.target.value)} aria-label="Company" style={{ ...inputStyle, padding: '6px 8px' }}>
@@ -843,7 +872,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
                     <span style={{ fontSize: 11.5, color: 'var(--wk-faint)', fontWeight: 600 }}>Next Step</span>
                     <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.next.title}</span>
                     <span style={{ fontSize: 12, color: r.next.overdue ? 'var(--wk-red)' : 'var(--wk-dim)', fontWeight: r.next.overdue ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {r.next.ownerName || r.next.ownerEmail || <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>Unassigned</span>} ({r.next.ownerRoleLabel})
+                      {r.next.ownerName || r.next.ownerEmail || <WarnNote>Unassigned</WarnNote>} ({r.next.ownerRoleLabel})
                       {r.next.dueDate ? ` · ${relDue(nextDays)}` : ''}
                     </span>
                   </>

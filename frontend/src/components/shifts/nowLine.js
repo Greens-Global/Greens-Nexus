@@ -4,12 +4,12 @@
 // view's 24-hour track) a 2px line at the current time with a small
 // "2:14 PM" label. Orange means "now" only - see "Live accent" in DESIGN.md.
 //
-// Time zone: the Day view's axis is the TEAM's wall clock ("Times in
+// Time zone: the planner's times are the TEAM's wall clock ("Times in
 // <team zone>" under the grid; a shift's 'HH:MM' are wall-clock strings), so
-// the line reads the team zone through zoneClock and shows only when the
-// view's date is today THERE. No team zone = the viewer's own clock. The
-// week and month grids keep deciding "today" as they always have
-// (shiftLib.todayIso) - they have no time axis, so only the day is marked.
+// EVERY today marker - the week grid's column, the month cell, the phone
+// strip, the Shift Types header and the Day view's line - reads today from the
+// team zone (plannerToday), so the marker and the line always agree. No team
+// zone = the viewer's own clock.
 import { useEffect, useState } from 'react';
 import { zoneClock, formatHHMM } from '../../lib/datetime';
 
@@ -25,6 +25,9 @@ export const TODAY_INK = 'var(--wk-live-ink)';
 export const TODAY_CELL = 'color-mix(in srgb, var(--wk-live) 6%, transparent)';
 
 const pad2 = (n) => String(n).padStart(2, '0');
+
+// The planner's today (YYYY-MM-DD) - the team zone's date, else the viewer's.
+export const plannerToday = (teamZone = '', now = new Date()) => zoneClock(teamZone, now).date;
 
 // Where the now line sits on a 24-hour axis for `date` (YYYY-MM-DD) in
 // `timeZone`: { minutes, frac (0..1 of the day), label "2:14 PM" }, or null

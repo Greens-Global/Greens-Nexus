@@ -16,7 +16,7 @@ import { myTasksFootnote, MY_TASKS_RULE } from '../dashboard/myTasksCount';
 import { ago } from './updatesText';
 import { dayTitle, twoLetterDay, versusLastWeek, needsYouNow } from './homeRules';
 import { PriorityMark } from '../components/StatusLabel';
-import ProgressTrack, { dueTrackState } from '../ui/ProgressTrack';
+import ProgressTrack, { countTrackState } from '../ui/ProgressTrack';
 import { todayISO } from './lib';
 
 const tint = (hex, a = '1f') => `${hex}${a}`;
@@ -155,8 +155,9 @@ export function ProjectsAtRiskWidget({ rows, onOpenProject, onViewAll, isMobile 
                   {dueWeek > 0 && <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: tint(NX.amber), color: NX.amber, whiteSpace: 'nowrap' }}>{dueWeek} This Week</span>}
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <ProgressTrack size="sm" value={pct / 100} state={dueTrackState(pct / 100, p.dueOn, todayISO())}
-                    label={`${p.name} tasks done`} valueText={`${done} of ${total} done`} style={{ flex: 1 }} />
+                  <ProgressTrack size="sm" value={total ? done / total : 0}
+                    state={countTrackState({ done, total, dueISO: p.dueOn, todayISO: todayISO(), complete: p.status === 'completed' })}
+                    label={`${p.name} tasks done`} valueText={`${done} of ${total} done (${pct}%)`} style={{ flex: 1 }} />
                   <span style={{ fontSize: 11.5, color: NX.faint, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{done}/{total} done</span>
                 </span>
               </button>

@@ -5,7 +5,7 @@
 import { formatDate, formatWeekday } from '../../lib/datetime';
 import { isoDate, fmtHrs, planMinutes, counts, weekStartOf, timeOffWhen, isAllDayOff } from './shiftLib';
 import { Avatar } from '../ShiftScheduleExtras';
-import { TODAY_INK } from './nowLine';
+import { TODAY_INK, plannerToday } from './nowLine';
 
 // Faces on each day (Visesh, 10/02: "show the people photos in the box so we
 // know who's available and who's not"): who is working, then who is off
@@ -28,7 +28,7 @@ function Faces({ list, people, names, off = false }) {
   );
 }
 
-export default function ScheduleMonth({ days, shifts, openShifts, timeoff, holidayDates, holidayNames, notes, visibleEmails, names, people = {}, weekStart = 'monday', onOpenDay }) {
+export default function ScheduleMonth({ days, shifts, openShifts, timeoff, holidayDates, holidayNames, notes, visibleEmails, names, people = {}, weekStart = 'monday', onOpenDay, teamZone = '' }) {
   if (!days.length) return null;
   const first = weekStartOf(days[0], weekStart);
   const cells = [];
@@ -37,7 +37,7 @@ export default function ScheduleMonth({ days, shifts, openShifts, timeoff, holid
     if (cells.length % 7 === 0 && d >= days[days.length - 1]) break;
   }
   const month = days[0].getMonth();
-  const today = isoDate(new Date());
+  const today = plannerToday(teamZone);   // the team zone's day (nowLine.js)
   const headers = Array.from({ length: 7 }, (_, i) => formatWeekday(new Date(first.getFullYear(), first.getMonth(), first.getDate() + i), 'short'));
   const perDay = (ds) => {
     const placed = shifts.filter((s) => s.date === ds && counts(s));

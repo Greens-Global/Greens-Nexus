@@ -11,7 +11,7 @@ import { Spinner } from './AsyncState';
 import { ShiftBlock } from './shifts/ShiftBlock';
 import { ContextMenu, MenuItem, MenuSep, MenuHead } from './shifts/Menu';
 import { isoDate, dayHeading, shiftTimeText, minutesText, unpaidMinutes, SHIFT_COLORS, DEFAULT_SHIFT_COLOR } from './shifts/shiftLib';
-import { TODAY_CELL, TODAY_HEAD, TODAY_INK } from './shifts/nowLine';
+import { TODAY_CELL, TODAY_HEAD, TODAY_INK, plannerToday } from './shifts/nowLine';
 
 const MODAL_BACK = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' };
 const MODAL_CARD = { background: 'var(--card)', borderRadius: 14, padding: 20 };
@@ -24,7 +24,7 @@ export function ShiftTypeWeek({ days, shifts, presets, names, teamZone, onOpen }
   (shifts || []).forEach((s) => (rows.get(s.shiftId) || custom).items.push(s));
   const list = [...rows.values(), custom].filter((r) => r.items.length);
   const GRID = { display: 'grid', gridTemplateColumns: `230px repeat(${days.length}, minmax(128px, 1fr))` };
-  const today = isoDate(new Date());
+  const today = plannerToday(teamZone);   // the team zone's day (shifts/nowLine.js)
   return (
     <div style={{ overflow: 'auto', border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)' }}>
       <div style={{ minWidth: 230 + days.length * 128 }}>

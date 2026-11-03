@@ -29,8 +29,8 @@ import { Avatar } from '../ShiftScheduleExtras';
 import { TeamMenu } from '../ShiftTeams';
 import { timeOffLabel, availText } from '../shiftScheduleLib';
 import { ShiftBlock, TimeOffBlock, HolidayBlock } from './ShiftBlock';
-import { isoDate, dayShort, fmtHrs, todayIso, planMinutes, counts, isAllDayOff, isApprovedOff, shiftShortText, parseIso, sectionKey, actualFor } from './shiftLib';
-import { TODAY_CELL, TODAY_HEAD, TODAY_INK } from './nowLine';
+import { isoDate, dayShort, fmtHrs, planMinutes, counts, isAllDayOff, isApprovedOff, shiftShortText, parseIso, sectionKey, actualFor } from './shiftLib';
+import { TODAY_CELL, TODAY_HEAD, TODAY_INK, plannerToday } from './nowLine';
 
 export const PERSON_W = 200;
 const ROW_MIN = 52;
@@ -292,7 +292,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   // Hours are a manager's number (Pranshu, Oct 21 2026): someone reading their
   // team's schedule sees names, status and usual hours, never "0 Hrs" lines.
   showHours = canManage }) {
-  const today = todayIso();
+  const today = plannerToday(teamZone);   // the team zone's day (shifts/nowLine.js)
   const n = days.length;
   const coarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches;
   const cellRole = ariaRole === 'grid' ? 'gridcell' : 'cell';

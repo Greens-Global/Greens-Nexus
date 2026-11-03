@@ -8778,15 +8778,25 @@ body:has(.apv-phone) { overflow-x: clip; }
   .nx-track-fill { transition: width var(--dur-lg) var(--ease-out); }
   .nx-track-marker { transition: left var(--dur-lg) var(--ease-out); }
 }
+/* A warning beside a progress track (HrChecklists WarnNote): the house
+   warning look - the yellow --warn-bg wash, --warn-fg text and an icon - so on
+   a card with a track, orange means only "in progress". */
+.nx-warn-note { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 5px; vertical-align: middle;
+  background: var(--warn-bg); color: var(--warn-fg); font-size: 12px; font-weight: 600; line-height: 1.4; }
+.nx-warn-note svg { flex-shrink: 0; }
+.nx-warn-note.is-block { display: flex; align-items: flex-start; padding: 6px 10px; border-radius: 8px; font-size: 12.5px; }
+.nx-warn-note.is-block svg { margin-top: 2px; }
 
 /* The now marker (Neil, 11/02/2026, components/shifts/nowLine.js) - the live
    accent on a time axis: a 2px --wk-live line at the current time down every
    track of the Shifts Day view, and its "2:14 PM" label (--wk-live-ink on the
-   tint, 4.67:1 light) at the foot of the hour header, under the hour words, so
-   it never covers them; near either end it stays inside the track. Today's column header is the tint +
-   a 2px underline (TODAY_HEAD in nowLine.js). The line never animates: it
-   moves once a minute and just repositions, so reduced motion needs nothing. */
+   tint, 4.67:1 light) in a 20px row of its own at the foot of the hour header
+   (ScheduleDay's NOW_ROW padding), under the hour words, so it never covers
+   them however short the header is; near either end it stays inside the
+   track. Today's column header is the tint + a 2px underline (TODAY_HEAD in
+   nowLine.js). The line never animates: it moves once a minute and just
+   repositions, so reduced motion needs nothing. */
 .nx-now-line { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--wk-live); pointer-events: none; z-index: 1; }
 .nx-now-label { position: absolute; bottom: 3px; transform: translateX(-50%); z-index: 2; pointer-events: none; white-space: nowrap;
-  padding: 1px 5px; border-radius: 4px; font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  padding: 1px 5px; border-radius: 4px; line-height: 13px; font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
   color: var(--wk-live-ink); background: linear-gradient(var(--wk-live-tint), var(--wk-live-tint)), var(--card); box-shadow: 0 0 0 1px var(--wk-live-line); }

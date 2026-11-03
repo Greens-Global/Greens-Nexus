@@ -15,11 +15,16 @@ import ProgressTrack, { clampProgress, dueTrackState } from '../ui/ProgressTrack
 import { GOAL_STATUS, LEVEL_LABEL, MEASURES, measureText, LBL, muted, TAP } from './lib';
 
 // Performance's progress bar is the one progress track (live accent,
-// 11/02/2026): orange while it moves, green once done, red when it is late -
-// a goal past its due date and not done (`dueOn`), or a cycle with reviews
-// past due (`overdue`). The goal's own status label stays beside it.
+// 11/02/2026): orange while it moves, green once done, red when it is late.
+// A goal's server status (backend/performance.computed_status - the same one
+// its label shows) decides, so the bar and the label never disagree: Done is
+// green, Behind / Off Track red, anything else orange. Only a bar with no
+// status (a review cycle's acknowledgements) falls back to the counts, the
+// `overdue` flag and the due date.
+const GOAL_STATES = { done: 'done', behind: 'overdue', off_track: 'overdue', on_track: 'live', at_risk: 'live', no_data: 'live' };
 export function goalTrackState({ value = 0, status, dueOn, overdue = false, today = toDateInputValue(new Date()) } = {}) {
-  if (status === 'done' || clampProgress((Number(value) || 0) / 100) >= 1) return 'done';
+  if (status && GOAL_STATES[status]) return GOAL_STATES[status];
+  if (clampProgress((Number(value) || 0) / 100) >= 1) return 'done';
   if (overdue) return 'overdue';
   return dueTrackState(0, dueOn, today);
 }

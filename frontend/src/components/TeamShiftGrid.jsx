@@ -40,8 +40,8 @@ const STRIP = [
 // their expected start + grace); the strip counts and filters on it.
 export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam, days, rows: allRows, onNow = [], openShifts = [], onRequestOpen, busyOpenId = '', thisWeek, timeZoneLabel = '', teamZone = '', live = null, late = [] }) {
   const phone = useIsMobile();
-  const [day, setDay] = useState(() => firstDay(days.map((d) => d.date)));
-  useEffect(() => { setDay((k) => (days.some((d) => d.key === k) ? k : firstDay(days.map((d) => d.date)))); }, [days]);
+  const [day, setDay] = useState(() => firstDay(days.map((d) => d.date), teamZone));
+  useEffect(() => { setDay((k) => (days.some((d) => d.key === k) ? k : firstDay(days.map((d) => d.date), teamZone))); }, [days, teamZone]);
   const [stripFilter, setStripFilter] = useState('');
   if (!team) return null;
   const strip = !!(thisWeek && live);
@@ -161,7 +161,7 @@ export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam,
     return (
       <div style={{ marginTop: 22 }}>
         {head}
-        <DayStrip days={days.map((x) => x.date)} value={d?.key || ''} onChange={setDay} countOf={(k) => { const x = days.find((y) => y.key === k); return x ? dayShifts(x) : 0; }} noteOn={(k) => !!days.find((y) => y.key === k)?.note} />
+        <DayStrip days={days.map((x) => x.date)} teamZone={teamZone} value={d?.key || ''} onChange={setDay} countOf={(k) => { const x = days.find((y) => y.key === k); return x ? dayShifts(x) : 0; }} noteOn={(k) => !!days.find((y) => y.key === k)?.note} />
         <div role="table" aria-label={`${team.name} schedule`} style={{ border: '1px solid var(--wk-line2)', borderRadius: 12, background: 'var(--card)', overflow: 'hidden' }}>
           <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)', background: 'var(--bg)', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
             <span style={{ fontSize: 13, fontWeight: 800 }}>{team.name}</span>

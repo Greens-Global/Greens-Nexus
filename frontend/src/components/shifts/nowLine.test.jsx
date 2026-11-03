@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
-import { nowLineFor } from './nowLine';
-import ScheduleDay from './ScheduleDay';
+import { nowLineFor, plannerToday } from './nowLine';
+import ScheduleDay, { NOW_ROW } from './ScheduleDay';
+import ScheduleMonth from './ScheduleMonth';
 import { DayHeader } from './WeekGrid';
 import { DayStrip } from './SchedulePhone';
 import { parseIso } from './shiftLib';
@@ -81,6 +82,42 @@ describe('Today marker', () => {
     unmount();
     const other = render(<DayHeader d={parseIso('2026-11-03')} isToday={false} />);
     expect(other.container.querySelector('[role="columnheader"]').getAttribute('aria-current')).toBeNull();
+  });
+
+  it('reads today from the team zone on every planner view, so the marker and the line agree (review 2)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(AT);   // 11/02 in Los Angeles, already 11/03 in Kolkata
+    expect(plannerToday('America/Los_Angeles')).toBe('2026-11-02');
+    expect(plannerToday('Asia/Kolkata')).toBe('2026-11-03');
+    const days = [parseIso('2026-11-02'), parseIso('2026-11-03')];
+    const strip = render(<DayStrip days={days} teamZone="Asia/Kolkata" value="2026-11-02" onChange={() => {}} />);
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs[0].getAttribute('aria-current')).toBeNull();
+    expect(tabs[1].getAttribute('aria-current')).toBe('date');
+    strip.unmount();
+    const nov = Array.from({ length: 30 }, (_, i) => parseIso(`2026-11-${String(i + 1).padStart(2, '0')}`));
+    const month = render(<ScheduleMonth days={nov} shifts={[]} openShifts={[]} timeoff={[]} holidayDates={new Set()} holidayNames={{}} notes={{}}
+      visibleEmails={new Set()} names={{}} onOpenDay={() => {}} teamZone="Asia/Kolkata" />);
+    expect(month.getByRole('button', { name: 'Open 11/03/2026' }).getAttribute('aria-current')).toBe('date');
+    expect(month.getByRole('button', { name: 'Open 11/02/2026' }).getAttribute('aria-current')).toBeNull();
+    month.unmount();
+    // The Day view in the same zone puts the line on 11/03, never 11/02.
+    render(<ScheduleDay {...dayProps({ date: '2026-11-03', teamZone: 'Asia/Kolkata' })} />);
+    expect(lines().length).toBe(1);
+    vi.useRealTimers();
+  });
+
+  it('gives the now label a row of its own under the hour words (review 3)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(AT);
+    const today = render(<ScheduleDay {...dayProps({ teamZone: 'America/Los_Angeles' })} />);
+    const head = document.querySelector('[data-hour-head]');
+    expect(head.style.paddingBottom).toBe(`${NOW_ROW}px`);
+    expect(head.contains(document.querySelector('[data-now-label]'))).toBe(true);
+    today.unmount();
+    render(<ScheduleDay {...dayProps({ date: '2026-11-05', teamZone: 'America/Los_Angeles' })} />);
+    expect(['', '0px']).toContain(document.querySelector('[data-hour-head]').style.paddingBottom);
+    vi.useRealTimers();
   });
 
   it('rings today on the phone day strip when it is not the picked day', () => {

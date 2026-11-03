@@ -112,7 +112,7 @@ export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr, au
               orange while someone still needs attention, green once all are. */}
           {S.people > 0 && (
             <ProgressTrack value={S.ready / S.people} label="Payroll readiness" style={{ marginTop: 12, maxWidth: 420 }}
-              note={<><b>{S.ready} of {S.people}</b> {S.people === 1 ? 'person' : 'people'} ready for payroll</>} />
+              note={<><span style={{ fontWeight: 600, color: 'var(--ink)' }}>{S.ready} of {S.people}</span> {S.people === 1 ? 'person' : 'people'} ready for payroll</>} />
           )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
             {chip('Ready', S.ready, 'hsl(var(--color-green))', false, () => setFilter('all'))}
