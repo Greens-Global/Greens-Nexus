@@ -93,6 +93,9 @@ const PersonPerformanceSection = lazy(() => import('../performance/PersonPerform
 // People Analytics and Exits (Oct 27 2026) load with their tab - their own chunks.
 const HrAnalytics = lazy(() => import('../components/HrAnalytics'));
 const ExitsTab = lazy(() => import('../components/ExitsTab'));
+// People > Reports (Neil, Teams 11/02/2026): Company Directory, Employees,
+// Contractors - filterable and exportable, over the rows People already holds.
+const PeopleReports = lazy(() => import('../components/PeopleReports'));
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -5419,7 +5422,7 @@ export default function HR({ activeSub, onSubChange }) {
   const { hrTeam } = useRole();
   // People Analytics (Oct 27 2026) is HR's: the manager tier's /hr allowlist
   // does not open it either.
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-exits', 'hr-performance'];
+  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-reports', 'hr-exits', 'hr-performance'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -5734,6 +5737,9 @@ export default function HR({ activeSub, onSubChange }) {
     // People Analytics (Neil, Oct 27 2026): the overview's headcount grown
     // into trends, attrition, tenure, absence and leave liability.
     { key: 'hr-analytics', label: 'Analytics', Icon: BarChart3 },
+    // People Reports (Neil, Teams 11/02/2026): Company Directory, Employees,
+    // Contractors - with filters and a CSV export.
+    { key: 'hr-reports', label: 'Reports', Icon: FileText },
     // Exits In Progress + the final settlement statement (Neil, Oct 27 2026).
     { key: 'hr-exits', label: 'Exits', Icon: LogOut },
     // Performance (Oct 27 2026): review cycles and the company's goals.
@@ -5754,6 +5760,7 @@ export default function HR({ activeSub, onSubChange }) {
     'hr-time': 'Time sheets, time off and punch fixes to review',
     'hr-checklists': 'Onboarding and offboarding steps for each person',
     'hr-analytics': 'Headcount, attrition, tenure, absence and leave',
+    'hr-reports': 'Filterable people lists - directory, employees, contractors',
     'hr-exits': 'People leaving and their final settlement',
     'hr-performance': 'Review cycles and goals',
   };
@@ -5866,6 +5873,12 @@ export default function HR({ activeSub, onSubChange }) {
           </div>
           <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
         </>
+      )}
+
+      {sub === 'hr-reports' && (
+        <Suspense fallback={<SkeletonBlocks count={3} height={60} />}>
+          <PeopleReports employees={employees} externals={extEmployees} entities={entities} />
+        </Suspense>
       )}
 
       {sub === 'hr-exits' && (
