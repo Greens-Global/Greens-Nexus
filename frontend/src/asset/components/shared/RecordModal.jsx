@@ -3,6 +3,7 @@ import { Modal } from './Modal.jsx';
 import { FieldInput, requiredErrors } from './FieldInput.jsx';
 import { RECORD_TYPES } from '../../lib/recordTypes.jsx';
 import { warrantyTermMonths } from '../../lib/warrantyTerm.js';
+import { inferAssetKind } from '../../lib/vehicleFields.js';
 
 /** Builds the initial form-state object for a record-type's field list: one entry per
  *  non-section field, seeded from `row` when editing or blank when adding. */
@@ -33,7 +34,7 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
   // This is NOT stored in the record-type config itself because it's conditional on the
   // specific property, not the collection in general - plain properties/vehicles/equipment
   // never see this field.
-  const fields =
+  const allFields =
     coll === 'maintenance' && active && (active.tenantUnits || []).length
       ? [
           recordType.fields[0],
@@ -47,6 +48,9 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
           ...recordType.fields.slice(2),
         ]
       : recordType.fields;
+  // A field that applies to some asset kinds only (`onlyFor`, e.g. the vehicle-only Next
+  // Service Odometer on a service record) is not offered on the others.
+  const fields = allFields.filter((f) => !f.onlyFor || f.onlyFor.includes(inferAssetKind(active)));
 
   const [values, setValues] = useInitialFormState(fields, row);
   const [initialValues] = useState(values);
