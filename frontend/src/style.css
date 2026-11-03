@@ -6663,7 +6663,7 @@ body:has(.docs-root) { overflow-x: clip; }
 .m-dim { opacity: .78; transition: opacity var(--m-panel) ease-out; }
 .m-undim { opacity: 1; transition: opacity var(--m-panel) ease-out; }
 .m-today-glow [data-today]::after { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0;
-  background: color-mix(in srgb, var(--wk-brand) 12%, transparent); animation: m-glow 1.5s ease-out 1 both; }
+  background: color-mix(in srgb, var(--wk-live) 12%, transparent); animation: m-glow 1.5s ease-out 1 both; }
 .m-roll { display: inline-flex; overflow: hidden; vertical-align: bottom; }
 .m-roll > span { display: inline-block; }
 .m-roll-up > span { animation: m-roll-up var(--m-base) var(--m-ease) both; }
@@ -8778,3 +8778,14 @@ body:has(.apv-phone) { overflow-x: clip; }
   .nx-track-fill { transition: width var(--dur-lg) var(--ease-out); }
   .nx-track-marker { transition: left var(--dur-lg) var(--ease-out); }
 }
+
+/* The now marker (Neil, 11/02/2026, components/shifts/nowLine.js) - the live
+   accent on a time axis: a 2px --wk-live line at the current time down every
+   track of the Shifts Day view, and its "2:14 PM" label (--wk-live-ink on the
+   tint, 4.67:1 light) in the hour header. Today's column header is the tint +
+   a 2px underline (TODAY_HEAD in nowLine.js). The line never animates: it
+   moves once a minute and just repositions, so reduced motion needs nothing. */
+.nx-now-line { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--wk-live); pointer-events: none; z-index: 1; }
+.nx-now-label { position: absolute; top: 50%; transform: translate(-50%, -50%); z-index: 2; pointer-events: none; white-space: nowrap;
+  padding: 1px 5px; border-radius: 4px; font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--wk-live-ink); background: linear-gradient(var(--wk-live-tint), var(--wk-live-tint)), var(--card); box-shadow: 0 0 0 1px var(--wk-live-line); }

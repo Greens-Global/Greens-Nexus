@@ -30,6 +30,7 @@ import { TeamMenu } from '../ShiftTeams';
 import { timeOffLabel, availText } from '../shiftScheduleLib';
 import { ShiftBlock, TimeOffBlock, HolidayBlock } from './ShiftBlock';
 import { isoDate, dayShort, fmtHrs, todayIso, planMinutes, counts, isAllDayOff, isApprovedOff, shiftShortText, parseIso, sectionKey, actualFor } from './shiftLib';
+import { TODAY_CELL, TODAY_HEAD, TODAY_INK } from './nowLine';
 
 export const PERSON_W = 200;
 const ROW_MIN = 52;
@@ -37,8 +38,10 @@ const SLIM = 36;
 const PILL_H = 22;
 const PILL_GAP = 4;
 const PAD = 6;
-// The two column tokens. Today wins over a weekend.
-export const TODAY_BG = 'color-mix(in srgb, var(--wk-brand) 7%, transparent)';
+// The two column tokens. Today wins over a weekend. Today is the live accent
+// (Neil, 11/02/2026, shifts/nowLine.js): a faint wash down the column, the
+// tint + a 2px underline on its header.
+export const TODAY_BG = TODAY_CELL;
 export const WEEKEND_BG = 'rgba(100,116,139,0.045)';
 const ROSE_BG = 'hsla(var(--color-red),0.08)';
 const ROSE_LINE = 'hsla(var(--color-red),0.32)';
@@ -164,11 +167,12 @@ export function DayHeader({ d, stats, isToday, isHol, note, weather = null, onWe
     </button>
   ) : null;
   return (
-    <div {...rest} role="columnheader" className="sched-hdr" style={{ padding: compact ? '8px 5px' : '9px 10px', borderLeft: LINE, borderBottom: LINE, minWidth: 0, ...style }}>
+    <div {...rest} role="columnheader" className="sched-hdr" aria-current={isToday ? 'date' : undefined}
+      style={{ padding: compact ? '8px 5px' : '9px 10px', borderLeft: LINE, borderBottom: LINE, minWidth: 0, ...style, ...(isToday ? TODAY_HEAD : null) }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
         <button type="button" onClick={onOpen} disabled={!onOpen} aria-label={`Open ${formatDate(ds)}`} title={onOpen ? 'Open this day' : undefined}
           style={{ border: 'none', background: 'none', padding: 0, cursor: onOpen ? 'pointer' : 'default', fontFamily: 'inherit', minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 4,
-            fontSize: compact ? 12 : 13, fontWeight: 700, color: isToday ? 'var(--wk-brand)' : 'var(--ink)', lineHeight: 1.3, whiteSpace: 'nowrap' }}>
+            fontSize: compact ? 12 : 13, fontWeight: 700, color: isToday ? TODAY_INK : 'var(--ink)', lineHeight: 1.3, whiteSpace: 'nowrap' }}>
           {compact ? d.getDate() : dayShort(d)}
           {month && !compact && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)' }}>{month}</span>}
         </button>
