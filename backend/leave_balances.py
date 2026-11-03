@@ -62,35 +62,13 @@ BUCKETS = ("vacation", "sick")
 #                   bucket_of() reads this; today bucket_of() still uses
 #                   keyword matching.
 EXTRA_TYPE_METHODS = ("per_hour", "per_period", "lump", "anniversary", "tracked_only", "none")
+# The US policies carry NO extra types by default (Neil, 11/02/2026: remove
+# Bereavement, Floating Holiday and Jury Duty from the US leave card). The
+# machinery stays - HR can still add types to a policy under People > Time >
+# Time Off - these are only the out-of-the-box lists.
 EXTRA_TYPE_DEFAULTS = {
-    "us-ca": [
-        {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
-         "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
-         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-         "drawFromReasons": ["bereavement", "funeral"]},
-        {"id": "floating_holiday", "name": "Floating Holiday", "paid": True, "method": "lump",
-         "waitingDays": 90, "annualHours": 16, "balanceCapHours": 16,
-         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-         "drawFromReasons": ["floating holiday", "floater"]},
-        {"id": "jury_duty", "name": "Jury Duty", "paid": True, "method": "tracked_only",
-         "waitingDays": 0, "annualHours": 0, "balanceCapHours": 0,
-         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-         "drawFromReasons": ["jury", "jury duty"]},
-    ],
-    "us-other": [
-        {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
-         "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
-         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-         "drawFromReasons": ["bereavement", "funeral"]},
-        {"id": "floating_holiday", "name": "Floating Holiday", "paid": True, "method": "lump",
-         "waitingDays": 90, "annualHours": 16, "balanceCapHours": 16,
-         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-         "drawFromReasons": ["floating holiday", "floater"]},
-        {"id": "jury_duty", "name": "Jury Duty", "paid": True, "method": "tracked_only",
-         "waitingDays": 0, "annualHours": 0, "balanceCapHours": 0,
-         "carryoverMax": 0, "payoutOnTerm": False, "eligibleTypes": [],
-         "drawFromReasons": ["jury", "jury duty"]},
-    ],
+    "us-ca": [],
+    "us-other": [],
     "in": [
         {"id": "bereavement", "name": "Bereavement", "paid": True, "method": "lump",
          "waitingDays": 0, "annualHours": 24, "balanceCapHours": 24,
@@ -231,8 +209,8 @@ def clear_cutover(db: Session, company_id: str) -> bool:
 
 def policies(db: Session) -> dict:
     """Every policy by id - HR's saved copy over the defaults. Phase 1A: every
-    returned policy also carries `extraTypes` (bereavement / floating holiday /
-    jury duty on the US policies, bereavement on IN). A saved policy with its
+    returned policy also carries `extraTypes` (bereavement on IN; the US
+    policies ship with none - Neil, 11/02/2026). A saved policy with its
     own `extraTypes` wins; a saved policy with none inherits the defaults."""
     out = copy.deepcopy(DEFAULT_POLICIES)
     for pid, extras in EXTRA_TYPE_DEFAULTS.items():
