@@ -86,6 +86,13 @@
   Content-Type: application/json
 /assets-404.html
   Cache-Control: no-cache
+# The service worker (push + the offline app shell, Neil 11/03/2026): every
+# deploy writes a new file list into it, and that byte change is how a phone
+# learns there is a new build. It must always be revalidated - a year-cached
+# sw.js would hold every phone on an old shell. (pwa.js also registers it with
+# updateViaCache 'none'.)
+/sw.js
+  Cache-Control: no-cache
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
