@@ -397,8 +397,10 @@ h1,h2,h3,h4,h5,h6,
    sweeps in, the ring breathes while working and settles on a break, the
    minute digits slide, and a punch-out drains the arc and fades the chip;
    all off under reduced motion. */
+:root { --sb-green: #16a34a; }   /* the clock's clocked-in green (Neil, 11/03/2026: the sample's green, not the brand color) */
+[data-theme="dark"] { --sb-green: #34c46a; }
 .sbclock {
-  --sb-tone: var(--wk-brand); --sb-tint: color-mix(in srgb, var(--wk-brand) 7%, var(--card)); --sb-line: color-mix(in srgb, var(--wk-brand) 28%, transparent);
+  --sb-tone: var(--sb-green); --sb-tint: color-mix(in srgb, var(--sb-green) 7%, var(--card)); --sb-line: color-mix(in srgb, var(--sb-green) 28%, transparent);
   border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 10px; position: relative;
   background: var(--sb-tint); border: 1px solid var(--sb-line);
   transition: background .25s ease, border-color .25s ease, opacity .4s ease, transform .4s ease;
@@ -425,38 +427,39 @@ h1,h2,h3,h4,h5,h6,
 .sbring { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 50%; }
 .sbring svg { display: block; }
 .sbring-track { stroke: var(--line); }
-.sbring-arc { stroke: var(--sb-tone, var(--wk-brand)); transition: stroke-dashoffset .8s cubic-bezier(.22,1,.36,1), stroke .25s ease; animation: sbSweep .8s cubic-bezier(.22,1,.36,1); }
+.sbring-arc { stroke: var(--sb-tone, var(--sb-green)); transition: stroke-dashoffset .8s cubic-bezier(.22,1,.36,1), stroke .25s ease; animation: sbSweep .8s cubic-bezier(.22,1,.36,1); }
 @keyframes sbSweep { from { stroke-dashoffset: var(--sb-c, 999); } }
-.sbring--in { --sb-tone: var(--wk-brand); animation: sbBreathe 3.2s ease-in-out infinite; }
+.sbring--in { --sb-tone: var(--sb-green); animation: sbBreathe 3.2s ease-in-out infinite; }
 .sbring--break { --sb-tone: #b45309; animation: sbSettle 2.4s ease-in-out infinite; }
 .sbring--out { --sb-tone: #b91c1c; }
 .sbring-ticks { stroke: var(--line); }
-.sbring-sweep { stroke: var(--sb-tone, var(--wk-brand)); opacity: .55; animation: sbSweepOnce .7s cubic-bezier(.22,1,.36,1) forwards; }
+.sbring-sweep { stroke: var(--sb-tone, var(--sb-green)); opacity: .55; animation: sbSweepOnce .7s cubic-bezier(.22,1,.36,1) forwards; }
 @keyframes sbSweepOnce { from { stroke-dashoffset: var(--sb-c, 999); opacity: .7; } to { stroke-dashoffset: 0; opacity: 0; } }
 .sbclock--out { --sb-tone: #b91c1c; --sb-tint: rgba(185,28,28,.05); --sb-line: rgba(185,28,28,.22); }
 .sbclock-rail--out { --sb-tone: #b91c1c; }
-@keyframes sbBreathe { 0%, 100% { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); } 50% { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--wk-brand) 55%, transparent)); } }
+@keyframes sbBreathe { 0%, 100% { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); } 50% { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--sb-green) 55%, transparent)); } }
 @keyframes sbSettle { 0%, 100% { opacity: 1; } 50% { opacity: .62; } }
-.sbring-core { fill: var(--sb-tone, var(--wk-brand)); transition: fill .25s ease; }
+.sbring-core { fill: var(--sb-tone, var(--sb-green)); transition: fill .25s ease; }
 /* on a break the light is yellow inside the amber ring (Neil, Oct 14 2026) */
 .sbring--break .sbring-core { fill: #eab308; }
 .sbring-alert { position: absolute; right: -2px; top: -2px; width: 10px; height: 10px; border-radius: 50%; background: #b91c1c; border: 2px solid var(--card); box-sizing: content-box; }
-/* the transport: Play, Pause, Stop, always all three; the lit one is where
-   you are and its outline slides to the next on a state change */
-.sbtr { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.sbtr-lit { position: absolute; left: 0; top: 0; width: calc((100% - 12px) / 3); height: 100%; border-radius: 10px; box-sizing: border-box;
-  transform: translateX(calc(var(--sb-lit, 0) * (100% + 6px)));   /* a slot plus the 6px gap per step */
-  border: 2px solid var(--sb-tone, var(--wk-brand)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 18%, transparent);
-  transition: transform .24s cubic-bezier(.22,1,.36,1), border-color .25s ease, box-shadow .25s ease; pointer-events: none; }
-.sbtr--break .sbtr-lit { --sb-tone: #b45309; }
-/* a state change: the outline slides to its new slot (the transform
-   transition above) and the pop inside it, re-keyed, lands there */
-.sbtr-land { position: absolute; inset: -2px; border-radius: inherit; pointer-events: none; animation: sbLand .36s cubic-bezier(.22,1,.36,1); }
-@keyframes sbLand { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 30%, transparent); } 55% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 14%, transparent); } 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 0%, transparent); } }
+/* the transport: only what you can press (Neil, 11/03/2026). Each button
+   sits in a slot; a slot that is no longer an option (.is-gone) shrinks its
+   button and fades it in 160ms, then closes the gap in 220ms, so nothing
+   jumps; a returning one opens the gap first and the button springs in.
+   Open sidebar: the slots share the row (flex-grow); folded rail: they
+   stack (height). The 6px gap rides inside each slot so a closed one leaves
+   none behind. */
+.sbtr { position: relative; display: flex; margin-left: -6px; }
+.sbtr-slot { position: relative; display: block; flex: 1 1 0; min-width: 0; transition: flex-grow .22s cubic-bezier(.2,.8,.2,1) .11s; }
+.sbtr-slot.is-gone { flex-grow: 0; overflow: hidden; pointer-events: none; transition-delay: .12s; }
+.sbtr-slot-in { display: block; padding-left: 6px; transform-origin: 50% 40%;
+  transition: transform .26s cubic-bezier(.34,1.56,.64,1) .16s, opacity .2s ease .16s, filter .2s ease .16s; }
+.sbtr-slot.is-gone .sbtr-slot-in { transform: scale(.55) translateY(-4px); opacity: 0; filter: blur(2px);
+  transition: transform .16s ease-in, opacity .14s ease-in, filter .14s ease-in; }
 /* a punch-out: the dial drains and turns red in place (stroke-dashoffset
    and stroke transition on .sbring-arc), the card loses its tint */
 .sbclock--out .sbring-arc { transition: stroke-dashoffset .8s cubic-bezier(.22,1,.36,1), stroke .4s ease; }
-.sbtr--out .sbtr-lit { --sb-tone: var(--wk-brand); }
 .sbtt { position: relative; display: block; min-width: 0; }
 .sbtr-btn {
   position: relative; width: 100%; height: 32px; border-radius: 10px; border: none; padding: 0; cursor: pointer; font-family: inherit;
@@ -464,16 +467,15 @@ h1,h2,h3,h4,h5,h6,
   transition: filter .12s ease, transform .1s ease, background .25s ease, color .25s ease, box-shadow .25s ease;
 }
 .sbtr-btn svg { width: 13px; height: 13px; fill: currentColor; }
-.sbtr-btn:disabled, .sbtr-btn.is-inert { cursor: default; }
-.sbtr-btn.is-dim { opacity: .35; }
-.sbtr-btn:not(:disabled):not(.is-inert):hover { filter: brightness(.95); }
-.sbtr-btn:not(:disabled):not(.is-inert):active { transform: scale(.94); }
-.sbtr-btn--play.is-lit, .sbtr-btn--play.is-next { background: color-mix(in srgb, var(--wk-brand) 14%, transparent); color: var(--wk-brand); box-shadow: none; }
+.sbtr-btn:disabled { cursor: default; }
+.sbtr-btn:not(:disabled):hover { filter: brightness(.95); }
+.sbtr-btn:not(:disabled):active { transform: scale(.94); }
+.sbtr-btn--play { background: color-mix(in srgb, var(--sb-green) 14%, transparent); color: var(--sb-green); box-shadow: none; }
 .sbtr-btn--play.is-next { animation: sbNext 1.8s ease-in-out infinite; }
-@keyframes sbNext { 0%, 100% { background: color-mix(in srgb, var(--wk-brand) 14%, transparent); } 50% { background: color-mix(in srgb, var(--wk-brand) 26%, transparent); } }
-.sbtr-btn--pause:not(.is-dim) { background: rgba(180,83,9,.12); color: #b45309; box-shadow: none; }
-.sbtr-btn--stop:not(.is-dim) { background: rgba(185,28,28,.1); color: #b91c1c; box-shadow: none; }
-.sbtr-btn:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
+@keyframes sbNext { 0%, 100% { background: color-mix(in srgb, var(--sb-green) 14%, transparent); } 50% { background: color-mix(in srgb, var(--sb-green) 26%, transparent); } }
+.sbtr-btn--pause { background: rgba(180,83,9,.12); color: #b45309; box-shadow: none; }
+.sbtr-btn--stop { background: rgba(185,28,28,.1); color: #b91c1c; box-shadow: none; }
+.sbtr-btn:focus-visible { outline: 2px solid var(--sb-tone, var(--sb-green)); outline-offset: 2px; }
 /* the punch flourishes (ClockChip Flourish): a layer pinned over the button
    they come from. Only static look lives here - the motion is sampled
    physics played by the animation engine (lib/flourishMotion.js), on
@@ -585,19 +587,22 @@ h1,h2,h3,h4,h5,h6,
 .sbclock-ringbtn { border-radius: 50%; border: none; background: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .sbclock-ringbtn:hover .sbring { transform: scale(1.06); }
 .sbring { transition: transform .15s ease; }
-/* folded: four equal 36px circles - the dial, Play, Pause, Stop - 8px apart */
+/* folded: 36px circles 8px apart - the dial, then only what you can press
+   (two at most); a slot closes its 44px (circle and gap) to nothing */
 .sbclock-rail { gap: 8px; }
-.sbclock-rail .sbtr { grid-template-columns: 1fr; width: 36px; gap: 8px; }
-.sbclock-rail .sbtr-lit { width: 100%; height: calc((100% - 16px) / 3); border-radius: 50%; transform: translateY(calc(var(--sb-lit, 0) * (100% + 8px))); }
+.sbclock-rail .sbtr { flex-direction: column; width: 36px; margin: -8px 0 0; }
+.sbclock-rail .sbtr-slot { flex: none; height: 44px; transition: height .22s cubic-bezier(.2,.8,.2,1) .11s; }
+.sbclock-rail .sbtr-slot.is-gone { height: 0; transition-delay: .12s; }
+.sbclock-rail .sbtr-slot-in { padding: 8px 0 0; }
 .sbclock-rail .sbtr-btn { height: 36px; border-radius: 50%; }
 .sbclock-rail .sbtr-btn svg { width: 14px; height: 14px; }
 .sbclock-ringbtn { width: 36px; height: 36px; }
 .sbclock-rail .sbtr-btn--share { width: 36px; height: 36px; border-radius: 50%; background: rgba(185,28,28,.1); color: #b91c1c; box-shadow: inset 0 0 0 1px rgba(185,28,28,.35); }
 .sbclock-rail .sbtr-btn--share svg { fill: none; }
-.sbclock-ringbtn:focus-visible, .sbclock-head:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
+.sbclock-ringbtn:focus-visible, .sbclock-head:focus-visible { outline: 2px solid var(--sb-tone, var(--sb-green)); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
-  .sbclock, .sbclock-rail, .sbclock-timer, .sbring-arc, .sbring--in, .sbring--break, .sbtr-btn--play.is-next, .sbring-sweep, .sbtr-land { animation: none; }
-  .sbring-arc, .sbtr-lit { transition: none; }
+  .sbclock, .sbclock-rail, .sbclock-timer, .sbring-arc, .sbring--in, .sbring--break, .sbtr-btn--play.is-next, .sbring-sweep { animation: none; }
+  .sbring-arc, .sbtr-slot, .sbtr-slot-in, .sbclock-rail .sbtr-slot { transition: none; }
   .sbfx { display: none; }
 }
 
@@ -609,7 +614,7 @@ h1,h2,h3,h4,h5,h6,
   padding: 7px 11px 7px 13px; box-shadow: 0 6px 22px rgba(17,24,39,.16); cursor: pointer; font-family: var(--wk-font);
 }
 .tc-pill-time { font-size: 13.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
-.tc-pill .sbring { --sb-tone: var(--wk-brand); }
+.tc-pill .sbring { --sb-tone: var(--sb-green); }
 .tc-pill.is-break .sbring { --sb-tone: #b45309; }
 .tc-sheet { width: 236px; background: var(--card); border: 1px solid var(--wk-line2); border-radius: 18px; padding: 8px; box-shadow: 0 24px 70px rgba(17,24,39,.30); }
 .tc-sheet .sbclock { border-radius: 12px; }

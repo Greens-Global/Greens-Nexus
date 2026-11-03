@@ -2,15 +2,19 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, within, act } from '@testing-library/react';
 import ClockChip from './ClockChip';
 
-// The time clock chip (Oct 14 2026): a dial and a transport - Play, Pause,
-// Stop, always all three - used by the sidebar and the phone sheet. Every
-// capsule function has a control here; off the clock, Play is Punch In.
+// The time clock chip (Oct 14 2026): a dial and a transport used by the
+// sidebar and the phone sheet. The transport holds only what you can press
+// (Neil, 11/03/2026): off the clock Play (Punch In), working Pause and Stop,
+// on a break Play (End Break) and Stop. The rest stay mounted but gone -
+// inert, so a screen reader and the Tab key never meet them.
 
 afterEach(cleanup);
 
 const actions = () => ({ punchIn: vi.fn(), toggleBreak: vi.fn(), punchOut: vi.fn(), startCapture: vi.fn(), stopCapture: vi.fn(), openClock: vi.fn() });
 const working = (extra = {}) => ({ state: 'in', timer: '2:10', todayMin: 130, sinceLabel: 'since 7:52 AM', lost: false, note: '', busy: false, breakBusy: false, capture: null, actions: actions(), ...extra });
 const btn = (name) => screen.getByRole('button', { name });
+// The transport's pressable buttons, in order (the gone ones are aria-hidden).
+const shown = (container) => [...container.querySelectorAll('.sbtr-slot:not(.is-gone) .sbtr-btn')].map((b) => b.getAttribute('aria-label'));
 
 describe('ClockChip', () => {
   it('draws nothing without a known state', () => {
@@ -18,44 +22,58 @@ describe('ClockChip', () => {
     expect(render(<ClockChip vm={null} />).container.innerHTML).toBe('');
   });
 
-  it('clocked in: Play is lit and inert, Pause starts a break, Stop punches out; the dial is green', () => {
+  it('clocked in: only Pause and Stop; Pause starts a break, Stop punches out; the dial is green', () => {
     const vm = working();
     const { container } = render(<ClockChip vm={vm} />);
     expect(screen.getByText('Clocked In', { selector: '.sbclock-state' })).toBeTruthy();
     expect(screen.getByText('2:10')).toBeTruthy();
     expect(container.querySelector('.sbring--in .sbring-arc')).toBeTruthy();
     expect(container.querySelector('.sbring-ticks line')).toBeTruthy();
-    expect(btn('Clocked In').getAttribute('aria-pressed')).toBe('true');
-    expect(btn('Clocked In').getAttribute('aria-disabled')).toBe('true');   // inert, but still hoverable for its tooltip
+    expect(shown(container)).toEqual(['Start Break', 'Punch Out']);
+    expect(screen.queryByRole('button', { name: 'Punch In' })).toBeNull();          // Play is gone, not just dim
+    const gone = container.querySelector('.sbtr-slot.is-gone');
+    expect(gone.hasAttribute('inert')).toBe(true);
+    expect(gone.getAttribute('aria-hidden')).toBe('true');
     fireEvent.click(btn('Start Break'));
     expect(vm.actions.toggleBreak).toHaveBeenCalledTimes(1);
     fireEvent.click(btn('Punch Out'));
     expect(vm.actions.punchOut).toHaveBeenCalledTimes(1);
     fireEvent.click(container.querySelector('.sbclock-head'));
     expect(vm.actions.openClock).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.sbtr-lit').style.getPropertyValue('--sb-lit')).toBe('0');
+    expect(container.querySelector('.sbtr-lit')).toBeNull();                       // the dial says where you are
   });
 
-  it('on break: Pause is lit, Play is End Break and the outline has slid to Pause; amber dial', () => {
+  it('on break: Play is End Break and Stop stays; Pause is gone; amber dial', () => {
     const vm = working({ state: 'break', timer: '0:14' });
     const { container } = render(<ClockChip vm={vm} />);
     expect(container.querySelector('.sbclock--break .sbring--break')).toBeTruthy();
-    expect(btn('On Break').getAttribute('aria-pressed')).toBe('true');
-    expect(container.querySelector('.sbtr-lit').style.getPropertyValue('--sb-lit')).toBe('1');
+    expect(shown(container)).toEqual(['End Break', 'Punch Out']);
+    expect(btn('End Break').classList.contains('is-next')).toBe(true);
     fireEvent.click(btn('End Break'));
     expect(vm.actions.toggleBreak).toHaveBeenCalledTimes(1);
   });
 
-  it('off the clock: a red dial, Play is Punch In, Pause and Stop are dim', () => {
+  it('off the clock: a red dial and Play (Punch In) alone', () => {
     const vm = { state: 'out', sinceLabel: 'Last clocked out at 4:30 PM', busy: false, actions: { punchIn: vi.fn(), openClock: vi.fn() } };
     const { container } = render(<ClockChip vm={vm} />);
     expect(screen.getByText('Clocked Out', { selector: '.sbclock-state' })).toBeTruthy();
     expect(container.querySelector('.sbring--out')).toBeTruthy();
+    expect(shown(container)).toEqual(['Punch In']);
     fireEvent.click(btn('Punch In'));
     expect(vm.actions.punchIn).toHaveBeenCalledTimes(1);
-    expect(btn('Start Break').getAttribute('aria-disabled')).toBe('true');
-    expect(btn('Punch Out').getAttribute('aria-disabled')).toBe('true');
+    expect(screen.queryByRole('button', { name: 'Start Break' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Punch Out' })).toBeNull();
     expect(screen.queryByText('2:10')).toBeNull();
+  });
+
+  it('a state change keeps every slot mounted, so a leaving button animates away', () => {
+    const { container, rerender } = render(<ClockChip vm={working()} variant="rail" />);
+    const slots = [...container.querySelectorAll('.sbtr-slot')];
+    expect(slots).toHaveLength(3);
+    rerender(<ClockChip vm={working({ state: 'break', timer: '0:00' })} variant="rail" />);
+    expect([...container.querySelectorAll('.sbtr-slot')]).toEqual(slots);          // same nodes, only the class moved
+    expect(slots.map((n) => n.classList.contains('is-gone'))).toEqual([false, true, false]);
+    expect(shown(container)).toEqual(['End Break', 'Punch Out']);
   });
 
   // Each accepted punch has its own flourish, drawn in a layer on the page
@@ -103,7 +121,7 @@ describe('ClockChip', () => {
     expect(fx()).toBe('out');
   });
 
-  it('tooltips name the action; only a button you cannot press says why (Neil, Oct 14 2026)', () => {
+  it('tooltips name the action, nothing more (Neil, Oct 14 2026)', () => {
     vi.useFakeTimers();
     try {
       render(<ClockChip vm={working()} />);
@@ -116,7 +134,6 @@ describe('ClockChip', () => {
         act(() => { vi.advanceTimersByTime(5000); });
         return out;
       };
-      expect(tipFor('Clocked In')).toEqual(['Clocked In', 'You are on the clock']);   // inert: says why
       expect(tipFor('Start Break')).toEqual(['Start Break', '']);
       expect(tipFor('Punch Out')).toEqual(['Punch Out', '']);
     } finally {
