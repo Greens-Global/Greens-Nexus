@@ -60,6 +60,9 @@ class RequisitionCreate(BaseModel):
     reason: str = ""
     supervisor_name: str = ""
     approver_email: str = ""    # manager picked by the requester - only they get the notification
+    # Optional: the construction job it is for (Neil, 11/03/2026, plan phase
+    # 4) - a job the requester may read (construction_money.check_job_tag).
+    job_id: str = ""
 
 
 class RequisitionApprove(BaseModel):
@@ -184,6 +187,8 @@ def create_requisition(
     db:   Session = Depends(get_db),
 ):
     payload = data.model_dump(exclude={"approver_email"})
+    import construction_money
+    payload["job_id"] = construction_money.check_job_tag(db, user, data.job_id)
     # id + status are server-owned (client can't supply them) - generate a unique id
     # (same shape as items.py) and pin the starting status to "pending_manager".
     server_id = f"REQ-{uuid.uuid4().hex[:8].upper()}-{uuid.uuid4().hex[:8].upper()}"

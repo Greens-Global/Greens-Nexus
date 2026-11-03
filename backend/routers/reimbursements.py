@@ -123,7 +123,8 @@ def _ser(r: ExpenseReimbursement, names: dict) -> dict:
             "paymentMethod": r.payment_method or "", "paymentRef": r.payment_ref or "",
             "history": [{**h, "byName": nm(h.get("by", "")), "label": ACTION_WORD.get(h.get("action"), h.get("action"))}
                         for h in (r.history or [])],
-            "createdAt": r.created_at, "updatedAt": r.updated_at or ""}
+            "createdAt": r.created_at, "updatedAt": r.updated_at or "",
+            "jobId": r.job_id or "", "jobName": names.get(f"job:{r.job_id}", "") if r.job_id else ""}
 
 
 def _ser_many(db: Session, rows) -> list:
@@ -134,6 +135,8 @@ def _ser_many(db: Session, rows) -> list:
         emails |= {h.get("by") for h in (r.history or [])}
     for e in emails - {None, ""}:
         names[e] = _name(db, e)
+    import construction_money
+    names.update({f"job:{k}": v for k, v in construction_money.job_names(db, {r.job_id for r in rows}).items()})
     return [_ser(r, names) for r in rows]
 
 
@@ -238,9 +241,12 @@ class ClaimIn(BaseModel):
     details: str = ""
     approver_email: str = ""
     receipts: List[ReceiptRef] = []
+    # Optional: the construction job it was bought for (Neil, 11/03/2026,
+    # plan phase 4) - a job the employee may read.
+    job_id: str = ""
 
 
-def _clean(db: Session, user: dict, body: ClaimIn) -> dict:
+def _clean(db: Session, user: dict, body: ClaimIn, keep_job: str = "") -> dict:
     me = _norm(user["email"])
     item = (body.item or "").strip()
     if not item:
@@ -278,9 +284,15 @@ def _clean(db: Session, user: dict, body: ClaimIn) -> dict:
     receipts = _own_receipts(user, body.receipts)
     if len(receipts) > MAX_RECEIPTS:
         raise HTTPException(400, f"Attach at most {MAX_RECEIPTS} receipts")
+    # The job tag: one the employee may read - or the one the claim already
+    # carries (a resubmit never fails on a job they have since left).
+    job = (body.job_id or "").strip()
+    if job and job != keep_job:
+        import construction_money
+        job = construction_money.check_job_tag(db, user, job)
     return dict(item=item[:200], details=details[:2000], category=body.category, category_other=other,
                 amount=amount, currency=cur, purchase_date=pd, vendor=(body.vendor or "").strip()[:120],
-                approver_email=approver, receipts=receipts)
+                approver_email=approver, receipts=receipts, job_id=job)
 
 
 def _ask_approver(db: Session, r: ExpenseReimbursement, again: bool = False) -> None:
@@ -313,7 +325,7 @@ def resubmit(rid: str, body: ClaimIn, user: dict = Depends(get_current_user), db
         raise HTTPException(403, "Only the person who filed it can change it")
     if r.status != "sent_back":
         raise HTTPException(409, "Only a claim that was sent back can be changed")
-    clean = _clean(db, user, body)
+    clean = _clean(db, user, body, keep_job=r.job_id or "")
     keep = list(r.receipts or [])
     for k, v in clean.items():
         setattr(r, k, v)

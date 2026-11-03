@@ -439,6 +439,11 @@ class Requisition(Base):
     # log/notifications name the real submitter instead of guessing (Jul 2026).
     submitted_by_email = Column(String, default="")
     submitted_by_name  = Column(String, default="")
+    # The construction job this purchase is for (Neil, 11/03/2026, plan
+    # phase 4 - a construction_projects id, '' = none). Optional; set only to
+    # a job the requester may read (construction_money.check_job_tag). The
+    # job's Money tab lists it as "Requested, Not Yet Billed".
+    job_id = Column(String, default="", index=True)
 
 
 class HardwareAsset(Base):
@@ -7443,6 +7448,10 @@ class ExpenseReimbursement(Base):
     history         = Column(JSON, default=list)      # [{at, by, action, note}]
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
+    # The construction job it was bought for (Neil, 11/03/2026, plan phase 4;
+    # '' = none) - optional, a job the employee may read. Listed on the job's
+    # Money tab; never a cost keyed into Nexus (the books stay the record).
+    job_id          = Column(String, default="", index=True)
 
 
 class TicketSavedReply(Base):
