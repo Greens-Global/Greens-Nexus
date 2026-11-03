@@ -1601,6 +1601,18 @@ _DAILY_FOOTER = ("You receive one briefing a day, before your shift starts (or a
                  "a shift). It lists what needs your attention in Nexus since your last briefing.")
 
 
+def _stop_link(kind: str) -> str:
+    """The one-click "Stop These Emails" line (email_optout.py, the legal
+    compliance pass, 11/02/2026). Never fails a send over it."""
+    if not kind:
+        return ""
+    try:
+        import email_optout
+        return email_optout.stop_link_html(kind, _MUTED)
+    except Exception:
+        return ""
+
+
 def _brand() -> str:
     """The header band and main button: the admin's Email Appearance accent
     when one is set, else the app green. Never fails a send over styling."""
@@ -1617,7 +1629,7 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
                  intro: str = "Here is what changed since your last briefing.",
                  footer: str = _DAILY_FOOTER, order: list = None, expanded: bool = False,
                  cta_label: str = "Open My Briefing", cta_path: str = "/briefing",
-                 cta_hint: str = "", notes: dict = None) -> tuple:
+                 cta_hint: str = "", notes: dict = None, stop_kind: str = "daily_briefing") -> tuple:
     """The briefing email. The keyword-only arguments exist for the Weekly
     Digest (weekly_digest.py), which reuses this layout with its own section;
     their defaults are the daily email exactly. `expanded` starts sections
@@ -1685,6 +1697,7 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
     <tr>
       <td class="nx-pad" style="background:{_SOFT};border-top:1px solid {_LINE};padding:16px 32px;font-size:11.5px;line-height:1.6;color:{_MUTED}">
         {escape(footer)}
+        {_stop_link(stop_kind)}
       </td>
     </tr>
   </table>
@@ -1826,6 +1839,11 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
     subject, html = render_email(first_name, briefing_date, sections, greeting=greeting, logo_url=logo_url)
 
     mode = cfg.get("mode", "off")
+    # Stopped from the email's own link or Profile (email_optout.py): no
+    # live email for them; the page and the bell are unchanged.
+    import email_optout
+    if mode == "live" and email_optout.is_out(db, emp.work_email, "daily_briefing"):
+        sections = {}
     # Outlook card: in live mode for everyone; in test mode only on the tester's
     # OWN briefing, since its buttons act for real and a tester must not be able
     # to approve other people's items from a preview copy.

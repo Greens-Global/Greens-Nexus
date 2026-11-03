@@ -6707,6 +6707,11 @@ class NexusPersonPref(Base):
     # no email when training is only DUE SOON. Overdue training and policies
     # to sign always email; the bell always rings. ALTER lines in main.py.
     kb_due_soon_email = Column(Integer, default=1)
+    # Digest emails this person stopped (the legal compliance pass,
+    # 11/02/2026, email_optout.py): comma-separated kinds, '' = none. Set by
+    # the one-click link in the email or Profile > Email Settings. ALTER
+    # lines in main.py.
+    email_optouts = Column(String, default="")
 
 
 class TaskAutomationRun(Base):

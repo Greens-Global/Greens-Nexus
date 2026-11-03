@@ -1653,6 +1653,9 @@ export const api = {
   policyAccept:      (version)   => req('/policy/accept', { method: 'POST', body: JSON.stringify({ version }) }),
   // Privacy Policy built from backend/privacy_inventory.py (signed in: + contact, services in use, admin notes)
   privacyNoticeMe:   ()          => req('/policy/privacy-notice/me'),
+  // Digest emails: your own switches; the email's Stop These Emails link lands here (email_optout.py)
+  getMyEmailOptouts: ()          => req('/roles/me/email-optouts'),
+  setMyEmailOptout:  (kind, on)  => req('/roles/me/email-optouts', { method: 'PUT', body: JSON.stringify({ kind, on }) }),
 
   // ── Customizable dashboards (drag-and-drop widget layouts) ──
   dashViews:      (target)     => req(`/dashboards/views?target=${encodeURIComponent(target)}`),

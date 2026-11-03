@@ -1461,6 +1461,8 @@ def _run_migrations():
             "ALTER TABLE weather_outlook ADD COLUMN place VARCHAR DEFAULT ''",
             "ALTER TABLE weather_advisories ADD COLUMN place VARCHAR DEFAULT ''",
             "ALTER TABLE weather_decisions ADD COLUMN place VARCHAR DEFAULT ''",
+            # One-click stop for digest emails (legal pass, 11/02/2026) - see the Postgres list.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN email_optouts VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3495,6 +3497,11 @@ def _run_migrations():
         "ALTER TABLE weather_outlook ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
         "ALTER TABLE weather_advisories ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
         "ALTER TABLE weather_decisions ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
+        # One-click stop for digest emails (the legal compliance pass,
+        # 11/02/2026, email_optout.py): the digests this person turned off
+        # from the email's own link or Profile > Email Settings, comma
+        # separated ('' = none). models.NexusPersonPref.email_optouts.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS email_optouts VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
