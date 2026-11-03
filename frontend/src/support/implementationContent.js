@@ -503,7 +503,7 @@ export const IMPL_PHASES = [
       { id: 'checklists.performance', text: 'Performance reminders agreed and the first review cycle planned (or Performance confirmed not used).' },
     ],
     pitfalls: [
-      'Offboarding is a checklist plus the Left status. Marking Left signs the person out everywhere - start the checklist first.',
+      'Offboarding is a checklist plus Offboard, the only way to mark someone Left: it records the termination date and signs the person out everywhere - start the checklist first.',
     ],
   },
 
@@ -714,7 +714,7 @@ export const IMPL_PHASES = [
     steps: [
       { title: 'Joiners and Leavers', where: 'People', view: 'hr', sub: 'hr-people', items: [
         'Joiner: Add Employee, give the job role and manager, provision, start the onboarding checklist.',
-        'Leaver: start the offboarding checklist the day notice is received, hand over tasks, set mailbox handling, then mark Left.',
+        'Leaver: start the offboarding checklist the day notice is received, then Offboard them with their last day - it hands over tasks, sets mailbox handling and marks them Left.',
       ]},
       { title: 'Regular Reviews', items: [
         'Quarterly: read the access matrix and Access Groups; remove what is no longer needed.',

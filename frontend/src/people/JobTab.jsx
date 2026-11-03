@@ -23,6 +23,10 @@ function seedOf(e) {
     employment_type: e.employmentType || 'full_time', start_date: e.startDate || '',
     manager_email: (e.managerEmail || '').toLowerCase(), backup_manager_email: (e.backupManagerEmail || '').toLowerCase(),
     contractor: { ...(e.contractor || {}) },
+    // Division lead (the Org Chart colors everyone under them) and, for an
+    // external, the company they work for - both moved here from the Org
+    // Chart panel, which now only shows a person (11/03/2026).
+    division: e.division || '', external_company: e.externalCompany || '',
   };
 }
 
@@ -81,6 +85,7 @@ export default function JobTab({
   const meEmail = (e.workEmail || '').toLowerCase();
   const reports = meEmail ? employees.filter(r => (r.managerEmail || '').toLowerCase() === meEmail) : [];
   const isContractor = (t.editing ? d.employment_type : e.employmentType) === 'contractor';
+  const isExternal = ['external', 'guest'].includes(e.identityType || 'internal');
   const c = e.contractor || {};
   // Backup Manager (Neil, Oct 13): the one set on the profile, else the
   // default the server worked out for the People list.
@@ -143,6 +148,14 @@ export default function JobTab({
               placeholder="Default - their manager's manager, or the company's HR contact" noneLabel="Use the Default"
               ariaLabel="Backup Manager" style={PICK_BOX} />
           </Field>
+          <Field label="Division Lead Of" htmlFor="job-division" hint="Everyone reporting under this person is shown as this division on the Org Chart. Leave blank if they do not lead a division.">
+            <input id="job-division" className="form-input" style={BOX} value={d.division} placeholder="e.g. Operations" onChange={set('division')} />
+          </Field>
+          {isExternal && (
+            <Field label="External Company" htmlFor="job-external-company">
+              <input id="job-external-company" className="form-input" style={BOX} value={d.external_company} placeholder="The company they work for" onChange={set('external_company')} />
+            </Field>
+          )}
         </div>
       ) : (
         <div>
@@ -155,6 +168,8 @@ export default function JobTab({
           <Row icon={Network} label="Reports To" value={nameFor(e.managerEmail)} />
           {bk && <Row icon={Users} label="Backup Manager" value={`${nameFor(bk)}${bkWhy}`} />}
           {reports.length > 0 && <Row icon={Users} label="Direct Reports" value={reports.map(fullName).join(', ')} />}
+          {e.division && <Row icon={Network} label="Division Lead Of" value={e.division} />}
+          {isExternal && <Row icon={Building2} label="External Company" value={e.externalCompany} />}
         </div>
       )}
 

@@ -594,7 +594,7 @@ function StartForm({ employee, meta, onStarted, onClose, toastErr }) {
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.55, maxWidth: '70ch' }}>
         {kind === 'onboarding' && (employee.startDate ? 'Steps count from the start date on the profile and move with it when it changes.' : 'No start date on the profile yet - steps will get their dates once it is added.')}
-        {kind === 'offboarding' && 'Start it the day notice is received. Steps already past their date are due today. This changes nothing in Microsoft 365 - Left still happens from Change Status.'}
+        {kind === 'offboarding' && 'Start it the day notice is received. Steps already past their date are due today. This changes nothing in Microsoft 365 - Left happens only through Offboard, which records the termination date.'}
         {kind === 'inactive' && 'Inactive itself changes nothing in Microsoft 365, so the access steps are listed for IT.'}
         {kind === 'promotion' && "Steps count from the day the new role takes effect, and the role's own steps are added. A signed promotion letter starts this checklist by itself."}
       </div>
@@ -826,7 +826,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
             <span className="dk-chip dk-chip--brand" style={{ width: 40, height: 40 }}><ListChecks /></span>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>No one is joining or leaving right now</div>
             <div style={{ fontSize: 13, color: 'var(--wk-dim)', maxWidth: 440, lineHeight: 1.5 }}>
-              Mark a candidate Hired in Hiring to start an onboarding checklist, or change someone&apos;s status to Left or Inactive to start offboarding or leave.
+              Mark a candidate Hired in Hiring to start an onboarding checklist, Offboard someone to start offboarding, or change their status to Inactive to start leave.
             </div>
           </div>
         ) : !shown.length ? (

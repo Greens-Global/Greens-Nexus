@@ -54,7 +54,7 @@ describe('Take Off the Schedule', () => {
     fireEvent.click(screen.getByLabelText('Options for Bob Brown'));
     fireEvent.click(within(screen.getByRole('menu', { name: 'Options for Bob Brown' })).getByText('Take Off the Schedule'));
     await waitFor(() => expect(confirmAsk).toHaveBeenCalled());
-    expect(confirmAsk.mock.calls[0][0]).toBe(`Take Bob Brown off the schedule? Their 1 shift from ${us(today)} on becomes an open slot. You can put them back any time.`);
+    expect(confirmAsk.mock.calls[0][0]).toBe(`Take Bob Brown off the schedule? Their shifts from ${us(today)} on become open slots (1 in view). You can put them back any time.`);
     await waitFor(() => expect(api.setOnSchedule).toHaveBeenCalledWith(B, false));
     await waitFor(() => expect(api.timeSchedule).toHaveBeenCalledTimes(2));
     fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
@@ -69,7 +69,7 @@ describe('Take Off the Schedule', () => {
     fireEvent.click(screen.getByLabelText('Options for Amy Adams'));
     fireEvent.click(within(screen.getByRole('menu', { name: 'Options for Amy Adams' })).getByText('Take Off the Schedule'));
     await waitFor(() => expect(confirmAsk).toHaveBeenCalled());
-    expect(confirmAsk.mock.calls[0][0]).toBe('Take Amy Adams off the schedule? They have no upcoming shifts. You can put them back any time.');
+    expect(confirmAsk.mock.calls[0][0]).toMatch(/^Take Amy Adams off the schedule\? Any shifts they have from \d\d\/\d\d\/\d{4} on become open slots\. You can put them back any time\.$/);
     expect(api.setOnSchedule).not.toHaveBeenCalled();
   });
 });

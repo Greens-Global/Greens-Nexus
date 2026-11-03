@@ -8,7 +8,7 @@ import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import { ProbationBadge } from '../components/HrProbation';
 import MailboxExportResult from '../components/MailboxExportResult';
-import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
+import { RoleChangeRequestCard, RoleChangeDecisionModal } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
 import CandidateFormModal from '../components/HiringCandidateForm';
@@ -24,7 +24,6 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
-import { currencyOptions } from '../asset/lib/currency';
 import { formatDistance, metersToFeet, feetToMeters } from '../lib/distance';
 import { dialog } from '../ui/dialog';
 import { HOLD_MAJOR_MS } from '../ui/HoldButton';
@@ -32,7 +31,7 @@ import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queri
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
 import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading } from '../components/AsyncState';
-import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
+import { useRole, MODULES, MODULE_LEVELS } from '../contexts/RoleContext';
 import { Switch } from '../components/settings/SettingsUI';
 import { setPendingOpen } from '../lib/pendingOpen';
 import TimeAdmin from '../components/TimeAdmin';
@@ -40,12 +39,10 @@ import ModuleTabs from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
-import { LevelPill, ModuleLevelPill, TierBadge, RoleOptions, rolesForCompany } from './RolesAccess';
 // External tab folded into People (Neil, Aug 24: one master list) - only the
-// shared pieces remain in use: badge, invite modal, lifecycle section.
-import { ExternalBadge, InviteExternalModal, inviteOutcomeToast, ExternalPersonSection } from './ExternalUsersPanel';
+// shared pieces remain in use: badge, invite toast, lifecycle section.
+import { ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
 import TierMark from '../components/TierMark';
-import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
 import InvestorChart from '../components/InvestorChart';
@@ -61,7 +58,10 @@ import { googleMapsUrl } from '../lib/addressSearch';
 import WorkSiteFenceCheck from '../components/WorkSiteFenceCheck';
 import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
-import { PersonSelect, DateField, Avatar as EmailAvatar } from '../tasks/components';
+import { PersonSelect, Avatar as EmailAvatar, Modal, DateField } from '../tasks/components';
+import StatusChangeSheet from '../people/StatusChangeSheet';
+import AddPersonSheet from '../people/AddPersonSheet';
+import AccessTab from '../people/AccessTab';
 import { US_STATE_NAMES } from '../lib/usStates';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
 import RecordsAudit from '../components/RecordsAudit';
@@ -162,10 +162,6 @@ const pickRows = (list) => {
 const dirPickRows = (list) => list.filter(p => p.email).map(p => ({ email: p.email.toLowerCase(), name: p.name || p.email, external: !!p.external }));
 // A picker trigger the height and shape of the form's other boxes.
 const PICK_BOX = { height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13.5, fontWeight: 400 };
-// Backstop for a task handover with no named person and no supervisor on the
-// org chart - kept in step with task_projects.HANDOVER_FALLBACK_EMAIL, which
-// is what the server actually applies.
-const HANDOVER_FALLBACK_EMAIL = 'neil@greensglobal.com';
 const initials = e => `${(e.firstName || '?')[0]}${(e.lastName || '')[0] || ''}`.toUpperCase();
 const hueFor = e => AVATAR_HUES[(e.employeeCode || e.id || '').split('').reduce((n, c) => n + c.charCodeAt(0), 0) % AVATAR_HUES.length];
 
@@ -207,371 +203,6 @@ function useIsMobile(bp = 900) {
     return () => mq.removeEventListener('change', h);
   }, [bp]);
   return mobile;
-}
-
-// ── Add / Edit modal ──────────────────────────────────────────────────────────
-function EmployeeFormModal({ employee, employees, externals = [], entities = [], isAdmin = false, canSeeComp = false, initialType = 'full_time', onClose, onSaved, toastOk, toastErr }) {
-  const editing = !!employee;
-  const [jobRoles, setJobRoles] = useState([]);
-  const [jobRoleId, setJobRoleId] = useState('');
-  useEffect(() => { if (isAdmin && !editing) api.getJobRoles().then(setJobRoles).catch(() => {}); }, [isAdmin, editing]);
-  const seedFrom = (e) => ({
-    first_name:      e?.firstName || '',
-    last_name:       e?.lastName || '',
-    work_email:      e?.workEmail || '',
-    personal_email:  e?.personalEmail || '',
-    phone:           e?.phone || '',
-    job_title:       e?.jobTitle || '',
-    designation:     e?.designation || '',
-    employee_code:   e?.employeeCode || '',
-    department:      e?.department || '',
-    employment_type: e?.employmentType || initialType,
-    start_date:      e?.startDate || '',
-    manager_email:   e?.managerEmail || '',
-    backup_manager_email: e?.backupManagerEmail || '',
-    status:          e?.status || 'active',
-    location:        e?.location || '',
-    country:         e?.country || '',
-    office_phone:    e?.officePhone || '',
-    street_address:  e?.streetAddress || '',
-    city:            e?.city || '',
-    state:           e?.state || '',
-    postal_code:     e?.postalCode || '',
-    company:         e?.company || '',
-    identity_type:   e?.identityType || 'internal',
-    contractor:      e?.contractor || {},
-    notes:           e?.notes || '',
-  });
-  const [f, setF] = useState(() => seedFrom(employee));
-  // Baseline for the unsaved-changes guard. Kept separate from the initial
-  // seed because the background refresh below can silently replace untouched
-  // fields with fresher server data - that's not a user edit, so the ref is
-  // re-synced whenever the refresh applies, not just once on mount.
-  const initialFRef = useRef(f);
-  // The row this modal opened from can be STALE: other surfaces change the
-  // record without this view's list refetching - assigning a job role (from
-  // Roles & Access or the card's Access tab) rewrites job_title server-side,
-  // and can set a default manager. Re-read the person on open and refresh any
-  // field the user hasn't already retyped: an untouched field still equals the
-  // stale seed, so only those are replaced and in-progress edits are never
-  // clobbered. (contractor is a nested object - left to its live edit state.)
-  useEffect(() => {
-    if (!editing || !employee?.id) return;
-    let live = true;
-    api.getEmployees().then((rows) => {
-      if (!live) return;
-      const fresh = (rows || []).find((r) => r.id === employee.id);
-      if (!fresh) return;
-      const orig = seedFrom(employee);
-      const next = seedFrom(fresh);
-      setF((cur) => {
-        const merged = { ...cur };
-        for (const k of Object.keys(next)) {
-          if (k === 'contractor') continue;
-          if (cur[k] === orig[k]) merged[k] = next[k];
-        }
-        initialFRef.current = merged;
-        return merged;
-      });
-    }).catch(() => {});
-    return () => { live = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing, employee?.id]);
-  const [busy, setBusy] = useState(false);
-  // Department options come from the SELECTED company - no company, no department.
-  const [deptOptions, setDeptOptions] = useState([]);
-  const [deptLoading, setDeptLoading] = useState(false);
-  // Inline "add a department" so an empty company list never dead-ends the form.
-  const [addingDept, setAddingDept] = useState(false);
-  const [newDeptName, setNewDeptName] = useState('');
-  const [deptSaving, setDeptSaving] = useState(false);
-  async function saveNewDept() {
-    const name = newDeptName.trim();
-    if (!name || deptSaving) return;
-    setDeptSaving(true);
-    try {
-      const list = await api.addCompanyDepartment(f.company, name);
-      setDeptOptions(list.map(d => d.name));
-      set('department', name);
-      setAddingDept(false); setNewDeptName('');
-    } catch (err) {
-      toastErr(err?.message || 'Could not add the department.');
-    } finally { setDeptSaving(false); }
-  }
-  const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
-  const setC = (k, v) => setF(prev => ({ ...prev, contractor: { ...(prev.contractor || {}), [k]: v } }));
-
-  // Pay is NOT edited on the profile form any more (Charmi, Sep 30): the Pay &
-  // Benefits tab is the one writer of the wage, OT rule and exemption, so the
-  // inline "Payroll wage" block (a second write path into PayrollRate) is gone.
-  useEffect(() => {
-    if (!f.company) { setDeptOptions([]); return; }
-    setDeptLoading(true);
-    api.getCompanyDepartments(f.company)
-      .then(list => setDeptOptions(list.map(d => d.name)))
-      .catch(() => setDeptOptions([]))
-      .finally(() => setDeptLoading(false));
-  }, [f.company]);
-  const isContractor = f.employment_type === 'contractor';
-  const cInput = (label, key, props = {}) => (
-    <div>
-      <label style={FL}>{label}</label>
-      <input className="form-input" style={{ width: '100%' }} value={(f.contractor || {})[key] || ''} onChange={e => setC(key, e.target.value)} {...props} />
-    </div>
-  );
-
-  // Manager picker: anyone with a work email (yourself excluded when editing)
-  const managers = employees.filter(e => e.workEmail && e.id !== employee?.id);
-  // External users can be a reporting line too (Neil, Oct 12) - a contractor
-  // or client-side lead someone answers to. Their own group under Nexus People.
-  const externalManagers = externals.filter(e => e.workEmail && e.id !== employee?.id);
-
-  async function save() {
-    if (!f.first_name.trim() || busy) return;
-    setBusy(true);
-    try {
-      const saved = editing ? await api.updateEmployee(employee.id, f) : await api.createEmployee(f);
-      const wemail = (saved?.workEmail || f.work_email || '').trim();
-      // Pay is set on the Pay & Benefits tab, not here (Sep 30). Any warning is
-      // HELD and fired LAST so the single-slot toast doesn't overwrite it with the
-      // profile "Saved"/M365 message.
-      let wageWarn = '';
-      // New hire + a chosen job role → set their access + tier now. Needs a work
-      // email; if not provisioned yet, prompt to set it later on the Role tab.
-      if (!editing && jobRoleId) {
-        if (wemail) {
-          try { await api.assignJobRole(jobRoleId, wemail); toastOk?.(`${fullName(saved)} added - job role & access assigned.`); }
-          catch (err) { toastErr(err?.message || 'Employee added, but the job role could not be assigned - set it on their Role tab.'); }
-        } else {
-          toastOk?.('Employee added - assign their job role from the Role tab once a work email is set.');
-        }
-      } else if (!editing && !saved.entra) {
-        toastOk?.('Employee added.');   // plain add (no job role, no M365) had no confirmation before
-      }
-      onSaved(saved);
-      onClose();
-      if (wageWarn) toastErr(wageWarn);   // LAST → wins the single toast slot
-    } catch (err) {
-      toastErr(err?.message || 'Could not save employee.');
-      setBusy(false);
-    }
-  }
-
-  const input = (label, key, props = {}) => (
-    <div>
-      <label style={FL}>{label}</label>
-      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} />
-    </div>
-  );
-
-  const dirty = JSON.stringify(f) !== JSON.stringify(initialFRef.current);
-  const guard = useUnsavedGuard(dirty, onClose, f.first_name.trim() ? save : undefined);
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-green),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <UserPlus size={17} color="hsl(var(--color-green))" />
-          </div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{editing ? `Edit ${fullName(employee)}` : initialType === 'contractor' ? 'Add Independent Contractor' : 'Add Employee'}</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {input('FIRST NAME *', 'first_name', { autoFocus: !editing })}
-          {input('LAST NAME', 'last_name')}
-          {input('WORK EMAIL', 'work_email', { type: 'email', placeholder: 'empty until provisioned' })}
-          {input('PERSONAL EMAIL', 'personal_email', { type: 'email' })}
-          {input('MOBILE PHONE', 'phone')}
-          {input('JOB TITLE', 'job_title')}
-          {input('DESIGNATION', 'designation')}
-          {/* Editable so Nexus codes can line up with the QuickBooks employee
-              codes payroll already uses (Charmi, Aug 21). Auto-assigned on add. */}
-          {editing && input('EMPLOYEE CODE', 'employee_code', { placeholder: 'e.g. GG-001 or the QuickBooks code' })}
-          {/* Company FIRST, then Department - departments come from the chosen
-              company, so asking for it first keeps the form in reading order.
-              Changing company clears the department (it belongs to the old company). */}
-          <div>
-            <label style={FL}>COMPANY / ENTITY</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.company}
-              onChange={e => { set('company', e.target.value); set('department', ''); setAddingDept(false); setJobRoleId(''); }}>
-              <option value="">- not set -</option>
-              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={FL}>DEPARTMENT</label>
-            {addingDept ? (
-              <div style={{ display: 'flex', gap: 6 }}>
-                <input className="form-input" style={{ flex: 1, minWidth: 0 }} autoFocus placeholder="New department name"
-                  value={newDeptName} onChange={e => setNewDeptName(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') saveNewDept(); if (e.key === 'Escape') { setAddingDept(false); setNewDeptName(''); } }} />
-                <button className="primary-btn" onClick={saveNewDept} disabled={!newDeptName.trim() || deptSaving}
-                  style={{ padding: '0 12px', opacity: (!newDeptName.trim() || deptSaving) ? 0.6 : 1 }}>
-                  {deptSaving ? '…' : 'Add'}
-                </button>
-              </div>
-            ) : (
-              <select className="form-input" style={{ width: '100%' }} value={f.department} disabled={!f.company}
-                onChange={e => set('department', e.target.value)}>
-                {!f.company
-                  ? <option value="">- pick a company first -</option>
-                  : <>
-                      <option value="">{deptLoading ? 'Loading…' : (deptOptions.length ? '- select -' : '- none yet -')}</option>
-                      {f.department && !deptOptions.includes(f.department) && <option value={f.department}>{f.department} (current)</option>}
-                      {deptOptions.map(d => <option key={d}>{d}</option>)}
-                    </>}
-              </select>
-            )}
-            {!!f.company && !deptLoading && !addingDept && (
-              <button onClick={() => setAddingDept(true)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 5, fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>
-                + Add a department to this company
-              </button>
-            )}
-          </div>
-          <div>
-            <label style={FL}>EMPLOYMENT TYPE</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.employment_type} onChange={e => set('employment_type', e.target.value)}>
-              {EMP_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-          </div>
-          {input('START DATE', 'start_date', { type: 'date' })}
-          <div>
-            <label style={FL}>STATUS</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.status} onChange={e => set('status', e.target.value)}>
-              {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
-            </select>
-          </div>
-          <div style={{ gridColumn: '1 / -1' }}>
-            <label style={FL}>REPORTS TO</label>
-            <PersonSelect value={(f.manager_email || '').toLowerCase() || null} onChange={v => set('manager_email', v || '')}
-              people={pickRows([...managers, ...externalManagers])} placeholder="No reporting line" noneLabel="No Reporting Line"
-              ariaLabel="Reports To" style={PICK_BOX} />
-          </div>
-          {/* Backup Manager (Neil, Oct 13): covers this person when their manager
-              is out, with the same rights over them. Blank = the default. */}
-          <div style={{ gridColumn: '1 / -1' }}>
-            <label style={FL}>BACKUP MANAGER</label>
-            <PersonSelect value={(f.backup_manager_email || '').toLowerCase() || null} onChange={v => set('backup_manager_email', v || '')}
-              people={pickRows([...managers, ...externalManagers].filter(m => m.workEmail.toLowerCase() !== (f.manager_email || '').toLowerCase()))}
-              placeholder="Default - their manager's manager, or the company's HR contact"
-              noneLabel="Use the Default"
-              ariaLabel="Backup Manager" style={PICK_BOX} />
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Has the same rights over this person as their manager - time sheets, punches, time off and approvals.</div>
-          </div>
-          {/* Office and contact info, kept in step with Microsoft 365 both ways
-              (Neil, 10/07: HR updates these here instead of IT in the M365
-              admin center - the same fields as its contact info, minus fax). */}
-          <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Office &amp; Contact</span>
-            <span title="Changes here update the person's Microsoft 365 account, and changes made in Microsoft 365 come back here"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: 'var(--muted)', background: 'var(--mist)', padding: '2px 8px', borderRadius: 999 }}>
-              <RefreshCw size={10} /> Synced With Microsoft 365
-            </span>
-          </div>
-          <div>
-            {input('OFFICE', 'location', { placeholder: 'e.g. San Clemente', list: 'hr-office-options' })}
-            <datalist id="hr-office-options">
-              {[...new Set(employees.map(x => (x.location || '').trim()).filter(Boolean))].sort().map(o => <option key={o} value={o} />)}
-            </datalist>
-          </div>
-          {input('OFFICE PHONE', 'office_phone', { type: 'tel' })}
-          <div style={{ gridColumn: '1 / -1' }}>{input('STREET ADDRESS', 'street_address', { placeholder: 'Work address - shown in Outlook and Teams' })}</div>
-          {input('CITY', 'city')}
-          {input('STATE OR PROVINCE', 'state')}
-          {input('ZIP OR POSTAL CODE', 'postal_code')}
-          <div>
-            <label style={FL}>COUNTRY OR REGION</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => set('country', e.target.value)}>
-              <option value="">-</option>
-              {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
-            </select>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>Where this person actually is - also drives their email signature's phone country code.</div>
-          </div>
-          <div>
-            <label style={FL}>ACCOUNT TYPE</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.identity_type} onChange={e => set('identity_type', e.target.value)}>
-              <option value="internal">Internal (MS 365 staff)</option>
-              <option value="guest">Guest (Entra B2B partner)</option>
-              <option value="external">External (no MS 365 login)</option>
-            </select>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>External/guest people can be sandboxed to specific companies on the Access tab.</div>
-          </div>
-          {isAdmin && !editing && (
-            <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'color-mix(in srgb, var(--ink) 4%, transparent)' }}>
-              <label style={FL}>JOB ROLE &amp; ACCESS</label>
-              <select className="form-input" style={{ width: '100%' }} value={jobRoleId} onChange={e => setJobRoleId(e.target.value)}>
-                <option value="">- set later on the Access tab -</option>
-                <RoleOptions roles={rolesForCompany(jobRoles, f.company)} companyName={id => entities.find(en => en.id === id)?.name || 'Another company'}
-                  label={r => `${r.name} · ${ROLES[r.tier]?.label || r.tier}`} />
-              </select>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>Sets their access &amp; seniority tier from a job role at onboarding. Needs a work email; otherwise assign it later on their card.</div>
-            </div>
-          )}
-          {isContractor && (
-            <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-orange),0.05)' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-orange))', letterSpacing: '.04em', marginBottom: 12 }}>CONTRACTOR ENGAGEMENT</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                <div style={{ gridColumn: '1 / -1' }}>{cInput('SCOPE / ROLE', 'scope', { placeholder: 'what they are engaged to do' })}</div>
-                {cInput('SOW REFERENCE', 'sow_ref', { placeholder: 'SOW doc # / link' })}
-                <div>
-                  {cInput('BILLING CLIENT', 'billing_client', { placeholder: 'client name, for reference' })}
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Invoices bill to the person's own company as set on their profile.</div>
-                </div>
-                {cInput('CONTRACT START', 'contract_start', { type: 'date' })}
-                {cInput('CONTRACT END', 'contract_end', { type: 'date' })}
-                {cInput('RATE', 'rate', { placeholder: 'e.g. 85' })}
-                <div>
-                  <label style={FL}>RATE TYPE</label>
-                  <select className="form-input" style={{ width: '100%' }} value={(f.contractor || {}).rate_type || 'hourly'} onChange={e => setC('rate_type', e.target.value)}>
-                    <option value="hourly">Hourly</option><option value="fixed_fee">Fixed Fee</option><option value="daily">Daily</option><option value="monthly">Monthly Retainer</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={FL}>CURRENCY</label>
-                  <select className="form-input" style={{ width: '100%' }} value={(f.contractor || {}).currency || 'USD'} onChange={e => setC('currency', e.target.value)}>
-                    {currencyOptions().map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
-                  </select>
-                </div>
-                {cInput('ENGAGEMENT AREA', 'engagement_area', { placeholder: 'e.g. Escondido dev / remote' })}
-                <div>
-                  {cInput('NEXT INVOICE NUMBER', 'invoice_next_number', { type: 'number', min: 1, step: 1, placeholder: 'e.g. 1' })}
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Set once - the first invoice Nexus sends uses this number, then it counts up.</div>
-                </div>
-                <div>
-                  {cInput('INVOICE DESCRIPTION', 'invoice_description', { placeholder: 'e.g. IT Development' })}
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>The service line on the invoice, e.g. IT Development. Blank = the scope above.</div>
-                </div>
-              </div>
-            </div>
-          )}
-          {canSeeComp && !isContractor && (
-            <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Wallet size={13} /> Pay, overtime rule and time tracking are set on the Pay &amp; Benefits tab{editing ? '' : ' once the profile is saved'}.
-            </div>
-          )}
-          <div style={{ gridColumn: '1 / -1' }}>
-            <label style={FL}>NOTES</label>
-            <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
-              value={f.notes} onChange={e => set('notes', e.target.value)} />
-          </div>
-        </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={!f.first_name.trim() || busy}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.first_name.trim() || busy) ? 0.6 : 1 }}>
-            {busy ? <Spinner size={14} /> : <Plus size={14} />}
-            {editing ? 'Save Changes' : 'Add Employee'}
-          </button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={f.first_name.trim() ? guard.saveAndClose : undefined} saving={busy} />
-      )}
-    </div>
-  );
 }
 
 // ── Documents (Phase 3) - private bucket, viewed via short-lived signed URLs ──
@@ -1144,218 +775,15 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
 }
 
 
-// ── Access section on a person's card (admin-only) - the "assign it on the
-// person's card" flow: pick their Job Role (sets tier + base access) + any extra
-// groups, and see the resolved effective access. Backed by /jobroles/effective.
-const _accBox = { border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--paper)' };
-const _accLabel = { fontSize: 10.5, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' };
-
-function AccessPicker({ title, items, onPick, onClose, renderItem }) {
+// The record's Access tab - people/AccessTab.jsx, the ONE access editor
+// (Neil, 11/03/2026): Settings > People & Access opens the same component.
+// The name stays so the record's call site merges. `showLifecycle` puts the
+// external lifecycle box here once the record header stops drawing it.
+function EmployeeAccess({ email, identityType = 'internal', companyId = '', showLifecycle = false, toastOk, toastErr, onChanged, onChangeRole, onExternalChanged, onRemoved }) {
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 1200, padding: 18 }}>
-      <div onClick={ev => ev.stopPropagation()} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', padding: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-          <h3 style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{title}</h3>
-          <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
-        </div>
-        <div className="nx-fill" style={{ overflowY: 'auto' }}>
-        {items.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 14, textAlign: 'center' }}>Nothing to add.</div>
-          : items.map(it => (
-            <button key={it.id} onClick={() => onPick(it)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: 'pointer', flexShrink: 0 }}>
-              {renderItem(it)}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function EmployeeAccess({ email, identityType = 'internal', companyId = '', toastOk, toastErr, onChanged, onChangeRole }) {
-  const [data, setData] = useState(null);
-  const [roles, setRoles] = useState([]);
-  const [groups, setGroups] = useState([]);
-  const [pick, setPick] = useState(null);   // 'role' | 'group' | null
-  const [scopes, setScopes] = useState([]);       // company sandbox for external/guest users
-  const [entities, setEntities] = useState([]);
-  const [addCo, setAddCo] = useState('');
-  const [addHrCo, setAddHrCo] = useState('');   // company-scoped People admin picker (internal users)
-  const load = () => api.getEffectiveAccess(email).then(setData).catch(() => setData({ tier: 'employee', job_role: null, extra_groups: [], modules: [] }));
-  const loadScopes = () => api.getAccessScopes(email).then(setScopes).catch(() => setScopes([]));
-  useEffect(() => { if (email) { setData(null); load(); loadScopes(); } }, [email]);   // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { api.getJobRoles().then(setRoles).catch(() => {}); api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => {}); api.getEntities().then(setEntities).catch(() => {}); }, []);
-  const isExternal = isExternalPerson({ identityType });
-
-  if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet - provision their account first to manage access.</div>;
-  if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>;
-
-  // onChanged refreshes the parent employee record too - assigning a job role
-  // now also rewrites the person's job TITLE (server-side), so the card header
-  // must re-read it, not just the access panel.
-  const assign = async jr => { try { const res = await api.assignJobRole(jr.id, email); setPick(null); toastOk(`Job role set to “${jr.name}” - their title now matches.${res?.warning ? ` ${res.warning}` : ''}`); load(); onChanged?.(); } catch (err) { toastErr(err?.message || 'Could not set job role.'); } };
-  const addGroup = async g => { try { await api.addGroupMembers(g.id, [email]); setPick(null); toastOk(`Added “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not add group.'); } };
-  const removeGroup = async g => { try { await api.removeGroupMember(g.id, email); toastOk(`Removed “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not remove.'); } };
-  const held = new Set((data.extra_groups || []).map(g => g.id));
-  const entityName = id => entities.find(en => en.id === id)?.name || id;
-  const companyScopes = scopes.filter(s => s.scopeType === 'entity' && s.moduleId !== 'hr');
-  const hrScopes = scopes.filter(s => s.scopeType === 'entity' && s.moduleId === 'hr');
-  const scopedCoIds = new Set(companyScopes.map(s => s.scopeId));
-  const hrCoIds = new Set(hrScopes.map(s => s.scopeId));
-  const addScope = async () => { if (!addCo) return; try { setScopes(await api.addAccessScope(email, { module_id: 'company', scope_type: 'entity', scope_id: addCo })); setAddCo(''); toastOk(`Limited to ${entityName(addCo)}.`); } catch (err) { toastErr(err?.message || 'Could not add scope.'); } };
-  const addHrScope = async () => { if (!addHrCo) return; try { setScopes(await api.addAccessScope(email, { module_id: 'hr', scope_type: 'entity', scope_id: addHrCo })); setAddHrCo(''); toastOk(`People access limited to ${entityName(addHrCo)}.`); } catch (err) { toastErr(err?.message || 'Could not add scope.'); } };
-  const removeScope = async s => { try { setScopes(await api.deleteAccessScope(email, s.id)); toastOk(`Removed ${entityName(s.scopeId)} limit.`); } catch (err) { toastErr(err?.message || 'Could not remove scope.'); } };
-
-  return (
-    <div>
-      {/* The same access, with everyone else's beside it (Oct 23). */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-        <button type="button" className="secondary-btn" style={{ fontSize: 12 }}
-          onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'access' } }))}>
-          Open in Settings
-        </button>
-      </div>
-      <div className="acc-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        <div style={_accBox}>
-          <div style={_accLabel}>Job role</div>
-          {data.job_role ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 800, fontSize: 15 }}>{data.job_role.name}</span><TierBadge tier={data.job_role.tier} />
-            </div>
-          ) : <div style={{ color: 'var(--muted)', fontSize: 13 }}>No job role assigned yet.</div>}
-          {data.job_role?.description && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{data.job_role.description}</div>}
-          {/* Neil, Oct 8: changing someone's role is an HR action from
-              People. Change Role asks whether it is a promotion (letter) or
-              just the role (Pranshu, Oct 13). Setting the FIRST role on a new
-              record stays a direct pick. */}
-          {data.job_role && onChangeRole ? (
-            <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={onChangeRole}>
-              <Shield size={13} /> Change Role
-            </button>
-          ) : (
-            <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('role')}>
-              <Shield size={13} /> {data.job_role ? 'Change job role' : 'Set job role'}
-            </button>
-          )}
-        </div>
-        <div style={_accBox}>
-          <div style={_accLabel}><span>Additional groups</span><span>{(data.extra_groups || []).length}</span></div>
-          {(data.extra_groups || []).length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>None - access comes from the job role.</div>
-            : (data.extra_groups || []).map(g => (
-              <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
-                <span style={{ fontWeight: 600, fontSize: 12.5, flex: 1 }}>{g.name}</span>
-                <button onClick={() => removeGroup(g)} title="Remove" style={{ border: 'none', background: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>×</button>
-              </div>
-            ))}
-          <button className="secondary-btn" style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('group')}>
-            <Plus size={13} /> Add Group
-          </button>
-        </div>
-      </div>
-
-      <div style={{ ..._accLabel, margin: '22px 0 10px' }}>Effective access · {(data.modules || []).length} modules</div>
-      {(data.modules || []).length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>No module access yet - set a job role above.</div> : (
-        <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
-          {(data.modules || []).map((m, i) => {
-            const mod = MODULES.find(x => x.id === m.module);
-            return (
-              <div key={m.module} style={{ display: 'grid', gridTemplateColumns: '1fr auto 1.3fr', alignItems: 'start', gap: 10, padding: '10px 14px', borderBottom: i < data.modules.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{mod?.label || m.module}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{capabilityText(m.module, m.level, mod?.label)}</div>
-                </div>
-                <LevelPill level={m.level} title={`${mod?.label || m.module} · ${MODULE_LEVELS[m.level]?.label || m.level}\n${capabilityText(m.module, m.level, mod?.label)}`} />
-                <span style={{ fontSize: 11.5, color: 'var(--muted)', textAlign: 'right' }}>{m.manual ? <>added via <b style={{ color: 'var(--ink)' }}>{m.source}</b></> : 'via job role'}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Access = job-role bundle + any groups, taking the highest level per module.</div>
-
-      {!isExternal && (
-        <div style={{ ..._accBox, marginTop: 22 }}>
-          <div style={_accLabel}><span>People admin companies</span><span>{hrScopes.length || 'all'}</span></div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 12px' }}>
-            With none set, an HR grant covers <b>every</b> company. Add companies to limit this person's People, Time and Leave administration to just those - they won't see or change anyone else's records. Directory and task assignment stay company-wide.
-          </div>
-          {hrScopes.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-              {hrScopes.map(s => (
-                <span key={s.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 6px 5px 12px', borderRadius: 20, background: 'var(--card)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
-                  {entityName(s.scopeId)}
-                  <button onClick={() => removeScope(s)} title="Remove limit" aria-label={`Remove ${entityName(s.scopeId)}`}
-                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}>
-                    <X size={13} />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <select className="form-input" style={{ flex: 1 }} value={addHrCo} onChange={e => setAddHrCo(e.target.value)}>
-              <option value="">- add a company -</option>
-              {entities.filter(en => !hrCoIds.has(en.id)).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-            </select>
-            <button className="secondary-btn" onClick={addHrScope} disabled={!addHrCo} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: addHrCo ? 1 : 0.6 }}><Plus size={13} /> Limit</button>
-          </div>
-        </div>
-      )}
-
-      {isExternal && (
-        <div style={{ ..._accBox, marginTop: 22, background: 'hsla(var(--color-orange),0.05)', borderColor: 'hsla(var(--color-orange),0.25)' }}>
-          <div style={_accLabel}><span>Company access · external user</span><span>{companyScopes.length || 'all'}</span></div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 12px' }}>
-            Limit this {identityType} user to specific companies. With none set, an <b>external</b> user sees nothing (fail-closed); a guest is unrestricted until you add a limit.
-          </div>
-          {companyScopes.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-              {companyScopes.map(s => (
-                <span key={s.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 6px 5px 12px', borderRadius: 20, background: 'var(--card)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
-                  {entityName(s.scopeId)}
-                  <button onClick={() => removeScope(s)} title="Remove limit" aria-label={`Remove ${entityName(s.scopeId)}`}
-                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}>
-                    <X size={13} />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <select className="form-input" style={{ flex: 1 }} value={addCo} onChange={e => setAddCo(e.target.value)}>
-              <option value="">- add a company -</option>
-              {entities.filter(en => !scopedCoIds.has(en.id)).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-            </select>
-            <button className="secondary-btn" onClick={addScope} disabled={!addCo} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: addCo ? 1 : 0.6 }}><Plus size={13} /> Limit</button>
-          </div>
-        </div>
-      )}
-
-      {pick === 'role' && <AccessPicker title="Choose a Job Role" items={rolesForCompany(roles, companyId)} onClose={() => setPick(null)} onPick={assign}
-        renderItem={jr => (<><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{jr.name}</div><div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 7 }}><TierBadge tier={jr.tier} /><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.company_id ? entityName(jr.company_id) : 'All companies'}</span></div></div><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.member_count} ppl</span></>)} />}
-      {pick === 'group' && <AccessPicker title="Add a Group" items={groups.filter(g => !held.has(g.id))} onClose={() => setPick(null)} onPick={addGroup}
-        renderItem={g => (<div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{g.name}</div><div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(g.allowed_modules || []).map(mm => <ModuleLevelPill key={mm.id} moduleId={mm.id} level={mm.level} />)}</div></div>)} />}
-      <style>{`@media (max-width:640px){.acc-grid{grid-template-columns:1fr !important}}`}</style>
-    </div>
-  );
-}
-
-// The external-lifecycle box on an external/guest person's People profile
-// (invite state, Resend Invite, Deactivate/Reactivate, Remove). Reads the same
-// admin endpoint the old External tab used, so behavior and copy stay one
-// implementation (ExternalPersonSection).
-function ExternalLifecycle({ e, toastOk, toastErr, onChanged, onRemoved }) {
-  const [ext, setExt] = useState(null);
-  const load = useCallback(() => {
-    api.getExternalUsers().then(rows => {
-      const em = (e.workEmail || '').toLowerCase();
-      setExt((rows || []).find(r => (r.email || '').toLowerCase() === em) || null);
-    }).catch(() => setExt(null));
-  }, [e.workEmail]);
-  useEffect(() => { load(); }, [load]);
-  if (!ext) return null;
-  return (
-    <ExternalPersonSection ext={ext} toastOk={toastOk} toastErr={toastErr}
-      onChanged={() => { load(); onChanged?.(); }} onRemoved={() => onRemoved?.()} />
+    <AccessTab email={email} identityType={identityType} companyId={companyId} showLifecycle={showLifecycle}
+      toastOk={toastOk} toastErr={toastErr} onChanged={onChanged} onChangeRole={onChangeRole}
+      onExternalChanged={onExternalChanged} onRemoved={onRemoved} />
   );
 }
 
@@ -1697,14 +1125,6 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           : <StatCard label="Compliance" value="Clear" sub="no upcoming expiry" />}
       </div>
 
-      {/* External/guest lifecycle - lives on the profile now that the People
-          directory is the master list (Neil, Aug 24). Admin-only, matching the
-          endpoint behind it. */}
-      {isAdmin && !isRemoved && ['guest', 'external'].includes(e.identityType || 'internal') && (
-        <ExternalLifecycle e={e} toastOk={toastOk} toastErr={toastErr}
-          onChanged={onExternalChanged} onRemoved={() => onRemoved?.(e.id)} />
-      )}
-
       {/* Tab strip */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: 18, borderBottom: '1px solid var(--line)' }}>
         {tabs.map(([id, tlabel, Icon]) => (
@@ -1754,9 +1174,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'access' && teamView && <TeamAccessView employee={e} />}
         {/* keyed on updatedAt: a role change made from the Change Role modal
             re-reads the job role and access shown here */}
-        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess key={e.updatedAt} email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
+        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess key={e.updatedAt} email={meEmail} identityType={e.identityType} companyId={e.company || ''} showLifecycle={!isRemoved} onExternalChanged={onExternalChanged} onRemoved={() => onRemoved?.(e.id)} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
           onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('choose') : undefined} />}
-        {tab === 'access' && <RoleHistory employeeId={e.id} refreshKey={`${requestsKey}-${eventsKey}-${e.updatedAt || ''}`} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
 
@@ -2286,134 +1705,80 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
   );
 }
 
-// Right-hand detail drawer: view + edit reporting line, title, department, and
-// the functional-division head tag.
-function OrgSidePanel({ e, people, externals = [], entities, entityName, descendants, divisionNames, inheritedDivision, onClose, onSelect, onSaved, toastOk, toastErr }) {
+// The person on the org chart (Neil, 11/03/2026): read only - who they
+// report to, their title, department, company and division, their direct
+// reports. Changes are made on their record (Open Record lands on the Job
+// tab); dragging a card onto a manager on the chart still reassigns the
+// reporting line right there. A sheet from the right (the shared Modal).
+function OrgSidePanel({ e, people, externals = [], entityName, inheritedDivision, onClose, onSelect, onOpenRecord }) {
   const ext = isExternalPerson(e);
-  const init = () => ({ manager_email: e.managerEmail || '', job_title: e.jobTitle || '', department: e.department || '', company: e.company || '', division: e.division || '', external_company: e.externalCompany || '' });
-  const [f, setF] = useState(init);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { setF(init()); }, [e.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const myEmail = (e.workEmail || '').toLowerCase();
-  const blocked = descendants(myEmail);           // can't report to your own subtree
-  const managerOptions = people.filter(p => p.id !== e.id && p.workEmail && !blocked.has((p.workEmail || '').toLowerCase()));
-  // The current manager can be an external who is not on the chart (the
-  // External Users option is off): keep them selectable so the select never
-  // falls back to "No manager" and a save never unlinks them by accident.
-  const offChartManager = f.manager_email && !managerOptions.some(p => (p.workEmail || '').toLowerCase() === f.manager_email)
-    ? externals.find(p => (p.workEmail || '').toLowerCase() === f.manager_email) : null;
+  const mgrEmail = (e.managerEmail || '').toLowerCase();
+  const manager = mgrEmail ? [...people, ...externals].find(p => (p.workEmail || '').toLowerCase() === mgrEmail) : null;
   const reports = people.filter(p => (p.managerEmail || '').toLowerCase() === myEmail && myEmail);
-  const dirty = f.manager_email !== (e.managerEmail || '') || f.job_title !== (e.jobTitle || '') || f.department !== (e.department || '') || f.company !== (e.company || '') || f.division !== (e.division || '') || f.external_company !== (e.externalCompany || '');
-  // Division inherited from a manager above (shown when this person isn't a lead themselves)
+  const division = (e.division || '').trim();
   const inherited = (inheritedDivision || '').trim();
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      // The outside company is an external's field only; an internal's
-      // save never carries it.
-      const { external_company, ...internalFields } = f;
-      const saved = await api.updateEmployee(e.id, ext ? { ...internalFields, external_company } : internalFields);
-      onSaved(saved);
-      toastOk(`${fullName(e)} updated.`);
-    } catch (err) { toastErr(err?.message || 'Could not save.'); }
-    finally { setBusy(false); }
-  };
-
-  const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.05em' };
+  const company = ext ? (e.externalCompany || '') : (e.company ? entityName(e.company) : '');
+  const row = (label, value) => (
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) 1fr', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--line)', fontSize: 13.5 }}>
+      <span style={{ color: 'var(--muted)', fontWeight: 600, fontSize: 12.5 }}>{label}</span>
+      <span style={{ color: value ? 'var(--ink)' : 'var(--muted)', minWidth: 0, overflowWrap: 'anywhere' }}>{value || '-'}</span>
+    </div>
+  );
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1300, display: 'flex', justifyContent: 'flex-end', background: 'rgba(0,0,0,0.35)' }}
-      onClick={ev => ev.target === ev.currentTarget && onClose()}>
-      <div style={{ width: 'min(400px, 94vw)', height: '100%', background: 'var(--card)', boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column', animation: 'fadeIn 0.15s ease' }}>
-        <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 14 }}>
+    <Modal title={fullName(e)} onClose={onClose} zIndex={4000}
+      footer={<>
+        <button className="secondary-btn" onClick={onClose}>Close</button>
+        {onOpenRecord && (
+          <button className="primary-btn" onClick={() => { onOpenRecord(e); onClose(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <ExternalLink size={14} /> Open Record
+          </button>
+        )}
+      </>}>
+      <div style={{ fontFamily: 'Inter,sans-serif' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
           <Avatar e={e} size={52} card={false} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-              {fullName(e)}
-              {ext && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 5, background: 'hsla(var(--color-orange),0.14)', color: 'hsl(var(--color-orange))', border: '1px solid hsla(var(--color-orange),0.35)' }}>External</span>}
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+              {[e.jobTitle, e.department].filter(Boolean).join(' · ') || '-'}{ext ? ' · External' : ''}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {[e.jobTitle, e.department, ext ? e.externalCompany : ''].filter(Boolean).join(' · ') || '-'}
-            </div>
-            {e.workEmail && <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{e.workEmail}</div>}
+            {e.workEmail && <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>{e.workEmail}</div>}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><X size={18} /></button>
+        </div>
+        {row('Reports To', manager ? fullName(manager) : (e.managerEmail || 'No manager - top of a tree'))}
+        {row('Job Title', e.jobTitle)}
+        {row('Department', e.department)}
+        {row('Company', company)}
+        {row('Division', division ? `Lead of ${division}` : inherited ? `${inherited} (from their manager)` : '')}
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10, lineHeight: 1.5 }}>
+          Change any of these on their record. To move someone to a new manager, drag their card onto that manager on the chart.
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '6px 22px 18px' }}>
-          <label style={lbl}>Reports to</label>
-          <PersonSelect value={(f.manager_email || '').toLowerCase() || null}
-            onChange={v => setF(x => ({ ...x, manager_email: v || '' }))}
-            people={pickRows(offChartManager ? [...managerOptions, offChartManager] : managerOptions)}
-            placeholder="No manager (top of a tree)" noneLabel="No Manager (Top of a Tree)"
-            ariaLabel="Reports To" style={PICK_BOX} />
-
-          <label style={lbl}>Job title</label>
-          <input className="form-input" style={{ width: '100%' }} value={f.job_title} onChange={ev => setF(x => ({ ...x, job_title: ev.target.value }))} />
-
-          <label style={lbl}>Department</label>
-          <input className="form-input" style={{ width: '100%' }} value={f.department} onChange={ev => setF(x => ({ ...x, department: ev.target.value }))} />
-
-          <label style={lbl}>Company</label>
-          {ext ? (
-            // An external user's company is their own outside company, not
-            // one of ours.
-            <input className="form-input" style={{ width: '100%' }} value={f.external_company} placeholder="The company they work for"
-              onChange={ev => setF(x => ({ ...x, external_company: ev.target.value }))} />
-          ) : (
-            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={ev => setF(x => ({ ...x, company: ev.target.value }))}>
-              <option value="">-</option>
-              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-            </select>
-          )}
-
-          <label style={lbl}>Division lead of</label>
-          <input className="form-input" style={{ width: '100%' }} list="org-divisions"
-            placeholder="e.g. Operations - leave blank if not a division lead"
-            value={f.division} onChange={ev => setF(x => ({ ...x, division: ev.target.value }))} />
-          <datalist id="org-divisions">
-            {(divisionNames || []).map(d => <option key={d} value={d} />)}
-          </datalist>
-          <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.4 }}>
-            {f.division.trim()
-              ? `Everyone reporting under ${fullName(e)} is colored as “${f.division.trim()}”, until another lead is tagged below them.`
-              : inherited
-                ? `Inherits “${inherited}” from their manager. Type a name here to make ${fullName(e)} their own division lead.`
-                : `Not in any division. Type a name to make ${fullName(e)} a division lead - their whole team inherits it.`}
-          </div>
-
-          <button className="primary-btn" onClick={save} disabled={!dirty || busy}
-            style={{ marginTop: 16, width: '100%', justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 6, opacity: dirty ? 1 : 0.5 }}>
-            {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save changes
-          </button>
-
-          {reports.length > 0 && (
-            <>
-              <label style={lbl}>Direct reports ({reports.length})</label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {reports.map(p => (
-                  <button key={p.id} onClick={() => onSelect(p)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
-                    <Avatar e={p} size={28} card={false} />
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{fullName(p)}</span>
-                      <span style={{ display: 'block', fontSize: 10.5, color: 'var(--muted)' }}>{p.jobTitle || p.department || ''}</span>
-                    </span>
-                    <ChevronRight size={13} style={{ color: 'var(--muted)' }} />
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        {reports.length > 0 && (
+          <>
+            <div style={{ fontSize: 13, fontWeight: 700, margin: '18px 0 8px' }}>Direct Reports ({reports.length})</div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {reports.map(p => (
+                <button key={p.id} onClick={() => onSelect(p)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', border: 'none', borderBottom: '1px solid var(--line)', background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
+                  <Avatar e={p} size={28} card={false} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fullName(p)}</span>
+                    <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{p.jobTitle || p.department || ''}</span>
+                  </span>
+                  <ChevronRight size={13} style={{ color: 'var(--muted)' }} />
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
 const ORG_EXTERNALS_KEY = 'nx-orgchart-externals';
-function OrgChartTab({ employees, externals = [], entities = [], onUpdated, toastOk, toastErr }) {
+function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOpenRecord, toastOk, toastErr }) {
   // External users on the chart is an option (Neil, Oct 14 2026): off by
   // default, remembered per device. On, every external with a work email
   // joins the tree under whoever they report to, with a clear External
@@ -2839,12 +2204,9 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, toas
       )}
 
       {selected && (
-        <OrgSidePanel e={selected} people={people} externals={liveExternals} entities={entities || []} entityName={entityName}
-          descendants={descendants} divisionNames={divisionNames}
+        <OrgSidePanel e={selected} people={people} externals={liveExternals} entityName={entityName}
           inheritedDivision={(selected.division || '').trim() ? '' : divisionOf(selected)}
-          onClose={() => setSelected(null)} onSelect={setSelected}
-          onSaved={saved => { onUpdated(saved); setSelected(saved); }}
-          toastOk={toastOk} toastErr={toastErr} />
+          onClose={() => setSelected(null)} onSelect={setSelected} onOpenRecord={onOpenRecord} />
       )}
       </>
       )}
@@ -3871,335 +3233,11 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
   );
 }
 
-// ── Inline status change with reason + effective date (HR Section B6) ────────
-// M365 admin-center deep-links for the steps Graph can't perform (mailbox
-// delegation, shared-mailbox conversion, license removal, mailbox export).
-const EXO_MAILBOXES = 'https://admin.exchange.microsoft.com/#/mailboxes';
-const M365_USERS    = 'https://admin.microsoft.com/#/users';
-const PURVIEW_EXPORT = 'https://compliance.microsoft.com/contentsearchv2';
-
-function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk, toastErr }) {
-  const [status, setStatus] = useState(employee.status || 'active');
-  const [reason, setReason] = useState('');
-  const [effectiveDate, setEffectiveDate] = useState('');
-  // Leaving or going on leave is when the matching checklist matters most.
-  // null = still loading the person's checklists; then { offboarding, inactive }.
-  const [openKinds, setOpenKinds] = useState(null);
-  const [startChecklistToo, setStartChecklistToo] = useState(true);
-  const [exitType, setExitType] = useState('resignation');
-  useEffect(() => {
-    api.getEmployeeChecklists(employee.id)
-      .then(r => setOpenKinds(Object.fromEntries((r.checklists || []).filter(c => c.status === 'open').map(c => [c.kind, true]))))
-      .catch(() => setOpenKinds({}));
-  }, [employee.id]);
-  const [leftChoice, setLeftChoice] = useState('remove');   // offboarded: 'remove' | 'share'
-  const [exportRequested, setExportRequested] = useState(false);
-  // Task handover: who inherits this person's work, and whether their
-  // finished tasks come along. Only offered when they're actually leaving.
-  const [handoverTo, setHandoverTo] = useState('');
-  const [handoverIncludeCompleted, setHandoverIncludeCompleted] = useState(false);
-  const [pick, setPick] = useState('');
-  const [busy, setBusy] = useState(false);
-  const changed = status !== employee.status;
-
-  const isInactive = status === 'inactive';
-  const isLeft = status === 'offboarded';
-  const showOff = isInactive || isLeft;
-  const checklistKind = isLeft ? 'offboarding' : isInactive ? 'inactive' : '';
-  const offerChecklist = changed && !!checklistKind && openKinds !== null && !openKinds[checklistKind];
-  const mailboxAction = isInactive ? 'delegate' : (isLeft ? leftChoice : '');
-  const needsDelegate = mailboxAction === 'delegate' || mailboxAction === 'share';
-  // Allow Apply when the status changed OR - for someone already inactive/left -
-  // when there's a mailbox/license action to (re-)run (e.g. free a license that
-  // didn't release the first time).
-  const canApply = changed || (showOff && (mailboxAction !== '' || exportRequested || handoverTo));
-  const colleagues = employees.filter(x => x.workEmail && x.id !== employee.id);
-  // Default the trustee to the person's manager (reports-to) from the org chart.
-  const manager = employees.find(x => (x.workEmail || '').toLowerCase() === (employee.managerEmail || '').toLowerCase());
-  const [trustees, setTrustees] = useState(() => (manager?.workEmail ? [manager.workEmail.toLowerCase()] : []));
-  const addTrustee = () => { if (pick && !trustees.includes(pick)) setTrustees(t => [...t, pick]); setPick(''); };
-  const removeTrustee = em => setTrustees(t => t.filter(x => x !== em));
-  const nameFor = em => { const c = employees.find(x => (x.workEmail || '').toLowerCase() === em); return c ? fullName(c) : em; };
-  // Who gets the tasks when the picker is left blank - their supervisor, else
-  // the workspace owner. Mirrors task_projects.resolve_handover_target; the
-  // backend is what actually decides, this only names it in the copy.
-  const handoverFallbackName = manager?.workEmail
-    ? `${fullName(manager)} (their supervisor)`
-    : nameFor(HANDOVER_FALLBACK_EMAIL);
-
-  // Exchange PowerShell to run (Graph can't do shared conversion / permissions).
-  const upn = employee.workEmail || '<user-upn>';
-  const psLines = [];
-  if (needsDelegate && trustees.length) {
-    psLines.push('Connect-ExchangeOnline');
-    if (mailboxAction === 'share') psLines.push(`Set-Mailbox -Identity ${upn} -Type Shared`);
-    trustees.forEach(t => psLines.push(`Add-MailboxPermission -Identity ${upn} -User ${t} -AccessRights FullAccess -AutoMapping $true`));
-    if (mailboxAction === 'share') psLines.push('# Shared mailboxes <50GB need no license - remove it after converting.');
-  }
-  const psScript = psLines.join('\n');
-  const copyPs = () => navigator.clipboard?.writeText(psScript)
-    .then(() => toastOk('PowerShell copied to clipboard.'))
-    .catch(() => toastErr('Copy failed - select the text and copy manually.'));
-
-  function buildOffboarding() {
-    if (!showOff) return null;
-    return {
-      mailboxAction,
-      delegateTo: needsDelegate ? trustees : [],
-      exportRequested,
-      freeUpLicense: mailboxAction === 'remove',
-      handoverTo: isLeft ? handoverTo : '',
-      handoverIncludeCompleted,
-    };
-  }
-
-  async function save() {
-    if (busy) return;
-    // Neil (Teams, 11/02/2026): an offboarded person always has a termination
-    // date - the server refuses the change without one.
-    if (isLeft && !effectiveDate) { toastErr('Enter the termination date (their last day).'); return; }
-    if (needsDelegate && trustees.length === 0) { toastErr('Pick who should get mailbox access.'); return; }
-    setBusy(true);
-    try {
-      const saved = await api.changeEmployeeStatus(employee.id, { status, reason, effectiveDate, offboarding: buildOffboarding() });
-      if (offerChecklist && startChecklistToo) {
-        const todayIso = new Date().toISOString().slice(0, 10);
-        try {
-          const cl = await api.startChecklist(employee.id, {
-            kind: checklistKind, anchor_date: effectiveDate || todayIso, exit_type: isLeft ? exitType : '' });
-          toastOk(`${cl.kindLabel} checklist started - ${cl.total - cl.done} steps, ${cl.overdue} already due. Open the Checklist tab to work through them.`);
-        } catch (err) { toastErr(`Status saved, but the checklist did not start: ${err?.message || 'unknown error'}`); }
-      }
-      // After the checklist starts, so the page's re-read picks up its chip too.
-      onSaved(saved);
-      const m = saved.m365;
-      const bits = [];
-      if (m?.signIn) bits.push(`sign-in ${m.signIn}`);
-      if (m?.sessions) bits.push(`M365 sessions ${m.sessions}`);
-      if (m?.nexusSessions) bits.push(`logged out of Nexus on ${m.nexusSessions} device${m.nexusSessions === 1 ? '' : 's'}`);
-      if (m?.licenses) bits.push(`license ${m.licenses}`);
-      if (m?.export) bits.push('mailbox export started - download it from the Documents tab once it is ready');
-      if (m?.error) bits.push(`M365 issue: ${m.error}`);
-      const it = saved.items;
-      const ho = saved.handover;
-      if (ho && (ho.reassigned || ho.projectsTransferred)) {
-        // Name who received it: with a blank picker the server chose (their
-        // supervisor, else the fallback owner), so the summary is the first
-        // place anyone finds out where the work went.
-        const parts = [
-          ho.reassigned && `${ho.reassigned} task${ho.reassigned === 1 ? '' : 's'} reassigned`,
-          // moved = had no project and now lives there; linked = kept its own
-          // project and is listed there too.
-          ho.moved && `${ho.moved} moved into their handover project`,
-          ho.linked && `${ho.linked} also listed in it`,
-          ho.projectsTransferred && `${ho.projectsTransferred} project${ho.projectsTransferred === 1 ? '' : 's'} transferred`,
-        ].filter(Boolean);
-        bits.push(`${parts.join(' + ')} to ${ho.toEmail ? nameFor(ho.toEmail) : 'their supervisor'}`);
-      }
-      if (it && (it.checkouts || it.assignments)) {
-        const parts = [it.checkouts && `${it.checkouts} checkout${it.checkouts === 1 ? '' : 's'}`, it.assignments && `${it.assignments} assignment${it.assignments === 1 ? '' : 's'}`].filter(Boolean);
-        bits.push(`${parts.join(' + ')} force-returned`);
-      }
-      const auto = bits.length ? ` · ${bits.join(', ')}` : '';
-      const manual = needsDelegate ? ' Run the PowerShell to finish mailbox access.' : '';
-      toastOk(`Status set to ${STATUS_META[status]?.label || status}.${auto}${manual}`);
-      onClose();
-    } catch (e) { toastErr(e?.message || 'Could not change status.'); setBusy(false); }
-  }
-
-  const radio = (val, label, sub) => (
-    <label style={{ display: 'flex', gap: 10, padding: '9px 11px', borderRadius: 10, border: `1px solid ${leftChoice === val ? 'var(--pine)' : 'var(--line)'}`, background: leftChoice === val ? 'hsla(var(--color-green),0.06)' : 'transparent', cursor: 'pointer', marginBottom: 8 }}>
-      <input type="radio" name="leftChoice" checked={leftChoice === val} onChange={() => setLeftChoice(val)} style={{ marginTop: 2 }} />
-      <div><div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{sub}</div></div>
-    </label>
-  );
-  const delegatePicker = (
-    <div>
-      <label style={FL}>GRANT MAILBOX ACCESS TO</label>
-      {manager && <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Defaulted to their manager <b>{fullName(manager)}</b> from the org chart - add or remove below.</div>}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-        {trustees.map(t => (
-          <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 20, padding: '3px 6px 3px 11px', fontSize: 12, fontWeight: 600 }}>
-            {nameFor(t)}
-            <button onClick={() => removeTrustee(t)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 0 }}><X size={12} /></button>
-          </span>
-        ))}
-        {trustees.length === 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>No one selected yet.</span>}
-      </div>
-      <div style={{ display: 'flex', gap: 6 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <PersonSelect value={pick || null} onChange={v => setPick(v || '')}
-            people={pickRows(colleagues.filter(c => !trustees.includes((c.workEmail || '').toLowerCase())))}
-            placeholder="Add a colleague" allowNone={false} ariaLabel="Add a Colleague" style={PICK_BOX} />
-        </div>
-        <button className="secondary-btn" onClick={addTrustee} disabled={!pick} style={{ padding: '6px 12px' }}>Add</button>
-      </div>
-      {psScript && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-            RUN IN EXCHANGE POWERSHELL
-            <button className="secondary-btn" onClick={copyPs} style={{ padding: '2px 10px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> Copy</button>
-          </div>
-          <pre style={{ margin: 0, background: '#1e293b', color: '#e5e7eb', borderRadius: 8, padding: '10px 12px', fontSize: 11, lineHeight: 1.6, overflowX: 'auto', whiteSpace: 'pre', fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace' }}>{psScript}</pre>
-        </div>
-      )}
-    </div>
-  );
-
-  const guard = useUnsavedGuard(canApply, onClose, save);
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Change status - {fullName(employee)}</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1 }}>
-          <div><label style={FL}>NEW STATUS</label>
-            <select className="form-input" style={{ width: '100%' }} value={status} onChange={e => setStatus(e.target.value)}>
-              {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={FL}>{isLeft ? 'TERMINATION DATE' : 'EFFECTIVE DATE'}</label>
-            <input className="form-input" style={{ width: '100%' }} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} />
-            {isLeft && !effectiveDate && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Required - the person's last day.</div>}
-          </div>
-          <div className="nx-fill"><label style={FL}>REASON</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="why the change (kept in the audit trail)" /></div>
-
-          {offerChecklist && (
-            <div style={{ border: '1px solid var(--wk-brand)', borderRadius: 12, padding: '12px 14px', background: 'var(--wk-brand-tint)', display: 'grid', gap: 10 }}>
-              <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
-                <input type="checkbox" checked={startChecklistToo} onChange={e => setStartChecklistToo(e.target.checked)} style={{ marginTop: 3, accentColor: 'var(--wk-brand)' }} />
-                <span>
-                  <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--wk-ink)' }}>
-                    Also Start The {isLeft ? 'Offboarding' : 'Leave or Suspension'} Checklist
-                  </span>
-                  <span style={{ display: 'block', fontSize: 12, color: 'var(--wk-dim)', lineHeight: 1.5, marginTop: 2 }}>
-                    {isLeft
-                      ? `${employee.firstName || 'This person'} has no offboarding checklist yet. It counts from the effective date (or today); steps already past are due now, so nothing like final pay or collecting the laptop gets missed.`
-                      : `Lists who blocks access, covers the inbox and re-routes approvals while ${employee.firstName || 'they'} are away.`}
-                  </span>
-                </span>
-              </label>
-              {isLeft && startChecklistToo && (
-                <div><label style={FL}>EXIT TYPE</label>
-                  <select className="form-input" style={{ width: '100%' }} value={exitType} onChange={e => setExitType(e.target.value)}>
-                    <option value="resignation">Voluntary Resignation</option>
-                    <option value="resignation_no_notice">Job Abandonment</option>
-                    <option value="termination">Termination</option>
-                    <option value="end_of_contract">End Of Contract</option>
-                    <option value="retirement">Retirement</option>
-                    <option value="death">Death Of An Employee</option>
-                  </select>
-                </div>
-              )}
-            </div>
-          )}
-
-          {showOff && (
-            <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-orange),0.05)' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-orange))', letterSpacing: '.04em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}><Mail size={13} /> MAILBOX HANDLING</div>
-              {isInactive && (
-                <>
-                  <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>Grant a colleague read/write access to {employee.firstName}’s mailbox while they’re inactive.</p>
-                  {delegatePicker}
-                </>
-              )}
-              {isLeft && (
-                <>
-                  {radio('remove', 'Remove email & free up the license', 'Block sign-in, strip the M365 license so it returns to the pool.')}
-                  {radio('share', 'Convert to a shared mailbox', 'Keep the mailbox alive (no license) and grant colleagues access.')}
-                  {mailboxAction === 'share' && delegatePicker}
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)', fontSize: 12, color: 'var(--muted)' }}>
-                    <Briefcase size={13} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-orange))' }} />
-                    <span>All equipment {employee.firstName} still holds in Item Management will be <strong>force-returned</strong> automatically - checkouts closed and permanent assignments sent back to stock.</span>
-                  </div>
-                  {/* Task handover. The picker is the curated Nexus People list
-                      (the `employees` prop), never an M365/GAL-derived one.
-                      Leaving it blank no longer skips the handover - the work
-                      goes to their supervisor, or to the fallback owner if they
-                      have none (Sagar, Sept 2 2026), so an offboarding can't
-                      leave tasks on an account that no longer signs in. The
-                      backend resolves the same order in
-                      task_projects.resolve_handover_target - this line only
-                      says out loud what it will do. */}
-                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Hand over their tasks</div>
-                    <input list="handover-people" value={handoverTo}
-                      onChange={e => setHandoverTo(e.target.value.trim().toLowerCase())}
-                      placeholder={`Search for a person - leave blank for ${handoverFallbackName}`}
-                      style={{ width: '100%', padding: '7px 9px', fontSize: 13, borderRadius: 8, border: '1px solid var(--line)' }} />
-                    <datalist id="handover-people">
-                      {colleagues.map(c => <option key={c.id} value={(c.workEmail || '').toLowerCase()}>{fullName(c)}</option>)}
-                    </datalist>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, fontSize: 13, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={handoverIncludeCompleted}
-                        onChange={e => setHandoverIncludeCompleted(e.target.checked)} style={{ width: 16, height: 16 }} />
-                      Include completed tasks
-                    </label>
-                    <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                      Their open tasks are reassigned to <strong>{handoverTo ? nameFor(handoverTo) : handoverFallbackName}</strong>
-                      and all of them are listed in one new <strong>{fullName(employee)}’s previously assigned Tasks</strong>
-                      project owned by them, along with any projects {employee.firstName} owned. A task that already
-                      belongs to a project stays on that board as well - it is the same task in both places, so an
-                      edit made from either one is the same edit. They also get a task to go through the list and
-                      clear it.
-                    </div>
-                  </div>
-                </>
-              )}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, fontSize: 13, cursor: 'pointer' }}>
-                <input type="checkbox" checked={exportRequested} onChange={e => setExportRequested(e.target.checked)} style={{ width: 16, height: 16 }} />
-                Export their mailbox to a ZIP first
-              </label>
-              {/* What Nexus automates on Apply vs. what genuinely needs the admin
-                  centre. 'Remove' = sign-in block + license release are automatic
-                  (Graph); only shared-mailbox conversion needs Exchange PowerShell. */}
-              {mailboxAction === 'remove' ? (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
-                  <div style={{ display: 'flex', gap: 8, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                    <CheckCircle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-green))' }} />
-                    <span>On <strong>Apply</strong>, Nexus blocks sign-in and <strong>releases the license</strong> back to the pool automatically. Group-assigned licenses can’t be pulled per-user - if any are, the confirmation will name them so you can remove the person from that group.</span>
-                  </div>
-                  <a href={M365_USERS} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: 11, color: 'hsl(var(--color-blue))', textDecoration: 'none' }}>Verify licenses in M365 <ChevronRight size={11} /></a>
-                </div>
-              ) : (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 6 }}>DO THIS IN M365 (Graph can’t convert shared mailboxes)</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    <a href={EXO_MAILBOXES} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Mailbox access <ChevronRight size={12} /></a>
-                    {exportRequested && <a href={PURVIEW_EXPORT} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Export mailbox <ChevronRight size={12} /></a>}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {employee.statusLog?.length > 0 && (
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>RECENT CHANGES</div>
-              {employee.statusLog.slice(0, 4).map((h, i) => (
-                <div key={i} style={{ fontSize: 12, color: 'var(--muted)', padding: '3px 0' }}>
-                  {STATUS_META[h.from]?.label || h.from} → {STATUS_META[h.to]?.label || h.to} · {formatDate(h.effectiveDate || (h.at || '').slice(0, 10))}{h.reason ? ` · ${h.reason}` : ''}
-                  {h.offboarding?.mailboxAction ? ` · mailbox: ${h.offboarding.mailboxAction}` : ''}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy || !canApply} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !canApply) ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Apply</button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={canApply ? guard.saveAndClose : undefined} saving={busy} />
-      )}
-    </div>
-  );
+// ── Change Status (HR Section B6) - people/StatusChangeSheet.jsx ─────────────
+// One way to leave (Neil, 11/03/2026): Onboarding / Active / Inactive only;
+// Left is Offboard's alone. The name stays so the record's call site merges.
+function StatusChangeModal(props) {
+  return <StatusChangeSheet {...props} />;
 }
 
 // ── Work Site Library (Neil, Sep 25) - every work site, entered once; each
@@ -4601,12 +3639,6 @@ export default function HR({ activeSub, onSubChange }) {
   const setSelectedId = (id) => (id === selectedId ? setSelectedIdNow(id) : guardRecordLeave(() => setSelectedIdNow(id)));
   const [formOpen,  setFormOpen]  = useState(false);
   const [editing,   setEditing]   = useState(null);
-  // One Add control (Neil, Aug 24): Add Employee / Add Independent Contractor /
-  // Add External - everything lands in the master People list.
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
-  const addMenuBtnRef = useRef(null);
-  const [addPreset,   setAddPreset]   = useState('full_time');   // employment type the Add form opens with
-  const [inviteOpen,  setInviteOpen]  = useState(false);
   // Company Setup / Work Sites / Sync M365 moved to the Admin module in full
   // (Pranshu, Sep 9) - entities/sites data stays (used throughout this
   // screen for filters, dropdowns, scope names), the editors don't.
@@ -4934,30 +3966,15 @@ export default function HR({ activeSub, onSubChange }) {
                 <RefreshCw size={14} /> Sync Employee Codes From Intacct
               </button>
             )}
-            {/* One Add control (Neil, Aug 24): employee, independent contractor
-                or external partner - all into the same master list. */}
-            {!hrTeam && <div>
-              <button ref={addMenuBtnRef} className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-                onClick={() => setAddMenuOpen(o => !o)} aria-haspopup="menu" aria-expanded={addMenuOpen}>
-                <Plus size={15} /> Add Person <ChevronDown size={14} />
+            {/* One Add Person (Neil, 11/03/2026): one sheet asks who you are
+                adding - Employee, Independent Contractor, External (admins
+                only, as before) or Guest - all into the same master list. */}
+            {!hrTeam && (
+              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+                onClick={() => { setEditing(null); setFormOpen(true); }}>
+                <Plus size={15} /> Add Person
               </button>
-              <AnchoredMenu anchorRef={addMenuBtnRef} open={addMenuOpen} onClose={() => setAddMenuOpen(false)} align="end" minWidth={240}
-                style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
-                {[
-                  ['Add Employee', 'On payroll - full profile, provisioning, time tracking', () => { setEditing(null); setAddPreset('full_time'); setFormOpen(true); }],
-                  ['Add Independent Contractor', 'Engagement scope, SOW and rate on the same record', () => { setEditing(null); setAddPreset('contractor'); setFormOpen(true); }],
-                  ...(isAdmin ? [['Add External', 'Partner-company person - invited by email, code sign-in', () => setInviteOpen(true)]] : []),
-                ].map(([lbl, hint, fn]) => (
-                  <button key={lbl} role="menuitem" onClick={() => { setAddMenuOpen(false); fn(); }}
-                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 8, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--mist)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                    <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{lbl}</span>
-                    <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{hint}</span>
-                  </button>
-                ))}
-              </AnchoredMenu>
-            </div>}
+            )}
           </div>
         )}
       </div>
@@ -4985,7 +4002,8 @@ export default function HR({ activeSub, onSubChange }) {
             window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign' } }));
           }} />
       )}
-      {sub === 'hr-org' && <OrgChartTab employees={employees} externals={extEmployees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-org' && <OrgChartTab employees={employees} externals={extEmployees} entities={entities} onUpdated={onSaved}
+        onOpenRecord={p => { setOpenTab('job'); setSelectedId(p.id); onSubChange?.('hr-people'); }} toastOk={toastOk} toastErr={toastErr} />}
       {/* Leave balances, the year end, approval stand-ins and the old Leave
           history sit under Time > Time Off now (hrPanels, Oct 27 2026). */}
       {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} hrPanels toastOk={toastOk} toastErr={toastErr} />}
@@ -5285,20 +4303,14 @@ export default function HR({ activeSub, onSubChange }) {
         )}
       </>)}
 
-      {formOpen && (
-        <EmployeeFormModal employee={editing} employees={employees} externals={extEmployees} entities={entities} isAdmin={isAdmin} canSeeComp={canSeeComp}
-          initialType={addPreset}
-          onClose={() => { setFormOpen(false); setEditing(null); setAddPreset('full_time'); }}
-          onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} />
-      )}
-      {inviteOpen && (
-        <InviteExternalModal initial={null}
-          onClose={() => setInviteOpen(false)}
-          onSaved={(result) => {
-            setInviteOpen(false);
+      {formOpen && !editing && (
+        <AddPersonSheet employees={employees} externals={extEmployees} entities={entities} isAdmin={isAdmin} canAddExternal={isAdmin}
+          canSeeComp={canSeeComp} onClose={() => setFormOpen(false)} onSaved={onSaved}
+          onExternalSaved={(result) => {
             inviteOutcomeToast(result, toastOk, toastErr);
             refreshPeople();   // the new external lands in the directory (master list)
-          }} />
+          }}
+          toastOk={toastOk} toastErr={toastErr} />
       )}
       {roleDecisionId && <RoleChangeDecisionModal requestId={roleDecisionId} toastOk={toastOk} toastErr={toastErr}
         onClose={() => setRoleDecisionId(null)}

@@ -13,6 +13,11 @@
 //                  the employee signs, then the manager. When it is fully
 //                  signed the role, access and pay change, and the letter is
 //                  filed in their Egnyte folder (My HR > My Documents).
+//   OffboardModal - Offboard: the ONLY way someone becomes Left (Neil,
+//                  11/03/2026). The last day is the termination date; the
+//                  server runs every leaver step once (hr.apply_status_change).
+// All three are sheets from the right (the shared Modal); a question inside
+// stays dialog.confirm.
 import { useEffect, useRef, useState } from 'react';
 import { X, Send, FileSignature, FolderOpen, TrendingUp, ArrowRight, AlertTriangle, LogOut, Shield } from 'lucide-react';
 import { api } from '../api';
@@ -21,7 +26,7 @@ import { usDay, EmailPreviewModal, Problem } from './HiringPacket';
 import { usePeopleDirectory } from '../lib/queries';
 import { currencyOptions } from '../asset/lib/currency';
 import PersonSearchSelect from './PersonSearchSelect';
-import { DateField } from '../tasks/components';
+import { DateField, Modal } from '../tasks/components';
 import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
@@ -57,10 +62,18 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, onClose, onPro
   const name = [e.firstName, e.lastName].filter(Boolean).join(' ');
   const role = (roles || []).find(r => r.id === roleId);
 
+  // An external or guest (often Staged, never "a current employee") keeps
+  // the direct assignment Settings always gave them - the same reason asked.
+  const external = ['guest', 'external'].includes(e.identityType || 'internal');
   async function save() {
     setBusy(true);
     try {
-      onChanged(await api.changeRoleNow(e.id || e.workEmail, { role_id: roleId, reason }));
+      if (external) {
+        const res = await api.assignJobRole(roleId, e.workEmail, reason);
+        onChanged({ roleId, roleName: role?.name || '', warning: res?.warning || '' });
+      } else {
+        onChanged(await api.changeRoleNow(e.id || e.workEmail, { role_id: roleId, reason }));
+      }
     } catch (err) { toastErr(err?.message || 'Could not change the role.'); setBusy(false); }
   }
   // The role is their Nexus access: no work email, no role (the API's 409, said up front).
@@ -76,15 +89,16 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, onClose, onPro
   );
 
   return (
-    <div onClick={ev => ev.target === ev.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Shield size={17} style={{ color: 'var(--pine)' }} />
-          <div style={{ flex: 1, fontWeight: 800, fontSize: 15.5 }}>Change Role - {name}</div>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div className="nx-fill" style={{ overflowY: 'auto', padding: '6px 22px 18px' }}>
+    <Modal title={`Change Role - ${name}`} onClose={onClose} zIndex={4100} isDirty={!!(roleId || reason.trim()) && !busy}
+      footer={<>
+        <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+        {plain && (
+          <button className="primary-btn" onClick={save} disabled={busy || !roleId || !reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy ? <Spinner size={14} /> : <Shield size={14} />} Change Role
+          </button>
+        )}
+      </>}>
+        <div className="nx-fill" style={{ fontFamily: 'Inter,sans-serif' }}>
           {onPromote && choice(plain, Shield, 'var(--pine)', 'Role Change Without Promotion',
             noEmail ? 'They need a work email first.' : 'Their access and title follow the new role right away - no letter to sign.',
             () => setPlain(true), noEmail)}
@@ -109,16 +123,7 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, onClose, onPro
             </>
           )}
         </div>
-        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          {plain && (
-            <button className="primary-btn" onClick={save} disabled={busy || !roleId || !reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {busy ? <Spinner size={14} /> : <Shield size={14} />} Change Role
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -176,18 +181,26 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
   );
 
   return (
-    <div onClick={ev => ev.target === ev.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <TrendingUp size={17} style={{ color: 'hsl(var(--color-green))' }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: 15.5 }}>{changeType === 'promotion' ? 'Promote' : 'Change Role'} - {name}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>A letter through Nexus Sign: {name} signs, then their manager. It takes effect when both have signed.</div>
-          </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px' }}>
+    <Modal title={`${changeType === 'promotion' ? 'Promote' : 'Change Role'} - ${name}`} onClose={onClose} zIndex={4100}
+      isDirty={!!(f.role_id || f.reason.trim() || f.responsibilities.trim()) && !busy}
+      footer={<>
+        <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
+        {!preview ? (
+          <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || !f.effective_date || !f.reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review Letter
+          </button>
+        ) : docsMode ? (
+          <button className="primary-btn" onClick={start} disabled={!!busy || !f.reason.trim() || (preview.problems || []).length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'send' ? <Spinner size={14} /> : <FileSignature size={14} />} Generate Letter
+          </button>
+        ) : (
+          <button className="primary-btn" onClick={send} disabled={!!busy || !ack || !f.reason.trim() || missing.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'send' ? <Spinner size={14} /> : <Send size={14} />} Send For Signature
+          </button>
+        )}
+      </>}>
+        <div style={{ fontFamily: 'Inter,sans-serif' }}>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>A letter through Nexus Sign: {name} signs, then their manager. It takes effect when both have signed.</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 13, flexWrap: 'wrap' }}>
             <span style={{ padding: '6px 12px', borderRadius: 10, background: 'var(--mist)' }}>{e.jobTitle || 'No title yet'}</span>
             <ArrowRight size={15} style={{ color: 'var(--muted)' }} />
@@ -202,7 +215,8 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
               </select>
               <div style={hint}>The role sets their access in Nexus - it changes when the letter is signed.</div></div>
             {input('Title In The Letter', 'job_title', { placeholder: 'Defaults to the role name' })}
-            {input('Effective Date *', 'effective_date', { type: 'date' })}
+            <div><label style={lbl}>Effective Date *</label>
+              <DateField value={f.effective_date} onChange={v => set('effective_date', v || '')} placeholder="MM/DD/YYYY" title="Effective date" style={{ width: '100%' }} /></div>
           </div>
           {past && <Warn>The effective date is in the past. Pay is dated from it; any time sheet from then that is already signed is flagged for HR to review, not changed.</Warn>}
           <label style={lbl}>New Responsibilities</label>
@@ -298,24 +312,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
           )}
         </div>
         {mail && <EmailPreviewModal {...mail} onClose={() => setMail(null)} />}
-        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
-          {!preview ? (
-            <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || !f.effective_date || !f.reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review Letter
-            </button>
-          ) : docsMode ? (
-            <button className="primary-btn" onClick={start} disabled={!!busy || !f.reason.trim() || (preview.problems || []).length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {busy === 'send' ? <Spinner size={14} /> : <FileSignature size={14} />} Generate Letter
-            </button>
-          ) : (
-            <button className="primary-btn" onClick={send} disabled={!!busy || !ack || !f.reason.trim() || missing.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {busy === 'send' ? <Spinner size={14} /> : <Send size={14} />} Send For Signature
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -337,6 +334,7 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
   const [mailbox, setMailbox] = useState('remove');
   const [trustees, setTrustees] = useState(() => (e.managerEmail ? [e.managerEmail.toLowerCase()] : []));
   const [handoverTo, setHandoverTo] = useState('');
+  const [includeCompleted, setIncludeCompleted] = useState(false);
   const [exportRequested, setExportRequested] = useState(false);
   const [extra, setExtra] = useState({});
   const [preview, setPreview] = useState(null);
@@ -349,7 +347,7 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
   const immediate = f.last_day && f.last_day <= todayIso();
   const body = () => ({
     inputs: { ...f, merge: extra, offboarding: { mailboxAction: mailbox, delegateTo: mailbox === 'share' ? trustees : [],
-      exportRequested, handoverTo } },
+      exportRequested, handoverTo, handoverIncludeCompleted: includeCompleted } },
     excluded_ack: ack,
   });
   const missing = (preview?.unresolved || []).filter(k => !(extra[k] || '').trim());
@@ -385,20 +383,34 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
     </label>
   );
   return (
-    <div onClick={ev => ev.target === ev.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <LogOut size={17} style={{ color: 'hsl(var(--color-red))' }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: 15.5 }}>Offboard - {name}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{companyName || 'Their company'} · {e.jobTitle || 'No title'}</div>
-          </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px' }}>
+    <Modal title={`Offboard - ${name}`} onClose={onClose} zIndex={4100} isDirty={!!(f.exit_type || f.reason.trim()) && !busy}
+      footer={<>
+        <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
+        {!preview ? (
+          <button className="primary-btn" onClick={review} disabled={!!busy || !f.last_day || !f.exit_type || (mailbox === 'share' && !trustees.length)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review
+          </button>
+        ) : preview.immediate ? (
+          <HoldButton label="Offboard Now" doneLabel="Offboarded" icon={LogOut} holdMs={HOLD_MAJOR_MS} clickRuns
+            onConfirm={goNow} onDone={() => onSent(sent.current)}
+            disabled={(!!busy && busy !== 'send') || (preview.package && preview.engine !== 'documents' && !ack) || missing.length > 0
+              || (preview.engine === 'documents' && (preview.problems || []).length > 0)} />
+        ) : (
+          <button className="primary-btn" onClick={go}
+            disabled={!!busy || (preview.package && preview.engine !== 'documents' && !ack) || missing.length > 0
+              || (preview.engine === 'documents' && (preview.problems || []).length > 0)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'send' ? <Spinner size={14} /> : <LogOut size={14} />} Schedule Offboarding
+          </button>
+        )}
+      </>}>
+        <div style={{ fontFamily: 'Inter,sans-serif' }}>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{companyName || 'Their company'} · {e.jobTitle || 'No title'}</div>
+          {/* One way to leave (Neil, 11/03/2026): Offboard is the only path to
+              Left. The last day is the termination date on their record. */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '0 14px' }}>
-            <div><label style={lbl}>Last Day *</label>
+            <div><label style={lbl}>Last Day (Termination Date) *</label>
               <DateField value={f.last_day} onChange={v => set('last_day', v || '')} placeholder="MM/DD/YYYY" title="Last day" style={{ width: '100%' }} /></div>
             <div><label style={lbl}>Why They Are Leaving *</label>
               <select className="form-input" style={{ width: '100%' }} value={f.exit_type} onChange={ev => set('exit_type', ev.target.value)}>
@@ -439,7 +451,11 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
             <PersonSearchSelect placeholder="Blank = their supervisor" groups={[{ label: 'Nexus People', people: people.filter(p => p.email !== (e.workEmail || '').toLowerCase()) }]}
               onPick={em => setHandoverTo(em || '')} />
           )}
+          <div style={hint}>Their open tasks move to this person, in one project of their previously assigned tasks. Equipment they hold is returned and their future shifts come off the schedule.</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={includeCompleted} onChange={ev => { setIncludeCompleted(ev.target.checked); setPreview(null); }} style={{ accentColor: 'var(--pine)' }} /> Include their completed tasks
+            </label>
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: 'pointer' }}>
               <input type="checkbox" checked={exportRequested} onChange={ev => setExportRequested(ev.target.checked)} style={{ accentColor: 'var(--pine)' }} /> Export their mailbox first
             </label>
@@ -509,28 +525,6 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
           )}
         </div>
         {mail && <EmailPreviewModal {...mail} onClose={() => setMail(null)} />}
-        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
-          {!preview ? (
-            <button className="primary-btn" onClick={review} disabled={!!busy || !f.last_day || !f.exit_type || (mailbox === 'share' && !trustees.length)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review
-            </button>
-          ) : preview.immediate ? (
-            <HoldButton label="Offboard Now" doneLabel="Offboarded" icon={LogOut} holdMs={HOLD_MAJOR_MS} clickRuns
-              onConfirm={goNow} onDone={() => onSent(sent.current)}
-              disabled={(!!busy && busy !== 'send') || (preview.package && preview.engine !== 'documents' && !ack) || missing.length > 0
-                || (preview.engine === 'documents' && (preview.problems || []).length > 0)} />
-          ) : (
-            <button className="primary-btn" onClick={go}
-              disabled={!!busy || (preview.package && preview.engine !== 'documents' && !ack) || missing.length > 0
-                || (preview.engine === 'documents' && (preview.problems || []).length > 0)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {busy === 'send' ? <Spinner size={14} /> : <LogOut size={14} />} Schedule Offboarding
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

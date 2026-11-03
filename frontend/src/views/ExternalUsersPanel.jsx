@@ -5,6 +5,7 @@ import { dialog } from '../ui/dialog';
 import { formatDate } from '../lib/datetime';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { COUNTRY_CODES, splitPhone, joinPhone } from '../lib/countryCodes';
+import { DateField, Modal } from '../tasks/components';
 
 // ── External users - invite modal + person-panel section (Aug 18 rework) ─────
 // Externals live in the Roles & Access PEOPLE tab like everyone else (Visesh:
@@ -46,16 +47,19 @@ export function InvitePill({ status }) {
   );
 }
 
-// Invite / edit modal. `initial` = null for a new external user, or the row
+// Invite / edit form. `initial` = null for a new external user, or the row
 // being edited. No access controls here on purpose - grants happen on the
-// person panel through job roles and groups, same as any employee.
-export function InviteExternalModal({ initial, onClose, onSaved }) {
+// person's Access tab through job roles and groups, same as any employee.
+// One form, two doors (Neil, 11/03/2026): InviteExternalModal below (Edit, and
+// the External tab list) and Add Person's External kind
+// (people/AddPersonSheet.jsx) - both save through POST /external-users.
+export function useExternalInviteForm(initial) {
   const editing = !!initial;
   const [email, setEmail] = useState(initial?.email || '');
   const [firstName, setFirstName] = useState(initial?.firstName || '');
   const [lastName, setLastName] = useState(initial?.lastName || '');
   const [company, setCompany] = useState(initial?.company || '');
-  const [expiresAt, setExpiresAt] = useState(initial?.expiresAt || '');
+  const [expiresAt, setExpiresAt] = useState((initial?.expiresAt || '').slice(0, 10));
   const initialPhone = splitPhone(initial?.phone);
   const [phoneDial, setPhoneDial] = useState(initialPhone.dial);
   const [phoneRest, setPhoneRest] = useState(initialPhone.rest);
@@ -66,114 +70,124 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
   const [error, setError] = useState('');
 
   const emailChanged = editing && email.trim().toLowerCase() !== (initial.email || '').toLowerCase();
+  const dirty = email !== (initial?.email || '') || firstName !== (initial?.firstName || '')
+    || lastName !== (initial?.lastName || '') || company !== (initial?.company || '') || phoneRest !== initialPhone.rest;
 
-  const save = async () => {
+  // Resolves with the server's answer, or null when the form refused or the
+  // save failed (the reason shows in the form).
+  const submit = async () => {
     setError('');
-    if (!email.trim() || !email.includes('@')) { setError('A valid email address is required.'); return; }
-    if (!firstName.trim()) { setError('First name is required.'); return; }
+    if (!email.trim() || !email.includes('@')) { setError('A valid email address is required.'); return null; }
+    if (!firstName.trim()) { setError('First name is required.'); return null; }
     setSaving(true);
     const phone = joinPhone(phoneDial, phoneRest);
     try {
       const result = editing
         ? await api.updateExternalUser(initial.email || initial.id, { first_name: firstName, last_name: lastName, email: email.trim(), company, expires_at: expiresAt, phone })
         : await api.createExternalUser({ email: email.trim(), first_name: firstName, last_name: lastName, company, expires_at: expiresAt, phone, send_invite: sendInvite });
-      onSaved(result);
+      setSaving(false);
+      return result;
     } catch (e) {
       setError(e?.message || 'Could not save - try again.');
       setSaving(false);
+      return null;
     }
   };
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1400, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }} onClick={onClose}>
-      <div className="nx-popup" style={{ overflowY: 'auto', background: 'var(--card)', borderRadius: 16, border: '1px solid var(--line)', padding: 24, fontFamily: 'Inter,sans-serif' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{editing ? 'Edit External User' : 'Invite External User'}</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}><X size={17} /></button>
+  const fields = (
+    <div style={{ display: 'grid', gap: 13 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10 }}>
+        <div>
+          <span style={label}>First Name</span>
+          <input style={field} value={firstName} onChange={e => setFirstName(e.target.value)} />
         </div>
-
-        <div style={{ display: 'grid', gap: 13 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div>
-              <span style={label}>First name</span>
-              <input style={field} value={firstName} onChange={e => setFirstName(e.target.value)} />
-            </div>
-            <div>
-              <span style={label}>Last name</span>
-              <input style={field} value={lastName} onChange={e => setLastName(e.target.value)} />
-            </div>
-          </div>
-          <div>
-            <span style={label}>Email (the invitation is sent to this address)</span>
-            <input style={field} type="email" value={email}
-              placeholder="name@partnercompany.com" onChange={e => setEmail(e.target.value)} />
-            {emailChanged && (
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5, lineHeight: 1.5 }}>
-                Their job role, groups, and access carry over to the corrected address. Any invite link or
-                sign-in code already sent to the old address stops working - use Resend Invite afterward.
-              </div>
-            )}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div>
-              <span style={label}>Company</span>
-              <input style={field} value={company} placeholder="e.g. Aarav Construction" onChange={e => setCompany(e.target.value)} />
-            </div>
-            <div>
-              <span style={label}>Access expires (optional)</span>
-              <input style={field} type="date" value={expiresAt.slice(0, 10)} onChange={e => setExpiresAt(e.target.value)} />
-            </div>
-          </div>
-          <div>
-            <span style={label}>Mobile phone (optional - one-time codes go by text once verified)</span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <select style={{ ...field, width: 132, flexShrink: 0 }} value={phoneDial} onChange={e => setPhoneDial(e.target.value)}>
-                {COUNTRY_CODES.map(c => (
-                  <option key={c.iso} value={c.dial}>{c.name} ({c.dial})</option>
-                ))}
-              </select>
-              <input style={field} type="tel" value={phoneRest} placeholder="555 555 1234" onChange={e => setPhoneRest(e.target.value)} />
-            </div>
-          </div>
-
-          {!editing && (
-            <div style={{ display: 'grid', gap: 8 }}>
-              <span style={label}>How should this account start?</span>
-              {[[false, 'Create for testing (release later)', 'Nothing is sent. Verify their access with Act As or a test sign-in code, then Release & Send Invite from their profile.'],
-                [true, 'Create and send the invite now', 'The activation email goes out immediately - the old one-step flow.']].map(([v, t, d]) => (
-                <button key={String(v)} type="button" onClick={() => setSendInvite(v)}
-                  style={{ display: 'flex', gap: 10, textAlign: 'left', alignItems: 'flex-start', padding: '10px 12px', borderRadius: 10, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                    border: `1.5px solid ${sendInvite === v ? 'var(--ink)' : 'var(--line)'}`, background: sendInvite === v ? 'var(--mist)' : 'transparent' }}>
-                  <span style={{ width: 16, height: 16, borderRadius: '50%', flexShrink: 0, marginTop: 2, border: `1.5px solid ${sendInvite === v ? 'var(--ink)' : 'var(--line)'}`, display: 'grid', placeItems: 'center' }}>
-                    {sendInvite === v && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--ink)' }} />}
-                  </span>
-                  <span style={{ minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{t}</span>
-                    <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>{d}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-            {editing || sendInvite
-              ? 'Saving emails them a branded Nexus invitation with a one-time activation link - no Microsoft account needed. '
-              : ''}They start with no access - assign a job role or groups on their People card, exactly like an employee. Whatever you grant, they still never appear in people pickers, never receive company-wide notifications, and in Tasks and Tickets only see items they are assigned to, following, or raised themselves.
-          </div>
-
-          {error && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', fontWeight: 600 }}>{error}</div>}
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 9, marginTop: 3 }}>
-            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 9, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Cancel</button>
-            <button className="primary-btn" onClick={save} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-              {saving && <Spinner size={14} />}
-              {editing ? 'Save Changes' : sendInvite ? 'Send Invite' : 'Create for Testing'}
-            </button>
-          </div>
+        <div>
+          <span style={label}>Last Name</span>
+          <input style={field} value={lastName} onChange={e => setLastName(e.target.value)} />
         </div>
       </div>
+      <div>
+        <span style={label}>Email (the invitation is sent to this address)</span>
+        <input style={field} type="email" value={email}
+          placeholder="name@partnercompany.com" onChange={e => setEmail(e.target.value)} />
+        {emailChanged && (
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5, lineHeight: 1.5 }}>
+            Their job role, groups, and access carry over to the corrected address. Any invite link or
+            sign-in code already sent to the old address stops working - use Resend Invite afterward.
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10 }}>
+        <div>
+          <span style={label}>Company</span>
+          <input style={field} value={company} placeholder="e.g. Aarav Construction" onChange={e => setCompany(e.target.value)} />
+        </div>
+        <div>
+          <span style={label}>Access Expires (optional)</span>
+          <DateField value={expiresAt} onChange={v => setExpiresAt(v || '')} placeholder="MM/DD/YYYY" title="Access expires" style={{ width: '100%' }} />
+        </div>
+      </div>
+      <div>
+        <span style={label}>Mobile Phone (optional - one-time codes go by text once verified)</span>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <select style={{ ...field, width: 132, flexShrink: 0 }} value={phoneDial} onChange={e => setPhoneDial(e.target.value)} aria-label="Country Code">
+            {COUNTRY_CODES.map(c => (
+              <option key={c.iso} value={c.dial}>{c.name} ({c.dial})</option>
+            ))}
+          </select>
+          <input style={field} type="tel" value={phoneRest} placeholder="555 555 1234" onChange={e => setPhoneRest(e.target.value)} />
+        </div>
+      </div>
+
+      {!editing && (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <span style={label}>How Should This Account Start?</span>
+          {[[false, 'Create for testing (release later)', 'Nothing is sent. Verify their access with Act As or a test sign-in code, then Release & Send Invite from their profile.'],
+            [true, 'Create and send the invite now', 'The activation email goes out immediately - the old one-step flow.']].map(([v, t, d]) => (
+            <button key={String(v)} type="button" onClick={() => setSendInvite(v)} aria-pressed={sendInvite === v}
+              style={{ display: 'flex', gap: 10, textAlign: 'left', alignItems: 'flex-start', padding: '10px 12px', borderRadius: 10, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                border: `1.5px solid ${sendInvite === v ? 'var(--ink)' : 'var(--line)'}`, background: sendInvite === v ? 'var(--mist)' : 'transparent' }}>
+              <span style={{ width: 16, height: 16, borderRadius: '50%', flexShrink: 0, marginTop: 2, border: `1.5px solid ${sendInvite === v ? 'var(--ink)' : 'var(--line)'}`, display: 'grid', placeItems: 'center' }}>
+                {sendInvite === v && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--ink)' }} />}
+              </span>
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{t}</span>
+                <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>{d}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+        {editing || sendInvite
+          ? 'Saving emails them a branded Nexus invitation with a one-time activation link - no Microsoft account needed. '
+          : ''}They start with no access - assign a job role or groups on their Access tab, exactly like an employee. Whatever you grant, they still never appear in people pickers, never receive company-wide notifications, and in Tasks and Tickets only see items they are assigned to, following, or raised themselves.
+      </div>
+
+      {error && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', fontWeight: 600 }}>{error}</div>}
     </div>
+  );
+  const submitLabel = editing ? 'Save Changes' : sendInvite ? 'Send Invite' : 'Create for Testing';
+  return { fields, submit, saving, dirty, submitLabel };
+}
+
+// The invite / edit sheet (the shared Modal, from the right).
+export function InviteExternalModal({ initial, onClose, onSaved }) {
+  const form = useExternalInviteForm(initial);
+  const save = async () => { const r = await form.submit(); if (r) onSaved(r); };
+  return (
+    <Modal title={initial ? 'Edit External User' : 'Invite External User'} onClose={onClose} zIndex={4200}
+      isDirty={form.dirty && !form.saving}
+      footer={<>
+        <button className="secondary-btn" onClick={onClose} disabled={form.saving}>Cancel</button>
+        <button className="primary-btn" onClick={save} disabled={form.saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          {form.saving && <Spinner size={14} />}
+          {form.submitLabel}
+        </button>
+      </>}>
+      <div style={{ fontFamily: 'Inter,sans-serif' }}>{form.fields}</div>
+    </Modal>
   );
 }
 

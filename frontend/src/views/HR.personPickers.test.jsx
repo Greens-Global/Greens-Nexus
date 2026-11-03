@@ -31,13 +31,6 @@ vi.mock('../api', () => {
 
 afterEach(() => { cleanup(); calls.length = 0; try { localStorage.clear(); } catch { /* n/a */ } });
 
-const pick = (trigger, query, name) => {
-  fireEvent.click(trigger);
-  // The menu's own search box (the org chart has a search of its own).
-  fireEvent.change(screen.getByRole('listbox').parentElement.querySelector('input'), { target: { value: query } });
-  fireEvent.click(within(screen.getByRole('listbox')).getByText(name));
-};
-
 describe('HR people pickers', () => {
   // The People > Leave tab is retired (Oct 27 2026): an old link lands on
   // Time > Time Off, and nothing offers the legacy Log on Behalf form.
@@ -53,19 +46,17 @@ describe('HR people pickers', () => {
     expect(calls.some(([k]) => k === 'createLeave' || k === 'getLeave')).toBe(false);
   }, 20000);
 
-  it('Reports To on the org chart searches and saves the lowercased work email', async () => {
+  // The org chart's side panel no longer edits (Neil, 11/03/2026): Reports To
+  // is shown, and the record (Open Record) or a drag on the chart changes it.
+  it('Reports To on the org chart shows the manager and offers Open Record, no picker', async () => {
     const { default: HR } = await import('./HR');
     render(<HR activeSub="hr-org" onSubChange={() => {}} />);
     await screen.findByText('Val Top');
     fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
     fireEvent.pointerDown(screen.getByText('Sam Field').closest('[data-orgtile]'), { clientX: 10, clientY: 10, button: 0 });
     fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
-    const trigger = screen.getByRole('button', { name: /^Reports To:/ });
-    expect(trigger.textContent).toContain('Mia Mid');
-    pick(trigger, 'val', 'Val Top');
-    fireEvent.click(screen.getByRole('button', { name: /Save changes/ }));
-    const saved = calls.find(([k]) => k === 'updateEmployee');
-    expect(saved[1][0]).toBe('e3');
-    expect(saved[1][1].manager_email).toBe('val@x.com');
+    expect(screen.queryByRole('button', { name: /^Reports To:/ })).toBeNull();
+    expect(screen.getByText('Reports To', { selector: 'span' }).nextElementSibling.textContent).toContain('Mia Mid');
+    expect(screen.getByRole('button', { name: /Open Record/ })).toBeTruthy();
   }, 20000);
 });
