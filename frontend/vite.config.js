@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
+import { isDeepStrictEqual } from 'node:util'
 import { nxSrcVitePlugin } from './scripts/nxsrc-plugin.mjs'
 import { stampHtml } from './scripts/stamp-assets.mjs'
 
@@ -63,6 +65,120 @@ function excalidrawLocaleStub() {
   };
 }
 
+// Word import without the Word writer (11/03/2026, bundle headroom). mammoth
+// (Word -> HTML: the KB editor's and the document builder's Import) requires
+// xmlbuilder, ~45 KB, only to WRITE XML, and only its embedStyleMap() writes -
+// Nexus calls convertToHtml and images.imgElement and never embedStyleMap. On
+// a production build mammoth's xmlbuilder import gets a stub that throws if
+// it is ever reached, so a future embedStyleMap caller fails loudly instead
+// of writing a broken file. Tests and dev serve keep the real package.
+const XMLBUILDER_STUB = '\0mammoth-xmlbuilder-stub';
+function mammothXmlWriterStub() {
+  return {
+    name: 'nexus-mammoth-xmlbuilder-stub',
+    apply: 'build',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (source === 'xmlbuilder' && importer && /[\\/]node_modules[\\/]mammoth[\\/]/.test(importer)) return XMLBUILDER_STUB;
+      return null;
+    },
+    load(id) {
+      if (id !== XMLBUILDER_STUB) return null;
+      return 'export function create() { throw new Error("Writing Word files is not available in Nexus (mammoth.embedStyleMap)."); }\nexport default { create };';
+    },
+  };
+}
+
+// mammoth's symbol-font table, written compactly (11/03/2026, bundle headroom).
+// dingbat-to-unicode (how mammoth turns a Wingdings / Symbol character in a
+// Word file into Unicode) ships its 1,061-row table as objects that repeat
+// five long key names on every row: ~90 KB minified. On a production build
+// its dingbats.js is rewritten as runs of numbers that expand, when the
+// module loads, into the very same array of the very same objects. The
+// expansion is run here and compared with the original row by row; if it is
+// not identical (a new version of the package, a row that does not follow
+// the pattern) or anything here throws, the original file is used untouched. scripts/check-bundle-rewrites.mjs (postbuild) runs mammoth from
+// the built chunk on a Word file with a Wingdings symbol.
+function compactDingbats() {
+  const TABLE = /[\\/]node_modules[\\/]dingbat-to-unicode[\\/]dist[\\/]dingbats\.js$/;
+  return {
+    name: 'nexus-compact-dingbats',
+    apply: 'build',
+    enforce: 'pre',
+    load(id) {
+      if (!TABLE.test(id)) return null;
+      try { return compactTable(id); } catch { return null; }
+    },
+  };
+  function compactTable(id) {
+    const evalCjs = (code) => { const module = { exports: {} }; new Function('exports', 'module', code)(module.exports, module); return module.exports.default; };
+    const rows = evalCjs(readFileSync(id, 'utf8'));
+    if (!Array.isArray(rows)) return null;
+    const runs = [];
+    for (const r of rows) {
+      const last = runs[runs.length - 1];
+      const pair = [Number(r['Dingbat dec']), Number(r['Unicode dec'])];
+      if (last && last[0] === r['Typeface name']) last[1].push(...pair);
+      else runs.push([r['Typeface name'], pair]);
+    }
+    const code = [
+      '"use strict";',
+      'Object.defineProperty(exports, "__esModule", { value: true });',
+      `var runs = ${JSON.stringify(runs)};`,
+      'var dingbats = [];',
+      'var hex = function (n) { return n.toString(16).toUpperCase(); };',
+      'for (var r = 0; r < runs.length; r++) {',
+      '  for (var i = 0, a = runs[r][1]; i < a.length; i += 2) {',
+      '    dingbats.push({ "Typeface name": runs[r][0], "Dingbat dec": String(a[i]), "Dingbat hex": hex(a[i]), "Unicode dec": String(a[i + 1]), "Unicode hex": hex(a[i + 1]) });',
+      '  }',
+      '}',
+      'exports.default = dingbats;',
+    ].join('\n');
+    return isDeepStrictEqual(evalCjs(code), rows) ? code : null;
+  }
+}
+
+// One zlib for the PDF tools and the whiteboard (11/03/2026, bundle headroom).
+// pdf-lib (and its @pdf-lib/standard-fonts and upng) depend on pako 1.0.11;
+// the whiteboard engine brings its own pako 2.0.3; both shipped, ~55 KB of the
+// same zlib port twice. pdf-lib only calls pako.deflate / pako.inflate on
+// Uint8Arrays, which pako 2 does byte for byte the same (checked 11/03/2026
+// at levels 0-9 on text, binary and random input), so on a production build
+// pdf-lib's `import pako from 'pako'` resolves to the engine's copy, which
+// sits in its own small vendor-pako chunk (codeSplitting below) so neither
+// side pulls the other in. scripts/check-bundle-rewrites.mjs (postbuild) builds
+// and reloads a PDF with the built chunk, so CI runs what ships. Tests keep
+// pako 1 (build only); if a future install leaves the engine without a pako 2
+// this does nothing.
+function pdfLibSharesPako() {
+  const ENGINE_ENTRY = fileURLToPath(new URL('./node_modules/@excalidraw/excalidraw/dist/prod/index.js', import.meta.url));
+  const FROM_PDF_LIB = /[\\/]node_modules[\\/](pdf-lib|@pdf-lib[\\/][^\\/]+)[\\/]/;
+  let shared;   // the engine's pako 2 entry, or false
+  return {
+    name: 'nexus-pdf-lib-shares-pako',
+    apply: 'build',
+    enforce: 'pre',
+    async resolveId(source, importer) {
+      if (source !== 'pako' || !importer || !FROM_PDF_LIB.test(importer)) return null;
+      if (shared === undefined) {
+        try {
+          const hit = await this.resolve('pako', ENGINE_ENTRY, { skipSelf: true });
+          const pkg = hit && JSON.parse(readFileSync(hit.id.replace(/([\\/]node_modules[\\/]pako)[\\/].*$/, '$1/package.json'), 'utf8'));
+          shared = Number(String(pkg?.version || '').split('.')[0]) >= 2 ? hit.id : false;
+        } catch { shared = false; }   // anything odd: pdf-lib keeps its own pako
+      }
+      return shared || null;
+    },
+  };
+}
+
+// Chunk groups (see codeSplitting below). REACT_CORE is claimed first so no
+// other vendor group can take React (or the shared helpers) along with it.
+const REACT_CORE = /[\\/]node_modules[\\/](react|react-dom|scheduler|react-is|use-sync-external-store|clsx|tiny-invariant|eventemitter3)[\\/]|^\0vite\/preload-helper/;
+// zlib, shared by pdf-lib and the whiteboard engine (pdfLibSharesPako above).
+const PAKO = /[\\/]node_modules[\\/]pako[\\/]/;
+// The editor and Markdown packages, kept out of the vendor-react catch-all.
+const EDITOR_AND_MARKDOWN = /[\\/]node_modules[\\/](@tiptap|prosemirror-[a-z-]+|orderedmap|rope-sequence|w3c-keyname|linkifyjs|react-markdown|remark-[a-z-]+|micromark[a-z-]*|mdast-[a-z-]+|hast-[a-z-]+|unist-[a-z-]+|unified|vfile[a-z-]*|property-information|space-separated-tokens|comma-separated-tokens|html-url-attributes|devlop|bail|trough|extend|is-plain-obj|decode-named-character-reference|character-entities[a-z-]*|ccount|escape-string-regexp|markdown-table|longest-streak|zwitch|trim-lines|style-to-js|style-to-object|inline-style-parser|estree-util-[a-z-]+|@ungap)[\\/]/;
 
 // Build identity. Every deploy path supplies a commit sha somewhere:
 //   - the wrangler workflows pass VITE_BUILD_ID explicitly,
@@ -162,7 +278,7 @@ export default defineConfig(({ command }) => ({
     ...((NX_SRC || command === 'serve') && !process.env.VITEST
       // Dev serve stamps every element - size is irrelevant locally.
       ? [nxSrcVitePlugin({ root: FRONTEND_ROOT, only: command === 'serve' || process.env.VITE_NX_SRC === 'all' ? undefined : process.env.VITE_NX_SRC === 'interactive' ? 'interactive' : 'handlers' })] : []),
-    react(), versionManifest(), stampUnhashedAssets(), excalidrawLocaleStub(),
+    react(), versionManifest(), stampUnhashedAssets(), excalidrawLocaleStub(), pdfLibSharesPako(), mammothXmlWriterStub(), compactDingbats(),
   ],
   base: '/',
   // Build Mode's local preview / e2e runs share the main checkout's node_modules
@@ -190,7 +306,22 @@ export default defineConfig(({ command }) => ({
         assetFileNames: `assets/[name]-${CACHE_NS}-[hash][extname]`,
         // Split vendors into separate cached chunks — same approach as Amazon, Netflix, etc.
         // Each chunk loads in parallel and is cached independently by the browser.
-        manualChunks(id) {
+        //
+        // Two groups (11/03/2026, bundle headroom). The first, higher priority,
+        // holds React itself, the handful of tiny libraries React-based
+        // packages share with it, and Vite's preload helper. Rolldown's groups
+        // take a captured module's dependencies with them, and with all of
+        // this in the one function below whichever group got there first kept
+        // them: recharts captured react / react-dom (vendor-charts, 435 KB,
+        // then shipped on FIRST PAINT because every chunk imports React), and
+        // exifr captured the preload helper (vendor-exif, 74 KB, on first
+        // paint because every lazy import uses the helper). A higher-priority
+        // group claims them before any other group can. Measured: first paint
+        // 2,844 KB -> 2,340 KB, total unchanged.
+        codeSplitting: { groups: [
+          { name: 'vendor-react-core', test: REACT_CORE, priority: 1 },
+          { name: 'vendor-pako', test: PAKO, priority: 1 },
+          { name(id) {
           // The whiteboard engine (Notes boards, Neil 11/02/2026) has NO manual
           // chunk on purpose. It is reached only by the import() in
           // notes/board/engine/index.js (the adapter, engine/excalidraw.jsx,
@@ -213,7 +344,6 @@ export default defineConfig(({ command }) => ({
           // vendor-react 1,192 KB with them in the catch-all.
           if (/node_modules\/(roughjs|points-on-curve|path-data-parser|hachure-fill|perfect-freehand|jotai|jotai-scope|tunnel-rat|fractional-indexing|es6-promise-pool|browser-fs-access|image-blob-reduce|pica|multimath|glur|png-chunk-text|png-chunks-encode|png-chunks-extract|crc-32|open-color|fuzzy|@braintree\/sanitize-url|canvas-roundrect-polyfill|@radix-ui|zustand|@excalidraw|laser-pointer|pwacompat|sliced|lodash\.throttle|lodash\.debounce)\//.test(id)) return undefined;
           if (id.includes('@azure/msal-browser') || id.includes('@azure/msal-react')) return 'vendor-msal';
-          if (id.includes('@supabase/supabase-js'))  return 'vendor-supabase';
           if (id.includes('lucide-react'))            return 'vendor-icons';
           // Heavy libs get their OWN chunks so they load on demand instead of on
           // first paint. They're only reached from lazy views / dynamic import()s,
@@ -255,8 +385,15 @@ export default defineConfig(({ command }) => ({
           // in the catch-all they pushed vendor-react past its 1000KB budget).
           if (/[\\/]node_modules[\\/](yjs|y-prosemirror|y-protocols|lib0)[\\/]/.test(id)
             || /@tiptap[\\/](extension-collaboration|y-tiptap)/.test(id)) return undefined;
+          // The rich-text editor (TipTap / ProseMirror: Notes, the KB editor,
+          // task descriptions, the document builder) and the Markdown renderer
+          // (react-markdown and its parser) are reached only from lazy views
+          // and import()s, so they stay out of the catch-all and ride those
+          // lazy chunks (11/03/2026: about 600 KB off first paint).
+          if (EDITOR_AND_MARKDOWN.test(id)) return undefined;
           if (id.includes('node_modules'))            return 'vendor-react';
-        },
+        } },
+        ] },
       },
     },
   },
