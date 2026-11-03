@@ -100,3 +100,20 @@ jobs:
         run: npm run build
       - name: Dependency vulnerability scan
         run: npm audit --omit=dev --audit-level=high || echo "::warning::npm audit found issues - review before release"
+
+  test-pdf-tools:
+    name: PDF Tools Engine (Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test -c pdf-tools.config.mjs

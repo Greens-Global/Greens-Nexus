@@ -133,7 +133,10 @@ export function setPopStay(fn) { stayHere = fn || null; }
 const depthOf = (st) => (st && Number.isFinite(st.depth) ? st.depth : null);
 export function guardPopstate(e, apply) {
   if (returning) { returning = false; return false; }
-  if (leavingPop || !lastEntry || !hasUnsavedWork() || stayHere?.()) {
+  // A pop that keeps the path (a popup's own entry, lib/useBackToClose.js)
+  // never asks here - the same rule as a screen's own guard (usePopGuard).
+  const samePath = !!lastEntry && new URL(lastEntry.url).pathname === window.location.pathname;
+  if (leavingPop || !lastEntry || !hasUnsavedWork() || samePath || stayHere?.()) {
     leavingPop = false;
     apply(e);
     rememberEntry();
@@ -161,6 +164,15 @@ export function guardPopstate(e, apply) {
 // asks it instead of the plain prompt. `fn` resolves true to leave.
 let leaveAsk = null;
 export function setLeaveGuard(fn) { leaveAsk = fn || null; }
+
+// Browser Back and Forward with work to lose: App's popstate listener asks here
+// before it moves the screen. It cannot be a second listener: Chrome runs a
+// window's popstate listeners in the order they were added, capture or not, so
+// App's would go first and unmount the screen trying to stop it. `fn` gets the
+// event and returns true when it dealt with the pop.
+let popGuard = null;
+export function setPopGuard(fn) { popGuard = fn || null; }
+export function runPopGuard(e) { return !!popGuard?.(e); }
 export function askToLeave() {
   return hasDirtyDialog() || inlineDirty.size > 0 || !leaveAsk ? confirmDiscard() : leaveAsk();
 }

@@ -72,11 +72,11 @@
     menu.className = 'dropdown-menu';
     menu.id = 'shapeMenu';
     const KINDS = [
-      ['rect', '▭ Rectangle'], ['square', '□ Square'], ['circle', '◯ Circle / Ellipse'], ['triangle', '△ Triangle'],
-      ['line', '― Line'], ['polyline', '⌇ Polyline (multi-segment)'], ['polygon', '⬠ Polygon (multi-point)'],
-      ['arrow', '→ Arrow'], ['arrow2', '↔ Double arrow'],
-      ['cloud', '☁ Cloud (revision)'], ['callout', '💬 Text callout (arrow + note)'],
-      ['ellipsecallout', '🗨 Speech bubble'],
+      ['rect', 'Rectangle'], ['square', 'Square'], ['circle', 'Circle / Ellipse'], ['triangle', 'Triangle'],
+      ['line', 'Line'], ['polyline', 'Polyline (Multi-Segment)'], ['polygon', 'Polygon (Multi-Point)'],
+      ['arrow', 'Arrow'], ['arrow2', 'Double Arrow'],
+      ['cloud', 'Cloud (Revision)'], ['callout', 'Text Callout (Arrow + Note)'],
+      ['ellipsecallout', 'Speech Bubble'],
       // Count removed from Shapes (S2): it was a rival to Measure > Count and the
       // two didn't share a tally, so users double-counted. Use Measure > Count.
       // Redact removed from Shapes (S1): one mis-click below Rectangle risked
@@ -84,10 +84,10 @@
       // Measure & Scale: calibrate once against a known distance on the plan,
       // then every line/perimeter/area is labeled with the real-world size.
       ['--measure--', 'Measure & Scale'],
-      ['mcalibrate', '📐 Calibrate scale (set the plan scale)'],
-      ['mlength', '↦ Measure length'],
-      ['mperim', '⟿ Measure perimeter'],
-      ['marea', '▦ Measure area'],
+      ['mcalibrate', 'Calibrate Scale (Set the Plan Scale)'],
+      ['mlength', 'Measure Length'],
+      ['mperim', 'Measure Perimeter'],
+      ['marea', 'Measure Area'],
     ];
     for (const [kind, text] of KINDS) {
       // A "--measure--" entry is a non-clickable section header, not a shape.
@@ -121,11 +121,11 @@
     // Line style: solid / dashed / dotted (applies to the next drawn shape)
     const styleDiv = document.createElement('div');
     styleDiv.className = 'dropdown-group-label';
-    styleDiv.textContent = 'Line style';
+    styleDiv.textContent = 'Line Style';
     menu.appendChild(styleDiv);
     const styleRow = document.createElement('div');
     styleRow.style.cssText = 'display:flex;gap:4px;padding:4px 12px 8px;';
-    for (const [sv, sl] of [['solid', '——'], ['dashed', '– –'], ['dotted', '· · ·']]) {
+    for (const [sv, sl] of [['solid', 'Solid'], ['dashed', 'Dashed'], ['dotted', 'Dotted']]) {
       const sb = document.createElement('button');
       sb.textContent = sl;
       sb.title = sv;
@@ -150,7 +150,7 @@
       const r = shapeBtn.getBoundingClientRect();
       menu.style.top = r.bottom + 4 + 'px';
       menu.style.left = r.left + 'px';
-      menu.classList.toggle('open');
+      menu.classList.toggle('open', shapeBtn.classList.contains('active') && !menu.classList.contains('open'));
     });
     document.addEventListener('click', (e) => {
       if (!e.target.closest('#shapeTool') && !e.target.closest('#shapeMenu')) menu.classList.remove('open');
@@ -164,20 +164,6 @@
   // ── Export & Convert toolbar: clear named actions instead of one dropdown ──
   // Existing export menu items keep their app.js listeners; the named buttons
   // simply click them. Word→PDF / exact-look Word use window hooks from app.js.
-  // A single "Unlock PDF" tool button (strips an open-password). Unlock has no
-  // toolbar element of its own - it runs via window.unlockPdfTool() - so the
-  // Optimize group gets this lightweight button instead of an el('#...').
-  function buildUnlockBtn() {
-    const b = document.createElement('button');
-    b.className = 'tool-btn';
-    b.id = 'unlockBtn';
-    b.title = 'Remove a password from a PDF';
-    b.dataset.reveal = 'unlock';
-    b.innerHTML = '<span style="display:inline">Unlock</span>';
-    b.addEventListener('click', () => { if (window.unlockPdfTool) window.unlockPdfTool(); });
-    return b;
-  }
-
   // Redact tool (S1): moved out of the Shapes menu into its own button with an
   // explicit confirm, since it permanently destroys content.
   function buildRedactBtn() {
@@ -229,7 +215,7 @@
     docxPicker = document.createElement('input');
     const docxInput = docxPicker;
     docxInput.type = 'file';
-    docxInput.accept = '.docx,.doc';
+    docxInput.accept = '.docx';
     docxInput.style.display = 'none';
     docxInput.addEventListener('change', (e) => {
       const f = e.target.files && e.target.files[0];
@@ -253,7 +239,7 @@
     document.body.appendChild(imgPdfInput);
     mk('Image → PDF', 'Combine PNG/JPG images into a PDF (one page per image)', () => window.imageToPdfDialog ? window.imageToPdfDialog() : imgPdfInput.click());
 
-    mk('PDF → Word', 'Editable Word file — font sizes and bold are kept; scanned pages are included as exact images',
+    mk('PDF → Word', 'Editable Word file - font sizes and bold are kept; scanned pages are included as exact images',
       () => { if (!needDoc()) window.exportWordSmart && window.exportWordSmart(); }, 'word');
     mk('PDF → Excel', 'Extract the text into an Excel spreadsheet', () => clickExport('excel'), 'excel');
 
@@ -267,8 +253,8 @@
     const imgMenu = document.createElement('div');
     imgMenu.className = 'dropdown-menu';
     imgMenu.id = 'imgExportMenu';
-    for (const [k, t] of [['png', 'PNG — this page'], ['jpeg', 'JPEG — this page'], ['tiff', 'TIFF — this page'],
-                          ['all-png', 'PNG — all pages'], ['all-jpeg', 'JPEG — all pages']]) {
+    for (const [k, t] of [['png', 'PNG - This Page'], ['jpeg', 'JPEG - This Page'], ['tiff', 'TIFF - This Page'],
+                          ['all-png', 'PNG - All Pages'], ['all-jpeg', 'JPEG - All Pages']]) {
       const it = document.createElement('button');
       it.className = 'dropdown-item';
       it.textContent = t;
@@ -289,10 +275,10 @@
     dMenu.className = 'dropdown-menu';
     dMenu.id = 'drawMenu';
     const DMODES = [
-      ['pen', '🖊 Pen — smooth solid line'],
-      ['pencil', '✏️ Pencil — thin, light stroke'],
-      ['marker', '🖍 Marker — broad, semi-transparent'],
-      ['spray', '💨 Spray — airbrush dots'],
+      ['pen', 'Pen - Smooth Solid Line'],
+      ['pencil', 'Pencil - Thin, Light Stroke'],
+      ['marker', 'Marker - Broad, Semi-Transparent'],
+      ['spray', 'Spray - Airbrush Dots'],
     ];
     for (const [mode, label] of DMODES) {
       const it = document.createElement('button');
@@ -316,7 +302,7 @@
       const r = drawBtn.getBoundingClientRect();
       dMenu.style.top = r.bottom + 4 + 'px';
       dMenu.style.left = r.left + 'px';
-      dMenu.classList.toggle('open');
+      dMenu.classList.toggle('open', drawBtn.classList.contains('active') && !dMenu.classList.contains('open'));
     });
     document.addEventListener('click', (e) => {
       if (!e.target.closest('#drawTool') && !e.target.closest('#drawMenu')) dMenu.classList.remove('open');
@@ -330,8 +316,8 @@
     hlMenu.className = 'dropdown-menu';
     hlMenu.id = 'highlightMenu';
     const HMODES = [
-      ['text', '🖍 Highlight text (exact words)'],
-      ['free', '✏️ Freehand highlight'],
+      ['text', 'Highlight Text (Exact Words)'],
+      ['free', 'Freehand Highlight'],
       ['underline', '↧ Underline text'],
       ['strike', '⊘ Strikethrough text'],
     ];
@@ -357,7 +343,7 @@
       const r = hlBtn.getBoundingClientRect();
       hlMenu.style.top = r.bottom + 4 + 'px';
       hlMenu.style.left = r.left + 'px';
-      hlMenu.classList.toggle('open');
+      hlMenu.classList.toggle('open', hlBtn.classList.contains('active') && !hlMenu.classList.contains('open'));
     });
     document.addEventListener('click', (e) => {
       if (!e.target.closest('#highlightTool') && !e.target.closest('#highlightMenu')) hlMenu.classList.remove('open');
@@ -374,25 +360,25 @@
     mMenu.className = 'dropdown-menu';
     mMenu.id = 'measureMenu';
     const MMODES = [
-      ['setscale',   '⚖ Set scale directly...', true],  // action, not a kind (label reflects live scale via updateMeasureMenuLabels)
-      ['embedscale', '🧾 Use embedded scale (from the PDF)', true],
-      ['mcalibrate', '📐 Calibrate by drawing a known line'],
-      ['storescale', '📌 Store scale in this page', true],
-      ['lockscale',  '🔒 Lock / unlock scale', true],
-      ['mlength',    '↦ Measure length'],
-      ['mpolylen',   '⌇ Measure polyline length'],
-      ['mperim',     '⟿ Measure perimeter'],
-      ['marea',      '▦ Measure area'],
-      ['mdynfill',   '🪣 Dynamic fill (auto-detect a room)'],
-      ['mcutout',    '⊟ Area cutout (subtract a void)'],
-      ['mangle',     '∠ Measure angle'],
-      ['mradius',    '◐ Measure radius / diameter'],
-      ['mvolume',    '⬒ Measure volume (area × depth)'],
-      ['mcount',     '# Count'],
-      ['countgroup', '🏷 Count group (name + color)...', true],
-      ['snapcontent','🧲 Snap to Content (on/off)', true],  // action: toggle snapping
-      ['hidelabels', '👁 Show / hide measurement labels', true],
-      ['mlist',      '☰ Measurements list & totals', true],  // action: open the panel
+      ['setscale',   'Set Scale Directly...', true],  // action, not a kind (label reflects live scale via updateMeasureMenuLabels)
+      ['embedscale', 'Use Embedded Scale (From the PDF)', true],
+      ['mcalibrate', 'Calibrate by Drawing a Known Line'],
+      ['storescale', 'Store Scale in This Page', true],
+      ['lockscale',  'Lock / Unlock Scale', true],
+      ['mlength',    'Measure Length'],
+      ['mpolylen',   'Measure Polyline Length'],
+      ['mperim',     'Measure Perimeter'],
+      ['marea',      'Measure Area'],
+      ['mdynfill',   'Dynamic Fill (Auto-Detect a Room)'],
+      ['mcutout',    'Area Cutout (Subtract a Void)'],
+      ['mangle',     'Measure Angle'],
+      ['mradius',    'Measure Radius / Diameter'],
+      ['mvolume',    'Measure Volume (Area × Depth)'],
+      ['mcount',     'Count'],
+      ['countgroup', 'Count Group (Name + Color)...', true],
+      ['snapcontent','Snap to Content (On/Off)', true],  // action: toggle snapping
+      ['hidelabels', 'Show / Hide Measurement Labels', true],
+      ['mlist',      'Measurements List & Totals', true],  // action: open the panel
     ];
     for (const [kind, label, isAction] of MMODES) {
       const it = document.createElement('button');
@@ -410,15 +396,15 @@
           else if (kind === 'storescale' && window.storeScaleInPage) window.storeScaleInPage();
           else if (kind === 'lockscale' && window.toggleScaleLock) {
             const locked = window.toggleScaleLock();
-            it.textContent = (locked ? '🔒 ' : '🔓 ') + 'Lock / unlock scale';
+            it.textContent = (locked ? 'Unlock Scale' : 'Lock Scale');
           }
           else if (kind === 'snapcontent' && window.toggleSnapContent) {
             const on = window.toggleSnapContent();
-            it.textContent = (on ? '✓ ' : '') + '🧲 Snap to Content (on/off)';
+            it.textContent = (on ? '✓ ' : '') + 'Snap to Content (On/Off)';
           }
           else if (kind === 'hidelabels' && window.toggleMeasureLabels) {
             const hidden = window.toggleMeasureLabels();
-            it.textContent = (hidden ? '✓ ' : '') + '👁 Show / hide measurement labels';
+            it.textContent = (hidden ? '✓ ' : '') + 'Show / Hide Measurement Labels';
           }
           else if (kind === 'countgroup' && window.openCountGroupDialog) window.openCountGroupDialog();
           return;
@@ -451,9 +437,9 @@
     window.updateMeasureMenuLabels = function (info) {
       const setItem = mMenu.querySelector('.dropdown-item[data-kind="setscale"]');
       if (setItem) setItem.textContent = info && info.scaleText
-        ? '⚖ ' + info.scaleText : '⚖ Set scale directly...';
+        ? info.scaleText : 'Set Scale Directly...';
       const lockItem = mMenu.querySelector('.dropdown-item[data-kind="lockscale"]');
-      if (lockItem) lockItem.textContent = (info && info.locked ? '🔒 Scale locked - click to unlock' : '🔓 Lock scale');
+      if (lockItem) lockItem.textContent = (info && info.locked ? 'Unlock Scale' : 'Lock Scale');
     };
     measureBtn.addEventListener('click', () => {
       const r = measureBtn.getBoundingClientRect();
@@ -520,6 +506,7 @@
     pbEraser.addEventListener('click', () => {
       if (eraserReal.classList.contains('active')) {
         el(backTo)?.click(); // back to the previous drawing tool
+        document.querySelectorAll('.dropdown-menu.open').forEach(m => m.classList.remove('open'));
       } else {
         backTo = el('#highlightTool')?.classList.contains('active') ? '#highlightTool'
                : el('#shapeTool')?.classList.contains('active') ? '#shapeTool' : '#drawTool';
@@ -538,9 +525,9 @@
   const layersPanel = document.createElement('aside');
   layersPanel.className = 'layers-panel';
   layersPanel.innerHTML =
-    '<div class="layers-head"><span>Layers</span><button class="icon-btn" id="layersClose" title="Close">✕</button></div>' +
+    '<div class="layers-head"><span>Layers</span><button class="icon-btn" id="layersClose" title="Close"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>' +
     '<div class="layers-hint">Each layer is one set of markups (e.g. "Layer 2"). Click a layer to draw on it; the eye hides it. Hidden layers are not saved into the PDF.</div>' +
-    '<button class="layers-add" id="layersAdd">+ New layer</button>' +
+    '<button class="layers-add" id="layersAdd">+ New Layer</button>' +
     '<div class="layers-list" id="layersList"></div>';
   function toggleLayersPanel(force) {
     const on = force !== undefined ? force : layersPanel.style.display !== 'flex';
@@ -599,7 +586,7 @@
       // delete
       const del = document.createElement('button');
       del.className = 'layer-del';
-      del.textContent = '✕';
+      del.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
       del.title = 'Delete this layer and its markups';
       del.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -675,39 +662,41 @@
       '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/><path d="M3 22h18" opacity="0.6"/></svg>';
   }
 
+  // A plain line of text that sits beside a tool in the ribbon.
+  function buildNote(text) {
+    const n = document.createElement('span');
+    n.className = 'tool-note-inline';
+    n.textContent = text;
+    return n;
+  }
+
   const GROUPS = [
-    { id: 'edit',     label: 'Assemble',        tint: '#b06ee8',
+    { id: 'edit',     label: 'Edit & Mark Up',  tint: '#2e9e57',
       desc: 'Text, draw, highlight, measure, stamps, images',
       members: [el('#textTool'), el('[data-tool="edittext"]'), el('#drawTool'), el('#highlightTool'), el('#measureTool'), el('#shapeTool'), wrapOf('#stampBtn'), el('#imageTool'), el('#cropTool'), el('#toolOptions')] },
     { id: 'organize', label: 'Organize Pages',  tint: '#4caf7d',
       desc: 'Rotate, add, merge, split pages',
       members: [el('#rotateBtn'), el('#addPageBtn'), el('#addImagePageBtn'), el('#mergeBtn'), el('#splitBtn'), el('#watermarkBtn'), el('#pageNumBtn'), el('#nupBtn'), el('#rmBlankBtn')] },
-    { id: 'sign',     label: 'Fill & Sign',     tint: '#5aa2e8',
-      desc: 'Add your signature to the document',
+    { id: 'sign',     label: 'Fill & Protect',  tint: '#5aa2e8',
+      desc: 'Forms, signature image, password, compare',
       // A clear "signing" icon: a fountain pen writing on a signature line.
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
            '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/><path d="M3 22h18" opacity="0.6"/></svg>',
-      members: [el('#signatureBtn'), el('#formsBtn'), el('#protectBtn'), el('#compareBtn')] },
+      members: [el('#signatureBtn'), buildNote('A picture of a signature, with no identity or audit trail. For a real signature use Nexus Sign.'), el('#formsBtn'), el('#protectBtn'), el('#compareBtn')] },
     { id: 'export',   label: 'Export & Convert', tint: '#3ab5a0',
       desc: 'PDF to Word/Excel/images, Word to PDF',
       members: [buildExportBar()] },
     { id: 'optimize', label: 'Optimize',        tint: '#5c9e57',
-      desc: 'Compress, repair, OCR',
+      desc: 'Compress, sanitize, OCR, redact',
       // Down-arrow into a tray: shrink / clean up the file.
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
       members: [el('#compressBtn'), el('#sanitizeBtn'), el('#ocrBtn'), buildRedactBtn()] },
     { id: 'layers',   label: 'Layers',          tint: '#e8734a',
-      desc: 'Versions of markups — show or hide',
+      desc: 'Versions of markups - show or hide',
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>',
       action: () => toggleLayersPanel() },
   ];
 
-  // AI features are disabled: hide every AI entry point. The elements stay in
-  // the DOM (app.js binds listeners to them by id — removing them would crash
-  // its init), they are just never visible or reachable.
-  for (const sel of ['#aiToggleBtn', '#aiPanel', '#tbAiEdit']) {
-    const n = el(sel); if (n) n.style.display = 'none';
-  }
 
   // Move each group's members into its own container inside the context bar.
   for (const g of GROUPS) {
@@ -762,7 +751,6 @@
     if (g.svg) { const t = document.createElement('span'); t.innerHTML = g.svg; return t.firstChild; }
     const src = g.members && g.members.find(Boolean);
     const svg = src && src.querySelector && src.querySelector('svg');
-    if (g.id === 'ai') { const b = el('#aiToggleBtn'); return b?.querySelector('svg')?.cloneNode(true) || null; }
     return svg ? svg.cloneNode(true) : null;
   };
 
@@ -771,10 +759,10 @@
     edit: 'Add or edit text, draw or highlight on the page, add stamps and images.',
     comment: 'Add shapes on the page, or open the notes panel for page comments.',
     organize: 'Rotate the current page, add or merge pages, or split out a page range.',
-    sign: 'Click Sign to create your signature, then place it anywhere on the page.',
+    sign: 'Fill forms, place a signature image, add a password, or compare two PDFs. For a real signature use Nexus Sign.',
     export: 'Choose a format to export the current page or the whole document.',
     ocr: 'Run OCR to make scanned pages searchable and selectable.',
-    optimize: 'Compress the file, sanitize hidden data, run OCR, or redact content.',
+    optimize: 'Compress the file, remove attachments, scripts and link actions (Sanitize), run OCR, or redact content.',
   };
   const setHint = (t) => { const s = el('#statusText'); if (s && t) s.textContent = t; };
 
@@ -870,7 +858,7 @@
     sep.className = 'page-sep';
     sep.textContent = '/';
     info.append(pageInput, sep, totalPages);
-    pageInput.title = 'Current page — type a number and press Enter';
+    pageInput.title = 'Current page - type a number and press Enter';
   }
   const zo = el('#zoomOut'), zi = el('#zoomIn');
   if (zo) zo.innerHTML = '&#8722;';
@@ -983,8 +971,6 @@
       sanitize: '<path d="M9.5 9.5l5 5m-5 0 1.3-1.3M9.5 14.5l-1.4 1.4a1.5 1.5 0 0 0 2.1 2.1l1.4-1.4M14.5 9.5l1.4-1.4a1.5 1.5 0 0 0-2.1-2.1L12.4 7.4" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
       // OCR: white scan frame + text lines.
       ocr:      '<path d="M8 5.5H6a1 1 0 0 0-1 1v2M16 5.5h2a1 1 0 0 1 1 1v2M8 18.5H6a1 1 0 0 1-1-1v-2M16 18.5h2a1 1 0 0 0 1-1v-2" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M8.5 10.5h7M8.5 13.5h4.5" stroke="#fff" stroke-width="1.7" fill="none" stroke-linecap="round"/>',
-      // Unlock: open padlock (white).
-      unlock:   '<rect x="5.5" y="10.5" width="13" height="9" rx="2" fill="#fff"/><path d="M8.5 10.5V7a3.5 3.5 0 0 1 6.7-1.4" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="12" cy="15" r="1.4" fill="var(--icf-a)"/>',
     };
 
     // SVG path strings (24×24, stroke) keyed for reuse.
@@ -1011,8 +997,6 @@
       comment:  'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
       compare:  'M9 3v18M3 7h6M3 11h6M15 3v18M15 7h6M15 11h6',
       sanitize: 'M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6zM9 12l2 2 4-4',
-      template: 'M4 2h16v20H4zM8 6h8M8 18h8M9 10l6 4M15 10l-6 4',
-      unlock:   'M7 11V7a5 5 0 0 1 9.9-1M5 11h14v10H5zM12 15v3',
       markdown: 'M4 5h16v14H4zM7 15V9l2.5 3L12 9v6M16 9v4m0 0l-1.5-1.5M16 13l1.5-1.5',
     };
 
@@ -1025,7 +1009,7 @@
     // card is gone - dropping/opening a file already starts editing.
     // Exact layout Neil specified (Aug 2026): three rows only. Row 1 = the core
     // assemble tools; Convert = Word/Image direction-pickers + Excel; Optimize =
-    // Compress/Repair/OCR. Everything else is reachable inside the editor once a
+    // Compress/Sanitize/OCR. Everything else is reachable inside the editor once a
     // file is open; the landing stays minimal and user-friendly. (Editing is the
     // "Edit" badge on the dropzone card itself - no separate Edit PDF tile.)
     const ROWS = [
@@ -1051,15 +1035,15 @@
       ]},
       { title: 'Optimize', cards: [
         ['Compress PDF',  'Reduce the file size',          '#5c9e57', IC.compress,  () => pickPdfThen(() => revealTool('optimize', '#compressBtn'))],
-        ['Repair PDF',    'Fix a damaged or corrupt PDF',  '#6b7280', IC.sanitize,  () => pickPdfThen(() => revealTool('optimize', '#sanitizeBtn'))],
-        ['OCR (scanned)', 'Make scans searchable',         '#7dc243', IC.ocr,       () => pickPdfThen(() => revealTool('optimize', '#ocrBtn'))],
+        ['Sanitize PDF',  'Remove attachments, scripts and link actions', '#6b7280', IC.sanitize,  () => pickPdfThen(() => revealTool('optimize', '#sanitizeBtn'))],
+        ['OCR (Scanned)', 'Make scans searchable',         '#7dc243', IC.ocr,       () => pickPdfThen(() => revealTool('optimize', '#ocrBtn'))],
         ['Lock PDF',      'Password-protect the file',     '#d4506e', IC.protect,   () => pickPdfThen(() => revealTool('sign', '#protectBtn'))],
       ]},
     ];
 
     // Two-panel layout the owner preferred, made foolproof with an explicit
     // "Step 1 / Step 2" framing: LEFT = upload the file (the clear starting
-    // point) with a Recent list; RIGHT = all the tools, grouped. A tool always
+    // point); RIGHT = all the tools, grouped. A tool always
     // opens the picker first if no file is loaded, so the two steps can also be
     // done in one click.
     const wrap = document.createElement('div');
@@ -1077,11 +1061,11 @@
       '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
       '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M12 3v13M7 8l5-5 5 5"/></svg></span>' +
       '<span class="welcome-drop-txt">' +
-      '<span class="welcome-drop-t">Drop your PDF here to get started</span>' +
+      '<span class="welcome-drop-t">Drop Your PDF Here to Get Started</span>' +
       '<span class="welcome-drop-s">or click the button below to browse your files</span>' +
       '</span>' +
       '<span class="welcome-drop-btn">Choose File</span>' +
-      '<span class="welcome-drop-hint">Upload a PDF up to 750 MB, or a Word (.docx, .doc) or image (PNG, JPG) file to convert into a PDF.</span>';
+      '<span class="welcome-drop-hint">Upload a PDF up to 750 MB, or a Word (.docx) or image (PNG, JPG) file to convert into a PDF.</span>';
     drop.addEventListener('click', (e) => { e.stopPropagation(); el('#fileInput')?.click(); });
     leftCol.appendChild(drop);
     wrap.appendChild(leftCol);
@@ -1127,7 +1111,7 @@
     wrap.appendChild(tools);
     dz.appendChild(wrap);
 
-    // If the picker is cancelled, disarm the landing-card action so a later
+    // If the picker is canceled, disarm the landing-card action so a later
     // manual open doesn't unexpectedly fire a stale tool/export.
     el('#fileInput')?.addEventListener('cancel', () => { pendingAction = null; });
   }
@@ -1161,7 +1145,7 @@
   if (dl) {
     const span = dl.querySelector('span');
     if (span) span.textContent = 'Save ▾';
-    dl.title = 'Save this document — choose a format';
+    dl.title = 'Save this document - choose a format';
     dl.classList.add('save-pdf-btn');
     right.appendChild(dl);
 
@@ -1171,19 +1155,19 @@
     const exp = (k) => el(`#exportMenu [data-export="${k}"]`)?.click();
     // Most-used formats up front; everything else behind "Other formats".
     const PRIMARY = [
-      ['PDF — all pages', () => window.downloadPDF && window.downloadPDF()],
-      ['PDF — selected pages…', () => el('#splitBtn')?.click()],
-      ['PNG image — this page', () => exp('png')],
-      ['JPEG image — this page', () => exp('jpeg')],
+      ['PDF - All Pages', () => window.downloadPDF && window.downloadPDF()],
+      ['PDF - Selected Pages...', () => el('#splitBtn')?.click()],
+      ['PNG Image - This Page', () => exp('png')],
+      ['JPEG Image - This Page', () => exp('jpeg')],
     ];
     const OTHER = [
       ['Flattened PDF (uneditable)', () => window.saveFlattened && window.saveFlattened()],
-      ['All text (.txt)', () => window.extractAllText && window.extractAllText()],
+      ['All Text (.txt)', () => window.extractAllText && window.extractAllText()],
       ['Word (.docx)', () => window.exportWordSmart && window.exportWordSmart()],
       ['Excel (.xlsx)', () => exp('excel')],
-      ['TIFF image — this page', () => exp('tiff')],
-      ['PNG images — all pages (ZIP)', () => exp('all-png')],
-      ['JPEG images — all pages (ZIP)', () => exp('all-jpeg')],
+      ['TIFF Image - This Page', () => exp('tiff')],
+      ['PNG Images - All Pages (ZIP)', () => exp('all-png')],
+      ['JPEG Images - All Pages (ZIP)', () => exp('all-jpeg')],
     ];
     const addItem = (parent, text, fn) => {
       const it = document.createElement('button');
@@ -1195,7 +1179,7 @@
     for (const [text, fn] of PRIMARY) addItem(saveMenu, text, fn);
     const moreBtn = document.createElement('button');
     moreBtn.className = 'dropdown-item';
-    moreBtn.textContent = 'Other formats  ▸';
+    moreBtn.textContent = 'Other Formats  ▸';
     saveMenu.appendChild(moreBtn);
     const moreBox = document.createElement('div');
     moreBox.style.display = 'none';
@@ -1205,7 +1189,7 @@
       e.stopPropagation();
       const open = moreBox.style.display !== 'none';
       moreBox.style.display = open ? 'none' : 'block';
-      moreBtn.textContent = open ? 'Other formats  ▸' : 'Other formats  ▾';
+      moreBtn.textContent = open ? 'Other Formats  ▸' : 'Other formats  ▾';
     });
     document.body.appendChild(saveMenu);
     // Intercept the button's click BEFORE app.js's own target listener can
@@ -1226,83 +1210,13 @@
   }
   if (center) center.style.display = 'none';
 
-  // ── Recent files: history button in the top-right ──────────────────────────
-  const RKEY = 'pdfEditorRecents';
-  const getRecents = () => { try { return JSON.parse(localStorage.getItem(RKEY)) || []; } catch { return []; } };
-  const addRecent = (name, path) => {
-    if (!path || !/\.pdf$/i.test(name)) return;
-    const r = getRecents().filter(x => x.path !== path);
-    r.unshift({ name, path });
-    try { localStorage.setItem(RKEY, JSON.stringify(r.slice(0, 10))); } catch { /* storage full */ }
-  };
-  el('#fileInput')?.addEventListener('change', (e) => {
-    const f = e.target.files?.[0]; if (f?.path) addRecent(f.name, f.path);
-  });
-  document.addEventListener('drop', (e) => {
-    const f = e.dataTransfer?.files?.[0];
-    if (f?.path && /\.pdf$/i.test(f.name)) addRecent(f.name, f.path);
-  }, true);
-
-  const histBtn = document.createElement('button');
-  histBtn.className = 'tool-btn';
-  histBtn.title = 'Recent files'; histBtn.setAttribute('aria-label', 'Recent files');
-  histBtn.innerHTML =
-    '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
-  const histMenu = document.createElement('div');
-  histMenu.className = 'dropdown-menu';
-  histMenu.id = 'recentMenu';
-  document.body.appendChild(histMenu);
-  histBtn.addEventListener('click', () => {
-    const r = getRecents();
-    histMenu.innerHTML = '<div class="dropdown-group-label">Recent files</div>';
-    if (!r.length) {
-      const none = document.createElement('div');
-      none.className = 'dropdown-group-label';
-      none.textContent = 'Nothing opened yet';
-      histMenu.appendChild(none);
-    }
-    for (const it of r) {
-      const b = document.createElement('button');
-      b.className = 'dropdown-item';
-      b.textContent = it.name;
-      b.title = it.path;
-      b.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        histMenu.classList.remove('open');
-        try {
-          const p = it.path.replace(/\\/g, '/');
-          const res = await fetch('file://' + (p.startsWith('/') ? '' : '/') + encodeURI(p).replace(/#/g, '%23').replace(/\?/g, '%3F'));
-          const blob = await res.blob();
-          addRecent(it.name, it.path); // bump to top
-          await window.loadPdfFile(new File([blob], it.name, { type: 'application/pdf' }));
-        } catch {
-          const s = el('#statusText'); if (s) s.textContent = 'Could not reopen ' + it.name + ' — the file may have moved.';
-        }
-      });
-      histMenu.appendChild(b);
-    }
-    const rect = histBtn.getBoundingClientRect();
-    histMenu.style.top = rect.bottom + 6 + 'px';
-    histMenu.style.left = Math.max(8, rect.right - 260) + 'px';
-    histMenu.style.minWidth = '240px';
-    histMenu.classList.toggle('open');
-  });
-  document.addEventListener('click', (e) => {
-    if (!histMenu.contains(e.target) && !histBtn.contains(e.target)) histMenu.classList.remove('open');
-  });
-  const searchBtnRef = el('#searchToggle');
-  if (searchBtnRef) searchBtnRef.after(histBtn); else right.appendChild(histBtn);
-  // Hidden per request: Recent files (clock) button is not shown in the toolbar.
-  // All its logic is kept above so it can be re-enabled by removing this line.
-  histBtn.style.display = 'none';
-
   // Document Info (i) button
   const infoBtn = document.createElement('button');
   infoBtn.className = 'tool-btn';
   infoBtn.title = 'Document information (title, author, keywords)'; infoBtn.setAttribute('aria-label', 'Document information');
   infoBtn.innerHTML = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>';
   infoBtn.addEventListener('click', () => window.documentInfoDialog && window.documentInfoDialog());
-  histBtn.after(infoBtn);
+  right.appendChild(infoBtn);
   // Hidden per request: Document information (i) button is not shown.
   infoBtn.style.display = 'none';
 
@@ -1310,7 +1224,7 @@
   const outlinePanel = document.createElement('aside');
   outlinePanel.className = 'outline-panel';
   outlinePanel.style.display = 'none';
-  outlinePanel.innerHTML = '<div class="outline-head"><span>Bookmarks</span><button class="icon-btn" id="outlineClose">✕</button></div><div class="outline-list" id="outlineList"></div>';
+  outlinePanel.innerHTML = '<div class="outline-head"><span>Bookmarks</span><button class="icon-btn" id="outlineClose"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div><div class="outline-list" id="outlineList"></div>';
   mainContainer.appendChild(outlinePanel);
   outlinePanel.querySelector('#outlineClose').addEventListener('click', () => { outlinePanel.style.display = 'none'; });
   async function toggleOutline() {
@@ -1346,7 +1260,7 @@
   closeDoc.className = 'tool-btn close-doc-btn';
   closeDoc.title = 'Close this document and return to Home';
   closeDoc.innerHTML =
-    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Close file</span>';
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Close File</span>';
   closeDoc.style.display = 'none';
   closeDoc.addEventListener('click', () => {
     if (!window.confirm('Close this document? Unsaved changes will be lost.')) return;
@@ -1396,7 +1310,7 @@
       const sb = el('#sidebar'), sbh = el('#sidebarResizeHandle');
       if (sb) sb.style.display = name ? '' : 'none';
       if (sbh) sbh.style.display = name ? '' : 'none';
-      // Top bar on the landing page: only Recent files + Theme are meaningful.
+      // Top bar on the landing page: only Theme is meaningful.
       // Open duplicates the "Open PDF" card; the rest need a document.
       // Note: #selectTool is intentionally omitted - it stays hidden (Pranshu);
       // its listeners still work, it's just never surfaced in the top bar.
@@ -1414,7 +1328,7 @@
         header.style.display = (name || _everHadDoc) ? '' : 'none';
       }
       // Window/tab title mirrors the open document, like every desktop app.
-      document.title = name ? `${name} — PDF Tools` : 'PDF Tools';
+      document.title = name ? `${name} - PDF Tools` : 'PDF Tools';
       // Landing-page card flow: the PDF just finished loading — run the tool
       // the user picked (buttons need a beat to enable first).
       if (name && pendingAction) { const fn = pendingAction; pendingAction = null; setTimeout(fn, 400); }
