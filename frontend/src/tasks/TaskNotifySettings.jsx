@@ -4,10 +4,10 @@
 // Same shape as tickets/TicketNotifySettings.jsx - kept as its own component
 // (not a shared generic) since the field sets genuinely differ (due-date
 // reminder cadence has no ticket equivalent; auto-close has no task one).
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { LoadingState } from '../components/AsyncState';
 import {
-  Mail, RefreshCw, Save, AlertTriangle, CheckCircle2, Clock, RotateCcw,
+  Mail, RefreshCw, AlertTriangle, CheckCircle2, Clock, RotateCcw,
   MessageSquare, Paperclip, Ban, MinusCircle, Play,
 } from 'lucide-react';
 import { api } from '../api';
@@ -17,7 +17,10 @@ import TaskDetailDrawer from './TaskDetailDrawer';
 // Shared US date/time helpers - no ad-hoc toLocale* calls (CLAUDE.md).
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { NX, FONT, btn, input as inputStyle, card } from './theme';
-import SavedCheck from '../components/SavedCheck';
+import SaveRow from '../components/SaveRow';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
+import { dialog } from '../ui/dialog';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const field = { marginBottom: 14 };
@@ -44,9 +47,9 @@ const INBOUND_META = {
   failed:   { color: NX.red, Icon: AlertTriangle, label: 'Failed' },
 };
 
-function Toggle({ on, onChange, disabled = false }) {
+function Toggle({ on, onChange, label, disabled = false }) {
   return (
-    <button type="button" onClick={onChange} disabled={disabled} title={on ? 'Enabled' : 'Disabled'} style={{
+    <button type="button" role="switch" aria-checked={!!on} aria-label={label} onClick={onChange} disabled={disabled} title={on ? 'Enabled' : 'Disabled'} style={{
       position: 'relative', width: 38, height: 22, borderRadius: 999, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
       background: on ? NX.green : NX.border, transition: 'background 0.15s', flexShrink: 0, opacity: disabled ? 0.55 : 1,
     }}>
@@ -65,7 +68,22 @@ function Field({ label, hint, children }) {
   );
 }
 
-export default function TaskNotifySettings() {
+// The Settings save pattern (Oct 23 2026): the switches and the batching
+// select save the moment they change, with a toast, and roll back when the
+// save fails; the typed mail fields are a draft with one Save row under
+// them, and Save sends only the keys that changed (the server merges -
+// task_notify.save_settings).
+const typedOf = (c) => ({
+  fromMailbox: c.fromMailbox || '', cc: (c.defaultCc || []).join(', '), replyTo: c.replyTo || '', logoUrl: c.logoUrl || '',
+  dueSoonDays: String(c.dueSoonDays ?? 0), overdueRepeatDays: String(c.overdueRepeatDays ?? 0), inboundMailbox: c.inboundMailbox || '',
+});
+const wholeDays = (v) => Math.max(0, Math.floor(Number(v) || 0));
+// The mail plumbing a Super Administrator alone may change (11/02/2026).
+const PLUMBING = ['fromMailbox', 'cc', 'replyTo', 'inboundMailbox'];
+
+// `toastOk` / `toastErr` (optional): the Settings shell's toasts; without
+// them the panel says so on a line of its own.
+export default function TaskNotifySettings({ toastOk, toastErr }) {
   const { myLevel, isGlobalAdmin } = useRole();
   // The mail plumbing - the sender, Always CC, reply-to and email replies -
   // is the whole organization's (Neil, 11/02/2026): a Super Administrator's
@@ -74,12 +92,55 @@ export default function TaskNotifySettings() {
   const [tab, setTab] = useState('settings');
   const [cfg, setCfg] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [notice, setNotice] = useState(null);
   const [err, setErr] = useState('');
-  const [ccInput, setCcInput] = useState('');
 
-  const load = () => api.getTaskNotifySettings().then((c) => { setCfg(c); setCcInput((c.defaultCc || []).join(', ')); }).catch((e) => setErr(e.message || String(e)));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { api.getTaskNotifySettings().then(setCfg).catch((e) => setErr(e.message || String(e))); }, []);
+
+  const typedSaved = useMemo(() => (cfg ? typedOf(cfg) : null), [cfg]);
+  // rebase: a switch that also sets a typed field (the reply mailbox below)
+  // keeps the rest of the typed draft.
+  const { draft, setDraft, patch: editDraft, dirty, reset } = useDraft(typedSaved, { rebase: true });
+  const say = (ok, text) => {
+    const fn = ok ? toastOk : toastErr;
+    if (fn) fn(text); else setNotice({ ok, text });
+  };
+  // A switch or a select: saved at once, rolled back on failure.
+  const instant = async (patch, what) => {
+    const prev = cfg;
+    setCfg((c) => ({ ...c, ...patch, enabledEvents: { ...c.enabledEvents, ...(patch.enabledEvents || {}) } }));
+    try {
+      setCfg(await api.updateTaskNotifySettings(patch));
+      say(true, `${what} saved.`);
+    } catch (e) {
+      setCfg(prev);
+      say(false, e.message || `Could not save ${what.toLowerCase()}.`);
+    }
+  };
+
+  const save = async () => {
+    if (!dirty || saving) return false;
+    const body = {};
+    for (const k of ['fromMailbox', 'replyTo', 'logoUrl', 'inboundMailbox'].filter((x) => !locked || !PLUMBING.includes(x))) {
+      if (draft[k] !== typedSaved[k]) body[k] = draft[k].trim();
+    }
+    if (!locked && draft.cc !== typedSaved.cc) body.defaultCc = draft.cc.split(',').map((s) => s.trim()).filter(Boolean);
+    for (const k of ['dueSoonDays', 'overdueRepeatDays']) {
+      if (draft[k] !== typedSaved[k]) body[k] = wholeDays(draft[k]);
+    }
+    setSaving(true); setErr('');
+    try {
+      const next = await api.updateTaskNotifySettings(body);
+      setCfg(next);
+      setDraft(typedOf(next));
+      say(true, 'Task notification settings saved.');
+      return true;
+    } catch (e) {
+      setErr(e.message || String(e));
+      return false;
+    } finally { setSaving(false); }
+  };
+  useGroupDirty(dirty, save);
 
   if (myLevel < 3) {
     return (
@@ -88,21 +149,24 @@ export default function TaskNotifySettings() {
       </div>
     );
   }
-  if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
+  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
-  const set = (k, v) => setCfg((c) => ({ ...c, [k]: v }));
-  const setEvent = (k, v) => setCfg((c) => ({ ...c, enabledEvents: { ...c.enabledEvents, [k]: v } }));
-
-  const save = async () => {
-    setSaving(true); setErr(''); setSaved(false);
-    try {
-      const patch = { ...cfg, defaultCc: ccInput.split(',').map((s) => s.trim()).filter(Boolean) };
-      const next = await api.updateTaskNotifySettings(patch);
-      setCfg(next);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (e) { setErr(e.message || String(e)); }
-    finally { setSaving(false); }
+  const setEvent = (k, on) => instant({ enabledEvents: { [k]: on } }, EVENT_LABELS[k]);
+  // Turning replies on starts reading a mailbox at once: with none saved (or
+  // one typed and not saved yet) ask which one first, and save the two
+  // together - never start reading the reply-to address by surprise.
+  const toggleInbound = async () => {
+    if (locked) return;
+    if (cfg.inboundEnabled) { instant({ inboundEnabled: false }, 'Email replies'); return; }
+    const saved = (cfg.inboundMailbox || '').trim();
+    const typed = (draft.inboundMailbox || '').trim();
+    if (saved && typed === saved) { instant({ inboundEnabled: true }, 'Email replies'); return; }
+    const mailbox = await dialog.prompt('Enter the mailbox Nexus reads task email replies from.', {
+      title: 'Turn On Email Replies', confirmText: 'Turn On', placeholder: 'tasks@companydomain.com',
+      defaultValue: typed || cfg.replyTo || '', required: true,
+    });
+    if (!mailbox || !mailbox.trim()) return;
+    instant({ inboundEnabled: true, inboundMailbox: mailbox.trim() }, 'Email replies');
   };
 
   return (
@@ -118,83 +182,82 @@ export default function TaskNotifySettings() {
 
       {tab === 'settings' ? (
         <>
-          {/* Two cards side by side on a wide screen rather than one long
-              single-column stack, same pattern as TicketNotifySettings.jsx -
-              mail settings (plus the inbound-reply block, which is about the
-              same mailbox) and notification-type toggles are two independent
-              groups of controls, not one flow that reads top-to-bottom. */}
-          {/* Columns stretch to fill the available width (Pranshu, Sep 9 -
-              a fixed max-width pair left a lot of blank space on the right
-              once Admin went full-bleed) instead of capping out early. */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1fr) minmax(320px, 1fr)', gap: 16, alignItems: 'start' }}>
+          {notice && (
+            <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? NX.green : NX.red }}>{notice.text}</div>
+          )}
+          {/* Two cards side by side on a wide screen: the switches (each saves
+              when clicked) first, then the typed mail fields with the one Save
+              row under them. Columns stretch to fill the available width
+              (Pranshu, Sep 9). */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, alignItems: 'start' }}>
+            <div style={{ ...card, padding: 18 }}>
+              <label style={fieldLabel}>Notification Types</label>
+              {Object.entries(EVENT_LABELS).map(([k, lab]) => (
+                <div key={k} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
+                  <span style={{ fontSize: 13.5 }}>{lab}</span>
+                  <Toggle label={lab} on={!!cfg.enabledEvents?.[k]} onChange={() => setEvent(k, !cfg.enabledEvents?.[k])} />
+                </div>
+              ))}
+              <div style={{ borderTop: `1px solid ${NX.border2}`, marginTop: 10, paddingTop: 14 }}>
+                {/* Batching (Neil, Sep 24): a person's task emails are held and
+                    sent together once the oldest has waited this long, so five
+                    assignments in a row arrive as one email. Backend:
+                    task_notify.flush_batches. */}
+                <Field label="Batch Task Emails" hint="Updates on someone's tasks are gathered and sent as one email once the first has waited this long. Mentions, deletions, urgent tasks and tasks due today or tomorrow always go out right away.">
+                  <select aria-label="Batch Task Emails" value={cfg.batchWindowMinutes ?? 60} onChange={(e) => instant({ batchWindowMinutes: Number(e.target.value) }, 'Batching')}
+                    style={{ ...inputStyle, width: 'auto', appearance: 'auto', cursor: 'pointer' }}>
+                    <option value={0}>Off - send each email right away</option>
+                    <option value={15}>15 minutes</option>
+                    <option value={30}>30 minutes</option>
+                    <option value={60}>1 hour</option>
+                    <option value={120}>2 hours</option>
+                  </select>
+                </Field>
+                {/* The two reminder numbers are the COMPANY DEFAULT: each
+                    person can change their own in Email Settings (My Tasks).
+                    This decides whether "Off" is one of their choices. */}
+                <Field label="Let People Turn Off Overdue Reminders" hint="The reminder settings are everyone's default; each person can adjust their own in Tasks, Email Settings. When this is off, the least anyone can choose is once a week or only once.">
+                  <Toggle label="Let People Turn Off Overdue Reminders" on={!!cfg.allowUserOverdueOff}
+                    onChange={() => instant({ allowUserOverdueOff: !cfg.allowUserOverdueOff }, 'Overdue reminder choice')} />
+                </Field>
+                <InboundSwitch on={!!cfg.inboundEnabled} onChange={toggleInbound} locked={locked} />
+              </div>
+            </div>
+
             <div style={{ ...card, padding: 18 }}>
               {locked && (
                 <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 12 }}>
                   The sending mailbox, Default CC, reply-to address and email replies apply to every company - only a Super Administrator can change them.
                 </div>
               )}
-              <Field label="Shared mailbox (sender)" hint="Leave blank to send from the default Nexus mailbox.">
-                <input value={cfg.fromMailbox || ''} onChange={(e) => set('fromMailbox', e.target.value)} readOnly={locked}
+              <Field label="Shared Mailbox (Sender)" hint="Leave blank to send from the default Nexus mailbox.">
+                <input aria-label="Shared Mailbox (Sender)" value={draft.fromMailbox} onChange={(e) => editDraft({ fromMailbox: e.target.value })} readOnly={locked}
                   placeholder="tasks@companydomain.com" style={inputStyle} />
               </Field>
               <Field label="Default CC" hint="Comma-separated. Applied to every task notification.">
-                <input value={ccInput} onChange={(e) => setCcInput(e.target.value)} readOnly={locked} placeholder="ops@companydomain.com" style={inputStyle} />
+                <input aria-label="Default CC" value={draft.cc} onChange={(e) => editDraft({ cc: e.target.value })} readOnly={locked} placeholder="ops@companydomain.com" style={inputStyle} />
               </Field>
-              <Field label="Reply-to address">
-                <input value={cfg.replyTo || ''} onChange={(e) => set('replyTo', e.target.value)} readOnly={locked} placeholder="tasks@companydomain.com" style={inputStyle} />
+              <Field label="Reply-To Address">
+                <input aria-label="Reply-To Address" value={draft.replyTo} onChange={(e) => editDraft({ replyTo: e.target.value })} readOnly={locked} placeholder="tasks@companydomain.com" style={inputStyle} />
               </Field>
-              <Field label="Company logo URL" hint="Shown in the email header. Blank uses the Greens Global wordmark.">
-                <input value={cfg.logoUrl || ''} onChange={(e) => set('logoUrl', e.target.value)} placeholder="https://…/logo.png" style={inputStyle} />
+              <Field label="Company Logo URL" hint="Shown in the email header. Blank uses the Greens Global wordmark.">
+                <input aria-label="Company Logo URL" value={draft.logoUrl} onChange={(e) => editDraft({ logoUrl: e.target.value })} placeholder="https://…/logo.png" style={inputStyle} />
               </Field>
-              <Field label="Due-soon reminder (days before due date)" hint="0 disables due-soon reminders entirely (overdue reminders are controlled separately below).">
-                <input type="number" min={0} value={cfg.dueSoonDays ?? 0} onChange={(e) => set('dueSoonDays', Math.max(0, Number(e.target.value) || 0))}
+              <Field label="Due-Soon Reminder (Days Before Due Date)" hint="0 disables due-soon reminders entirely (overdue reminders are controlled separately below).">
+                <input type="number" min={0} aria-label="Due-Soon Reminder (Days Before Due Date)" value={draft.dueSoonDays} onChange={(e) => editDraft({ dueSoonDays: e.target.value })}
                   style={{ ...inputStyle, width: 120 }} />
               </Field>
-              <Field label="Overdue re-reminder interval (days)" hint="Once a task is overdue, remind again every N days until it's done or reassigned. 0 = remind only once, right when it first goes overdue.">
-                <input type="number" min={0} value={cfg.overdueRepeatDays ?? 0} onChange={(e) => set('overdueRepeatDays', Math.max(0, Number(e.target.value) || 0))}
+              <Field label="Overdue Re-Reminder Interval (Days)" hint="Once a task is overdue, remind again every N days until it's done or reassigned. 0 = remind only once, right when it first goes overdue.">
+                <input type="number" min={0} aria-label="Overdue Re-Reminder Interval (Days)" value={draft.overdueRepeatDays} onChange={(e) => editDraft({ overdueRepeatDays: e.target.value })}
                   style={{ ...inputStyle, width: 120 }} />
               </Field>
-              {/* Batching (Neil, Sep 24): a person's task emails are held and
-                  sent together once the oldest has waited this long, so five
-                  assignments in a row arrive as one email. Backend:
-                  task_notify.flush_batches. */}
-              <Field label="Batch Task Emails" hint="Updates on someone's tasks are gathered and sent as one email once the first has waited this long. Mentions, deletions, urgent tasks and tasks due today or tomorrow always go out right away.">
-                <select value={cfg.batchWindowMinutes ?? 60} onChange={(e) => set('batchWindowMinutes', Number(e.target.value))}
-                  style={{ ...inputStyle, width: 'auto', appearance: 'auto', cursor: 'pointer' }}>
-                  <option value={0}>Off - send each email right away</option>
-                  <option value={15}>15 minutes</option>
-                  <option value={30}>30 minutes</option>
-                  <option value={60}>1 hour</option>
-                  <option value={120}>2 hours</option>
-                </select>
-              </Field>
-              {/* The two reminder numbers above are the COMPANY DEFAULT: each
-                  person can change their own in Email Settings (My Tasks).
-                  This decides whether "Off" is one of their choices. */}
-              <Field label="Let People Turn Off Overdue Reminders" hint="Company settings above are everyone's default; each person can adjust their own in Tasks, Email Settings. When this is off, the least anyone can choose is once a week or only once.">
-                <Toggle on={!!cfg.allowUserOverdueOff} onChange={() => set('allowUserOverdueOff', !cfg.allowUserOverdueOff)} />
-              </Field>
 
-              <InboundSection cfg={cfg} set={set} locked={locked} />
+              <InboundSection cfg={cfg} draft={draft} editDraft={editDraft} locked={locked} />
+
+              {err && <div style={{ fontSize: 12.5, color: NX.red, margin: '14px 0 0' }}>{err}</div>}
+              <SaveRow dirty={dirty} busy={saving} onSave={save} onDiscard={() => { reset(); setErr(''); }}
+                note="Saves the mailbox, reminder and reply fields in this card. The switches save as you click them." />
             </div>
-
-            <div style={{ ...card, padding: 18 }}>
-              <label style={fieldLabel}>Notification types</label>
-              {Object.entries(EVENT_LABELS).map(([k, lab]) => (
-                <div key={k} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
-                  <span style={{ fontSize: 13.5 }}>{lab}</span>
-                  <Toggle on={!!cfg.enabledEvents?.[k]} onChange={() => setEvent(k, !cfg.enabledEvents?.[k])} />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {err && <div style={{ fontSize: 12.5, color: NX.red, margin: '14px 0 0' }}>{err}</div>}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
-            <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1 }} onClick={save} disabled={saving}>
-              <Save size={14} /> {saving ? 'Saving…' : 'Save Settings'}
-            </button>
-            <SavedCheck show={saved} />
           </div>
         </>
       ) : tab === 'log' ? (
@@ -212,12 +275,31 @@ export default function TaskNotifySettings() {
 // The one real switch is whether we READ the mailbox, and that is a switch
 // rather than something derived from "the mailbox happens to be readable"
 // because draining it marks messages read and files them away - a visible
-// takeover of a mailbox somebody may be watching.
-function InboundSection({ cfg, set, locked = false }) {
+// takeover of a mailbox somebody may be watching. The switch saves when
+// clicked (InboundSwitch); the mailbox to read is a typed field of the draft.
+// Both are the organization's mail plumbing: read-only (`locked`) for anyone
+// but a Super Administrator.
+function InboundSwitch({ on, onChange, locked = false }) {
+  return (
+    <div style={{ ...field, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600 }}>Accept Replies by Email</div>
+        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>
+          When someone replies to a task notification, post their reply as a comment on that
+          task, with any files they attached.
+        </div>
+      </div>
+      <Toggle label="Accept Replies by Email" on={on} disabled={locked} onChange={onChange} />
+    </div>
+  );
+}
+
+function InboundSection({ cfg, draft, editDraft, locked = false }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
   const [err, setErr] = useState('');
   const mailbox = cfg.inboundMailbox || cfg.replyTo || '';
+  if (!cfg.inboundEnabled) return null;
 
   const runNow = async () => {
     setBusy(true); setErr(''); setResult('');
@@ -232,62 +314,47 @@ function InboundSection({ cfg, set, locked = false }) {
 
   return (
     <div style={{ ...field, borderTop: `1px solid ${NX.border2}`, paddingTop: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 600 }}>Accept replies by email</div>
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>
-            When someone replies to a task notification, post their reply as a comment on that
-            task, with any files they attached.
-          </div>
-        </div>
-        <Toggle on={!!cfg.inboundEnabled} disabled={locked} onChange={() => set('inboundEnabled', !cfg.inboundEnabled)} />
-      </div>
+      <Field label="Mailbox to Read"
+        hint={draft.inboundMailbox
+          ? 'Overrides the reply-to address above.'
+          : `Blank uses the reply-to address above${cfg.replyTo ? ` (${cfg.replyTo})` : ''}.`}>
+        <input aria-label="Mailbox to Read" value={draft.inboundMailbox} onChange={(e) => editDraft({ inboundMailbox: e.target.value })} readOnly={locked}
+          placeholder={cfg.replyTo || 'tasks@companydomain.com'} style={inputStyle} />
+      </Field>
 
-      {cfg.inboundEnabled && (
-        <div style={{ marginTop: 12 }}>
-          <Field label="Mailbox to read"
-            hint={cfg.inboundMailbox
-              ? 'Overrides the reply-to address above.'
-              : `Blank uses the reply-to address above${cfg.replyTo ? ` (${cfg.replyTo})` : ''}.`}>
-            <input value={cfg.inboundMailbox || ''} onChange={(e) => set('inboundMailbox', e.target.value)} readOnly={locked}
-              placeholder={cfg.replyTo || 'tasks@companydomain.com'} style={inputStyle} />
-          </Field>
-
-          {/* The reply-to people actually see is a signed sub-address, not this
-              mailbox - worth showing, because it is the first thing that looks
-              wrong to an admin reading a sent notification. */}
-          {mailbox.includes('@') && (
-            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: -6, marginBottom: 14 }}>
-              Notifications are sent with a per-task reply address like{' '}
-              <code style={{ fontSize: 11, color: NX.dim }}>
-                {mailbox.split('@')[0]}+a1b2…@{mailbox.split('@')[1]}
-              </code>
-              . The suffix is signed, so a reply reaches its own task and nothing else.
-            </div>
-          )}
-
-          <div style={{
-            background: NX.surface2, border: `1px solid ${NX.border2}`, borderRadius: 9,
-            padding: '10px 12px', fontSize: 11.5, color: NX.dim, marginBottom: 12,
-          }}>
-            Needs the Mail.ReadWrite application permission on this mailbox. Replies from anyone
-            outside the company, or from someone without commenter access to the project, are
-            refused and listed under Replies.
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <button type="button" style={{ ...btn('outline'), opacity: busy ? 0.6 : 1 }} onClick={runNow} disabled={busy}>
-              <Play size={13} /> {busy ? 'Checking…' : 'Check Mailbox Now'}
-            </button>
-            {result && <span style={{ fontSize: 12, color: NX.green }}>{result}</span>}
-            {err && <span style={{ fontSize: 12, color: NX.red }}>{err}</span>}
-          </div>
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
-            Save first - this checks the mailbox using the settings already saved. The deployed
-            API checks it every minute on its own.
-          </div>
+      {/* The reply-to people actually see is a signed sub-address, not this
+          mailbox - worth showing, because it is the first thing that looks
+          wrong to an admin reading a sent notification. */}
+      {mailbox.includes('@') && (
+        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: -6, marginBottom: 14 }}>
+          Notifications are sent with a per-task reply address like{' '}
+          <code style={{ fontSize: 11, color: NX.dim }}>
+            {mailbox.split('@')[0]}+a1b2…@{mailbox.split('@')[1]}
+          </code>
+          . The suffix is signed, so a reply reaches its own task and nothing else.
         </div>
       )}
+
+      <div style={{
+        background: NX.surface2, border: `1px solid ${NX.border2}`, borderRadius: 9,
+        padding: '10px 12px', fontSize: 11.5, color: NX.dim, marginBottom: 12,
+      }}>
+        Needs the Mail.ReadWrite application permission on this mailbox. Replies from anyone
+        outside the company, or from someone without commenter access to the project, are
+        refused and listed under Replies.
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <button type="button" style={{ ...btn('outline'), opacity: busy ? 0.6 : 1 }} onClick={runNow} disabled={busy}>
+          <Play size={13} /> {busy ? 'Checking…' : 'Check Mailbox Now'}
+        </button>
+        {result && <span style={{ fontSize: 12, color: NX.green }}>{result}</span>}
+        {err && <span style={{ fontSize: 12, color: NX.red }}>{err}</span>}
+      </div>
+      <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+        Save first - this checks the mailbox using the settings already saved. The deployed
+        API checks it every minute on its own.
+      </div>
     </div>
   );
 }

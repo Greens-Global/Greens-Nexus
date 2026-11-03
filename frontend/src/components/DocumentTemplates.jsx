@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, FileText, Award, Star, Trash2 } from 'lucide-react';
+import { Search, Plus, FileText, Award, Star } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import DocumentBuilder from './DocumentBuilder';
@@ -10,7 +10,10 @@ import { TEMPLATE_STATES, templateStatus, templateUsable } from '../lib/document
 import { PanelShell, PdfPreview, StatusWord } from './DocumentSidePanel';
 import { CreateDocModal } from './DocumentsBrowser';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
-import { Spinner } from './AsyncState';
+import { Spinner, ErrorBanner } from './AsyncState';
+import SaveRow from './SaveRow';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
 import WordTemplateWizard from './WordTemplateWizard';
 import HoldButton from '../ui/HoldButton';
 
@@ -106,39 +109,48 @@ function CreateTemplateModal({ letterheads, onClose, onCreated, toastErr }) {
   );
 }
 
-function LetterheadForm({ letterhead, onSaved, toastErr }) {
-  const isNew = !letterhead;
-  const [name, setName] = useState(letterhead?.name || '');
-  const [address, setAddress] = useState(letterhead?.address || '');
-  const [logoPath, setLogoPath] = useState(letterhead?.logoPath || '');
-  const [headerText, setHeaderText] = useState(letterhead?.headerJson?.text || '');
-  const [footerText, setFooterText] = useState(letterhead?.footerJson?.text || '');
+// A new letterhead is a draft (the Settings save pattern, Oct 23 2026):
+// it says so to the group (lib/groupDirty.js) and has the one Save row at its
+// foot - Add Letterhead disabled until it has a name, Discard Changes beside it.
+const BLANK_LETTERHEAD = { name: '', address: '', logoPath: '', headerText: '', footerText: '' };
+function LetterheadForm({ onSaved, onCancel, toastErr }) {
+  const { draft, patch, dirty, reset } = useDraft(BLANK_LETTERHEAD);
   const [busy, setBusy] = useState(false);
 
   const doUpload = async (file) => {
     const path = `letterheads/${Date.now()}-${(file.name || 'logo').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const { url, error } = await uploadToSupabase(file, 'document-images', path);
     if (error) { toastErr?.(error); return; }
-    setLogoPath(url);
+    patch({ logoPath: url });
   };
 
-  const save = () => {
-    if (!name.trim()) return;
+  // True once the letterhead is saved.
+  const save = async () => {
+    if (!draft.name.trim() || busy) return false;
     setBusy(true);
     const data = {
-      name: name.trim(), address, logoPath,
-      headerJson: headerText.trim() ? { text: headerText.trim() } : {},
-      footerJson: footerText.trim() ? { text: footerText.trim() } : {},
+      name: draft.name.trim(), address: draft.address, logoPath: draft.logoPath,
+      headerJson: draft.headerText.trim() ? { text: draft.headerText.trim() } : {},
+      footerJson: draft.footerText.trim() ? { text: draft.footerText.trim() } : {},
     };
-    const call = isNew ? api.createDocLetterhead(data) : api.updateDocLetterhead(letterhead.id, data);
-    call.then(() => onSaved()).catch(e => toastErr?.(e.message || 'Failed to save letterhead')).finally(() => setBusy(false));
+    try {
+      await api.createDocLetterhead(data);
+      setBusy(false);
+      onSaved();
+      return true;
+    } catch (e) {
+      toastErr?.(e.message || 'Failed to save letterhead');
+      setBusy(false);
+      return false;
+    }
   };
+  useGroupDirty(dirty, save);
 
   return (
     <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--card)' }}
       onPaste={e => { const f = imageFromPaste(e); if (f) { e.preventDefault(); doUpload(f); } }} tabIndex={0}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        {logoPath ? <img src={logoPath} alt="" style={{ height: 44, maxWidth: 120, objectFit: 'contain' }} /> : (
+        {draft.logoPath ? <img src={draft.logoPath} alt="" style={{ height: 44, maxWidth: 120, objectFit: 'contain' }} /> : (
           <div style={{ width: 60, height: 44, borderRadius: 6, background: 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}><Award size={18} /></div>
         )}
         <label style={{ fontSize: 11.5, color: 'var(--muted)', cursor: 'pointer' }}>
@@ -147,34 +159,36 @@ function LetterheadForm({ letterhead, onSaved, toastErr }) {
             onChange={e => { const f = e.target.files?.[0]; if (f) doUpload(f); e.target.value = ''; }} />
         </label>
       </div>
-      <input className="form-input" placeholder="Letterhead name" value={name} onChange={e => setName(e.target.value)} />
-      <textarea className="form-input" placeholder="Address" rows={2} value={address} onChange={e => setAddress(e.target.value)} />
-      <input className="form-input" placeholder="Header text (e.g. a tagline - optional)" value={headerText} onChange={e => setHeaderText(e.target.value)} />
-      <input className="form-input" placeholder="Footer text (e.g. registration/disclaimer - optional)" value={footerText} onChange={e => setFooterText(e.target.value)} />
-      <button className="primary-btn" disabled={!name.trim() || busy} onClick={save} style={{ alignSelf: 'flex-start', opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
-        {busy ? 'Saving…' : isNew ? 'Add Letterhead' : 'Save'}
-      </button>
+      <input className="form-input" aria-label="Letterhead name" placeholder="Letterhead name" value={draft.name} onChange={e => patch({ name: e.target.value })} />
+      <textarea className="form-input" aria-label="Address" placeholder="Address" rows={2} value={draft.address} onChange={e => patch({ address: e.target.value })} />
+      <input className="form-input" aria-label="Header text" placeholder="Header text (e.g. a tagline - optional)" value={draft.headerText} onChange={e => patch({ headerText: e.target.value })} />
+      <input className="form-input" aria-label="Footer text" placeholder="Footer text (e.g. registration/disclaimer - optional)" value={draft.footerText} onChange={e => patch({ footerText: e.target.value })} />
+      <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} label="Add Letterhead" saveDisabled={!draft.name.trim()}
+        note="A letterhead needs a name.">
+        {!dirty && <button type="button" className="secondary-btn" onClick={onCancel} style={{ fontSize: 12.5 }}>Cancel</button>}
+      </SaveRow>
     </div>
   );
 }
 
 // Settings > Branding & Email > Letterheads (Oct 23) - the Templates screen's
-// Letterheads tab points there.
+// Letterheads tab points there. Make Default saves on click; Delete is held
+// on its card (Hold to confirm, Oct 30 2026); a failed load says so with Retry.
 export function LetterheadsPanel({ toastOk, toastErr }) {
   const { can } = useRole();
   const isAdmin = can('administrator');
   const [letterheads, setLetterheads] = useState(null);
+  const [loadErr, setLoadErr] = useState('');
   const [adding, setAdding] = useState(false);
 
-  const load = () => api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([]));
+  const load = () => api.getDocLetterheads()
+    .then(rows => { setLoadErr(''); setLetterheads(rows || []); })
+    .catch(() => setLoadErr('The letterheads could not be loaded right now.'));
   useEffect(() => { load(); }, []);
 
   const setDefault = (id) => api.updateDocLetterhead(id, { isDefault: true }).then(() => { toastOk?.('Default letterhead updated'); load(); }).catch(e => toastErr?.(e.message));
-  const remove = (id, name) => {
-    if (!window.confirm(`Delete letterhead "${name}"?`)) return;
-    api.deleteDocLetterhead(id).then(() => { toastOk?.('Deleted'); load(); }).catch(e => toastErr?.(e.message));
-  };
 
+  if (loadErr && !letterheads) return <ErrorBanner message={loadErr} onRetry={() => { setLoadErr(''); load(); }} />;
   if (!letterheads) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>;
 
   return (
@@ -182,7 +196,10 @@ export function LetterheadsPanel({ toastOk, toastErr }) {
       {!isAdmin && (
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>Only administrators can add or edit letterheads.</div>
       )}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: isAdmin ? 20 : 0 }}>
+      {letterheads.length === 0 && (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: isAdmin ? 14 : 0 }}>No letterheads yet.</div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: isAdmin && letterheads.length ? 20 : 0 }}>
         {letterheads.map(l => (
           <div key={l.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)' }}>
             {l.logoPath ? <img src={l.logoPath} alt="" style={{ height: 36, maxWidth: '100%', objectFit: 'contain', marginBottom: 8 }} /> : null}
@@ -192,22 +209,28 @@ export function LetterheadsPanel({ toastOk, toastErr }) {
             </div>
             {l.address && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{l.address}</div>}
             {isAdmin && (
-              <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+              <div style={{ display: 'flex', gap: 6, marginTop: 10, alignItems: 'center' }}>
                 {!l.isDefault && (
-                  <button onClick={() => setDefault(l.id)} title="Set as default"
+                  <button type="button" onClick={() => setDefault(l.id)} title="Make Default" aria-label={`Make ${l.name} the default`}
                     style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 7, padding: 6, cursor: 'pointer', display: 'flex' }}><Star size={13} /></button>
                 )}
-                <button onClick={() => remove(l.id, l.name)} title="Delete"
-                  style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 7, padding: 6, cursor: 'pointer', display: 'flex', color: 'hsl(var(--color-red))' }}><Trash2 size={13} /></button>
+                <HoldButton size="sm" label="Delete" doneLabel="Deleted" ariaLabel={`Delete letterhead ${l.name}`}
+                  fallbackMessage={`Delete letterhead "${l.name}"?`}
+                  onConfirm={async () => {
+                    try { await api.deleteDocLetterhead(l.id); }
+                    catch (e) { throw new Error(e?.message || 'Could not delete the letterhead.', { cause: e }); }
+                    toastOk?.('Deleted');
+                    await load();
+                  }} />
               </div>
             )}
           </div>
         ))}
       </div>
       {isAdmin && (adding ? (
-        <LetterheadForm toastErr={toastErr} onSaved={() => { setAdding(false); toastOk?.('Letterhead saved'); load(); }} />
+        <LetterheadForm toastErr={toastErr} onCancel={() => setAdding(false)} onSaved={() => { setAdding(false); toastOk?.('Letterhead saved'); load(); }} />
       ) : (
-        <button className="primary-btn" onClick={() => setAdding(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+        <button type="button" className="primary-btn" onClick={() => setAdding(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Plus size={13} /> Add Letterhead
         </button>
       ))}

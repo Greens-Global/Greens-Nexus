@@ -22,6 +22,9 @@ import { Spinner, ErrorBanner } from './AsyncState';
 import { StatusLabel } from './StatusLabel';
 import { Modal } from '../tasks/components';
 import { dialog } from '../ui/dialog';
+import SaveRow from './SaveRow';
+import { useDraft } from '../lib/useDraft';
+import { useGroupDirty } from '../lib/groupDirty';
 import { useRole } from '../contexts/RoleContext';
 
 const DAY = 86400000;
@@ -310,24 +313,45 @@ function FlagRow({ f, busy, onPay, onHandled, onNote, onReopen, onAdjust }) {
 // The minimum wage box (Settings > Time & Pay > California Minimum Wage since
 // Oct 23). `current` comes from the review when it wraps it; on its own it
 // loads the saved value.
+// The box is a draft beside the saved value with one Save row (the Settings
+// save pattern, Oct 23 2026); a failed load says so with Retry instead of
+// showing a made-up figure that a Save would then write.
 export function MinWageForm({ current, onSaved, toastOk, toastErr }) {
   // One figure every company shares (Neil, 11/02/2026): a Super
-  // Administrator's to change - everyone else reads it.
+  // Administrator's to change - everyone else reads it, and a read-only
+  // box registers no draft.
   const { isGlobalAdmin } = useRole() || {};
   const locked = !isGlobalAdmin;
-  const [v, setV] = useState(current ?? null);
+  const [saved, setSaved] = useState(current !== undefined && current !== null ? { minWage: current } : null);
+  const { draft, patch, dirty: changed, reset } = useDraft(saved);
   const [busy, setBusy] = useState(false);
+  const [loadErr, setLoadErr] = useState('');
+  const load = useCallback(() => {
+    setLoadErr('');
+    api.caReviewSettings().then(r => setSaved({ minWage: r?.minWage ?? 16.9 }))
+      .catch(e => setLoadErr(e?.message || 'Could not load the minimum wage.'));
+  }, []);
   useEffect(() => {
     if (current !== undefined) return;
-    api.caReviewSettings().then(r => setV(r?.minWage ?? 16.9)).catch(() => setV(16.9));
-  }, [current]);
+    load();
+  }, [current, load]);
+  const dirty = !locked && changed && String(draft?.minWage ?? '') !== String(saved?.minWage ?? '');
+  const valid = Number(draft?.minWage) > 0;
   async function save() {
+    if (!valid) return false;
     setBusy(true);
-    try { await api.caReviewSaveSettings({ minWage: Number(v) }); toastOk?.('Minimum wage saved.'); onSaved?.(); }
-    catch (e) { toastErr?.(e?.message || 'Could not save the minimum wage.'); }
-    setBusy(false);
+    try {
+      await api.caReviewSaveSettings({ minWage: Number(draft.minWage) });
+      setSaved({ minWage: Number(draft.minWage) });
+      toastOk?.('Minimum wage saved.');
+      onSaved?.();
+      return true;
+    } catch (e) { toastErr?.(e?.message || 'Could not save the minimum wage.'); return false; }
+    finally { setBusy(false); }
   }
-  if (v === null) return <div style={{ padding: 16, textAlign: 'center' }}><Spinner size="inline" /></div>;
+  useGroupDirty(dirty, locked ? undefined : save);
+  if (loadErr) return <ErrorBanner message={loadErr} onRetry={load} />;
+  if (!saved || !draft) return <div style={{ padding: 16, textAlign: 'center' }}><Spinner size="inline" /></div>;
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
@@ -335,15 +359,14 @@ export function MinWageForm({ current, onSaved, toastOk, toastErr }) {
       </p>
       <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--ink)', maxWidth: 240 }}>
         Minimum Wage ($/hr)
-        <input className="form-input" type="number" min={0.01} step={0.01} aria-label="Minimum Wage" value={v}
-          onChange={e => setV(e.target.value)} readOnly={locked} style={{ fontSize: 13 }} />
+        <input className="form-input" type="number" min={0.01} step={0.01} aria-label="Minimum Wage" value={draft.minWage}
+          onChange={e => patch({ minWage: e.target.value })} readOnly={locked} style={{ fontSize: 13 }} />
       </label>
       {locked
         ? <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Only a Super Administrator can change this.</p>
         : (
-          <div>
-            <button type="button" className="primary-btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
-          </div>
+          <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} saveDisabled={!valid}
+            note={valid ? 'Applies to every California review from then on.' : 'Enter a wage above $0.00.'} />
         )}
     </div>
   );

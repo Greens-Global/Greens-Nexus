@@ -36,7 +36,7 @@ import { BFF_MODE } from "./bffAuth";
 import LoginPage from "./views/LoginPage";
 import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
-import { hasUnsavedWork, askToLeave, runPopGuard } from "./lib/dialogGuard";
+import { hasUnsavedWork, askToLeave, guardPopstate, rememberEntry, runPopGuard } from "./lib/dialogGuard";
 
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
@@ -775,15 +775,22 @@ function MainApp() {
   // user got here (this app's arrow, the browser's own back/forward, a swipe
   // gesture, alt+Left).
   const fromPopstate = useRef(false);
+  // With unsaved work (a dirty popup or Settings form) Back asks first, like
+  // navigate(); Keep Editing puts the entry back (lib/dialogGuard.js).
   useEffect(() => {
+    rememberEntry();
+    // A screen's own guard (PDF Tools, usePopGuard) answers first; the
+    // general one (unsaved Settings forms, dirty popups) handles the rest.
     const onPop = (e) => {
-      if (runPopGuard(e)) return;
-      const { view, sub } = parsePath();
-      fromPopstate.current = true;
-      setActiveView(view);
-      setActiveSub(sub ?? getDefaultSub(view));
-      setCanGoBack((e.state?.depth || 0) > 0);
-      setPrevLabel(e.state?.fromLabel || null);
+      if (runPopGuard(e)) { rememberEntry(); return; }
+      guardPopstate(e, () => {
+        const { view, sub } = parsePath();
+        fromPopstate.current = true;
+        setActiveView(view);
+        setActiveSub(sub ?? getDefaultSub(view));
+        setCanGoBack((e.state?.depth || 0) > 0);
+        setPrevLabel(e.state?.fromLabel || null);
+      });
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -807,6 +814,7 @@ function MainApp() {
       const depth = (window.history.state?.depth || 0) + 1;
       const fromLabel = viewLabel(prevLocRef.current.view);
       window.history.pushState({ depth, fromLabel }, '', addressFor(path, { first, search: window.location.search, hash: window.location.hash }));
+      rememberEntry();
       setCanGoBack(true);
       setPrevLabel(fromLabel);
     }

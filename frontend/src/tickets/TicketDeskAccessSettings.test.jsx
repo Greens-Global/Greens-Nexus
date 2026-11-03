@@ -33,17 +33,31 @@ describe('TicketDeskAccessSettings', () => {
     expect(screen.getByText('Pat Lee')).toBeInTheDocument();
     expect(screen.getByText('Supervisor to Requester')).toBeInTheDocument();
     expect(screen.getByText('Supervisor to Agent')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Save/ })).toBeDisabled();
+    // A choice saves when picked: no Save button.
+    expect(screen.queryByRole('button', { name: /^Save/ })).not.toBeInTheDocument();
   });
 
-  it('confirms before switching to explicit, then saves', async () => {
+  it('confirms before switching to explicit, then saves at once', async () => {
     const ask = vi.spyOn(dialog, 'confirm').mockResolvedValue(true);
     render(<TicketDeskAccessSettings />);
     fireEvent.click(await screen.findByRole('radio', { name: /Tickets Access Only/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Save/ }));
     expect(ask).toHaveBeenCalled();
     await waitFor(() => expect(api.updateTicketDeskAccess).toHaveBeenCalledWith('explicit'));
     expect(await screen.findByText('Saved')).toBeInTheDocument();
+  });
+
+  it('keeps the rule when the confirm is declined, and when the save is refused', async () => {
+    const ask = vi.spyOn(dialog, 'confirm').mockResolvedValue(false);
+    render(<TicketDeskAccessSettings />);
+    const explicit = await screen.findByRole('radio', { name: /Tickets Access Only/ });
+    fireEvent.click(explicit);
+    await waitFor(() => expect(ask).toHaveBeenCalled());
+    expect(api.updateTicketDeskAccess).not.toHaveBeenCalledWith('explicit');
+    ask.mockResolvedValue(true);
+    api.updateTicketDeskAccess.mockImplementationOnce(() => Promise.reject(new Error('Not allowed')));
+    fireEvent.click(explicit);
+    expect(await screen.findByText(/Could not switch the desk access rule: Not allowed/)).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Any Tasks or Tickets Access/ })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('tells a non-administrator instead of rendering blank', () => {

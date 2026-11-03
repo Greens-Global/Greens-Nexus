@@ -53,18 +53,40 @@ describe('WeeklyDigestSettings', () => {
     expect(screen.getByLabelText('Minutes before shift start').value).toBe('120');
   });
 
-  it('saves the timing', async () => {
+  const saveButton = () => screen.getByRole('button', { name: /^Save$/ });
+
+  it('saves the typed timing with one Save, sending only what changed', async () => {
     render(<WeeklyDigestSettings />);
-    fireEvent.change(await screen.findByLabelText('Minutes before shift start'), { target: { value: '90' } });
-    fireEvent.click(screen.getByText('Save Settings'));
+    const lead = await screen.findByLabelText('Minutes before shift start');
+    expect(saveButton()).toBeDisabled();
+    fireEvent.change(lead, { target: { value: '90' } });
+    expect(saveButton()).toBeEnabled();
+    fireEvent.click(saveButton());
     await waitFor(() => expect(updateWeeklyDigestConfig).toHaveBeenCalledTimes(1));
-    expect(updateWeeklyDigestConfig.mock.calls[0][0]).toMatchObject({ mode: 'off', sendDay: 1, leadMinutes: 90, includeNoShift: true });
+    expect(updateWeeklyDigestConfig.mock.calls[0][0]).toEqual({ leadMinutes: 90 });
+  });
+
+  it('saves the send day the moment it changes', async () => {
+    render(<WeeklyDigestSettings />);
+    fireEvent.change(await screen.findByLabelText('Send day'), { target: { value: '3' } });
+    await waitFor(() => expect(updateWeeklyDigestConfig).toHaveBeenCalledWith({ sendDay: 3 }));
+    expect(await screen.findByText('Send day saved.')).toBeTruthy();
+  });
+
+  it('puts a switch back when its save fails', async () => {
+    updateWeeklyDigestConfig.mockRejectedValue(new Error('Server said no.'));
+    render(<WeeklyDigestSettings />);
+    const box = await screen.findByLabelText(/No shift that day/);
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    expect(await screen.findByText('Server said no.')).toBeTruthy();
+    expect(screen.getByLabelText(/No shift that day/).checked).toBe(true);
   });
 
   it('refuses an out-of-range lead time without calling the API', async () => {
     render(<WeeklyDigestSettings />);
     fireEvent.change(await screen.findByLabelText('Minutes before shift start'), { target: { value: '5' } });
-    fireEvent.click(screen.getByText('Save Settings'));
+    fireEvent.click(saveButton());
     expect(await screen.findByText(/whole number from 30 to 360/)).toBeTruthy();
     expect(updateWeeklyDigestConfig).not.toHaveBeenCalled();
   });
@@ -76,13 +98,15 @@ describe('WeeklyDigestSettings', () => {
     expect(screen.getByText('Live').closest('label').querySelector('input').disabled).toBe(true);
   });
 
-  it('needs the company-wide tick before switching to Live', async () => {
+  it('asks before switching to Live, and stays put when told no', async () => {
+    confirm.mockResolvedValue(false);
     render(<WeeklyDigestSettings />);
     fireEvent.click(await screen.findByText('Live'));
-    const save = screen.getByText('Save Settings').closest('button');
-    expect(save.disabled).toBe(true);
-    fireEvent.click(screen.getByText('I understand this goes out to every employee company-wide.'));
-    expect(save.disabled).toBe(false);
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(updateWeeklyDigestConfig).not.toHaveBeenCalled();
+    confirm.mockResolvedValue(true);
+    fireEvent.click(screen.getByText('Live'));
+    await waitFor(() => expect(updateWeeklyDigestConfig).toHaveBeenCalledWith({ mode: 'live' }));
   });
 
   it('sends a test digest for one employee and says where it went', async () => {

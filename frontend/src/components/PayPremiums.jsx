@@ -1,5 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useGroupDirty } from '../lib/groupDirty';
+import { useDraft } from '../lib/useDraft';
+import { confirmDiscard } from '../lib/dialogGuard';
+import SaveRow from './SaveRow';
 import { Plus, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner } from './AsyncState';
@@ -11,6 +14,9 @@ import { formatHHMM } from '../lib/datetime';
 // inside a time window, on certain days, at certain sites) and the call-back
 // minimum. The server (pay_premiums.py) validates and prices; this card only
 // edits the rule. Changing it is administrator only, like Punch Rounding.
+// The two switches (pay premiums at all, call-back pay) save on click with a
+// toast; the differentials and the call-back minutes are one draft with ONE
+// Save row at the foot (the Settings save pattern, Oct 23 2026).
 
 const DAYS = [['Sun', 0], ['Mon', 1], ['Tue', 2], ['Wed', 3], ['Thu', 4], ['Fri', 5], ['Sat', 6]];
 const blankRule = () => ({ id: '', name: '', kind: 'flat', amount: '', start: '', end: '', days: [], sites: [] });
@@ -52,9 +58,12 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
   const [company, setCompany] = useState(scoped);
   useEffect(() => { if (scoped) setCompany(scoped); }, [scoped]);
   const [data, setData] = useState(null);
-  const [draft, setDraft] = useState(null);
+  const saved = useMemo(() => (data ? draftOf(data) : null), [data]);
+  // A switch saved on click carries over a half-typed rule beside it (rebase).
+  const { draft, setDraft, dirty: rawDirty, reset } = useDraft(saved, { rebase: true });
   const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState('');   // '' | 'save' | 'enabled' | 'callBack'
+  const [flipped, setFlipped] = useState(null);   // { enabled?, callBack? } while a switch saves
 
   useEffect(() => {
     let alive = true;
@@ -78,25 +87,53 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
     setErr('');
     setData(null);
     api.timePremiumsGet(company)
-      .then((d) => { if (mine === seq.current) { setData(d); setDraft(draftOf(d)); } })
+      .then((d) => { if (mine === seq.current) setData(d); })
       .catch((e) => { if (mine === seq.current) setErr(e?.message || 'Could not load the shift differentials.'); });
   }, [company, companies]);
   useEffect(() => { load(); }, [load]);
 
+  // The typed draft, over the switches as they are saved; true once it landed.
   const save = async () => {
-    setBusy(true);
+    setBusy('save');
     try {
-      const saved = await api.timePremiumsSet(company, bodyOf(draft));
-      setData(saved);
-      setDraft(draftOf(saved));
+      const body = bodyOf({ ...draft, enabled: saved.enabled, callBack: { ...draft.callBack, enabled: saved.callBack.enabled } });
+      const next = await api.timePremiumsSet(company, body);
+      setDraft(draftOf(next));
+      setData(next);
       toastOk?.('Shift differentials saved.');
-    } catch (e) { toastErr?.(e?.message || 'Could not save the shift differentials.'); }
-    setBusy(false);
+      return true;
+    } catch (e) {
+      toastErr?.(e?.message || 'Could not save the shift differentials.');
+      return false;
+    } finally { setBusy(''); }
+  };
+  // A switch saves only itself, over the rule as saved - never the draft.
+  // On a refusal it goes back to where it was.
+  const flip = async (key, on) => {
+    setBusy(key);
+    setFlipped({ [key]: on });
+    try {
+      const body = key === 'enabled' ? { ...saved, enabled: on } : { ...saved, callBack: { ...saved.callBack, enabled: on } };
+      const next = await api.timePremiumsSet(company, bodyOf(body));
+      setData(next);
+      toastOk?.(key === 'enabled'
+        ? (on ? 'Shift differentials are on for this company.' : 'Shift differentials are off for this company.')
+        : (on ? 'Call-back pay is on.' : 'Call-back pay is off.'));
+    } catch (e) { toastErr?.(e?.message || 'Could not change that.'); }
+    finally { setFlipped(null); setBusy(''); }
   };
 
   useEffect(() => { if (data && scoped) onOverride?.(!!data.enabled); }, [data, scoped, onOverride]);
-  const dirty = !!data && !!draft && JSON.stringify(bodyOf(draft)) !== JSON.stringify(bodyOf(draftOf(data)));
-  useGroupDirty(dirty);
+  const dirty = rawDirty && !!saved && JSON.stringify(bodyOf(draft)) !== JSON.stringify(bodyOf(saved));
+  useGroupDirty(dirty, save);
+  // The panel's own company select asks before it drops an unsaved rule.
+  const pickCompany = async (id) => {
+    if (dirty && !(await confirmDiscard())) return;
+    reset();
+    setCompany(id);
+  };
+  const enabledOn = flipped?.enabled ?? saved?.enabled;
+  const callBackOn = flipped?.callBack ?? saved?.callBack.enabled;
   const setRule = (i, patch) => setDraft((d) => ({ ...d, differentials: d.differentials.map((r, j) => (j === i ? { ...r, ...patch } : r)) }));
   const toggleIn = (list, v) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v].sort());
   const sites = data?.sites || [];
@@ -109,7 +146,7 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
           Hourly employees only. A finalized time sheet keeps the rules it was finalized with.
         </span>
         {!scoped && companies && companies.length > 0 && (
-          <select className="form-input" aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)} style={{ fontSize: 12.5, width: 'auto', maxWidth: 260 }}>
+          <select className="form-input" aria-label="Company" value={company} onChange={(e) => pickCompany(e.target.value)} style={{ fontSize: 12.5, width: 'auto', maxWidth: 260 }}>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
           </select>
         )}
@@ -125,11 +162,11 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
       ) : (
         <>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={draft.enabled} disabled={busy}
-              onChange={(e) => setDraft((d) => ({ ...d, enabled: e.target.checked }))} />
+            <input type="checkbox" role="switch" checked={!!enabledOn} disabled={!!busy}
+              onChange={(e) => flip('enabled', e.target.checked)} />
             Pay shift differentials and call-back pay for this company
           </label>
-          {draft.enabled && (
+          {enabledOn && (
             <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {draft.differentials.length === 0 && (
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>No differentials yet. Add one below, or use call-back pay on its own.</div>
@@ -198,14 +235,14 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
               </div>
               <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={draft.callBack.enabled}
-                    onChange={(e) => setDraft((d) => ({ ...d, callBack: { ...d.callBack, enabled: e.target.checked } }))} />
+                  <input type="checkbox" role="switch" checked={!!callBackOn} disabled={!!busy}
+                    onChange={(e) => flip('callBack', e.target.checked)} />
                   Call-Back Pay
                 </label>
                 <div style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0 24px', lineHeight: 1.45 }}>
                   When someone clocks in again the same day after being clocked out for a while, and works less than the minimum, the shortfall is paid at the base rate. It is not counted as hours worked or toward overtime.
                 </div>
-                {draft.callBack.enabled && (
+                {callBackOn && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 10, paddingLeft: 24 }}>
                     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
                       <span style={{ color: 'var(--muted)' }}>Minimum paid</span>
@@ -224,13 +261,9 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
               </div>
             </div>
           )}
-          {/* One save pattern (Oct 25): Save shows only once something changed. */}
-          {dirty && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-              <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={busy} onClick={save}>Save</button>
-              <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={busy}
-                onClick={() => setDraft(draftOf(data))}>Discard Changes</button>
-            </div>
+          {(enabledOn || dirty) && (
+            <SaveRow dirty={dirty} busy={busy === 'save'} onSave={save} onDiscard={reset}
+              note="Saves the differentials and the call-back minutes. The switches save when clicked." />
           )}
         </>
       )}

@@ -35,21 +35,31 @@ function Chip({ action }) {
 // company and the last run. `company` (Settings' scope picker) shows one.
 // The sync modal below shows it too. `embedded` (Settings) drops the heading:
 // the group card already carries it (Oct 25: one title per setting).
+// A load that failed says so with Retry - never "no companies" (Nov 2026).
+// Each switch saves on click with a toast and goes back on a refusal.
 export function IntacctNightlySync({ company = '', embedded = false, toastOk, toastErr }) {
   const [settings, setSettings] = useState(null);
+  const [loadErr, setLoadErr] = useState('');
+  const [saving, setSaving] = useState('');   // the company id whose switch is saving
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let live = true;
-    api.intacctCodesSettings().then(s => { if (live) setSettings(s); }).catch(() => { if (live) setSettings({ companies: [], lastRun: {} }); });
+    setLoadErr('');
+    api.intacctCodesSettings()
+      .then(s => { if (live) setSettings({ companies: [], lastRun: {}, ...(s || {}) }); })
+      .catch(() => { if (live) setLoadErr('The nightly sync settings could not be loaded right now.'); });
     return () => { live = false; };
-  }, []);
+  }, [attempt]);
   const setNightly = async (c, on) => {
+    setSaving(c.id);
+    setSettings(s => ({ ...s, companies: s.companies.map(x => x.id === c.id ? { ...x, nightly: on } : x) }));
     try {
       await api.setIntacctCodesNightly(c.id, on);
-      setSettings(s => ({ ...s, companies: s.companies.map(x => x.id === c.id ? { ...x, nightly: on } : x) }));
       toastOk?.(`Nightly sync ${on ? 'on' : 'off'} for ${c.name}.`);
     } catch (e) {
+      setSettings(s => ({ ...s, companies: s.companies.map(x => x.id === c.id ? { ...x, nightly: !on } : x) }));
       toastErr?.(e?.message || 'Could not save the setting.');
-    }
+    } finally { setSaving(''); }
   };
   const last = settings?.lastRun || {};
   const companies = (settings?.companies || []).filter(c => !company || c.id === company);
@@ -59,12 +69,15 @@ export function IntacctNightlySync({ company = '', embedded = false, toastOk, to
       <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
         Once a night, for the companies switched on: fills or updates codes only for work email matches whose Nexus code is empty or was set by this sync. Everything else waits for HR to review on People &gt; Sync Employee Codes From Intacct.
       </p>
-      {!settings && <SkeletonBlocks count={1} height={36} />}
-      {settings && companies.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No companies set up yet.</div>}
+      {loadErr && !settings && <ErrorBanner message={loadErr} onRetry={() => setAttempt(n => n + 1)} />}
+      {!settings && !loadErr && <SkeletonBlocks count={1} height={36} />}
+      {settings && companies.length === 0 && (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{company ? 'This company is not set up for the Intacct sync yet.' : 'No companies set up yet.'}</div>
+      )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 18px' }}>
         {companies.map(c => (
           <label key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={!!c.nightly} onChange={e => setNightly(c, e.target.checked)} /> {c.name}
+            <input type="checkbox" role="switch" checked={!!c.nightly} disabled={saving === c.id} onChange={e => setNightly(c, e.target.checked)} /> {c.name}
           </label>
         ))}
       </div>

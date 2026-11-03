@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
 // Settings > Workflows: the switches save on click, the typed fields go
-// through one Save row that shows only once something changed, Pause All
+// through one Save row whose Save is disabled until something changed, Pause All
 // is the Super Administrator's and says who paused and when, a company's face
 // drops the org-only rows and offers Use the Default when it overrides.
 
@@ -48,7 +48,7 @@ describe('WorkflowsSettings', () => {
     expect(screen.getByRole('switch', { name: 'Nexus Run-As' })).toBeTruthy();
     expect(screen.getByText('Webhook Hosts')).toBeTruthy();
     expect(screen.getByText('Secret Set')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
     fireEvent.click(screen.getByRole('switch', { name: 'Owner Digest' }));
     await vi.waitFor(() => expect(wfSettingsSave).toHaveBeenCalledTimes(1));
     const [body, company] = wfSettingsSave.mock.calls[0];
@@ -59,7 +59,7 @@ describe('WorkflowsSettings', () => {
     await vi.waitFor(() => expect(toastOk).toHaveBeenCalledWith('Saved.'));
   });
 
-  it('shows Save only once a typed field changed, clamps the caps and sends only typed secrets', async () => {
+  it('enables Save only once a typed field changed, clamps the caps and sends only typed secrets', async () => {
     render(<WorkflowsSettings company="" />);
     const runs = await screen.findByLabelText('Runs per hour cap');
     fireEvent.change(runs, { target: { value: '900' } });
@@ -74,7 +74,8 @@ describe('WorkflowsSettings', () => {
     expect(body.webhookHosts).toEqual(['hooks.example.com', 'alerts.example.com']);
     // Only the secret typed this time, keyed by the host as saved.
     expect(body.webhookSecrets).toEqual({ 'alerts.example.com': 's3cret' });
-    await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull());
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled());
+    expect(screen.getByLabelText('Runs per hour cap').value).toBe('500');
   });
 
   it('discards typed changes without saving', async () => {
@@ -82,7 +83,7 @@ describe('WorkflowsSettings', () => {
     fireEvent.change(await screen.findByLabelText('Recipients cap'), { target: { value: '20' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Discard Changes' }));
     expect(screen.getByLabelText('Recipients cap').value).toBe('200');
-    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
     expect(wfSettingsSave).not.toHaveBeenCalled();
   });
 
@@ -128,6 +129,17 @@ describe('WorkflowsSettings', () => {
     const [body, company] = wfSettingsSave.mock.calls[0];
     expect(company).toBe('c1');
     expect(body.override).toBe(false);
+  });
+
+  it('a switch saves only itself: a half-typed cap stays a draft through it', async () => {
+    render(<WorkflowsSettings company="" />);
+    fireEvent.change(await screen.findByLabelText('Recipients cap'), { target: { value: '20' } });
+    fireEvent.click(screen.getByRole('switch', { name: 'Owner Digest' }));
+    await vi.waitFor(() => expect(wfSettingsSave).toHaveBeenCalledTimes(1));
+    expect(wfSettingsSave.mock.calls[0][0].maxRecipientsCap).toBe(200);
+    await vi.waitFor(() => expect(screen.getByRole('switch', { name: 'Owner Digest' }).checked).toBe(true));
+    expect(screen.getByLabelText('Recipients cap').value).toBe('20');
+    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled();
   });
 
   it('offers a retry when the settings could not load', async () => {

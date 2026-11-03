@@ -90,9 +90,10 @@ import { ModalLoading, SkeletonBlocks, Spinner } from '../components/AsyncState'
 import { useIsMobile } from '../lib/useIsMobile';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import SaveRow from '../components/SaveRow';
+import { dialog } from '../ui/dialog';
 import { useDraft } from '../lib/useDraft';
-import { GroupDirtyContext, useGroupDirty } from '../lib/groupDirty';
-import { setInlineDirty } from '../lib/dialogGuard';
+import { GroupDirtyContext, useGroupDirty, makeGroupReporter, saveAll } from '../lib/groupDirty';
+import { setInlineDirty, setPopStay } from '../lib/dialogGuard';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
@@ -205,7 +206,7 @@ const TaskNotifySettingsWrapped = lazy(async () => {
     import('../tasks/TasksContext'),
     import('../tasks/TaskNotifySettings'),
   ]);
-  return { default: () => <TasksProvider><TaskNotifySettings /></TasksProvider> };
+  return { default: (props) => <TasksProvider><TaskNotifySettings {...props} /></TasksProvider> };
 });
 
 const ModalFallback = ModalLoading;
@@ -734,23 +735,21 @@ function Group({ id, title, sub, scope, company, override, bare = false, flush =
       window.removeEventListener('scroll', onScroll, { capture: true });
     };
   }, [highlight]);
-  if (bare) {
-    return (
-      <div id={`setting-${id}`} ref={ref} className="nx-set-group">
-        <div className={`nx-set-group-body${flush ? ' is-flush' : ''}`}>{children}{footer}</div>
-      </div>
-    );
-  }
+  // One root element whether bare or not: a search turning the lone group
+  // into one of several must never swap the element and remount the panel
+  // (that threw its draft away).
   return (
-    <section id={`setting-${id}`} ref={ref} aria-label={title} data-highlight={highlight ? 'true' : undefined}
-      className={`nx-set-group${highlight ? ' is-highlight' : ''}`}>
-      <div className="nx-set-group-head">
-        <div className="nx-set-group-head-text">
-          <h4 tabIndex={-1}>{title}</h4>
-          {sub && <p>{sub}</p>}
+    <section id={`setting-${id}`} ref={ref} aria-label={bare ? undefined : title} data-highlight={highlight && !bare ? 'true' : undefined}
+      className={`nx-set-group${highlight && !bare ? ' is-highlight' : ''}`}>
+      {!bare && (
+        <div className="nx-set-group-head">
+          <div className="nx-set-group-head-text">
+            <h4 tabIndex={-1}>{title}</h4>
+            {sub && <p>{sub}</p>}
+          </div>
+          <ScopeChip scope={scope} company={company} override={override} />
         </div>
-        <ScopeChip scope={scope} company={company} override={override} />
-      </div>
+      )}
       <div className={`nx-set-group-body${flush ? ' is-flush' : ''}`}>{children}{footer}</div>
     </section>
   );
@@ -795,9 +794,18 @@ const OWN_LINE = { 'shift-settings': 'Companies with shift settings of their own
 // Two companies at a time per group: a subject of several groups at "Every
 // company" must not fire every company's loads at once.
 const STATE_POOL = 2;
+// One company's answer that never comes must not hold the line back for
+// ever: past this it counts as Could Not Load, with Retry.
+const STATE_TIMEOUT_MS = 15000;
+const withTimeout = (p, ms) => new Promise((resolve, reject) => {
+  const t = setTimeout(() => reject(new Error('timed out')), ms);
+  Promise.resolve(p).then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+});
 
 function useCompanyStates(entities, stateOf) {
   const [states, setStates] = useState({});
+  const [round, setRound] = useState(0);
+  const retry = useCallback(() => setRound(r => r + 1), []);
   useEffect(() => {
     if (!stateOf) return undefined;
     let live = true;
@@ -806,20 +814,20 @@ function useCompanyStates(entities, stateOf) {
     const next = () => {
       if (!live || i >= entities.length) return Promise.resolve();
       const en = entities[i++];
-      return Promise.resolve().then(() => stateOf(en.id))
+      return Promise.resolve().then(() => withTimeout(stateOf(en.id), STATE_TIMEOUT_MS))
         .then(st => { if (live) setStates(m => ({ ...m, [en.id]: st })); },
           () => { if (live) setStates(m => ({ ...m, [en.id]: { own: false, label: 'Could Not Load', failed: true } })); })
         .then(next);
     };
     for (let k = 0; k < STATE_POOL; k++) next();
     return () => { live = false; };
-  }, [entities, stateOf]);
-  return states;
+  }, [entities, stateOf, round]);
+  return [states, retry];
 }
 
 // The companies as a list to open; with `stateOf`, each says where it stands.
 function CompanyStates({ entities, stateOf = null, onPick, lead = 'Set per company. Open one to change it.', listState = 'ok' }) {
-  const states = useCompanyStates(entities, stateOf);
+  const [states, retry] = useCompanyStates(entities, stateOf);
   if (entities.length === 0) {
     if (listState === 'loading') return <div style={{ padding: 14 }}><SkeletonBlocks count={2} height={36} borderRadius={8} /></div>;
     if (listState === 'error') return <div className="nx-set-note" style={{ borderTop: 'none' }}>The companies could not be loaded - use Retry above.</div>;
@@ -844,6 +852,12 @@ function CompanyStates({ entities, stateOf = null, onPick, lead = 'Set per compa
           );
         })}
       </div>
+      {stateOf && entities.some(en => states[en.id]?.failed) && (
+        <div className="nx-set-note">
+          <span style={{ color: 'hsl(var(--color-red))' }}>Some companies could not be checked.</span>
+          <button type="button" className="nx-set-inline-link" onClick={retry}>Retry</button>
+        </div>
+      )}
     </>
   );
 }
@@ -851,10 +865,11 @@ function CompanyStates({ entities, stateOf = null, onPick, lead = 'Set per compa
 // Under a layered setting's default: which companies keep their own. Says so
 // when a company could not be checked rather than guessing it follows.
 function CompanyOverrides({ entities, stateOf, onPick, lead = 'Companies with their own:' }) {
-  const states = useCompanyStates(entities, stateOf);
+  const [states, retry] = useCompanyStates(entities, stateOf);
   if (entities.length === 0 || !entities.every(en => states[en.id])) return null;
   const own = entities.filter(en => states[en.id].own);
   const failed = entities.filter(en => states[en.id].failed).length;
+  const failedNames = entities.filter(en => states[en.id].failed).map(en => en.name);
   return (
     <div className="nx-set-note" data-company-overrides="">
       <Building2 size={13} />
@@ -870,7 +885,12 @@ function CompanyOverrides({ entities, stateOf, onPick, lead = 'Companies with th
           ))}
         </>
       )}
-      {failed > 0 && <span>{`Could not check ${failed} ${failed === 1 ? 'company' : 'companies'}.`}</span>}
+      {failed > 0 && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }} title={failedNames.join(', ')}>
+          <span style={{ color: 'hsl(var(--color-red))' }}>{`Could not check ${failed === 1 ? failedNames[0] : `${failed} companies`}.`}</span>
+          <button type="button" className="nx-set-inline-link" onClick={retry}>Retry</button>
+        </span>
+      )}
     </div>
   );
 }
@@ -888,8 +908,17 @@ function ItemSettingsSection({ toast, chrome }) {
   const [typesOpen, setTypesOpen]   = useState(false);
   const [fieldsOpen, setFieldsOpen] = useState(false);
 
-  const refreshTypes = useCallback(() => { api.getItemTypes().then(setItemTypes).catch(() => {}); }, []);
-  const refreshFields = useCallback(() => { api.getItemCustomFields().then(setCustomFields).catch(() => {}); }, []);
+  // A failed load says so, with Retry, and keeps the editors shut: opening
+  // one on an empty list it failed to read would look like there is nothing.
+  const [failed, setFailed] = useState({ types: false, fields: false });
+  const refreshTypes = useCallback(() => {
+    setFailed(f => ({ ...f, types: false }));
+    api.getItemTypes().then(setItemTypes).catch(() => setFailed(f => ({ ...f, types: true })));
+  }, []);
+  const refreshFields = useCallback(() => {
+    setFailed(f => ({ ...f, fields: false }));
+    api.getItemCustomFields().then(setCustomFields).catch(() => setFailed(f => ({ ...f, fields: true })));
+  }, []);
 
   useEffect(() => {
     refreshTypes();
@@ -903,9 +932,13 @@ function ItemSettingsSection({ toast, chrome }) {
 
   return (
     <Group {...GROUP_META['item-types']} {...chrome}>
+      {(failed.types || failed.fields) && (
+        <ErrorLine text={`Could not load the ${failed.types && failed.fields ? 'item types and custom fields' : failed.types ? 'item types' : 'custom fields'}.`}
+          onRetry={() => { if (failed.types) refreshTypes(); if (failed.fields) refreshFields(); }} />
+      )}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <button className="secondary-btn" onClick={() => setTypesOpen(true)}>Manage Item Types</button>
-        <button className="secondary-btn" onClick={() => setFieldsOpen(true)}>Manage Custom Fields</button>
+        <button className="secondary-btn" onClick={() => setTypesOpen(true)} disabled={failed.types}>Manage Item Types</button>
+        <button className="secondary-btn" onClick={() => setFieldsOpen(true)} disabled={failed.fields}>Manage Custom Fields</button>
       </div>
       {typesOpen && (
         <Suspense fallback={<ModalFallback />}>
@@ -977,11 +1010,11 @@ function ServiceDeskSection({ chrome, company = '' }) {
   );
 }
 
-function TaskNotificationsSection({ chrome }) {
+function TaskNotificationsSection({ chrome, toastOk, toastErr }) {
   return (
     <Group {...GROUP_META['task-notifications']} {...chrome}>
       <Suspense fallback={<SectionFallback />}>
-        <TaskNotifySettingsWrapped />
+        <TaskNotifySettingsWrapped toastOk={toastOk} toastErr={toastErr} />
       </Suspense>
     </Group>
   );
@@ -990,30 +1023,30 @@ function TaskNotificationsSection({ chrome }) {
 // ── Daily Briefing ─────────────────────────────────────────────────────────
 // Global-Admin only (see DailyBriefingSettings.jsx, which shows its own
 // "access required" note to anyone else).
-function DailyBriefingSection({ chrome }) {
+function DailyBriefingSection({ chrome, toastOk, toastErr }) {
   return (
     <Group {...GROUP_META['daily-briefing']} {...chrome}>
-      <DailyBriefingSettings />
+      <DailyBriefingSettings toastOk={toastOk} toastErr={toastErr} />
     </Group>
   );
 }
 
 // ── Weekly Digest ──────────────────────────────────────────────────────────
 // Global-Admin only, like the Daily Briefing (WeeklyDigestSettings.jsx).
-function WeeklyDigestSection({ chrome }) {
+function WeeklyDigestSection({ chrome, toastOk, toastErr }) {
   return (
     <Group {...GROUP_META['weekly-digest']} {...chrome}>
-      <WeeklyDigestSettings />
+      <WeeklyDigestSettings toastOk={toastOk} toastErr={toastErr} />
     </Group>
   );
 }
 
 // ── Workforce Scorecard ────────────────────────────────────────────────────
 // Global-Admin only, like the Weekly Digest (WorkforceScorecardSettings.jsx).
-function WorkforceScorecardSection({ chrome }) {
+function WorkforceScorecardSection({ chrome, toastOk, toastErr }) {
   return (
     <Group {...GROUP_META['workforce-scorecard']} {...chrome}>
-      <WorkforceScorecardSettings />
+      <WorkforceScorecardSettings toastOk={toastOk} toastErr={toastErr} />
     </Group>
   );
 }
@@ -1143,32 +1176,52 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   const templateDirty = !!data && !!companyId && selectedTemplate !== data.template;
   const overridesDirty = !company && !overridesLocked && JSON.stringify(overrides) !== JSON.stringify(savedOverrides);
   const dirty = templateDirty || overridesDirty;
-  useGroupDirty(dirty);
 
+  // Only the latest company's answer lands: picking A then B quickly must
+  // never show A's templates (and save A's choice) while B is picked.
+  const previewSeq = useRef(0);
+  const [previewErr, setPreviewErr] = useState('');
   const loadPreview = useCallback((id) => {
     if (!id) return;
+    const n = ++previewSeq.current;
     setPreviewBusy(true);
+    setPreviewErr('');
     api.getEntitySignatureTemplates(id)
-      .then(d => { setData(d); setSelectedTemplate(d.template); })
-      .catch(() => {})
-      .finally(() => setPreviewBusy(false));
+      .then(d => { if (n === previewSeq.current) { setData(d); setSelectedTemplate(d.template); } })
+      .catch(e => { if (n === previewSeq.current) setPreviewErr(e?.message || 'Could not load the signature templates.'); })
+      .finally(() => { if (n === previewSeq.current) setPreviewBusy(false); });
   }, []);
 
   // Both halves load once, when the group mounts (it is always open now).
-  useEffect(() => {
+  // A failed load says so with Retry - never "No companies yet".
+  const [entitiesErr, setEntitiesErr] = useState('');
+  const loadEntities = useCallback(() => {
+    setEntitiesErr('');
+    setLoaded(false);
     api.getEntities().then(rows => {
       setEntities(rows || []);
       const first = (company && rows?.some(r => r.id === company)) ? company : rows?.[0]?.id;
       if (first) { setCompanyId(first); loadPreview(first); }
-    }).catch(() => {}).finally(() => setLoaded(true));
+    }).catch(e => setEntitiesErr(e?.message || 'Could not load the companies.')).finally(() => setLoaded(true));
+  }, [company, loadPreview]);
+  useEffect(() => {
+    loadEntities();
     if (!company) {
       api.getSignatureSenderOverrides()
         .then(d => { setOverrideTemplates(d.templates || []); setOverrides(d.senderOverrides || []); setSavedOverrides(d.senderOverrides || []); })
         .catch(() => {});
     }
-  }, [loadPreview, company]);
+  }, [loadEntities, company]);
 
-  function pickCompany(id) {
+  // Another company in the box drops an unsaved template choice: ask first.
+  async function pickCompany(id) {
+    if (id === companyId) return;
+    if (templateDirty) {
+      const name = entities.find(en => en.id === companyId)?.name || 'this company';
+      const ok = await dialog.confirm(`The template you picked for ${name} has not been saved. If you switch companies now, it will be lost.`,
+        { title: 'Discard Unsaved Changes?', confirmText: 'Discard Changes', cancelText: 'Keep Editing', danger: true });
+      if (!ok) return;
+    }
     setCompanyId(id);
     setData(null);
     loadPreview(id);
@@ -1178,12 +1231,15 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
     setOverrides(rows => rows.filter((_, i) => i !== idx));
   }
 
+  // Resolves true once everything saved (the prompt's Save and Leave).
   async function save() {
-    if (busy || !dirty) return;
+    if (busy || !dirty) return !dirty;
+    const forCompany = companyId;
     setBusy(true);
+    let ok = true;
     try {
       if (templateDirty) {
-        await api.updateEntity(companyId, { signature_template: selectedTemplate });
+        await api.updateEntity(forCompany, { signature_template: selectedTemplate });
         setData(d => (d ? { ...d, template: selectedTemplate } : d));
       }
       if (overridesDirty) {
@@ -1195,9 +1251,11 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
       toastOk(templateDirty && !overridesDirty
         ? 'Signature template saved. It applies to every employee at this company.'
         : 'Email signature settings saved.');
-    } catch (e) { toastErr(e?.message || 'Could not save.'); }
+    } catch (e) { ok = false; toastErr(e?.message || 'Could not save.'); }
     setBusy(false);
+    return ok;
   }
+  useGroupDirty(dirty, save);
   function discard() {
     if (data) setSelectedTemplate(data.template);
     setOverrides(savedOverrides);
@@ -1206,7 +1264,8 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   return (
     <Group {...GROUP_META['email-signature']} {...chrome}>
       {entities.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{loaded ? 'No companies yet. Add one under Settings > Companies first.' : 'Loading…'}</div>
+        entitiesErr ? <ErrorLine text={entitiesErr} onRetry={loadEntities} />
+          : <div style={{ fontSize: 13, color: 'var(--muted)' }}>{loaded ? 'No companies yet. Add one under Settings > Companies first.' : 'Loading…'}</div>
       ) : (
         <>
           {!company && (
@@ -1217,7 +1276,9 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
               </select>
             </div>
           )}
-          {previewBusy && !data ? (
+          {previewErr && !data ? (
+            <ErrorLine text={previewErr} onRetry={() => loadPreview(companyId)} />
+          ) : previewBusy && !data ? (
             <Spinner size="inline" />
           ) : data && (
             <>
@@ -1640,7 +1701,7 @@ const COMPANY_FACE_TABS = {
 // and a subject opens on its own page with a way back. Subject, group and
 // company live in the URL sub (see AdminConsole below); the filter text and
 // the last jump are local (a jump scrolls, it adds no history entry).
-function SettingsBody({ subject, group, company, home = false, onHome, onNavigate, onDirtyChange, entities, entitiesState = 'ok', refreshEntities, toast, toastOk, toastErr }) {
+function SettingsBody({ subject, group, company, home = false, onNavigate, onDirtyChange, entities, entitiesState = 'ok', refreshEntities, toast, toastOk, toastErr }) {
   // The role, plus the desk role for the Ticket Manager's `needs` (mayOpen).
   const role = useRole();
   const desk = useTicketAccess();
@@ -1682,23 +1743,82 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
   // through the context its group binds in renderGroup; the Company profile
   // form through onDirtyChange). Leaving any of them - another subject or
   // scope here, another top tab or module above - asks first.
-  const [dirtyIds, setDirtyIds] = useState(() => new Set());
-  const reportDirty = useCallback((id, d) => setDirtyIds(prev => {
-    if (prev.has(id) === !!d) return prev;
-    const next = new Set(prev);
-    if (d) next.add(id); else next.delete(id);
-    return next;
-  }), []);
+  // A group may hold several forms (lib/groupDirty.js counts each one), and
+  // each dirty form may say how to save itself: `dirtyGroups` maps a dirty
+  // group's id to those saves.
+  const [dirtyGroups, setDirtyGroups] = useState(() => new Map());
   const reporters = useRef(new Map());
   const reporterFor = (id) => {
-    if (!reporters.current.has(id)) reporters.current.set(id, (d) => reportDirty(id, d));
+    if (!reporters.current.has(id)) {
+      reporters.current.set(id, makeGroupReporter((d, saves) => setDirtyGroups(prev => {
+        if (!d && !prev.has(id)) return prev;
+        const next = new Map(prev);
+        if (d) next.set(id, saves); else next.delete(id);
+        return next;
+      })));
+    }
     return reporters.current.get(id);
   };
-  const dirty = dirtyIds.size > 0;
-  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+  const dirty = dirtyGroups.size > 0;
+  // What is unsaved, by name, and one save for all of it when every dirty
+  // form can save itself (the prompt's Save and Leave).
+  const dirtyTitles = useMemo(() => [...dirtyGroups.keys()].map(id => GROUP_META[id]?.title || id), [dirtyGroups]);
+  const saveDirty = useMemo(() => {
+    const saves = [...dirtyGroups.values()].flat();
+    return saves.length && saves.every(s => typeof s === 'function') ? () => saveAll(saves) : null;
+  }, [dirtyGroups]);
+  // Discard Changes really discards: the dirty groups remount from the saved
+  // values (a dirty group stays mounted while hidden by the filter, so a
+  // move that keeps it in the tree would otherwise keep its draft). The
+  // app-wide prompt (browser Back, a bell) calls it too, through the meta.
+  const [generation, setGeneration] = useState({});
+  const discardDirty = useCallback(() => {
+    const ids = [...dirtyGroups.keys()];
+    setGeneration(gen => ids.reduce((m, id) => ({ ...m, [id]: (m[id] || 0) + 1 }), gen));
+  }, [dirtyGroups]);
+  useEffect(() => { onDirtyChange?.(dirty, { labels: dirtyTitles, save: saveDirty, discard: discardDirty }); }, [dirty, dirtyTitles, saveDirty, discardDirty, onDirtyChange]);
+  // Leaving the Settings tab (Tools, Logs) unmounts every form: nothing is
+  // unsaved any more, and no save of an unmounted form may be offered.
+  useEffect(() => () => onDirtyChange?.(false, null), [onDirtyChange]);
   const [pending, setPending] = useState(null);
+  const [saving, setSaving] = useState(false);
   const go = useCallback((target) => { setQuery(''); setPending(null); onNavigate(target); }, [onNavigate]);
-  const nav = useCallback((target) => { if (dirty) setPending(target); else go(target); }, [dirty, go]);
+  // Where the person already is (same subject and scope, and on a phone the
+  // same page): nothing unmounts, so there is nothing to ask - clear the
+  // filter, and land on the group when one is named.
+  const isHere = (target) => {
+    if (!target || (target.company || '') !== (company || '')) return false;
+    if (narrow && !target.home !== !home) return false;   // a phone's subject list and a subject are two pages
+    return target.home ? narrow : target.subject === activeSubject?.key;
+  };
+  const nav = (target) => {
+    if (isHere(target)) {
+      setQuery('');
+      if (target.group && target.group !== group) onNavigate(target);
+      return;
+    }
+    if (dirty) setPending(target); else go(target);
+  };
+  const discardAndGo = () => { discardDirty(); go(pending); };
+  // Browser Back / Forward to another group of the subject and scope on
+  // screen only scrolls - every form stays mounted, so it never asks.
+  const hereKey = `${activeSubject?.key}|${company}|${narrow && home ? 'home' : ''}`;
+  useEffect(() => {
+    setPopStay(() => {
+      const m = window.location.pathname.match(/^\/admin-console(?:\/([^/]*))?/);
+      if (!m) return false;
+      const r = resolveSub(decodeURIComponent(m[1] || ''));
+      return r.tab === 'settings' && `${r.subject}|${r.company || ''}|${narrow && r.home ? 'home' : ''}` === hereKey;
+    });
+    return () => setPopStay(null);
+  }, [hereKey, narrow]);
+  const saveAndGo = async () => {
+    if (!saveDirty) return;
+    setSaving(true);
+    const ok = await saveDirty();
+    setSaving(false);
+    if (ok) go(pending); else setPending(null);
+  };
   const pickSubject = (key) => nav({ subject: key, group: '', company });
   // On the phone home list, a scope change stays on the list.
   const pickScope = (id) => nav(narrow && home ? { home: true, company: id } : { subject: activeSubject?.key || 'companies', group: '', company: id });
@@ -1756,12 +1876,26 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
     : (activeSubject ? [{ s: activeSubject, items: groupsFor(activeSubject) }] : []);
   // A subject's lone group renders bare: the subject header already names it.
   const bareId = !matches && sections[0]?.items.length === 1 ? sections[0].items[0].id : '';
+  // Groups stay mounted while the filter hides them (Oct 2026: a search used
+  // to unmount the subject's groups and their drafts with them): the subject
+  // on screen keeps every group in the tree, and so does any group with
+  // unsaved changes - a search result edited and then filtered away keeps
+  // its draft until it is saved or discarded.
+  const shownIds = new Set(sections.flatMap(x => x.items.map(g => g.id)));
+  const keptHidden = [
+    ...(activeSubject ? groupsFor(activeSubject) : []),
+    ...searchable.filter(g => dirtyGroups.has(g.id)),
+  ].filter((g, i, all) => !shownIds.has(g.id) && all.findIndex(x => x.id === g.id) === i);
 
-  function renderGroup(g) {
+  // Every group sits in a wrapper with the same key wherever it shows (or
+  // hides), all under one parent, so React moves it instead of remounting.
+  function renderGroup(g, hidden = false) {
     return (
-      <GroupDirtyContext.Provider key={`${g.id}-${company}`} value={reporterFor(g.id)}>
-        {renderGroupBody(g)}
-      </GroupDirtyContext.Provider>
+      <div key={`${g.id}-${company}-${generation[g.id] || 0}`} hidden={hidden || undefined} data-setting-group={g.id}>
+        <GroupDirtyContext.Provider value={reporterFor(g.id)}>
+          {renderGroupBody(g)}
+        </GroupDirtyContext.Provider>
+      </div>
     );
   }
   function renderGroupBody(g) {
@@ -1812,10 +1946,10 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'email-signature':      return <EmailSignatureSection key={key} chrome={chrome} company={company} toastOk={toastOk} toastErr={toastErr} />;
       case 'work-sites':           return <WorkSiteLibrarySection key={key} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'service-desk':         return <ServiceDeskSection key={key} chrome={chrome} company={company} />;
-      case 'task-notifications':   return <TaskNotificationsSection key={key} chrome={chrome} />;
-      case 'daily-briefing':       return <DailyBriefingSection key={key} chrome={chrome} />;
-      case 'weekly-digest':        return <WeeklyDigestSection key={key} chrome={chrome} />;
-      case 'workforce-scorecard':  return <WorkforceScorecardSection key={key} chrome={chrome} />;
+      case 'task-notifications':   return <TaskNotificationsSection key={key} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'daily-briefing':       return <DailyBriefingSection key={key} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'weekly-digest':        return <WeeklyDigestSection key={key} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'workforce-scorecard':  return <WorkforceScorecardSection key={key} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'hr-reminders':         return <HrRemindersSection key={key} chrome={chrome} />;
       case 'equipment-reminders':  return <LazyPanelSection key={key} id={id} Panel={EquipmentReminderSettings} chrome={chrome} />;
       case 'kb-reminders':         return <LazyPanelSection key={key} id={id} Panel={KbReminderSettings} chrome={chrome} />;
@@ -1974,20 +2108,24 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
             </>
           ) : nothingHere}
         </div>
-      ) : sections.map(({ s, items }) => (
-        <section key={s.key} aria-label={matches ? s.label : undefined}>
-          {matches && (
-            <h3 style={{ margin: '4px 0 12px', fontSize: 12, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+      ) : null}
+      {/* One flat list: headings, notes and group wrappers side by side, so a
+          group keeps its place in the tree whether the filter shows it under
+          a heading, on its subject, or hides it. */}
+      <div>
+        {[...sections.flatMap(({ s, items }) => [
+          matches && (
+            <h3 key={`head-${s.key}`} style={{ margin: '4px 0 12px', fontSize: 12, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <s.Icon size={13} aria-hidden="true" /> {s.label}
             </h3>
-          )}
-          {s === activeSubject && differs}
-          {items.map(renderGroup)}
-          {items.length === 0 && (
-            <div style={{ padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>{nothingHere}</div>
-          )}
-          {s === activeSubject && alsoOrg.length > 0 && (
-            <div className="nx-set-diff" style={{ marginTop: -8 }}>
+          ),
+          s === activeSubject && !matches && differs && <div key="differs">{differs}</div>,
+          ...items.map(g => renderGroup(g)),
+          items.length === 0 && (
+            <div key={`none-${s.key}`} style={{ padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>{nothingHere}</div>
+          ),
+          s === activeSubject && !matches && alsoOrg.length > 0 && (
+            <div key="also-org" className="nx-set-diff" style={{ marginTop: -8 }}>
               <Globe size={14} aria-hidden="true" />
               <span>Set for every company:</span>
               {alsoOrg.map((g, i) => (
@@ -1997,14 +2135,17 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
                 </span>
               ))}
             </div>
-          )}
-        </section>
-      ))}
+          ),
+        ].filter(Boolean)), ...keptHidden.map(g => renderGroup(g, true))]}
+      </div>
     </div>
   );
 
   const wide = !matches && !!activeSubject?.wide;
-  const prompt = pending && <UnsavedChangesPrompt onKeepEditing={() => setPending(null)} onDiscard={() => go(pending)} />;
+  const prompt = pending && (
+    <UnsavedChangesPrompt what={dirtyTitles} onKeepEditing={() => setPending(null)} onDiscard={discardAndGo}
+      onSave={saveDirty ? saveAndGo : undefined} saving={saving} saveText="Save and Leave" />
+  );
 
   // ── Phones ──
   if (narrow) {
@@ -2042,7 +2183,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
     }
     return (
       <>
-        <button type="button" className="nx-set-back" onClick={() => (matches ? setQuery('') : onHome?.())}>
+        <button type="button" className="nx-set-back" onClick={() => (matches ? setQuery('') : nav({ home: true, company }))}>
           <ChevronLeft size={16} /> {matches ? 'Clear Search' : 'All Settings'}
         </button>
         {matches && <div style={{ marginBottom: 12 }}>{filterBox}</div>}
@@ -2157,10 +2298,23 @@ export default function AdminConsole({ activeSub, onSubChange }) {
   // A Settings group with unsaved changes: the top tabs ask before moving,
   // and lib/dialogGuard.js hears about it so the sidebar and the browser
   // tab ask too.
+  // `unsaved` = { labels, save }: the dirty groups' titles and one save for
+  // them all (null when one of them cannot save itself), for the prompts.
   const [settingsDirty, setSettingsDirty] = useState(false);
+  const [unsaved, setUnsaved] = useState({ labels: [], save: null });
+  const onSettingsDirty = useCallback((d, meta) => { setSettingsDirty(!!d); setUnsaved(meta || { labels: [], save: null }); }, []);
   const [pendingTab, setPendingTab] = useState(null);
-  useEffect(() => { setInlineDirty('settings', settingsDirty); return () => setInlineDirty('settings', false); }, [settingsDirty]);
+  const [tabSaving, setTabSaving] = useState(false);
+  useEffect(() => { setInlineDirty('settings', settingsDirty, unsaved); return () => setInlineDirty('settings', false); }, [settingsDirty, unsaved]);
   const setTopTab = (id) => { if (settingsDirty && id !== topTab) setPendingTab(id); else applyTopTab(id); };
+  const saveAndSwitch = async () => {
+    setTabSaving(true);
+    const ok = await unsaved.save?.();
+    setTabSaving(false);
+    const id = pendingTab;
+    setPendingTab(null);
+    if (ok) applyTopTab(id);
+  };
 
   // The companies, once, for the scope picker and every company page.
   // entitiesState (11/02/2026): 'loading', 'ok', 'denied' (People's company
@@ -2220,13 +2374,14 @@ export default function AdminConsole({ activeSub, onSubChange }) {
         </Suspense>
       ) : (
         <SettingsBody subject={resolved.subject} group={resolved.group} company={resolved.company} onNavigate={navigate}
-          home={!!resolved.home} onHome={() => onSubChange?.(resolved.company ? `settings@${resolved.company}` : 'settings')}
-          onDirtyChange={setSettingsDirty} entities={shownEntities} entitiesState={entitiesState} refreshEntities={refreshEntities}
+          home={!!resolved.home}
+          onDirtyChange={onSettingsDirty} entities={shownEntities} entitiesState={entitiesState} refreshEntities={refreshEntities}
           toast={showToast} toastOk={toastOk} toastErr={toastErr} />
       )}
 
       {pendingTab && (
-        <UnsavedChangesPrompt onKeepEditing={() => setPendingTab(null)} onDiscard={() => { const id = pendingTab; setPendingTab(null); applyTopTab(id); }} />
+        <UnsavedChangesPrompt what={unsaved.labels} onKeepEditing={() => setPendingTab(null)} onDiscard={() => { const id = pendingTab; setPendingTab(null); applyTopTab(id); }}
+          onSave={unsaved.save ? saveAndSwitch : undefined} saving={tabSaving} saveText="Save and Leave" />
       )}
 
       {toast && (
@@ -2245,8 +2400,9 @@ export default function AdminConsole({ activeSub, onSubChange }) {
 // the front door moved. Rounding is OFF for a new tenant; PROD keeps its own
 // saved row. Per-company scoping (one rule per hr_entities company) is
 // deferred: today each rule is one tenant-wide key.
-// One pay rule (Oct 25 2026): a switch row that saves on click; its numbers
-// show under it while it is on, with a Save that appears once one changes.
+// One pay rule (Neil, 11/02/2026 - one switch behavior everywhere): its
+// switch saves on click with an Undo toast; its numbers show under it while
+// it is on and are a draft, saved by the panel's one Save row at the foot.
 function PolicyCard({ id, title, desc, enabled, onToggle, busy, foot, children }) {
   return (
     <>
@@ -2280,6 +2436,13 @@ const RULE_SETTERS = {
   autoLunch: (body, company) => api.timeAutoLunchSet(body, company),
   breakPolicy: (body, company) => api.timeBreakPolicySet(body, company),
 };
+// Undo reads the rule fresh: minutes saved since the switch (here or in
+// another tab) must never be written back over.
+const RULE_GETTERS = {
+  rounding: (company) => api.timeRoundingGet(company),
+  autoLunch: (company) => api.timeAutoLunchGet(company),
+  breakPolicy: (company) => api.timeBreakPolicyGet(company),
+};
 const RULE_LABELS = { rounding: 'Punch rounding', autoLunch: 'Auto-lunch', breakPolicy: 'CA paid breaks' };
 const num = (v, fallback) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : fallback; };
 // What a save writes: each rule whole, with its numbers clamped (the server
@@ -2296,6 +2459,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   useEffect(() => { if (cfg && company) onOverride?.(['rounding', 'autoLunch', 'breakPolicy'].some(k => cfg[k]?.hasOverride)); }, [cfg, company, onOverride]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [switching, setSwitching] = useState('');   // which rule's switch is saving
   const [resetting, setResetting] = useState('');   // which card is going back to the default
   const load = useCallback(() => {
     setErr('');
@@ -2306,35 +2470,83 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   }, [company]);
   useEffect(() => { load(); }, [load]);
 
-  // The three cards are one form (the Settings save pattern, Oct 23): the
-  // switches and numbers are a draft until Save, which writes only the
-  // rules that changed. Use the Default drops a company's own rule at once.
-  const { draft, patch, dirty, reset } = useDraft(cfg);
-  useGroupDirty(dirty);
+  // The numbers are one draft (the Settings save pattern, Oct 23): Save
+  // writes only the rules whose numbers changed. `rebase`: a rule that saved
+  // follows the server, and a rule whose save failed - or whose switch was
+  // just flipped beside a half-typed number - keeps the person's edits.
+  const { draft, patch, dirty, reset, begin, settle } = useDraft(cfg, { rebase: true });
   const edit = (key, p) => patch({ [key]: { ...draft[key], ...p } });
+  // The latest saved rules and draft, for an Undo that runs after more changes landed.
+  const cfgRef = useRef(cfg);
+  const draftRef = useRef(draft);
+  useEffect(() => { cfgRef.current = cfg; draftRef.current = draft; }, [cfg, draft]);
 
+  // A switch saves on click (Neil, 11/02/2026), with an Undo toast that
+  // writes the previous value back. Only the switch is sent: the rule's
+  // saved numbers go with it, a draft number stays a draft.
+  const writeSwitch = async (key, on, { fresh = false } = {}) => {
+    setSwitching(key);
+    try {
+      const saved = fresh ? await RULE_GETTERS[key](company) : cfgRef.current?.[key];
+      if (!saved) return false;
+      const body = cleanRules({ ...cfgRef.current, [key]: { ...saved, enabled: on } })[key];
+      const out = await RULE_SETTERS[key](body, company);
+      const next = { ...cfgRef.current, [key]: out };
+      cfgRef.current = next;
+      setCfg(next);
+      return true;
+    } catch (e) {
+      toastErr?.(e?.message || `Could not save ${RULE_LABELS[key].toLowerCase()}.`);
+      return false;
+    } finally {
+      setSwitching('');
+    }
+  };
+  const setSwitch = (key, on) => patch({ [key]: { ...(draftRef.current?.[key] || {}), enabled: on } });
+  const toggle = async (key, on) => {
+    const was = !!cfgRef.current?.[key]?.enabled;
+    setSwitch(key, on);
+    if (await writeSwitch(key, on)) {
+      dialog.undo(`${RULE_LABELS[key]} turned ${on ? 'on' : 'off'}${company ? ' for this company' : ''}.`, async () => {
+        setSwitch(key, was);
+        if (await writeSwitch(key, was, { fresh: true })) toastOk?.(`${RULE_LABELS[key]} is back ${was ? 'on' : 'off'}.`);
+        else setSwitch(key, on);
+      });
+    } else {
+      setSwitch(key, was);   // roll the switch back
+    }
+  };
+
+  // Resolves true once every changed rule saved (the prompt's Save and Leave).
   const save = async () => {
-    if (!dirty || busy) return;
+    if (!dirty || busy || switching) return !dirty;
     const next = cleanRules(draft), was = cleanRules(cfg);
     const changed = Object.keys(next).filter(k => JSON.stringify(next[k]) !== JSON.stringify(was[k]));
-    if (!changed.length) { reset(); return; }
+    if (!changed.length) { reset(); return true; }
     setBusy(true);
+    begin();
     const out = { ...cfg };
+    const done = [];
+    let ok = true;
     try {
-      for (const k of changed) out[k] = await RULE_SETTERS[k](next[k], company);
-      setCfg(out);
+      for (const k of changed) { out[k] = await RULE_SETTERS[k](next[k], company); done.push(k); }
       toastOk?.(company ? 'Pay rules saved for this company.' : 'Pay rules saved.');
     } catch (e) {
+      ok = false;
       toastErr?.(e?.message || 'Could not save the pay rules.');
-      setCfg(out);   // what did save, saved; the rest stays a draft
     }
+    setCfg(out);   // what did save, saved; the rest stays a draft (rebase)
+    settle(done);  // the saved rules take the server's numbers ("10" typed, 10 back)
     setBusy(false);
+    return ok;
   };
+  useGroupDirty(dirty, save);
   const backToDefault = async (key) => {
     setResetting(key);
     try {
       const saved = await RULE_SETTERS[key]({ reset: true }, company);
       setCfg(c => ({ ...c, [key]: saved }));
+      patch({ [key]: saved });
       toastOk?.(`${RULE_LABELS[key]}: back to the default.`);
     } catch (e) { toastErr?.(e?.message || `Could not reset ${RULE_LABELS[key].toLowerCase()}.`); }
     setResetting('');
@@ -2352,28 +2564,29 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   if (err) return <ErrorLine text={err} onRetry={load} />;
   if (!cfg || !draft) return <SkeletonBlocks count={3} height={64} borderRadius={12} />;
   const { rounding, autoLunch, breakPolicy } = draft;
+  const held = (key) => resetting === key || switching === key;
   return (
     <div>
-      <PolicyCard id="rounding" title="Punch Rounding" busy={resetting === 'rounding'} enabled={rounding.enabled} foot={foot('rounding', cfg.rounding)}
+      <PolicyCard id="rounding" title="Punch Rounding" busy={held('rounding')} enabled={rounding.enabled} foot={foot('rounding', cfg.rounding)}
         desc={`Round every clock-in and clock-out to the nearest ${rounding.nearestMin || 5} minutes before computing hours (SwipeClock's model; the raw times stay on record and can be shown on the time sheet). Off by default - turn it on only if the company has a rounding policy.`}
-        onToggle={on => edit('rounding', { enabled: on })}>
+        onToggle={on => toggle('rounding', on)}>
         <PolicyNumber label="Nearest" min={1} max={30} value={rounding.nearestMin} onChange={v => edit('rounding', { nearestMin: v })} />
       </PolicyCard>
-      <PolicyCard id="auto-lunch" title="Auto-Lunch Deduction" busy={resetting === 'autoLunch'} enabled={autoLunch.enabled} foot={foot('autoLunch', cfg.autoLunch)}
+      <PolicyCard id="auto-lunch" title="Auto-Lunch Deduction" busy={held('autoLunch')} enabled={autoLunch.enabled} foot={foot('autoLunch', cfg.autoLunch)}
         desc={`Deduct ${autoLunch.deductMin} minutes of lunch from any shift longer than ${Math.round((autoLunch.afterMin || 0) / 60 * 10) / 10} hours that has no recorded break (the person forgot to clock lunch).`}
-        onToggle={on => edit('autoLunch', { enabled: on })}>
+        onToggle={on => toggle('autoLunch', on)}>
         <PolicyNumber label="Shifts over" min={60} max={1440} value={autoLunch.afterMin} onChange={v => edit('autoLunch', { afterMin: v })} />
         <PolicyNumber label="Deduct" min={0} max={240} value={autoLunch.deductMin} onChange={v => edit('autoLunch', { deductMin: v })} />
       </PolicyCard>
-      <PolicyCard id="ca-breaks" title="California Paid Rest Breaks" busy={resetting === 'breakPolicy'} enabled={breakPolicy.enabled} foot={foot('breakPolicy', cfg.breakPolicy)}
+      <PolicyCard id="ca-breaks" title="California Paid Rest Breaks" busy={held('breakPolicy')} enabled={breakPolicy.enabled} foot={foot('breakPolicy', cfg.breakPolicy)}
         desc={`Pay the first ${breakPolicy.paidBreakMin} minutes of each short break (up to ${breakPolicy.restMaxMin} minutes long) - one per 4 hours worked, as California requires. Meal-length breaks stay unpaid. Only employees on the California overtime rule; the long-break flags are always on.`}
-        onToggle={on => edit('breakPolicy', { enabled: on })}>
+        onToggle={on => toggle('breakPolicy', on)}>
         <PolicyNumber label="Paid per break" min={0} max={60} value={breakPolicy.paidBreakMin} onChange={v => edit('breakPolicy', { paidBreakMin: v })} />
         <PolicyNumber label="Rest break up to" min={1} max={120} value={breakPolicy.restMaxMin} onChange={v => edit('breakPolicy', { restMaxMin: v })} />
         <PolicyNumber label="Flag breaks over" min={15} max={600} value={breakPolicy.longBreakMin} onChange={v => edit('breakPolicy', { longBreakMin: v })} />
       </PolicyCard>
-      <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} style={{ margin: 0, padding: '12px 18px' }}
-        note={company ? 'A rule saved here is this company\'s own.' : 'Saved rules shape every time sheet from then on.'} />
+      <SaveRow dirty={dirty} busy={busy} saveDisabled={!!switching} onSave={save} onDiscard={reset} style={{ margin: 0, padding: '12px 18px' }}
+        note={`Switches save as you click them; Save writes the minutes${company ? ' as this company\'s own' : ''}.`} />
     </div>
   );
 }
