@@ -9709,6 +9709,7 @@ class CubbyTaskLink(Base):
     created_at         = Column(String, default="")
     updated_at         = Column(String, default="")
     last_seen_at       = Column(String, default="")                   # last sync that listed it open
+    note_ids           = Column(JSON, default=list)                    # warehouse note ids already posted as comments
 # ── Web Push (Frontline Reach, Neil 11/02/2026) ──────────────────────────────
 # A phone or desktop that said yes to "Push to This Device" (My Profile >
 # Phone Notifications) registers its browser subscription here, one row per

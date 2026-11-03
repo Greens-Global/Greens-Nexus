@@ -149,6 +149,13 @@ TASK_COLUMNS = ("task_id", "facility_id", "status", "task_title", "due_date", "s
                 "is_workflow_generated", "created_at", "updated_at")
 MANAGER_COLUMNS = ("manager_id", "manager_name", "manager_email")
 TASK_MAX_ROWS = 20_000
+# Notes a manager typed on a task (Sagar, 11/03/2026: "get the notes also").
+# `manager_notes` holds every note on every record; only rows with a task_id
+# are read, inside a created_at window. Append-only there: an edit or a
+# delete in Cubby never reaches this table.
+NOTES_TABLE = "cubby-partner-data.analytics.manager_notes"
+NOTE_COLUMNS = ("manager_note_id_int", "task_id", "message", "manager_name", "manager_id", "created_at")
+NOTE_MAX_ROWS = 20_000
 
 
 def _names(value) -> list[str]:
@@ -191,13 +198,27 @@ def _run(sql: str, params: list) -> list[dict]:
         raise WarehouseError(f"BigQuery did not answer ({type(e).__name__}){': ' + msg[:200] if msg else ''}") from None
 
 
-def tasks_sql() -> str:
-    cols = ", ".join(TASK_COLUMNS)
+def tasks_sql(stamp: str = "updated_at") -> str:
     # Every open task plus anything touched since @since, so a completion in
-    # Cubby is seen even after the task left the open list.
+    # Cubby is seen even after the task left the open list. `stamp` is the
+    # column that says when: `updated_at`, or `created_at` on a warehouse
+    # whose tasks table has no `updated_at` (prod, 11/03/2026: BigQuery
+    # answered "Unrecognized name: updated_at; Did you mean created_at?" and
+    # every task came in unassigned) - task_rows falls back by itself.
+    cols = ", ".join(c for c in TASK_COLUMNS if c != "updated_at" or stamp == "updated_at")
     return (f"SELECT {cols} FROM `{TASKS_TABLE}` "
-            "WHERE status = 'OPEN' OR updated_at >= @since "
-            f"ORDER BY updated_at DESC LIMIT {TASK_MAX_ROWS}")
+            f"WHERE status = 'OPEN' OR {stamp} >= @since "
+            f"ORDER BY {stamp} DESC LIMIT {TASK_MAX_ROWS}")
+
+
+def _missing_updated_at(err: Exception) -> bool:
+    return "unrecognized name: updated_at" in str(err).lower()
+
+
+def notes_sql() -> str:
+    return (f"SELECT {', '.join(NOTE_COLUMNS)} FROM `{NOTES_TABLE}` "
+            "WHERE task_id IS NOT NULL AND task_id != '' AND created_at >= @since "
+            f"ORDER BY created_at LIMIT {NOTE_MAX_ROWS}")
 
 
 def managers_sql() -> str:
@@ -215,8 +236,14 @@ def task_rows(since) -> list[dict]:
         params = [bigquery.ScalarQueryParameter("since", "TIMESTAMP", since)]
     except ImportError:
         params = [since]
+    try:
+        rows = _run(tasks_sql(), params)
+    except WarehouseError as e:
+        if not _missing_updated_at(e):
+            raise
+        rows = _run(tasks_sql("created_at"), params)
     out = []
-    for r in _run(tasks_sql(), params):
+    for r in rows:
         row = dict(r)
         row["assigned_managers"] = _names(row.get("assigned_managers"))
         row["assigned_manager_groups"] = _names(row.get("assigned_manager_groups"))
@@ -224,6 +251,29 @@ def task_rows(since) -> list[dict]:
             v = row.get(k)
             row[k] = v.isoformat() if hasattr(v, "isoformat") else (str(v) if v else "")
         out.append(row)
+    return out
+
+
+def note_rows(since) -> list[dict]:
+    """Task notes written since `since`, oldest first; `id` is the warehouse
+    row id as a string, `created_at` ISO. [] when not configured. Raises
+    WarehouseError."""
+    if not configured():
+        return []
+    try:
+        from google.cloud import bigquery
+        params = [bigquery.ScalarQueryParameter("since", "TIMESTAMP", since)]
+    except ImportError:
+        params = [since]
+    out = []
+    for r in _run(notes_sql(), params):
+        row = dict(r)
+        v = row.get("created_at")
+        row["created_at"] = v.isoformat() if hasattr(v, "isoformat") else (str(v) if v else "")
+        row["id"] = str(row.get("manager_note_id_int") or "")
+        row["message"] = (row.get("message") or "").strip()
+        if row["id"] and row.get("task_id") and row["message"]:
+            out.append(row)
     return out
 
 

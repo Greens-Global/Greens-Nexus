@@ -1418,6 +1418,8 @@ def _run_migrations():
             "ALTER TABLE nexus_notes ADD COLUMN collab_key VARCHAR DEFAULT ''",
             # Cubby tasks in Nexus Tasks (Oct 31 2026) - see the Postgres list. models.Task.
             "ALTER TABLE tasks ADD COLUMN cubby_task_id VARCHAR DEFAULT ''",
+            # Cubby task notes as comments (11/03/2026) - see the Postgres list. models.CubbyTaskLink.
+            "ALTER TABLE cubby_task_links ADD COLUMN note_ids JSON",
             # Training due modes and escalation (11/03/2026) - see the Postgres list.
             "ALTER TABLE kb_assignment_rules ADD COLUMN due_date VARCHAR DEFAULT ''",
             "ALTER TABLE kb_assignment_rules ADD COLUMN new_hires_only BOOLEAN DEFAULT 0",
@@ -3451,6 +3453,9 @@ def _run_migrations():
         "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS default_due_days INTEGER DEFAULT 0",
         "CREATE INDEX IF NOT EXISTS ix_tasks_cubby_task_id ON tasks (cubby_task_id)",
         "ALTER TABLE cubby_task_links ENABLE ROW LEVEL SECURITY",
+        # Cubby task notes as comments (Sagar, 11/03/2026): which warehouse
+        # notes a link has already posted. models.CubbyTaskLink.note_ids.
+        "ALTER TABLE cubby_task_links ADD COLUMN IF NOT EXISTS note_ids JSON",
         # Boards (Neil 11/02/2026): a whiteboard is a note - its drawing, a
         # thumbnail and where a Mark Up came from; versions keep the drawing.
         # Existing tables, no new RLS. models.NexusNote / NexusNoteVersion.

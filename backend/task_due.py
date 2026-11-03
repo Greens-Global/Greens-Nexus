@@ -43,7 +43,7 @@ import task_history
 AGREED = ("", "accepted")      # "" = legacy row, or a date nobody needs to confirm
 # While an extension waits for approval the CURRENT date is still the agreed one.
 REQUESTED = "extension_requested"
-SOURCES = ("app", "bulk", "asana", "proposal", "counter", "automation", "cascade",   # automation: task_automation.py; cascade: task_schedule.py (Oct 2026)
+SOURCES = ("app", "bulk", "asana", "cubby", "proposal", "counter", "automation", "cascade",   # cubby: cubby_tasks.py   # automation: task_automation.py; cascade: task_schedule.py (Oct 2026)
            "approved")
 # The 3rd extension onward needs approval - and so does any that lands more
 # than a calendar month after the first agreed date.
