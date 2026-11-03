@@ -349,13 +349,50 @@ def _company_param(db: Session, company: str) -> str:
     return cid
 
 
+# The weekly labor budget (Neil, 11/02/2026) is HR++'s alone: HR for the
+# company (hr_access.is_hr_for_company - its HR contact, or wide HR whose
+# scope covers it; the tenant row needs company-wide HR). Everyone else gets
+# neither the figures nor a way to change them - managers never see them.
+LABOR_KEYS = ("laborBudgetHours", "laborBudgetAmount")
+
+
+def _without_labor(cfg: dict) -> dict:
+    """The settings as a screen for staff or managers gets them."""
+    return {k: v for k, v in cfg.items() if k not in LABOR_KEYS}
+
+
+def _sees_labor(db: Session, user: dict, company_id: str) -> bool:
+    import hr_access
+    return hr_access.is_hr_for_company(db, user, company_id or "")
+
+
 def _settings_payload(db: Session, user: dict, company_id: str = "") -> dict:
     """The effective settings plus which company they are for, whether that
-    company has its own override, and the companies the caller may pick."""
+    company has its own override, and the companies the caller may pick.
+    The labor budget only for HR++ (canSeeLaborBudget)."""
     companies, can_pick = _company_choices(db, user)
-    return {**get_settings(db, company_id), "companyId": company_id,
-            "hasOverride": bool(company_id and _saved_settings(db, company_id)),
-            "companies": companies, "canPickCompany": can_pick}
+    labor = _sees_labor(db, user, company_id)
+    cfg = get_settings(db, company_id)
+    own = _saved_settings(db, company_id) if company_id else {}
+    if not labor:
+        for k in LABOR_KEYS:
+            cfg.pop(k, None)
+            own.pop(k, None)
+    return {**cfg, "companyId": company_id,
+            "hasOverride": bool(company_id and own),
+            "companies": companies, "canPickCompany": can_pick, "canSeeLaborBudget": labor}
+
+
+def _write_override(db: Session, user: dict, company_id: str, cfg: dict) -> None:
+    """Store a company's override, or remove its row when nothing is left.
+    An ORM delete, so audit_capture records it."""
+    if cfg:
+        import scoped_settings
+        scoped_settings.merge_save(db, _settings_key(company_id), lambda _stored: cfg, user["email"])
+        return
+    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _settings_key(company_id)).first()
+    if row is not None:
+        db.delete(row)
 
 
 class SettingsIn(BaseModel):
@@ -432,36 +469,55 @@ def save_settings(body: SettingsIn, company: str = "", user: dict = Depends(requ
         raise HTTPException(400, "Outlook events show as Free or Busy.")
     sent = {k: _clean_value(k, v) for k, v in body.model_dump().items() if v is not None and k in _DEFAULTS}
     sent = {k: v for k, v in sent.items() if v is not None}
+    import scoped_settings
     if cid:
         _require_company_manage(user, db, cid, "Changing this company's shift settings")
-        tenant = get_settings(db)
-        cfg = _saved_settings(db, cid)
-        cfg.update(sent)
-        cfg = {k: v for k, v in cfg.items() if v != tenant.get(k)}
-        if cfg:
-            _store_settings(db, user, _settings_key(cid), cfg)
-        else:
-            (db.query(models.NexusSetting).filter(models.NexusSetting.key == _settings_key(cid))
-               .delete(synchronize_session=False))
     else:
         # Company-wide only - a company-limited administrator changes their
         # company's override, never every company's defaults.
         _require_company_manage(user, db, "", "Changing shift settings")
-        cfg = get_settings(db)
+    # The row lock first (11/02/2026): what is read below is the current
+    # value, so two saves at once never lose each other's keys.
+    scoped_settings.lock_row(db, _settings_key(cid))
+    labor = {k: v for k, v in sent.items() if k in LABOR_KEYS}
+    if labor and not _sees_labor(db, user, cid):
+        current = get_settings(db, cid)
+        if any(current.get(k) != v for k, v in labor.items()):
+            raise HTTPException(403, "Only HR can change the labor budget.")
+        sent = {k: v for k, v in sent.items() if k not in LABOR_KEYS}
+    if cid:
+        tenant = get_settings(db)
+        cfg = _saved_settings(db, cid)
         cfg.update(sent)
-        _store_settings(db, user, _SETTINGS_KEY, cfg)
+        _write_override(db, user, cid, {k: v for k, v in cfg.items() if v != tenant.get(k)})
+    else:
+        # Read again inside merge_save: when another request stored the
+        # first tenant row meanwhile, this merges into theirs.
+        scoped_settings.merge_save(db, _SETTINGS_KEY, lambda _stored: {**get_settings(db), **sent}, user["email"])
     db.commit()
     return _settings_payload(db, user, cid)
 
 
 @router.delete("/settings")
-def clear_settings(company: str = "", user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
-    """Remove a company's override so it follows the tenant row again."""
+def clear_settings(company: str = "", keys: str = "", user: dict = Depends(require_shift_manage),
+                   db: Session = Depends(get_db)):
+    """Make a company follow the tenant row again. `keys` (comma-separated
+    setting names - one Settings group's own, 11/02/2026) drops only those
+    from its override and leaves the rest; without it, the whole override
+    goes - except the labor budget for a caller who is not HR++ (it was
+    never theirs to see, so a reset never takes it)."""
     cid = _company_param(db, company)
     if not cid:
         raise HTTPException(400, "Pick a company - the tenant settings cannot be removed.")
     _require_company_manage(user, db, cid, "Changing this company's shift settings")
-    db.query(models.NexusSetting).filter(models.NexusSetting.key == _settings_key(cid)).delete(synchronize_session=False)
+    import scoped_settings
+    scoped_settings.lock_row(db, _settings_key(cid))
+    named = [k.strip() for k in (keys or "").split(",") if k.strip()]
+    wanted = {k for k in named if k in _DEFAULTS} if named else set(_DEFAULTS)
+    if not _sees_labor(db, user, cid):
+        wanted -= set(LABOR_KEYS)
+    cfg = {k: v for k, v in _saved_settings(db, cid).items() if k not in wanted}
+    _write_override(db, user, cid, cfg)
     db.commit()
     return _settings_payload(db, user, cid)
 
@@ -717,7 +773,7 @@ def my_requests(start: str = "", end: str = "", user: dict = Depends(get_current
             if not r.pending_delete and _upcoming(r, presets, cfg):
                 swap_shifts.setdefault((r.employee_email or "").lower(), []).append(_sched_dict(r, presets, team_tz=tz))
     return {"mine": _dicts(db, mine, names), "incoming": _dicts(db, incoming, names),
-            "openShifts": open_shifts, "settings": cfg, "swapShifts": swap_shifts,
+            "openShifts": open_shifts, "settings": _without_labor(cfg), "swapShifts": swap_shifts,
             "groups": sorted(my_groups),
             "teammates": sorted(({"email": e, "name": names.get(e, e)} for e in mates),
                                 key=lambda p: p["name"].lower())}
@@ -921,7 +977,7 @@ def inbox(user: dict = Depends(require_schedule_write), db: Session = Depends(ge
             "waitingOnPeer": [_to_dict(r, names, live, teams) for r in on_peer],
             "recent": [_to_dict(r, names, live, teams) for r in recent],
             "photos": photos,
-            "settings": get_settings(db),
+            "settings": _without_labor(get_settings(db)),
             # The settings are company-wide switches (save_settings).
             "canConfigure": scope is None}
 

@@ -31,7 +31,10 @@ const withCurrent = (list, v) => (v && !list.includes(v) ? [v, ...list] : list);
 const splitList = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
 
 export default function WorkforceScorecardSettings() {
-  const { can } = useRole();
+  const { can, isGlobalAdmin } = useRole();
+  // Mode and the test recipients are the whole organization's (Neil,
+  // 11/02/2026): a Super Administrator's to change.
+  const modeLocked = !isGlobalAdmin;
   const [tab, setTab] = useState('settings');   // settings | recipients | log
   const [cfg, setCfg] = useState(null);
   const [savedMode, setSavedMode] = useState(null);
@@ -101,12 +104,13 @@ export default function WorkforceScorecardSettings() {
       <>
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Mode</label>
+        {modeLocked && <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>Mode and the test recipients apply to every company - only a Super Administrator can change them.</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {MODES.map((m) => (
             <label key={m.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px',
               border: `1px solid ${cfg.mode === m.key ? NX.blue : NX.border}`, borderRadius: 8,
               background: cfg.mode === m.key ? 'var(--wk-brand-tint)' : 'transparent', cursor: 'pointer' }}>
-              <input type="radio" name="workforce-scorecard-mode" checked={cfg.mode === m.key}
+              <input type="radio" name="workforce-scorecard-mode" checked={cfg.mode === m.key} disabled={modeLocked}
                 onChange={() => { setCfg((c) => ({ ...c, mode: m.key })); setConfirmLive(false); }} style={{ marginTop: 3 }} />
               <span>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.label}</div>
@@ -120,7 +124,7 @@ export default function WorkforceScorecardSettings() {
       {cfg.mode === 'test' && (
         <div style={{ marginBottom: 16 }}>
           <label style={fieldLabel} htmlFor="wsc-test-recipients">Test Recipients</label>
-          <input id="wsc-test-recipients" value={lists.test} onChange={(e) => setLists((l) => ({ ...l, test: e.target.value }))}
+          <input id="wsc-test-recipients" value={lists.test} onChange={(e) => setLists((l) => ({ ...l, test: e.target.value }))} readOnly={modeLocked}
             placeholder="you@company.com, another@company.com" style={inputStyle} />
           <div style={hint}>Comma-separated. Each manager's scorecard is built from their own team and sent here instead, with a "[TEST -&gt; manager]" subject prefix.</div>
         </div>

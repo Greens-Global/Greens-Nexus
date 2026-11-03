@@ -644,9 +644,10 @@ export function LeaveSetup({ toastOk, toastErr }) {
       <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
         {data.cutover ? `Balances count from ${day(data.cutover)}${(data.companies || []).some(c => c.own) ? ' (some companies have a date of their own)' : ''}.` : 'No start date yet - nothing shows to employees until one is set.'} The start dates and the opening balances are on People &gt; Time &gt; Time Off.
       </div>
-      {data.canSetup
+      {/* Every company shares the policies (Neil, 11/02/2026): a Super Administrator's (canEditPolicies). */}
+      {(data.canEditPolicies ?? data.canSetup)
         ? <PoliciesEditor policies={data.policies || []} builtIn={data.defaults || []} onSaved={load} toastOk={toastOk} toastErr={toastErr} />
-        : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Only an administrator can change the policies.</div>}
+        : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Only a Super Administrator can change this.</div>}
     </div>
   );
 }

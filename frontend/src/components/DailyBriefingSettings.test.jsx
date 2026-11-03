@@ -18,7 +18,9 @@ vi.mock('../api', () => ({
 }));
 const confirm = vi.fn();
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirm(...a) } }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true }) }));
+// A Super Administrator by default: mode and the test recipients are theirs (11/02/2026).
+const role = { isGlobalAdmin: true };
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, isGlobalAdmin: role.isGlobalAdmin }) }));
 
 const DailyBriefingSettings = (await import('./DailyBriefingSettings')).default;
 
@@ -33,6 +35,7 @@ const ROWS = [
 ];
 
 beforeEach(() => {
+  role.isGlobalAdmin = true;
   getDailyBriefingConfig.mockReset().mockResolvedValue({ mode: 'test', test_recipients: [], outlook_card: 'off' });
   getDailyBriefingLog.mockReset().mockResolvedValue({ rows: ROWS, total: ROWS.length });
   forceResendDailyBriefing.mockReset().mockResolvedValue({ sentNow: true, mode: 'test', hadContent: true });

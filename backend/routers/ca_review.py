@@ -96,4 +96,8 @@ def put_settings(body: SettingsIn, user: dict = Depends(require_team_write), db:
         from auth import _module_level, _MODULE_LEVEL_RANK
         if _module_level(user["email"], "hr", db) < _MODULE_LEVEL_RANK["full"]:
             raise HTTPException(403, "Only HR administrators change the California minimum wage.")
+    # One figure every company shares (Neil, 11/02/2026): a Super
+    # Administrator's alone, whatever HR grant anyone else holds.
+    import settings_walls
+    settings_walls.require_super_admin_for_org(db, user, "Changing the California minimum wage")
     return ca_review.save_settings(db, {"minWage": body.minWage}, user["email"])

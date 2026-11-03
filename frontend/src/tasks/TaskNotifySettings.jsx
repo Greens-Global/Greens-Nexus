@@ -44,11 +44,11 @@ const INBOUND_META = {
   failed:   { color: NX.red, Icon: AlertTriangle, label: 'Failed' },
 };
 
-function Toggle({ on, onChange }) {
+function Toggle({ on, onChange, disabled = false }) {
   return (
-    <button type="button" onClick={onChange} title={on ? 'Enabled' : 'Disabled'} style={{
-      position: 'relative', width: 38, height: 22, borderRadius: 999, border: 'none', cursor: 'pointer',
-      background: on ? NX.green : NX.border, transition: 'background 0.15s', flexShrink: 0,
+    <button type="button" onClick={onChange} disabled={disabled} title={on ? 'Enabled' : 'Disabled'} style={{
+      position: 'relative', width: 38, height: 22, borderRadius: 999, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
+      background: on ? NX.green : NX.border, transition: 'background 0.15s', flexShrink: 0, opacity: disabled ? 0.55 : 1,
     }}>
       <span style={{ position: 'absolute', top: 2, left: on ? 18 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
     </button>
@@ -66,7 +66,11 @@ function Field({ label, hint, children }) {
 }
 
 export default function TaskNotifySettings() {
-  const { myLevel } = useRole();
+  const { myLevel, isGlobalAdmin } = useRole();
+  // The mail plumbing - the sender, Always CC, reply-to and email replies -
+  // is the whole organization's (Neil, 11/02/2026): a Super Administrator's
+  // to change (the server refuses a change from anyone else).
+  const locked = !isGlobalAdmin;
   const [tab, setTab] = useState('settings');
   const [cfg, setCfg] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -124,15 +128,20 @@ export default function TaskNotifySettings() {
               once Admin went full-bleed) instead of capping out early. */}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1fr) minmax(320px, 1fr)', gap: 16, alignItems: 'start' }}>
             <div style={{ ...card, padding: 18 }}>
+              {locked && (
+                <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 12 }}>
+                  The sending mailbox, Default CC, reply-to address and email replies apply to every company - only a Super Administrator can change them.
+                </div>
+              )}
               <Field label="Shared mailbox (sender)" hint="Leave blank to send from the default Nexus mailbox.">
-                <input value={cfg.fromMailbox || ''} onChange={(e) => set('fromMailbox', e.target.value)}
+                <input value={cfg.fromMailbox || ''} onChange={(e) => set('fromMailbox', e.target.value)} readOnly={locked}
                   placeholder="tasks@companydomain.com" style={inputStyle} />
               </Field>
               <Field label="Default CC" hint="Comma-separated. Applied to every task notification.">
-                <input value={ccInput} onChange={(e) => setCcInput(e.target.value)} placeholder="ops@companydomain.com" style={inputStyle} />
+                <input value={ccInput} onChange={(e) => setCcInput(e.target.value)} readOnly={locked} placeholder="ops@companydomain.com" style={inputStyle} />
               </Field>
               <Field label="Reply-to address">
-                <input value={cfg.replyTo || ''} onChange={(e) => set('replyTo', e.target.value)} placeholder="tasks@companydomain.com" style={inputStyle} />
+                <input value={cfg.replyTo || ''} onChange={(e) => set('replyTo', e.target.value)} readOnly={locked} placeholder="tasks@companydomain.com" style={inputStyle} />
               </Field>
               <Field label="Company logo URL" hint="Shown in the email header. Blank uses the Greens Global wordmark.">
                 <input value={cfg.logoUrl || ''} onChange={(e) => set('logoUrl', e.target.value)} placeholder="https://…/logo.png" style={inputStyle} />
@@ -166,7 +175,7 @@ export default function TaskNotifySettings() {
                 <Toggle on={!!cfg.allowUserOverdueOff} onChange={() => set('allowUserOverdueOff', !cfg.allowUserOverdueOff)} />
               </Field>
 
-              <InboundSection cfg={cfg} set={set} />
+              <InboundSection cfg={cfg} set={set} locked={locked} />
             </div>
 
             <div style={{ ...card, padding: 18 }}>
@@ -204,7 +213,7 @@ export default function TaskNotifySettings() {
 // rather than something derived from "the mailbox happens to be readable"
 // because draining it marks messages read and files them away - a visible
 // takeover of a mailbox somebody may be watching.
-function InboundSection({ cfg, set }) {
+function InboundSection({ cfg, set, locked = false }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
   const [err, setErr] = useState('');
@@ -231,7 +240,7 @@ function InboundSection({ cfg, set }) {
             task, with any files they attached.
           </div>
         </div>
-        <Toggle on={!!cfg.inboundEnabled} onChange={() => set('inboundEnabled', !cfg.inboundEnabled)} />
+        <Toggle on={!!cfg.inboundEnabled} disabled={locked} onChange={() => set('inboundEnabled', !cfg.inboundEnabled)} />
       </div>
 
       {cfg.inboundEnabled && (
@@ -240,7 +249,7 @@ function InboundSection({ cfg, set }) {
             hint={cfg.inboundMailbox
               ? 'Overrides the reply-to address above.'
               : `Blank uses the reply-to address above${cfg.replyTo ? ` (${cfg.replyTo})` : ''}.`}>
-            <input value={cfg.inboundMailbox || ''} onChange={(e) => set('inboundMailbox', e.target.value)}
+            <input value={cfg.inboundMailbox || ''} onChange={(e) => set('inboundMailbox', e.target.value)} readOnly={locked}
               placeholder={cfg.replyTo || 'tasks@companydomain.com'} style={inputStyle} />
           </Field>
 

@@ -3492,7 +3492,12 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   const blank = { name: '', legal_name: '', country: '', region: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', invoice_recipients: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
-  const { can } = useRole();
+  const { can, hrScope } = useRole();
+  // Company-wide People access (hr_scope null). A caller limited to some
+  // companies (or to a manager's own team) edits their companies' profiles
+  // but never adds or deletes a company, sets the group manager or changes
+  // email domains - the server refuses those (_require_unrestricted).
+  const companyWide = !Array.isArray(hrScope);
   const allTabs = can('administrator') ? [...COMPANY_TABS, COMPANY_ROLES_TAB] : COMPANY_TABS;
   const companyTabs = tabs ? allTabs.filter(t => tabs.includes(t.key)) : allTabs;
   const firstTab = companyTabs[0]?.key || 'overview';
@@ -3505,8 +3510,9 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   const [groupMgr, setGroupMgr] = useState('');
   const [groupMgrBusy, setGroupMgrBusy] = useState(false);
   useEffect(() => {
+    if (!companyWide) return;
     api.getGroupManager().then(r => setGroupMgr(r?.email || '')).catch(() => {});
-  }, []);
+  }, [companyWide]);
   // Company Manager(s) may also be external users (Sep 29) - offered in their
   // own group of the picker. HR Contact and the group manager stay Nexus People.
   const { data: withExternal = [] } = usePeopleDirectoryWithExternal();
@@ -3582,6 +3588,9 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
         main_phone: f.main_phone_type === 'phone' && f.main_phone.trim() ? `${dial} ${f.main_phone.trim()}` : f.main_phone.trim(),
         invoice_recipients: (f.invoice_recipients || '').split(/[,\s;]+/).filter(Boolean),
       };
+      // Domains only when they changed: they re-tag untagged people, and a
+      // company-limited caller may not change them at all.
+      if (mode !== 'new' && (!companyWide || f.domains === formSnapshotRef.current.domains)) delete payload.domains;
       if (mode === 'new') await api.createEntity(payload); else await api.updateEntity(mode, payload);
       await onChangedEntities(); toastOk('Company saved.'); setMode(null);
     } catch (e) { toastErr(e?.message || 'Could not save company.'); }
@@ -3776,9 +3785,11 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                   </div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
-                  {field('EMAIL DOMAINS', 'domains', { placeholder: 'e.g. aaravconstruction.com - comma-separated' })}
+                  {field('EMAIL DOMAINS', 'domains', { placeholder: 'e.g. aaravconstruction.com - comma-separated', readOnly: !companyWide, 'aria-readonly': !companyWide })}
                   <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>
-                    Sync from M365 imports accounts on these domains and tags them to this company automatically (never overwrites a company already set on a profile).
+                    {companyWide
+                      ? 'Sync from M365 imports accounts on these domains and tags them to this company automatically (never overwrites a company already set on a profile).'
+                      : 'Email domains are set by someone with access to every company - they tag people to this company automatically.'}
                   </p>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
@@ -3849,7 +3860,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
+      {companyWide && <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700 }}>Group Manager</div>
           <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Oversees every company - the escalation step above each company's manager.</div>
@@ -3860,11 +3871,15 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
             people={dirPickRows(people)} placeholder="Not set" noneLabel="Not Set"
             ariaLabel="Group Manager" style={{ ...PICK_BOX, fontSize: 12.5 }} />
         </div>
-      </div>
+      </div>}
       {entities.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)' }}>
-          <p style={{ fontSize: 13, marginBottom: 14 }}>No companies yet. Add your legal entities so every worker can be tied to one.</p>
-          <button className="secondary-btn" onClick={seedDefaults} disabled={busy} style={{ marginRight: 8 }}>Add Greens · Greens India · MCD · Oversite</button>
+          {companyWide ? (
+            <>
+              <p style={{ fontSize: 13, marginBottom: 14 }}>No companies yet. Add your legal entities so every worker can be tied to one.</p>
+              <button className="secondary-btn" onClick={seedDefaults} disabled={busy} style={{ marginRight: 8 }}>Add Greens · Greens India · MCD · Oversite</button>
+            </>
+          ) : <p style={{ fontSize: 13 }}>No companies inside your access yet.</p>}
         </div>
       ) : entities.map(en => {
         const mgrEmails = en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []);
@@ -3877,13 +3892,13 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
             <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, mgrNames && `Manager${mgrEmails.length > 1 ? 's' : ''} ${mgrNames}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
           </div>
           <button className="secondary-btn" onClick={() => (onOpen ? onOpen(en.id) : startEdit(en))} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
-          <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
+          {companyWide && <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>}
         </div>
         );
       })}
-      <div style={{ padding: '14px 4px', display: 'flex', justifyContent: 'flex-end' }}>
+      {companyWide && <div style={{ padding: '14px 4px', display: 'flex', justifyContent: 'flex-end' }}>
         <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Company</button>
-      </div>
+      </div>}
     </div>
   );
 }

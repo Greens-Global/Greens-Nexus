@@ -121,7 +121,48 @@ def get_my_role(
             # caller is (People > Companies) - HR for them whatever their
             # grant says (hr_access.is_hr_for_company), so a screen can show
             # an HR action the server would allow (Send Federal Form).
-            "hr_contact_for": _hr_contact_for(db, user["email"])}
+            "hr_contact_for": _hr_contact_for(db, user["email"]),
+            # Settings walls (11/02/2026): whether the caller sees past the
+            # company walls (a Super Administrator - auth.is_global_admin),
+            # and the companies whose shift and pay settings they may change
+            # (timeclock._manage_companies: null = company-wide, so the
+            # "Every company" face of those settings opens for them).
+            "is_global_admin": _is_global_admin(db, user),
+            "manage_companies": _manage_companies_out(db, user),
+            # A company wall confines the caller (auth.company_scope is not
+            # None): the organization-wide records (branding, shared rules)
+            # are not theirs (Settings' orgWide reads is_global_admin, 11/02/2026).
+            "company_walled": _company_walled(db, user),
+            # The same companies with their names, for Settings' company list
+            # when People's /hr/entities is not the caller's to read (a
+            # manager who may still change their company's shift settings).
+            "manage_company_rows": _manage_company_rows(db, user)}
+
+
+def _manage_company_rows(db: Session, user: dict) -> list:
+    from models import HrEntity
+    from routers.timeclock import _manage_companies
+    allowed = _manage_companies(db, user)
+    if not allowed:
+        return []
+    return [{"id": e.id, "name": e.name or ""} for e in
+            db.query(HrEntity.id, HrEntity.name).filter(HrEntity.id.in_(sorted(allowed))).order_by(HrEntity.name).all()]
+
+
+def _company_walled(db: Session, user: dict) -> bool:
+    from auth import company_scope
+    return company_scope(user, db) is not None
+
+
+def _is_global_admin(db: Session, user: dict) -> bool:
+    from auth import is_global_admin
+    return bool(is_global_admin(user, db))
+
+
+def _manage_companies_out(db: Session, user: dict):
+    from routers.timeclock import _manage_companies
+    allowed = _manage_companies(db, user)
+    return None if allowed is None else sorted(allowed)
 
 
 def _hr_contact_for(db: Session, email: str) -> list:
