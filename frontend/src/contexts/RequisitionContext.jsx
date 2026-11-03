@@ -40,6 +40,7 @@ function reqFromApi(r) {
     allocatorName:        r.allocator_name  || '',
     orderedAt:            r.ordered_at      || null,
     fulfilledAt:          r.fulfilled_at    || null,
+    jobId:                r.job_id          || '',
     fulfillmentNote:      r.fulfillment_note || '',
     fulfilledItemId:      r.fulfilled_item_id || '',
     history:              r.history || [],
@@ -191,7 +192,7 @@ export function RequisitionProvider({ children }) {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
-  const submitRequisition = ({ employeeName, employeeDept, item, quantity, reason, employeeEmail, approverEmail }) => {
+  const submitRequisition = ({ employeeName, employeeDept, item, quantity, reason, employeeEmail, approverEmail, jobId = '' }) => {
     const id  = `REQ-${Date.now().toString().slice(-6)}`;
     const now = ts();
     // On-behalf requests are tagged to the BENEFICIARY's email so the
@@ -217,6 +218,7 @@ export function RequisitionProvider({ children }) {
       reason: reason || '', status: 'pending_manager',
       supervisor_name: 'TBD',
       approver_email: (approverEmail || '').toLowerCase(),  // backend notifies only this manager
+      job_id: jobId || '',   // optional construction job (plan phase 4)
     })
       .then(() => newReq)
       .catch(err => { setRequisitions(prev => prev.filter(r => r.id !== id)); throw err; });
