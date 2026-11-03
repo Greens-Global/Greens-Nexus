@@ -132,6 +132,28 @@ class CrisisRouteTests(unittest.TestCase):
         self.assertNotIn("crisis", r.json())
         self.assertTrue(r.json()["offline"])
 
+    def test_search_logs_never_keep_crisis_words(self):
+        import kb_search
+        self._as(US_EMP)
+        db = database.SessionLocal()
+        try:
+            before = db.query(models.KbSearchLog).count()
+            kb_search.log_miss(db, CRISIS, 0, US_EMP, source="help", floor=10 ** 6)
+            r = self.client.post("/help-center/search-log", json={"q": "i want to kill myself", "results": 0, "source": "help"})
+            self.assertIn(r.status_code, (200, 204), r.text)
+            r = self.client.get("/kb/search", params={"q": "thinking about suicide"})
+            self.assertEqual(r.status_code, 200, r.text)
+            db.expire_all()
+            self.assertEqual(db.query(models.KbSearchLog).count(), before)
+            # An ordinary miss is still logged.
+            kb_search.log_miss(db, "payroll calendar", 0, US_EMP, source="help", floor=10 ** 6)
+            db.commit()
+            self.assertEqual(db.query(models.KbSearchLog).count(), before + 1)
+            db.query(models.KbSearchLog).filter(models.KbSearchLog.query == "payroll calendar").delete()
+            db.commit()
+        finally:
+            db.close()
+
     def test_policy_status_carries_the_country(self):
         self._as(IN_EMP)
         self.assertEqual(self.client.get("/policy/status").json()["country"], "IN")

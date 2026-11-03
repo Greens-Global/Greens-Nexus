@@ -31,6 +31,9 @@ const TRUE_POSITIVES = [
   'ab jeena nahi chahti',
   'Need help with payroll. Also I want to kill myself.',
   'suicide prevention training is due, and honestly I am suicidal',
+  'I want to end it all tonight',
+  'I want to end my life',
+  'I want to cut myself',
 ];
 
 const FALSE_POSITIVES = [
@@ -52,6 +55,23 @@ const FALSE_POSITIVES = [
   'Life insurance question about my policy',
   'We need to end this contract',
   'I could die of embarrassment after that presentation',
+  // Review, 11/02/2026: confirmed false positives that must never match.
+  'I want to end my life insurance policy',
+  'Can I take my life insurance with me when I leave?',
+  'Ending my life insurance through payroll',
+  'Taking my life insurance to the new plan',
+  'The truck has suicide doors',
+  'Merge into the suicide lane',
+  'We ran suicide sprints at practice',
+  'Suicide drills for the team',
+  'We need a die cut for the new labels',
+  'The die cast part is cracked',
+  'Order a new die set for the press',
+  'I want to cut myself a break this week',
+  'I need to cut myself some slack',
+  'I am going to cut myself a slice of cake',
+  'Let\'s end it all at 5pm and go home',
+  'We can end it all for today',
 ];
 
 describe('detectCrisis', () => {

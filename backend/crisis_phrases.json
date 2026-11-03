@@ -1,19 +1,19 @@
 {
-  "_comment": "Crisis support phrase list (11/02/2026). The SAME file lives at frontend/src/lib/crisisPhrases.json - change both together (test_crisis_support.py fails when they differ). Patterns run on normalized text: lower case, apostrophes dropped, every other character that is not a letter or digit turned into one space. Keep to regex syntax that Python and JavaScript read alike. An exclusion is cut out of the text before the patterns run, so a training course title never trips the card while a real message beside it still does. Workplace injury words alone (hurt myself, cut myself) are NOT patterns: injury reports use them every day; only intent (want to, thinking about, on purpose) counts.",
-  "version": 1,
+  "_comment": "Crisis support phrase list (11/02/2026). The SAME file lives at frontend/src/lib/crisisPhrases.json - change both together (test_crisis_support.py fails when they differ). Patterns run on normalized text: lower case, apostrophes dropped, every other character that is not a letter or digit turned into one space. Keep to regex syntax that Python and JavaScript read alike. An exclusion is cut out of the text before the patterns run, so a training course title never trips the card while a real message beside it still does. Workplace injury words alone (hurt myself, cut myself) are NOT patterns: injury reports use them every day; only intent (want to, thinking about, on purpose) counts. Version 2 (review, 11/02/2026): life insurance or a life policy, suicide doors, lanes, squads, sprints and drills, die cut, die cast and die set, cut myself a break or some slack, and end it all at 5pm are never matches.",
+  "version": 2,
   "patterns": [
     "\\bkill(?:ing)? my ?self\\b",
     "\\bsuicid(?:e|al)\\b",
-    "\\b(?:end|ending|take|taking) my (?:own )?life\\b",
+    "\\b(?:end|ending|take|taking) my (?:own )?life\\b(?! (?:insurance|policy|policies|savings|story|stories)\\b)",
     "\\b(?:want|wanna|wanted|ready|plan|planning) (?:to )?die\\b",
     "\\bwish (?:i|id) (?:was|were|be) dead\\b",
     "\\b(?:dont|do not|no longer|never) (?:even )?want to (?:live|be alive|exist|wake up)\\b",
     "\\bno (?:reason|point) (?:to|in) (?:live|living|going on)\\b",
     "\\bbetter off dead\\b",
     "\\b(?:everyone|everybody|they|the world|my family|my kids) (?:would be|is|are|will be) better off without me\\b",
-    "\\bend it all\\b",
+    "\\bend it all\\b(?! (?:at|by|before|after|around) \\d)(?! for (?:today|the day|the week|now)\\b)",
     "\\bself ?harm(?:ing)?\\b",
-    "\\b(?:want|wanna|going|planning|plan|thinking about|thinking of|thoughts of|urge to|urges to|feel like) (?:to )?(?:hurt|harm|cut|hurting|harming|cutting|kill|killing) my ?self\\b",
+    "\\b(?:want|wanna|going|planning|plan|thinking about|thinking of|thoughts of|urge to|urges to|feel like) (?:to )?(?:hurt|harm|cut|hurting|harming|cutting|kill|killing) my ?self\\b(?! (?:a|an|some|another) (?:break|breaks|slack|slice|piece|deal|check|cheque|bit|little|portion)\\b)",
     "\\b(?:hurt|harm|cut|hurting|harming|cutting) my ?self on purpose\\b",
     "\\b(?:hang|hanging|drown|drowning) my ?self\\b",
     "\\boverdos(?:e|ed|ing) on purpose\\b",
@@ -24,6 +24,7 @@
     "\\bjeene ka (?:mann|man) nahi\\b"
   ],
   "exclusions": [
-    "\\bsuicide (?:prevention|awareness|training|policy)\\b"
+    "\\bsuicide (?:prevention|awareness|training|policy|doors?|lanes?|squad|sprints?|drills?|runs?|seats?|knobs?|clauses?)\\b",
+    "\\bdie (?:cut|cuts|cutting|cutter|cast|casts|casting|set|sets|maker)\\b"
   ]
 }
