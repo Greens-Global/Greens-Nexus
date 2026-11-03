@@ -1126,7 +1126,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
             {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
               .map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
           </select>
-          <button className="primary-btn" onClick={() => setObo({ email: '', type: 'vacation', start: '', end: '', note: '', confidential: false })}
+          {/* Outline, not filled (11/03/2026 audit): the pending rows' Approve
+              buttons are this view's primary actions - one high-emphasis
+              style per group, so filing on behalf stays the quieter ask. */}
+          <button className="secondary-btn" onClick={() => setObo({ email: '', type: 'vacation', start: '', end: '', note: '', confidential: false })}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}>
             <Plus size={13} /> Request on Behalf
           </button>
@@ -1175,12 +1178,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                   {timeoffLabel(r)}{r.confidential && <ConfidentialMark />}
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note || undefined}>
-                  {formatDate(r.startDate, r.startDate)} - {formatDate(r.endDate, r.endDate)}{partial ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : ''}{r.note ? ` · Reason: ${r.note}` : r.redacted ? '' : ' · No reason given'}
+                  {/* "No reason given" only while it still needs a decision - on 300
+                      decided rows it was pure noise (11/03/2026 audit). */}
+                  {formatDate(r.startDate, r.startDate)} - {formatDate(r.endDate, r.endDate)}{partial ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : ''}{r.note ? ` · Reason: ${r.note}` : (r.redacted || r.status !== 'pending') ? '' : ' · No reason given'}
                   {r.requestedBy && r.requestedBy !== r.email && (
                     <span style={{ fontStyle: 'italic' }}> · filed by <AvatarName email={r.requestedBy} name={r.requestedByName || r.requestedBy.split('@')[0].replace(/\./g, ' ')} size={16} /></span>
                   )}
                 </span>
-                <span style={{ fontSize: 12, fontWeight: 700 }} title="Working days (Mon-Fri)">{r.startDate ? fmtDays(days) : '-'}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }} title="Working days (Mon-Fri)">{r.startDate ? fmtDays(days) : '-'}</span>
                 <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }} title={r.approver || undefined}>
                   {r.approver ? (<>
                     <Avatar email={r.approver} name={r.approverName || r.approver.split('@')[0].replace(/\./g, ' ')} size={20} />
@@ -1201,12 +1206,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                     </span>
                   ) : r.status === 'pending' ? (<>
                     {r.awaitingHr && <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }} title={`Approved by ${r.firstApproverName || r.firstApprover || 'the manager'}`}>HR Approval</span>}
-                    <button className="secondary-btn" onClick={() => decideTimeoff(r.id, 'rejected')} style={{ fontSize: 11, color: '#b91c1c', padding: '4px 10px' }}>Reject</button>
+                    <button className="secondary-btn" onClick={() => decideTimeoff(r.id, 'rejected')} style={{ fontSize: 11, color: 'hsl(var(--color-red))', padding: '4px 10px' }}>Reject</button>
                     <button className="primary-btn" onClick={() => decideTimeoff(r.id, 'approved')} style={{ fontSize: 11, padding: '4px 10px' }}>Approve</button>
                   </>) : (
                     <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'capitalize', padding: '2px 10px', borderRadius: 999,
-                      background: r.status === 'approved' ? 'hsla(var(--color-green),0.1)' : r.status === 'rejected' ? 'rgba(185,28,28,0.08)' : 'var(--mist)',
-                      color: r.status === 'approved' ? 'hsl(var(--color-green))' : r.status === 'rejected' ? '#b91c1c' : 'var(--muted)' }}>
+                      background: r.status === 'approved' ? 'hsla(var(--color-green),0.1)' : r.status === 'rejected' ? 'rgba(220,38,38,0.08)' : 'var(--mist)',
+                      color: r.status === 'approved' ? 'hsl(var(--color-green))' : r.status === 'rejected' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
                       {r.status}
                     </span>
                   )}
@@ -1298,8 +1303,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                     </span>
                     <span style={{ color: 'var(--muted)', flex: 1 }}>{formatDate(t.startDate, t.startDate)} - {formatDate(t.endDate, t.endDate)}{t.note ? ` · Reason: ${t.note}` : ''}</span>
                     <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'capitalize', padding: '2px 10px', borderRadius: 999,
-                      background: t.status === 'approved' ? 'hsla(var(--color-green),0.1)' : t.status === 'rejected' ? 'rgba(185,28,28,0.08)' : 'rgba(180,83,9,0.1)',
-                      color: t.status === 'approved' ? 'hsl(var(--color-green))' : t.status === 'rejected' ? '#b91c1c' : '#b45309' }}>{t.status}</span>
+                      background: t.status === 'approved' ? 'hsla(var(--color-green),0.1)' : t.status === 'rejected' ? 'rgba(220,38,38,0.08)' : 'rgba(180,83,9,0.1)',
+                      color: t.status === 'approved' ? 'hsl(var(--color-green))' : t.status === 'rejected' ? 'hsl(var(--color-red))' : '#b45309' }}>{t.status}</span>
                   </div>
                 ))}
                 <p style={{ margin: '14px 0 0', fontSize: 10.5, color: 'var(--muted)' }}>
@@ -1335,8 +1340,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                   onChange={e => setEdit(x => ({ ...x, adjustNote: e.target.value }))} style={{ width: '100%', fontFamily: 'inherit' }} /></div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
                 <input type="checkbox" checked={!!edit.voided} onChange={e => setEdit(x => ({ ...x, voided: e.target.checked }))}
-                  style={{ width: 15, height: 15, accentColor: '#b91c1c' }} />
-                <Ban size={13} style={{ color: '#b91c1c' }} /> Void this punch (kept on record, excluded from totals)
+                  style={{ width: 15, height: 15, accentColor: 'hsl(var(--color-red))' }} />
+                <Ban size={13} style={{ color: 'hsl(var(--color-red))' }} /> Void this punch (kept on record, excluded from totals)
               </label>
               <LongShiftWarning issue={longWarn?.form === 'edit' ? longWarn.issue : null} manager busy={busy}
                 onFix={() => setLongWarn(null)}
