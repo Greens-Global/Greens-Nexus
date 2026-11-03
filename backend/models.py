@@ -6369,6 +6369,12 @@ class HrPacketSetting(Base):
     # field. [{key, label, type, required, options, sensitive, last4, help}];
     # each key is a {{variable}} the packet's templates can print.
     details_form     = Column(JSON, default=list)
+    # Who fills each variable, for THIS packet (Pranshu, 11/03/2026): the
+    # packet's own choice laid over its templates' - {token: {source:
+    # 'person' (the intake form) | 'hr' (HR at the offer) | 'same' (one value
+    # for every hire), value, required, sensitive}}. A token not here keeps
+    # what its template says; the templates themselves are never changed.
+    field_sources    = Column(JSON, default=dict)
     # Signs Once (Oct 14): the company signature a step marked `once` applies
     # to every packet, adopted ONCE by whoever holds that role for the
     # company. [{step, entityId, email, name, kind, data, digest, adoptedAt,

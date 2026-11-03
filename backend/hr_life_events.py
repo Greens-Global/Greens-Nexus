@@ -418,8 +418,8 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
         import hr_packet_docs as hpd
         docs = hpd.ser_documents(db, s)
         flow = hpd.ser_flow(db, s)
-        snaps = hpd.load_snaps(db, list(s.doc_template_ids or []) + [t for t in hpd.all_block_ids(s)
-                                                                       if t not in (s.doc_template_ids or [])])[0]
+        snaps = hpd.with_sources(s, hpd.load_snaps(db, list(s.doc_template_ids or []) + [
+            t for t in hpd.all_block_ids(s) if t not in (s.doc_template_ids or [])])[0])
         return {"id": s.id, "engine": "documents", "entityId": s.entity_id or "", "event": s.event,
                 "workerType": s.worker_type, "country": s.country or "", "region": s.region or "",
                 "place": place_label(s.worker_type, s.country, s.region),
@@ -438,6 +438,8 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
                 # The Details Form and, for a company's packet, who signs once
                 # and whether they have (Oct 14).
                 "detailsForm": list(s.details_form or []),
+                # Who fills each variable, for this packet (Nov 3 2026).
+                "fieldSources": dict(getattr(s, "field_sources", None) or {}),
                 # The federal forms sent after the documents (Neil, 11/02/2026).
                 "federalForms": list(getattr(s, "federal_forms", None) or []),
                 # What the documents themselves ask (Oct 14): the person's
@@ -1169,6 +1171,7 @@ def _describe(db: Session, s: Optional[HrPacketSetting], department: str = "", r
     import hr_packet_docs as hpd
     ids = hpd.template_ids_for(s, {"department": department, "role_id": role_id, "role_docs": role_docs or []}, kind)
     snaps, problems = hpd.load_snaps(db, ids)
+    snaps = hpd.with_sources(s, snaps)
     tokens = {t for snap in snaps for t in snap.tokens}
     return {"id": s.id, "name": s.name or "", "workerType": s.worker_type or "any", "country": s.country or "",
             "documents": [snap.name for snap in snaps], "problems": problems,

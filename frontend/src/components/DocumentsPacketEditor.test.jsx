@@ -14,7 +14,8 @@ vi.mock('../api', () => ({
     getDocLetterheads: () => Promise.resolve([]),
     saveDocumentsPacket: (...a) => save(...a),
     packetReadiness: () => Promise.resolve({ readiness: [] }),
-    packetIntakePreview: () => Promise.resolve({ standard: [], form: [], hrAtOffer: [], problems: [] }),
+    packetIntakePreview: () => Promise.resolve({ standard: [], form: [], hrAtOffer: [], problems: [],
+      fields: [{ token: 'pan_number', label: 'PAN Number', documents: ['NDA'], fill: 'none', editable: true }] }),
     getPeopleDirectory: () => Promise.resolve([]),
     signOnceStatus: () => Promise.resolve([{ key: 'company', roleLabel: 'HR', name: 'Charmi Shah', email: 'charmi@x.com', signed: false, isMe: true }]),
   },
@@ -46,12 +47,11 @@ describe('DocumentsPacketEditor', () => {
     expect(screen.getByText('1 Warning')).toBeTruthy();
     expect(screen.getByText('Pay Shows In A Document')).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: /Documents/ }));
-    await waitFor(() => expect(screen.getByText(/nothing fills them yet/)).toBeTruthy());
-    fireEvent.click(screen.getByText('PAN Number', { selector: 'button' }));
-    expect(screen.getByText('{{pan_number}}')).toBeTruthy();
-    expect(screen.queryByText(/nothing fills them yet/)).toBeNull();
+    // Every field the documents print, and who fills it - picked here, for this packet (Nov 3 2026).
+    await waitFor(() => expect(screen.getByLabelText('Who fills PAN Number')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Who fills PAN Number'), { target: { value: 'person' } });
     fireEvent.click(screen.getByText('Add Field'));
-    fireEvent.change(screen.getAllByLabelText('Field label')[1], { target: { value: 'IFSC Code' } });
+    fireEvent.change(screen.getAllByLabelText('Field label')[0], { target: { value: 'IFSC Code' } });
     expect(screen.getByText('{{ifsc_code}}')).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: /Who Signs/ }));
     expect(screen.getAllByRole('checkbox').some(c => c.checked)).toBe(true);           // Signs Once ticked
@@ -60,7 +60,8 @@ describe('DocumentsPacketEditor', () => {
     await waitFor(() => expect(save).toHaveBeenCalled());
     const body = save.mock.calls[0][0];
     expect(body.flow[0]).toEqual({ key: 'company', role: 'hr', action: 'sign', once: true });
-    expect(body.details_form.map(f => [f.key, f.label])).toEqual([['pan_number', 'PAN Number'], ['', 'IFSC Code']]);
+    expect(body.details_form.map(f => [f.key, f.label])).toEqual([['', 'IFSC Code']]);
+    expect(body.field_sources).toMatchObject({ pan_number: { source: 'person' } });
     expect(screen.getByText('Ready To Send?')).toBeTruthy();                   // back on the checklist after saving
   });
 

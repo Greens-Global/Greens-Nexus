@@ -20,6 +20,13 @@ const RESULT = {
     { key: 'pan_number', label: 'PAN Number', type: 'text', required: true, sensitive: true, documents: ['NDA', 'Offer Letter'], packetOnly: false },
   ],
   hrAtOffer: [{ token: 'probation_period', label: 'Probation Period', documents: ['NDA'] }],
+  // Every variable the documents print and who fills it (Pranshu, 11/03/2026).
+  fields: [
+    { token: 'address', label: 'Address', documents: ['NDA'], fill: 'standard', editable: false },
+    { token: 'pan_number', label: 'PAN Number', documents: ['NDA', 'Offer Letter'], fill: 'person', required: true, sensitive: true, editable: true },
+    { token: 'probation_period', label: 'Probation Period', documents: ['NDA'], fill: 'hr', editable: true },
+    { token: 'client_name', label: 'Client Name', documents: ['NDA'], fill: 'none', editable: true },
+  ],
   problems: [],
 };
 
@@ -29,25 +36,28 @@ describe('PacketIntakePanel', () => {
   it('lists the always-asked details, the documents\u2019 questions, and HR\u2019s offer questions', async () => {
     render(<PacketIntakePanel docIds={['t1']} extraDocs={[]} detailsForm={[{ label: 'Nationality', type: 'text' }, { label: '' }]}
       companyName="Greens India"><div>EDITABLE EXTRAS</div></PacketIntakePanel>);
-    await waitFor(() => expect(screen.getByTestId('asked-pan_number')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('field-pan_number')).toBeTruthy());
     // what the browser sent: the editor's unsaved state, a label-less field left out
     expect(preview.mock.calls[0][0]).toMatchObject({ doc_template_ids: ['t1'], details_form: [{ label: 'Nationality' }] });
     expect(preview.mock.calls[0][0].details_form).toHaveLength(1);
     expect(screen.getByText('Always Asked')).toBeTruthy();
     expect(screen.getByText(/Legal First Name \*/)).toBeTruthy();
-    const pan = screen.getByTestId('asked-pan_number');
-    expect(pan.textContent).toContain('Private');
+    const pan = screen.getByTestId('field-pan_number');
+    expect(screen.getByLabelText('Who fills PAN Number').value).toBe('person');
+    expect(pan.querySelector('input[type=checkbox]')).toBeTruthy();                       // Required / Private
     expect(pan.textContent).toContain('NDA, Offer Letter');
-    expect(screen.queryByTestId('asked-nationality')).toBeNull();           // packet-only: under Also Ask
+    expect(screen.getByTestId('field-address').textContent).toContain('The New Hire - Always Asked');   // locked
+    expect(screen.queryByTestId('field-nationality')).toBeNull();          // packet-only: under Also Ask
+    expect(screen.getByTestId('intake-summary').textContent).toMatch(/answers 11 questions \(1 private\)\. HR answers 1 at the offer\. 1 field has nobody/);
     expect(screen.getByText('Also Ask (Saved To Their Record, Not Printed In A Document)')).toBeTruthy();
     expect(screen.getByText('EDITABLE EXTRAS')).toBeTruthy();
     expect(screen.getByText('Filled At The Offer By HR')).toBeTruthy();
-    expect(screen.getByText('Probation Period')).toBeTruthy();
+    expect(screen.getAllByText('Probation Period')).toHaveLength(2);          // in the table and in HR's questions
   });
 
   it('Preview Intake Form shows the real intake page, inert', async () => {
     render(<PacketIntakePanel docIds={['t1']} extraDocs={[]} detailsForm={[]} companyName="Greens India" />);
-    await waitFor(() => expect(screen.getByTestId('asked-pan_number')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('field-pan_number')).toBeTruthy());
     fireEvent.click(screen.getByText('Preview Intake Form'));
     const dialog = screen.getByRole('dialog', { name: 'Intake form preview' });
     expect(dialog.textContent).toContain('Your Onboarding Details');
@@ -70,6 +80,22 @@ describe('PacketIntakePanel', () => {
     preview.mockResolvedValue({ ...RESULT, roles: [] });
     render(<PacketIntakePanel docIds={['t1']} extraDocs={[]} detailsForm={[]} companyId="co-ca" companyName="Oversite" />);
     await waitFor(() => expect(screen.getByText(/None of Oversite's roles has hiring documents/)).toBeTruthy());
+  });
+
+  it('the packet picks who fills each field, and the preview is asked again with the choice', async () => {
+    const onFieldSources = vi.fn();
+    const { rerender } = render(<PacketIntakePanel docIds={['t1']} extraDocs={[]} detailsForm={[]} fieldSources={{}} onFieldSources={onFieldSources} />);
+    await waitFor(() => expect(screen.getByTestId('field-client_name')).toBeTruthy());
+    expect(screen.getByLabelText('Who fills Client Name').value).toBe('');                 // Nobody Yet
+    fireEvent.change(screen.getByLabelText('Who fills PAN Number'), { target: { value: 'hr' } });
+    expect(onFieldSources).toHaveBeenLastCalledWith({ pan_number: { source: 'hr', value: undefined, required: true, sensitive: true } });
+    fireEvent.change(screen.getByLabelText('Who fills Client Name'), { target: { value: 'same' } });
+    expect(onFieldSources).toHaveBeenLastCalledWith({ client_name: expect.objectContaining({ source: 'same' }) });
+    const choice = { client_name: { source: 'same', value: '' } };
+    rerender(<PacketIntakePanel docIds={['t1']} extraDocs={[]} detailsForm={[]} fieldSources={choice} onFieldSources={onFieldSources} />);
+    fireEvent.change(screen.getByLabelText('Client Name for everyone'), { target: { value: 'Acme' } });
+    expect(onFieldSources).toHaveBeenLastCalledWith({ client_name: { source: 'same', value: 'Acme' } });
+    await waitFor(() => expect(preview.mock.calls.at(-1)[0].field_sources).toEqual(choice));
   });
 
   it('a field that would not save says why', async () => {

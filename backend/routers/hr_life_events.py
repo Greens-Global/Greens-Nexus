@@ -411,6 +411,7 @@ class DocumentsPacketIn(BaseModel):
     email_message:    Optional[str] = ""
     egnyte_subfolder: Optional[str] = ""
     details_form:     Optional[list] = None        # the packet's own Details Form (hiring packets)
+    field_sources:    Optional[dict] = None        # who fills each variable, for this packet (Nov 3 2026)
     country:          Optional[str] = ""           # where the person works: US, IN ... ('' = any)
     region:           Optional[str] = ""           # the state inside it: CA, TX ... ('' = anywhere in the country)
     extra_docs:       Optional[list] = None        # documents for a team or role: [{match, value, templateIds}]
@@ -493,6 +494,17 @@ def save_documents_packet(body: DocumentsPacketIn, user: dict = Depends(require_
     # signers in the signing order.
     ids = list(row.doc_template_ids or []) + [t for t in hpd.all_block_ids(row) if t not in (row.doc_template_ids or [])]
     snaps, snap_problems = hpd.load_snaps(db, ids)
+    # Who fills each variable (Nov 3 2026), checked against the documents it now holds.
+    # A save that does not send them (an older screen) keeps the stored ones.
+    sent = body.field_sources is not None
+    try:
+        row.field_sources = hpd.clean_field_sources(body.field_sources if sent else (row.field_sources or {}), snaps,
+                                                    row.event,
+                                                    {f.get("key") for f in row.details_form or [] if isinstance(f, dict)},
+                                                    strict=sent)
+    except hpd.PacketProblem as e:
+        db.rollback()
+        raise HTTPException(400, str(e))
     problems = hpd.config_problems(db, row, snaps, snap_problems)
     if problems:
         db.rollback()
@@ -568,6 +580,7 @@ class IntakePreviewIn(BaseModel):
     doc_template_ids: Optional[list] = None
     extra_docs:       Optional[list] = None      # [{templateIds}] - the team / role documents
     details_form:     Optional[list] = None
+    field_sources:    Optional[dict] = None      # the editor's Filled By choices, unsaved (Nov 3 2026)
     entity_id:        Optional[str] = None       # the packet's company - its roles' own documents
     role_ids:         Optional[list] = None      # the packet's roles, when it is for some only
 
@@ -582,7 +595,8 @@ def packet_intake_preview(body: IntakePreviewIn, user: dict = Depends(require_hr
             ids += [str(t) for t in (r.get("templateIds") or [])]
     try:
         return hpd.intake_preview(db, ids, body.details_form or [], entity_id=body.entity_id or "",
-                                  role_ids=[str(r) for r in (body.role_ids or []) if r])
+                                  role_ids=[str(r) for r in (body.role_ids or []) if r],
+                                  field_sources=body.field_sources or {})
     except hpd.PacketProblem as e:
         raise HTTPException(400, str(e))
 

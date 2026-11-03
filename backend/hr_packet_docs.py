@@ -806,7 +806,7 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
     ids = list(setting.doc_template_ids or [])
     ids += [t for t in (extra_template_ids or []) if t and t not in ids]
     snaps, snap_problems = load_snaps(db, ids)
-    snaps = signed_snaps(setting, snaps)
+    snaps = with_sources(setting, signed_snaps(setting, snaps))
     problems = config_problems(db, setting, snaps, snap_problems)
     parties, remap, party_problems = build_parties(db, setting, ctx)
     problems += party_problems
@@ -914,7 +914,7 @@ def event_overrides(db: Session, ev) -> dict:
     extra = {k: str(v) for k, v in ((ev.inputs or {}).get("extra") or {}).items() if str(v or "").strip()}
     setting = event_setting(db, ev)
     plain = answer_values(event_form(db, ev, setting), event_answers(ev))[0] if setting is not None else {}
-    return {**event_values(db, ev.kind, ev.inputs or {}), **person_values(ev), **plain, **extra}
+    return {**fixed_values(setting), **event_values(db, ev.kind, ev.inputs or {}), **person_values(ev), **plain, **extra}
 
 
 def event_pay(db: Session, ev, setting: Optional[HrPacketSetting] = None) -> dict:
@@ -1651,6 +1651,133 @@ def def_source(fd: Optional[dict]) -> str:
     return str((fd or {}).get("source") or "")
 
 
+# ── who fills each variable, per packet (Pranshu, 11/03/2026) ───────────────
+# "From that hiring packet only I want to get few fields in the intake form":
+# the packet lists every variable its documents print and says who fills each
+# - the new hire on the intake form ('person'), HR when the offer is made
+# ('hr') or one value for every hire ('same'). The choice is laid over the
+# templates' own field definitions (with_sources) wherever a packet reads its
+# documents, so the intake form, HR's offer questions, the readiness check
+# and the documents follow ONE choice. The templates are never changed - two
+# packets can use the same template and choose differently.
+
+FIELD_SOURCES = ("person", "hr", "same")
+
+
+def _with_source(fd: dict, choice: dict) -> dict:
+    g = {**fd, "required": bool(choice.get("required"))}
+    if choice.get("source") == "same":
+        g.update({"source": "", "default": str(choice.get("value") or "")})
+    else:
+        g["source"] = choice.get("source")
+        if choice.get("source") == "person":
+            g["sensitive"] = bool(choice.get("sensitive"))
+    return g
+
+
+def with_sources(setting, snaps: list) -> list:
+    """The packet's documents with its own Filled By choices applied. Safe to
+    apply twice; a packet with no choices gets its snaps back unchanged."""
+    import copy
+    choices = (getattr(setting, "field_sources", None) or {}) if setting is not None else {}
+    if not choices:
+        return snaps
+    out = []
+    for s in snaps:
+        hit = {t: c for t, c in choices.items()
+               if t in s.tokens and isinstance(c, dict) and c.get("source") in FIELD_SOURCES}
+        if not hit:
+            out.append(s)
+            continue
+        have = {fd.get("token") for fd in s.field_defs}
+        defs = [_with_source(fd, hit[fd.get("token")]) if fd.get("token") in hit else fd for fd in s.field_defs]
+        defs += [_with_source({"token": t, "label": t.replace("_", " ").title(), "type": "text"}, c)
+                 for t, c in hit.items() if t not in have]
+        g = copy.copy(s)
+        g.field_defs, g.defs = defs, {fd.get("token"): fd for fd in defs}
+        out.append(g)
+    return out
+
+
+def clean_field_sources(raw, snaps: list, event: str, own_keys=(), strict: bool = True) -> dict:
+    """The packet's choices, checked: only variables its documents print that
+    something must fill (never a built-in, never a Details Form field), pay
+    only ever HR's, the intake form only on a hiring packet, a fixed value
+    never empty. Strict raises PacketProblem with the sentence HR reads; not
+    strict (a preview while HR is still typing) drops what would not save."""
+    if not isinstance(raw, dict):
+        return {}
+    reserved, defs, printed = _reserved_tokens(), {}, set()
+    for s in snaps:
+        defs.update(s.defs)
+        printed |= s.tokens
+    out = {}
+    for token, c in raw.items():
+        token = str(token)
+        if not isinstance(c, dict) or token not in printed or token in reserved or "." in token or token in own_keys:
+            continue                     # no longer printed, or not this list's to fill
+        label = (defs.get(token) or {}).get("label") or token.replace("_", " ").title()
+        src = str(c.get("source") or "")
+        value = _CTRL.sub("", str(c.get("value") or "")).strip()[:500]
+        problem = ("" if src in FIELD_SOURCES else f'Pick who fills "{label}".') or (
+            f'"{label}" cannot be asked on an intake form - only a hiring packet has one. Pick HR At The Offer '
+            f'or One Value For Everyone.' if src == "person" and event != "hire" else
+            f'"{label}" is pay - HR enters it when the offer is made, with Pay & Benefits access.'
+            if src != "hr" and is_pay_token(token, defs) else
+            f'Type the value every hire gets for "{label}".' if src == "same" and not value else "")
+        if problem:
+            if strict:
+                raise PacketProblem(problem)
+            continue
+        out[token] = {"source": src, "required": bool(c.get("required")) and src != "same",
+                      "sensitive": bool(c.get("sensitive")) and src == "person",
+                      **({"value": value} if src == "same" else {})}
+    return out
+
+
+def fixed_values(setting) -> dict:
+    """{token: value} of the packet's One Value For Everyone choices - merged
+    into what every document of the packet prints."""
+    choices = (getattr(setting, "field_sources", None) or {}) if setting is not None else {}
+    return {t: str(c.get("value") or "") for t, c in choices.items()
+            if isinstance(c, dict) and c.get("source") == "same" and str(c.get("value") or "").strip()}
+
+
+def field_rows(snaps: list, own_form: list, choices: dict) -> list:
+    """Every variable the packet's documents print, once each, with who fills
+    it now - the table on the packet. `snaps` already carry the choices."""
+    reserved = _reserved_tokens()
+    own = {f.get("key"): f for f in own_form or [] if isinstance(f, dict) and f.get("key")}
+    rows, seen = {}, []
+    for s in snaps:
+        for t in sorted(s.tokens):
+            if t == "today" or t.startswith("template."):
+                continue
+            if t in rows:
+                rows[t]["documents"].append(s.name)
+                continue
+            fd = s.defs.get(t) or {}
+            if t in STANDARD_DETAILS:
+                fill = "standard"
+            elif "." in t or (t in reserved and not is_pay_token(t, s.defs)):
+                fill = "nexus"
+            elif is_pay_token(t, s.defs):
+                fill = "pay"
+            elif t in own:
+                fill = "form"
+            else:
+                src = def_source(fd)
+                fill = src if src in ("person", "hr") else "same" if str(fd.get("default") or "").strip() else "none"
+            label = own[t]["label"] if t in own else fd.get("label") or t.replace("_", " ").title()
+            rows[t] = {"token": t, "label": str(label)[:120], "type": fd.get("type") or "text", "documents": [s.name],
+                       "fill": fill, "value": str(fd.get("default") or "") if fill == "same" else "",
+                       "required": bool((own.get(t) or fd).get("required")),
+                       "sensitive": bool((own.get(t) or fd).get("sensitive")),
+                       "editable": fill in ("person", "hr", "same", "none"), "packetChoice": t in (choices or {})}
+            seen.append(t)
+    return [rows[t] for t in seen]
+
+
 def snap_sensitive(snap: Snap) -> set:
     """The template's own Ask The Person variables marked Private."""
     return {fd.get("token") for fd in snap.field_defs
@@ -1688,6 +1815,7 @@ class FormView:
     each Ask The Person variable of its documents not already on it."""
 
     def __init__(self, setting: Optional[HrPacketSetting], snaps: list):
+        snaps = with_sources(setting, snaps)          # the packet's own Filled By choices (Nov 3 2026)
         own = [f for f in ((setting.details_form or []) if setting is not None else []) if isinstance(f, dict)]
         keys = {f.get("key") for f in own if f.get("key")}
         derived = [f for f in template_form(snaps) if f["key"] not in keys]
@@ -1706,7 +1834,7 @@ def form_view(db: Session, setting: Optional[HrPacketSetting], template_ids: Opt
 
 
 def intake_preview(db: Session, template_ids: list, details_form, entity_id: str = "",
-                   role_ids: Optional[list] = None) -> dict:
+                   role_ids: Optional[list] = None, field_sources=None) -> dict:
     """What the new hire will be asked, for a packet as its editor has it now
     (saved or not): the SAME FormView the intake page reads, each field with
     the documents that print it, plus what HR answers at the offer - and what
@@ -1718,7 +1846,12 @@ def intake_preview(db: Session, template_ids: list, details_form, entity_id: str
     own = clean_form(details_form)
     ids = list(dict.fromkeys(t for t in template_ids or [] if t))
     snaps, problems = load_snaps(db, ids)
-    view = FormView(SimpleNamespace(details_form=own), snaps)
+    # The editor's Filled By choices as they stand, unsaved - one still being
+    # typed (a value left empty) is left out rather than refused.
+    choices = clean_field_sources(field_sources, snaps, "hire", {f.get("key") for f in own}, strict=False)
+    packet = SimpleNamespace(details_form=own, field_sources=choices)
+    snaps = with_sources(packet, snaps)
+    view = FormView(packet, snaps)
 
     def printed_in(token):
         return [s.name for s in snaps if token and token in s.tokens]
@@ -1733,7 +1866,7 @@ def intake_preview(db: Session, template_ids: list, details_form, entity_id: str
         added, _ = load_snaps(db, [t for t in mine if t not in ids])
         if not added:
             continue
-        role_view = FormView(SimpleNamespace(details_form=own), snaps + added)
+        role_view = FormView(packet, snaps + added)
         roles.append({"id": r.id, "name": r.name or "", "documents": [s.name for s in added],
                       "replaces": [names[t] for t in ids if t not in mine and t in names],
                       "asks": [f["label"] for f in role_view.details_form
@@ -1742,6 +1875,8 @@ def intake_preview(db: Session, template_ids: list, details_form, entity_id: str
             "form": [{**f, "documents": printed_in(f.get("key")), "packetOnly": f.get("key") not in view.derived_keys}
                      for f in view.details_form],
             "hrAtOffer": [{**q, "documents": printed_in(q["token"])} for q in hr_questions(snaps)],
+            # Every variable the documents print and who fills it (Nov 3 2026) - the table on the packet.
+            "fields": field_rows(snaps, own, choices),
             "roles": roles, "problems": problems}
 
 
@@ -2075,6 +2210,7 @@ def unfilled_variables(setting: HrPacketSetting, snaps: list) -> list:
     The Person or the Details Form), not answered by HR, no Default Value,
     not pay. HR would have to type each one on every packet."""
     reserved = _reserved_tokens()
+    snaps = with_sources(setting, snaps)
     form = {f["key"] for f in form_fields(FormView(setting, snaps))}
     out, seen = [], set()
     for s in snaps:
