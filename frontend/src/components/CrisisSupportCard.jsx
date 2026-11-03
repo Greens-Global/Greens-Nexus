@@ -68,12 +68,25 @@ export function CrisisSupportCard({ country, resources, title = CRISIS_TITLE, me
 // at a time; showCrisisSupport() resolves when the person acknowledges it.
 export default function CrisisSupportHost() {
   const [item, setItem] = useState(null);
+  const open = useRef(null);
   useEffect(() => {
-    __setCrisisHost((o) => setItem(o));
-    return () => __setCrisisHost(null);
+    __setCrisisHost((o) => {
+      // A second card while one is open: the first send was acknowledged
+      // by the card that replaces it - resolve it, never leave it hanging.
+      const prev = open.current;
+      open.current = o;
+      setItem(o);
+      prev?.onDone?.();
+    });
+    return () => {
+      __setCrisisHost(null);
+      const prev = open.current;
+      open.current = null;
+      prev?.onDone?.();
+    };
   }, []);
   if (!item) return null;
-  const done = () => { const fn = item.onDone; setItem(null); fn?.(); };
+  const done = () => { const fn = item.onDone; open.current = null; setItem(null); fn?.(); };
   return <CrisisSupportCard country={item.country ?? _country} resources={item.resources}
     title={item.title} message={item.message} onDone={done} />;
 }

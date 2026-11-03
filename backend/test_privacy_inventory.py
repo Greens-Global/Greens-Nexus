@@ -44,7 +44,30 @@ def _is_test(name):
     return name.startswith("test_") or ".test." in name or name.endswith(".spec.js") or name == "conftest.py"
 
 
+def _tracked():
+    """The files git tracks (so an untracked scratch file never fails this
+    locally); None when git is not available - then the tree is walked."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "ls-files", "backend", "frontend/src", "frontend/public/_headers"],
+                             cwd=REPO, capture_output=True, text=True, timeout=60, check=True).stdout
+    except Exception:
+        return None
+    return [os.path.join(REPO, p) for p in out.splitlines() if p]
+
+
 def _files():
+    tracked = _tracked()
+    if tracked:
+        for p in tracked:
+            name = os.path.basename(p)
+            if _is_test(name) or any(d in p.split(os.sep) for d in SKIP_DIRS):
+                continue
+            in_backend = p.startswith(HERE + os.sep) and name.endswith(".py")
+            in_src = (os.sep + os.path.join("frontend", "src") + os.sep) in p and name.endswith((".js", ".jsx"))
+            if (in_backend or in_src or name == "_headers") and os.path.exists(p):
+                yield p
+        return
     for base, exts in ((HERE, (".py",)), (os.path.join(REPO, "frontend", "src"), (".js", ".jsx"))):
         if not os.path.isdir(base):
             continue
@@ -209,6 +232,9 @@ class NoticeRouteTests(unittest.TestCase):
         self.assertNotIn("Greens", text)                       # white-label
         self.assertNotIn("inUse", text)                        # nothing about this server's services
         self.assertNotIn("admin", body)
+        self.assertEqual(body["ai"], {"enabled": False})   # never the switch or the key
+        ai_sec = next(s for s in body["sections"] if s["h"].endswith("AI Features"))
+        self.assertEqual(set(ai_sec["aiStatus"]), {"enabled"})
         heads = [s["h"] for s in body["sections"]]
         for h in ("What We Collect", "Location and Work Monitoring", "AI Features", "Who We Share It With",
                   "How Long We Keep It", "Your Rights"):

@@ -439,8 +439,10 @@ def notice(env=None, viewer: dict | None = None) -> dict:
     {"name", "email"} or None}. With no viewer (the public page) nothing
     about this server's optional services or any person is included."""
     env = os.environ if env is None else env
-    ai = ai_status(env)
     signed_in = viewer is not None
+    # The public page says only whether AI is on; how the switch and the key
+    # stand is for signed-in people (review, 11/02/2026).
+    ai = ai_status(env) if signed_in else {"enabled": ai_status(env)["enabled"]}
     company = (viewer or {}).get("company") or ""
     who = f"your organization ({company})" if company else "your organization"
     contact = _contact_line((viewer or {}).get("contact"))

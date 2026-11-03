@@ -35,4 +35,20 @@ describe('CrisisSupportCard', () => {
     expect(screen.queryByText('Tele-MANAS')).toBeNull();
     setCrisisCountry('');
   });
+
+  it('a second card resolves the first send instead of leaving it hanging', async () => {
+    render(<CrisisSupportHost />);
+    let first = false;
+    let second = false;
+    await act(async () => {
+      crisisCheck('I want to kill myself').then(() => { first = true; });
+    });
+    await act(async () => {
+      crisisCheck('I want to end my life').then(() => { second = true; });
+    });
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'I Understand' })); });
+    expect(second).toBe(true);
+  });
 });
