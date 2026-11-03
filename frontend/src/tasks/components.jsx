@@ -162,7 +162,7 @@ export function useEscapeLayer(onEscape, active = true) {
 // `footer` may be a function `(close) => node`: `close(...args)` plays the
 // same exit the X does, then calls onClose(...args) - for a footer button
 // (Done, Cancel, a submit) that should leave the way the X leaves.
-export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000 }) {
+export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000, backToClose = true }) {
   // Phones get a full-screen sheet, the shape the task drawer already uses
   // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
   // is the LARGE viewport (browser chrome hidden), so 7vh of padding plus an
@@ -201,7 +201,11 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   const entering = useSheetEntering(sheet);
   // The phone's Back button closes this sheet, not the screen behind it -
   // asking the same unsaved-work questions the X button asks.
-  useBackToClose(followViewport, () => {
+  // `backToClose={false}`: a sheet the ADDRESS opens (Items' record,
+  // inventory@<id> / item/<id>) already closes on Back through App's own
+  // history - a second entry of its own made Back reopen it from the address
+  // (release smoke, 11/02/2026).
+  useBackToClose(followViewport && backToClose, () => {
     if (confirmClose) { setConfirmClose(false); return; }
     if (isDirty && !isBypassing()) { setConfirmClose(true); return; }
     if (overlayRef.current?.hasAttribute('data-nx-dirty')) {

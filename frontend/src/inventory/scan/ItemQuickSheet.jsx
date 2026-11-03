@@ -28,7 +28,7 @@ export function ItemQuickSheet({ status, item, view, onAction, onClose, onScanAn
     </>
   );
   return (
-    <Modal title={title} onClose={onClose} footer={footer} width={520} minHeight="40vh" zIndex={4200}>
+    <Modal title={title} onClose={onClose} footer={footer} width={520} minHeight="40vh" zIndex={4200} backToClose={false}>
       {status === 'loading' && (
         <div role="status" aria-label="Loading the item"><SkeletonBlocks count={3} height={64} borderRadius={10} /></div>
       )}

@@ -100,7 +100,7 @@ export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable 
 
   if (!item) {
     return (
-      <ItemSheet title="Item" onClose={onClose} zIndex={Z_RECORD}>
+      <ItemSheet title="Item" onClose={onClose} zIndex={Z_RECORD} addressed>
         {(itemsLoading || checkoutsLoading) ? <SkeletonBlocks count={4} height={56} borderRadius={10} />
           : <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--muted)' }}>
               <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>This item is not in your list</div>
@@ -190,7 +190,7 @@ export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable 
 
   return (
     <>
-      <ItemSheet title={item.name} onClose={onClose} zIndex={Z_RECORD}>
+      <ItemSheet title={item.name} onClose={onClose} zIndex={Z_RECORD} addressed>
         <div className="it-record">
           <div className="it-record-hero">
             {item.photoUrl

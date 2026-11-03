@@ -16,10 +16,12 @@ export const Z_RECORD = 4000;
 export const Z_SHEET = 4100;
 export const Z_QUESTION = 4200;
 
-export function ItemSheet({ title, onClose, children, footer, isDirty = false, onSave, width, zIndex = Z_SHEET }) {
+// `addressed`: the address opens this sheet (the item record) - Back is the
+// address's, so the sheet adds no Back entry of its own (Modal backToClose).
+export function ItemSheet({ title, onClose, children, footer, isDirty = false, onSave, width, zIndex = Z_SHEET, addressed = false }) {
   return (
     <Modal title={title} onClose={onClose} footer={footer} isDirty={isDirty} onSave={onSave}
-      width={width} placement="sheet" zIndex={zIndex}>
+      width={width} placement="sheet" zIndex={zIndex} backToClose={!addressed}>
       {children}
     </Modal>
   );
