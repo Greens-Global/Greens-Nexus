@@ -61,6 +61,13 @@ class Search(JobsBase):
         self.assertEqual([j["id"] for j in out["recent"]], ["pf"])
         self.assertNotIn("contractValue", out["open"][0])
         self.assertEqual(self.client.get("/construction/properties/prop-priv/jobs").status_code, 404)
+        # Asset Management scope rows narrow it: scoped to another property, a 404.
+        self.db.add(models.NexusAccessScope(id="sc-1", email=MGR_A, module_id="property-asset",
+                                            scope_type="property", scope_id="prop-other", created_at=""))
+        self.db.commit()
+        self.assertEqual(self.client.get("/construction/properties/prop-1/jobs").status_code, 404)
+        self.db.query(models.NexusAccessScope).delete()
+        self.db.commit()
         self.as_(ADMIN)    # a Super Administrator sees the private property and every company
         self.assertEqual(self.client.get("/construction/properties/prop-priv/jobs").status_code, 200)
         ids = sorted(j["id"] for j in self.client.get("/construction/properties/prop-1/jobs").json()["open"])

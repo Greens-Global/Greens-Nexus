@@ -156,39 +156,55 @@ def default_payload(job_type: str) -> dict:
 
 # ── Templates: one per job type and company, ordinary Tasks templates ────────
 
-def _company_of_row(db: Session, row) -> str:
-    from routers.task_util import row_company
-    return row_company(db, row)
+def template_id(job_type: str, company_id: str) -> str:
+    """The one id a company's template for a job type has: the company is
+    in the id, so a lookup never depends on who owns the row."""
+    return f"cxtpl-{job_type}-{company_id or 'org'}"[:120]
 
 
-def template_for(db: Session, job_type: str, company_id: str, actor: dict | None):
+def template_owner(db: Session, job, company_id: str) -> str:
+    """Who a new company template belongs to: a manager-tier person of that
+    company - the job's own managers first, else the company's manager tier
+    (construction_notify.reviewers) - never a crew member. '' (the system)
+    when the company has none; the template wall reads the owner's company."""
+    import auth
+    from construction_notify import reviewers
+    for em in reviewers(db, job):
+        em = (em or "").strip().lower()
+        if not em:
+            continue
+        _role, level = auth._role_for(em, db)
+        if level >= auth._LEVELS["manager"] and (auth.company_of(em, db) or "") == (company_id or ""):
+            return em
+    return ""
+
+
+def template_for(db: Session, job_type: str, company_id: str, job=None):
     """(template row or None, payload) for stamping a job of this type in
-    this company. Made the first time (owned by `actor`, so it sits in the
-    actor's company - the template wall reads its owner); a deleted one is
-    never brought back - the built-in default stands in."""
+    this company. Looked up by its deterministic id (template_id); made the
+    first time, owned by a manager of the company (template_owner). One a
+    manager deleted or archived is never brought back - the built-in default
+    stands in."""
     T = models.TaskProjectTemplate
-    cat = CATEGORY[job_type]
-    rows = (db.query(T).filter(T.category == cat).execution_options(include_deleted=True).all())
-    mine = [r for r in rows if (_company_of_row(db, r) or "") == (company_id or "")]
-    live = [r for r in mine if not (r.deleted_at or "") and not r.archived]
-    if live:
-        t = sorted(live, key=lambda r: r.created_at or "")[0]
+    tid = template_id(job_type, company_id)
+    t = db.query(T).filter(T.id == tid).execution_options(include_deleted=True).first()
+    if t is not None:
+        if (t.deleted_at or "") or t.archived:
+            return None, default_payload(job_type)
         return t, (t.payload if isinstance(t.payload, dict) else default_payload(job_type))
-    if mine or actor is None:
+    if job is None:
         return None, default_payload(job_type)
+    owner = template_owner(db, job, company_id)
     now = _now()
-    t = T(id=f"cxtpl-{job_type}-{company_id or 'org'}"[:120], name=TEMPLATE_NAME[job_type],
+    t = T(id=tid, name=TEMPLATE_NAME[job_type],
           description=("Stamped onto every new Work Order job. Edit it on Tasks > Templates."
                        if job_type == "work_order" else
                        "Stamped onto every new Construction Project job. Edit it on Tasks > Templates."),
-          color="#16a34a" if job_type == "work_order" else "#2563eb", category=cat,
+          color="#16a34a" if job_type == "work_order" else "#2563eb", category=CATEGORY[job_type],
           source_project_id="", source_project_name="", payload=default_payload(job_type),
-          access_level="org", owner_email=(actor.get("email") or "").lower(), archived=False,
+          access_level="org", owner_email=owner, archived=False,
           use_count=0, last_used_at="", created_at=now, modified_at=now,
-          created_by=(actor.get("email") or "").lower(), deleted_at="", deleted_by="")
-    if db.get(T, t.id) is not None:   # another company's id clash (company '' vs 'org'): fresh id
-        import uuid
-        t.id = f"cxtpl-{job_type}-{uuid.uuid4().hex[:10]}"
+          created_by=owner or "system", deleted_at="", deleted_by="")
     db.add(t)
     db.flush()
     return t, t.payload
@@ -264,13 +280,25 @@ def ensure_task_project(db: Session, job, user: dict | None = None, template_id:
     time (or the template picked on New Job). Does NOT commit; returns the
     TaskProject or None when nobody can act for the job.
 
-    `include_tasks` None = the template's tasks unless the job already has
-    its own milestones (a job under way before 11/03/2026): that one gets
-    the template's sections and statuses only, and its own milestones are
-    moved in - never 25 template tasks dated from today on top of them."""
+    `include_tasks` None = the template's tasks only for a job that has not
+    started: no milestones of its own and no start date in the past. A job
+    already under way (made before 11/03/2026, or started) gets the
+    template's sections and statuses only - its own milestones are moved in,
+    and no template task is dated from a start that has passed. The punch
+    list's first item passes False (sections only, always).
+
+    Two requests at once never build two projects: the job row is locked
+    and task_project_id read again before anything is built."""
     p = task_project(db, job)
     if p is not None:
         return p
+    P = models.ConstructionProject
+    locked = (db.query(P).filter(P.id == job.id).with_for_update().populate_existing().first())
+    if locked is not None:
+        job = locked
+        p = task_project(db, job)
+        if p is not None:
+            return p
     actor = actor_for(db, job, user)
     if actor is None:
         return None
@@ -280,7 +308,7 @@ def ensure_task_project(db: Session, job, user: dict | None = None, template_id:
     if tpl is not None:
         payload = tpl.payload if isinstance(tpl.payload, dict) else default_payload(jt)
     else:
-        tpl, payload = template_for(db, jt, job.company_id or "", actor)
+        tpl, payload = template_for(db, jt, job.company_id or "", job)
     owner = (_emails(job.manager_emails) or [(actor.get("email") or "").lower()])[0]
     members = _emails(job.manager_emails) + _emails(job.worker_emails)
     settings = task_projects.ProjectSettings(
@@ -291,7 +319,8 @@ def ensure_task_project(db: Session, job, user: dict | None = None, template_id:
         start_on=(job.start_on or date.today().isoformat()),
     )
     if include_tasks is None:
-        include_tasks = not has_old_milestones(db, job)
+        started = bool(job.start_on) and str(job.start_on)[:10] < date.today().isoformat()
+        include_tasks = not has_old_milestones(db, job) and not started
     p = task_projects._build_from_payload(db, payload, actor, settings=settings, include_tasks=bool(include_tasks),
                                           reset_status=True, force_blueprint=True)
     if tpl is not None:
@@ -391,18 +420,20 @@ def migrate_milestones(db: Session, job, user: dict | None = None) -> int:
     skipped, and the old row is kept. Writes through _create_task (and
     update_task for a hit milestone); commits per row. Returns how many."""
     M = models.ConstructionMilestone
-    rows = (db.query(M).filter(M.project_id == job.id, M.deleted_at == "",
-                               (M.migrated_task_id == "") | (M.migrated_task_id.is_(None)))
-            .order_by(M.target_date).all())
-    if not rows:
+    def pending():
+        return (db.query(M).filter(M.project_id == job.id, M.deleted_at == "",
+                                   (M.migrated_task_id == "") | (M.migrated_task_id.is_(None)))
+                .order_by(M.target_date).all())
+    if not pending():
         return 0
     actor = actor_for(db, job, user)
     if actor is None:
         return 0
-    p = ensure_task_project(db, job, actor)
+    p = ensure_task_project(db, job, actor, include_tasks=False)
     if p is None:
         return 0
     db.commit()
+    rows = pending()
     from routers import tasks as tasks_router
     n = 0
     for m in rows:
@@ -415,12 +446,21 @@ def migrate_milestones(db: Session, job, user: dict | None = None) -> int:
                                        description="\n".join(x for x in notes if x))
 
         def stamp(t, m=m):
-            m.migrated_task_id = t.id
-            m.modified_at = _now()
-        try:
-            made = tasks_router._create_task(body, _Now(), actor, db, before_commit=stamp, quiet=True)
+            # Locked, re-read: a second start moving the same row at once finds it taken.
+            row = db.query(M).filter(M.id == m.id).with_for_update().populate_existing().first()
+            if row is None or (row.migrated_task_id or ""):
+                raise RuntimeError("already moved")
+            row.migrated_task_id = t.id
+            row.modified_at = _now()
+            # A hit milestone is done in the SAME transaction as its stamp
+            # (the Tasks completion fields, as _apply_completion lands them) -
+            # a stamped row is never left half moved.
             if (m.status or "") == "hit":
-                tasks_router.update_task(made["id"], tasks_router.TaskUpdate(completed=True), _Now(), actor, db)
+                t.completed = True
+                t.status = "completed"
+                t.completed_at = ((m.actual_date or m.target_date or "")[:10] + "T00:00:00+00:00") if (m.actual_date or m.target_date) else _now()
+        try:
+            tasks_router._create_task(body, _Now(), actor, db, before_commit=stamp, quiet=True)
             n += 1
         except Exception as e:   # noqa: BLE001 - one row never stops the rest; tried again next start
             db.rollback()

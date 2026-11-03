@@ -25,8 +25,14 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_tmp.name}"
 os.environ["NEXUS_SKIP_AUTH"] = "true"
 os.environ.pop("ANTHROPIC_API_KEY", None)
 
+import construction_ticket_sync  # noqa: E402
 import models               # noqa: E402
-from construction_jobs_testkit import (A, B, CREW, MGR_A, MGR_B, JobsBase, iso)  # noqa: E402
+from construction_jobs_testkit import (A, ADMIN, B, CREW, MGR_A, MGR_B, JobsBase, iso)  # noqa: E402
+
+# The resolved email / Teams sends go off the request in a thread; here they
+# are recorded instead (H1 pins that the desk's own sends are queued).
+SENT = []
+construction_ticket_sync.SEND = lambda fn, *a, **kw: SENT.append((getattr(fn, "__name__", ""), a, kw))
 
 
 class StartJob(JobsBase):
@@ -91,6 +97,12 @@ class StartJob(JobsBase):
         self.assertEqual(r.json()["job"]["id"], "pa")
         self.assertFalse(r.json()["created"])
 
+    def test_start_job_puts_the_job_in_the_tickets_company(self):
+        # A Super Administrator (company A) starts a job on company B's ticket.
+        self.as_(ADMIN)
+        job = self.client.post("/construction/tickets/t-b/start-job", json={}).json()["job"]
+        self.assertEqual(job["companyId"], B)
+
     def test_never_confidential_never_across_the_wall_managers_only(self):
         self.as_(MGR_A)
         self.assertEqual(self.client.post("/construction/tickets/t-hr/start-job", json={}).status_code, 404)
@@ -105,16 +117,20 @@ class TwoWaySync(JobsBase):
 
     def setUp(self):
         super().setUp()
-        for tid, st in (("t1", "in_progress"), ("t2", "closed")):
-            self.db.add(models.TaskTicket(id=tid, code=tid.upper(), subject="Fix", status=st, requester_email=MGR_A,
+        SENT.clear()
+        for tid, st, desk in (("t1", "in_progress", ""), ("t2", "closed", ""), ("t-hr", "open", "hr")):
+            self.db.add(models.TaskTicket(id=tid, code=tid.upper(), subject="Fix", status=st, requester_email=CREW,
                                           company_id=A, property_asset_id="prop-1", created_at=iso(),
-                                          modified_at=iso(), deleted_at="", resolution_note="", resolution=""))
+                                          modified_at=iso(), deleted_at="", resolution_note="", resolution="",
+                                          confidential_desk=desk))
             self.db.add(models.ConstructionJobLink(id=f"lk-{tid}", project_id="pa", kind="ticket", ref_id=tid,
                                                    created_by=MGR_A, created_at=iso(), ended_at=""))
         self.db.commit()
 
     def test_job_complete_resolves_its_open_tickets_with_a_note(self):
-        self.as_(MGR_A)
+        # Completed by someone who works the desk (an administrator) - the
+        # resolve runs as them, through the desk's own path.
+        self.as_(ADMIN)
         r = self.client.patch("/construction/projects/pa", json={"status": "complete"})
         self.assertEqual(r.status_code, 200, r.text)
         t1, t2 = self.fresh(models.TaskTicket, "t1"), self.fresh(models.TaskTicket, "t2")
@@ -126,6 +142,29 @@ class TwoWaySync(JobsBase):
         self.assertEqual(t2.status, "closed")                # already closed: left alone
         hist = [a.detail for a in self.db.query(models.TaskActivity).filter_by(entity_kind="ticket", entity_id="t1")]
         self.assertTrue(any("Resolved" in d for d in hist))
+        # The desk's own Mark Resolved path ran: the requester's bell, the
+        # unread dot, and the resolved email / Teams queued (after the commit).
+        nexus = [n.title for n in self.db.query(models.NexusNotification).filter_by(recipient=CREW).all()]
+        self.assertIn("Your Ticket Was Resolved", nexus)
+        self.assertTrue(t1.requester_update_at)
+        self.assertIn(("notify_ticket_event", ("t1", "resolved", ADMIN)), [(n, a[:3]) for n, a, _ in SENT])
+
+    def test_a_job_manager_without_the_desk_leaves_the_ticket_to_the_desk(self):
+        self.as_(MGR_A)      # manages the job, does not work the ticket desk, is not the requester
+        self.assertEqual(self.client.patch("/construction/projects/pa", json={"status": "complete"}).status_code, 200)
+        self.assertEqual(self.fresh(models.TaskTicket, "t1").status, "in_progress")
+        # Never an Ask HR ticket.
+        hr = self.db.query(models.TaskTicket).execution_options(include_confidential=True).filter_by(id="t-hr").one()
+        self.assertEqual(hr.status, "open")
+
+    def test_a_ticket_the_completer_may_not_act_on_stays_open(self):
+        # Company B's manager runs job B; the linked ticket is company A's.
+        self.db.add(models.ConstructionJobLink(id="lk-b", project_id="pb", kind="ticket", ref_id="t1",
+                                               created_by=MGR_B, created_at=iso(), ended_at=""))
+        self.db.commit()
+        self.as_(MGR_B)
+        self.assertEqual(self.client.patch("/construction/projects/pb", json={"status": "complete"}).status_code, 200)
+        self.assertEqual(self.fresh(models.TaskTicket, "t1").status, "in_progress")
 
     def test_a_reopened_ticket_puts_a_complete_job_back_to_active_by_any_path(self):
         job = self.fresh(models.ConstructionProject, "pa")
@@ -135,8 +174,10 @@ class TwoWaySync(JobsBase):
         t2.status = "reopened"          # any path: a plain ORM write
         self.db.commit()
         self.assertEqual(self.fresh(models.ConstructionProject, "pa").status, "active")
-        acts = [a.type for a in self.db.query(models.ConstructionActivity).filter_by(project_id="pa")]
-        self.assertIn("reopened", acts)
+        acts = [a for a in self.db.query(models.ConstructionActivity).filter_by(project_id="pa", type="reopened")]
+        self.assertEqual(len(acts), 1)
+        self.assertIn("T2", acts[0].detail)            # by number,
+        self.assertNotIn("Fix", acts[0].detail)        # never the subject
 
     def test_a_resolved_ticket_never_completes_its_job(self):
         t1 = self.fresh(models.TaskTicket, "t1")

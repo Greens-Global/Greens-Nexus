@@ -28,7 +28,7 @@ os.environ.pop("ANTHROPIC_API_KEY", None)
 import approvals_inbox       # noqa: E402
 import models                # noqa: E402
 import workflows.catalog as catalog  # noqa: E402
-from construction_jobs_testkit import (A, B, CREW, MGR_A, MGR_A2, MGR_B, JobsBase, iso)  # noqa: E402
+from construction_jobs_testkit import (A, B, CREW, MGR_A, MGR_A2, MGR_B, OUTSIDER, JobsBase, iso)  # noqa: E402
 
 
 def _events(db, key):
@@ -127,6 +127,10 @@ class ApprovalsSources(JobsBase):
         bells = self.db.query(models.NexusNotification).filter_by(recipient=MGR_A2, ref_id=rfi["id"]).all()
         self.assertEqual(len(bells), 1)
         self.assertEqual(bells[0].title, "RFI to Answer - Job A")
+        # Someone who cannot open the job is refused, with a sentence.
+        r = self.client.post("/construction/projects/pa/register/rfis", json={"subject": "y", "responder_email": OUTSIDER})
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("cannot open this job", r.json()["detail"])
         # A responder outside the caller's companies is refused.
         r = self.client.post("/construction/projects/pa/register/rfis", json={"subject": "x", "responder_email": MGR_B})
         self.assertEqual(r.status_code, 422)
