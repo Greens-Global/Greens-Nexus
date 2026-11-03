@@ -44,7 +44,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -72,16 +72,6 @@ def _readable(db: Session, job_id: str, user: dict):
     if not _may_read(db, user, p):
         raise HTTPException(403, "You do not have access to this job.")
     return p
-
-
-class _Now:
-    """BackgroundTasks for the Tasks writes made here: queued work (a bell's
-    email) runs at once, an error in it never fails the write."""
-    def add_task(self, fn, *a, **kw):
-        try:
-            fn(*a, **kw)
-        except Exception as e:   # noqa: BLE001
-            print(f"[construction-jobs] background: {e}")
 
 
 def _names(db: Session, emails) -> dict:
@@ -227,8 +217,9 @@ def _punch_task(db: Session, task_id: str, user: dict, punch_only: bool = True):
 
 
 @router.post("/projects/{job_id}/punch", status_code=201)
-def add_punch_item(job_id: str, body: PunchIn, user: dict = Depends(get_current_user),
-                   db: Session = Depends(get_db), idem: Idem = Depends(idempotency)):
+def add_punch_item(job_id: str, body: PunchIn, background_tasks: BackgroundTasks,
+                   user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+                   idem: Idem = Depends(idempotency)):
     """A punch item: a task in the job's "Punch" section, made through
     routers.tasks._create_task. The crew and the job's managers may add one."""
     from routers import tasks as tasks_router
@@ -241,7 +232,10 @@ def add_punch_item(job_id: str, body: PunchIn, user: dict = Depends(get_current_
     title = (body.title or "").strip()[:300]
     if not title:
         raise HTTPException(422, "Say what needs fixing.")
-    tp = construction_tasks.ensure_task_project(db, p, user)
+    # A job with no schedule yet (one made before 11/03/2026) gets the
+    # template's sections and statuses only from here - never the template's
+    # tasks dated from a start that may be long past.
+    tp = construction_tasks.ensure_task_project(db, p, user, include_tasks=False)
     if tp is None:
         raise HTTPException(409, "Set up the job's schedule first.")
     sec = construction_tasks.punch_section(db, tp)
@@ -258,7 +252,7 @@ def add_punch_item(job_id: str, body: PunchIn, user: dict = Depends(get_current_
         tasks_router.TaskCreate(id=tid or None, title=title, description=body.description or "",
                                 project_id=tp.id, section_id=sec.id, assignee_emails=people,
                                 due_on=(body.due_on or "")[:10]),
-        _Now(), user, db, check_people=True)
+        background_tasks, user, db, check_people=True)
     t = db.query(models.Task).filter(models.Task.id == made["id"]).first()
     spot = (body.location_text or "").strip()[:200]
     if spot:
@@ -278,7 +272,8 @@ class DoneIn(BaseModel):
 
 
 @router.post("/punch/{task_id}/done")
-def punch_done(task_id: str, body: DoneIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+def punch_done(task_id: str, body: DoneIn, background_tasks: BackgroundTasks,
+               user: dict = Depends(get_current_user), db: Session = Depends(get_db),
                idem: Idem = Depends(idempotency)):
     """The crew's step: Done (or not done) - a punch item, or any step of the
     job's task project (a work order's Tasks tab). Through update_task.
@@ -311,7 +306,7 @@ def punch_done(task_id: str, body: DoneIn, user: dict = Depends(get_current_user
         meta.done_by, meta.done_at, meta.modified_at = _me(user), _now(), _now()
         db.commit()
     if bool(t.completed) != bool(body.done):
-        tasks_router.update_task(t.id, tasks_router.TaskUpdate(completed=bool(body.done)), _Now(), user, db)
+        tasks_router.update_task(t.id, tasks_router.TaskUpdate(completed=bool(body.done)), background_tasks, user, db)
         if is_punch and not body.done:
             meta = db.get(models.ConstructionPunchMeta, t.id)
             if meta is not None:   # the photo stays as evidence; Done and Verified are taken back
@@ -353,7 +348,8 @@ class VerifyIn(BaseModel):
 
 
 @router.post("/punch/{task_id}/verify")
-def punch_verify(task_id: str, body: VerifyIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+def punch_verify(task_id: str, body: VerifyIn, background_tasks: BackgroundTasks,
+                 user: dict = Depends(get_current_user), db: Session = Depends(get_db),
                  idem: Idem = Depends(idempotency)):
     """The reviewer's step: Verified - the project's "Verified" custom status
     set WITH completed (so the item stays done everywhere Tasks counts done).
@@ -371,9 +367,9 @@ def punch_verify(task_id: str, body: VerifyIn, user: dict = Depends(get_current_
         if not t.completed:
             raise HTTPException(409, "Mark it Done first - the crew's step comes before Verified.")
         if t.status != ver.id:
-            tasks_router.update_task(t.id, tasks_router.TaskUpdate(status=ver.id, completed=True), _Now(), user, db)
+            tasks_router.update_task(t.id, tasks_router.TaskUpdate(status=ver.id, completed=True), background_tasks, user, db)
     elif t.status == ver.id:
-        tasks_router.update_task(t.id, tasks_router.TaskUpdate(status="completed", completed=True), _Now(), user, db)
+        tasks_router.update_task(t.id, tasks_router.TaskUpdate(status="completed", completed=True), background_tasks, user, db)
     m = _meta(db, job, t.id)
     if body.verified and not m.verified_at:
         m.verified_by, m.verified_at = _me(user), _now()
@@ -435,7 +431,7 @@ def start_job(ticket_id: str, body: StartJobIn, user: dict = Depends(get_current
     follows the job's (construction_ticket_sync). Never a confidential
     (Ask HR) ticket - it is a 404 here, as for Create Task. Managers make
     jobs (as New Job), from the desk's own ticket access."""
-    from routers.construction import ProjectBody, create_project
+    from routers.construction import ProjectBody, create_job
     from routers.tickets import _may_patch_ticket
     from routers.task_util import log_activity
     import property_links
@@ -471,12 +467,17 @@ def start_job(ticket_id: str, body: StartJobIn, user: dict = Depends(get_current
         lines = [f"From ticket {t.code or ''}".strip() + (f", requested by {req}." if req else ".")]
         if desc:
             lines.append(desc)
-        job_dict = create_project(ProjectBody(
+        # The job is the TICKET's company's (else its property's) - never just
+        # the starter's: a manager who works another company's desk starts a
+        # job for that company.
+        import construction_company
+        company = (t.company_id or "") or construction_company.company_from_property(db, prop_id or t.property_asset_id or "")
+        job_dict = create_job(ProjectBody(
             id=body.id or None, name=(body.name or t.subject or "Work Order").strip()[:200],
             job_type="work_order", description="\n\n".join(lines)[:4000], property_id=prop_id,
             address=t.property_name or "", worker_emails=body.worker_emails or None,
             manager_emails=body.manager_emails or None, task_template_id=body.task_template_id or ""),
-            user, db)
+            user, db, company_id=company or None)
         job = db.get(models.ConstructionProject, job_dict["id"])
         created = True
     if not _ticket_links(db, job_id=job.id, ticket_id=t.id):
@@ -641,11 +642,15 @@ def job_labor(job_id: str, date_from: str = "", date_to: str = "", user: dict = 
 def job_forms(job_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Form entries linked to the job (inspections, safety, toolbox talks):
     the title, who, when and the status - never the answers, which stay
-    behind the Forms reach rule on the entry itself (Documents > Forms)."""
+    behind the Forms reach rule on the entry itself (Documents > Forms).
+    Only the entries that rule (form_audience - the ONE reach rule) lets the
+    caller see at all."""
+    import form_audience
     p = _readable(db, job_id, user)
     E = models.DocFormEntry
-    rows = (db.query(E).filter(E.linked_project_id == p.id, E.deleted_at == "")
-            .order_by(E.submitted_at.desc()).limit(100).all())
+    reach = form_audience.viewer_reach(db, user)
+    rows = [e for e in (db.query(E).filter(E.linked_project_id == p.id, E.deleted_at == "")
+                        .order_by(E.submitted_at.desc()).limit(300).all()) if reach(e)][:100]
     names = _names(db, [e.submitted_by for e in rows])
     return {"entries": [{"id": e.id, "title": e.title or "Form", "status": e.status or "submitted",
                          "submittedBy": (e.submitted_by or "").lower(),
@@ -754,12 +759,19 @@ def job_for_task_project(task_project_id: str, user: dict = Depends(get_current_
 def property_jobs(property_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """A property's jobs for its Asset Management page (read only): open
     ones and the five most recent finished ones the caller may read. 404
-    for a property the caller may not see (a private one included)."""
+    for a property the caller may not see: a private one, or one outside
+    their Asset Management scope rows (nexus_access_scopes, the same reach
+    GET /property-assets/workspace applies)."""
     import property_links
     prop = db.get(models.PropertyAsset, property_id)
     if prop is None or not property_links.viewable(prop, user):
         raise HTTPException(404, "Property not found")
+    allowed = auth.scoped_ids(user.get("email", ""), "property-asset", db)
+    if allowed is not None and property_id not in allowed:
+        raise HTTPException(404, "Property not found")
     ids = set(property_links.group_ids(db, prop, user) or [property_id])
+    if allowed is not None:
+        ids = {i for i in ids if i in allowed} | {property_id}
     P = models.ConstructionProject
     rows = [j for j in db.query(P).filter(P.property_id.in_(sorted(ids)), P.deleted_at == "").all()
             if _may_read(db, user, j)]

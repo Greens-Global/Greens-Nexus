@@ -439,6 +439,14 @@ def _validate(db: Session, user: dict, p, data: dict) -> dict:
 @router.post("/projects", status_code=201)
 def create_project(body: ProjectBody, user: dict = Depends(get_current_user),
                    db: Session = Depends(get_db)):
+    return create_job(body, user, db)
+
+
+def create_job(body: ProjectBody, user: dict, db: Session, company_id: str = None):
+    """New Job (the route) and Start Job (routers/construction_jobs.py).
+    `company_id` - the company the job belongs to when the caller is not the
+    one to say (Start Job: the ticket's company, else its property's);
+    None = the creator's, else the property's."""
     if _level(user) < 3:
         raise HTTPException(403, "Only a manager can create a construction project.")
     if not (body.name or "").strip():
@@ -474,7 +482,8 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user),
         archived=bool(data.get("archived")),
         created_by=user["email"], created_at=now, modified_at=now,
         # The company wall (11/03/2026): the job lands on its creator's side.
-        company_id=auth.company_of(user, db) or construction_company.company_from_property(db, body.property_id or ""),
+        company_id=(company_id if company_id is not None else
+                    (auth.company_of(user, db) or construction_company.company_from_property(db, body.property_id or ""))),
     )
     # Project-based weather (Neil, 10/30/2026): the address is the jobsite's
     # weather point, found now so the first look at the project has a sky.
@@ -1315,14 +1324,21 @@ def _register_events(db: Session, kind: str, row, user: dict, p, *, created: boo
                 requested_by=_me(user), label="Open Submittals", sub=f"project:{p.id}:rfis", company=p.company_id or "")
 
 
-def _register_person(db: Session, user: dict, data: dict) -> None:
-    """The responder / approver is a Nexus person inside the caller's companies."""
+def _register_person(db: Session, user: dict, data: dict, p) -> None:
+    """The responder / approver is a Nexus person inside the caller's
+    companies who can open the job (_may_read - its crew, managers or
+    executives, or a manager inside its company): their Approvals row lands
+    on the job, so naming someone who cannot read it is refused."""
+    import task_automation
     for k in ("responder_email", "approver_email"):
         if data.get(k):
             em = str(data[k]).strip().lower()
             if not _EMAIL.match(em):
                 raise HTTPException(422, f"{data[k]!r} is not an email address")
             _check_people(db, user, [em])
+            who = task_automation._person_user(db, em)
+            if who is None or not _may_read(db, who, p):
+                raise HTTPException(422, f"{em} cannot open this job - add them to its crew or managers first.")
             data[k] = em
 
 
@@ -1376,7 +1392,7 @@ def create_register(project_id: str, kind: str, body: dict,
     if not _may_review(db, user, p):
         raise HTTPException(403, f"Only a project manager can add {kind}.")
     data = _register_data(kind, body, p)
-    _register_person(db, user, data)
+    _register_person(db, user, data, p)
     if kind == "milestones" and not (data.get("name") or "").strip():
         raise HTTPException(422, "Milestone name is required")
     now = now_iso()
@@ -1418,7 +1434,7 @@ def update_register(kind: str, row_id: str, body: dict,
             raise HTTPException(403, f"Only a project manager can change {kind}.")
         if "status" in data and data["status"] not in (("answered",) if kind == "rfis" else SUBMITTAL_DECISIONS):
             raise HTTPException(403, "Only a project manager can set that status.")
-    _register_person(db, user, data)
+    _register_person(db, user, data, p)
     before = {"status": row.status or "",
               "person": (getattr(row, "responder_email", "") if kind == "rfis"
                          else getattr(row, "approver_email", "") if kind == "submittals" else "") or ""}

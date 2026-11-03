@@ -73,10 +73,15 @@ class FormsOnAJob(JobsBase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["linkedProjectId"], "pa")
         self.assertEqual(self.client.post(f"/forms/entries/{e['id']}/link", json={"projectId": "nope"}).status_code, 404)
-        self.as_(MGR_A)
+        # The Forms reach rule decides who sees the entry on the job too: the
+        # administrator does; a job manager the rule does not admit sees none.
         rows = self.client.get("/construction/projects/pa/forms").json()["entries"]
         self.assertEqual([x["id"] for x in rows], [e["id"]])
         self.assertNotIn("answers", rows[0])
+        self.as_(MGR_A)
+        self.assertEqual(self.client.get("/construction/projects/pa/forms").json()["entries"], [])
+        self.as_(CREW)    # the submitter always sees their own
+        self.assertEqual([x["id"] for x in self.client.get("/construction/projects/pa/forms").json()["entries"]], [e["id"]])
         self.as_(MGR_B)
         self.assertEqual(self.client.get("/construction/projects/pa/forms").status_code, 404)
 
