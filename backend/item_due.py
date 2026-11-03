@@ -21,6 +21,18 @@ The rules:
     (Settings > Shifts & Scheduling), else America/Los_Angeles - the same
     fallback chain shift_expect uses. "Today" for an overdue count is read
     in the same zone.
+
+The return date (Neil, 11/02/2026): Borrow asks for a return DATE on a
+calendar instead of a number of days. The request stores the date picked
+(`requested_due_date`, YYYY-MM-DD in the borrower's zone) and `days` = that
+date minus the day the request was made. The due date is then:
+  * the date picked, when the item changes hands on or before the day the
+    request was made (the usual same-day handover);
+  * otherwise the same loan length counted from the handover - start +
+    `days`, as above - so an item handed over three days late is still lent
+    for the length the borrower asked for and never comes back due the day
+    after it was handed over.
+An approved extension moves the picked date by the days it adds.
 """
 from __future__ import annotations
 
@@ -68,10 +80,38 @@ def _zone(tz: str):
     return shift_expect.zone(tz or "")
 
 
+def requested_date(co) -> Optional[date]:
+    """The return date the borrower picked, or None (an older days request)."""
+    s = str(getattr(co, "requested_due_date", "") or "").strip()[:10]
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(s)
+    except ValueError:
+        return None
+
+
 def due_date(co, tz: str = "") -> Optional[date]:
-    """The due date in zone `tz` (the borrower's - see zone_for)."""
+    """The due date in zone `tz` (the borrower's - see zone_for), by the
+    module's rules: the picked return date when the handover came on or
+    before the day of the request, else the loan length from the handover."""
     at = due_at(co)
-    return at.astimezone(_zone(tz)).date() if at is not None else None
+    if at is None:
+        return None
+    z = _zone(tz)
+    picked = requested_date(co)
+    if picked is not None:
+        start = _parse(start_iso(co))
+        asked = _parse(getattr(co, "created_at", ""))
+        if start is not None and asked is not None and start.astimezone(z).date() <= asked.astimezone(z).date():
+            return picked
+    return at.astimezone(z).date()
+
+
+def loan_days(picked: date, tz: str = "", now: Optional[datetime] = None) -> int:
+    """`days` for a request whose borrower picked `picked`: the days from
+    today (in the borrower's zone) to that date."""
+    return (picked - local_today(tz, now)).days
 
 
 def local_today(tz: str = "", now: Optional[datetime] = None) -> date:
@@ -147,4 +187,4 @@ def due_fields(co, zones: Optional[Zones]) -> dict:
     if at is None:
         return {"dueAt": "", "dueDate": ""}
     tz = zones.get(getattr(co, "requested_by_email", "")) if zones is not None else ""
-    return {"dueAt": at.isoformat(), "dueDate": at.astimezone(_zone(tz)).date().isoformat()}
+    return {"dueAt": at.isoformat(), "dueDate": due_date(co, tz).isoformat()}
