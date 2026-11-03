@@ -114,8 +114,7 @@ def _require_ticket_participant(db: Session, user: dict, t) -> None:
     without any module grant - it is their support request. So may whoever
     filed it for someone else, and the person it is waiting on for approval
     (_ticket_readers). Everyone else needs the desk grant."""
-    import auth   # company wall: another company's ticket is 404 (before any grant)
-    auth.assert_company(getattr(t, "company_id", "") or "", user, db)
+    ticket_roles.assert_company(getattr(t, "company_id", "") or "", user, db)
     # A confidential (Ask HR) ticket: its own people and HR for its company
     # only - the desk grant does not open it, and its existence does not leak
     # (404, like the company wall). ticket_confidential.py.
@@ -912,12 +911,11 @@ class ListScope:
     column-only query works as well as full ORM rows."""
 
     def __init__(self, db: Session, user: dict):
-        import auth
         self.me = (user.get("email") or "").lower()
         # Company wall (Aug 2026): once armed, the desk queue is confined to the
         # caller's own companies - a ticket carries the requester's company_id, and a
         # Global Admin (scope None) still sees them all. Off = unchanged.
-        self.company = auth.company_scope(user, db)
+        self.company = ticket_roles.company_scope(user, db)
         self.desk = _has_desk_grant(user, db)
         self.db, self.user = db, user
 
@@ -1607,8 +1605,7 @@ def create_task_from_ticket(ticket_id: str, background_tasks: BackgroundTasks,
     t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first()
     if not t:
         raise HTTPException(404, "Ticket not found")
-    import auth
-    auth.assert_company(t.company_id or "", user, db)
+    ticket_roles.assert_company(t.company_id or "", user, db)
     if not _may_patch_ticket(db, t, user):
         raise HTTPException(403, "You don't have access to this screen")
     scope = _ticket_edit_scope(db, t, user)
@@ -1713,8 +1710,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
          .filter(models.TaskTicket.id == ticket_id).with_for_update().first())
     if not t:
         raise HTTPException(404, "Ticket not found")
-    import auth   # company wall: another company's ticket is 404
-    auth.assert_company(t.company_id or "", user, db)
+    ticket_roles.assert_company(t.company_id or "", user, db)
     if ticket_confidential.is_confidential(t) and not ticket_confidential.may_read(db, user, t):
         raise HTTPException(404, "Ticket not found")   # an Ask HR ticket is not the desk's
     if not _may_patch_ticket(db, t, user):
@@ -2214,8 +2210,7 @@ def delete_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Se
     one record of who did what to the ticket was the first thing to go.
     Storage objects are left alone for the same reason (restore needs them)."""
     t = _ticket_or_404(db, ticket_id)
-    import auth   # company wall: another company's ticket is 404
-    auth.assert_company(getattr(t, "company_id", "") or "", user, db)
+    ticket_roles.assert_company(getattr(t, "company_id", "") or "", user, db)
     if not _may_delete_ticket(db, t, user):
         raise HTTPException(403, "Only the requester or a manager can delete a ticket")
     # Property Tickets: a closed property ticket is that property's maintenance
@@ -2250,11 +2245,10 @@ def _deleted_ticket_or_404(db: Session, ticket_id: str) -> models.TaskTicket:
 def list_deleted_tickets(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Deleted tickets the caller could restore, newest-deleted first: every
     one in their companies for a manager, otherwise the ones they raised."""
-    import auth
     rows = (db.query(models.TaskTicket).execution_options(include_deleted=True)
             .filter(models.TaskTicket.deleted_at != "", models.TaskTicket.deleted_at.isnot(None))
             .order_by(models.TaskTicket.deleted_at.desc()).all())
-    cscope = auth.company_scope(user, db)
+    cscope = ticket_roles.company_scope(user, db)
     if cscope is not None:
         rows = [t for t in rows if (t.company_id or "") in cscope]
     out = []
@@ -2274,8 +2268,7 @@ def restore_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: S
     activity never left. Same people who may delete it: the requester or a
     manager, inside the company wall."""
     t = _deleted_ticket_or_404(db, ticket_id)
-    import auth   # company wall: another company's ticket is 404
-    auth.assert_company(getattr(t, "company_id", "") or "", user, db)
+    ticket_roles.assert_company(getattr(t, "company_id", "") or "", user, db)
     if not _may_delete_ticket(db, t, user):
         raise HTTPException(403, "Only the requester or a manager can restore a ticket")
     t.deleted_at = ""
@@ -2350,8 +2343,7 @@ def ticket_summary(ticket_id: str, user: dict = Depends(get_current_user), db: S
     """Just enough to name a ticket - a task drawer's "From Ticket" (Oct 14
     2026). Same reader rule as the conversation: a participant or the desk."""
     t = _ticket_or_404(db, ticket_id)
-    import auth
-    auth.assert_company(t.company_id or "", user, db)
+    ticket_roles.assert_company(t.company_id or "", user, db)
     _require_ticket_participant(db, user, t)
     return {"id": t.id, "code": t.code or "", "subject": t.subject or "", "status": t.status or ""}
 
@@ -3082,7 +3074,7 @@ def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks
     """IT Admin routes a parked request to the person who signs it off."""
     t = _ticket_or_404(db, ticket_id, lock=True)
     import auth   # company wall: another company's ticket is 404
-    auth.assert_company(t.company_id or "", user, db)
+    ticket_roles.assert_company(t.company_id or "", user, db)
     actor = user["email"].lower()
     # Desk only. This is the control itself - if the requester could pick who
     # approves their own request, there is no approval.
@@ -3146,8 +3138,7 @@ class ApprovalBody(BaseModel):
 def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: BackgroundTasks,
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id, lock=True)   # two decisions at once must not both land
-    import auth   # company wall: another company's ticket is 404
-    auth.assert_company(t.company_id or "", user, db)
+    ticket_roles.assert_company(t.company_id or "", user, db)
     actor = user["email"].lower()
     decision = (body.decision or "").strip().lower()
     if decision not in ("approve", "reject"):
@@ -3591,11 +3582,10 @@ def _log_scope(db: Session, user: dict, q, ticket_col):
 
     Never a row about a confidential (Ask HR) ticket: its email subjects and
     Teams messages are HR's, not the desk's (ticket_confidential)."""
-    import auth
     hidden = ticket_confidential.confidential_ids(db)
     if hidden:
         q = q.filter(~ticket_col.in_(sorted(hidden)))
-    scope = auth.company_scope(user, db)
+    scope = ticket_roles.company_scope(user, db)
     if scope is None:
         return q
     T_ = models.TaskTicket
@@ -3654,13 +3644,12 @@ def get_ticket_inbound_log(outcome: str = "", limit: int = 100, offset: int = 0,
     check refused it. Supervisors only, inside their company wall: a row about
     a ticket follows that ticket's company, a row that became nothing follows
     the sender's company (an unknown sender's row is a Global Admin's)."""
-    import auth
     E = models.TicketInboundEmail
     q = db.query(E)
     hidden = ticket_confidential.confidential_ids(db)   # a reply to an Ask HR ticket is HR's
     if hidden:
         q = q.filter(~func.coalesce(E.ticket_id, "").in_(sorted(hidden)))
-    scope = auth.company_scope(user, db)
+    scope = ticket_roles.company_scope(user, db)
     if scope is not None:
         T_ = models.TaskTicket
         people = [e.lower() for (e,) in db.query(models.NexusEmployee.work_email)

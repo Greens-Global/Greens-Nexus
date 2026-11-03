@@ -807,12 +807,11 @@ class OutboundAndSettingsTests(_Base):
         created = next(x for x in body["rows"] if x["outcome"] == "created")
         self.assertTrue(created["ticketCode"])
         self.assertEqual(self.as_(SUPER).get("/task-tickets/inbound/log?outcome=refused").json()["total"], 1)
-        # The co1 Administrator (walls off) reads co1's rows - the unknown
-        # sender's refused row is a Super Administrator's only.
+        # An Administrator reads every company's rows (hotfix 11/04/2026).
         mine = self.as_(ADMIN).get("/task-tickets/inbound/log")
         self.assertEqual(mine.status_code, 200, mine.text)
-        self.assertEqual(mine.json()["total"], 1)
-        self.assertEqual(self.as_(ADMIN).get("/task-tickets/inbound/log?outcome=refused").json()["total"], 0)
+        self.assertEqual(mine.json()["total"], 2)
+        self.assertEqual(self.as_(ADMIN).get("/task-tickets/inbound/log?outcome=refused").json()["total"], 1)
         self.assertIn(self.as_(REQ).get("/task-tickets/inbound/log").status_code, (401, 403))
 
 
