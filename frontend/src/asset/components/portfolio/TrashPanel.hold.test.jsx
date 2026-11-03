@@ -15,7 +15,7 @@ describe('Asset Trash Delete Forever', () => {
     render(<TrashPanel deleted={deleted} onRecover={vi.fn()} onPurge={onPurge} onClose={vi.fn()} recordsOf={() => 7} />);
     fireEvent.click(screen.getByRole('button', { name: 'Delete Oak Street Lot permanently' }));
     expect(screen.getByText('Permanently delete "Oak Street Lot"?')).toBeTruthy();
-    expect(screen.getByText(/its 7 records \(warranties, inspections, documents, maintenance and the rest\) are gone for good/)).toBeTruthy();
+    expect(screen.getByText(/its 7 records \(warranties, inspections, documents, maintenance and the rest\) are removed for good\. Uploaded photos and files stay in storage for the record/)).toBeTruthy();
 
     vi.useFakeTimers();
     const hold = screen.getByRole('button', { name: 'Delete Oak Street Lot forever, press and hold' });

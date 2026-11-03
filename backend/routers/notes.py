@@ -857,10 +857,22 @@ def delete_note_forever(note_id: str, user: dict = Depends(get_current_user), db
         raise HTTPException(404, "Note not found")
     if not n.trashed_at:
         raise HTTPException(409, "Move the note to the Trash first - only the Trash deletes forever.")
+    # Forever means the files too (11/02/2026, note_media.py): what the note
+    # and its versions point at is read first, then removed from storage once
+    # the rows are gone - unless another note, attachment or record uses it.
+    versions = db.query(models.NexusNoteVersion).filter(models.NexusNoteVersion.note_id == n.id).all()
+    texts = [n.body, getattr(n, "scene", ""), getattr(n, "thumb_url", "")]
+    texts += [t for v in versions for t in (v.body, getattr(v, "scene", ""))]
+    note_id = n.id
     db.query(models.NexusNoteVersion).filter(models.NexusNoteVersion.note_id == n.id).delete()
     db.query(models.NexusNotePresence).filter(models.NexusNotePresence.note_id == n.id).delete()
     db.delete(n)
     db.commit()
+    import note_media
+    try:
+        note_media.purge(db, note_id, texts)
+    except Exception as e:  # noqa: BLE001 - the note is deleted; a file left behind is only an orphan
+        print(f"[notes] file cleanup after delete failed: {type(e).__name__}")
 
 
 # ── sharing ────────────────────────────────────────────────────────────────

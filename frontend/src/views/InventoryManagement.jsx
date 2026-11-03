@@ -5075,7 +5075,7 @@ function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
         <div style={{ padding:'20px 24px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div>
             <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Recycle Bin</h3>
-            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{rows ? `${rows.length} deleted item${rows.length !== 1 ? 's' : ''}` : 'Loading…'} · kept for {RECYCLE_BIN_DAYS} days, then permanently deleted</p>
+            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{rows ? `${rows.length} deleted item${rows.length !== 1 ? 's' : ''}` : 'Loading…'} · kept for {RECYCLE_BIN_DAYS} days, then removed for good (photos and checkout history are kept for the record)</p>
           </div>
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
             {selected.size > 0 && (

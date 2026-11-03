@@ -1570,8 +1570,16 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
     _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first(), hr_scope(user, db))
     if row.kind in ("paystub", "settlement") and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
-    httpx.request("DELETE", f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{row.storage_path}",
-                  headers=_storage_headers(), timeout=30)
+    # The file goes first and the row only once it is gone (11/02/2026, the
+    # legal pass): a failed storage delete used to drop the row anyway and
+    # leave the document in the bucket with nothing pointing at it.
+    try:
+        resp = httpx.request("DELETE", f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{row.storage_path}",
+                             headers=_storage_headers(), timeout=30)
+    except httpx.HTTPError:
+        raise HTTPException(503, "The file could not be deleted from storage right now. Try again in a moment.")
+    if not (resp.is_success or resp.status_code in (400, 404)):
+        raise HTTPException(503, "The file could not be deleted from storage right now. Try again in a moment.")
     db.delete(row)
     db.commit()
     return {"ok": True}
@@ -2296,9 +2304,12 @@ def upload_photo(eid: str, file: UploadFile = File(...),
     )
     if not resp.is_success:
         raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    old = emp.photo_url or ""
     emp.photo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
     emp.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
+    import avatar_files   # the replaced photo leaves storage (11/02/2026)
+    avatar_files.forget(db, old, emp.id)
     db.refresh(emp)
     return _serialize(emp, db=db)
 

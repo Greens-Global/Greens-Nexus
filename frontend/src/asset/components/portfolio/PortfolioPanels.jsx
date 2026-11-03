@@ -142,7 +142,7 @@ export function TrashPanel({ deleted, onRecover, onPurge, onClose, recordsOf }) 
         <div style={{ marginBottom: 12, padding: '13px 14px', borderRadius: 11, border: '1px solid hsla(var(--color-red), 0.4)', backgroundColor: 'hsla(var(--color-red), 0.07)' }}>
           <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Permanently delete "{purgeTarget.name}"?</div>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 11 }}>
-            This <strong>cannot be undone</strong> - the asset and {!records ? 'its records' : `its ${records} record${records === 1 ? '' : 's'} (warranties, inspections, documents, maintenance and the rest)`} are gone for good.
+            This <strong>cannot be undone</strong> - the asset and {!records ? 'its records' : `its ${records} record${records === 1 ? '' : 's'} (warranties, inspections, documents, maintenance and the rest)`} are removed for good. Uploaded photos and files stay in storage for the record, and the Activity Log keeps its history.
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'flex-start' }}>
             <button type="button" className="secondary-btn" onClick={() => setPurgeTarget(null)} style={{ fontSize: '0.8rem' }}>Keep</button>
