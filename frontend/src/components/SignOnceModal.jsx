@@ -5,10 +5,11 @@
 // code as every Nexus signature - and the packet applies it to every packet
 // sent after this. The server checks who may (backend/hr_packet_docs.py).
 import { useState } from 'react';
-import { X, PenTool, Mail, CheckCircle, AlertTriangle } from 'lucide-react';
+import { PenTool, Mail, CheckCircle, AlertTriangle } from 'lucide-react';
 import { api } from '../api';
 import { SignaturePad } from './ESign';
 import { Spinner } from './AsyncState';
+import { Modal } from '../tasks/components';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '16px 0 6px', textTransform: 'uppercase', letterSpacing: '.04em' };
 
@@ -46,19 +47,28 @@ export default function SignOnceModal({ packetId, entityId = '', step, packetNam
   }
 
   return (
-    <div onClick={e => e.target === e.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1380, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <PenTool size={17} style={{ color: 'var(--pine)' }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 15.5 }}>Sign Once - {packetName || 'Packet'}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{step.roleLabel}{companyName ? ` for ${companyName}` : ''}</div>
-          </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', padding: '6px 22px 18px' }}>
-          <div style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 10 }}>
+    <>
+    <Modal zIndex={1380} onClose={onClose}
+      title={(
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <PenTool size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: 'block', fontWeight: 800, fontSize: 15.5 }}>Sign Once - {packetName || 'Packet'}</span>
+            <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--muted)', marginTop: 1 }}>{step.roleLabel}{companyName ? ` for ${companyName}` : ''}</span>
+          </span>
+        </span>
+      )}
+      footer={(close) => (
+        <>
+          <button type="button" className="secondary-btn" onClick={() => close()}>Cancel</button>
+          <button type="button" className="primary-btn" onClick={sign} disabled={!!busy || !sig || code.length !== 6 || !agree}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'sign' ? <Spinner size={13} /> : <CheckCircle size={13} />} Sign Once
+          </button>
+        </>
+      )}>
+        <div style={{ fontFamily: 'Inter,sans-serif' }}>
+          <div style={{ fontSize: 12.5, lineHeight: 1.6 }}>
             Sign this packet once. Your signature then goes on every packet sent from it automatically - you are not asked again.
             If someone else becomes {step.roleLabel}, they sign once in your place.
           </div>
@@ -98,15 +108,8 @@ export default function SignOnceModal({ packetId, entityId = '', step, packetNam
             </div>
           )}
         </div>
-        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button type="button" className="primary-btn" onClick={sign} disabled={!!busy || !sig || code.length !== 6 || !agree}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy === 'sign' ? <Spinner size={13} /> : <CheckCircle size={13} />} Sign Once
-          </button>
-        </div>
-      </div>
+    </Modal>
       {pad && <SignaturePad name={step.name || ''} onClose={() => setPad(false)} onAdopt={s => { setSig(s); setPad(false); }} />}
-    </div>
+    </>
   );
 }
