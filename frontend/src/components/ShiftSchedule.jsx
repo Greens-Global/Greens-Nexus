@@ -821,9 +821,10 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   async function takeOffSchedule(emp) {
     const today = todayIso();
     const n = (data?.scheduled || []).filter((s) => s.email === emp.email && s.date >= today && !s.pendingDelete).length;
-    const tail = !n ? 'They have no upcoming shifts.'
-      : n === 1 ? `Their 1 shift from ${formatDate(today)} on becomes an open slot.`
-        : `Their ${n} shifts from ${formatDate(today)} on become open slots.`;
+    // Only the loaded weeks are counted here, so the count is "in view"; the
+    // server's toast after it gives the full number.
+    const tail = !n ? `Any shifts they have from ${formatDate(today)} on become open slots.`
+      : `Their shifts from ${formatDate(today)} on become open slots (${n} in view).`;
     const ok = await dialog.confirm(`Take ${emp.name} off the schedule? ${tail} You can put them back any time.`,
       { title: 'Take Off the Schedule', confirmText: 'Take Off' });
     if (!ok) return;
