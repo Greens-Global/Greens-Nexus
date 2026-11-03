@@ -485,7 +485,15 @@ export function HrLettersSettings({ company = '', toastOk, toastErr, onOverride 
           <SwitchRow key={t.key} id={`hr-letter-${t.key}`} title={t.label} checked={t.on} disabled={!!saving}
             desc={`${t.desc}${t.printsPay ? ' Shows pay: prepared only by HR with Pay & Benefits access.' : ''}`}
             onChange={(on) => setType(t.key, { on })}>
-            {t.on && <SettingRow nested title="Template" desc={t.templateId ? '' : `Prints "${t.templateName || 'the Nexus default'}".`} control={picker(t)} />}
+            {/* The template sits under the switch as one line, not a row of its own
+                inside the row (that drew a stray rule under the last letter). */}
+            {t.on && (
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)' }}>
+                Template
+                {picker(t)}
+                {!t.templateId && <span style={{ fontSize: 12 }}>{`Prints "${t.templateName || 'the Nexus default'}".`}</span>}
+              </label>
+            )}
           </SwitchRow>
         ))}
         <SettingRow title="Letterhead" desc="Printed on every HR letter whose template asks for one."

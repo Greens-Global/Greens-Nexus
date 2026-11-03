@@ -46,7 +46,8 @@ import { useDeskAgents, agentOptions } from './deskAgents';
 // Nothing here is silent - each card always shows which rung of that chain
 // its tickets are actually resolving to right now, not just a warning when
 // it's empty, so "why did this go to X" never requires reading the backend.
-const TONE = { ok: NX.green, warn: NX.amber, danger: NX.red };
+// An empty roster is a resting state, not an error (11/02/2026): it reads as a neutral note - red is for errors only.
+const TONE = { ok: NX.green, warn: NX.amber, note: NX.dim };
 
 function DeskRoster({ title, hint, value, people, onChange, status, icon, children }) {
   return (
@@ -58,7 +59,7 @@ function DeskRoster({ title, hint, value, people, onChange, status, icon, childr
       {hint && <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 10, lineHeight: 1.5 }}>{hint}</div>}
       <PersonMultiSelect value={value} people={people} onChange={onChange} placeholder="Select ticket agents" />
       {status && (
-        <div style={{ fontSize: 11.5, color: TONE[status.tone], marginTop: 8, lineHeight: 1.5, fontWeight: status.tone === 'ok' ? 400 : 600 }}>
+        <div style={{ fontSize: 11.5, color: TONE[status.tone], marginTop: 8, lineHeight: 1.5, fontWeight: status.tone === 'warn' ? 600 : 400 }}>
           {status.text}
         </div>
       )}
@@ -202,7 +203,7 @@ function companyStatus(value, defaultAgents, companyName) {
   if (defaultAgents.length > 0) {
     return { tone: 'warn', text: `No agents set for ${companyName} - its tickets fall back to Default Agents (${plural(defaultAgents.length, 'agent')}) below.` };
   }
-  return { tone: 'danger', text: `No agents set for ${companyName}, and Default Agents is also empty - its tickets fall back to every administrator.` };
+  return { tone: 'note', text: `No agents set for ${companyName}, and Default Agents is also empty - its tickets fall back to every administrator.` };
 }
 
 function defaultStatus(value, companiesCount) {
@@ -215,8 +216,8 @@ function defaultStatus(value, companiesCount) {
     };
   }
   return {
-    tone: 'danger',
-    text: 'Empty - every administrator is being notified instead, both here and for any company below with no agents of its own. Pick people here so running the desk doesn\'t require admin access to the whole app.',
+    tone: 'note',
+    text: 'No one picked yet, so every administrator is notified - here and for any company below with no agents of its own. Pick people here so running the desk does not need admin access to the whole app.',
   };
 }
 
@@ -225,7 +226,7 @@ function defaultStatus(value, companiesCount) {
 function rowStatus(value, defaultAgents, isDefault) {
   if (value.length > 0) return { tone: 'ok', text: plural(value.length, 'agent') };
   if (!isDefault && defaultAgents.length > 0) return { tone: 'warn', text: 'Uses Default Agents' };
-  return { tone: 'danger', text: 'Falls back to admins' };
+  return { tone: 'note', text: 'Falls back to admins' };
 }
 
 const DEFAULT_KEY = '__default';
@@ -349,7 +350,7 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
         const active = e.key === current;
         return (
           <div key={e.key}>
-            {i === 1 && <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint, margin: '10px 10px 4px' }}>Companies</div>}
+            {i === 1 && <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, margin: '10px 10px 4px' }}>Companies</div>}
             <button type="button" onClick={() => setSelected(e.key)} aria-current={active ? 'true' : undefined}
               style={{
                 display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', borderRadius: 8,

@@ -142,11 +142,21 @@ describe('confirmExportReadiness', () => {
       { ...ROWS[2], ready: false, exceptions: [{ type: 'not_approved', blocking: true, label: 'x' }] },
     ] });
     expect(await confirmExportReadiness('2026-10-01', '2026-10-31')).toBe(true);
-    expect(apiMock.payrollReadinessExportCheck).toHaveBeenCalledWith('2026-10-01', '2026-10-31');
-    expect(confirmMock).toHaveBeenCalledWith(expect.stringMatching(/^2 people are not ready - export anyway\?/), expect.objectContaining({ confirmText: 'Export Anyway' }));
+    expect(apiMock.payrollReadinessExportCheck).toHaveBeenCalledWith('2026-10-01', '2026-10-31', '', '');
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringMatching(/^2 people in this export are not ready - export anyway\?/), expect.objectContaining({ confirmText: 'Export Anyway' }));
     confirmMock.mockResolvedValueOnce(false);
     expect(await confirmExportReadiness('2026-09-20', '2026-10-03')).toBe(false);
-    expect(confirmMock).toHaveBeenLastCalledWith(expect.stringMatching(/^1 person is not ready/), expect.anything());
+    expect(confirmMock).toHaveBeenLastCalledWith(expect.stringMatching(/^1 person in this export is not ready/), expect.anything());
+  });
+
+  it('scopes the check to the export - one company or one person (Charmi, 11/03/2026)', async () => {
+    apiMock.payrollReadinessExportCheck.mockResolvedValueOnce({ rows: [ROWS[0]] });
+    await confirmExportReadiness('2026-09-20', '2026-10-03', { company: 'co-1' });
+    expect(apiMock.payrollReadinessExportCheck).toHaveBeenLastCalledWith('2026-09-20', '2026-10-03', 'co-1', '');
+    apiMock.payrollReadinessExportCheck.mockResolvedValueOnce({ rows: [ROWS[0]] });
+    await confirmExportReadiness('2026-09-20', '2026-10-03', { email: 'amy@greensglobal.com' });
+    expect(apiMock.payrollReadinessExportCheck).toHaveBeenLastCalledWith('2026-09-20', '2026-10-03', '', 'amy@greensglobal.com');
+    expect(confirmMock).toHaveBeenLastCalledWith(expect.stringMatching(/^This person is not ready/), expect.anything());
   });
 
   it('says nothing when everyone is ready, or when the check cannot run', async () => {

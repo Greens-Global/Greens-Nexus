@@ -5,6 +5,7 @@ import { useGroupDirty } from '../../lib/groupDirty';
 import SaveRow from '../../components/SaveRow';
 import AsyncSection, { Spinner, SkeletonBlocks } from '../AsyncState';
 import { formatDateTime } from '../../lib/datetime';
+import { TimeField } from '../../tasks/components';
 
 // Settings > Global Settings > Shifts > Weather Alerts (Weather Call,
 // Oct 2026). The per-company switch the feature ships behind, the rain
@@ -12,16 +13,16 @@ import { formatDateTime } from '../../lib/datetime';
 // quiet hours, the heads-up Teams line, and Check Now. Registered in
 // views/AdminConsole.jsx GLOBAL_SECTIONS as 'shift-weather'.
 
-const LBL = { fontSize: 11, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 };
+const LBL = { fontSize: 12, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 };
 const ROW = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 10, flexWrap: 'wrap' };
 const NUM = { width: '100%', fontSize: 13 };
 const FIELDS = [
-  ['majorChance', 'Major: chance of rain (%)', 'Together with the inches below. 70 means an hour at 70% or more.'],
-  ['majorInches', 'Major: rain over the shift (in)', 'Expected rainfall across the scheduled hours.'],
-  ['anyChanceInches', 'Major at any chance (in)', 'This much rain is major whatever the chance.'],
-  ['stormChance', 'Thunderstorm chance (%)', 'A thunderstorm hour at this chance is major.'],
-  ['headsUpChance', 'Heads-up: chance of rain (%)', 'Below major: an icon on the schedule, no bell.'],
-  ['headsUpInches', 'Heads-up: rain over the shift (in)', ''],
+  ['majorChance', 'Major: Chance of Rain (%)', 'Together with the inches below. 70 means an hour at 70% or more.'],
+  ['majorInches', 'Major: Rain Over the Shift (in)', 'Expected rainfall across the scheduled hours.'],
+  ['anyChanceInches', 'Major at Any Chance (in)', 'This much rain is major whatever the chance.'],
+  ['stormChance', 'Thunderstorm Chance (%)', 'A thunderstorm hour at this chance is major.'],
+  ['headsUpChance', 'Heads-Up: Chance of Rain (%)', 'Below major: an icon on the schedule, no bell.'],
+  ['headsUpInches', 'Heads-Up: Rain Over the Shift (in)', ''],
 ];
 
 // `company` (Settings' scope picker, Oct 23): only that company's switch and
@@ -136,11 +137,12 @@ export default function WeatherSettingsPanel({ toastOk, toastErr, company = '' }
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-            <label><div style={LBL}>Quiet hours start (site time)</div>
-              <input type="time" className="form-input" value={form.quietStart} onChange={(e) => set('quietStart', e.target.value)} aria-label="Quiet hours start" style={NUM} />
+            {/* 12-hour boxes (TimeField), half-hour steps; a saved time off the grid stays an option. */}
+            <label><div style={LBL}>Quiet Hours Start (Site Time)</div>
+              <TimeField step={30} value={form.quietStart} onChange={(v) => set('quietStart', v)} ariaLabel="Quiet Hours Start" style={NUM} />
             </label>
-            <label><div style={LBL}>Quiet hours end</div>
-              <input type="time" className="form-input" value={form.quietEnd} onChange={(e) => set('quietEnd', e.target.value)} aria-label="Quiet hours end" style={NUM} />
+            <label><div style={LBL}>Quiet Hours End</div>
+              <TimeField step={30} value={form.quietEnd} onChange={(v) => set('quietEnd', v)} ariaLabel="Quiet Hours End" style={NUM} />
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>Advisories wait until the morning. A National Weather Service warning never waits.</div>
             </label>
           </div>

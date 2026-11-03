@@ -87,7 +87,7 @@ describe('Settings save contract (batch D)', () => {
     const retry = await screen.findByRole('button', { name: 'Retry' });
     expect(screen.queryByText(/No companies/)).not.toBeInTheDocument();
     fireEvent.click(retry);
-    expect(await screen.findByRole('switch', { name: 'Greens Global' })).toBeInTheDocument();
+    expect(await screen.findByRole('switch', { name: 'Nightly Sync for Greens Global' })).toBeInTheDocument();
   });
 
   it('Intacct Nightly Sync: a switch that fails to save goes back', async () => {
@@ -95,7 +95,7 @@ describe('Settings save contract (batch D)', () => {
     api.intacctCodesSettings.mockResolvedValue({ companies: [{ id: 'c1', name: 'Greens Global', nightly: false }], lastRun: {} });
     api.setIntacctCodesNightly.mockRejectedValue(new Error('No'));
     renderInGroup(<IntacctNightlySync embedded toastErr={toastErr} />);
-    const sw = await screen.findByRole('switch', { name: 'Greens Global' });
+    const sw = await screen.findByRole('switch', { name: 'Nightly Sync for Greens Global' });
     fireEvent.click(sw);
     await waitFor(() => expect(toastErr).toHaveBeenCalledWith('No'));
     expect(sw.checked).toBe(false);

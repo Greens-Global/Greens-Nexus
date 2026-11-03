@@ -6,12 +6,13 @@
 // draft (lib/useDraft.js) with ONE Save row at the foot (components/SaveRow.jsx).
 // Org-only rows (Pause All, Nexus run-as, webhooks) are Super Administrators'.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Trash2, Plus } from 'lucide-react';
+import { Trash2, Plus, Pause } from 'lucide-react';
 import { api } from '../api';
 import { SettingCard, SettingRow, SwitchRow, NumberBox } from '../components/settings/SettingsUI';
 import { Spinner, ErrorBanner } from '../components/AsyncState';
 import { useRole } from '../contexts/RoleContext';
 import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import { formatDateTime } from '../lib/datetime';
 import { errorText } from './lib/errors';
 import SaveRow from '../components/SaveRow';
@@ -93,7 +94,19 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
   });
 
   async function pauseAll(paused) {
-    if (paused && !(await dialog.confirm('Pause every workflow in every company? Nothing starts until a Super Administrator turns them back on; events keep queuing for 7 days.', { title: 'Pause All Workflows', confirmText: 'Pause All', danger: true }))) return;
+    // Pausing stops every workflow for everyone, so it is held to confirm
+    // (ui/HoldButton.jsx, HOLD_MAJOR_MS); the dialog runs the pause and stays
+    // open with the reason if it fails. Turning them back on needs no hold.
+    if (paused) {
+      const ok = await dialog.confirm('This stops every workflow in every company until a Super Administrator turns them back on. Nothing new starts meanwhile; events keep queuing for 7 days, so switching back on loses nothing recent.', {
+        title: 'Pause All Workflows?', confirmText: 'Pause All Workflows', doneText: 'Paused', hold: true, holdMs: HOLD_MAJOR_MS, holdIcon: Pause, danger: true,
+        onConfirm: async () => {
+          try { await api.wfPauseAll({ paused: true }); } catch (e) { throw new Error(errorText(e, 'Could not change the pause.'), { cause: e }); }
+        },
+      });
+      if (ok) { toastOk?.('All workflows are paused.'); load(); }
+      return;
+    }
     setBusy(true);
     try {
       await api.wfPauseAll({ paused });

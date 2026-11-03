@@ -25,6 +25,7 @@ import { formatDate, formatTime } from '../lib/datetime';
 import { useDraft } from '../lib/useDraft';
 import { useGroupDirty } from '../lib/groupDirty';
 import SaveRow from './SaveRow';
+import { Switch } from './settings/SettingsUI';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 
@@ -128,12 +129,12 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
 
   if (!can('administrator')) {
     return (
-      <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>
+      <div style={{ padding: 40, textAlign: 'center', color: NX.dim, fontSize: 13.5 }}>
         Administrator access is required to view Daily Briefing settings.
       </div>
     );
   }
-  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
+  if (!cfg || !draft) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.dim }}>{err}</div> : <LoadingState />;
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
@@ -153,7 +154,7 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
       {tab === 'log' ? <DeliveryLog /> : (
       <>
       {notice && (
-        <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? NX.green : NX.red }}>{notice.text}</div>
+        <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>{notice.text}</div>
       )}
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Mode</label>
@@ -169,7 +170,7 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
                 onChange={() => pickMode(m.key)} style={{ marginTop: 3 }} />
               <span>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.label}</div>
-                <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>{m.hint}</div>
+                <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{m.hint}</div>
               </span>
             </label>
           ))}
@@ -197,8 +198,8 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
         <label style={fieldLabel}>When There Is No Shift</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-            <input type="checkbox" checked={!!cfg.includeNoShift}
-              onChange={(e) => instant({ includeNoShift: e.target.checked }, 'No-shift sending')} />
+            <Switch checked={!!cfg.includeNoShift} label="Send to People With No Shift Today"
+              onChange={(on) => instant({ includeNoShift: on }, 'No-shift sending')} />
             People with no shift today: send at
           </label>
           <select aria-label="Default send time" disabled={!cfg.includeNoShift} value={cfg.defaultSendTime || '07:00'}
@@ -210,7 +211,7 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
             {withCurrent(ZONES, cfg.defaultTimeZone || 'America/Los_Angeles').map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
-        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+        <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 6 }}>
           On a day off or with no shift, the briefing goes out at this time in the person's shift time zone, else the one picked here. Turning it on starts mailing people who get none today.
         </div>
       </div>
@@ -230,13 +231,13 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
                   onChange={() => instant({ outlook_card: c.key }, 'Outlook card')} />
                 <span>
                   <div style={{ fontSize: 13.5, fontWeight: 700 }}>{c.label}</div>
-                  <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>{c.hint}</div>
+                  <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{c.hint}</div>
                 </span>
               </label>
             );
           })}
         </div>
-        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+        <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 6 }}>
           Outlook only shows a card to people covered by the Actionable Messages registration; everyone else gets the designed email.
         </div>
       </div>
@@ -258,7 +259,7 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
             <label style={fieldLabel} htmlFor="briefing-test-recipients">Test Recipients</label>
             <input id="briefing-test-recipients" value={draft.recipients} onChange={(e) => editDraft({ recipients: e.target.value })} readOnly={modeLocked}
               placeholder="you@company.com, another@company.com" style={inputStyle} />
-            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+            <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 4 }}>
               Comma-separated. Every employee's briefing computes on their own real data, but the send is
               redirected here instead of their own inbox, with a "[TEST -&gt; original]" subject prefix.
             </div>
@@ -283,13 +284,13 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
 // off/nothing-to-report/send-failed all log a row, they just differ in
 // sentAt + counts (see routers/daily_briefing.py get_log's docstring).
 function statusOf(row) {
-  if (row.sentAt) return { label: 'Sent', color: NX.green, Icon: CheckCircle2 };
-  if (row.mode === 'off') return { label: 'Off (scan only)', color: NX.faint, Icon: MinusCircle };
+  if (row.sentAt) return { label: 'Sent', color: 'var(--nx-tag-green-fg)', Icon: CheckCircle2 };
+  if (row.mode === 'off') return { label: 'Off (Scan Only)', color: NX.dim, Icon: MinusCircle };
   const hasContent = (row.redCount || 0) + (row.amberCount || 0) + (row.greenCount || 0) > 0;
-  if (!hasContent) return { label: 'Nothing to report', color: NX.faint, Icon: MinusCircle };
+  if (!hasContent) return { label: 'Nothing to Report', color: NX.dim, Icon: MinusCircle };
   // mode is test/live, there WAS content, and yet nothing sent - the send
   // itself failed (Graph error, no recipients configured, etc).
-  return { label: 'Send failed', color: NX.red, Icon: XCircle };
+  return { label: 'Send Failed', color: NX.red, Icon: XCircle };
 }
 
 const LOG_LIMIT = 25;
@@ -412,7 +413,7 @@ function DeliveryLog() {
       </div>
       {bulk?.summary && (
         <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, marginBottom: 12,
-          color: bulk.failed ? NX.red : NX.green, fontWeight: 600 }}>
+          color: bulk.failed ? NX.red : 'var(--nx-tag-green-fg)', fontWeight: 600 }}>
           {bulk.failed ? <XCircle size={14} /> : <CheckCircle2 size={14} />} {bulk.summary}
           <button style={{ ...btn('ghost'), fontSize: 11.5, padding: '2px 8px' }} onClick={() => setBulk(null)}>Dismiss</button>
         </div>
@@ -420,7 +421,7 @@ function DeliveryLog() {
       {rows === null ? (
         <LoadingState compact />
       ) : rows.length === 0 ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>No scan attempts logged yet.</div>
+        <div style={{ fontSize: 13, color: NX.dim, padding: 16, textAlign: 'center' }}>No scan attempts logged yet.</div>
       ) : (
         <>
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
@@ -439,8 +440,8 @@ function DeliveryLog() {
                   <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.employeeEmail}>{r.employeeEmail}</span>
                   <span style={{ color: NX.dim, flexShrink: 0, width: 90 }}>{formatDate(r.briefingDate, r.briefingDate)}</span>
-                  <span style={{ color: NX.faint, flexShrink: 0, width: 50, textTransform: 'capitalize' }}>{r.mode}</span>
-                  <span style={{ color: NX.faint, flexShrink: 0, width: 110 }}>{r.redCount}R / {r.amberCount}A / {r.greenCount}G</span>
+                  <span style={{ color: NX.dim, flexShrink: 0, width: 50, textTransform: 'capitalize' }}>{r.mode}</span>
+                  <span style={{ color: NX.dim, flexShrink: 0, width: 110 }}>{r.redCount}R / {r.amberCount}A / {r.greenCount}G</span>
                   <span style={{ color: meta.color, fontWeight: 600, flexShrink: 0, width: 130 }}>{meta.label}</span>
                   <button onClick={() => forceResend(r)} disabled={resendingId === r.id}
                     title="Sends this employee's briefing right now, regardless of their shift window"
@@ -459,7 +460,7 @@ function DeliveryLog() {
                 style={{ ...btn('ghost'), opacity: offset === 0 ? 0.4 : 1, cursor: offset === 0 ? 'default' : 'pointer' }}>
                 ← Prev
               </button>
-              <span style={{ fontSize: 12, color: NX.faint }}>
+              <span style={{ fontSize: 12, color: NX.dim }}>
                 Page {currentPage} of {totalPages}
               </span>
               <button

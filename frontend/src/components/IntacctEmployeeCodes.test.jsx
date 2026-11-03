@@ -67,7 +67,7 @@ describe('IntacctEmployeeCodes', () => {
   it('saves the nightly switch per company', async () => {
     setNightly.mockResolvedValue({ id: 'c1', name: 'Alpha', nightly: true });
     render(<IntacctEmployeeCodes onClose={() => {}} toastOk={() => {}} />);
-    const box = await screen.findByRole('switch', { name: 'Alpha' });
+    const box = await screen.findByRole('switch', { name: 'Nightly Sync for Alpha' });
     fireEvent.click(box);
     await waitFor(() => expect(setNightly).toHaveBeenCalledWith('c1', true));
   });

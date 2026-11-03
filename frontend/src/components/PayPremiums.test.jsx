@@ -23,7 +23,7 @@ beforeEach(() => {
 describe('PayPremiums', () => {
   it('is off by default with nothing to save', async () => {
     render(<PayPremiums />);
-    const toggle = await screen.findByLabelText('Pay shift differentials and call-back pay for this company');
+    const toggle = await screen.findByLabelText('Pay Shift Differentials and Call-Back Pay');
     expect(toggle.checked).toBe(false);
     expect(screen.queryByText('Add Differential')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();   // off: no rules to type
@@ -33,7 +33,7 @@ describe('PayPremiums', () => {
   it('saves each switch on click, then saves the typed rule through the one Save row', async () => {
     const toastOk = vi.fn();
     render(<PayPremiums toastOk={toastOk} />);
-    fireEvent.click(await screen.findByLabelText('Pay shift differentials and call-back pay for this company'));
+    fireEvent.click(await screen.findByLabelText('Pay Shift Differentials and Call-Back Pay'));
     await waitFor(() => expect(apiMock.timePremiumsSet).toHaveBeenCalledTimes(1));
     expect(apiMock.timePremiumsSet.mock.calls[0][1].enabled).toBe(true);
     await waitFor(() => expect(toastOk).toHaveBeenCalledWith('Shift differentials are on for this company.'));
@@ -63,11 +63,25 @@ describe('PayPremiums', () => {
     await waitFor(() => expect(toastOk).toHaveBeenCalledWith('Shift differentials saved.'));
   });
 
+  it('a differential window can be cleared again (both times or neither)', async () => {
+    render(<PayPremiums />);
+    fireEvent.click(await screen.findByLabelText('Pay Shift Differentials and Call-Back Pay'));
+    await waitFor(() => expect(apiMock.timePremiumsSet).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: /Add Differential/ }));
+    const start = screen.getByLabelText('Window start');
+    fireEvent.change(start, { target: { value: '22:00' } });
+    expect(start.value).toBe('22:00');
+    // The blank choice stays after a time is picked, so the window can be emptied.
+    expect([...start.options].map(o => o.textContent)[0]).toBe('No Window');
+    fireEvent.change(start, { target: { value: '' } });
+    expect(start.value).toBe('');
+  });
+
   it('a switch that fails to save goes back', async () => {
     const toastErr = vi.fn();
     apiMock.timePremiumsSet.mockReset().mockRejectedValue(new Error('No'));
     render(<PayPremiums toastErr={toastErr} />);
-    const toggle = await screen.findByLabelText('Pay shift differentials and call-back pay for this company');
+    const toggle = await screen.findByLabelText('Pay Shift Differentials and Call-Back Pay');
     fireEvent.click(toggle);
     await waitFor(() => expect(toastErr).toHaveBeenCalledWith('No'));
     expect(toggle.checked).toBe(false);
@@ -84,6 +98,6 @@ describe('PayPremiums', () => {
     apiMock.timePremiumsGet.mockReset().mockRejectedValueOnce(new Error('Nope')).mockResolvedValue(OFF);
     render(<PayPremiums />);
     fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
-    expect(await screen.findByLabelText('Pay shift differentials and call-back pay for this company')).toBeTruthy();
+    expect(await screen.findByLabelText('Pay Shift Differentials and Call-Back Pay')).toBeTruthy();
   });
 });

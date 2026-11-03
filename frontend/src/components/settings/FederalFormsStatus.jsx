@@ -18,6 +18,17 @@ const STATE_META = {
   expired:  { label: 'Expired',  color: '#dc2626' },
 };
 
+// One sentence per form: the server's message, with the edition and the
+// expiry added only where the message does not already say them.
+function describe(f) {
+  const msg = String(f.message || '').trim();
+  const parts = [];
+  if (f.editionLabel && !msg.includes(f.editionLabel)) parts.push(`Edition ${f.editionLabel}.`);
+  if (msg) parts.push(msg);
+  if (f.expires && !/\d{2}\/\d{2}\/\d{4}/.test(msg)) parts.push(`Expires ${f.expires}.`);
+  return parts.join(' ');
+}
+
 export default function FederalFormsStatus() {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(false);
@@ -34,7 +45,7 @@ export default function FederalFormsStatus() {
       errorMessage="The form editions could not be loaded right now."
       skeleton={<div style={{ padding: 14 }}><SkeletonBlocks count={3} height={44} borderRadius={8} /></div>}>
       <div className="nx-set-note" style={{ borderTop: 'none', borderBottom: '1px solid var(--line)' }}>
-        One edition of each form is built into Nexus and goes out with hiring packets and from a person's Documents tab. An expired edition is never sent - update it in code first (docs/Federal-Forms.md); HR and administrators are told ahead of time.
+        HR and administrators are told before an edition lapses. A new edition needs a Nexus update - ask your Nexus administrator.
       </div>
       {rows?.map(f => {
         const meta = STATE_META[f.state] || STATE_META.ok;
@@ -43,9 +54,10 @@ export default function FederalFormsStatus() {
           <SettingRow key={f.kind} title={f.title}
             desc={(
               <>
-                {/* The message usually carries the date itself ("... through 01/31/2027.");
-                    "- expires" is added only when it does not, so a date never reads twice. */}
-                {`Edition ${f.editionLabel || '-'}${f.expires && !/\d{2}\/\d{2}\/\d{4}/.test(f.message || '') ? ` - expires ${f.expires}` : ''}. ${f.message || ''}`}
+                {/* The message usually carries the edition and the date itself ("Form W-4
+                    (2026) is current through 01/31/2027."); each is added only when it does
+                    not, so neither ever reads twice. */}
+                {describe(f)}
                 {' '}
                 {http
                   ? <a href={f.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--wk-brand, var(--pine))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>Source <ExternalLink size={11} aria-hidden="true" /></a>

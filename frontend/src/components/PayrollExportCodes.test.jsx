@@ -31,7 +31,7 @@ describe('PayrollExportCodes', () => {
     expect(reg.getAttribute('placeholder')).toBe('Regular Pay');
     expect(reg.value).toBe('');
     expect(screen.getByLabelText('Double Time (2x) code').getAttribute('placeholder')).toBe('Double-time Pay');
-    expect(screen.getAllByRole('textbox')).toHaveLength(8);   // seven pay classes + the QuickBooks company name
+    expect(screen.getAllByRole('textbox')).toHaveLength(9);   // seven pay classes + the QuickBooks company name + its create time
     expect(apiMock.timeExportCodesGet).toHaveBeenCalledWith('co-a');
     // Nothing changed and nothing custom yet: Save disabled, no Use the Default.
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
@@ -86,7 +86,9 @@ describe('PayrollExportCodes', () => {
     fireEvent.change(await screen.findByLabelText('Company'), { target: { value: 'co-b' } });
     await waitFor(() => expect(screen.getByLabelText('Regular code').value).toBe('REG-IN'));
     fireEvent.click(screen.getByRole('button', { name: 'Use the Default' }));
-    await waitFor(() => expect(apiMock.timeExportCodesSet).toHaveBeenCalledWith('co-b', {}, ''));
+    // Use the Default resets names - never the saved create time (the 4th
+    // argument stays undefined so the server leaves it alone).
+    await waitFor(() => expect(apiMock.timeExportCodesSet).toHaveBeenCalledWith('co-b', {}, '', undefined));
     await waitFor(() => expect(screen.getByLabelText('Regular code').value).toBe(''));
   });
 

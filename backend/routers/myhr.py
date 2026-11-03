@@ -445,7 +445,7 @@ def _render_modern(f: dict, field_order=None) -> str:
 
 def _render_minimal(f: dict, field_order=None) -> str:
     line = " &middot; ".join(_ordered_row_values(f, ("role", "phone", "email"), field_order))
-    tail = f" &nbsp;&mdash;&nbsp; {line}" if line else ""
+    tail = f" &nbsp;-&nbsp; {line}" if line else ""   # a plain hyphen, never an em dash in copy
     social = _social_icons(f)
     social_block = f'<div style="margin-top:4px;">{social}</div>' if social else ""
     closing = _closing_line(f, "color:#666666;margin-bottom:3px;")

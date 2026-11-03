@@ -44,10 +44,10 @@ export const IMPL_INTRO = {
 
 // How Nexus is organized - read once before Phase 1.
 export const IMPL_CONCEPTS = [
-  { term: 'Organization', text: 'One Nexus deployment, one Microsoft 365 tenant. Settings with the scope on Every company apply to everything in it.' },
-  { term: 'Company', text: 'A legal entity the organization runs (Settings > Companies). Pick it in the Scope box at the top of Settings to see what is set for it alone. Each has its own departments, locations, holiday calendar, workforce analytics policy, managers, HR contact and job roles. One organization can hold many companies.' },
+  { term: 'Organization', text: 'One Nexus deployment, one Microsoft 365 tenant. Settings with Applies To on Every Company apply to everything in it.' },
+  { term: 'Company', text: 'A legal entity the organization runs (Settings > Companies). Pick it in the Applies To box at the top of Settings to see what is set for it alone. Each has its own departments, locations, holiday calendar, workforce analytics policy, managers, HR contact and job roles. One organization can hold many companies.' },
   { term: 'Department', text: 'A team inside one company (Operations, Accounting, IT...). Used by people, tasks, tickets and reporting. Keep the list short and aligned with how the books are organized - sub-teams belong in shifts groups or task teams, not new departments.' },
-  { term: 'Holiday Policy', text: 'A named set of holidays with its weekend rule (Settings > Companies > Holiday Policies), applied to one or more companies. Each company’s Holiday Calendar shows its policies’ holidays and can skip or change any of them, or add its own.' },
+  { term: 'Holiday Policy', text: 'A named set of holidays with its weekend rule (Settings > Time Off & Leave > Holiday Policies), applied to one or more companies. Each company’s Holiday Calendar shows its policies’ holidays and can skip or change any of them, or add its own.' },
   { term: 'Location', text: 'A physical site people punch in at, placed once in the Location Library from its Google Maps link with a geofence radius, then switched on for the companies that use it.' },
   { term: 'Job Role', text: 'What a person does: a seniority tier, a department, a bundle of modules at set levels, the time-clock exemptions, the Teams chat or channel their day messages post to, and a default approver. Giving someone a role gives them all of it at once.' },
   { term: 'Tier', text: 'Employee, Supervisor, Manager, Administrator (Administrator) or Super Administrator (Owner). It decides what a person can approve and how far they see - a Manager with People sees their own team; Administrators grant access up to Manager; only Super Administrators manage other admins and see across company walls.' },
@@ -226,9 +226,9 @@ export const IMPL_PHASES = [
       ]},
       { title: 'Locations', where: 'Settings > Locations > Location Library', view: 'admin-console', sub: 'locations', items: [
         'Add each site once: paste its Google Maps link (that places it), set the radius, and pick the companies whose people punch in there.',
-        'Or pick the company in the Scope box: Locations then shows that company\'s sites.',
+        'Or pick the company in the Applies To box: Locations then shows that company\'s sites.',
       ]},
-      { title: 'Holiday Policies', where: 'Settings > Companies > Holiday Policies (scope: Every company)', view: 'admin-console', sub: 'companies:holiday-policies', items: [
+      { title: 'Holiday Policies', where: 'Settings > Time Off & Leave > Holiday Policies (Applies To: Every Company)', view: 'admin-console', sub: 'leave:holiday-policies', items: [
         'Build each shared set once: New Holiday Policy, a name (US Holidays, India Holidays), the country, then Add Holidays From - Federal Holidays, Common Company Holidays or Some States Only in the US; National, Gazetted or Restricted Holidays (Optional) in India - plus any day by hand. Each holiday is Mandatory, Optional or Half Day.',
         'Pick When A Holiday Falls On A Weekend: Keep The Date (the default), Friday Before Or Monday After (Federal Rule), Always The Friday Before, Always The Monday After or No Day Off.',
         'Under Applies To, pick every company the set is for, and save. One policy can serve many companies; editing it updates all of them.',
@@ -371,12 +371,12 @@ export const IMPL_PHASES = [
       { title: 'California Staff', where: 'People > the person > Pay & Benefits', view: 'hr', sub: 'hr-people', items: [
         'For hourly staff on the California rule who waive meal periods: Send Waiver to Sign. California Review on People > Time > Payroll then checks each period.',
       ]},
-      { title: 'Time Off', where: 'Settings > Time & Pay > Time-Off Reasons', view: 'admin-console', sub: 'pay:time-off-reasons', items: [
-        'With the Scope box on Every company, add the time-off reasons the client uses - the default list; a company that needs its own gets it with that company picked. Requests route to the person’s manager; approved time off is not punched in automatically (India contractors on the India Contractor Policy are the exception: an approved Vacation or Sick request is paid leave).',
+      { title: 'Time Off', where: 'Settings > Time Off & Leave > Time Off Reasons', view: 'admin-console', sub: 'leave:time-off-reasons', items: [
+        'With the Applies To box on Every company, add the time-off reasons the client uses - the default list; a company that needs its own gets it with that company picked. Requests route to the person’s manager; approved time off is not punched in automatically (India contractors on the India Contractor Policy are the exception: an approved Vacation or Sick request is paid leave).',
       ]},
-      { title: 'Leave Policies and Balances', where: 'Settings > Time & Pay > Leave Policies', view: 'admin-console', sub: 'pay:leave-policies', items: [
+      { title: 'Leave Policies and Balances', where: 'Settings > Time Off & Leave > Leave Policies', view: 'admin-console', sub: 'leave:leave-policies', items: [
         'Leave Policies: the vacation and sick policies people are assigned - hours earned per hour worked, caps and carry-over.',
-        'Leave Year-End: Use It Or Lose It, Carry Everything or Carry Up To a Cap, per bucket - a default, and a company’s own. Time-Off Approval: turn on Second Approval By HR for a company that wants HR to approve after the manager.',
+        'Leave Year-End: Use It Or Lose It, Carry Everything or Carry Up To a Cap, per bucket - a default, and a company’s own. Time Off Approval: turn on Second Approval By HR for a company that wants HR to approve after the manager.',
         'In People > Time > Time Off, set the date balances count from and import each person’s opening balance from QuickBooks once.',
       ]},
       { title: 'India Contractor Policy', where: 'Settings > Time & Pay > India Contractor Policy', view: 'admin-console', sub: 'pay:india-contractor-policy', items: [
@@ -430,7 +430,7 @@ export const IMPL_PHASES = [
     ],
     steps: [
       { title: 'Shift Settings', where: 'Settings > Shifts & Scheduling', view: 'admin-console', sub: 'shifts:shift-settings', items: [
-        'Set the Scope box to Every company for the defaults, or pick a company; a company with none of its own follows the defaults.',
+        'Set the Applies To box to Every company for the defaults, or pick a company; a company with none of its own follows the defaults.',
         'Schedule Basics (Team Time Zone, Week Starts On, Default Grace) and Requests & Visibility.',
         'Attendance (No-Show Alert, Left Early, the break and meal reminders, Alert for usual hours too), Overtime Alerts (daily and weekly warning minutes), Rules, and Sharing (Outlook calendars, Show In Outlook As, Ask people to confirm a shared schedule).',
       ]},

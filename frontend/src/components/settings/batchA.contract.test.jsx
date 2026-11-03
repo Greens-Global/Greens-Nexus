@@ -87,10 +87,10 @@ describe.each(PANELS)('%s keeps the Settings save contract', (_name, ui, fieldLa
 describe('switches save on click', () => {
   it('a Task Notifications type switch saves at once, only that key, with no Save click', async () => {
     const { group } = renderInGroup(<TaskNotifySettings />);
-    fireEvent.click(await screen.findByRole('switch', { name: 'Task created' }, { timeout: 5000 }));
+    fireEvent.click(await screen.findByRole('switch', { name: 'Task Created' }, { timeout: 5000 }));
     await waitFor(() => expect(api.updateTaskNotifySettings).toHaveBeenCalledWith({ enabledEvents: { created: false } }));
     expect(group.dirty).toBe(false);
-    expect(await screen.findByText('Task created saved.')).toBeTruthy();
+    expect(await screen.findByText('Task Created saved.')).toBeTruthy();
   });
 
   it('a Workforce Scorecard working day saves at once and leaves a typed hour as a draft', async () => {

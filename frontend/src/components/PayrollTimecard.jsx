@@ -892,14 +892,16 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     try { localStorage.setItem('nexus.payroll.intacct', JSON.stringify(next)); } catch { /* per-viewer convenience only */ }
     return next;
   });
-  async function exportFile(fetcher, label, range = [perStart, perEnd]) {
+  async function exportFile(fetcher, label, range = [perStart, perEnd], scope = {}) {
     const up = await ensureStepUp();
     if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; }
     setExporting(true);
     try {
       // Payroll Readiness (Oct 17): warn, never block, when people in the
-      // exported dates are not ready.
-      if (!await confirmExportReadiness(range[0], range[1])) return;
+      // exported dates are not ready. `scope` keeps the warning to who the
+      // export actually carries (Charmi, 11/03/2026: a one-company IIF
+      // warned about all 28 people of every company).
+      if (!await confirmExportReadiness(range[0], range[1], scope)) return;
       let res;
       try { res = await fetcher(); }
       catch (e) {
@@ -909,7 +911,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         res = await fetcher();
       }
       downloadBlob(res.filename || `${label}.txt`, res.blob);
-      toastOk?.(`${label} downloaded${res.filename ? ` - ${res.filename}` : ''}.`);
+      // The IIF goes through QuickBooks' Timer import, not the IIF Files one -
+      // the wrong menu fails every row (Charmi, 11/03/2026).
+      const hint = label === 'QuickBooks IIF' ? ' Import it in QuickBooks with File > Utilities > Import > Timer Activities.' : '';
+      toastOk?.(`${label} downloaded${res.filename ? ` - ${res.filename}` : ''}.${hint}`);
     } catch (e) { toastErr?.(e?.message || `Could not export the ${label}.`); }
     finally { setExporting(false); }
   }
@@ -1407,9 +1412,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     </select>
   );
   // The QuickBooks IIF batch is one company's finalized time cards (Neil /
-  // Charmi, Oct 16): the company picked, or the only one in the list.
+  // Charmi, Oct 16): the company picked, or the only one in the list. With
+  // no company picked the file is the SELECTED PERSON's card instead
+  // (Charmi, Teams 11/03/2026: "should also work on individual employees").
   const iifCompany = company || (companies.length === 1 ? companies[0] : '');
   const iifCompanyId = people.find(p => p.company === iifCompany)?.companyId || '';
+  const iifEmail = iifCompanyId ? '' : (email || '');
 
   // The employee master-detail list - shared by the hourly and fixed-salary views
   // so switching between them never rearranges the screen (hidden in self mode).
@@ -1426,9 +1434,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
           {filterSel(dept, setDept, 'Department', depts)}
           {showPay && companies.length > 0 && (
-            <button type="button" className="secondary-btn" disabled={!iifCompanyId || exporting}
-              title={iifCompanyId ? `QuickBooks Desktop time import (IIF) of ${iifCompany}'s finalized time sheets for ${formatDate(perStart)} - ${formatDate(perEnd)}. Employee names and the payroll items must match QuickBooks.` : 'Pick a company - QuickBooks imports one company per file'}
-              onClick={() => exportFile(() => api.timeExportIifFinalized(perStart, perEnd, iifCompanyId), 'QuickBooks IIF')}
+            <button type="button" className="secondary-btn" disabled={(!iifCompanyId && !iifEmail) || exporting}
+              title={iifCompanyId
+                ? `QuickBooks Desktop time import (IIF) of ${iifCompany}'s finalized time sheets for ${formatDate(perStart)} - ${formatDate(perEnd)}. Import with File > Utilities > Import > Timer Activities. Employee names and the payroll items must match QuickBooks.`
+                : iifEmail
+                  ? `QuickBooks Desktop time import (IIF) of ${nameFor(iifEmail)}'s finalized time sheet for ${formatDate(perStart)} - ${formatDate(perEnd)}. Import with File > Utilities > Import > Timer Activities.`
+                  : 'Pick a company, or one person - QuickBooks imports one company (or one person) per file'}
+              onClick={() => exportFile(() => api.timeExportIifFinalized(perStart, perEnd, iifCompanyId, iifEmail), 'QuickBooks IIF',
+                [perStart, perEnd], iifCompanyId ? { company: iifCompanyId } : { email: iifEmail })}
               style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
           )}
         </div>

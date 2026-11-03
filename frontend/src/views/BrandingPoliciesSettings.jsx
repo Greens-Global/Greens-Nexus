@@ -22,7 +22,8 @@ import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { PolicyText, formatPolicyVersion } from '../lib/policyText';
 import { formatDateTime } from '../lib/datetime';
 
-const LABEL = { fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 };
+// The house label (DESIGN.md: normal case, no uppercase tracking).
+const LABEL = { fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', display: 'block', marginBottom: 6 };
 const HINT = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4 };
 const ROW = { display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' };
 const IB = { display: 'inline-flex', alignItems: 'center', gap: 6 };
@@ -239,7 +240,7 @@ export function EmailAppearancePanel({ toastOk, toastErr }) {
         <div style={{ ...ROW, marginTop: 16, alignItems: 'flex-end' }}>
           <label style={{ ...LABEL, marginBottom: 0, display: 'grid', gap: 6, flex: '1 1 160px' }}>
             Header Text
-            <input className="form-input" maxLength={60} value={form.headerText} placeholder="GREENS GLOBAL"
+            <input className="form-input" maxLength={60} value={form.headerText} placeholder="COMPANY NAME"
               onChange={e => set('headerText', e.target.value)} />
           </label>
           <label style={{ ...LABEL, marginBottom: 0, display: 'grid', gap: 6, flex: '1 1 160px' }}>

@@ -7,6 +7,8 @@ import { Plus, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 import { formatHHMM } from '../lib/datetime';
+import { Switch } from './settings/SettingsUI';
+import { TimeField } from '../tasks/components';
 
 // Shift Differentials and Call-Back Pay (Neil, Oct 17 2026): per company, OFF
 // by default. While off nothing on any time sheet changes. On, HR lists the
@@ -53,6 +55,23 @@ const lbl = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, co
 // select; on its own the panel offers every company. Settings' group card
 // carries the title and description (Oct 25: one title per setting). With a
 // company fixed it reports whether the company pays premiums (`onOverride`).
+// A Settings switch row (components/settings/SettingsUI.jsx's look) inside
+// this panel's padded card: title and description on the left, the shared
+// switch on the right, the whole row its label. The switch is named by the title.
+function InlineSwitchRow({ id, title, desc, checked, disabled, onChange, style }) {
+  return (
+    <label className="nx-set-row-main" htmlFor={id} style={style}>
+      <span className="nx-set-row-text">
+        <span className="nx-set-row-title">{title}</span>
+        {desc && <span className="nx-set-row-desc" id={`${id}-desc`}>{desc}</span>}
+      </span>
+      <span className="nx-set-row-control">
+        <Switch id={id} label={title} describedBy={desc ? `${id}-desc` : undefined} checked={checked} disabled={disabled} onChange={onChange} />
+      </span>
+    </label>
+  );
+}
+
 export default function PayPremiums({ toastOk, toastErr, company: scoped = '', onOverride }) {
   const [companies, setCompanies] = useState(null);   // null while loading
   const [company, setCompany] = useState(scoped);
@@ -161,11 +180,9 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
         <div style={{ marginTop: 12 }}><SkeletonBlocks count={2} height={36} borderRadius={8} /></div>
       ) : (
         <>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer' }}>
-            <input type="checkbox" role="switch" checked={!!enabledOn} disabled={!!busy}
-              onChange={(e) => flip('enabled', e.target.checked)} />
-            Pay shift differentials and call-back pay for this company
-          </label>
+          <InlineSwitchRow id="pay-premiums-on" title="Pay Shift Differentials and Call-Back Pay" style={{ marginTop: 12 }}
+            desc="For this company; off by default." checked={!!enabledOn} disabled={!!busy}
+            onChange={(on) => flip('enabled', on)} />
           {enabledOn && (
             <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {draft.differentials.length === 0 && (
@@ -189,12 +206,12 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
                         value={r.amount} onChange={(e) => setRule(i, { amount: e.target.value })} style={{ fontSize: 12.5 }} />
                     </label>
                     <label style={lbl}>From
-                      <input className="form-input" type="time" aria-label="Window start" value={r.start}
-                        onChange={(e) => setRule(i, { start: e.target.value })} style={{ fontSize: 12.5 }} />
+                      <TimeField ariaLabel="Window start" value={r.start} step={15} emptyLabel="No Window"
+                        onChange={(v) => setRule(i, { start: v })} style={{ fontSize: 12.5 }} />
                     </label>
                     <label style={lbl}>To
-                      <input className="form-input" type="time" aria-label="Window end" value={r.end}
-                        onChange={(e) => setRule(i, { end: e.target.value })} style={{ fontSize: 12.5 }} />
+                      <TimeField ariaLabel="Window end" value={r.end} step={15} emptyLabel="No Window"
+                        onChange={(v) => setRule(i, { end: v })} style={{ fontSize: 12.5 }} />
                     </label>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10, alignItems: 'center' }}>
@@ -234,16 +251,11 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
                 A differential pays the hours worked inside its window on its own line, on top of regular and overtime pay. A window that crosses midnight counts from the day it starts. Overtime is not recalculated with the differential included - check with payroll whether your overtime rate must include it.
               </div>
               <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer' }}>
-                  <input type="checkbox" role="switch" checked={!!callBackOn} disabled={!!busy}
-                    onChange={(e) => flip('callBack', e.target.checked)} />
-                  Call-Back Pay
-                </label>
-                <div style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0 24px', lineHeight: 1.45 }}>
-                  When someone clocks in again the same day after being clocked out for a while, and works less than the minimum, the shortfall is paid at the base rate. It is not counted as hours worked or toward overtime.
-                </div>
+                <InlineSwitchRow id="pay-premiums-callback" title="Call-Back Pay" checked={!!callBackOn} disabled={!!busy}
+                  onChange={(on) => flip('callBack', on)}
+                  desc="When someone clocks in again the same day after being clocked out for a while, and works less than the minimum, the shortfall is paid at the base rate. It is not counted as hours worked or toward overtime." />
                 {callBackOn && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 10, paddingLeft: 24 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 10 }}>
                     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
                       <span style={{ color: 'var(--muted)' }}>Minimum paid</span>
                       <input className="form-input" type="number" min="15" max="720" aria-label="Call-back minimum minutes" value={draft.callBack.minimumMin}

@@ -87,12 +87,16 @@ describe('WorkflowsSettings', () => {
     expect(wfSettingsSave).not.toHaveBeenCalled();
   });
 
-  it('pauses everything after a confirmation and says who paused and since when', async () => {
+  it('pauses everything after a held confirmation and says who paused and since when', async () => {
+    // The hold dialog runs the pause itself (onConfirm) before it resolves.
+    confirm.mockImplementation(async (_msg, opts) => { await opts.onConfirm?.(); return true; });
     wfSettings.mockResolvedValueOnce(ORG).mockResolvedValueOnce({ ...ORG, pausedAll: true, pausedBy: 'Neil Kadakia', pausedAt: '2026-10-28T15:05:00Z' });
     render(<WorkflowsSettings company="" />);
     fireEvent.click(await screen.findByRole('switch', { name: 'Pause All Workflows' }));
     await vi.waitFor(() => expect(wfPauseAll).toHaveBeenCalledWith({ paused: true }));
     expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm.mock.calls[0][1]).toMatchObject({ hold: true, holdMs: 1800 });
+    expect(confirm.mock.calls[0][0]).toMatch(/every workflow in every company/);
     expect(await screen.findByText(/Paused by Neil Kadakia since 10\/28\/2026, \d{1,2}:\d{2} [AP]M\./)).toBeTruthy();
     expect(wfSettingsSave).not.toHaveBeenCalled();
   });

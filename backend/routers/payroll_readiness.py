@@ -53,18 +53,31 @@ def readiness_report(start: str = "", refresh: bool = False, user: dict = Depend
 
 
 @router.get("/export-check")
-def readiness_export_check(start: str, end: str, user: dict = Depends(require_team_read),
+def readiness_export_check(start: str, end: str, company: str = "", email: str = "",
+                           user: dict = Depends(require_team_read),
                            _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """Readiness only, for what a payroll export of [start, end] carries: every
     pay period overlapping the dates (hourly), the month containing `start`
-    (salaried). The export WARNS on it, never blocks. No money in it."""
+    (salaried). The export WARNS on it, never blocks. No money in it.
+    `company` / `email` (Charmi, Teams 11/03/2026: a one-company IIF warned
+    about all 28 people of every company) narrow the check to the people the
+    export actually carries - one company's, or one person."""
     s, e = _check_date(start), _check_date(end)
     if not s or not e or e < s:
         raise HTTPException(400, "start and end are required, start first")
     if (date.fromisoformat(e) - date.fromisoformat(s)).days > 62:
         raise HTTPException(400, "An export check covers at most two months")
     scope = _visible_emails(db, user)
-    key = ("export", user["email"].lower(), s, e)
+    company = (company or "").strip()
+    email_q = (email or "").strip().lower()
+    if company:
+        from models import NexusEmployee
+        co = {(x.work_email or "").lower() for x in
+              db.query(NexusEmployee).filter(NexusEmployee.company == company).all() if x.work_email}
+        scope = co if scope is None else set(scope) & co
+    if email_q:
+        scope = {email_q} if (scope is None or email_q in scope) else set()
+    key = ("export", user["email"].lower(), s, e, company, email_q)
     return pr.cached(key, lambda: pr.check_export(db, scope, s, e))
 
 

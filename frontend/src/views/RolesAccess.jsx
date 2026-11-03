@@ -512,7 +512,7 @@ export default function RolesAccess({ embedded = false }) {
   const allTourSteps = [
     { target: 'tabs', title: 'One rule runs this whole screen',
       body: embedded
-        ? 'A person’s access = their job role + any extra groups. Nothing else. People is where you work day to day; Groups add extras; Matrix is the all-at-once view. Job roles are set up per company: pick the company in the Scope box.'
+        ? 'A person’s access = their job role + any extra groups. Nothing else. People is where you work day to day; Groups add extras; Matrix is the all-at-once view. Job roles are set up per company: pick the company in Applies To.'
         : 'A person’s access = their job role + any extra groups. Nothing else. People is where you work day to day; Job roles and Groups are the building blocks; Audit is the all-at-once view.' },
     { target: 'people-search', before: () => setSub('people'), title: 'Start with a person',
       body: 'Type any name. You’ll see who they are, their job role, their extra groups, and every screen they can touch - with the reason next to each line.' },
@@ -556,18 +556,21 @@ export default function RolesAccess({ embedded = false }) {
           </button>
         ))}
         <span style={{ flex: 1 }} />
+        {/* A filter over the people on these tabs, not a scope: People & Access
+            is set for every company, so Settings' Applies To cannot narrow it. */}
         {companies.length > 0 && (
           <>
-            <select value={co} onChange={e => setCo(e.target.value)} aria-label="Filter every tab by company"
-              title="Scopes every tab to this company's people"
+            <label htmlFor="ra-filter-company" style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', margin: '4px 0 8px', whiteSpace: 'nowrap' }}>Filter by Company</label>
+            <select id="ra-filter-company" value={co} onChange={e => setCo(e.target.value)} aria-label="Filter every tab by company"
+              title="Shows only this company's people on every tab"
               style={{ ...input, width: 'auto', maxWidth: 170, padding: '6px 9px', fontSize: 12.5, margin: '4px 0 8px' }}>
-              <option value="">All companies</option>
+              <option value="">All Companies</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <select value={dept} onChange={e => setDept(e.target.value)} aria-label="Filter every tab by department"
-              title="Scopes every tab to this department's people" disabled={!deptOptions.length}
+              title="Shows only this department's people on every tab" disabled={!deptOptions.length}
               style={{ ...input, width: 'auto', maxWidth: 160, padding: '6px 9px', fontSize: 12.5, margin: '4px 0 8px', opacity: deptOptions.length ? 1 : 0.55 }}>
-              <option value="">{deptOptions.length ? 'All departments' : 'No departments'}</option>
+              <option value="">{deptOptions.length ? 'All Departments' : 'No Departments'}</option>
               {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           </>
@@ -593,7 +596,7 @@ export default function RolesAccess({ embedded = false }) {
             <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
               {embedded && (
                 <p style={{ margin: 0, flex: 1, minWidth: 240, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                  Roles people at any company can hold. Editing one changes it for everyone who has it. A company's own roles show with that company picked in the Scope box.
+                  Roles people at any company can hold. Editing one changes it for everyone who has it. A company's own roles show with that company picked in Applies To.
                 </p>
               )}
               <button className="primary-btn" data-tour="new-role" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> {embedded ? 'New Shared Role' : 'New Job Role'}</button>
@@ -977,7 +980,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
             <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', margin: '0 auto 12px' }}>
               <User size={20} style={{ color: 'var(--muted)' }} />
             </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Pick a person</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Pick a Person</div>
             <div style={{ fontSize: 12.5, color: 'var(--muted)', maxWidth: '32ch', margin: '4px auto 0', lineHeight: 1.5 }}>
               See exactly what they can do - and change their role or groups right here.
             </div>
