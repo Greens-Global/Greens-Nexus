@@ -1726,6 +1726,16 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .dir-card-actions { opacity: 0; transition: opacity .12s; }
 .dir-card:hover .dir-card-actions, .dir-card.is-active .dir-card-actions, .dir-card:focus-within .dir-card-actions { opacity: 1; }
 @media (hover: none) { .dir-card-actions { opacity: 1; } }
+/* People > Organizational Chart cards (views/HR.jsx OrgNodeCard, 11/03/2026):
+   a focus ring for the keyboard, and the × that takes a person out of the
+   reporting line shown only on hover or focus - on every card at once it
+   read as a page of delete buttons. Touch keeps it in view. */
+.nx-orgcard [data-orgtile]:focus-visible { outline: 2px solid var(--fern); outline-offset: 2px; }
+.nx-orgcard-unlink { opacity: 0; transition: opacity .12s; }
+.nx-orgcard:hover .nx-orgcard-unlink, .nx-orgcard:focus-within .nx-orgcard-unlink { opacity: 1; }
+.nx-orgcard-unlink:hover { color: hsl(var(--color-red)) !important; border-color: hsla(var(--color-red), .5) !important; }
+@media (hover: none) { .nx-orgcard-unlink { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .nx-orgcard-unlink, .nx-orgcard [data-orgtile] { transition: none !important; } }
 /* Actions a mouse reveals on hover (comment Reply / Resolve / Pin, a checklist
    item's remove X): a touch screen has no hover, so they stay in view there,
    at finger size (phone pass, Oct 29 2026). */

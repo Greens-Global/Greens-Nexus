@@ -51,8 +51,9 @@ const OrgChartCanvas = forwardRef(function OrgChartCanvas({
   // Glide the canvas so a card sits center-stage (a third of the way down, so
   // its team below stays in view). `onlyIfHidden` leaves a card alone when it
   // is already fully visible - a tap on a card in view must not move it.
-  // Returns true when a card was found.
-  const focusOn = useCallback((key, { onlyIfHidden = false } = {}) => {
+  // `align: 'top'` puts it at the top center instead (the chart opening on
+  // the top of its biggest tree). Returns true when a card was found.
+  const focusOn = useCallback((key, { onlyIfHidden = false, align = 'center' } = {}) => {
     const c = canvasRef.current, k = contentRef.current;
     if (!c || !k || !key) return false;
     const el = k.querySelector(`[data-orgkey="${CSS.escape(String(key))}"]`);
@@ -62,7 +63,7 @@ const OrgChartCanvas = forwardRef(function OrgChartCanvas({
     if (onlyIfHidden && inside) return true;
     setPan((p) => ({
       x: p.x + (cr.width / 2 - (er.left + er.width / 2 - cr.left)),
-      y: p.y + (cr.height / 3 - (er.top + er.height / 2 - cr.top)),
+      y: align === 'top' ? p.y + (PAN0.y - (er.top - cr.top)) : p.y + (cr.height / 3 - (er.top + er.height / 2 - cr.top)),
     }));
     return true;
   }, []);
@@ -184,9 +185,16 @@ const OrgChartCanvas = forwardRef(function OrgChartCanvas({
 
       <div style={{ position: 'absolute', right: 12, bottom: 12, display: 'flex', gap: 6, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 5, boxShadow: 'var(--shadow-md)' }}
         onPointerDown={(e) => e.stopPropagation()}>
+        {/* The percentage says the zoom and sets it back to 100%; Fit is its
+            own button now (11/03/2026 - a % that fitted the chart was a
+            hidden control). */}
         <ZoomButton title="Zoom out" onClick={zoomOut}>−</ZoomButton>
-        <ZoomButton title="Fit to view" onClick={fitToView} emphasis>{`${Math.round(zoom * 100)}%`}</ZoomButton>
+        <ZoomButton title="Back to 100%" onClick={() => zoomTo(1)} emphasis>{`${Math.round(zoom * 100)}%`}</ZoomButton>
         <ZoomButton title="Zoom in" onClick={zoomIn}>+</ZoomButton>
+        <span aria-hidden="true" style={{ width: 1, background: 'var(--line)', margin: '4px 2px' }} />
+        <ZoomButton title="Fit the whole chart" onClick={fitToView}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /></svg>
+        </ZoomButton>
       </div>
       {hint && (
         <span style={{ position: 'absolute', left: 14, bottom: 14, right: 150, fontSize: 10.5, color: 'var(--muted)', pointerEvents: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -203,7 +211,8 @@ function ZoomButton({ title, onClick, emphasis = false, children }) {
   return (
     <button type="button" onClick={onClick} title={title} aria-label={title}
       style={{ minWidth: 34, height: 30, borderRadius: 8, border: 'none', background: emphasis ? 'var(--mist)' : 'transparent',
-        fontSize: emphasis ? 11 : 16, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+        fontSize: emphasis ? 11 : 16, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
       {children}
     </button>
   );
@@ -246,12 +255,12 @@ function Node({ node, childrenOf, keyOf, renderCard, collapsed, onToggle }) {
 
 // The count pill that hangs off a card's bottom edge and doubles as the
 // collapse toggle. Shared so both charts fold the same way.
-export function ReportsPill({ count, collapsed, onToggle, label }) {
+export function ReportsPill({ count, collapsed, onToggle, label, title }) {
   if (!count) return null;
   return (
     <button type="button" onClick={(ev) => { ev.stopPropagation(); onToggle(); }}
       onPointerDown={(ev) => ev.stopPropagation()}
-      title={collapsed ? 'Show team' : 'Hide team'} aria-label={label || (collapsed ? `Show ${count} reports` : `Hide ${count} reports`)}
+      title={title || (collapsed ? 'Show team' : 'Hide team')} aria-label={label || (collapsed ? `Show ${count} reports` : `Hide ${count} reports`)}
       aria-expanded={!collapsed}
       style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)',
         display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 11px', borderRadius: 20,

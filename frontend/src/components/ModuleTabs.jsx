@@ -268,7 +268,7 @@ export function HeaderOverflowTabs({ entry, onPick, renderTab, ink }) {
         {rest.length > 0 && (
           <TabGroupButton key="__more" className="hdr-tab" compact onSelect={onPick} active={active}
             tab={{ key: '__more', label: 'More', Icon: MoreHorizontal, badge: restBadge,
-              items: rest.map(({ key, label, Icon, badge }) => ({ key, label, Icon, badge })) }} />
+              items: rest.map(({ key, label, Icon, badge, items }) => ({ key, label, Icon, badge, items })) }} />
         )}
       </nav>
     </>

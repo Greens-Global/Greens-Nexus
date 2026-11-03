@@ -309,7 +309,7 @@ const SHOTS = {
   people: {
     legend: ['People tab - the employee directory', 'Add Person', 'Fill in their details and manager', 'Choose a Job Role - it decides their Nexus access'],
     render: () => (
-      <Frame title="People" tabs={['People', 'Hiring', 'Org Chart', 'Time', 'Checklists']} active="People" activeRail={-1} tabMark={1}
+      <Frame title="People" tabs={['People', 'Hiring', 'Time', 'Checklists', 'Analytics']} active="People" activeRail={-1} tabMark={1}
         headerMark={<Mark n={2}><Btn primary icon={Plus}>Add Person</Btn></Mark>}>
         <Row style={{ alignItems: 'stretch' }} gap={12}>
           <Card style={{ flex: 1, minWidth: 0, padding: 0 }}>

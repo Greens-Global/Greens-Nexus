@@ -200,15 +200,17 @@ export const NAV = [
   {
     view: "hr", code: "PPL", label: "People", icon: Users, minRole: 'supervisor',
     sub: [
+      // People, then what sits under it in the module's People dropdown
+      // (Neil, 11/03/2026): the Organizational Chart and Performance.
       { subview: "hr-people", label: "People",    icon: Users },
+      { subview: "hr-org",    label: "Organizational Chart", icon: Files },
+      { subview: "hr-performance", label: "Performance", icon: BarChart3 },
       { subview: "hr-hiring", label: "Hiring",    icon: CheckSquare },
-      { subview: "hr-org",    label: "Org Chart", icon: Files },
       // People > Leave became Time > Time Off (leave depth, Oct 27 2026).
       { subview: "hr-time-off", label: "Time Off", icon: PenTool },
       { subview: "hr-checklists", label: "Checklists", icon: CheckSquare },
       { subview: "hr-analytics", label: "Analytics", icon: BarChart3 },
       { subview: "hr-exits", label: "Exits", icon: Files },
-      { subview: "hr-performance", label: "Performance", icon: BarChart3 },
     ],
   },
   {

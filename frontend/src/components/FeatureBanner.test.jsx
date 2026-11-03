@@ -52,7 +52,7 @@ describe('the weekly New in Nexus bar', () => {
     expect(dialog.textContent).toContain("And 4 more - see them all on What's New.");
     expect(onNavigate).not.toHaveBeenCalled();
     expect(api.dismissFeatureBanner).toHaveBeenCalledTimes(1);          // seen for the week
-    fireEvent.click(screen.getByRole('button', { name: "See All on What's New" }));
+    fireEvent.click(screen.getByRole('button', { name: "Open the What's New Page" }));
     expect(onNavigate).toHaveBeenCalledWith('whats-new');
   });
 
@@ -206,6 +206,26 @@ describe('a new version, in the same bar', () => {
       fireEvent.click(screen.getByRole('button', { name: "See What's New" }));
       fireEvent.click(screen.getByRole('button', { name: /Reload Now/ }));
       expect(reload).toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
+  });
+
+  it("the new version's popup ends with a way to the What's New page - a full load onto it (Nov 3 2026)", async () => {
+    build.stale = true;
+    api.getReleasedSince.mockResolvedValue({ counts: { Improvement: 1 }, total: 1, items: [
+      { id: 'a', title: 'Faster Shift Grid', type: 'Improvement', module: 'Shifts', summary: '' },
+    ] });
+    const assign = vi.fn();
+    const reload = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...original, assign, reload } });
+    try {
+      mount();
+      fireEvent.click(await screen.findByRole('button', { name: "See What's New" }));
+      fireEvent.click(screen.getByRole('button', { name: "Reload and Open What's New" }));
+      expect(assign).toHaveBeenCalledWith('/whats-new');
+      expect(reload).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(window, 'location', { configurable: true, value: original });
     }

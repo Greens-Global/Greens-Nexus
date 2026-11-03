@@ -43,7 +43,7 @@ import { openPersonTasks } from '../lib/personTasksNav';
 const REFRESH_MS = 60_000;
 const PRESENCE_MS = 30_000;   // Teams presence poll; the server holds one Graph answer per 30 s
 const LENS_KEY = 'nexus-directory-lens';
-const LENSES = [['dept', 'Departments', Building2], ['org', 'Reporting Line', ListTree], ['chart', 'Org Chart', Network]];
+const LENSES = [['dept', 'Departments', Building2], ['org', 'Reporting Line', ListTree], ['chart', 'Organizational Chart', Network]];
 const QUICK = [
   ['all', 'Everyone'], ['team', 'My Team'], ['leads', 'Department Leads'], ['off', 'Off Today'], ['pinned', 'Pinned'],
 ];
