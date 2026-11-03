@@ -65,22 +65,59 @@ export function accentVars(cfg) {
   };
 }
 
+// Live accent brand collision (Neil, 11/02/2026). The live accent (--wk-live*,
+// style.css "Live accent") is orange and means "in progress / now"; the brand
+// means "this is us / done". A company whose OWN brand color is orange or red
+// would lose that difference, so for it the live family turns cobalt. The rule
+// reads the hue: orange through red and on round to pink (hue <= 45 or >= 330),
+// with enough saturation to read as a color (a gray, a near-black or a pale
+// wash is not a color and keeps orange). The presets never collide (green,
+// blue); only a custom hex can. Contrast for these values is in style.css.
+export const LIVE_COBALT = {
+  light: { live: '#2b45e1', ink: '#2b45e1', tint: '#e8ecfd', line: '#b4bff5', on: '#ffffff' },
+  dark:  { live: '#7086ff', ink: '#9aabff', tint: 'rgba(112,134,255,.16)', line: 'rgba(112,134,255,.45)', on: '#161b27' },
+};
+
+// true when this hex brand color would read as the same family as the live accent
+export function hueCollidesWithLive(hex) {
+  if (!/^#?[0-9a-f]{3}([0-9a-f]{3})?$/i.test(String(hex || ''))) return false;
+  const [h, s, l] = hexToHsl(hex);
+  if (s < 30 || l < 15 || l > 90) return false;
+  return h <= 45 || h >= 330;
+}
+
+// A saved branding config ({accent, customHex}) -> does its brand collide?
+export function liveCollides(cfg) {
+  return cfg?.accent === 'custom' && hueCollidesWithLive(cfg.customHex);
+}
+
+const liveDecl = (v) =>
+  `--wk-live:${v.live};--wk-live-ink:${v.ink};--wk-live-tint:${v.tint};--wk-live-line:${v.line};--wk-live-on:${v.on};`;
+
 const STYLE_ID = 'nexus-brand-accent';
 
-// Writes the stylesheet. `[data-theme="dark"]` has the same specificity as
-// style.css's dark rule and comes later, so it wins there, and it still loses
-// to the Warm theme's more specific `:root[data-wktheme="warm"]`.
-export function setBrandAccent(cfg) {
+// The stylesheet's text for a saved config (exported for the tests).
+// `[data-theme="dark"]` has the same specificity as style.css's dark rule and
+// comes later, so it wins there, and it still loses to the Warm theme's more
+// specific `:root[data-wktheme="warm"]` (whose near-black brand never collides,
+// so its own live values are right).
+export function brandAccentCss(cfg) {
   const v = accentVars(cfg);
+  const cobalt = liveCollides(cfg);
+  const dark = (v.tintDark ? `--wk-brand-tint:${v.tintDark};` : '') + (cobalt ? liveDecl(LIVE_COBALT.dark) : '');
+  return `:root{--wk-brand:${v.brand};--wk-brand-hov:${v.hov};--wk-brand-tint:${v.tint};${cobalt ? liveDecl(LIVE_COBALT.light) : ''}}`
+    + (dark ? `[data-theme="dark"]{${dark}}` : '');
+}
+
+// Writes the stylesheet.
+export function setBrandAccent(cfg) {
   let el = document.getElementById(STYLE_ID);
   if (!el) {
     el = document.createElement('style');
     el.id = STYLE_ID;
     document.head.appendChild(el);   // last in the cascade, so it wins over :root
   }
-  el.textContent =
-    `:root{--wk-brand:${v.brand};--wk-brand-hov:${v.hov};--wk-brand-tint:${v.tint};}`
-    + (v.tintDark ? `[data-theme="dark"]{--wk-brand-tint:${v.tintDark};}` : '');
+  el.textContent = brandAccentCss(cfg);
 }
 
 export async function applyBrandAccent() {

@@ -955,8 +955,11 @@ h1,h2,h3,h4,h5,h6,
 .hud-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left var(--transition-fast); }
 .hud-switch.is-on { background: hsl(var(--color-purple)); }
 .hud-switch.is-on::after { left: 14px; }
-.hud-acting { margin: 2px 4px 4px; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px; border: 1px solid hsla(var(--color-orange), .4); background: hsla(var(--color-orange), .09); color: hsl(var(--color-orange)); }
-.hud-exit { margin-left: auto; background: hsl(var(--color-orange)); color: #fff; border: none; border-radius: 6px; padding: 4px 10px; font: 700 11.5px 'Inter', sans-serif; cursor: pointer; }
+/* Act As is a live mode: the live accent (see "Live accent" in the Work OS block).
+   Text is --wk-live-ink (5.29:1 light, 4.67:1 on the tint); Exit is the one solid
+   live chip, --wk-live-on on --wk-live-ink (5.29:1 light, 8.22:1 dark). */
+.hud-acting { margin: 2px 4px 4px; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--wk-live-line); background: var(--wk-live-tint); color: var(--wk-live-ink); }
+.hud-exit { margin-left: auto; background: var(--wk-live-ink); color: var(--wk-live-on); border: none; border-radius: 6px; padding: 4px 10px; font: 700 11.5px 'Inter', sans-serif; cursor: pointer; }
 .hud-exit:disabled { cursor: default; opacity: .7; }
 .hud-person-text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .hud-person-text b { font-size: 12.5px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -4071,6 +4074,70 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   --wk-brand-tint:#f5ead0;   /* amber wash for active states */
   --wk-shadow:    0 4px 12px rgba(64,55,30,.06);
   --wk-shadow-hov:0 8px 20px rgba(64,55,30,.10);
+}
+
+/* ── Live accent (Neil, 11/02/2026; mock https://claude.ai/artifact/PwncxMck8YaSkFkQ8hmTHE) ──
+   Green stays the brand (primary buttons, the active nav item, links, the N
+   tile, anything done). Orange means ONE thing: in progress / now - a running
+   shift, progress that is still moving, the current-time marker, a live mode
+   the person switched on (Act As, a company picked in Settings > Applies To).
+   Fills, outlines, bars and icons only. NEVER a button fill (the one solid is
+   the Act As Exit chip, on --wk-live-ink), NEVER a warning (warnings stay a
+   yellow background + icon, and orange never sits on yellow), NEVER small
+   body text (the rare orange label is --wk-live-ink), NEVER a count badge.
+   The one progress bar for new work is ui/ProgressTrack.jsx.
+
+     --wk-live       bars, outlines, icons, the now line (non-text, 3:1 floor)
+     --wk-live-ink   the ONLY live color allowed for text (4.5:1 floor)
+     --wk-live-tint  a soft wash: the today column, a live-mode pill
+     --wk-live-line  a soft outline around a tint
+     --wk-live-on    text on a solid --wk-live-ink fill (the Act As Exit only)
+
+   A company whose brand color is itself orange / red (lib/brandAccent.js,
+   liveCollides) gets the same family in cobalt, written by the injected brand
+   stylesheet, so brand and live never collide. The category tints
+   (--wk-orange, .dk-chip--orange, .dk-pill--orange, .card-orange, the docs
+   tips' --color-orange) are status / category colors, NOT the live accent -
+   leave them be.
+
+   Contrast (WCAG 2.x relative luminance, measured 11/02/2026):
+   Light   #EE6A24 on #ffffff card 3.12, on #f6f7fb canvas 2.92 - live bars
+           belong on cards; #B8480F on #ffffff 5.29, on the tint 4.67;
+           #ffffff on #B8480F 5.29.
+   Dark    #FF7A33 on #161b27 card 6.62, on #0d1117 page 7.28; #FF9A5C on
+           #161b27 8.22, on the tint over the card 6.69; #161b27 on #FF9A5C 8.22.
+   Warm    the cobalt-theme orange is muddy on the amber wash (2.61) and fails
+           on the cream canvas (2.68), so Warm sand runs one step deeper:
+           #D9581A on #fffdf9 card 3.86, #f2ede3 canvas 3.36, #f5ead0 amber
+           wash 3.28, its own tint 3.20; #A8400C on card 6.07, canvas 5.29,
+           amber wash 5.16, tint 5.04. The tint is a peach (#FBE4D5, hue 24)
+           so it never reads as the amber wash (#f5ead0, hue 43).
+   Cobalt  (brand collision) #2b45e1 on #ffffff 6.91, on its tint 5.87,
+           #ffffff on it 6.91; dark #7086ff on #161b27 5.36, #9aabff 7.90,
+           #161b27 on #9aabff 7.90. */
+:root {
+  --wk-live:      #ee6a24;
+  --wk-live-ink:  #b8480f;
+  --wk-live-tint: #fdeee5;
+  --wk-live-line: #f6c3a6;
+  --wk-live-on:   #ffffff;
+}
+[data-theme="dark"] {
+  --wk-live:      #ff7a33;
+  --wk-live-ink:  #ff9a5c;
+  --wk-live-tint: rgba(255,122,51,.14);
+  --wk-live-line: rgba(255,122,51,.45);
+  --wk-live-on:   #161b27;
+}
+/* Warm sand is a light world only; dark keeps the dark values above. More
+   specific than the injected brand stylesheet's :root on purpose - Warm's
+   brand is near-black, so its live accent never needs the cobalt fallback. */
+:root[data-wktheme="warm"]:not([data-theme="dark"]) {
+  --wk-live:      #d9581a;
+  --wk-live-ink:  #a8400c;
+  --wk-live-tint: #fbe4d5;
+  --wk-live-line: #efbe9f;
+  --wk-live-on:   #ffffff;
 }
 
 /* Warm theme - floating card stack (Lisso concept, owner request Jul 28).
@@ -7702,7 +7769,9 @@ label.nx-set-row-main { cursor: pointer; }
 .nx-set-scope { display: inline-flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .nx-set-scope-label { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .nx-set-scope select { border: none; background-color: transparent; font-size: 13px; font-weight: 600; padding: 5px 30px 5px 6px; min-width: 0; max-width: 260px; box-shadow: none; }
-.nx-set-scope.is-company { border-color: hsl(var(--color-orange)); background: hsla(var(--color-orange), .06); }
+/* A company picked in Applies To is a live mode: the live accent. The wash is a
+   3% mix, not --wk-live-tint, so the muted "Applies To" label keeps 4.5:1. */
+.nx-set-scope.is-company { border-color: var(--wk-live); background: color-mix(in srgb, var(--wk-live) 3%, var(--card)); }
 .nx-set-scope-clear { border: none; background: none; cursor: pointer; color: var(--muted); display: inline-flex; padding: 4px; border-radius: 6px; }
 .nx-set-scope-clear:hover { color: var(--ink); background: var(--paper); }
 
@@ -7718,8 +7787,8 @@ label.nx-set-row-main { cursor: pointer; }
 .nx-set-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .7; }
 .nx-set-badge.is-own { color: hsl(var(--color-orange)); background: hsla(var(--color-orange), .08); border-color: hsla(var(--color-orange), .35); }
 .nx-set-diff { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); padding: 10px 14px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); margin: -4px 0 24px; }
-.nx-set-diff.is-own { border-color: color-mix(in srgb, var(--nx-own) 38%, transparent); background: color-mix(in srgb, var(--nx-own) 5%, var(--card)); }
-.nx-set-diff button { background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: hsl(var(--color-orange)); }
+.nx-set-diff.is-own { border-color: var(--wk-live-line); background: color-mix(in srgb, var(--wk-live) 3%, var(--card)); }
+.nx-set-diff button { background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: var(--wk-live-ink); }
 .nx-set-diff button:hover { text-decoration: underline; }
 .nx-set-list { display: flex; flex-direction: column; }
 .nx-set-list-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 18px; border: none; background: transparent; cursor: pointer; font: inherit; text-align: left; color: var(--ink); }
@@ -7743,11 +7812,13 @@ label.nx-set-row-main { cursor: pointer; }
   .nx-set-group-body.is-flush { padding: 0; }
   .nx-set-list-item { padding: 12px 14px; }
 }
-/* "This company has its own" - an orange dark enough to read as text (4.5:1). */
+/* "This company has its own" - an orange dark enough to read as text (4.5:1).
+   --nx-own is an "own value" / attention status (the badge, unsaved-changes and
+   refused notices in several panels), NOT the live accent - the Applies To pill
+   and the "different here" bar moved to --wk-live (11/02/2026). */
 :root { --nx-own: hsl(24, 85%, 34%); }
 [data-theme="dark"] { --nx-own: hsl(32, 92%, 64%); }
-.nx-set-badge.is-own, .nx-set-diff button { color: var(--nx-own); }
-.nx-set-scope.is-company { border-color: var(--nx-own); }
+.nx-set-badge.is-own { color: var(--nx-own); }
 .nx-set-inline-link { background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: var(--wk-brand); }
 .nx-set-inline-link:hover { text-decoration: underline; }
 .nx-set-diff .nx-set-inline-link { color: var(--wk-brand); }
@@ -8687,3 +8758,27 @@ body:has(.apv-phone) { overflow-x: clip; }
 .nx-perf-score-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 14px; padding: 10px 0; border-top: 1px solid var(--line); align-items: center; }
 .nx-perf-score-bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .nx-perf-score-bar > span { display: block; height: 100%; border-radius: 2px; transition: width .3s; }
+
+/* Progress track (Neil, 11/02/2026, ui/ProgressTrack.jsx) - the one progress
+   bar for new work. Filled part solid in the state's color, the rest a dashed
+   track on --wk-line; the note's <b> takes the state's text-safe ink
+   (--wk-live-ink 5.29:1, --ok-fg 5.02:1, --bad-fg 4.83:1 on white). The width
+   moves only when motion is allowed. */
+.nx-track { --nx-track-fill: var(--wk-live); --nx-track-ink: var(--wk-live-ink); --nx-track-h: 6px; --nx-track-dot: 12px; --nx-track-ring: 3px;
+  display: grid; gap: 6px; min-width: 0; }
+.nx-track.is-sm { --nx-track-h: 4px; --nx-track-dot: 10px; --nx-track-ring: 2px; gap: 5px; }
+.nx-track.is-done { --nx-track-fill: var(--wk-green); --nx-track-ink: var(--ok-fg); }
+.nx-track.is-overdue { --nx-track-fill: var(--wk-red); --nx-track-ink: var(--bad-fg); }
+.nx-track.is-idle { --nx-track-fill: var(--wk-dim); --nx-track-ink: var(--wk-ink); }
+.nx-track-ends { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--wk-dim); font-variant-numeric: tabular-nums; }
+.nx-track-bar { position: relative; height: var(--nx-track-h); border-radius: 999px;
+  background: repeating-linear-gradient(90deg, var(--wk-line) 0 6px, transparent 6px 10px); }
+.nx-track-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--nx-track-fill); }
+.nx-track-marker { position: absolute; top: 50%; width: var(--nx-track-dot); height: var(--nx-track-dot); margin-left: calc(var(--nx-track-dot) / -2);
+  transform: translateY(-50%); border-radius: 50%; background: var(--wk-card); border: var(--nx-track-ring) solid var(--nx-track-fill); box-sizing: border-box; }
+.nx-track-note { font-size: 12.5px; color: var(--wk-dim); line-height: 1.45; }
+.nx-track-note b, .nx-track-note strong { color: var(--nx-track-ink); font-weight: 600; }
+@media (prefers-reduced-motion: no-preference) {
+  .nx-track-fill { transition: width var(--dur-lg) var(--ease-out); }
+  .nx-track-marker { transition: left var(--dur-lg) var(--ease-out); }
+}
