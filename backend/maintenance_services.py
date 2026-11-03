@@ -138,8 +138,7 @@ def open_child(db, svc: models.PropertyMaintenanceService, actor: str, *, automa
         component="", csat_rating=0, csat_comment="", application=tpl.get("application") or "",
         service_area=service_area, sla_due_on="", resolved_at="", created_at=now, modified_at=now,
         property_asset_id=svc.property_asset_id, property_name=prop_name, property_locked=1,
-        parent_ticket_id=svc.parent_ticket_id, service_id=svc.id, approver_email="", approval_status="none",
-        pm_due_on=str(due or "")[:10])   # the Preventive queue's Overdue reads it
+        parent_ticket_id=svc.parent_ticket_id, service_id=svc.id, approver_email="", approval_status="none")
     ticket_sla.start(t, sla)
     db.add(t)
     log_activity(db, type="created", actor_email=(actor or "system"), entity_kind="ticket", entity_id=t.id,
@@ -217,7 +216,8 @@ def run_daily() -> dict:
         db.commit()
         out.update(pm)
         print(f"[maintenance-services] daily scan - {out['reminded']} reminder(s), {out['opened']} ticket(s) opened, "
-              f"{pm['filed']} preventive ticket(s) filed, {pm['overdue']} newly overdue")
+              f"{pm['filed']} preventive ticket(s) filed, {pm['overdue']} newly overdue, {pm['collided']} moved past "
+              f"an occurrence already filed, {pm['attention']} needing a person, {pm['failed']} failed")
         return out
     except Exception as e:           # noqa: BLE001 - a bad row never kills the loop
         db.rollback()
@@ -241,9 +241,53 @@ def is_preventive(svc) -> bool:
     return svc is not None and (svc.kind or "") in KINDS
 
 
-def business_date(iso: str):
-    """The calendar day a UTC timestamp falls on for the business (Pacific),
-    the day property_tickets records a service on."""
+def is_preventive_ticket(t) -> bool:
+    """A ticket a preventive schedule filed: its schedule AND its due day
+    (file_preventive sets both). A child of a service set from a ticket has
+    only service_id and keeps the old behavior - no Preventive queue, no
+    overdue, no photo rule."""
+    return t is not None and bool(getattr(t, "service_id", "") or "") and bool(getattr(t, "pm_due_on", "") or "")
+
+
+# ── One "today" (review, 11/03/2026) ─────────────────────────────────────────
+# Every preventive date question - is the first due date in the past, is an
+# occurrence due, is a ticket overdue, what day did it close - is asked on the
+# calendar of the schedule's company: its team time zone (Shifts settings,
+# shift_expect.team_tz - that company's override, else the tenant's), else
+# America/Los_Angeles.
+
+def company_zone(db, company_id: str = ""):
+    import shift_expect
+    return shift_expect.zone(shift_expect.team_tz(db, company_id or ""))
+
+
+def local_today(db, company_id: str = "") -> date:
+    from datetime import datetime
+    return datetime.now(company_zone(db, company_id)).date()
+
+
+class TodayCache:
+    """local_today per company, read once per request / scan."""
+
+    def __init__(self, db, fixed: date | None = None):
+        self.db, self.fixed, self._seen = db, fixed, {}
+
+    def __call__(self, company_id: str = "") -> date:
+        if self.fixed is not None:
+            return self.fixed
+        key = company_id or ""
+        if key not in self._seen:
+            self._seen[key] = local_today(self.db, key)
+        return self._seen[key]
+
+
+def svc_company(svc) -> str:
+    return str((svc.template or {}).get("company_id") or "")
+
+
+def business_date(iso: str, zone=None):
+    """The calendar day a UTC timestamp falls on in `zone` (the schedule's
+    company zone; Pacific when none is given)."""
     from datetime import datetime, timezone
     from zoneinfo import ZoneInfo
     try:
@@ -252,7 +296,15 @@ def business_date(iso: str):
         return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(ZoneInfo("America/Los_Angeles")).date()
+    return dt.astimezone(zone or ZoneInfo("America/Los_Angeles")).date()
+
+
+def pm_overdue(t, today_of) -> bool:
+    """A live preventive ticket whose due day has passed on its company's
+    calendar - the ONE overdue answer the desk, the roll-up, the place sheet
+    and My Work read (`today_of` = a TodayCache)."""
+    return (is_preventive_ticket(t) and (t.status or "") not in property_links.CLOSED_STATES
+            and t.pm_due_on < today_of(t.company_id or "").isoformat())
 
 
 def _num(v):
@@ -263,21 +315,41 @@ def _num(v):
     return f if f >= 0 else None
 
 
-def asset_reading(db, asset, field: str):
-    """The asset's current reading, or None: the larger of the record's own
-    field and (odometer) the newest logged mileage - the rule nextService.js
-    currentOdometer follows. Read only; Asset Management keeps the numbers."""
+def reading_records(db, asset_ids) -> dict:
+    """{asset id: [record payload]} - the odometer and service logs of these
+    assets in ONE query (schedule_options reads every vehicle at once)."""
+    ids = [i for i in set(asset_ids or []) if i]
+    out: dict = {}
+    if not ids:
+        return out
+    for r in (db.query(models.PropertyRecord)
+              .filter(models.PropertyRecord.property_id.in_(ids),
+                      models.PropertyRecord.collection.in_(("odometer", "vservice"))).all()):
+        out.setdefault(r.property_id, []).append(r.payload or {})
+    return out
+
+
+def asset_reading(db, asset, field: str, records=None):
+    """The asset's NEWEST reading (review, 11/03/2026 - not the largest, so a
+    replaced or reset meter reads as what it says now), or None. The
+    record's own field is dated by the asset's last save; each odometer /
+    service log row by its own date. Ties go to the later-listed log row.
+    Read only - Asset Management keeps the numbers."""
     if asset is None or field not in METERS:
         return None
-    vals = [v for v in [_num((asset.payload or {}).get(field))] if v is not None]
+    seen = []   # (date, order, value)
+    own = _num((asset.payload or {}).get(field))
+    if own is not None:
+        seen.append((str(asset.updated_at or "")[:10], 0, own))
     if field == "odometer":
-        for r in (db.query(models.PropertyRecord)
-                  .filter(models.PropertyRecord.property_id == asset.id,
-                          models.PropertyRecord.collection.in_(("odometer", "vservice"))).all()):
-            v = _num((r.payload or {}).get("mileage"))
+        rows = records if records is not None else reading_records(db, [asset.id]).get(asset.id, [])
+        for i, p in enumerate(rows):
+            v = _num(p.get("mileage"))
             if v is not None:
-                vals.append(v)
-    return max(vals) if vals else None
+                seen.append((str(p.get("date") or "")[:10], i + 1, v))
+    if not seen:
+        return None
+    return max(seen, key=lambda x: (x[0], x[1]))[2]
 
 
 def _equipment_or_400(db, user, asset_id: str):
@@ -285,7 +357,8 @@ def _equipment_or_400(db, user, asset_id: str):
     aid = (asset_id or "").strip()
     a = db.get(models.PropertyAsset, aid) if aid else None
     if (a is None or not property_links.viewable(a, user) or (a.payload or {}).get("deleted")
-            or property_links.asset_kind(a) not in ("vehicle", "equipment")):
+            or property_links.asset_kind(a) not in ("vehicle", "equipment")
+            or not property_links.in_scope(a, property_links.asset_scope(db, user))):
         raise HTTPException(400, "That equipment is not available in Asset Management - pick another one.")
     return a
 
@@ -318,6 +391,17 @@ def schedule_label(svc) -> str:
     return f"{label} After Completion" if kind == "floating" and svc.recurrence_unit else label
 
 
+def attention_label(svc) -> str:
+    a = svc.attention or ""
+    if a == "owner":
+        return "Needs an Owner"
+    if a.startswith("reading:"):
+        return f"Reading Needs Confirmation ({meter_label(svc.meter_field, a.split(':', 1)[1])})"
+    if a.startswith("reset:"):
+        return f"Meter Reset - Rebased at {meter_label(svc.meter_field, a.split(':', 1)[1])}"
+    return ""
+
+
 def _checklist(raw) -> list:
     from fastapi import HTTPException
     out = []
@@ -332,6 +416,15 @@ def _checklist(raw) -> list:
     if len(out) > CHECKLIST_MAX:
         raise HTTPException(400, f"A checklist holds at most {CHECKLIST_MAX} steps.")
     return out
+
+
+def occurrence_exists(db, svc_id: str, due_key: str) -> bool:
+    O = models.PropertyMaintenanceOccurrence
+    return bool(svc_id) and db.query(O.id).filter(O.service_id == svc_id, O.due_key == due_key).first() is not None
+
+
+def meter_key(value) -> str:
+    return f"m:{float(value or 0):g}"
 
 
 def clean_schedule(db, user: dict, prop, data: dict, svc=None) -> dict:
@@ -366,6 +459,12 @@ def clean_schedule(db, user: dict, prop, data: dict, svc=None) -> dict:
     if dept is None:
         raise HTTPException(400, "Pick the team that does the work.")
     auth.assert_company(dept.company_id or "", user, db)
+    # The team must be the property's own company's (review H1): a ticket is
+    # stamped with the team's company, so another company's team would put
+    # this property's work behind that company's wall.
+    owner = property_links.property_company(db, prop)
+    if owner and (dept.company_id or "") and dept.company_id != owner:
+        raise HTTPException(400, "Pick a team from the company this property belongs to.")
     application = (get("application", tpl.get("application") or "") or "").strip()
     area = T.service_area_for(db, application)
     ticket_property_link.require_takes_property(db, dept.id, area)
@@ -403,7 +502,8 @@ def clean_schedule(db, user: dict, prop, data: dict, svc=None) -> dict:
     if not 0 <= lead <= 60:
         raise HTTPException(400, "Open the ticket 0 to 60 days before it is due.")
     out["lead_days"] = lead
-    today = date.today()
+    today = local_today(db, dept.company_id or "")
+    sid = cur.id if cur is not None else ""
     if kind in ("calendar", "floating"):
         unit = (get("recurrence_unit", (cur.recurrence_unit if cur is not None else "") or "month") or "")
         unit = unit.strip().lower()
@@ -422,6 +522,8 @@ def clean_schedule(db, user: dict, prop, data: dict, svc=None) -> dict:
                 raise HTTPException(400, "Pick the first due date.")
             if nd < today:
                 raise HTTPException(400, "The first due date cannot be in the past.")
+            if occurrence_exists(db, sid, nd.isoformat()):
+                raise HTTPException(400, f"A ticket was already filed for {us_date(nd)} - pick a later date.")
             out["next_due"] = nd.isoformat()
     else:
         if not asset_id:
@@ -436,6 +538,8 @@ def clean_schedule(db, user: dict, prop, data: dict, svc=None) -> dict:
         if nxt is None:
             same = cur is not None and (cur.kind or "") == "meter" and cur.meter_field == field
             nxt = (cur.meter_next if same else 0) or ((reading or 0) + every)
+        if occurrence_exists(db, sid, meter_key(nxt)):
+            raise HTTPException(400, f"A ticket was already filed at {meter_label(field, nxt)} - set the next mark higher.")
         out.update(meter_field=field, meter_every=every, meter_next=nxt, meter_last=reading or 0,
                    recurrence_unit="", recurrence_every=1, next_due="")
     return out
@@ -445,7 +549,8 @@ def run_as(db, svc):
     """The identity a schedule files as: whoever last saved it, else whoever
     made it - a current directory person with their real role, so every
     permission check and the company wall apply to them (as Workflows and
-    Cubby Tasks do). None = nobody to act as; the scan skips it, saying so."""
+    Cubby Tasks do). None = nobody to act as; the scan marks the schedule
+    Needs an Owner and tells the asset manager."""
     import task_automation
     for email in (svc.updated_by_email, svc.created_by_email):
         u = task_automation._person_user(db, email) if email else None
@@ -460,12 +565,37 @@ def open_ticket_of(db, svc):
                     ~models.TaskTicket.status.in_(property_links.CLOSED_STATES)).first())
 
 
+def attention_bell(db, svc, title: str, body: str) -> None:
+    """ONE bell per schedule and person, updated in place (CLAUDE.md: one
+    notification per workflow): the property's asset manager, else the
+    schedule's keeper. Opens the property's Preventive Maintenance."""
+    import json
+    prop = db.get(models.PropertyAsset, svc.property_asset_id)
+    who = (property_links.manager_email(db, prop) if prop is not None else "") or (svc.updated_by_email or "")
+    who = (who or "").strip().lower()
+    if not who:
+        return
+    action = json.dumps({"view": "property-asset", "sub": f"services:{svc.property_asset_id}",
+                         "label": "View Schedule"})
+    N = models.NexusNotification
+    row = (db.query(N).filter(N.type == "task_pm_attention", N.ref_id == svc.id, N.recipient == who)
+           .with_for_update().first())
+    now = now_iso()
+    if row is None:
+        db.add(N(id=gen_id(), type="task_pm_attention", recipient=who, title=title[:200], body=body[:500],
+                 ref_id=svc.id, item_name="", requested_by="", action=action, actioned=False, read_by="",
+                 created_at=now))
+    else:
+        row.title, row.body, row.action, row.read_by, row.created_at = title[:200], body[:500], action, "", now
+
+
 def file_preventive(db, svc, due_on: str, due_key: str, user: dict, background_tasks, *,
                     automatic: bool = True):
     """File the ticket for one occurrence and move the schedule on, in ONE
     transaction (file_ticket commits it). None when this occurrence already
-    has its ticket (the unique key) - never a second one. Raises
-    HTTPException when the ticket itself is refused; the caller rolls back."""
+    has its ticket (the unique key) - never a second one; the caller rolls
+    the schedule on (roll_forward). Raises HTTPException when the ticket
+    itself is refused; the caller rolls back."""
     from sqlalchemy.exc import IntegrityError
     from routers import tickets as T
     from routers import ticket_items
@@ -510,18 +640,7 @@ def file_preventive(db, svc, due_on: str, due_key: str, user: dict, background_t
         item_ids=items or None, equipment_asset_id=svc.asset_id if asset is not None else "")
     # The schedule moves on in the same transaction as the ticket.
     svc.last_opened_for = due_key
-    if svc.kind == "calendar":
-        nxt = advance(parse_ymd(due_on) or date.today(), svc.recurrence_unit, svc.recurrence_every)
-        while nxt <= date.today():
-            nxt = advance(nxt, svc.recurrence_unit, svc.recurrence_every)
-        svc.next_due = nxt.isoformat()
-    elif svc.kind == "floating":
-        svc.next_due = ""      # set again when this ticket closes (on_ticket_closed)
-    elif svc.kind == "meter":
-        nxt = float(svc.meter_next or 0) + float(svc.meter_every or 0)
-        while svc.meter_every and nxt <= float(svc.meter_last or 0):
-            nxt += float(svc.meter_every)
-        svc.meter_next = nxt
+    roll_forward(svc, local_today(db, svc_company(svc)), from_due=due_on)
     svc.updated_at = now
 
     def stamp(t):
@@ -533,28 +652,86 @@ def file_preventive(db, svc, due_on: str, due_key: str, user: dict, background_t
                               "property": property_links.display_name(prop) if prop is not None else "",
                               "propertyId": svc.property_asset_id, "kind": svc.kind, "automatic": automatic})
 
-    return T.file_ticket(body, background_tasks, user, db, arrived_by=PM_SOURCE, server_fields=stamp)
+    # The ticket's company is the TEAM's (server-trusted, review H1) - never
+    # the run-as person's own company, whatever their desk grant.
+    return T.file_ticket(body, background_tasks, user, db, arrived_by=PM_SOURCE, server_fields=stamp,
+                         trusted_company=tpl.get("company_id") or "")
+
+
+def roll_forward(svc, today: date, from_due: str = "") -> None:
+    """Move the schedule past one occurrence: a calendar schedule to its next
+    date after today, a floating one to waiting (set again on close), a
+    meter one to its next mark past the last reading."""
+    if svc.kind == "calendar":
+        nxt = advance(parse_ymd(from_due or svc.next_due) or today, svc.recurrence_unit, svc.recurrence_every)
+        while nxt <= today:
+            nxt = advance(nxt, svc.recurrence_unit, svc.recurrence_every)
+        svc.next_due = nxt.isoformat()
+    elif svc.kind == "floating":
+        svc.next_due = ""
+    elif svc.kind == "meter":
+        nxt = float(svc.meter_next or 0) + float(svc.meter_every or 0)
+        while svc.meter_every and nxt <= float(svc.meter_last or 0):
+            nxt += float(svc.meter_every)
+        svc.meter_next = nxt
+
+
+JUMP_FACTOR = 3   # a reading more than 3 intervals past the last one is confirmed by a person first
 
 
 def due_occurrence(db, svc, today: date):
     """(due_on, due_key) when this preventive schedule has an occurrence to
-    file today, else None. A meter schedule records the reading it saw."""
+    file today, else None. A meter schedule records the reading it saw: a
+    reading that went DOWN (a replaced or reset meter) rebases the schedule on
+    it and tells the keeper; one that jumped more than JUMP_FACTOR intervals
+    is held for a person to confirm (attention "reading:<value>")."""
     kind = svc.kind or ""
     if kind in ("calendar", "floating"):
         d = parse_ymd(svc.next_due)
         if d is None or today < d - timedelta(days=int(svc.lead_days or 0)):
             return None
         return d.isoformat(), d.isoformat()
-    if kind == "meter":
-        asset = db.get(models.PropertyAsset, svc.asset_id) if svc.asset_id else None
-        reading = asset_reading(db, asset, svc.meter_field)
-        if reading is None:
-            return None
-        svc.meter_last = reading
-        if not svc.meter_next or reading < float(svc.meter_next) or open_ticket_of(db, svc) is not None:
-            return None
-        return today.isoformat(), f"m:{float(svc.meter_next):g}"
-    return None
+    if kind != "meter":
+        return None
+    asset = db.get(models.PropertyAsset, svc.asset_id) if svc.asset_id else None
+    reading = asset_reading(db, asset, svc.meter_field)
+    if reading is None:
+        return None
+    last = float(svc.meter_last or 0)
+    every = float(svc.meter_every or 0)
+    name = property_links.display_name(asset) if asset is not None else "the equipment"
+    subject = (svc.template or {}).get("subject") or "Preventive maintenance"
+    if last and reading < last:
+        svc.meter_last, svc.meter_next = reading, reading + every
+        svc.attention = f"reset:{reading:g}"
+        attention_bell(db, svc, f"Meter Reset on {name}",
+                       f"{subject}: the reading went from {meter_label(svc.meter_field, last)} to "
+                       f"{meter_label(svc.meter_field, reading)}. The schedule now counts from there - next at "
+                       f"{meter_label(svc.meter_field, svc.meter_next)}.")
+        return None
+    if last and every and reading - last > JUMP_FACTOR * every:
+        if svc.attention != f"reading:{reading:g}":     # a new jump (or a different value): ask once
+            svc.attention = f"reading:{reading:g}"
+            attention_bell(db, svc, f"Check the Reading on {name}",
+                           f"{subject}: {meter_label(svc.meter_field, reading)} is far past the last reading "
+                           f"({meter_label(svc.meter_field, last)}). Confirm it on the schedule before a ticket is filed.")
+        return None          # held until a person confirms it (confirm_reading)
+    if (svc.attention or "").startswith("reading:"):
+        svc.attention = ""   # the reading came back in line (a typo fixed on the record)
+    svc.meter_last = reading
+    if not svc.meter_next or reading < float(svc.meter_next) or open_ticket_of(db, svc) is not None:
+        return None
+    return today.isoformat(), meter_key(svc.meter_next)
+
+
+def confirm_reading(svc) -> bool:
+    """The keeper says the held reading is right: the scan files on it."""
+    a = svc.attention or ""
+    if not a.startswith("reading:"):
+        return False
+    svc.meter_last = _num(a.split(":", 1)[1]) or svc.meter_last
+    svc.attention = ""
+    return True
 
 
 def run_after(bt) -> None:
@@ -589,31 +766,54 @@ def _scan_overdue(db, svc, today: date) -> int:
 def run_preventive(db, today: date | None = None) -> dict:
     """The preventive half of the daily scan: each schedule's due occurrence
     filed (one ticket each, committed one by one), and overdue tickets told
-    to Workflows."""
+    to Workflows - committed BEFORE the filing, so a refused ticket never
+    swallows the overdue event. One schedule's failure is logged and the
+    scan goes on. `today` fixes the day (tests); otherwise each schedule's
+    own company calendar."""
     from fastapi import BackgroundTasks, HTTPException
-    today = today or date.today()
-    out = {"filed": 0, "skipped": 0, "overdue": 0}
+    days = TodayCache(db, today)
+    out = {"filed": 0, "skipped": 0, "overdue": 0, "collided": 0, "attention": 0, "failed": 0}
     M = models.PropertyMaintenanceService
     ids = [s.id for s in db.query(M).filter(M.active == 1, M.kind.in_(KINDS)).all()]
     for sid in ids:
-        svc = db.query(M).filter(M.id == sid).with_for_update().first()
-        if svc is None or not svc.active or not is_preventive(svc):
-            db.rollback()
-            continue
         try:
-            out["overdue"] += _scan_overdue(db, svc, today)
-            occ = due_occurrence(db, svc, today)
+            svc = db.query(M).filter(M.id == sid).with_for_update().first()
+            if svc is None or not svc.active or not is_preventive(svc):
+                db.rollback()
+                continue
+            day = days(svc_company(svc))
+            out["overdue"] += _scan_overdue(db, svc, day)
+            before = svc.attention or ""
+            occ = due_occurrence(db, svc, day)
+            if (svc.attention or "") != before and svc.attention:
+                out["attention"] += 1
             if occ is None:
                 db.commit()
                 continue
             user = run_as(db, svc)
             if user is None:
-                print(f"[maintenance-services] schedule {svc.id}: nobody to file as - save it again")
+                if svc.attention != "owner":
+                    svc.attention = "owner"
+                    attention_bell(db, svc, "Preventive Schedule Needs an Owner",
+                                   f"{(svc.template or {}).get('subject') or 'A schedule'}: nobody who saved it is still "
+                                   "in Nexus, so its tickets cannot be filed. Open it and save it to take it over.")
+                    out["attention"] += 1
                 out["skipped"] += 1
                 db.commit()
                 continue
+            db.commit()                 # the overdue events and the reading stand on their own
+            svc = db.query(M).filter(M.id == sid).with_for_update().first()
             bt = BackgroundTasks()
             if file_preventive(db, svc, occ[0], occ[1], user, bt) is None:
+                # The occurrence already has its ticket (a racer, an Open Now, a
+                # date put back): never a second ticket - move past it instead.
+                svc = db.query(M).filter(M.id == sid).with_for_update().first()
+                svc.last_opened_for = occ[1]
+                roll_forward(svc, day, from_due=occ[0])
+                svc.updated_at = now_iso()
+                db.commit()
+                out["collided"] += 1
+                print(f"[maintenance-services] schedule {sid}: {occ[1]} was already filed - moved on to the next one")
                 continue
             out["filed"] += 1
             run_after(bt)
@@ -621,20 +821,46 @@ def run_preventive(db, today: date | None = None) -> dict:
             db.rollback()
             out["skipped"] += 1
             print(f"[maintenance-services] schedule {sid}: the ticket was refused - {e.detail}")
+        except Exception as e:      # noqa: BLE001 - one bad schedule never stops the scan
+            db.rollback()
+            out["failed"] += 1
+            print(f"[maintenance-services] schedule {sid} failed: {type(e).__name__}: {e}")
     return out
 
 
-# ── A preventive ticket closes (any path) ────────────────────────────────────
+# ── The photo rule, on every resolve path (review L7) ───────────────────────
+
+def require_finish_photo(db, t, data: dict) -> None:
+    """update_ticket: a preventive ticket moving into Resolved / Closed after
+    real work needs a photo of the finished work on it (an image attachment
+    or image on the ticket) - whichever screen resolves it. Closing it as a
+    duplicate / won't fix needs none."""
+    from fastapi import HTTPException
+    if not is_preventive_ticket(t) or data.get("status") not in property_links.CLOSED_STATES:
+        return
+    if (t.status or "") in property_links.CLOSED_STATES:
+        return
+    if (data.get("resolution") or t.resolution or "") in property_links.NO_WORK_RESOLUTIONS:
+        return
+    A = models.TaskAttachment
+    pending = any(isinstance(o, A) and o.task_id == t.id and (o.kind or "") == "image" for o in db.new)
+    if pending or t.images or db.query(A.id).filter(A.task_id == t.id, A.kind == "image").first() is not None:
+        return
+    raise HTTPException(400, "Add a photo of the finished work - a preventive ticket needs one before it is resolved.")
+
+
+# ── A preventive ticket closes or is deleted (any path) ──────────────────────
 
 def on_ticket_closed(session, t) -> None:
     """Called by the before_flush hook when a ticket with a schedule moves
     into Resolved / Closed: its maintenance record (after real work - the
     rule property_links.is_maintenance_record keeps) and, for a floating
-    schedule, the next due date from the day it closed."""
+    schedule, the next due date from the day it closed on its company's
+    calendar."""
     svc = session.get(models.PropertyMaintenanceService, t.service_id) if t.service_id else None
     if not is_preventive(svc):
         return
-    closed_on = business_date(t.resolved_at) or date.today()
+    closed_on = business_date(t.resolved_at, company_zone(session, svc_company(svc))) or date.today()
     if property_links.is_maintenance_record(t):
         R = models.TicketMaintenanceRecord
         pending = any(isinstance(o, R) and o.ticket_id == t.id for o in session.new)
@@ -651,3 +877,14 @@ def on_ticket_closed(session, t) -> None:
         svc.next_due = advance(closed_on, svc.recurrence_unit, svc.recurrence_every).isoformat()
         svc.updated_at = now_iso()
 
+
+def on_ticket_deleted(session, t) -> None:
+    """A floating schedule's open ticket was deleted (review L2): the schedule
+    would wait forever for a close that never comes, so it is due again
+    today on its company's calendar (the scan files a new one; if today's
+    occurrence was the deleted one, it moves on to the next)."""
+    svc = session.get(models.PropertyMaintenanceService, t.service_id) if t.service_id else None
+    if not is_preventive(svc) or svc.kind != "floating" or svc.last_ticket_id != t.id or svc.next_due:
+        return
+    svc.next_due = local_today(session, svc_company(svc)).isoformat()
+    svc.updated_at = now_iso()

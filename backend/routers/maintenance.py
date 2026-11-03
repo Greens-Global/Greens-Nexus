@@ -29,7 +29,6 @@ workflow event is the desk's own:
 No offline layer here (feat/field-offline builds it): the screens call these
 plainly so they can adopt its outbox later.
 """
-from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -38,6 +37,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import auth
+import maintenance_services as MS
 import models
 import property_links
 import ticket_roles
@@ -59,10 +59,6 @@ def _me(user: dict) -> str:
     return (user.get("email") or "").strip().lower()
 
 
-def _today() -> str:
-    return date.today().isoformat()
-
-
 def _names(db: Session, emails) -> dict:
     emails = {(e or "").lower() for e in emails if e}
     if not emails:
@@ -80,15 +76,16 @@ def _checklist(t) -> list:
             for c in (raw if isinstance(raw, list) else []) if isinstance(c, dict) and c.get("label")]
 
 
-def _row(t, *, can_open: bool, names: dict, assets: dict) -> dict:
+def _row(t, *, can_open: bool, names: dict, assets: dict, today_of) -> dict:
     """One ticket as the field screens show it. A ticket the caller cannot
     open is a summary: no description, no checklist, no people."""
     status = t.status if (t.status and t.status != "new") else "open"
-    due = t.pm_due_on or ""
+    preventive = MS.is_preventive_ticket(t)
+    due = (t.pm_due_on or "") if preventive else ""
     asset = assets.get(t.equipment_asset_id or "")
     out = {"id": t.id, "codeLabel": ticket_no(t.code), "subject": t.subject, "status": status,
-           "priority": t.priority or "medium", "preventive": bool(t.service_id), "pmDueOn": due,
-           "overdue": bool(due) and due < _today() and status not in _CLOSED,
+           "priority": t.priority or "medium", "preventive": preventive, "pmDueOn": due,
+           "overdue": MS.pm_overdue(t, today_of),
            "propertyId": t.property_asset_id or "", "propertyName": t.property_name or "",
            "equipmentAssetId": t.equipment_asset_id or "",
            "equipmentName": property_links.display_name(asset) if asset is not None else "",
@@ -126,16 +123,17 @@ def rollup_rows(db: Session, user: dict) -> dict:
                     ~T_.status.in_(_CLOSED)).all())
     rows = [r for r in rows if auth.company_ok(r.company_id or "", scope)]
     props = _assets(db, [r.property_asset_id for r in rows])
-    today = _today()
+    allowed = property_links.asset_scope(db, user)
+    today_of = MS.TodayCache(db)         # each ticket's company calendar (review M3)
     per: dict = {}
     comp: dict = {}
     for r in rows:
         p = props.get(r.property_asset_id or "")
-        if p is None or not property_links.viewable(p, user):
+        if p is None or not property_links.viewable(p, user) or not property_links.in_scope(p, allowed):
             continue
         o = per.setdefault(p.id, {"propertyId": p.id, "propertyName": property_links.display_name(p),
                                   "open": 0, "overdue": 0, "nextDue": "", "oldestOverdue": ""})
-        late = r.pm_due_on < today
+        late = r.pm_due_on < today_of(r.company_id or "").isoformat()
         o["open"] += 1
         if late:
             o["overdue"] += 1
@@ -167,13 +165,14 @@ def rollup(user: dict = Depends(get_current_user), db: Session = Depends(get_db)
 
 def _place_or_404(db: Session, user: dict, property_id: str, asset_id: str = ""):
     prop = db.get(models.PropertyAsset, property_id)
-    if prop is None or not property_links.is_listed(prop, user):
+    if prop is None or not property_links.is_listed(prop, user, db):
         raise HTTPException(404, "No property you can see matches this tag.")
     asset = None
     if (asset_id or "").strip():
         asset = db.get(models.PropertyAsset, asset_id.strip())
         if (asset is None or not property_links.viewable(asset, user) or (asset.payload or {}).get("deleted")
-                or property_links.asset_kind(asset) not in ("vehicle", "equipment")):
+                or property_links.asset_kind(asset) not in ("vehicle", "equipment")
+                or not property_links.in_scope(asset, property_links.asset_scope(db, user))):
             raise HTTPException(404, "No equipment you can see matches this tag.")
     return prop, asset
 
@@ -218,8 +217,26 @@ def place(property_id: str, asset: str = "", user: dict = Depends(get_current_us
     me = _me(user)
     names = _names(db, {t.assignee_email for t in rows})
     assets = _assets(db, [t.equipment_asset_id for t in rows])
-    out = sorted([_row(t, can_open=desk or me in T._ticket_readers(t), names=names, assets=assets) for t in rows],
-                 key=_sort_key)
+    today_of = MS.TodayCache(db)
+    # Who sees what (review M4): a ticket the caller may open in full; the
+    # Asset Management team (and the desk) a summary of the rest; anyone else
+    # who scans - a tenant-facing crew, another team - only that something is
+    # open here, never what, where or how urgent.
+    reader = desk or property_links.is_asset_reader(db, user)
+    out = []
+    for t in rows:
+        can_open = desk or me in T._ticket_readers(t)
+        if can_open or reader:
+            out.append(_row(t, can_open=can_open, names=names, assets=assets, today_of=today_of))
+        else:
+            out.append({"id": "", "codeLabel": "", "subject": "Open Request", "status": "open", "priority": "",
+                        "preventive": False, "pmDueOn": "", "overdue": False, "propertyId": "", "propertyName": "",
+                        "equipmentAssetId": "", "equipmentName": "", "unit": "", "canOpen": False,
+                        "createdAt": t.created_at or "", "generic": True})
+    out.sort(key=_sort_key)
+    for i, r in enumerate(out):
+        if r.get("generic"):
+            r["id"] = f"open-{i + 1}"       # a key for the list, never the ticket's id
     import ticket_property_link
     units = ticket_property_link.unit_options(db, prop)
     return {"property": {"id": prop.id, "name": property_links.display_name(prop),
@@ -296,7 +313,8 @@ def my_work(user: dict = Depends(get_current_user), db: Session = Depends(get_db
     names = _names(db, {t.assignee_email for t in rows})
     assets = _assets(db, [t.equipment_asset_id for t in rows])
     mine_ids = {t.id for t in mine}
-    out = sorted([dict(_row(t, can_open=True, names=names, assets=assets), mine=t.id in mine_ids)
+    today_of = MS.TodayCache(db)
+    out = sorted([dict(_row(t, can_open=True, names=names, assets=assets, today_of=today_of), mine=t.id in mine_ids)
                   for t in rows], key=_sort_key)
     return {"tickets": out, "canStart": worker,
             "overdue": len([r for r in out if r["overdue"]]),
@@ -359,7 +377,7 @@ def done_work(ticket_id: str, body: DoneBody, background_tasks: BackgroundTasks,
         if isinstance(u, str) and u.strip():
             _validate_photo_url(u.strip(), "Photo")
             photos.append(u.strip())
-    if t.service_id and not photos:
+    if MS.is_preventive_ticket(t) and not photos:
         raise HTTPException(400, "Add a photo of the finished work - a preventive ticket needs one.")
     fields = dict(t.type_fields or {}) if isinstance(t.type_fields, dict) else {}
     if fields.get("checklist"):
@@ -370,6 +388,7 @@ def done_work(ticket_id: str, body: DoneBody, background_tasks: BackgroundTasks,
     for i, u in enumerate(photos):
         db.add(models.TaskAttachment(id=gen_id(), task_id=t.id, name=f"Finished Work {i + 1}.jpg", size="",
                                      kind="image", url=u, added_at=now, added_by=me))
+    db.flush()   # the photos are on the ticket before update_ticket checks for one
     return T.update_ticket(ticket_id, upd, background_tasks, user=user, db=db)
 
 
@@ -410,7 +429,7 @@ def place_tags(body: TagsBody, user: dict = Depends(get_current_user), db: Sessi
     For the people who keep the property's maintenance."""
     from routers.items import _tag_public_base
     prop = db.get(models.PropertyAsset, body.property_id)
-    if prop is None or not property_links.is_listed(prop, user):
+    if prop is None or not property_links.is_listed(prop, user, db):
         raise HTTPException(404, "Property not found")
     if not property_links.may_follow(db, user, prop):
         raise HTTPException(403, "Tags are printed by the property's asset manager and Asset Management editors.")

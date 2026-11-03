@@ -68,7 +68,7 @@ class PreventiveTests(unittest.TestCase):
                   models.TaskComment, models.TaskNotification, models.NexusNotification, models.NexusEmployee,
                   models.NexusRole, models.PropertyAsset, models.HrDepartment, models.HrEntity,
                   models.PropertyRecord, models.NexusCounter, models.WorkflowEvent, models.NexusSetting,
-                  models.NexusGroup, models.NexusGroupMember):
+                  models.NexusGroup, models.NexusGroupMember, models.NexusAccessScope):
             self.db.query(m).execution_options(include_deleted=True).delete()
         for email, company, dept in ((ADMIN["email"], "c1", "Construction & Maintenance"), (PLAIN["email"], "c1", ""),
                                      (MANAGER, "c1", ""), (TECH, "c1", "Construction & Maintenance"),
@@ -120,7 +120,14 @@ class PreventiveTests(unittest.TestCase):
     def _events(self, key):
         return self.db.query(models.WorkflowEvent).filter(models.WorkflowEvent.key == key).count()
 
-    def _resolve(self, tid, user=ADMIN):
+    def _photo(self, tid):
+        self.db.add(models.TaskAttachment(id=gen_id(), task_id=tid, name="after.jpg", size="", kind="image",
+                                          url="https://example.com/after.jpg", added_at="", added_by=ADMIN["email"]))
+        self.db.commit()
+
+    def _resolve(self, tid, user=ADMIN, photo=True):
+        if photo:
+            self._photo(tid)
         T.update_ticket(tid, T.TicketUpdate(status="resolved", resolution="fixed", resolution_note="Done",
                                             maintenance_cost="85"), BackgroundTasks(), user=user, db=self.db)
 
@@ -367,8 +374,236 @@ class PreventiveTests(unittest.TestCase):
         self.assertEqual(MS.run_due(self.db, TODAY + timedelta(days=30))["opened"], 1)
         self.db.commit()
         child = self.db.query(models.TaskTicket).filter(models.TaskTicket.parent_ticket_id == t["id"]).one()
-        self.assertEqual(child.pm_due_on, iso(30))
+        # A ticket-born service keeps its old behavior (review L3): no due day,
+        # so no Preventive queue, no overdue, no photo rule.
+        self.assertEqual(child.pm_due_on, "")
+        self.assertFalse(MS.is_preventive_ticket(child))
+        self.assertEqual(MW.rollup(user=ADMIN, db=self.db)["open"], 0)
         self.assertEqual(MS.run_preventive(self.db, TODAY + timedelta(days=30))["filed"], 0)
+        T.update_ticket(child.id, T.TicketUpdate(status="resolved", resolution_note="Done again"), BackgroundTasks(),
+                        user=ADMIN, db=self.db)      # no photo needed
+
+    # ── code review fixes (11/03/2026) ──
+    def _editor(self, email="eddie@greensglobal.com", company="c2"):
+        self.db.add(models.NexusEmployee(id=gen_id(), first_name="Eddie", work_email=email, status="active",
+                                         identity_type="internal", company=company))
+        self.db.add(models.NexusGroup(id="g-ed", name="Asset Editors", allowed_modules="property-asset:editor"))
+        self.db.add(models.NexusGroupMember(group_id="g-ed", email=email))
+        self.db.commit()
+        cache.module_grants.invalidate()
+        return {"email": email, "role": "employee", "level": 2}
+
+    def _walls_off(self):
+        self.db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
+        self.db.commit()
+        cache.settings_config.invalidate()
+
+    def test_h1_the_ticket_carries_the_teams_company_whoever_saved_the_schedule(self):
+        self._walls_off()
+        ed = self._editor(company="c2")                 # a non-admin asset editor from another company
+        sid = self._schedule(user=ed, next_due=iso(0))
+        self.assertEqual(MS.run_preventive(self.db, TODAY)["filed"], 1)
+        [t] = self._tickets(sid)
+        self.assertEqual((t.company_id, t.hr_department_id, t.created_by_email), ("c1", "d-fac", ed["email"]))
+
+    def test_h1_a_team_from_another_company_than_the_propertys_is_refused(self):
+        self._walls_off()
+        with self.assertRaises(HTTPException) as cm:     # past every wall (a Super Administrator); gst is c1's
+            self._schedule(user={"email": ADMIN["email"], "role": "owner", "level": 5}, hr_department_id="d-fac2")
+        self.assertEqual(cm.exception.status_code, 400)
+        self.assertIn("company this property belongs to", cm.exception.detail)
+
+    def test_m1_an_occurrence_already_filed_moves_the_schedule_on_never_a_second_ticket(self):
+        sid = self._schedule(next_due=iso(0))
+        self.db.add(models.PropertyMaintenanceOccurrence(id=gen_id(), service_id=sid, due_key=iso(0), due_on=iso(0),
+                                                         ticket_id="elsewhere", created_at=""))
+        self.db.commit()
+        out = MS.run_preventive(self.db, TODAY)
+        self.assertEqual((out["filed"], out["collided"]), (0, 1))
+        self.assertEqual(self._tickets(sid), [])
+        self.assertEqual(self._svc(sid).next_due, MS.advance(TODAY, "month", 1).isoformat())
+        self.assertEqual(MS.run_preventive(self.db, TODAY)["collided"], 0)      # not stuck
+
+    def test_m1_a_save_onto_a_filed_date_or_from_a_stale_editor_is_refused(self):
+        sid = self._schedule(next_due=iso(0))
+        MS.run_preventive(self.db, TODAY)                                       # files iso(0)
+        svc = self._svc(sid)
+        with self.assertRaises(HTTPException) as cm:
+            P.update_service("gst", sid, P.ServicePatch(next_due=iso(0), rev=svc.updated_at), user=ADMIN, db=self.db)
+        self.assertEqual(cm.exception.status_code, 400)
+        with self.assertRaises(HTTPException) as cm:
+            P.update_service("gst", sid, P.ServicePatch(subject="Renamed", rev="an-old-rev"), user=ADMIN, db=self.db)
+        self.assertEqual(cm.exception.status_code, 409)
+        P.update_service("gst", sid, P.ServicePatch(subject="Renamed", rev=self._svc(sid).updated_at),
+                         user=ADMIN, db=self.db)
+        self.assertEqual(self._svc(sid).template["subject"], "Renamed")
+
+    def _log(self, mileage, day):
+        self.db.add(models.PropertyRecord(id=gen_id(), property_id="truck", collection="odometer",
+                                          payload={"date": day, "mileage": str(mileage)}))
+        self.db.commit()
+
+    def test_m2_the_newest_reading_counts_not_the_largest(self):
+        self._log(60000, iso(-30))
+        self._log(45000, iso(-1))
+        self.assertEqual(MS.asset_reading(self.db, self.db.get(models.PropertyAsset, "truck"), "odometer"), 45000)
+
+    def test_m2_a_reset_meter_rebases_and_tells_the_manager(self):
+        sid = self._schedule(kind="meter", asset_id="truck", meter_every=5000, meter_next=45000)
+        self._log(45250, iso(-1))
+        self.assertEqual(MS.run_preventive(self.db, TODAY)["filed"], 1)
+        self._resolve(self._tickets(sid)[0].id)
+        self._log(1200, iso(0))                                                 # a new odometer
+        self.assertEqual(MS.run_preventive(self.db, TODAY)["filed"], 0)
+        svc = self._svc(sid)
+        self.assertEqual((svc.meter_last, svc.meter_next, svc.attention), (1200, 6200, "reset:1200"))
+        bells = self.db.query(models.NexusNotification).filter_by(type="task_pm_attention", recipient=MANAGER).all()
+        self.assertEqual(len(bells), 1)
+
+    def test_m2_a_huge_jump_waits_for_a_person_to_confirm(self):
+        sid = self._schedule(kind="meter", asset_id="truck", meter_every=5000, meter_next=45000)
+        self._log(45250, iso(-1))
+        MS.run_preventive(self.db, TODAY)
+        self._resolve(self._tickets(sid)[0].id)
+        self._log(95000, iso(0))                                                # > 3 x 5,000 past 45,250
+        self.assertEqual(MS.run_preventive(self.db, TODAY)["filed"], 0)
+        self.assertEqual(MS.run_preventive(self.db, TODAY)["filed"], 0)          # still held, one bell
+        self.assertEqual(self._svc(sid).attention, "reading:95000")
+        self.assertEqual(self.db.query(models.NexusNotification).filter_by(type="task_pm_attention").count(), 1)
+        P.update_service("gst", sid, P.ServicePatch(confirm_reading=True, rev=self._svc(sid).updated_at),
+                         user=ADMIN, db=self.db)
+        self.assertEqual(MS.run_preventive(self.db, TODAY)["filed"], 1)
+
+    def test_m3_today_is_the_companys_calendar(self):
+        from datetime import datetime
+        from unittest import mock
+        from zoneinfo import ZoneInfo
+        import shift_expect
+        with mock.patch.object(shift_expect, "team_tz", lambda db, cid="": "Pacific/Kiritimati" if cid == "c1" else "Pacific/Pago_Pago"):
+            self.assertEqual(MS.local_today(self.db, "c1"), datetime.now(ZoneInfo("Pacific/Kiritimati")).date())
+            self.assertEqual(MS.local_today(self.db, "c2"), datetime.now(ZoneInfo("Pacific/Pago_Pago")).date())
+
+    def test_m4_a_stranger_who_scans_sees_only_that_something_is_open(self):
+        body = T.TicketBody(subject="Gate stuck", application="Gate Access", hr_department_id="d-fac",
+                            property_asset_id="gst", property_unit="Common Area")
+        T.create_ticket(body, BackgroundTasks(), user=ADMIN, db=self.db)
+        [line] = MW.place("gst", user=PLAIN, db=self.db)["tickets"]
+        self.assertEqual((line["subject"], line["priority"], line["unit"], line["canOpen"]), ("Open Request", "", "", False))
+        self.assertTrue(line["id"].startswith("open-"))
+        ed = self._editor(company="c1")
+        [line] = MW.place("gst", user=ed, db=self.db)["tickets"]                # the asset team sees the summary
+        self.assertEqual(line["subject"], "Gate stuck")
+
+    def test_m4_property_asset_scope_rows_narrow_the_place_and_the_picker(self):
+        self.db.add(models.NexusAccessScope(id=gen_id(), email=PLAIN["email"], module_id="property-asset",
+                                            scope_type="property", scope_id="somewhere-else"))
+        self.db.commit()
+        with self.assertRaises(HTTPException) as cm:
+            MW.place("gst", user=PLAIN, db=self.db)
+        self.assertEqual(cm.exception.status_code, 404)
+        self.assertEqual([p["id"] for p in P.list_ticket_properties(user=PLAIN, db=self.db)["properties"]], [])
+
+    def test_l1_a_schedule_nobody_can_file_as_needs_an_owner_one_bell(self):
+        sid = self._schedule(next_due=iso(0))
+        svc = self._svc(sid)
+        svc.updated_by_email = svc.created_by_email = "gone@greensglobal.com"
+        self.db.commit()
+        MS.run_preventive(self.db, TODAY)
+        MS.run_preventive(self.db, TODAY)
+        self.assertEqual(self._svc(sid).attention, "owner")
+        self.assertEqual(self.db.query(models.NexusNotification).filter_by(type="task_pm_attention").count(), 1)
+        view = P.property_tickets("gst", user=MANAGER_USER, db=self.db)
+        self.assertEqual([s["attentionLabel"] for s in view["services"]], ["Needs an Owner"])
+        P.update_service("gst", sid, P.ServicePatch(subject="Mine Now", rev=self._svc(sid).updated_at),
+                         user=ADMIN, db=self.db)                                 # a save takes it over
+        self.assertEqual(self._svc(sid).attention, "")
+        self.assertEqual(MS.run_preventive(self.db, TODAY)["filed"], 1)
+
+    def test_l1_the_keeper_gets_no_requester_mail(self):
+        import ticket_notify
+        sid = self._schedule(next_due=iso(0))
+        MS.run_preventive(self.db, TODAY)
+        [t] = self._tickets(sid)
+        self.assertEqual(t.source, "preventive")
+        seen = []
+        orig, orig_render = ticket_notify._recipients_for, ticket_notify._render
+
+        def render(*a, **k):
+            seen.append(a)
+            raise RuntimeError("stop here - the mail would have been built")
+        try:
+            ticket_notify._recipients_for = lambda db, tt, ev, cfg: [(tt.requester_email, "requester")]
+            ticket_notify._render = render
+            ticket_notify.notify_ticket_event(t.id, "resolved", "x@greensglobal.com")
+            self.assertEqual(seen, [])                       # the keeper: no mail at all
+            t.source = ""                                    # the same ticket filed by a person: the requester hears
+            self.db.commit()
+            try:
+                ticket_notify.notify_ticket_event(t.id, "resolved", "x@greensglobal.com")
+            except RuntimeError:
+                pass
+        finally:
+            ticket_notify._recipients_for, ticket_notify._render = orig, orig_render
+        self.assertEqual(len(seen), 1)
+
+    def test_l2_deleting_a_floating_schedules_open_ticket_restarts_it(self):
+        sid = self._schedule(kind="floating", next_due=iso(0), recurrence_unit="day", recurrence_every=30)
+        MS.run_preventive(self.db, TODAY)
+        [t] = self._tickets(sid)
+        t.deleted_at, t.deleted_by = "2026-11-03T10:00:00Z", ADMIN["email"]
+        self.db.commit()
+        svc = self._svc(sid)
+        self.assertEqual(svc.next_due, MS.local_today(self.db, "c1").isoformat())
+        out = MS.run_preventive(self.db, MS.local_today(self.db, "c1"))
+        self.assertEqual(out["filed"] + out["collided"], 1)                      # never stuck
+
+    def test_l4_one_failing_schedule_never_stops_the_scan(self):
+        from unittest import mock
+        bad = self._schedule(subject="Bad", next_due=iso(0))
+        good = self._schedule(subject="Good", next_due=iso(0))
+        real = MS.due_occurrence
+
+        def flaky(db, svc, today):
+            if svc.id == bad:
+                raise RuntimeError("boom")
+            return real(db, svc, today)
+        with mock.patch.object(MS, "due_occurrence", flaky):
+            out = MS.run_preventive(self.db, TODAY)
+        self.assertEqual((out["failed"], out["filed"]), (1, 1))
+        self.assertEqual(len(self._tickets(good)), 1)
+
+    def test_l5_overdue_is_told_even_when_the_next_ticket_is_refused(self):
+        from unittest import mock
+        sid = self._schedule(kind="calendar", next_due=iso(0), recurrence_unit="day", recurrence_every=1)
+        MS.run_preventive(self.db, TODAY)
+        [t] = self._tickets(sid)
+        t.pm_due_on = iso(-2)
+        self.db.commit()
+
+        def refuse(*a, **k):
+            raise HTTPException(400, "nope")
+        with mock.patch.object(T, "file_ticket", refuse):
+            out = MS.run_preventive(self.db, TODAY + timedelta(days=1))
+        self.assertEqual(out["skipped"], 1)
+        self.assertEqual(self._events("preventive.overdue"), 1)
+
+    def test_l6_the_editor_offers_only_equipment_in_the_callers_scope(self):
+        ed = self._editor(company="c1")
+        self.db.add(models.NexusAccessScope(id=gen_id(), email=ed["email"], module_id="property-asset",
+                                            scope_type="property", scope_id="gst"))
+        self.db.commit()
+        out = P.schedule_options("gst", user=ed, db=self.db)
+        self.assertEqual(out["equipment"], [])
+
+    def test_l7_every_resolve_path_needs_the_photo_on_a_preventive_ticket(self):
+        sid = self._schedule(next_due=iso(0))
+        MS.run_preventive(self.db, TODAY)
+        [t] = self._tickets(sid)
+        with self.assertRaises(HTTPException) as cm:                             # the drawer's PATCH
+            self._resolve(t.id, photo=False)
+        self.assertEqual(cm.exception.status_code, 400)
+        T.update_ticket(t.id, T.TicketUpdate(status="closed", resolution="duplicate", resolution_note="Dup"),
+                        BackgroundTasks(), user=ADMIN, db=self.db)              # closed without work: no photo
 
 
 if __name__ == "__main__":

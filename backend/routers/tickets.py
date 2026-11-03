@@ -1032,6 +1032,8 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     public_latest = _latest_comments(db, internal_ok=False, ticket_ids=ids)
     any_latest = _latest_comments(db, internal_ok=True, ticket_ids=ids) if desk else public_latest
     out = []
+    import maintenance_services   # the Preventive queue's Overdue, on each company's calendar
+    pm_today = maintenance_services.TodayCache(db)
     for t in rows:
         d = ticket_to_dict(t)
         sees = _sees_internal(db, t, user, desk)
@@ -1041,6 +1043,7 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
         # The desk's Needs Reply queue (Neil, 10/31/2026) - from the PUBLIC
         # thread for everyone, so an internal note never reads as an answer.
         d["needsReply"] = _needs_reply(t, public_latest.get(t.id))
+        d["pmOverdue"] = maintenance_services.pm_overdue(t, pm_today)
         out.append(_for_viewer(db, t, user, d))
     return out
 
@@ -1200,7 +1203,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
 
 def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict, db: Session,
                 arrived_by: str = "", whats_new: dict | None = None, confidential_desk: str = "",
-                server_fields=None) -> dict:
+                server_fields=None, trusted_company: str = "") -> dict:
     """Everything POST /task-tickets does - THE way a ticket is created, so
     one that arrives by email (ticket_inbound.py, `source="email"`) goes
     through the same checks, approval gate, default assignee, SLA, receipts
@@ -1252,7 +1255,10 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     equipment = maintenance_services.check_equipment(db, user, body.equipment_asset_id, prop)
     prop_manager = property_links.manager_email(db, prop) if prop is not None else ""
     # Same never-trust-the-client-alone posture requester_email just got above.
-    company_id = _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
+    # `trusted_company` (server code only - a preventive schedule's team company,
+    # maintenance_services.file_preventive): the company the server already
+    # decided, never re-derived from the run-as person (review H1).
+    company_id = trusted_company or _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
     from routers import ticket_items   # Equipment: validated before anything is written
     linked_items = ticket_items.check_items(db, user, body.item_ids, ticket_company=company_id,
                                             requester_email=(body.requester_email or user["email"]))
@@ -1823,6 +1829,10 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     if (data.get("status") in ("resolved", "closed") and t.status not in ("resolved", "closed")
             and not (note or "").strip()):
         raise HTTPException(400, "Describe the resolution - what was done to fix it - before resolving this ticket.")
+    # A preventive ticket is resolved with a photo of the finished work, on
+    # every path - the drawer, a bulk edit, My Work (maintenance_services).
+    import maintenance_services
+    maintenance_services.require_finish_photo(db, t, data)
     if "resolution_note" in data:
         data["resolution_note"] = (data["resolution_note"] or "").strip()[:2000]
     # Work does not start before the sign-off. Assigning a ticket that is still

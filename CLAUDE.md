@@ -918,8 +918,16 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   twice. Scan to Request: site / equipment tags are `/tickets/place/<p>[/<a>]`
   (`maintenance/placeLink.js`), recognized by the ONE Items scanner and
   printed by the Items TagSheet; `routers/maintenance.py` holds the place
-  sheet, Report a Problem, the walled roll-up and Workday's My Work (Done on
-  a preventive ticket needs a photo).
+  sheet, Report a Problem, the walled roll-up and Workday's My Work.
+  Review rules (11/03/2026): the ticket's company is the TEAM's
+  (`file_ticket(trusted_company=)`, the team must be the property's
+  company); a preventive ticket = `service_id` AND `pm_due_on` (a
+  ticket-born service keeps its old behavior); a schedule save carries its
+  `rev`; an occurrence already filed rolls the schedule on; the NEWEST meter
+  reading counts (a drop rebases, a jump past 3 intervals waits for Confirm
+  Reading); every date is the company's team-zone day
+  (`maintenance_services.local_today` / `TodayCache`); resolving a
+  preventive ticket by ANY path needs a photo (`require_finish_photo`).
 
 ## Gotchas
 

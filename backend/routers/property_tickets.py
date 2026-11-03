@@ -52,11 +52,12 @@ def list_ticket_properties(user: dict = Depends(get_current_user), db: Session =
     rows = db.query(models.PropertyAsset).all()
     by_id = {p.id: p for p in rows}
     out = []
+    allowed = property_links.asset_scope(db, user)   # property-asset scope rows narrow the picker
     for p in rows:
-        if not property_links.is_listed(p, user):
+        if not property_links.is_listed(p, user, allowed=allowed):
             continue
         parent = by_id.get(p.parent_id) if p.parent_id else None
-        parent = parent if parent is not None and property_links.is_listed(parent, user) else None
+        parent = parent if parent is not None and property_links.is_listed(parent, user, allowed=allowed) else None
         pl = p.payload or {}
         units = [u.get("label") for u in (pl.get("tenantUnits") or [])
                  if isinstance(u, dict) and u.get("label")]
@@ -157,7 +158,7 @@ def _record_out(r, by_id: dict) -> dict:
             "parentTicketId": r.parent_ticket_id or "", "parentCodeLabel": ticket_no(parent.code) if parent else ""}
 
 
-def _service_out(svc, by_id: dict, records: dict, full: bool = True) -> dict:
+def _service_out(svc, by_id: dict, records: dict, full: bool = True, today_of=None) -> dict:
     """A recurring service: its parent ticket and every child under it, each
     with its date and cost (the logged record's, else what the ticket has)."""
     preventive = maintenance_services.is_preventive(svc)
@@ -193,15 +194,15 @@ def _service_out(svc, by_id: dict, records: dict, full: bool = True) -> dict:
             "recurrenceEvery": svc.recurrence_every or 1,
             "recurrenceLabel": maintenance_services.recurrence_label(svc.recurrence_unit or "", svc.recurrence_every or 1),
             "active": bool(svc.active), "tickets": rows, "totals": totals, "totalCost": usd,
-            **_preventive_out(svc, family)}
+            **_preventive_out(svc, family, today_of)}
 
 
-def _preventive_out(svc, family: list) -> dict:
+def _preventive_out(svc, family: list, today_of=None) -> dict:
     """What the schedule editor and the Preventive list read (11/03/2026).
     A service set from a ticket answers kind '' and the editor offers it the
-    old fields only."""
+    old fields only. `rev` is what a save must carry back (review M1)."""
     tpl = svc.template or {}
-    today = date.today().isoformat()
+    today_of = today_of or maintenance_services.TodayCache(None, date.today())
     live = [t for t in family if (t.status or "") not in property_links.CLOSED_STATES]
     return {"kind": svc.kind or "", "kindLabel": maintenance_services.KIND_LABEL.get(svc.kind or "", ""),
             "scheduleLabel": (maintenance_services.schedule_label(svc) if maintenance_services.is_preventive(svc)
@@ -218,14 +219,16 @@ def _preventive_out(svc, family: list) -> dict:
             "meterLastLabel": maintenance_services.meter_label(svc.meter_field, svc.meter_last)
             if svc.meter_field else "",
             "openCount": len(live),
-            "overdueCount": len([t for t in live if t.pm_due_on and t.pm_due_on < today]),
-            "waitingOnCompletion": (svc.kind or "") == "floating" and not svc.next_due}
+            "overdueCount": len([t for t in live if maintenance_services.pm_overdue(t, today_of)]),
+            "waitingOnCompletion": (svc.kind or "") == "floating" and not svc.next_due,
+            "rev": svc.updated_at or "", "attention": (svc.attention or "").split(":", 1)[0],
+            "attentionLabel": maintenance_services.attention_label(svc)}
 
 
 @router.get("/property-assets/{property_id}/tickets")
 def property_tickets(property_id: str, user: dict = Depends(require_asset_read), db: Session = Depends(get_db)):
     prop = db.get(models.PropertyAsset, property_id)
-    if not property_links.viewable(prop, user):
+    if not property_links.viewable(prop, user) or not property_links.in_scope(prop, property_links.asset_scope(db, user)):
         raise HTTPException(404, "Property not found")
     ids = property_links.group_ids(db, prop, user)        # private / deleted parcels left out
     rows = db.query(models.TaskTicket).filter(models.TaskTicket.property_asset_id.in_(ids)).all()
@@ -254,6 +257,7 @@ def property_tickets(property_id: str, user: dict = Depends(require_asset_read),
     me = (user.get("email") or "").lower()
     can_manage = property_links.may_follow(db, user, prop)
     full = desk or can_manage
+    today_of = maintenance_services.TodayCache(db)   # each company's own calendar (review M3)
     summaries = [_summary(t, prop_names, prop.id, photos, names, desk, me, full=full,
                           logged=set(records), service_parents={s.parent_ticket_id for s in services})
                  for t in rows]
@@ -266,6 +270,7 @@ def property_tickets(property_id: str, user: dict = Depends(require_asset_read),
         s["parentCodeLabel"] = ticket_no(par.code) if par else ""
         c = latest.get(s["id"])
         s["latestComment"] = {**c, "authorName": names.get(c["authorId"], c["authorId"])} if c else None
+        s["pmOverdue"] = maintenance_services.pm_overdue(by_id[s["id"]], today_of)
     open_ = sorted([s for s in summaries if s["status"] not in property_links.CLOSED_STATES],
                    key=lambda s: (_PRIORITY_RANK.get(s["priority"], 9), s["createdAt"]))
     history = sorted([s for s in summaries if s["status"] in property_links.CLOSED_STATES],
@@ -278,14 +283,14 @@ def property_tickets(property_id: str, user: dict = Depends(require_asset_read),
             "open": open_, "history": history,
             "needsAction": [s for s in history if s["needsAction"]],
             "records": sorted([_record_out(r, by_id) for r in recs], key=lambda r: r["date"], reverse=True),
-            "services": sorted([_service_out(s, by_id, records, full) for s in services],
+            "services": sorted([_service_out(s, by_id, records, full, today_of) for s in services],
                                key=lambda s: (not s["active"], s["nextDue"])),
             "spend": spend, "spendTotals": spend_totals,
             # Preventive maintenance (11/03/2026): open and overdue at this
             # property (and its parcels), for the Maintenance tab's header.
-            "preventive": {"open": len([x for x in open_ if x["serviceId"] and x["pmDueOn"]]),
-                           "overdue": len([x for x in open_ if x["serviceId"] and x["pmDueOn"]
-                                           and x["pmDueOn"] < date.today().isoformat()])},
+            "preventive": {"open": len([t for t in rows if maintenance_services.is_preventive_ticket(t)
+                                        and (t.status or "") not in property_links.CLOSED_STATES]),
+                           "overdue": len([t for t in rows if maintenance_services.pm_overdue(t, today_of)])},
             "canWalkthrough": property_links.may_walkthrough(db, user),
             "canFollow": can_manage, "canManage": can_manage}
 
@@ -300,7 +305,7 @@ def follow_property_ticket(property_id: str, ticket_id: str, user: dict = Depend
     watcher_emails is a JSON read-modify-write, and two follows at once would
     otherwise drop one."""
     prop = db.get(models.PropertyAsset, property_id)
-    if not property_links.viewable(prop, user):
+    if not property_links.viewable(prop, user) or not property_links.in_scope(prop, property_links.asset_scope(db, user)):
         raise HTTPException(404, "Property not found")
     if not property_links.may_follow(db, user, prop):
         raise HTTPException(403, "Following a ticket is for Asset Management editors and the "
@@ -392,6 +397,11 @@ class ServicePatch(BaseModel):
     lead_days: Optional[int] = None
     meter_every: Optional[float] = None
     meter_next: Optional[float] = None
+    # The `rev` the schedule was read with (review M1): a save from a stale
+    # editor is a 409, never an old meter_next written back.
+    rev: Optional[str] = None
+    # The keeper confirms a held meter jump (maintenance_services.confirm_reading).
+    confirm_reading: Optional[bool] = None
 
 
 _PREVENTIVE_KEYS = {"kind", "subject", "description", "priority", "application", "hr_department_id", "location",
@@ -401,7 +411,7 @@ _PREVENTIVE_KEYS = {"kind", "subject", "description", "priority", "application",
 
 def _require_manage(db: Session, user: dict, property_id: str):
     prop = db.get(models.PropertyAsset, property_id)
-    if not property_links.viewable(prop, user):
+    if not property_links.viewable(prop, user) or not property_links.in_scope(prop, property_links.asset_scope(db, user)):
         raise HTTPException(404, "Property not found")
     if not property_links.may_follow(db, user, prop):
         raise HTTPException(403, "The maintenance record is kept by the property's asset manager and "
@@ -591,7 +601,7 @@ class ScheduleBody(BaseModel):
 def create_schedule(property_id: str, body: ScheduleBody, user: dict = Depends(require_asset_read),
                     db: Session = Depends(get_db)):
     prop = _require_manage(db, user, property_id)
-    if not property_links.is_listed(prop, user):
+    if not property_links.is_listed(prop, user, db):
         raise HTTPException(400, "Preventive schedules sit on a property - pick the property the work is at.")
     data = body.model_dump()
     data["checklist"] = data.get("checklist") or []
@@ -612,6 +622,12 @@ def create_schedule(property_id: str, body: ScheduleBody, user: dict = Depends(r
 
 def _update_preventive(db: Session, user: dict, prop, svc, data: dict) -> dict:
     me = (user.get("email") or "").strip().lower()
+    if (data.get("rev") or "") != (svc.updated_at or ""):
+        raise HTTPException(409, "This schedule changed since you opened it - close it and open it again.")
+    data.pop("rev", None)
+    if data.pop("confirm_reading", None):
+        if not maintenance_services.confirm_reading(svc):
+            raise HTTPException(409, "There is no reading waiting to be confirmed.")
     if set(data) & _PREVENTIVE_KEYS:
         if data.get("kind") is None:
             data.pop("kind", None)
@@ -621,11 +637,15 @@ def _update_preventive(db: Session, user: dict, prop, svc, data: dict) -> dict:
     if "active" in data:
         if data["active"] and not svc.active and svc.kind in ("calendar", "floating"):
             d = maintenance_services.parse_ymd(svc.next_due)
-            if d is not None and d < date.today():
+            if d is not None and d < maintenance_services.local_today(db, maintenance_services.svc_company(svc)):
                 raise HTTPException(400, "Set a due date that is not in the past to restart this schedule.")
         svc.active = 1 if data["active"] else 0
-    # The schedule files as whoever last saved it (maintenance_services.run_as).
+    # The schedule files as whoever last saved it (maintenance_services.run_as),
+    # so a save is also how a schedule that Needs an Owner is taken over; a
+    # meter reset note is read once it is saved.
     svc.updated_by_email, svc.updated_at = me, now_iso()
+    if (svc.attention or "") == "owner" or (svc.attention or "").startswith("reset:"):
+        svc.attention = ""
     db.commit()
     return {"ok": True, "nextDue": svc.next_due or None, "scheduleLabel": maintenance_services.schedule_label(svc)}
 
@@ -638,11 +658,15 @@ def _open_preventive_now(db: Session, user: dict, svc, background_tasks) -> dict
     if maintenance_services.open_ticket_of(db, svc) is not None and svc.kind != "calendar":
         raise HTTPException(409, "This schedule's ticket is still open - finish it first.")
     if svc.kind == "meter":
-        due_on, key = date.today().isoformat(), f"m:{float(svc.meter_next or 0):g}"
+        if (svc.attention or "").startswith("reading:"):
+            raise HTTPException(409, "Confirm the meter reading on this schedule first.")
+        due_on = maintenance_services.local_today(db, maintenance_services.svc_company(svc)).isoformat()
+        key = maintenance_services.meter_key(svc.meter_next)
     else:
         d = maintenance_services.parse_ymd(svc.next_due)
         if d is None:
-            raise HTTPException(409, "The next ticket opens when the last one is done.")
+            raise HTTPException(409, "The next ticket opens when the last one is done - or, if that ticket was "
+                                     "deleted, set a new due date with Edit Schedule.")
         due_on = key = d.isoformat()
     bt = background_tasks if background_tasks is not None else BackgroundTasks()
     try:
@@ -651,7 +675,17 @@ def _open_preventive_now(db: Session, user: dict, svc, background_tasks) -> dict
         db.rollback()
         raise
     if made is None:
-        raise HTTPException(409, "The ticket for this due date is already open.")
+        # Already filed (a racer, or a date put back): move past it so the
+        # schedule never sticks (review M1).
+        svc = db.query(models.PropertyMaintenanceService).filter(
+            models.PropertyMaintenanceService.id == svc.id).with_for_update().first()
+        svc.last_opened_for = key
+        maintenance_services.roll_forward(svc, maintenance_services.local_today(
+            db, maintenance_services.svc_company(svc)), from_due=due_on)
+        svc.updated_at = now_iso()
+        db.commit()
+        raise HTTPException(409, "The ticket for this due date was already filed - the schedule moved on to the "
+                                 "next one.")
     if background_tasks is None:
         maintenance_services.run_after(bt)
     return {"ticketId": made["id"], "code": made.get("code") or "", "nextDue": svc.next_due or None}
@@ -681,12 +715,15 @@ def schedule_options(property_id: str, user: dict = Depends(require_asset_read),
                 seen.add(name.lower())
                 topics.append({"name": name, "area": tp.get("area")})
     equipment = []
-    for a in db.query(models.PropertyAsset).all():
+    allowed = property_links.asset_scope(db, user)        # property-asset scope rows (review L6)
+    assets = [a for a in db.query(models.PropertyAsset).all()
+              if property_links.asset_kind(a) in ("vehicle", "equipment") and property_links.viewable(a, user)
+              and not (a.payload or {}).get("deleted") and property_links.in_scope(a, allowed)]
+    logs = maintenance_services.reading_records(db, [a.id for a in assets if property_links.asset_kind(a) == "vehicle"])
+    for a in assets:
         kind = property_links.asset_kind(a)
-        if kind not in ("vehicle", "equipment") or not property_links.viewable(a, user) or (a.payload or {}).get("deleted"):
-            continue
         field = "odometer" if kind == "vehicle" else "hours"
-        reading = maintenance_services.asset_reading(db, a, field)
+        reading = maintenance_services.asset_reading(db, a, field, records=logs.get(a.id, []))
         equipment.append({"id": a.id, "name": property_links.display_name(a), "kind": kind, "meterField": field,
                           "reading": reading,
                           "readingLabel": maintenance_services.meter_label(field, reading) if reading is not None else ""})

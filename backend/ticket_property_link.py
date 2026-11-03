@@ -280,7 +280,8 @@ def check_intake(db: Session, user: dict, body, prop, service_area: str, desk: b
             and not getattr(body, "property_none", False)
             and property_required(db, service_area, body.application, rules)
             and takes_property(db, body.hr_department_id, service_area))
-    if must and prop is None and any(property_links.is_listed(p, user) for p in _listed(db)):
+    allowed = property_links.asset_scope(db, user)
+    if must and prop is None and any(property_links.is_listed(p, user, allowed=allowed) for p in _listed(db)):
         raise HTTPException(400, "Pick the property this ticket is about - every Buildings & Maintenance "
                                  "ticket sits on its property's Maintenance in Asset Management.")
     unit = clean_unit(db, prop, getattr(body, "property_unit", "")) if prop is not None else ""
@@ -325,8 +326,9 @@ def suggest(db: Session, text: str, user: dict, limit: int = 5) -> list:
     if not words:
         return []
     out = []
+    allowed = property_links.asset_scope(db, user)
     for p in db.query(models.PropertyAsset).all():
-        if not property_links.is_listed(p, user):
+        if not property_links.is_listed(p, user, allowed=allowed):
             continue
         pl = p.payload or {}
         name = property_links.display_name(p)

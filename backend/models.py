@@ -6135,6 +6135,11 @@ class PropertyMaintenanceService(Base):
     meter_next         = Column(Float, default=0)     # the reading the next ticket is due at
     meter_last         = Column(Float, default=0)     # the reading last seen by the scan
     overdue_alerted_for = Column(String, default="")  # the occurrence the preventive.overdue event went out for
+    # What the schedule needs from a person (review, 11/03/2026): "" =
+    # nothing, "owner" = nobody left to file as (save it again),
+    # "reading:<value>" = a meter jump to confirm before it files, "reset:<value>"
+    # = the reading went down and the schedule was rebased on it.
+    attention          = Column(String, default="")
 
 
 # ── Marketing: Google Ads (Oct 2026, read-only) ──────────────────────────────
