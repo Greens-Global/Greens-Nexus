@@ -70,6 +70,21 @@ require_items_admin  = require_level_or_module(_ROLE_LEVEL["manager"], "inventor
 require_items_delete = require_level_or_module(_ROLE_LEVEL["owner"],   "inventory", "full")
 
 
+def require_custom_field_delete(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """require_items_delete's rule (Super Administrator, or an Inventory grant
+    at Full) for DELETE /custom-fields, refusing with 403 - never 401. The
+    frontend reads a 401 as a dead session (token refresh, then a full
+    sign-in), so a manager or Inventory editor who clicked Delete was bounced
+    as if signed out (11/02/2026). 401 stays get_current_user's, for a missing
+    or invalid session. The shared auth.require_level* gates still answer 401
+    and are left as they are: tests across the suite pin that status."""
+    from auth import _module_level, _MODULE_LEVEL_RANK
+    if (user.get("level", 1) >= _ROLE_LEVEL["owner"]
+            or _module_level(user["email"], "inventory", db) >= _MODULE_LEVEL_RANK["full"]):
+        return user
+    raise HTTPException(403, "Only a Super Administrator or someone with Full Inventory access can delete a custom field.")
+
+
 def _is_items_manager(user: dict, db) -> bool:
     """Inline version of require_items_admin for checks INSIDE handlers:
     global manager+ OR an Access-Group grant of inventory at editor or above.
@@ -1142,7 +1157,7 @@ def update_custom_field(field_id: str, body: CustomFieldIn, user: dict = Depends
 
 
 @router.delete("/custom-fields/{field_id}")
-def delete_custom_field(field_id: str, user: dict = Depends(require_items_delete), db: Session = Depends(get_db)):
+def delete_custom_field(field_id: str, user: dict = Depends(require_custom_field_delete), db: Session = Depends(get_db)):
     f = db.query(ItemCustomField).filter(ItemCustomField.id == field_id).first()
     if not f:
         raise HTTPException(404, "Custom field not found")

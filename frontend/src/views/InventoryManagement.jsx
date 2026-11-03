@@ -4909,6 +4909,11 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
 }
 
 export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
+  // DELETE /items/custom-fields answers only a Super Administrator or a Full
+  // Inventory grant (require_custom_field_delete); everyone else who may open
+  // this (managers, Inventory editors) adds and edits but sees no Delete.
+  const { canAccessModule } = useRole();
+  const canDelete = canAccessModule('inventory', 'owner', 'full');
   const [label,      setLabel]      = useState('');
   const [fieldType,  setFieldType]  = useState('text');
   const [options,    setOptions]    = useState('');
@@ -4968,11 +4973,16 @@ export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
                         {f.fieldType === 'select' && f.options?.length ? ` · ${f.options.join(', ')}` : ''}
                       </div>
                     </div>
-                    <HoldButton size="sm" label="Delete" doneLabel="Deleted" ariaLabel={`Delete the ${f.label} field`} onConfirm={() => remove(f)} onDone={() => onChanged?.()} disabled={!!busyId && busyId !== f.id}
-                      fallbackMessage={`Delete the "${f.label}" field? Existing values stay stored but stop showing.`} />
+                    {canDelete && (
+                      <HoldButton size="sm" label="Delete" doneLabel="Deleted" ariaLabel={`Delete the ${f.label} field`} onConfirm={() => remove(f)} onDone={() => onChanged?.()} disabled={!!busyId && busyId !== f.id}
+                        fallbackMessage={`Delete the "${f.label}" field? Existing values stay stored but stop showing.`} />
+                    )}
                   </div>
                 </div>
               ))}
+              {!canDelete && (
+                <div style={{ fontSize:11.5, color:'var(--muted)' }}>Only a Super Administrator or someone with Full Inventory access can delete a custom field.</div>
+              )}
             </div>
           )}
           {/* Add new */}
