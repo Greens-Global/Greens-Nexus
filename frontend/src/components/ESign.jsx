@@ -20,7 +20,8 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import AccessCodeField from './AccessCodeField';
 import AnchoredMenu from './AnchoredMenu';
 import { useRole } from '../contexts/RoleContext';
-import { Spinner, LoadingState } from './AsyncState';
+import { Spinner, LoadingState, SkeletonBlocks } from './AsyncState';
+import { MOTION, motionWait, prefersReducedMotion, useReducedMotion } from '../lib/motion';
 import BreakAttestModal, { BreakStatement } from './BreakAttestModal';
 import { PersonSelect } from '../tasks/components';
 import { dialog } from '../ui/dialog';
@@ -121,6 +122,51 @@ const UPLOAD_ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,.tif,.tiff';
 // signature against the field box it lands in.
 const SIG_W = 660;
 const SIG_H = 216;
+const SIG_INK = '#111827';
+
+// ── Motion (motion pass, 11/03/2026) ─────────────────────────────────────────
+// Nexus Sign moves on the app's motion tokens (style.css "Motion vocabulary",
+// lib/motion.js): arrivals decelerate (--ease-out), nothing bounces, and
+// everything stands still under reduced motion - including the smooth scrolls
+// and the Web Animations below, which the stylesheet's reduced-motion rules
+// cannot reach.
+const EASE_OUT = 'cubic-bezier(.16,1,.3,1)';      // = --ease-out
+const EASE_STANDARD = 'cubic-bezier(.4,0,.2,1)';  // for a there-and-back pulse
+const scrollBehavior = () => (prefersReducedMotion() ? 'auto' : 'smooth');
+
+// A content swap (a tab switch, a wizard step, the list giving way to the
+// signing page) brings the new content in instead of snapping: a fade, plus a
+// short slide in the direction of travel when `dx` is set. Web Animations
+// with no fill, so nothing stays "animated" once it ends. Not on the first
+// render - the surface's own arrival covers that - and never in tests or
+// under reduced motion (motionWait returns 0 there).
+function useSwapIn(ref, key, dx = 0) {
+  const first = useRef(true);
+  useLayoutEffect(() => {
+    if (first.current) { first.current = false; return; }
+    const el = ref.current;
+    if (!el?.animate || !motionWait(1)) return;
+    el.animate([{ opacity: 0, transform: dx ? `translateX(${dx}px)` : 'none' }, { opacity: 1, transform: 'none' }],
+      { duration: dx ? MOTION.md : MOTION.sm, easing: EASE_OUT });
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+// True for the moment a list's rows first arrive (its data went from not
+// loaded to loaded), so they rise in once (.nx-rise) - not again on every tab
+// switch or refresh, which would make a cached list feel slow.
+function useArrival(loaded) {
+  const [state, setState] = useState(loaded ? 'settled' : 'waiting');
+  if (loaded && state === 'waiting') setState('arriving');
+  if (!loaded && state !== 'waiting') setState('waiting');
+  useEffect(() => {
+    if (state !== 'arriving') return undefined;
+    const t = setTimeout(() => setState('settled'), 900);
+    return () => clearTimeout(t);
+  }, [state]);
+  return state === 'arriving';
+}
+const riseClass = (on) => (on ? 'nx-rise' : undefined);
+const riseStyle = (on, i) => (on ? { '--i': Math.min(i, 5) } : null);
 
 const SIG_FONTS = ['"Segoe Script"', '"Brush Script MT"', '"Lucida Handwriting"'];
 
@@ -380,27 +426,89 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
     c.width = SIG_W * scale; c.height = SIG_H * scale;
     c.getContext('2d').scale(scale, scale);
     redraw();
-  }, [tab]);
+    // redraw reads only refs and a state setter, so a new copy each render changes nothing.
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Ink (motion pass, 11/03/2026). A stroke is a run of points joined by
+  // quadratic curves through their midpoints, so a fast loop reads as a curve
+  // rather than a polygon. While the pen moves, only the new part of the
+  // stroke is painted, once per frame - repainting every stroke on every
+  // pointer event made a long signature lag behind the hand. The ink is
+  // opaque, so a piece painted twice looks the same as once. Undo and Clear
+  // repaint everything with the same curves.
+  const ink = useRef({ raf: 0, done: 0, end: null, rect: null });
+  const pen = (ctx) => { ctx.strokeStyle = SIG_INK; ctx.fillStyle = SIG_INK; ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; };
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  // Paints the curve pieces k = from..pts.length-2 of a stroke, starting at
+  // `start` (the end of the piece before), and returns where it ended.
+  function paintPieces(ctx, pts, from, start) {
+    let at = start;
+    if (from > pts.length - 2) return at;
+    ctx.beginPath();
+    ctx.moveTo(at.x, at.y);
+    for (let k = from; k <= pts.length - 2; k++) {
+      at = mid(pts[k], pts[k + 1]);
+      ctx.quadraticCurveTo(pts[k].x, pts[k].y, at.x, at.y);
+    }
+    ctx.stroke();
+    return at;
+  }
+  // The last stretch, from the curve's end to the newest point: drawn straight
+  // so the ink always reaches the pen, and replaced by a curve as points come.
+  function paintTail(ctx, pts, at) {
+    const last = pts[pts.length - 1];
+    if (pts.length === 1) { ctx.beginPath(); ctx.arc(last.x, last.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill(); return; }
+    ctx.beginPath(); ctx.moveTo(at.x, at.y); ctx.lineTo(last.x, last.y); ctx.stroke();
+  }
   function redraw() {
     const c = canvasRef.current; if (!c) return;
     const ctx = c.getContext('2d');
     ctx.clearRect(0, 0, SIG_W, SIG_H);
-    ctx.strokeStyle = '#111827'; ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (const s of strokes.current) {
-      ctx.beginPath();
-      s.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-      ctx.stroke();
-    }
+    pen(ctx);
+    for (const s of strokes.current) paintTail(ctx, s, paintPieces(ctx, s, 1, s[0]));
     setHasInk(strokes.current.length > 0);
   }
-  const pos = (e) => {
-    const r = canvasRef.current.getBoundingClientRect();
-    return { x: (e.clientX - r.left) * (SIG_W / r.width), y: (e.clientY - r.top) * (SIG_H / r.height) };
+  // Paints what the active stroke gained since the last frame.
+  function paintFrame() {
+    const st = ink.current; st.raf = 0;
+    const c = canvasRef.current; const s = strokes.current[strokes.current.length - 1];
+    if (!c || !s) return;
+    const ctx = c.getContext('2d'); pen(ctx);
+    st.end = paintPieces(ctx, s, st.done + 1, st.end || s[0]);
+    st.done = Math.max(st.done, s.length - 2);
+    paintTail(ctx, s, st.end);
+  }
+  const pos = (e, r) => ({ x: (e.clientX - r.left) * (SIG_W / r.width), y: (e.clientY - r.top) * (SIG_H / r.height) });
+  const down = (e) => {
+    const st = ink.current;
+    st.rect = canvasRef.current.getBoundingClientRect();
+    st.done = 0; st.end = null;
+    drawing.current = true;
+    strokes.current.push([pos(e, st.rect)]);
+    e.target.setPointerCapture?.(e.pointerId);
+    if (!hasInk) setHasInk(true);
+    paintFrame();
   };
-  const down = (e) => { drawing.current = true; strokes.current.push([pos(e)]); e.target.setPointerCapture?.(e.pointerId); };
-  const move = (e) => { if (!drawing.current) return; strokes.current[strokes.current.length - 1].push(pos(e)); redraw(); };
-  const up = () => { drawing.current = false; redraw(); };
+  const move = (e) => {
+    if (!drawing.current) return;
+    const st = ink.current; const s = strokes.current[strokes.current.length - 1];
+    // Every point the pointer passed through since the last event, not just
+    // the last one: a quick flourish otherwise loses its shape.
+    const evs = e.nativeEvent?.getCoalescedEvents?.() || [];
+    for (const ev of evs.length ? evs : [e]) {
+      const p = pos(ev, st.rect); const q = s[s.length - 1];
+      if (Math.abs(p.x - q.x) + Math.abs(p.y - q.y) >= 0.6) s.push(p);
+    }
+    if (!st.raf) st.raf = requestAnimationFrame(paintFrame);
+  };
+  const up = () => {
+    if (!drawing.current) return;
+    drawing.current = false;
+    const st = ink.current;
+    if (st.raf) { cancelAnimationFrame(st.raf); st.raf = 0; }
+    paintFrame();
+  };
+  useEffect(() => () => { if (ink.current.raf) cancelAnimationFrame(ink.current.raf); }, []);
 
   function adopt() {
     if (tab === 'draw') {
@@ -452,7 +560,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
           {tab === 'draw' ? (
             <>
               <div style={{ position: 'relative' }}>
-                <canvas ref={canvasRef} onPointerDown={down} onPointerMove={move} onPointerUp={up}
+                <canvas ref={canvasRef} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
                   style={{ width: '100%', height: SIG_H, border: '1.5px dashed var(--line)', borderRadius: 12, touchAction: 'none', cursor: 'crosshair', background: '#fff' }} />
                 {!hasInk && <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 13, pointerEvents: 'none' }}>Draw your signature with your mouse or finger</span>}
                 <span style={{ position: 'absolute', left: 20, bottom: 26, right: 20, borderBottom: '1px solid #d1d5db', pointerEvents: 'none' }} />
@@ -503,6 +611,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
 // Passing the File's bytes directly (not fetch(blobUrl)) sidesteps CSP blocks
 // on blob: fetches - the "Failed to fetch" bug in v1.
 function PdfDoc({ url, file, zoom = 1, renderOverlay, onPageSeen, onPageCount }) {
+  const reduce = useReducedMotion();
   const [pages, setPages] = useState(null);
   const [error, setError] = useState('');
   // Which pages were actually SCROLLED INTO VIEW. The certificate may only say
@@ -540,7 +649,8 @@ function PdfDoc({ url, file, zoom = 1, renderOverlay, onPageSeen, onPageCount })
       {/* An indeterminate bar, not a bare spinner: "everything has a loading
           bar on it, so you're not just looking at an empty screen." */}
       <div style={{ margin: '12px auto 0', width: 220, height: 3, borderRadius: 2, background: 'var(--line)', overflow: 'hidden' }}>
-        <div style={{ width: '38%', height: '100%', borderRadius: 2, background: 'var(--pine, #166534)', animation: 'nexus-sign-slide 1.15s ease-in-out infinite' }} />
+        <div style={{ width: '38%', height: '100%', borderRadius: 2, background: 'var(--pine, #166534)',
+          ...(reduce ? { transform: 'translateX(82%)', animation: 'nxl-breathe 2s ease-in-out infinite' } : { animation: 'nexus-sign-slide 1.15s cubic-bezier(.65,0,.35,1) infinite' }) }} />
       </div>
       <style>{'@keyframes nexus-sign-slide{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}'}</style>
     </div>
@@ -1225,7 +1335,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   useEffect(() => {
     if (!fieldError?.field) return;
     const el = fieldRefs.current[fieldError.field];
-    el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    el?.scrollIntoView?.({ behavior: scrollBehavior(), block: 'center' });
     el?.focus?.({ preventScroll: true });
   }, [fieldError]);
   const setVal = (k, v) => { setValues(p => ({ ...p, [k]: v })); if (fieldErr && fieldErr.field === k) setDismissed(fieldErr); };
@@ -1289,8 +1399,9 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   const jumpTo = (task) => {
     const el = task && fieldRefs.current[task.id];
     if (el) {
-      el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-      el.animate?.([{ transform: 'scale(1)' }, { transform: 'scale(1.07)' }, { transform: 'scale(1)' }], { duration: 380 });
+      el.scrollIntoView?.({ behavior: scrollBehavior(), block: 'center' });
+      // One quick pulse says "this one" once it is in view.
+      if (motionWait(1)) el.animate?.([{ transform: 'scale(1)' }, { transform: 'scale(1.05)' }, { transform: 'scale(1)' }], { duration: 280, easing: EASE_STANDARD });
       el.focus?.({ preventScroll: true });
     }
   };
@@ -1318,7 +1429,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   const jumpNext = () => {
     setBarHidden(true);
     if (atEnd) {                       // nothing left above - go to the finish bar
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      window.scrollTo({ top: document.body.scrollHeight, behavior: scrollBehavior() });
       return;
     }
     setStarted(true);
@@ -1408,7 +1519,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
     : <span style={{ fontFamily: '"Segoe Script","Brush Script MT",cursive', fontSize: h * 0.55 }}>{sig?.data}</span>;
 
   const signHereTab = (key) => (
-    <button ref={el => { fieldRefs.current[key] = el; }} onClick={() => payload.myTurn && setPadOpen(true)} disabled={!payload.myTurn}
+    <button ref={el => { fieldRefs.current[key] = el; }} className="nx-press" onClick={() => payload.myTurn && setPadOpen(true)} disabled={!payload.myTurn}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 22px', borderRadius: 8,
         background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 13.5,
         cursor: payload.myTurn ? 'pointer' : 'default', fontFamily: 'Inter,sans-serif',
@@ -1783,10 +1894,11 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 fontSize: 11.5, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)',
                 display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: narrow ? 56 : 90, height: 5, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
-                <span style={{ display: 'block', height: '100%', width: `${required.length ? (doneCount / required.length) * 100 : 100}%`, background: allDone ? 'hsl(var(--color-green))' : '#fbbf24', transition: 'width .3s' }} />
+                <span style={{ display: 'block', height: '100%', width: '100%', transformOrigin: 'left center', transform: `scaleX(${required.length ? doneCount / required.length : 1})`,
+                  background: allDone ? 'hsl(var(--color-green))' : '#fbbf24', transition: 'transform var(--dur-md) var(--ease-out), background-color var(--dur-md) var(--ease-out)' }} />
               </span>
               {allDone ? 'All fields complete' : `${doneCount} of ${required.length} fields`}
-              {allDone ? <CheckCircle size={12} /> : <ChevronDown size={12} style={{ transform: listOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
+              {allDone ? <CheckCircle size={12} /> : <ChevronDown size={12} style={{ transform: listOpen ? 'rotate(180deg)' : 'none', transition: 'transform var(--dur-sm) var(--ease-out)' }} />}
             </button>
             {/* Portaled so the page's scroll areas can't clip it (phones). */}
             <AnchoredMenu anchorRef={listBtnRef} open={listOpen} onClose={() => setListOpen(false)} align="start" minWidth={250}
@@ -1904,7 +2016,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
             the name of the field it will take you to. Fixed to the left edge,
             level with that field's own row (see the effect above). */}
         {payload.myTurn && (nextTask || started) && (
-          <button onClick={jumpNext}
+          <button onClick={jumpNext} className="nx-press"
             aria-label={!started ? 'Start signing'
               : atEnd ? 'Go to the end of the document' : `Next field: ${taskName(nextTarget)}`}
             style={{ position: 'fixed', left: tabLeft, top: tabTop ?? 120, zIndex: 25, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 12, padding: '8px 14px 8px 10px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', borderRadius: '0 8px 8px 0', boxShadow: '0 2px 10px rgba(245,158,11,0.55)', maxWidth: '62vw' }}>
@@ -2231,6 +2343,7 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
   const [labelFor, setLabelFor] = useState(null); // upload field whose label is being edited
   const [mergeFor, setMergeFor] = useState(null); // offer field whose value is being picked
   const dragState = useRef(null);
+  const [liftId, setLiftId] = useState(null);   // the field in hand: lifted with a shadow
 
   useEffect(() => {
     api.getSignAttachmentUrl(attachment.path).then(r => setUrl(r.url))
@@ -2249,19 +2362,32 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
     if (meta.opts) setOptsFor(id); // choices matter more than position - edit them right away
     if (meta.merge) setMergeFor(id);
   }
-  const onDrag = useCallback((e) => {
-    const s = dragState.current; if (!s) return;
-    const dx = (e.clientX - s.startX) / s.rect.width, dy = (e.clientY - s.startY) / s.rect.height;
+  // One move per frame (motion pass, 11/03/2026): a modern mouse reports
+  // 500-1000 moves a second, and re-rendering the document for each one made
+  // a dragged field trail the pointer. The last position always lands.
+  const moveField = useCallback((s) => {
+    const dx = (s.x - s.startX) / s.rect.width, dy = (s.y - s.startY) / s.rect.height;
     setFields(fs => fs.map(f => f.id !== s.fieldId ? f
       : s.mode === 'move'
         ? { ...f, x: Math.min(0.99 - f.w, Math.max(0, s.orig.x + dx)), y: Math.min(0.99 - f.h, Math.max(0, s.orig.y + dy)) }
         : { ...f, w: Math.min(0.9, Math.max(0.02, s.orig.w + dx)), h: Math.min(0.4, Math.max(0.012, s.orig.h + dy)) }));
   }, []);
-  const endDrag = useCallback(() => { dragState.current = null; window.removeEventListener('pointermove', onDrag); }, [onDrag]);
+  const onDrag = useCallback((e) => {
+    const s = dragState.current; if (!s) return;
+    s.x = e.clientX; s.y = e.clientY;
+    if (!s.raf) s.raf = requestAnimationFrame(() => { s.raf = 0; if (dragState.current === s) moveField(s); });
+  }, [moveField]);
+  const endDrag = useCallback(() => {
+    const s = dragState.current;
+    if (s?.raf) { cancelAnimationFrame(s.raf); s.raf = 0; moveField(s); }
+    dragState.current = null; setLiftId(null);
+    window.removeEventListener('pointermove', onDrag);
+  }, [onDrag, moveField]);
   const startDrag = (e, f, mode) => {
     e.stopPropagation(); e.preventDefault();
     const pageEl = e.currentTarget.closest('[data-atpage]'); if (!pageEl) return;
     dragState.current = { fieldId: f.id, mode, rect: pageEl.getBoundingClientRect(), startX: e.clientX, startY: e.clientY, orig: { ...f } };
+    setLiftId(f.id);
     window.addEventListener('pointermove', onDrag);
     window.addEventListener('pointerup', endDrag, { once: true });
   };
@@ -2277,8 +2403,8 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
         return (
           <div key={f.id} onPointerDown={(e) => startDrag(e, f, 'move')} onClick={e => e.stopPropagation()}
             style={{ position: 'absolute', left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%`,
-              border: `2px ${M.merge ? 'dashed' : 'solid'} ${c.solid}`, background: c.soft, borderRadius: 5, cursor: 'grab', touchAction: 'none',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
+              border: `2px ${M.merge ? 'dashed' : 'solid'} ${c.solid}`, background: c.soft, borderRadius: 5, cursor: liftId === f.id ? 'grabbing' : 'grab', touchAction: 'none',
+              boxShadow: liftId === f.id ? '0 8px 22px rgba(17,24,39,0.20)' : 'none', zIndex: liftId === f.id ? 2 : undefined, transition: 'box-shadow var(--dur-xs) var(--ease-out)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
               <M.Icon size={10} /> {M.merge ? (MERGE_LABEL[f.merge] || 'Offer Field') : ((M.labeled && f.label) || M.label)}
             </span>
@@ -2442,6 +2568,9 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const dr = prefill?.draft?.payload || null;
   const [draftId, setDraftId] = useState(prefill?.draft?.id || '');
   const [step, setStep] = useState(0);
+  const [stepDir, setStepDir] = useState(1);   // +1 forward, -1 back: the side the next step slides in from
+  const stepRef = useRef(null);
+  useSwapIn(stepRef, step, 14 * stepDir);
   // Excluded-record acknowledgment (ESIGN 15 U.S.C. 7003 / Cal. Civ. Code
   // 1633.3). The list comes from the server so this checklist and the
   // guardrail that enforces it can never drift apart.
@@ -2511,6 +2640,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const [optsFor, setOptsFor] = useState(null);   // field id whose options are being edited
   const [labelFor, setLabelFor] = useState(null); // upload field whose label is being edited
   const dragState = useRef(null);   // {fieldId, mode:'move'|'resize', rect, startX, startY, orig}
+  const [liftId, setLiftId] = useState(null);   // the field in hand: lifted with a shadow
   const rkCounter = useRef(0);      // stable per-party field keys - survive removal/reorder
 
   useEffect(() => { api.getCandidates().then(setCandidates).catch(() => setCandidates([])); }, []);
@@ -2840,10 +2970,10 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
     }]);
     if (meta.opts) setOptsFor(id); // choices matter more than position - edit them right away
   }
-  const onFieldDrag = useCallback((e) => {
-    const s = dragState.current; if (!s) return;
-    const dx = (e.clientX - s.startX) / s.rect.width;
-    const dy = (e.clientY - s.startY) / s.rect.height;
+  // One move per frame - see moveField in the template field editor above.
+  const moveComposerField = useCallback((s) => {
+    const dx = (s.x - s.startX) / s.rect.width;
+    const dy = (s.y - s.startY) / s.rect.height;
     setFields(fs => fs.map(f => {
       if (f.id !== s.fieldId) return f;
       if (s.mode === 'move') {
@@ -2852,15 +2982,23 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
       return { ...f, w: Math.min(0.9, Math.max(0.02, s.orig.w + dx)), h: Math.min(0.4, Math.max(0.012, s.orig.h + dy)) };
     }));
   }, []);
+  const onFieldDrag = useCallback((e) => {
+    const s = dragState.current; if (!s) return;
+    s.x = e.clientX; s.y = e.clientY;
+    if (!s.raf) s.raf = requestAnimationFrame(() => { s.raf = 0; if (dragState.current === s) moveComposerField(s); });
+  }, [moveComposerField]);
   const endFieldDrag = useCallback(() => {
-    dragState.current = null;
+    const s = dragState.current;
+    if (s?.raf) { cancelAnimationFrame(s.raf); s.raf = 0; moveComposerField(s); }
+    dragState.current = null; setLiftId(null);
     window.removeEventListener('pointermove', onFieldDrag);
-  }, [onFieldDrag]);
+  }, [onFieldDrag, moveComposerField]);
   const startFieldDrag = (e, f, mode) => {
     e.stopPropagation(); e.preventDefault();
     const pageEl = e.currentTarget.closest('[data-espage]');
     if (!pageEl) return;
     dragState.current = { fieldId: f.id, mode, rect: pageEl.getBoundingClientRect(), startX: e.clientX, startY: e.clientY, orig: { ...f } };
+    setLiftId(f.id);
     window.addEventListener('pointermove', onFieldDrag);
     window.addEventListener('pointerup', endFieldDrag, { once: true });
   };
@@ -2877,8 +3015,8 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
         return (
           <div key={f.id} onPointerDown={(e) => startFieldDrag(e, f, 'move')} onClick={e => e.stopPropagation()}
             style={{ position: 'absolute', left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%`,
-              border: `2px solid ${c.solid}`, background: c.soft, borderRadius: 5, cursor: 'grab', touchAction: 'none',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
+              border: `2px solid ${c.solid}`, background: c.soft, borderRadius: 5, cursor: liftId === f.id ? 'grabbing' : 'grab', touchAction: 'none',
+              boxShadow: liftId === f.id ? '0 8px 22px rgba(17,24,39,0.20)' : 'none', zIndex: liftId === f.id ? 2 : undefined, transition: 'box-shadow var(--dur-xs) var(--ease-out)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
               <M.Icon size={10} /> {(M.labeled && f.label) || M.label}
             </span>
@@ -2922,8 +3060,8 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   };
   // One set of nav actions behind two bars - the desktop top bar and the mobile
   // bottom bar below it - so a phone can never end up on a step it cannot leave.
-  const goBack = () => setStep(s => s - 1);
-  const goNext = () => (stepOk() ? setStep(s => s + 1) : toastErr(stepHint()));
+  const goBack = () => { setStepDir(-1); setStep(s => s - 1); };
+  const goNext = () => { if (!stepOk()) { toastErr(stepHint()); return; } setStepDir(1); setStep(s => s + 1); };
   const sendBlocked = busy || !excludedAck || !documentClass || classBlocked;
   const sendTitle = classBlocked ? 'This document type cannot be signed electronically'
     : !documentClass ? 'Pick the document type first'
@@ -3006,7 +3144,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
           style={{ fontWeight: 700, fontSize: 14, width: 'min(300px, 26vw)' }} />
         <div style={{ flex: 1, display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
           {steps.map((s, i) => (
-            <button key={s} onClick={() => i < step && setStep(i)}
+            <button key={s} onClick={() => { if (i < step) { setStepDir(-1); setStep(i); } }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 13px', borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: 'Inter,sans-serif', border: 'none', cursor: i < step ? 'pointer' : 'default',
                 background: i === step ? 'var(--pine)' : i < step ? 'hsla(var(--color-green),0.12)' : 'var(--mist)',
                 color: i === step ? '#fff' : i < step ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
@@ -3035,7 +3173,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
       </div>
       )}
 
-      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+      <div ref={stepRef} style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {/* STEP 0 - Document */}
         {step === 0 && (
           <div style={{ maxWidth: 980, margin: '0 auto', padding: isMobile ? '14px 12px' : '26px 18px' }}>
@@ -3838,6 +3976,15 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   const loadTemplates = () => api.getSignTemplates().then(setTemplates).catch(() => setTemplates([]));
   const loadDrafts = () => api.signDrafts().then(setDrafts).catch(() => setDrafts([]));
   useEffect(() => { loadInbox(); loadRequests(); loadTemplates(); loadDrafts(); }, []);
+  // The list, the signing page and the send wizard replace each other in
+  // place; each comes in with a short fade, and so does a tab's content.
+  const viewRef = useRef(null);
+  const tabRef = useRef(null);
+  useSwapIn(viewRef, signParty ? 'sign' : sendOpen ? 'send' : 'list');
+  useSwapIn(tabRef, sub);
+  const inboxIn = useArrival(!!inbox);
+  const requestsIn = useArrival(!!requests);
+  const draftsIn = useArrival(!!drafts);
   // "Open in Nexus" in a Nexus Sign email carries ?request=<id> and must land
   // ON that envelope, not on a list the recipient then has to search (review
   // section 16). The param is consumed once and stripped, so a refresh or a
@@ -3922,10 +4069,13 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   // Signing + send wizard REPLACE the tab content in place - the Nexus
   // sidebar/header and HR tabs stay put (not a full-screen portal).
   if (signParty) return (
-    <SignModal partyId={signParty} toastOk={toastOk} toastErr={toastErr}
-      onClose={() => setSignParty(null)} onDone={() => { setSignParty(null); loadInbox(); loadRequests(); }} />
+    <div ref={viewRef}>
+      <SignModal partyId={signParty} toastOk={toastOk} toastErr={toastErr}
+        onClose={() => setSignParty(null)} onDone={() => { setSignParty(null); loadInbox(); loadRequests(); }} />
+    </div>
   );
   if (sendOpen) return (
+    <div ref={viewRef}>
     <SendWizard templates={templates || []} employees={employees} entities={entities}
       prefill={resumeDraft ? { draft: resumeDraft } : prefill}
       onPrefillConsumed={onPrefillConsumed} toastOk={toastOk} toastErr={toastErr}
@@ -3937,10 +4087,11 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
         setResumeDraft(null);
         onSentRequest?.(sent);
       }} />
+    </div>
   );
 
   return (
-    <div>
+    <div ref={viewRef}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         <div className="scroll-tabs" data-tour="documents-esign-tabs" style={{ display: 'flex', gap: 4, flex: 1, borderBottom: '1px solid var(--line)' }}>
           {tabs.map(([id, label]) => (
@@ -3955,11 +4106,12 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
         </button>
       </div>
 
+      <div ref={tabRef}>
       {sub === 'inbox' && (
-        !inbox ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
+        !inbox ? <SkeletonBlocks count={3} height={62} borderRadius={12} />
         : inbox.length === 0 ? empty(FileSignature, 'Nothing awaiting your signature.')
-        : inbox.map(item => (
-          <div key={item.partyId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${item.myTurn ? '#fbbf24' : 'var(--line)'}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
+        : inbox.map((item, i) => (
+          <div key={item.partyId} className={riseClass(inboxIn)} style={{ ...riseStyle(inboxIn, i), display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${item.myTurn ? '#fbbf24' : 'var(--line)'}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
             <FileSignature size={17} style={{ color: item.myTurn ? '#f59e0b' : 'var(--muted)', flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
@@ -3974,7 +4126,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
       )}
 
       {sub === 'requests' && (
-        !requests ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
+        !requests ? <SkeletonBlocks count={3} height={62} borderRadius={12} />
         : requests.length === 0 ? empty(Send, 'No signature requests yet.',
             <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={13} /> Send Your First</button>)
         : (
@@ -4002,14 +4154,14 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
                 Nothing matches - clear the search or pick another status.
               </div>
             )}
-            {visibleRequests.map(r => {
+            {visibleRequests.map((r, i) => {
               const m = REQ_STATUS[reqStatusKey(r)] || REQ_STATUS.pending;
               const signers = (r.parties || []).filter(p => p.partyRole !== 'cc');
               const signed = signers.filter(p => p.status === 'signed').length;
               const total = signers.length;
               return (
-                <div key={r.id} onClick={() => setDetailId(r.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${m.fg}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)', cursor: 'pointer' }}>
+                <div key={r.id} onClick={() => setDetailId(r.id)} className={riseClass(requestsIn)}
+                  style={{ ...riseStyle(requestsIn, i), display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${m.fg}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)', cursor: 'pointer' }}>
                   <FileSignature size={17} style={{ color: m.fg, flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</div>
@@ -4032,14 +4184,14 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
       )}
 
       {sub === 'drafts' && (
-        !drafts ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
+        !drafts ? <SkeletonBlocks count={3} height={62} borderRadius={12} />
         : drafts.length === 0
           ? empty(FilePlus2, 'No drafts. A send you save from the wizard waits here until you finish it.',
               <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={13} /> Send for Signature</button>)
           : (
             <>
-              {drafts.map(d => (
-                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 16px', border: '1px solid var(--line)', borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
+              {drafts.map((d, i) => (
+                <div key={d.id} className={riseClass(draftsIn)} style={{ ...riseStyle(draftsIn, i), display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 16px', border: '1px solid var(--line)', borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
                   <FilePlus2 size={17} style={{ color: 'var(--muted)', flexShrink: 0 }} />
                   <div style={{ flex: '1 1 160px', minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
@@ -4063,6 +4215,8 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
             </>
           )
       )}
+
+      </div>
 
       {detailId && <RequestDetailModal requestId={detailId} toastOk={toastOk} toastErr={toastErr}
         onClose={() => setDetailId(null)} onChanged={loadRequests} />}

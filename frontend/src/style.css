@@ -4457,13 +4457,17 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .icon-btn { transition: background var(--transition-fast), transform var(--dur-xs) var(--ease-standard); }
 .hdr-tab { transition: background .15s, color .15s, border-color .15s, transform var(--dur-xs) var(--ease-standard); }
 .module-tab-inline-btn { transition: color .15s, transform var(--dur-xs) var(--ease-standard); }
+/* .nx-press: the same answer for a hand-styled tappable that carries none of
+   the classes above (Nexus Sign's Sign Here and Next tabs). */
+.nx-press { transition: transform var(--dur-xs) var(--ease-standard); }
 .primary-btn:active:not(:disabled), .btn-primary:active:not(:disabled),
 .secondary-btn:active:not(:disabled), .btn-sm:active:not(:disabled) { transform: scale(.97); }
 .icon-btn:active:not(:disabled) { transform: scale(.92); }
+.nx-press:active:not(:disabled) { transform: scale(.97); }
 .hdr-tab:active, .module-tab-inline-btn:active { transform: scale(.96); }
 @media (prefers-reduced-motion: reduce) {
   .primary-btn:active, .btn-primary:active, .secondary-btn:active, .btn-sm:active,
-  .icon-btn:active, .hdr-tab:active, .module-tab-inline-btn:active { transform: none; }
+  .icon-btn:active, .hdr-tab:active, .module-tab-inline-btn:active, .nx-press:active { transform: none; }
 }
 
 /* KPI card hover - Work OS depth: 1px lift, deeper shadow (the legacy rule's
