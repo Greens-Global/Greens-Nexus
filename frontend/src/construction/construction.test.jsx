@@ -35,8 +35,12 @@ vi.mock('../api', () => ({ api: {
   reviewConstructionLog: vi.fn(),
   updateConstructionLog: vi.fn(),
   submitConstructionLog: vi.fn(),
+  submitConstructionLogSigned: vi.fn(),
   createConstructionMedia: vi.fn(),
   deleteConstructionMedia: vi.fn(),
+  // Field and Closeout (phase 3): the log's prefill, the report's photos.
+  getLogPrefill: vi.fn(async () => null),
+  getJobTimeline: vi.fn(async () => ({ photos: [], pairs: [] })),
   // The dashboard renders ConstructionInbox, which reads the shared bell feed.
   // Listed here so this harness matches what the tree actually calls - the
   // strip is covered on its own in ConstructionInbox.test.jsx.
@@ -336,7 +340,7 @@ describe('DailyLogCapture', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save & Close/i }));
 
     await waitFor(() => expect(api.updateConstructionLog).toHaveBeenCalledWith(
-      log.id, expect.objectContaining({ notes_raw: 'Footings poured on the north wall.' }),
+      log.id, expect.objectContaining({ notes_raw: 'Footings poured on the north wall.' }), expect.anything(),
     ));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
@@ -390,7 +394,7 @@ describe('DailyLogCapture', () => {
       expect(screen.getByDisplayValue(`${log.notes} Footings poured on the north wall`)).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: /Save & Close/i }));
       await waitFor(() => expect(api.updateConstructionLog).toHaveBeenCalledWith(
-        log.id, expect.objectContaining({ notes_raw: `${log.notes} Footings poured on the north wall` }),
+        log.id, expect.objectContaining({ notes_raw: `${log.notes} Footings poured on the north wall` }), expect.anything(),
       ));
     } finally { delete window.webkitSpeechRecognition; }
   });

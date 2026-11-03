@@ -20,13 +20,14 @@ import os
 import tempfile
 import unittest
 import uuid
-from unittest import mock
 from datetime import datetime, timedelta, timezone
 
 _tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp.close()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp.name}"
 os.environ["NEXUS_SKIP_AUTH"] = "true"
+# The photo-link check (construction_storage.check_media) needs a storage base.
+os.environ["SUPABASE_URL"] = "https://proj.supabase.co"
 
 import atexit  # noqa: E402
 
@@ -219,16 +220,10 @@ class ConstructionTests(unittest.TestCase):
         self.assertEqual(a.json()["id"], b.json()["id"])
 
     def test_media_register_twice_is_one_row(self):
-        # The link must be a construction-media object under this job's own
-        # folder (storage.check_media, construction foundations 11/03/2026).
-        with mock.patch.dict(os.environ, {"SUPABASE_URL": "https://example.supabase.co"}):
-            self._media_register_twice()
-
-    def _media_register_twice(self):
         log = self._log("2026-11-02").json()
         k = _key()
         body = {"kind": "photo", "mime_type": "image/jpeg", "size_bytes": 1234,
-                "url": f"https://example.supabase.co/storage/v1/object/public/construction-media/construction/{self.pid}/a.jpg"}
+                "url": f"https://proj.supabase.co/storage/v1/object/public/construction-media/construction/{self.pid}/a.jpg"}
         a = self.client.post(f"/construction/logs/{log['id']}/media", json=body, headers={"Idempotency-Key": k})
         b = self.client.post(f"/construction/logs/{log['id']}/media", json=body, headers={"Idempotency-Key": k})
         self.assertEqual(a.status_code, 201, a.text)

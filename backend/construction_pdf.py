@@ -227,7 +227,12 @@ def _fetch(url: str, project_id: str) -> bytes:
         return r.content
 
 
-def _photo_block(m, st, avail_w):
+def _who(email: str, names: dict | None = None) -> str:
+    em = (email or "").lower()
+    return (names or {}).get(em) or em.split("@")[0].replace(".", " ").title()
+
+
+def _photo_block(m, st, avail_w, names: dict | None = None):
     """One photo row: metadata column left, image right, as in the sample."""
     try:
         img = Image(io.BytesIO(_fetch(m.url, m.project_id or "")), width=avail_w * 0.66,
@@ -255,7 +260,8 @@ def _photo_block(m, st, avail_w):
         row("Description", m.caption or m.description or m.ai_caption or ""),
         row("Taken Date", _fmt_date(m.taken_at, "%m/%d/%Y at %I:%M %p")),
         row("Upload Date", _fmt_date(m.uploaded_at, "%m/%d/%Y at %I:%M %p")),
-        row("Uploaded By", (m.uploaded_by or "").split("@")[0].replace(".", " ").title()),
+        row("Uploaded By", _who(m.uploaded_by, names)),
+        row("Where", getattr(m, "location_text", "") or ""),
         row("File Name", fname, link=True),
     ], colWidths=[avail_w * 0.13, avail_w * 0.19])
     meta.setStyle(TableStyle([
@@ -274,8 +280,87 @@ def _photo_block(m, st, avail_w):
 
 
 # ── Build ────────────────────────────────────────────────────────────────────
-def build(report, project, media_by_id: dict, logs: list) -> bytes:
-    """Render one report. `media_by_id` is {id: ConstructionMedia}."""
+def _pair_block(pr, before, after, st, avail_w, names: dict | None = None):
+    """Before and after, side by side (11/03/2026): two photos of one spot
+    with when each was taken, the pair's caption under them. None when
+    either picture cannot be fetched."""
+    cells = []
+    for m in (before, after):
+        try:
+            cells.append(Image(io.BytesIO(_fetch(m.url, m.project_id or "")), width=avail_w * 0.47,
+                               height=62 * mm, kind="proportional"))
+        except Exception:
+            return None
+    meta = [Paragraph(_escape(f"{label} - {_fmt_date(m.taken_at or m.uploaded_at, '%m/%d/%Y at %I:%M %p')}"
+                              + (f" - {_who(m.uploaded_by, names)}" if m.uploaded_by else "")), st["meta"])
+            for label, m in (("Before", before), ("After", after))]
+    rows = [[Paragraph("<b>Before</b>", st["meta"]), Paragraph("<b>After</b>", st["meta"])], cells, meta]
+    caption = (getattr(pr, "caption", "") or "").strip()
+    where = (getattr(after, "location_text", "") or getattr(before, "location_text", "") or "").strip()
+    if caption or where:
+        rows.append([Paragraph(_escape(" - ".join(x for x in (caption, where) if x)), st["meta"]), ""])
+    t = Table(rows, colWidths=[avail_w * 0.5, avail_w * 0.5])
+    style = [("VALIGN", (0, 0), (-1, -1), "TOP"), ("LINEABOVE", (0, 0), (-1, 0), 0.6, _RULE),
+             ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+             ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 6)]
+    if len(rows) == 4:
+        style.append(("SPAN", (0, 3), (1, 3)))
+    t.setStyle(TableStyle(style))
+    return KeepTogether(t)
+
+
+def _photo_log(flow, st, doc, shots, pairs, names=None) -> None:
+    """Pairs first (one a page), then the photos two a page."""
+    placed = 0
+    for pr, before, after in pairs:
+        block = _pair_block(pr, before, after, st, doc.width, names)
+        if block is None:
+            continue
+        if placed:
+            flow.append(PageBreak())
+        flow.append(block)
+        placed = _PHOTOS_PER_PAGE
+    count = 0
+    for m in shots:
+        block = _photo_block(m, st, doc.width, names)
+        if block is None:
+            continue
+        if placed and (count == 0 or count % _PHOTOS_PER_PAGE == 0):
+            flow.append(PageBreak())
+        flow.append(block)
+        count += 1
+        placed = 1
+
+
+def build_photo_report(project, photos: list, pairs: list, *, title: str = "", names: dict | None = None) -> bytes:
+    """The curated photo report (11/03/2026): the photos and before / after
+    pairs a person picked from the job's timeline, in the photo log's own
+    format (its header, two to a page, 'Page N of M'). `pairs` is
+    [(pair, before media, after media)]."""
+    st = _styles()
+    buf = io.BytesIO()
+    printed_at = datetime.now(timezone.utc)
+    photo_pages = set()
+    doc = BaseDocTemplate(buf, pagesize=LETTER, leftMargin=20 * mm, rightMargin=20 * mm,
+                          topMargin=34 * mm, bottomMargin=18 * mm,
+                          title=title or f"{project.name} Photo Report", author="Greens Global")
+    frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="body",
+                  leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
+
+    def on_photos(cv, d):
+        photo_pages.add(cv.getPageNumber())
+        _header_photos(cv, d, project, printed_at)
+
+    doc.addPageTemplates([PageTemplate(id="photos", frames=[frame], onPage=on_photos)])
+    flow = [Paragraph(f"<u>{_escape(title or 'Photo Report')}</u>", st["doctitle"])]
+    _photo_log(flow, st, doc, photos, pairs, names)
+    doc.build(flow, canvasmaker=_numbered_canvas(photo_pages))
+    return buf.getvalue()
+
+
+def build(report, project, media_by_id: dict, logs: list, pairs: list | None = None) -> bytes:
+    """Render one report. `media_by_id` is {id: ConstructionMedia}; `pairs`
+    the report's before / after pairs as [(pair, before, after)]."""
     st = _styles()
     buf = io.BytesIO()
     printed_at = datetime.now(timezone.utc)
@@ -325,20 +410,14 @@ def build(report, project, media_by_id: dict, logs: list) -> bytes:
     shots = [live[i] for i in (report.media_ids or []) if i in live and live[i].kind == "photo"]
     vids = [live[i] for i in (report.media_ids or []) if i in live and live[i].kind == "video"]
 
-    if shots or vids:
+    pairs = pairs or []
+    if shots or vids or pairs:
         flow.append(NextPageTemplate("photos"))
         flow.append(PageBreak())
-        placed = 0
-        for m in shots:
-            block = _photo_block(m, st, doc.width)
-            if block is None:
-                continue
-            # PER_PAGE is a layout decision, not a consequence of image height:
-            # let these flow and three fit, which reads nothing like the sample.
-            if placed and placed % _PHOTOS_PER_PAGE == 0:
-                flow.append(PageBreak())
-            flow.append(block)
-            placed += 1
+        # Pairs first, one a page, then the photos two a page - PER_PAGE is a
+        # layout decision, not a consequence of image height: let these flow
+        # and three fit, which reads nothing like the sample.
+        _photo_log(flow, st, doc, shots, pairs)
         if vids:
             flow.append(Paragraph("<u>Site Video</u>", st["h"]))
             for m in vids:

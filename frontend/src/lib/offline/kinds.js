@@ -6,8 +6,21 @@
 // loads until a change of that kind is waiting.
 //
 // A new field screen adds ONE line: '<module>:<thing>': () => import('...').
+const construction = () => import('../../construction/constructionOffline');
+
 const LOADERS = {
   'forms:entry': () => import('../../forms/formsOffline'),
+  // Construction in the field (11/03/2026, plan phase 3): the daily log, job photos,
+  // punch Done / Verified, field tickets - one module registers them all.
+  'construction:log-create': construction,
+  'construction:log-patch': construction,
+  'construction:log-media': construction,
+  'construction:log-submit': construction,
+  'construction:job-photo': construction,
+  'construction:punch-add': construction,
+  'construction:punch-done': construction,
+  'construction:punch-verify': construction,
+  'construction:field-ticket': construction,
 };
 
 /** Load the module that registers `kind`. Resolves false when none is known. */

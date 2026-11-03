@@ -397,7 +397,8 @@ def deliver_published_report(report_id: str) -> str:
                     .filter(_models.ConstructionDailyLog.id.in_(r.daily_log_ids or [""]))
                     .order_by(_models.ConstructionDailyLog.log_date).all()) \
                 if r.daily_log_ids else []
-            pdf = construction_pdf.build(r, p, media, logs)
+            import construction_report
+            pdf = construction_pdf.build(r, p, media, logs, pairs=construction_report.report_pairs(db, r))
         except Exception as e:
             # Still send the mail - a report someone can open in the app beats
             # silence because the renderer choked on one photo.

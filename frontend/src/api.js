@@ -3318,11 +3318,15 @@ export const api = {
   // was made from as an ordinary image attachment - the EXISTING attachment
   // endpoints, no new path. `source` is the board's { kind, id }; anything
   // but a task or a ticket is refused here so a caller can hide the action.
-  attachMarkup: (source, { url, name, size = "" }) => {
+  attachMarkup: (source, { url, name, size = "", blob = null }) => {
     const data = { name, size, kind: "image", url };
     if (source?.kind === "task") return api.addTaskAttachment(source.id, data);
     if (source?.kind === "ticket") return api.addTicketAttachment(source.id, data);
-    return Promise.reject(new Error("Only a task or a ticket can take a markup back."));
+    // A job photo (Construction, 11/03/2026): the board's PNG goes into the
+    // job's own construction-media folder and comes back as a photo beside
+    // the original. `blob` is the PNG; the job is in the source's link.
+    if (source?.kind === "construction_media") return _attachConstructionMarkup(source, { name, blob });
+    return Promise.reject(new Error("Only a task, a ticket or a job photo can take a markup back."));
   },
   // One kept copy of a note in full (11/02/2026): noteVersions' rows are
   // light (a board's carry shapes / words, never its scene); this one
@@ -3598,3 +3602,51 @@ api.getJobMoneyFlags = () => cachedGet('/construction/money/flags', 60_000);
 api.getBookProjects = (entity = '') => req(`/construction/books/projects${entity ? `?entity=${encodeURIComponent(entity)}` : ''}`);
 api.mapJobBooks = (jobId, body) => req(`/construction/projects/${encodeURIComponent(jobId)}/books`, { method: 'PUT', body: JSON.stringify(body) });
 api.getSpendJobs = () => cachedGet('/construction/spend-jobs', 120_000);
+// Field and Closeout (Neil, 11/03/2026, plan phase 3; routers/construction_field.py,
+// routers/construction_handover.py): the self-drafting daily log, the photo
+// timeline (pairs, Mark Up, the photo report), punch spots and Done photos,
+// field tickets, change orders, closeout. Writes the phone's outbox may resend
+// take opts.headers (the Idempotency-Key - docs/Offline.md).
+const _jp = (id) => `/construction/projects/${encodeURIComponent(id)}`;
+const _post = (path, data, opts = {}) => req(path, { method: 'POST', body: JSON.stringify(data || {}), headers: opts.headers });
+api.getLogPrefill = (jobId, day = '') => req(`${_jp(jobId)}/logs/prefill?date=${encodeURIComponent(day)}`);
+api.submitConstructionLogSigned = (logId, signedName, opts = {}) => _post(`/construction/logs/${encodeURIComponent(logId)}/submit`, { signed_name: signedName || '' }, opts);
+api.getJobTimeline = (jobId, { tag = '', q = '', logId = '' } = {}) => req(`${_jp(jobId)}/timeline?tag=${encodeURIComponent(tag)}&q=${encodeURIComponent(q)}&log_id=${encodeURIComponent(logId)}`);
+api.addJobMedia = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/media`, data, opts);
+api.updateMediaMeta = (mediaId, data, opts = {}) => req(`/construction/media/${encodeURIComponent(mediaId)}/meta`, { method: 'PATCH', body: JSON.stringify(data), headers: opts.headers });
+api.makePhotoPair = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/pairs`, data, opts);
+api.removePhotoPair = (pairId) => req(`/construction/pairs/${encodeURIComponent(pairId)}`, { method: 'DELETE' });
+api.attachConstructionMarkup = (mediaId, data, opts = {}) => _post(`/construction/media/${encodeURIComponent(mediaId)}/markup`, data, opts);
+api.photoReportPdf = (jobId, data) => reqBlob(`${_jp(jobId)}/photo-report`, { method: 'POST', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } });
+api.addPunchItemQueued = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/punch`, data, opts);
+api.setPunchDoneWithPhoto = (taskId, done, photo, opts = {}) => _post(`/construction/punch/${encodeURIComponent(taskId)}/done`, { done: !!done, ...(photo ? { photo } : {}) }, opts);
+api.setPunchVerifiedQueued = (taskId, verified, opts = {}) => _post(`/construction/punch/${encodeURIComponent(taskId)}/verify`, { verified: !!verified }, opts);
+api.setPunchSpot = (taskId, locationText, opts = {}) => _post(`/construction/punch/${encodeURIComponent(taskId)}/spot`, { location_text: locationText || '' }, opts);
+api.getJobChanges = (jobId) => req(`${_jp(jobId)}/changes`);
+api.getFieldTicketLabor = (jobId, day = '') => req(`${_jp(jobId)}/field-tickets/labor?date=${encodeURIComponent(day)}`);
+api.createFieldTicket = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/field-tickets`, data, opts);
+api.signFieldTicket = (ticketId, data, opts = {}) => _post(`/construction/field-tickets/${encodeURIComponent(ticketId)}/sign`, data, opts);
+api.voidFieldTicket = (ticketId) => _post(`/construction/field-tickets/${encodeURIComponent(ticketId)}/void`, {});
+api.createChangeOrder = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/change-orders`, data, opts);
+api.updateChangeOrder = (coId, data) => req(`/construction/change-orders/${encodeURIComponent(coId)}`, { method: 'PATCH', body: JSON.stringify(data) });
+api.sendChangeOrder = (coId, data = {}) => _post(`/construction/change-orders/${encodeURIComponent(coId)}/send`, data);
+api.approveChangeOrder = (coId) => _post(`/construction/change-orders/${encodeURIComponent(coId)}/approve`, {});
+api.sendBackChangeOrder = (coId, note) => _post(`/construction/change-orders/${encodeURIComponent(coId)}/send-back`, { note });
+api.voidChangeOrder = (coId, note = '') => _post(`/construction/change-orders/${encodeURIComponent(coId)}/void`, { note });
+api.getJobCloseout = (jobId) => req(`${_jp(jobId)}/closeout`);
+api.addCloseoutRecord = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/closeout/records`, data, opts);
+api.removeCloseoutRecord = (recordId) => req(`/construction/closeout/records/${encodeURIComponent(recordId)}`, { method: 'DELETE' });
+api.closeOutJob = (jobId) => _post(`${_jp(jobId)}/closeout`, { write_back: true });
+api.sendOwnerSignoff = (jobId, data) => _post(`${_jp(jobId)}/closeout/signoff`, data);
+
+// Mark Up "Attach to" a job photo (lib/markup.js source kind construction_media).
+async function _attachConstructionMarkup(source, { name, blob }) {
+  const m = /project:([^:/?#]+)/.exec(String(source?.url || ''));
+  if (!m || !blob) throw new Error('This board does not know which job it belongs to.');
+  const { uploadConstructionMedia } = await import('./construction/lib/upload');
+  const base = String(name || 'Mark Up').replace(/[\\/:*?"<>|]+/g, '-');
+  const file = new File([blob], base.endsWith('.png') ? base : `${base}.png`, { type: 'image/png' });
+  const { payload, error } = await uploadConstructionMedia(file, { projectId: decodeURIComponent(m[1]) });
+  if (error) throw new Error(error);
+  return api.attachConstructionMarkup(source.id, { url: payload.url, storage_path: payload.storage_path || '', mime_type: payload.mime_type || 'image/png', size_bytes: payload.size_bytes || 0, name: name || 'Mark Up' });
+}

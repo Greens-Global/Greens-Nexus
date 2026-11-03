@@ -463,7 +463,7 @@ class ReviewFollowUpTests(_Base):
         self.db.commit()
         import construction_pdf
         seen = {}
-        with mock.patch.object(construction_pdf, "build", side_effect=lambda r, p, media, logs: seen.update(media) or b"%PDF"):
+        with mock.patch.object(construction_pdf, "build", side_effect=lambda r, p, media, logs, **kw: seen.update(media) or b"%PDF"):
             self.assertEqual(self.client.get("/construction/reports/r1/pdf").status_code, 200)
         self.assertEqual(sorted(seen), ["ma"])
 

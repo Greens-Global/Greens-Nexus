@@ -17,11 +17,16 @@ const ALL = [
   { key: 'schedule', label: 'Schedule' },
   { key: 'punch', label: 'Punch List' },
   { key: 'field', label: 'Field' },
+  { key: 'photos', label: 'Photos' },
   { key: 'rfis', label: 'RFIs And Submittals' },
+  { key: 'changes', label: 'Changes' },
   { key: 'closeout', label: 'Closeout' },
 ];
 
-const WORK_ORDER = ['overview', 'punch', 'field', 'closeout'];
+// Field and Closeout (11/03/2026, phase 3): Photos (the timeline) and Changes
+// (field tickets and change orders) on both sizes - a work order's extra work
+// is signed on site too.
+const WORK_ORDER = ['overview', 'punch', 'field', 'photos', 'changes', 'closeout'];
 const MONEY = { key: 'money', label: 'Money' };
 
 // Money sits before Closeout: managers with Accounting access only.

@@ -23,9 +23,20 @@ a job behind the caller's company wall is a 404, never a 403):
                  tables and routes are untouched
   Search         the Jobs group in the header search
 
-Field writes (punch items, Done, equipment links) take an id the phone may
-make, so the offline outbox (feat/field-offline) can resend one safely: a
-resend of a write that landed answers with what it made.
+Field writes (punch items, Done, Verified, equipment links) go through ONE
+idempotency mechanism (docs/Offline.md section 5, 11/03/2026): the
+Idempotency-Key header (idempotency.py, nexus_idempotency_keys) - a resend
+of a write that landed answers with the first answer. The phone-made ids
+phase 2 introduced stay, as the RECORD's id (an item made offline can be
+pointed at before it reaches the server - a Done queued behind its Add);
+the outbox sends that same id as the key, and the "id already exists"
+answer each create keeps is only the backstop for a resend after the key's
+7 days. Done and Verified are also idempotent by state.
+
+Punch in the field (11/03/2026, phase 3): each item has a spot (location
+text, ConstructionPunchMeta) and marking a punch item Done needs a photo of
+the finished work (a job photo tagged 'punch', ConstructionMedia.task_id);
+Verified is one tap (undo = unverify), the verifier and time kept.
 """
 from __future__ import annotations
 
@@ -44,6 +55,7 @@ import construction_tasks
 import models
 from auth import get_current_user
 from database import get_db
+from idempotency import Idem, idempotency
 from routers.construction import (_emails, _may_log, _may_read, _may_review, _me, _project,
                                   _visible_projects, project_to_dict, stamp_task_project, _may_see_cost)
 
@@ -93,6 +105,10 @@ def _project_view(db: Session, p, user: dict) -> dict:
     names = _names(db, {e for t in rows for e in task_assignees(t)})
     today = _jobsite_today(db, p)
     ahead = construction_tasks.look_ahead(rows, today)
+    PM = models.ConstructionPunchMeta
+    punch_ids = [t.id for t in rows if sec is not None and t.section_id == sec.id]
+    meta = {m.task_id: m for m in db.query(PM).filter(PM.task_id.in_(punch_ids or [""])).all()}
+    mnames = _names(db, {x for m in meta.values() for x in (m.done_by, m.verified_by) if x})
     return {
         "taskProject": {"id": tp.id, "name": tp.name, "portfolioId": tp.portfolio_id or "",
                         "startOn": tp.start_on or "", "dueOn": tp.due_on or ""},
@@ -109,6 +125,12 @@ def _project_view(db: Session, p, user: dict) -> dict:
         "today": today.isoformat(),
         "canEdit": _may_review(db, user, p),
         "canLog": _may_log(db, user, p),
+        # Punch in the field (11/03/2026): each item's spot, Done photo and verifier.
+        "punchMeta": {tid: {"location": m.location_text or "", "donePhotoUrl": m.done_photo_url or "",
+                            "doneMediaId": m.done_media_id or "", "doneBy": m.done_by or "",
+                            "doneByName": mnames.get(m.done_by or "", ""), "doneAt": m.done_at or "",
+                            "verifiedBy": m.verified_by or "", "verifiedByName": mnames.get(m.verified_by or "", ""),
+                            "verifiedAt": m.verified_at or ""} for tid, m in meta.items()},
     }
 
 
@@ -163,6 +185,17 @@ class PunchIn(BaseModel):
     description: Optional[str] = ""
     assignee_emails: Optional[list] = None
     due_on: Optional[str] = ""
+    location_text: Optional[str] = ""   # the spot on the site, in words (11/03/2026)
+
+
+def _meta(db: Session, job, task_id: str):
+    """The punch item's side row (made on first need, not committed)."""
+    m = db.get(models.ConstructionPunchMeta, task_id)
+    if m is None:
+        m = models.ConstructionPunchMeta(task_id=task_id, project_id=job.id, modified_at=_now())
+        db.add(m)
+        db.flush()   # autoflush is off: the next lookup in this request must find it
+    return m
 
 
 def _punch_task(db: Session, task_id: str, user: dict, punch_only: bool = True):
@@ -186,10 +219,14 @@ def _punch_task(db: Session, task_id: str, user: dict, punch_only: bool = True):
 
 @router.post("/projects/{job_id}/punch", status_code=201)
 def add_punch_item(job_id: str, body: PunchIn, background_tasks: BackgroundTasks,
-                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+                   user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+                   idem: Idem = Depends(idempotency)):
     """A punch item: a task in the job's "Punch" section, made through
     routers.tasks._create_task. The crew and the job's managers may add one."""
     from routers import tasks as tasks_router
+    hit = idem.replay(db, user)
+    if hit is not None:
+        return hit
     p = _project(db, job_id, user)
     if not _may_log(db, user, p):
         raise HTTPException(403, "You are not on this job.")
@@ -218,28 +255,93 @@ def add_punch_item(job_id: str, body: PunchIn, background_tasks: BackgroundTasks
                                 due_on=(body.due_on or "")[:10]),
         background_tasks, user, db, check_people=True)
     t = db.query(models.Task).filter(models.Task.id == made["id"]).first()
-    return _task_row(t, _names(db, people))
+    spot = (body.location_text or "").strip()[:200]
+    if spot:
+        _meta(db, p, t.id).location_text = spot
+    out = _task_row(t, _names(db, people))
+    out["punchMeta"] = {"location": spot}
+    idem.remember(db, user, out, 201)
+    lost = idem.commit(db, user)
+    return lost if lost is not None else out
 
 
 class DoneIn(BaseModel):
     done: bool = True
+    # The finished work (11/03/2026): a photo the browser already put in this
+    # job's construction-media folder - required to mark a punch item Done.
+    photo: Optional[dict] = None
 
 
 @router.post("/punch/{task_id}/done")
 def punch_done(task_id: str, body: DoneIn, background_tasks: BackgroundTasks,
-               user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+               user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+               idem: Idem = Depends(idempotency)):
     """The crew's step: Done (or not done) - a punch item, or any step of the
     job's task project (a work order's Tasks tab). Through update_task.
     Idempotent - asking for the state it is already in changes nothing.
     Taking Done back also takes Verified away."""
     from routers import tasks as tasks_router
+    from routers.construction_field import JobMediaBody, make_media
+    hit = idem.replay(db, user)
+    if hit is not None:
+        return hit
     job, tp, t = _punch_task(db, task_id, user, punch_only=False)
     if not _may_log(db, user, job):
         raise HTTPException(403, "You are not on this job.")
+    sec = construction_tasks.punch_section(db, tp, create=False)
+    is_punch = sec is not None and t.section_id == sec.id
+    if is_punch and bool(body.done) and not t.completed:
+        m = db.get(models.ConstructionPunchMeta, t.id)
+        if not body.photo and not (m and m.done_media_id):
+            raise HTTPException(422, "Add a photo of the finished work to mark it Done.")
+        if body.photo:
+            try:
+                pb = JobMediaBody(**{k: v for k, v in body.photo.items() if k in JobMediaBody.model_fields})
+            except Exception:   # noqa: BLE001 - a malformed photo is the person's to fix
+                raise HTTPException(422, "The photo did not upload - take it again.")
+            pb.kind = "photo"
+            media = make_media(db, user, job, pb, task_id=t.id, extra_tags=("punch",))
+            meta = _meta(db, job, t.id)
+            meta.done_media_id, meta.done_photo_url = media.id, media.url or ""
+        meta = _meta(db, job, t.id)
+        meta.done_by, meta.done_at, meta.modified_at = _me(user), _now(), _now()
+        db.commit()
     if bool(t.completed) != bool(body.done):
         tasks_router.update_task(t.id, tasks_router.TaskUpdate(completed=bool(body.done)), background_tasks, user, db)
+        if is_punch and not body.done:
+            meta = db.get(models.ConstructionPunchMeta, t.id)
+            if meta is not None:   # the photo stays as evidence; Done and Verified are taken back
+                meta.done_by = meta.done_at = meta.verified_by = meta.verified_at = ""
+                meta.modified_at = _now()
+                db.commit()
     db.refresh(t)
-    return _task_row(t, _names(db, t.assignee_emails or []))
+    out = _task_row(t, _names(db, t.assignee_emails or []))
+    idem.remember(db, user, out, 200)
+    lost = idem.commit(db, user)
+    return lost if lost is not None else out
+
+
+class SpotIn(BaseModel):
+    location_text: str = ""
+
+
+@router.post("/punch/{task_id}/spot")
+def punch_spot(task_id: str, body: SpotIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+               idem: Idem = Depends(idempotency)):
+    """Where on the site a punch item is, in words (the crew or a manager)."""
+    hit = idem.replay(db, user)
+    if hit is not None:
+        return hit
+    job, tp, t = _punch_task(db, task_id, user)
+    if not _may_log(db, user, job):
+        raise HTTPException(403, "You are not on this job.")
+    m = _meta(db, job, t.id)
+    m.location_text, m.modified_at = (body.location_text or "").strip()[:200], _now()
+    db.flush()
+    out = {"taskId": t.id, "location": m.location_text}
+    idem.remember(db, user, out, 200)
+    lost = idem.commit(db, user)
+    return lost if lost is not None else out
 
 
 class VerifyIn(BaseModel):
@@ -248,11 +350,15 @@ class VerifyIn(BaseModel):
 
 @router.post("/punch/{task_id}/verify")
 def punch_verify(task_id: str, body: VerifyIn, background_tasks: BackgroundTasks,
-                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+                 user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+                 idem: Idem = Depends(idempotency)):
     """The reviewer's step: Verified - the project's "Verified" custom status
     set WITH completed (so the item stays done everywhere Tasks counts done).
     Only a Done item; unverify puts it back to plain Done."""
     from routers import tasks as tasks_router
+    hit = idem.replay(db, user)
+    if hit is not None:
+        return hit
     job, tp, t = _punch_task(db, task_id, user)
     if not _may_review(db, user, job):
         raise HTTPException(403, "Only a job manager can verify punch items.")
@@ -265,8 +371,18 @@ def punch_verify(task_id: str, body: VerifyIn, background_tasks: BackgroundTasks
             tasks_router.update_task(t.id, tasks_router.TaskUpdate(status=ver.id, completed=True), background_tasks, user, db)
     elif t.status == ver.id:
         tasks_router.update_task(t.id, tasks_router.TaskUpdate(status="completed", completed=True), background_tasks, user, db)
+    m = _meta(db, job, t.id)
+    if body.verified and not m.verified_at:
+        m.verified_by, m.verified_at = _me(user), _now()
+    elif not body.verified:
+        m.verified_by = m.verified_at = ""
+    m.modified_at = _now()
+    db.commit()
     db.refresh(t)
-    return _task_row(t, _names(db, t.assignee_emails or []))
+    out = _task_row(t, _names(db, t.assignee_emails or []))
+    idem.remember(db, user, out, 200)
+    lost = idem.commit(db, user)
+    return lost if lost is not None else out
 
 
 # ── Tickets: Start Job, the job's source tickets ─────────────────────────────
@@ -443,10 +559,13 @@ class EquipmentIn(BaseModel):
 
 @router.post("/projects/{job_id}/equipment", status_code=201)
 def link_equipment(job_id: str, body: EquipmentIn, user: dict = Depends(get_current_user),
-                   db: Session = Depends(get_db)):
+                   db: Session = Depends(get_db), idem: Idem = Depends(idempotency)):
     """Put an ordinary Items checkout on the job. Only a checkout that is out
     (allocated or awaiting receipt) to one of the job's people; one live job
     per checkout - moving it ends the old link (history kept)."""
+    hit = idem.replay(db, user)
+    if hit is not None:
+        return hit
     p = _project(db, job_id, user)
     if not _may_log(db, user, p):
         raise HTTPException(403, "You are not on this job.")
@@ -472,8 +591,10 @@ def link_equipment(job_id: str, body: EquipmentIn, user: dict = Depends(get_curr
     db.add(models.ConstructionActivity(id=str(uuid.uuid4()), project_id=p.id, entity_kind="project",
                                        entity_id=p.id, type="equipment_linked", actor_email=_me(user),
                                        at=_now(), detail=f"{c.item_name or 'equipment'} on the job"))
-    db.commit()
-    return {"linkId": lk.id}
+    db.flush()
+    idem.remember(db, user, {"linkId": lk.id}, 201)
+    lost = idem.commit(db, user)
+    return lost if lost is not None else {"linkId": lk.id}
 
 
 @router.post("/equipment-links/{link_id}/end")

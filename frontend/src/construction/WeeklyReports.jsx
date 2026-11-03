@@ -35,6 +35,11 @@ const LABELS = {
   rfis_and_submittals: "RFI's and Submittals",
   cost_exposures: 'Cost Exposures',
   critical_milestones: 'Critical Milestones',
+  // Real health (11/03/2026, phase 3) - all assembled from rows.
+  job_health: 'Schedule and Health',
+  punch_list: 'Punch List',
+  change_orders: 'Change Orders',
+  weather_and_delays: 'Weather and Delays',
 };
 
 // Sections the manager types into.
@@ -52,8 +57,65 @@ const EDITABLE = new Set(['summary_of_progress', 'cost_exposures']);
 // left wondering why the text is not selectable.
 const DERIVED_HINT = {
   rfis_and_submittals: 'Assembled from the RFIs and Submittals registers.',
-  critical_milestones: 'Assembled from the Milestones register.',
+  critical_milestones: "Assembled from the job's schedule (its milestones in Tasks).",
+  job_health: 'Late, At Risk or On Track from the dates, milestones and RFIs; crew-days from Time Clock punches.',
+  punch_list: "Counted from the job's punch list.",
+  change_orders: 'From the Changes tab - signed and pending change orders.',
+  weather_and_delays: "Added up from the delay lines on the week's daily logs.",
 };
+
+// The photos and before / after pairs the report prints (11/03/2026): the
+// week's approved logs' photos and job photos, and the pairs among them. A
+// manager takes one out of a draft here; the photo log prints what stays.
+function ReportPhotos({ project, report, locked, onChanged }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve().then(() => api.getJobTimeline(project.id)).then((d) => { if (live) setData(d); }).catch(() => { if (live) setData({ photos: [], pairs: [] }); });
+    return () => { live = false; };
+  }, [project.id, report.id]);
+  if (!data) return null;
+  const byId = Object.fromEntries((data.photos || []).map((p) => [p.id, p]));
+  const pairs = (data.pairs || []).filter((pr) => (report.pairIds || []).includes(pr.id) && byId[pr.beforeId] && byId[pr.afterId]);
+  const photos = (report.mediaIds || []).map((id) => byId[id]).filter((p) => p && p.kind === 'photo');
+  if (!photos.length && !pairs.length) return null;
+  const drop = async (patch) => {
+    setBusy(true);
+    try { onChanged(await api.updateConstructionReport(report.id, patch)); } finally { setBusy(false); }
+  };
+  const x = { position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, padding: '1px 6px', cursor: 'pointer' };
+  return (
+    <div style={{ marginTop: 6, marginBottom: 14 }} data-report-photos="">
+      <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>Photos in This Report</div>
+      {pairs.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, marginBottom: 8 }}>
+          {pairs.map((pr) => (
+            <div key={pr.id} style={{ position: 'relative', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, border: '1px solid var(--border-color)', borderRadius: 8, padding: 4 }}>
+              {[['Before', byId[pr.beforeId]], ['After', byId[pr.afterId]]].map(([w, p]) => (
+                <figure key={w} style={{ margin: 0 }}>
+                  <img src={p.thumbnailUrl || p.url} alt={`${w} photo`} style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', borderRadius: 4 }} />
+                  <figcaption style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{w}</figcaption>
+                </figure>
+              ))}
+              {!locked && <button type="button" style={x} disabled={busy} aria-label="Leave this pair out"
+                onClick={() => drop({ pair_ids: (report.pairIds || []).filter((i) => i !== pr.id) })}>Leave Out</button>}
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 6 }}>
+        {photos.map((p) => (
+          <div key={p.id} style={{ position: 'relative' }}>
+            <img src={p.thumbnailUrl || p.url} alt={p.caption || 'Photo'} style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+            {!locked && <button type="button" style={x} disabled={busy} aria-label="Leave this photo out"
+              onClick={() => drop({ media_ids: (report.mediaIds || []).filter((i) => i !== p.id) })}>Out</button>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function Section({ sectionKey, section, locked, onChange, showAiOriginal }) {
   const [showAi, setShowAi] = useState(false);
@@ -294,9 +356,13 @@ export default function WeeklyReports({ project, canReview }) {
               <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 18 }}>
                 {formatDate(open.weekStart, open.weekStart)} to {formatDate(open.weekEnd, open.weekEnd)}
                 {open.stats?.logs != null && ` · ${open.stats.logs} approved log${open.stats.logs === 1 ? '' : 's'}`}
-                {open.stats?.crewDays ? ` · ${open.stats.crewDays} crew-days` : ''}
+                {open.stats?.crewDaysPunched ? ` · ${open.stats.crewDaysPunched} crew-days from punches` : open.stats?.crewDays ? ` · ${open.stats.crewDays} crew-days` : ''}
+                {open.stats?.weatherDelayHours ? ` · ${open.stats.weatherDelayHours} h weather delay` : ''}
                 {aiEnabled && open.stats?.safetyFlags ? ` · ${open.stats.safetyFlags} safety flag${open.stats.safetyFlags === 1 ? '' : 's'}` : ''}
               </div>
+
+              <ReportPhotos project={project} report={open} locked={locked}
+                onChanged={(r) => setReports((prev) => (prev || []).map((x) => (x.id === r.id ? r : x)))} />
 
               {order.map((k) => (
                 <Section key={k} sectionKey={k} section={merged(k)} locked={locked}

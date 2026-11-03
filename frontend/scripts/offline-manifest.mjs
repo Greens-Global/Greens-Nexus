@@ -36,6 +36,20 @@ export const OFFLINE_SCREENS = [
   'src/components/MyShifts.jsx',
   'src/components/ESign.jsx',     // the signature pad a form's signature field opens
   'node_modules/jsqr/',           // a form's QR scan where the browser has no reader
+  // Construction in the field (Neil, 11/03/2026, plan phase 3): the job page and its
+  // field tabs (punch, photos, changes, closeout), Site Activity with the daily
+  // log, and the outbox kinds. The manager-only weekly report is not here.
+  'src/construction/constructionOffline.js',
+  'src/views/Operations.jsx',
+  'src/construction/ConstructionDashboard.jsx',
+  'src/construction/DailyLogCapture.jsx',
+  'src/construction/SiteActivity.jsx',
+  'src/construction/job/JobPage.jsx',
+  'src/construction/job/PunchTab.jsx',
+  'src/construction/job/PhotosTab.jsx',
+  'src/construction/job/ChangesTab.jsx',
+  'src/construction/job/FieldTicketSheet.jsx',
+  'src/construction/job/CloseoutTab.jsx',
 ];
 
 // Unhashed files the shell asks for (index.html's guard, the manifest, icons).

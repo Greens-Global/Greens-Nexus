@@ -36,7 +36,10 @@ vi.mock('../api', () => ({ api: {
   removeConstructionMedia: vi.fn(),
   updateConstructionLog: vi.fn(),
   submitConstructionLog: vi.fn(),
+  submitConstructionLogSigned: vi.fn(),
   createConstructionMedia: vi.fn(),
+  getLogPrefill: vi.fn(async () => null),
+  getJobTimeline: vi.fn(async () => ({ photos: [], pairs: [] })),
   // The Job page (phase 2): its Overview reads what the job is connected to.
   getJobConnected: vi.fn(),
 } }));

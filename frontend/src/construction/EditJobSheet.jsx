@@ -136,6 +136,15 @@ export default function EditJobSheet({ project, money = null, onClose, onSaved }
             <PersonMultiSelect value={draft.managerEmails} people={people} onChange={(v) => patch({ managerEmails: v })} placeholder="Add managers" addTitle="Add managers" />
           </div>
         </SettingRow>
+        <SettingRow title="Superintendent" desc="Who runs the site day to day. They get the morning reminder when yesterday's daily log is missing; with none, the managers do.">
+          <select aria-label="Superintendent" className="form-input" style={{ width: 'min(260px, 60vw)' }} value={draft.superintendentEmail}
+            onChange={(e) => patch({ superintendentEmail: e.target.value })} data-job-team="superintendent">
+            <option value="">None - the managers</option>
+            {[...new Set([...(draft.managerEmails || []), ...(draft.workerEmails || [])])].map((em) => (
+              <option key={em} value={em}>{(people.find((p) => (p.email || '').toLowerCase() === em) || {}).name || em}</option>
+            ))}
+          </select>
+        </SettingRow>
         <SettingRow title="Executives" desc="Who receives each published weekly report.">
           <div style={{ width: '100%' }} data-job-team="executives">
             <PersonMultiSelect value={draft.executiveEmails} people={people} onChange={(v) => patch({ executiveEmails: v })} placeholder="Add executives" addTitle="Add executives" />

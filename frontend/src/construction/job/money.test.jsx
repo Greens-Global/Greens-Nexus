@@ -81,8 +81,8 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe('Who sees Money', () => {
   it('the tab sits before Closeout on either size, only when allowed', () => {
     expect(jobTabs('project').some((t) => t.key === 'money')).toBe(false);
-    expect(jobTabs('project', { money: true }).map((t) => t.key)).toEqual(['overview', 'schedule', 'punch', 'field', 'rfis', 'money', 'closeout']);
-    expect(jobTabs('work_order', { money: true }).map((t) => t.label)).toEqual(['Overview', 'Tasks', 'Field', 'Money', 'Closeout']);
+    expect(jobTabs('project', { money: true }).map((t) => t.key)).toEqual(['overview', 'schedule', 'punch', 'field', 'photos', 'rfis', 'changes', 'money', 'closeout']);
+    expect(jobTabs('work_order', { money: true }).map((t) => t.label)).toEqual(['Overview', 'Tasks', 'Field', 'Photos', 'Changes', 'Money', 'Closeout']);
   });
 
   it('the Money tab rides in the URL', () => {

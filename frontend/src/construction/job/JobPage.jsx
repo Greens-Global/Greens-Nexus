@@ -8,7 +8,7 @@
 // The tab is in the URL (/construction/project:<id>:<tab>) so Back works and
 // an Approvals row lands on RFIs And Submittals. Lazy: its own chunk, and the
 // Schedule tab (the Tasks timeline) a chunk of its own beyond that.
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { ArrowLeft, Pencil, Flag, ClipboardList, CheckSquare, Users, Ticket, Building2, Inbox, ExternalLink } from 'lucide-react';
 import { api } from '../../api';
 import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
@@ -26,13 +26,19 @@ import { daysWords, trackStateFor } from '../lib/health';
 import { JOB_TYPE, PUNCH_STATE, jobTabs, tabFor, useLoad } from '../lib/job';
 import PunchTab from './PunchTab';
 import FieldTab from './FieldTab';
-import CloseoutTab from './CloseoutTab';
 import MoneyLine from './MoneyLine';
 import { useJobMoney } from '../lib/money';
+import { prefetchJob } from '../constructionOffline';
 
 const ScheduleTab = lazy(() => import('./ScheduleTab'));
+// Field and Closeout (11/03/2026, phase 3): each its own chunk, beyond the
+// Job page's - a manager opening Overview never downloads the field tickets.
+const PhotosTab = lazy(() => import('./PhotosTab'));
+const ChangesTab = lazy(() => import('./ChangesTab'));
+const CloseoutTab = lazy(() => import('./CloseoutTab'));
 // Money (phase 4): its own chunk with the Accounting side panel.
 const MoneyTab = lazy(() => import('./MoneyTab'));
+const tabWait = <SkeletonBlocks count={3} height={120} borderRadius={12} />;
 
 const go = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }));
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -206,6 +212,9 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
   const active = tabFor(project.jobType, tab, { money: moneyOn });
   const type = JOB_TYPE[project.jobType] || JOB_TYPE.project;
   const status = PROJECT_STATUS[project.status];
+  // Keep what the field needs on the phone while there is signal (the punch
+  // list, today's log prefill, the photos, the changes) - offline tomorrow.
+  useEffect(() => { prefetchJob(project); }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }} data-job-page={project.id}>
@@ -256,17 +265,19 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
           </Suspense>
         )}
         {active === 'punch' && <PunchTab project={project} />}
+        {active === 'photos' && <Suspense fallback={tabWait}><PhotosTab project={project} /></Suspense>}
+        {active === 'changes' && <Suspense fallback={tabWait}><ChangesTab project={project} /></Suspense>}
         {active === 'field' && <FieldTab project={project} />}
         {active === 'rfis' && (
           <Registers project={project} canReview={!!project.canEdit} onChanged={onChanged}
             kinds={['rfis', 'submittals']} title="RFIs And Submittals" />
         )}
         {active === 'money' && (
-          <Suspense fallback={<SkeletonBlocks count={3} height={120} borderRadius={12} />}>
+          <Suspense fallback={tabWait}>
             <MoneyTab project={project} money={money} onEdit={project.canEdit ? () => setEditing(true) : null} />
           </Suspense>
         )}
-        {active === 'closeout' && <CloseoutTab project={project} />}
+        {active === 'closeout' && <Suspense fallback={tabWait}><CloseoutTab project={project} onChanged={onChanged} /></Suspense>}
       </ViewErrorBoundary>
 
       {editing && (
