@@ -28,6 +28,8 @@ import SaveRow from '../components/SaveRow';
 import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
 import { Modal, DateField } from '../tasks/components';
 import { useDraft } from '../lib/useDraft';
+import { useRole } from '../contexts/RoleContext';
+import { useNexusPeople } from './lib/jobForm';
 import { formatDate } from '../lib/datetime';
 import { CARD, TONE, personName } from './ui';
 import { useConstructionMeta } from './lib/meta';
@@ -88,7 +90,9 @@ const REGISTERS = {
       { key: 'number', read: 'number', label: 'Number', placeholder: 'RFI-014' },
       { key: 'subject', read: 'subject', label: 'Subject', placeholder: 'What is being asked about', required: true },
       { key: 'question', read: 'question', label: 'Question', placeholder: 'The question as submitted', multiline: true },
-      { key: 'ball_in_court', read: 'ballInCourt', label: 'Responder', placeholder: 'Who owes the answer (Ball In Court)' },
+      { key: 'ball_in_court', read: 'ballInCourt', label: 'Ball In Court', placeholder: 'The party who owes the answer' },
+      // The Nexus person who answers it (11/03/2026): the RFI waits in their Approvals.
+      { key: 'responder_email', read: 'responderEmail', label: 'Answered By', type: 'person', placeholder: 'No one named' },
       { key: 'submitted_on', read: 'submittedOn', label: 'Sent On', type: 'date' },
       { key: 'due_on', read: 'dueOn', label: 'Response Due', type: 'date' },
       { key: 'answer', read: 'answer', label: 'Answer', placeholder: 'Fill in when it comes back', multiline: true },
@@ -96,8 +100,11 @@ const REGISTERS = {
       { key: 'schedule_impact_days', read: 'scheduleImpactDays', label: 'Schedule Impact (Days)', type: 'number', sheetOnly: true },
     ],
     title: (r) => [r.number, r.subject].filter(Boolean).join(' · ') || 'Untitled RFI',
-    meta: (r) => [
+    // What the named responder may write themselves (routers/construction.py RESPONDER_FIELDS).
+    ownerKey: 'responderEmail', ownerFields: ['answer', 'answered_on', 'status'], ownerStatuses: ['answered'],
+    meta: (r, names) => [
       r.ballInCourt && `Ball in court: ${r.ballInCourt}`,
+      r.responderEmail && `Answered by ${personName(r.responderEmail, names)}`,
       r.dueOn && `Due ${formatDate(r.dueOn, r.dueOn)}`,
       r.answeredOn && `Answered ${formatDate(r.answeredOn, r.answeredOn)}`,
       r.scheduleImpactDays ? `${r.scheduleImpactDays} day schedule impact` : '',
@@ -127,9 +134,14 @@ const REGISTERS = {
       { key: 'due_on', read: 'dueOn', label: 'Response Due', type: 'date' },
       { key: 'returned_on', read: 'returnedOn', label: 'Returned On', type: 'date', sheetOnly: true },
       { key: 'revision', read: 'revision', label: 'Revision', type: 'number', sheetOnly: true },
+      // The Nexus person who decides it (11/03/2026): it waits in their Approvals.
+      { key: 'approver_email', read: 'approverEmail', label: 'Decided By', type: 'person', placeholder: 'No one named' },
     ],
     title: (r) => [r.number, r.title].filter(Boolean).join(' · ') || 'Untitled submittal',
-    meta: (r) => [
+    ownerKey: 'approverEmail', ownerFields: ['status', 'returned_on'],
+    ownerStatuses: ['approved', 'approved_as_noted', 'revise_resubmit', 'rejected'],
+    meta: (r, names) => [
+      r.approverEmail && `Decided by ${personName(r.approverEmail, names)}`,
       r.specSection && `Spec ${r.specSection}`,
       r.dueOn && `Due ${formatDate(r.dueOn, r.dueOn)}`,
       r.returnedOn && `Returned ${formatDate(r.returnedOn, r.returnedOn)}`,
@@ -147,7 +159,19 @@ function Chip({ cfg, status }) {
 
 // One field's control: a DateField for a date (never the browser's own box -
 // it follows the computer's region), a switch, a number, a text area or box.
-function FieldControl({ f, value, onChange, disabled, autoFocus }) {
+function FieldControl({ f, value, onChange, disabled, autoFocus, people }) {
+  if (f.type === 'person') {
+    // The curated Nexus People list (getPeopleDirectory) - never M365.
+    const known = (people || []).some((p) => p.email === value);
+    return (
+      <select className="form-input" value={value || ''} disabled={disabled} aria-label={f.label}
+        onChange={(e) => onChange(e.target.value)} style={{ width: '100%' }}>
+        <option value="">{f.placeholder || 'No one'}</option>
+        {value && !known && <option value={value}>{value}</option>}
+        {(people || []).map((p) => <option key={p.email} value={p.email}>{p.name || p.email}</option>)}
+      </select>
+    );
+  }
   if (f.type === 'date') {
     return <DateField value={value || ''} onChange={(v) => onChange(v || '')} placeholder="Pick a Date" title={f.label} disabled={disabled} />;
   }
@@ -168,7 +192,7 @@ function FieldControl({ f, value, onChange, disabled, autoFocus }) {
 }
 
 // ── Add form ────────────────────────────────────────────────────────────────
-function AddForm({ cfg, onCancel, onSave }) {
+function AddForm({ cfg, onCancel, onSave, people }) {
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -202,7 +226,7 @@ function AddForm({ cfg, onCancel, onSave }) {
         {cfg.fields.filter((f) => !f.sheetOnly).map((f, i) => (
           <div key={f.key} style={f.multiline ? { gridColumn: '1 / -1' } : undefined}>
             <label className="form-label">{f.label}</label>
-            <FieldControl f={f} value={form[f.key]} autoFocus={i === 0}
+            <FieldControl f={f} value={form[f.key]} autoFocus={i === 0} people={people}
               onChange={(v) => setForm((prev) => ({ ...prev, [f.key]: v }))} />
           </div>
         ))}
@@ -218,8 +242,12 @@ function AddForm({ cfg, onCancel, onSave }) {
 }
 
 // ── One row, opened: a sheet from the right ─────────────────────────────────
-function RegisterSheet({ kind, row, canReview, today, onClose, onSaved, onRemoved }) {
+function RegisterSheet({ kind, row, canReview, today, onClose, onSaved, onRemoved, people, myEmail }) {
   const cfg = REGISTERS[kind];
+  // The person named to answer / decide it gives the answer or the decision,
+  // and nothing else (the server holds the same line).
+  const isOwner = !canReview && !!cfg.ownerKey && !!myEmail && String(row[cfg.ownerKey] || '').toLowerCase() === myEmail;
+  const mayEdit = (key) => canReview || (isOwner && cfg.ownerFields.includes(key));
   const saved = useMemo(() => {
     const out = { status: row.status || Object.keys(cfg.statuses)[0] };
     for (const f of cfg.fields) out[f.key] = row[f.read] ?? (f.type === 'switch' ? false : '');
@@ -263,25 +291,31 @@ function RegisterSheet({ kind, row, canReview, today, onClose, onSaved, onRemove
       <SettingCard>
         <SettingRow title="Status" htmlFor={`reg-status-${row.id}`}
           control={(
-            <select id={`reg-status-${row.id}`} className="form-input" value={draft.status} disabled={!canReview}
+            <select id={`reg-status-${row.id}`} className="form-input" value={draft.status} disabled={!mayEdit('status')}
               onChange={(e) => patch({ status: e.target.value })} style={{ width: 200 }}>
-              {Object.entries(cfg.statuses).map(([v, [label]]) => <option key={v} value={v}>{label}</option>)}
+              {Object.entries(cfg.statuses)
+                .filter(([v]) => canReview || v === row.status || (cfg.ownerStatuses || []).includes(v))
+                .map(([v, [label]]) => <option key={v} value={v}>{label}</option>)}
             </select>
           )} />
         {cfg.fields.map((f) => (
           (f.multiline || (f.type !== 'date' && f.type !== 'switch' && f.type !== 'number')) ? (
             <SettingRow key={f.key} title={f.label}>
               <div style={{ width: '100%' }}>
-                <FieldControl f={f} value={draft[f.key]} disabled={!canReview} onChange={(v) => patch({ [f.key]: v })} />
+                <FieldControl f={f} value={draft[f.key]} disabled={!mayEdit(f.key)} people={people} onChange={(v) => patch({ [f.key]: v })} />
               </div>
             </SettingRow>
           ) : (
             <SettingRow key={f.key} title={f.label}
-              control={<FieldControl f={f} value={draft[f.key]} disabled={!canReview} onChange={(v) => patch({ [f.key]: v })} />} />
+              control={<FieldControl f={f} value={draft[f.key]} disabled={!mayEdit(f.key)} people={people} onChange={(v) => patch({ [f.key]: v })} />} />
           )
         ))}
       </SettingCard>
       </div>
+      {isOwner && (
+        <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} saveDisabled={missing}
+          note="You were named to give this answer." />
+      )}
       {canReview && (
         <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} saveDisabled={missing}
           note={missing ? 'Fill in the required field first.' : undefined}>
@@ -295,8 +329,12 @@ function RegisterSheet({ kind, row, canReview, today, onClose, onSaved, onRemove
 }
 
 // ── Register list ───────────────────────────────────────────────────────────
-export default function Registers({ project, canReview, onChanged }) {
-  const [kind, setKind] = useState(KINDS[0]);
+// `kinds` (11/03/2026): the Job page's RFIs And Submittals tab shows those two
+// only - its milestones live in the job's task project (the Schedule tab).
+export default function Registers({ project, canReview, onChanged, kinds = KINDS, title = 'Schedule And Correspondence' }) {
+  const [kind, setKind] = useState(kinds[0]);
+  const { myEmail } = useRole();
+  const people = useNexusPeople();
   // Cached per kind so switching tabs back does not re-fetch and flash a
   // loading state over a list the user was just reading.
   const [rows, setRows] = useState({});
@@ -334,7 +372,7 @@ export default function Registers({ project, canReview, onChanged }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
           <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>
-            Schedule And Correspondence
+            {title}
           </h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>{(aiEnabled && cfg.blurbAi) || cfg.blurb}</p>
         </div>
@@ -346,7 +384,7 @@ export default function Registers({ project, canReview, onChanged }) {
       </div>
 
       <div className="scroll-tabs" style={{ display: 'flex', gap: 8, margin: '16px 0 20px' }}>
-        {KINDS.map((k) => {
+        {kinds.map((k) => {
           const KIcon = REGISTERS[k].icon;
           const active = k === kind;
           const count = rows[k]?.length;
@@ -363,7 +401,7 @@ export default function Registers({ project, canReview, onChanged }) {
 
       {error && <ErrorBanner message={error} onRetry={() => load(kind)} />}
 
-      {adding && <AddForm cfg={cfg} onCancel={() => setAdding(false)} onSave={save} />}
+      {adding && <AddForm cfg={cfg} onCancel={() => setAdding(false)} onSave={save} people={people} />}
 
       {list === undefined ? (
         <SkeletonBlocks count={3} height={72} borderRadius={8} />
@@ -440,7 +478,8 @@ export default function Registers({ project, canReview, onChanged }) {
       )}
 
       {openRow && (
-        <RegisterSheet kind={kind} row={openRow} canReview={canReview} today={today}
+        <RegisterSheet kind={kind} row={openRow} canReview={canReview} today={today} people={people}
+          myEmail={String(myEmail || '').toLowerCase()}
           onClose={() => setOpenRow(null)}
           onSaved={() => { setOpenRow(null); changed(); }}
           onRemoved={() => { setOpenRow(null); changed(); }} />

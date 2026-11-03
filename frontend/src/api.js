@@ -3551,3 +3551,27 @@ api.getConstructionMeta = () => cachedGet('/construction/meta', 300_000);
 api.reopenConstructionLog = (logId, reason) => req(`/construction/logs/${logId}/reopen`, { method: 'POST', body: JSON.stringify({ reason }) });
 api.removeConstructionMedia = (mediaId, reason = '') => req(`/construction/media/${mediaId}${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`, { method: 'DELETE' });
 api.getConstructionReviewQueueFor = (projectId) => req(`/construction/review-queue?project_id=${encodeURIComponent(projectId || '')}`);
+// The Job, connected (Neil, 11/03/2026; routers/construction_jobs.py): the
+// job's task project (schedule, punch), Start Job from a ticket, crew and
+// hours, forms, equipment, a property's jobs, the Jobs search group. Writes
+// a phone may resend carry an id it made (the offline outbox).
+api.getJobSchedule = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/schedule`);
+api.makeJobTaskProject = (jobId, templateId = '') => req(`/construction/projects/${encodeURIComponent(jobId)}/task-project`, { method: 'POST', body: JSON.stringify({ templateId }) });
+api.addJobToPortfolio = (jobId, portfolioId) => req(`/construction/projects/${encodeURIComponent(jobId)}/portfolio`, { method: 'POST', body: JSON.stringify({ portfolio_id: portfolioId || '' }) });
+api.addPunchItem = (jobId, data) => req(`/construction/projects/${encodeURIComponent(jobId)}/punch`, { method: 'POST', body: JSON.stringify(data) });
+api.setPunchDone = (taskId, done) => req(`/construction/punch/${encodeURIComponent(taskId)}/done`, { method: 'POST', body: JSON.stringify({ done: !!done }) });
+api.setPunchVerified = (taskId, verified) => req(`/construction/punch/${encodeURIComponent(taskId)}/verify`, { method: 'POST', body: JSON.stringify({ verified: !!verified }) });
+api.getJobConnected = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/connected`);
+api.getJobCrew = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/crew`);
+api.getJobLabor = (jobId, from = '', to = '') => req(`/construction/projects/${encodeURIComponent(jobId)}/labor?date_from=${encodeURIComponent(from)}&date_to=${encodeURIComponent(to)}`);
+api.getJobForms = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/forms`);
+api.getJobPhotos = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/photos`);
+api.getJobEquipment = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/equipment`);
+api.linkJobEquipment = (jobId, data) => req(`/construction/projects/${encodeURIComponent(jobId)}/equipment`, { method: 'POST', body: JSON.stringify(data) });
+api.endJobEquipment = (linkId) => req(`/construction/equipment-links/${encodeURIComponent(linkId)}/end`, { method: 'POST' });
+api.startJobFromTicket = (ticketId, data = {}) => req(`/construction/tickets/${encodeURIComponent(ticketId)}/start-job`, { method: 'POST', body: JSON.stringify(data) });
+api.getTicketJobs = (ticketId) => req(`/construction/tickets/${encodeURIComponent(ticketId)}/jobs`);
+api.getTaskProjectJob = (taskProjectId) => cachedGet(`/construction/task-projects/${encodeURIComponent(taskProjectId)}/job`, 300_000);
+api.getPropertyJobs = (propertyId) => req(`/construction/properties/${encodeURIComponent(propertyId)}/jobs`);
+api.getMyJobs = () => cachedGet('/construction/my-jobs', 60_000);
+api.searchJobs = (q, limit = 6) => req(`/construction/search?q=${encodeURIComponent(q)}&limit=${limit}`);

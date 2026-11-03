@@ -47,6 +47,7 @@ from sqlalchemy.orm import Session
 import auth
 import construction_company
 import construction_notify
+import construction_tasks
 import construction_weather
 import models
 from auth import get_current_user
@@ -195,6 +196,10 @@ def project_to_dict(p: models.ConstructionProject, *, with_cost: bool, db: Sessi
         "geofenceRadiusM": p.geofence_radius_m or 0,
         "archived": bool(p.archived), "createdAt": p.created_at or "",
         "companyId": _nz(getattr(p, "company_id", "")),
+        # The Job, connected (11/03/2026): its type (work_order | project -
+        # size decides which sections the Job page shows) and its task project.
+        "jobType": construction_tasks.job_type_of(p),
+        "taskProjectId": _nz(getattr(p, "task_project_id", "")),
         # May the caller change this project (the Edit Job sheet)?
         "canEdit": bool(can_edit),
     }
@@ -292,7 +297,12 @@ def module_meta(user: dict = Depends(get_current_user)):
 
 
 class ProjectBody(BaseModel):
+    # Made on the phone when the client has one (the offline outbox resends
+    # it): a create that already landed answers with the job it made.
+    id: Optional[str] = None
     name: Optional[str] = None
+    job_type: Optional[str] = None          # work_order | project (default project)
+    task_template_id: Optional[str] = None  # a Tasks project template; '' = the job type's own
     code: Optional[str] = ""
     description: Optional[str] = ""
     property_id: Optional[str] = ""
@@ -351,6 +361,10 @@ def _validate(db: Session, user: dict, p, data: dict) -> dict:
         out["name"] = (out["name"] or "").strip()[:200]
         if not out["name"]:
             raise HTTPException(422, "Project name is required")
+    out.pop("id", None)
+    out.pop("task_template_id", None)
+    if out.get("job_type") is not None and out["job_type"] not in construction_tasks.JOB_TYPES:
+        raise HTTPException(422, "A job is a Work Order or a Project")
     if out.get("status") is not None:
         if out["status"] not in PROJECT_STATUSES:
             raise HTTPException(422, "Status must be Active, On Hold, Complete or Archived")
@@ -397,14 +411,30 @@ def _validate(db: Session, user: dict, p, data: dict) -> dict:
 @router.post("/projects", status_code=201)
 def create_project(body: ProjectBody, user: dict = Depends(get_current_user),
                    db: Session = Depends(get_db)):
+    return create_job(body, user, db)
+
+
+def create_job(body: ProjectBody, user: dict, db: Session, company_id: str = None):
+    """New Job (the route) and Start Job (routers/construction_jobs.py).
+    `company_id` - the company the job belongs to when the caller is not the
+    one to say (Start Job: the ticket's company, else its property's);
+    None = the creator's, else the property's."""
     if _level(user) < 3:
         raise HTTPException(403, "Only a manager can create a construction project.")
     if not (body.name or "").strip():
         raise HTTPException(422, "Project name is required")
+    cid = (body.id or "").strip()[:64]
+    if cid:
+        was = db.get(models.ConstructionProject, cid)
+        if was is not None:
+            if (was.created_by or "").lower() != _me(user) or was.deleted_at:
+                raise HTTPException(409, "That job id is taken.")
+            return project_to_dict(was, with_cost=True, db=db, can_edit=True)
     data = _validate(db, user, None, body.model_dump(exclude_unset=True))
     now = now_iso()
     p = models.ConstructionProject(
-        id=gen_id(), name=data["name"], code=body.code or "",
+        id=cid or gen_id(), name=data["name"], code=body.code or "",
+        job_type=data.get("job_type") or "project",
         description=body.description or "",
         property_id=body.property_id or "",
         address=body.address or "", status=data.get("status") or "active", phase=body.phase or "",
@@ -424,7 +454,8 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user),
         archived=bool(data.get("archived")),
         created_by=user["email"], created_at=now, modified_at=now,
         # The company wall (11/03/2026): the job lands on its creator's side.
-        company_id=auth.company_of(user, db) or construction_company.company_from_property(db, body.property_id or ""),
+        company_id=(company_id if company_id is not None else
+                    (auth.company_of(user, db) or construction_company.company_from_property(db, body.property_id or ""))),
     )
     # Project-based weather (Neil, 10/30/2026): the address is the jobsite's
     # weather point, found now so the first look at the project has a sky.
@@ -433,9 +464,32 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user),
     db.add(p)
     _log_activity(db, project_id=p.id, entity_kind="project", entity_id=p.id,
                   type="created", actor_email=user["email"], detail="created this project")
+    _emit(db, "job.created", p, user)
     db.commit()
     db.refresh(p)
+    stamp_task_project(db, p, user, body.task_template_id or "")
     return project_to_dict(p, with_cost=True, db=db, can_edit=True)
+
+
+def _emit(db: Session, key: str, subject, user: dict, changes: dict = None, extra: dict = None) -> None:
+    """workflows.emit at the module's choke points (Neil, 11/03/2026 - the
+    construction pack, workflows/packs/construction.py), inside the
+    transaction. Never raises."""
+    import workflows
+    workflows.emit(db, key, subject=subject, actor=_me(user), changes=changes, extra=extra)
+
+
+def stamp_task_project(db: Session, p, user: dict, template_id: str = "") -> None:
+    """Give a job its task project (construction_tasks), committed on its
+    own: a template that will not build never undoes the job itself - the
+    Schedule tab offers it again."""
+    try:
+        if construction_tasks.ensure_task_project(db, p, user, template_id) is not None:
+            db.commit()
+            db.refresh(p)
+    except Exception as e:   # noqa: BLE001 - the job stands; its schedule can be made later
+        db.rollback()
+        print(f"[construction] task project for {p.id}: {getattr(e, 'detail', e)}")
 
 
 class MapLinkIn(BaseModel):
@@ -469,6 +523,7 @@ def update_project(project_id: str, body: ProjectBody,
         data.pop("currency", None)
     data = _validate(db, user, p, data)
     address_was = p.address or ""
+    status_was, phase_was = p.status or "active", p.phase or ""
     for k, v in data.items():
         if v is not None:
             setattr(p, k, v)
@@ -481,6 +536,15 @@ def update_project(project_id: str, body: ProjectBody,
     _log_activity(db, project_id=p.id, entity_kind="project", entity_id=p.id,
                   type="edited", actor_email=user["email"],
                   detail=", ".join(sorted(data)) or "no fields")
+    if (p.status or "active") != status_was:
+        # The ticket sync (construction_ticket_sync) names who completed it.
+        p._nx_actor = _me(user)
+        _emit(db, "job.status_changed", p, user, changes={"status": (status_was, p.status)})
+    if (p.phase or "") != phase_was:
+        _emit(db, "job.phase_changed", p, user, changes={"phase": (phase_was, p.phase)})
+    tp = construction_tasks.task_project(db, p)
+    if tp is not None and ("manager_emails" in data or "worker_emails" in data):
+        construction_tasks.sync_members(p, tp)
     db.commit()
     db.refresh(p)
     return project_to_dict(p, with_cost=may_cost, db=db, can_edit=True,
@@ -735,6 +799,7 @@ def submit_log(log_id: str, user: dict = Depends(get_current_user),
     # Bells go in the same transaction as the status change: a log that says
     # "submitted" while nobody was told is the state this workflow cannot have.
     construction_notify.log_submitted(db, p, l)
+    _emit(db, "daily_log.submitted", l, user)
     db.commit()
     db.refresh(l)
     return {**log_to_dict(l), "queuedJobs": queued}
@@ -779,6 +844,7 @@ def review_log(log_id: str, body: dict, user: dict = Depends(get_current_user),
     if decision == "needs_info" and not ((body or {}).get("note") or "").strip():
         raise HTTPException(422, "Say what the crew should add before sending the log back.")
     at = now_iso()
+    was_status = l.status
     _claim(db, l, REVIEWABLE, status="approved" if decision == "approve" else "needs_info",
            reviewed_by=user["email"], reviewed_at=at, modified_at=at,
            review_note=((body or {}).get("note") or "")[:2000])
@@ -788,6 +854,8 @@ def review_log(log_id: str, body: dict, user: dict = Depends(get_current_user),
     # question for the person on site, and it used to be written to the row and
     # shown to nobody.
     construction_notify.log_reviewed(db, p, l)
+    _emit(db, "daily_log.reviewed", l, user, changes={"status": (was_status, l.status)},
+          extra={"decision": decision, "note": l.review_note or ""})
     db.commit()
     db.refresh(l)
     return log_to_dict(l)
@@ -1070,6 +1138,7 @@ def rfi_to_dict(r: models.ConstructionRfi) -> dict:
         "answeredOn": r.answered_on or "",
         "costImpact": r.cost_impact or 0.0,
         "scheduleImpactDays": r.schedule_impact_days or 0,
+        "responderEmail": _nz(getattr(r, "responder_email", "")),
         "createdAt": r.created_at or "",
     }
 
@@ -1082,6 +1151,7 @@ def submittal_to_dict(s: models.ConstructionSubmittal) -> dict:
         "submittedBy": s.submitted_by or "", "submittedOn": s.submitted_on or "",
         "dueOn": s.due_on or "", "returnedOn": s.returned_on or "",
         "documentUrls": s.document_urls or [], "createdAt": s.created_at or "",
+        "approverEmail": _nz(getattr(s, "approver_email", "")),
     }
 
 
@@ -1099,10 +1169,10 @@ _REGISTER_FIELDS = {
     "milestones": {"name", "description", "target_date", "actual_date", "status", "critical"},
     "rfis": {"number", "subject", "question", "answer", "status", "ball_in_court",
              "submitted_by", "submitted_on", "due_on", "answered_on",
-             "cost_impact", "schedule_impact_days"},
+             "cost_impact", "schedule_impact_days", "responder_email"},
     "submittals": {"number", "title", "spec_section", "status", "revision",
                    "submitted_by", "submitted_on", "due_on", "returned_on",
-                   "document_urls"},
+                   "document_urls", "approver_email"},
 }
 
 
@@ -1112,6 +1182,61 @@ _REGISTER_STATUSES = {
     "submittals": ("pending", "submitted", "approved", "approved_as_noted", "revise_resubmit", "rejected"),
 }
 _REGISTER_DATES = {"target_date", "actual_date", "submitted_on", "due_on", "answered_on", "returned_on"}
+
+
+# The submittal decisions a reviewer makes (the submittal.decided event).
+SUBMITTAL_DECISIONS = ("approved", "approved_as_noted", "revise_resubmit", "rejected")
+# What the named responder / approver may write on their own row.
+RESPONDER_FIELDS = {"answer", "answered_on", "status"}
+APPROVER_FIELDS = {"status", "returned_on"}
+
+
+def _register_events(db: Session, kind: str, row, user: dict, p, *, created: bool, before: dict) -> None:
+    """The RFI / submittal events and the one bell to the person who owes the
+    answer or the decision (Neil, 11/03/2026). `before` = the row's
+    status / named person before this write ({} on create)."""
+    if kind == "rfis":
+        if created:
+            _emit(db, "rfi.opened", row, user)
+        elif (row.status or "") == "answered" and before.get("status") != "answered":
+            _emit(db, "rfi.answered", row, user, changes={"status": (before.get("status") or "", "answered")})
+        who = (getattr(row, "responder_email", "") or "").lower()
+        if who and who != _me(user) and (created or who != before.get("person")) and (row.status or "open") == "open":
+            construction_notify.bell(
+                db, kind="rfi_assigned", recipient=who, ref_id=row.id, family=("rfi_assigned",),
+                title=f"RFI to Answer - {p.name}",
+                body=f"{row.number + ' ' if row.number else ''}{row.subject or 'An RFI'}"
+                     + (f" - due {construction_notify._us(row.due_on)}" if row.due_on else ""),
+                requested_by=_me(user), label="Open RFIs", sub=f"project:{p.id}:rfis", company=p.company_id or "")
+    elif kind == "submittals":
+        if (row.status or "") in SUBMITTAL_DECISIONS and before.get("status") != row.status:
+            _emit(db, "submittal.decided", row, user, changes={"status": (before.get("status") or "", row.status)})
+        who = (getattr(row, "approver_email", "") or "").lower()
+        if who and who != _me(user) and (created or who != before.get("person")) and (row.status or "") in ("pending", "submitted"):
+            construction_notify.bell(
+                db, kind="submittal_assigned", recipient=who, ref_id=row.id, family=("submittal_assigned",),
+                title=f"Submittal to Decide - {p.name}",
+                body=f"{row.number + ' ' if row.number else ''}{row.title or 'A submittal'}"
+                     + (f" - due {construction_notify._us(row.due_on)}" if row.due_on else ""),
+                requested_by=_me(user), label="Open Submittals", sub=f"project:{p.id}:rfis", company=p.company_id or "")
+
+
+def _register_person(db: Session, user: dict, data: dict, p) -> None:
+    """The responder / approver is a Nexus person inside the caller's
+    companies who can open the job (_may_read - its crew, managers or
+    executives, or a manager inside its company): their Approvals row lands
+    on the job, so naming someone who cannot read it is refused."""
+    import task_automation
+    for k in ("responder_email", "approver_email"):
+        if data.get(k):
+            em = str(data[k]).strip().lower()
+            if not _EMAIL.match(em):
+                raise HTTPException(422, f"{data[k]!r} is not an email address")
+            _check_people(db, user, [em])
+            who = task_automation._person_user(db, em)
+            if who is None or not _may_read(db, who, p):
+                raise HTTPException(422, f"{em} cannot open this job - add them to its crew or managers first.")
+            data[k] = em
 
 
 def _register_data(kind: str, body: dict, p) -> dict:
@@ -1164,14 +1289,24 @@ def create_register(project_id: str, kind: str, body: dict,
     if not _may_review(db, user, p):
         raise HTTPException(403, f"Only a project manager can add {kind}.")
     data = _register_data(kind, body, p)
+    _register_person(db, user, data, p)
     if kind == "milestones" and not (data.get("name") or "").strip():
         raise HTTPException(422, "Milestone name is required")
     now = now_iso()
-    row = model(id=gen_id(), project_id=p.id, created_at=now, modified_at=now, **data)
+    # An id made on the phone (offline outbox): a resend answers with the row.
+    rid = str((body or {}).get("id") or "").strip()[:64]
+    if rid:
+        was = db.query(model).filter(model.id == rid).first()
+        if was is not None:
+            if was.project_id != p.id:
+                raise HTTPException(409, "That id is taken.")
+            return to_dict(was)
+    row = model(id=rid or gen_id(), project_id=p.id, created_at=now, modified_at=now, **data)
     db.add(row)
     _log_activity(db, project_id=p.id, entity_kind=entity, entity_id=row.id,
                   type="created", actor_email=user["email"],
                   detail=data.get("name") or data.get("subject") or data.get("title") or "")
+    _register_events(db, kind, row, user, p, created=True, before={})
     db.commit()
     db.refresh(row)
     return to_dict(row)
@@ -1185,9 +1320,21 @@ def update_register(kind: str, row_id: str, body: dict,
     if not row:
         raise HTTPException(404, "Not found")
     p = _project(db, row.project_id, user)
-    if not _may_review(db, user, p):
-        raise HTTPException(403, f"Only a project manager can change {kind}.")
     data = _register_data(kind, body, p)
+    if not _may_review(db, user, p):
+        # The person named to answer an RFI / decide a submittal (11/03/2026 -
+        # their Approvals row opens here) gives the answer or the decision,
+        # and nothing else.
+        own = {"rfis": ("responder_email", RESPONDER_FIELDS), "submittals": ("approver_email", APPROVER_FIELDS)}.get(kind)
+        if not own or (getattr(row, own[0], "") or "").lower() != _me(user) or not _may_read(db, user, p) \
+                or set(data) - own[1]:
+            raise HTTPException(403, f"Only a project manager can change {kind}.")
+        if "status" in data and data["status"] not in (("answered",) if kind == "rfis" else SUBMITTAL_DECISIONS):
+            raise HTTPException(403, "Only a project manager can set that status.")
+    _register_person(db, user, data, p)
+    before = {"status": row.status or "",
+              "person": (getattr(row, "responder_email", "") if kind == "rfis"
+                         else getattr(row, "approver_email", "") if kind == "submittals" else "") or ""}
     for k, v in data.items():
         setattr(row, k, v)
     # Confirming a milestone is a human act with a name attached, and the only
@@ -1198,6 +1345,7 @@ def update_register(kind: str, row_id: str, body: dict,
     _log_activity(db, project_id=p.id, entity_kind=entity, entity_id=row.id,
                   type="edited", actor_email=user["email"],
                   detail=", ".join(sorted(data)) or "no fields")
+    _register_events(db, kind, row, user, p, created=False, before=before)
     db.commit()
     db.refresh(row)
     return to_dict(row)
@@ -1456,6 +1604,20 @@ def health_for(db: Session, projects: list) -> dict:
     ms, rf = {}, {}
     for m in db.query(M).filter(M.project_id.in_(ids), M.deleted_at == "").all():
         ms.setdefault(m.project_id, []).append(m)
+    # A job with a task project reads its milestones from there (11/03/2026,
+    # construction_tasks) - the old rows were moved in and are kept as record.
+    by_tp = {p.task_project_id: p.id for p in projects if (getattr(p, "task_project_id", "") or "")}
+    if by_tp:
+        from types import SimpleNamespace
+        T = models.Task
+        for pid in by_tp.values():
+            ms[pid] = []
+        today = datetime.now(timezone.utc).date().isoformat()
+        for t in db.query(T).filter(T.project_id.in_(sorted(by_tp)), T.is_milestone.is_(True)).all():
+            due = (t.due_on or "")[:10]
+            ms[by_tp[t.project_id]].append(SimpleNamespace(
+                id=t.id, name=t.title or "", target_date=due,
+                status="hit" if t.completed else ("missed" if due and due < today else "upcoming")))
     for r in db.query(R).filter(R.project_id.in_(ids), R.deleted_at == "").all():
         rf.setdefault(r.project_id, []).append(r)
     last = dict(db.query(L.project_id, func.max(L.log_date))

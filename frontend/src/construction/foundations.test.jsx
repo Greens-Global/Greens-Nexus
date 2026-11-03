@@ -37,6 +37,8 @@ vi.mock('../api', () => ({ api: {
   updateConstructionLog: vi.fn(),
   submitConstructionLog: vi.fn(),
   createConstructionMedia: vi.fn(),
+  // The Job page (phase 2): its Overview reads what the job is connected to.
+  getJobConnected: vi.fn(),
 } }));
 vi.mock('../components/WorkSiteAddressMap', () => ({ default: () => null }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, myEmail: 'marcus.reed@greensglobal.com' }) }));
@@ -221,6 +223,7 @@ describe('Project URLs', () => {
 
   it('a card opens its project through the URL, and Open Site Activity carries the project', async () => {
     const onOpenProject = vi.fn();
+    api.getJobConnected.mockResolvedValue({ needsYou: {}, punch: {}, crew: { people: [] }, tickets: [], nextMilestones: [], lastLog: null, property: null });
     const { rerender } = render(<ConstructionDashboard onOpenProject={onOpenProject} projectId="" />);
     fireEvent.click(await screen.findByText(project.address));
     expect(onOpenProject).toHaveBeenCalledWith('p1');

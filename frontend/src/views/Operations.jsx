@@ -10,7 +10,7 @@ import SiteActivity from '../construction/SiteActivity';
 import { parseConstructionSub, projectSub, activitySub } from '../construction/lib/navigation';
 
 export default function Operations({ activeSub, onSubChange }) {
-  const { tab, projectId } = parseConstructionSub(activeSub);
+  const { tab, projectId, jobTab } = parseConstructionSub(activeSub);
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -28,7 +28,8 @@ export default function Operations({ activeSub, onSubChange }) {
           lives in construction/ConstructionDashboard.jsx, which also owns the
           New Project modal. */}
       {tab === 'construction-dashboard' && (
-        <ConstructionDashboard projectId={projectId} onOpenProject={(id) => onSubChange?.(projectSub(id))} />
+        <ConstructionDashboard projectId={projectId} jobTab={jobTab || 'overview'}
+          onOpenProject={(id, t) => onSubChange?.(projectSub(id, t))} />
       )}
 
       {/* Site Activity - the daily logs and the weekly report they add up to.

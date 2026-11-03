@@ -111,6 +111,7 @@ def _ser_entry(e: DocFormEntry, *, names: dict, sites: dict, reach: form_audienc
         "reviewNote": e.review_note or "",
         "linkedTicketId": e.linked_ticket_id or "", "linkedTaskId": e.linked_task_id or "",
         "linkedAssetId": e.linked_asset_id or "",
+        "linkedProjectId": getattr(e, "linked_project_id", "") or "",
         "canReview": reach.can_review(e),
     }
 
@@ -191,6 +192,9 @@ class EntryIn(BaseModel):
     shiftId: Optional[str] = ""
     source: Optional[str] = "web"
     gps: Optional[dict] = None
+    # The construction job this entry is for (Neil, 11/03/2026): picked on
+    # Fill a Form, else the job of the shift it was filled from.
+    projectId: Optional[str] = ""
 
 
 def _check_file_urls(defs: list, answers: dict) -> None:
@@ -273,7 +277,8 @@ def submit_entry(tid: str, body: EntryIn, user: dict = Depends(get_current_user)
                        title=tpl.name, entry_key=key, answers=answers,
                        company=company, work_site_id=site_id,
                        shift_id=(body.shiftId or "").strip()[:80], submitted_by=me, submitted_at=now,
-                       source=source, status="submitted", deleted_at="")
+                       source=source, status="submitted", deleted_at="",
+                       linked_project_id=_entry_job(db, user, body))
     db.add(row)
     workflows.emit(db, "form.submitted", subject=row, actor=me, extra={**answers, "form": tpl.name})
     try:
@@ -413,6 +418,45 @@ class LinkIn(BaseModel):
     ticketId: Optional[str] = None
     taskId: Optional[str] = None
     assetId: Optional[str] = None
+    projectId: Optional[str] = None     # a construction job (11/03/2026)
+
+
+def _job_ok(db: Session, user: dict, pid: str) -> bool:
+    """A construction job the caller may read (its own walls - a job behind
+    the company wall is not found)."""
+    from fastapi import HTTPException as _H
+    from routers.construction import _may_read, _project
+    try:
+        return _may_read(db, user, _project(db, pid, user))
+    except _H:
+        return False
+
+
+def _entry_job(db: Session, user: dict, body) -> str:
+    """The job an entry is filed for (Neil, 11/03/2026): the one picked, when
+    the submitter is on it (may file a log there); else the job of the shift
+    it was filled from - the submitter's own placement at `project-<id>`.
+    '' when neither names one. Never fails a submit."""
+    from fastapi import HTTPException as _H
+    from routers.construction import _may_log, _project
+    me = (user.get("email") or "").strip().lower()
+    pid = (getattr(body, "projectId", "") or "").strip()[:64]
+    if pid:
+        try:
+            if _may_log(db, user, _project(db, pid, user)):
+                return pid
+        except _H:
+            pass
+        return ""
+    sid = (body.shiftId or "").strip()
+    if not sid:
+        return ""
+    from models import ScheduledShift
+    s = db.get(ScheduledShift, sid)
+    js = (s.jobsite or "") if s is not None and (s.employee_email or "").lower() == me else ""
+    if js.startswith("project-") and _job_ok(db, user, js[len("project-"):]):
+        return js[len("project-"):]
+    return ""
 
 
 def _ticket_ok(db: Session, user: dict, scope, tid: str) -> bool:
@@ -456,8 +500,11 @@ def link_entry(eid: str, body: LinkIn, user: dict = Depends(get_current_user), d
     row = _get_entry(db, eid, reach, lock=True)
     if not reach.can_review(row):
         raise HTTPException(403, "Only a reviewer can link this entry")
-    if body.ticketId is None and body.taskId is None and body.assetId is None:
+    if body.ticketId is None and body.taskId is None and body.assetId is None and body.projectId is None:
         raise HTTPException(400, "Nothing to link")
+    project_id = (body.projectId or "").strip()[:64]
+    if project_id and not _job_ok(db, user, project_id):
+        raise HTTPException(404, "Job not found")
     ticket_id = (body.ticketId or "").strip()[:80]
     task_id = (body.taskId or "").strip()[:80]
     asset_id = (body.assetId or "").strip()[:80]
@@ -473,6 +520,8 @@ def link_entry(eid: str, body: LinkIn, user: dict = Depends(get_current_user), d
         row.linked_task_id = task_id
     if body.assetId is not None:
         row.linked_asset_id = asset_id
+    if body.projectId is not None:
+        row.linked_project_id = project_id
     db.commit(); db.refresh(row)
     return _serialize_many(db, [row], reach)[0]
 

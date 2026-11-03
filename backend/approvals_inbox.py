@@ -1561,6 +1561,66 @@ def _construction_logs(db: Session, user: dict, ctx: dict) -> list:
     return out
 
 
+@source("construction_rfi_response", "RFI Responses", "work")
+def _construction_rfis(db: Session, user: dict, ctx: dict) -> list:
+    """Open RFIs whose answer is owed by the caller (construction_rfis.
+    responder_email - Neil, 11/03/2026), on jobs they may still read
+    (routers.construction._may_read: the job's people, or a manager inside
+    its company). Due date first: an RFI's lag costs schedule."""
+    from routers.construction import _may_read
+    me = _me(user)
+    if not me:
+        return []
+    R, P = models.ConstructionRfi, models.ConstructionProject
+    rows = db.query(R).filter(R.responder_email == me, R.status == "open", R.deleted_at == "").all()
+    jobs = {p.id: p for p in db.query(P).filter(P.id.in_(sorted({r.project_id for r in rows}) or [""]),
+                                                 P.deleted_at == "").all()}
+    out = []
+    for r in rows:
+        p = jobs.get(r.project_id)
+        if p is None or not _may_read(db, user, p):
+            continue
+        out.append(row("construction_rfi_response", r.id,
+                       title=" - ".join(x for x in ("RFI", r.number or "", r.subject or "Needs an Answer") if x),
+                       detail=_short(r.question or "") or f"Answer it on {p.name}.",
+                       created_at=r.created_at, due=r.due_on or "", actions=(a_open("Answer"),),
+                       link={"view": "ops", "sub": f"project:{p.id}:rfis"}, scope="act",
+                       facts=(("Job", p.name or ""), ("Ball In Court", r.ball_in_court or ""),
+                              ("Response Due", _us_day(r.due_on) if r.due_on else ""),
+                              ("Schedule Impact", f"{r.schedule_impact_days} days" if r.schedule_impact_days else ""))))
+    return out
+
+
+@source("construction_submittal_decision", "Submittal Decisions", "work")
+def _construction_submittals(db: Session, user: dict, ctx: dict) -> list:
+    """Submittals waiting on the caller's decision (construction_submittals.
+    approver_email, pending or submitted - Neil, 11/03/2026), on jobs they
+    may still read. Decided on the job's RFIs and Submittals tab."""
+    from routers.construction import _may_read
+    me = _me(user)
+    if not me:
+        return []
+    S, P = models.ConstructionSubmittal, models.ConstructionProject
+    rows = (db.query(S).filter(S.approver_email == me, S.status.in_(("pending", "submitted")),
+                               S.deleted_at == "").all())
+    jobs = {p.id: p for p in db.query(P).filter(P.id.in_(sorted({s.project_id for s in rows}) or [""]),
+                                                 P.deleted_at == "").all()}
+    out = []
+    for s in rows:
+        p = jobs.get(s.project_id)
+        if p is None or not _may_read(db, user, p):
+            continue
+        out.append(row("construction_submittal_decision", s.id,
+                       title=" - ".join(x for x in ("Submittal", s.number or "", s.title or "Needs a Decision") if x),
+                       detail=f"Approve, approve as noted, send back or reject it on {p.name}.",
+                       created_at=s.submitted_on or s.created_at, due=s.due_on or "", actions=(a_open("Decide"),),
+                       link={"view": "ops", "sub": f"project:{p.id}:rfis"},
+                       facts=(("Job", p.name or ""), ("Spec Section", s.spec_section or ""),
+                              ("Revision", str(s.revision) if s.revision else ""),
+                              ("Due", _us_day(s.due_on) if s.due_on else ""))))
+    return out
+
+
 # ── People: HR packets to verify (hr_packet_docs.py) ─────────────────────────
 
 def _packet_verifier(db: Session, ev, setting, cache: dict) -> str:

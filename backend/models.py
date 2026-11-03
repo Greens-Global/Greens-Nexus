@@ -2407,6 +2407,13 @@ class TimePunch(Base):
     # Duplicate Day (Oct 27 2026): a punch HR's "Replace existing" voided -
     # the batch that replaced it, so undoing that batch brings it back.
     replaced_by_batch = Column(String, default="", index=True)
+    # Where the work was done (Neil, 11/03/2026, construction plan phase 2):
+    # the jobsite key of that person-day's shift placement
+    # ('project-<id>' a construction job, 'site-<id>' a company site -
+    # jobsites.py), stamped on the IN punch at punch-in (construction_labor.
+    # stamp_jobsite). '' = no placement named one. NEVER folded into
+    # `category`: the leave rule (_leave_class) reads category.
+    jobsite          = Column(String, default="", index=True)
     # Add Time From Record (Oct 27 2026): where a punch came from when it was
     # not the clock - 'hr_record' = HR keyed it in from a paper time sheet or
     # another record (its batch is batch_id -> time_entry_batches). '' = as
@@ -4777,6 +4784,7 @@ from construction_models import (  # noqa: E402,F401  (import for side effect: t
     ConstructionProject, ConstructionDailyLog, ConstructionMedia, ConstructionAIJob,
     ConstructionWeeklyReport, ConstructionMilestone, ConstructionRfi,
     ConstructionSubmittal, ConstructionActivity,
+    ConstructionJobLink,
 )
 
 
@@ -9789,6 +9797,10 @@ class DocFormEntry(Base):
     linked_ticket_id = Column(String, default="")
     linked_task_id   = Column(String, default="")
     linked_asset_id  = Column(String, default="")
+    # The construction job the entry is for (Neil, 11/03/2026, plan phase 2):
+    # picked on Fill a Form, else the job of the jobsite shift it was filled
+    # from (routers/forms.py _entry_job); the Job's Field tab lists them.
+    linked_project_id = Column(String, default="", index=True)
     deleted_at       = Column(String, default="")
 class NexusSignIn(Base):
     """One BFF sign-in (sign_in_watch.record, Neil 11/02/2026): who, when, from

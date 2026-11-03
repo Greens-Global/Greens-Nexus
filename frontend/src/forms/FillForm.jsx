@@ -376,7 +376,7 @@ function QueuedNotice({ id, title }) {
 
 // ── The screen ────────────────────────────────────────────────────────────────
 
-export default function FillForm({ templateId, template: given = null, preview = false, onClose, onSent, shiftId = '', workSiteId = '', signerName = '', zIndex = 4100 }) {
+export default function FillForm({ templateId, template: given = null, preview = false, onClose, onSent, shiftId = '', workSiteId = '', projectId = '', signerName = '', zIndex = 4100 }) {
   const phone = useIsMobile();
   const tid = given?.id || templateId;
   const me = useRole()?.myEmail || '';   // the draft is this person's (formDraft.js)
@@ -397,6 +397,26 @@ export default function FillForm({ templateId, template: given = null, preview =
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(null);
   const [site, setSite] = useState(workSiteId || '');
+  // The construction job the entry is for (Neil, 11/03/2026): the shift's job
+  // when filled from a jobsite shift, else picked from the person's jobs (the
+  // one they are placed at today first). The server keeps it only when the
+  // person is on that job (routers/forms.py _entry_job).
+  const [jobs, setJobs] = useState([]);
+  const [job, setJob] = useState(projectId || '');
+  useEffect(() => {
+    if (preview || projectId) return undefined;
+    let live = true;
+    Promise.resolve().then(() => api.getMyJobs?.())
+      .then((r) => {
+        if (!live) return;
+        const list = (r && r.jobs) || [];
+        setJobs(list);
+        const today = list.find((j) => j.onShiftToday);
+        if (today) setJob((cur) => cur || today.id);
+      })
+      .catch(() => { if (live) setJobs([]); });
+    return () => { live = false; };
+  }, [preview, projectId]);
   // Photos and signatures still uploading - Send waits for them, so an entry
   // never goes without a picture the person already took.
   const [uploading, setUploading] = useState(0);
@@ -468,7 +488,7 @@ export default function FillForm({ templateId, template: given = null, preview =
     const body = visibleAnswers(defs, answers);
     const stamp = defs.find((d) => d.type === 'gps' && body[d.token]);
     const payload = {
-      entryKey, answers: body, workSiteId: site || '', shiftId: shiftId || '',
+      entryKey, answers: body, workSiteId: site || '', shiftId: shiftId || '', projectId: job || '',
       source: phone ? 'phone' : 'web', ...(stamp ? { gps: body[stamp.token] } : {}),
     };
     // Into the outbox: it sends the same entry (same entryKey) when it can.
@@ -587,6 +607,17 @@ export default function FillForm({ templateId, template: given = null, preview =
                     <select className="form-input" style={{ width: '100%' }} value={site} onChange={(e) => setSite(e.target.value)} disabled={ctx.disabled}>
                       <option value="">- Not at a site -</option>
                       {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </label>
+                </div>
+              )}
+              {!projectId && jobs.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block' }}>
+                    <span style={label}>Job</span>
+                    <select className="form-input" style={{ width: '100%' }} value={job} onChange={(e) => setJob(e.target.value)} disabled={ctx.disabled}>
+                      <option value="">- Not for a job -</option>
+                      {jobs.map((j) => <option key={j.id} value={j.id}>{j.name}{j.onShiftToday ? ' (on shift today)' : ''}</option>)}
                     </select>
                   </label>
                 </div>

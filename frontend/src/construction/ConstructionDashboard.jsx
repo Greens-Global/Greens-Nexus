@@ -15,9 +15,9 @@
 // house ProgressTrack (red past the target finish); an open project is a URL
 // (/construction/project:<id>, Operations.jsx) so Back works and a bell or a
 // pasted link lands on it; Edit Job is a sheet with the team pickers.
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useRole } from '../contexts/RoleContext';
-import { Folder, MapPin, Users, Calendar, ChevronRight, ArrowLeft, Plus, ClipboardList, ExternalLink, Pencil } from 'lucide-react';
+import { Folder, MapPin, Users, Calendar, ChevronRight, ArrowLeft, Plus, ExternalLink } from 'lucide-react';
 import { api } from '../api';
 // Shared rather than local copies: AsyncState is the codebase's one loading /
 // error idiom, and a fourth hand-rolled banner is a fourth thing to restyle.
@@ -28,16 +28,16 @@ import { StatusLabel } from '../components/StatusLabel';
 import ProgressTrack from '../ui/ProgressTrack';
 import { useIsMobile } from '../lib/useIsMobile';
 // Shared with SiteActivity, which draws the same cards and status chips.
-import { CARD, ROW, TONE, PROJECT_STATUS, personName, tagLabel } from './ui';
+import { CARD, ROW, TONE, PROJECT_STATUS, tagLabel } from './ui';
 import Empty from './Empty';
 import ConstructionInbox from './ConstructionInbox';
 import ReviewQueue from './ReviewQueue';
-import Registers from './Registers';
 import HealthRow from './HealthRow';
-import EditJobSheet from './EditJobSheet';
-import { SiteWeatherStrip, SiteWeatherCard } from './SiteWeather';
+import { SiteWeatherStrip } from './SiteWeather';
 import { trackStateFor } from './lib/health';
-import { useNexusPeople } from './lib/jobForm';
+import { useNexusPeople, useProperties } from './lib/jobForm';
+import { JOB_TYPE, clientId } from './lib/job';
+import ChoicePills from '../components/ChoicePills';
 import { formatDate } from '../lib/datetime';
 import { PersonMultiSelect } from '../tasks/components';
 import WorkSiteLinkPanel from '../components/WorkSiteLinkPanel';
@@ -72,114 +72,8 @@ function StatusChip({ project }) {
   return <StatusLabel size="sm" label={s.label} color={s.color} />;
 }
 
-// One person list in words: "Ana Ruiz, Sam Lee" - names, never addresses.
-function names(emails, map) {
-  return (emails || []).map((e) => personName(e, map)).join(', ');
-}
-
-// ── Project detail: one jobsite's standing facts ────────────────────────────
-// The day-to-day (logs, weekly report) moved to Site Activity; what stays here
-// is what belongs to the jobsite itself - its identity, health, progress,
-// team, registers and weather.
-function ProjectDetail({ project, onBack, onChanged }) {
-  const { can } = useRole();
-  const canReview = !!project.canEdit || !!can?.('manager');
-  const [logs, setLogs] = useState(null);
-  const [error, setError] = useState('');
-  const [editing, setEditing] = useState(false);
-
-  // Still fetched, only to count them: "12 daily logs" is a fact about the
-  // jobsite, and a card that cannot say how much is over there is a weaker
-  // signpost than one that can.
-  const load = useCallback(() => {
-    setError('');
-    api.getConstructionLogs(project.id)
-      .then(setLogs)
-      .catch((e) => { setLogs([]); setError(e.message || 'Could not load daily logs.'); });
-  }, [project.id]);
-
-  useEffect(load, [load]);
-
-  const team = [
-    ['Crew', project.workerEmails],
-    ['Managers', project.managerEmails],
-    ['Executives', project.executiveEmails],
-  ];
-
-  return (
-    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <div className="view-header" style={{ marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 320px' }}>
-          <button className="secondary-btn" onClick={onBack} style={{ padding: 8 }} title="Back to Construction" aria-label="Back to Construction">
-            <ArrowLeft size={16} />
-          </button>
-          <div className="view-title-group" style={{ minWidth: 0 }}>
-            <h2 style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{project.name}</span>
-              <StatusChip project={project} />
-            </h2>
-            <p style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {project.address || 'No address'}
-              {project.phase ? ` · ${project.phase}` : ''}
-            </p>
-          </div>
-        </div>
-        {project.canEdit && (
-          <button className="secondary-btn" onClick={() => setEditing(true)}><Pencil size={14} />Edit Job</button>
-        )}
-      </div>
-
-      {error && <ErrorBanner message={error} onRetry={load} />}
-
-      <div style={{ ...CARD, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <HealthRow health={project.health} />
-        <Progress project={project} withEnds />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, fontSize: '0.85rem' }}>
-          {team.map(([label, list]) => (
-            <div key={label} style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 2 }}>{label}</div>
-              <div style={{ color: (list || []).length ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                {(list || []).length ? names(list, project.names) : label === 'Managers' ? "None named - the company's managers review" : 'None yet'}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* The daily logs and the weekly report live on the Site Activity tab -
-          they are the two things people open every day. This card is the way
-          to them for this jobsite: it opens Site Activity ON this project. */}
-      <div style={{ ...CARD, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-        <ClipboardList size={20} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-            {logs === null ? 'Daily Logs' : `${logs.length} daily log${logs.length === 1 ? '' : 's'}`}
-          </div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-            Daily logs and weekly reports for this jobsite live on Site Activity.
-          </div>
-        </div>
-        <button className="secondary-btn" onClick={() => window.dispatchEvent(
-          new CustomEvent('nexus:navigate', { detail: { view: 'ops', sub: `activity:${project.id}` } }))}>
-          Open Site Activity
-        </button>
-      </div>
-
-      {/* The schedule and the open correspondence stay with the project: they are
-          properties of the jobsite, not of a given day or week. */}
-      <Registers project={project} canReview={canReview} onChanged={onChanged} />
-
-      {/* Project-based weather (Neil, 10/30/2026): this jobsite's own sky,
-          from its address - below the schedule (11/03/2026). */}
-      <SiteWeatherCard project={project} />
-
-      {editing && (
-        <EditJobSheet project={project} onClose={() => setEditing(false)}
-          onSaved={() => { setEditing(false); onChanged?.(); }} />
-      )}
-    </div>
-  );
-}
+// The Job page (11/03/2026, plan phase 2): its own lazy chunk.
+const JobPage = lazy(() => import('./job/JobPage'));
 
 // ── New project modal ───────────────────────────────────────────────────────
 // The jobsite is placed the way a work site is (Pranshu, 11/02/2026): its
@@ -190,8 +84,32 @@ function ProjectDetail({ project, onBack, onChanged }) {
 // is usable the moment it exists.
 const GEOFENCE_M = 500;   // a new project's default (routers/construction.py)
 
+// New Job (11/03/2026, plan phase 2) asks the type (a Work Order or a
+// Project - size decides which sections the Job page shows), the property,
+// the crew and managers, and the Tasks template its schedule is stamped from
+// (blank = the job type's own: "Work Order" or "Construction Project").
+const TYPE_LABELS = { [JOB_TYPE.work_order.label]: 'work_order', [JOB_TYPE.project.label]: 'project' };
+
+function useTemplates() {
+  const [list, setList] = useState([]);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve().then(() => api.getTaskProjectTemplates?.())
+      .then((r) => { if (live) setList((Array.isArray(r) ? r : []).filter((t) => !t.archived)); })
+      .catch(() => { if (live) setList([]); });
+    return () => { live = false; };
+  }, []);
+  return list;
+}
+
 function NewProjectModal({ onClose, onCreated }) {
   const [form, setForm] = useState({ name: '', address: '', phase: '', general_contractor: '' });
+  const [jobType, setJobType] = useState('project');
+  const [propertyId, setPropertyId] = useState('');
+  const [templateId, setTemplateId] = useState('');
+  const [newId] = useState(() => clientId('job'));
+  const properties = useProperties();
+  const templates = useTemplates();
   const [crew, setCrew] = useState([]);
   const [managers, setManagers] = useState([]);
   const [loc, setLoc] = useState({ lat: '', lng: '', point: null, link: '', manual: false, adjusted: false });
@@ -206,13 +124,15 @@ function NewProjectModal({ onClose, onCreated }) {
     if (!form.name.trim() || saving) return;
     setSaving(true); setError('');
     try {
-      onCreated(await api.createConstructionProject({ ...form,
+      onCreated(await api.createConstructionProject({ ...form, id: newId, job_type: jobType,
+        ...(propertyId ? { property_id: propertyId } : {}),
+        ...(templateId ? { task_template_id: templateId } : {}),
         ...(crew.length ? { worker_emails: crew } : {}),
         ...(managers.length ? { manager_emails: managers } : {}),
         ...(hasPoint ? { latitude: Number(loc.lat), longitude: Number(loc.lng) } : {}) }));
     } catch (err) {
       setSaving(false);
-      setError(err.message || 'Could not create the project.');
+      setError(err.message || 'Could not create the job.');
     }
   };
 
@@ -229,15 +149,24 @@ function NewProjectModal({ onClose, onCreated }) {
         {/* .modal-content has no padding of its own (it expects modal-header /
             modal-body), so the form brings its own - it sat flush to the edges. */}
         <form onSubmit={save} style={{ padding: '22px 24px 20px' }}>
-          <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>New Project</h3>
+          <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>New Job</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>
-            A jobsite. With no managers picked you are its manager, so you can review logs straight away.
+            A work order or a project at a jobsite. With no managers picked you are its manager, so you can review logs straight away.
           </p>
           {error && <ErrorBanner message={error} onRetry={() => setError('')} />}
           <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
             {/* Left: the inputs, in the order they are filled in. */}
             <div style={{ flex: '1 1 340px', minWidth: 0 }}>
-              <label className="form-label">Project Name</label>
+              <label className="form-label" id="new-job-type">Job Type</label>
+              <ChoicePills label="Job Type" options={Object.keys(TYPE_LABELS)}
+                value={jobType === 'work_order' ? JOB_TYPE.work_order.label : JOB_TYPE.project.label}
+                onChange={(label) => setJobType(TYPE_LABELS[label])} />
+              <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '6px 0 14px' }}>
+                {jobType === 'work_order'
+                  ? 'A repair or a short job: its steps, a punch list, the field record and closeout.'
+                  : 'A build: a full schedule with milestones, punch list, RFIs and submittals.'}
+              </div>
+              <label className="form-label">Job Name</label>
               <input className="form-input" autoFocus value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Valley Center Phase 2" />
               <label className="form-label" style={{ marginTop: 14 }}>Google Maps Link</label>
@@ -277,6 +206,20 @@ function NewProjectModal({ onClose, onCreated }) {
                     onChange={(e) => setForm({ ...form, general_contractor: e.target.value })} placeholder="Optional" />
                 </div>
               </div>
+              <label className="form-label" style={{ marginTop: 14 }} htmlFor="new-job-property">Property</label>
+              <select id="new-job-property" className="form-input" value={propertyId} disabled={properties === null}
+                onChange={(e) => setPropertyId(e.target.value)} style={{ width: '100%' }}>
+                <option value="">{properties === null ? 'Loading…' : 'No Property'}</option>
+                {(properties || []).map((o) => (
+                  <option key={o.id} value={o.id}>{o.parentName ? `${o.parentName} - ${o.name}` : o.name}{[o.city, o.state].filter(Boolean).length ? ` (${[o.city, o.state].filter(Boolean).join(', ')})` : ''}</option>
+                ))}
+              </select>
+              <label className="form-label" style={{ marginTop: 14 }} htmlFor="new-job-template">Schedule Template</label>
+              <select id="new-job-template" className="form-input" value={templateId}
+                onChange={(e) => setTemplateId(e.target.value)} style={{ width: '100%' }}>
+                <option value="">{jobType === 'work_order' ? 'Work Order (the default)' : 'Construction Project (the default)'}</option>
+                {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
               <label className="form-label" style={{ marginTop: 14 }}>Crew</label>
               <div data-new-project="crew">
                 <PersonMultiSelect value={crew} people={people} onChange={setCrew} placeholder="Who files daily logs" addTitle="Add crew" />
@@ -296,7 +239,7 @@ function NewProjectModal({ onClose, onCreated }) {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24 }}>
             <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
             <button type="submit" className="primary-btn" disabled={!form.name.trim() || saving}>
-              {saving ? 'Creating…' : 'Create Project'}
+              {saving ? 'Creating…' : 'Create Job'}
             </button>
           </div>
         </form>
@@ -324,6 +267,7 @@ function ProjectCard({ p, onOpen }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px 8px', minWidth: 0, flexWrap: 'wrap' }}>
               {/* The name wraps rather than cuts off - on a phone it is the whole point of the card. */}
               <strong style={{ fontSize: '1.05rem', fontFamily: "'Plus Jakarta Sans', sans-serif", overflowWrap: 'anywhere', minWidth: 0 }}>{p.name}</strong>
+              {p.jobType === 'work_order' && <StatusLabel size="sm" label={JOB_TYPE.work_order.label} color={JOB_TYPE.work_order.color} />}
               {p.phase && <StatusLabel size="sm" label={p.phase} color={TONE.slate} />}
               <StatusChip project={p} />
             </div>
@@ -350,10 +294,11 @@ function ProjectCard({ p, onOpen }) {
 }
 
 // ── Dashboard ───────────────────────────────────────────────────────────────
-export default function ConstructionDashboard({ projectId = '', onOpenProject }) {
+export default function ConstructionDashboard({ projectId = '', jobTab = 'overview', onOpenProject }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [localId, setLocalId] = useState('');
+  const [localTab, setLocalTab] = useState('overview');
   const [single, setSingle] = useState(null);
   const [showNew, setShowNew] = useState(false);
   const { can } = useRole();
@@ -362,7 +307,12 @@ export default function ConstructionDashboard({ projectId = '', onOpenProject })
   // The open project is the URL's (Operations passes it); without a router
   // above (a test, an embed) it is kept here.
   const openId = onOpenProject ? projectId : localId;
-  const open = (id) => (onOpenProject ? onOpenProject(id) : setLocalId(id || ''));
+  const tab = onOpenProject ? jobTab : localTab;
+  const open = (id, t) => {
+    if (onOpenProject) return t ? onOpenProject(id, t) : onOpenProject(id);
+    setLocalId(id || ''); setLocalTab(t || 'overview');
+    return undefined;
+  };
 
   const load = useCallback(() => {
     setError('');
@@ -388,8 +338,12 @@ export default function ConstructionDashboard({ projectId = '', onOpenProject })
     const fromList = projects.find((p) => p.id === openId);
     const project = (single && !single.error && single.id === openId) ? single : fromList;
     if (project) {
-      return <ProjectDetail project={project} onBack={() => { open(''); load(); }}
-        onChanged={() => { load(); loadSingle(); }} />;
+      return (
+        <Suspense fallback={<SkeletonBlocks count={3} height={110} borderRadius={8} />}>
+          <JobPage project={project} tab={tab} onTab={(t) => open(project.id, t)}
+            onBack={() => { open(''); load(); }} onChanged={() => { load(); loadSingle(); }} />
+        </Suspense>
+      );
     }
     if (single?.error) {
       return (
@@ -408,16 +362,16 @@ export default function ConstructionDashboard({ projectId = '', onOpenProject })
 
   const list = (
     <div style={CARD} key="list">
-      <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Projects</h3>
-      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Late and at-risk jobs first. Open one for its schedule, team and weather.</p>
+      <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Jobs</h3>
+      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Late and at-risk jobs first. Open one for its schedule, punch list, crew and weather.</p>
       {data === null ? (
         <SkeletonBlocks count={3} height={110} borderRadius={8} />
       ) : projects.length === 0 ? (
         <Empty
           icon={Folder}
-          title="No construction projects yet"
-          hint="Create a jobsite to start collecting daily logs from the field."
-          action={<button className="primary-btn" onClick={() => setShowNew(true)}><Plus size={16} />New Project</button>}
+          title="No jobs yet"
+          hint="Create a job - a work order or a project - to schedule the crew and collect daily logs from the field."
+          action={<button className="primary-btn" onClick={() => setShowNew(true)}><Plus size={16} />New Job</button>}
         />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -434,7 +388,7 @@ export default function ConstructionDashboard({ projectId = '', onOpenProject })
           <h2>Construction Overview</h2>
           <p>Jobsite daily logs, media and weekly reporting</p>
         </div>
-        <button className="primary-btn" onClick={() => setShowNew(true)}><Plus size={16} />New Project</button>
+        <button className="primary-btn" onClick={() => setShowNew(true)}><Plus size={16} />New Job</button>
       </div>
 
       {error && <ErrorBanner message={error} onRetry={load} />}
