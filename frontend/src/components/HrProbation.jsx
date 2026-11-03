@@ -22,14 +22,14 @@
 // finalizes; a manager's Confirm / Extend / End is a recommendation HR
 // approves or declines. End Employment opens the existing Offboard flow.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, CalendarClock, CheckCircle2, Hourglass, LogOut, Eye, Send, Pencil, Play, MinusCircle, History } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Hourglass, LogOut, Eye, Send, Pencil, Play, MinusCircle, History } from 'lucide-react';
 import { api } from '../api';
 import { Spinner, SkeletonBlocks, ErrorBanner } from './AsyncState';
 import SaveRow from './SaveRow';
 import { useDraft } from '../lib/useDraft';
 import { useGroupDirty } from '../lib/groupDirty';
 import { StatusLabel } from './StatusLabel';
-import { DateField, AvatarName } from '../tasks/components';
+import { DateField, AvatarName, Modal } from '../tasks/components';
 import { formatDate, toDateInputValue } from '../lib/datetime';
 import { SettingCard, SettingRow, NumberBox } from './settings/SettingsUI';
 
@@ -80,25 +80,15 @@ export function ProbationBadge({ p, size = 'sm' }) {
   );
 }
 
-// One popup shape for every probation dialog: 60vw, the body a flex column.
+// One popup shape for every probation dialog: a sheet from the right (the
+// shared Modal, 60% rule), the body a flex column. A question inside stays
+// dialog.confirm.
 function Popup({ title, sub, onClose, children, footer }) {
   return (
-    <div onClick={ev => ev.target === ev.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div className="nx-popup" role="dialog" aria-label={title}
-        style={{ background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <CalendarClock size={17} style={{ color: 'var(--pine)' }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 15.5 }}>{title}</div>
-            {sub && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{sub}</div>}
-          </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '6px 22px 18px', display: 'flex', flexDirection: 'column' }}>{children}</div>
-        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>{footer}</div>
-      </div>
-    </div>
+    <Modal title={title} onClose={onClose} zIndex={4100} footer={footer}>
+      {sub && <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 4 }}>{sub}</div>}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', fontFamily: 'Inter,sans-serif' }}>{children}</div>
+    </Modal>
   );
 }
 

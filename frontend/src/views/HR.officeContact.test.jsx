@@ -34,7 +34,7 @@ describe('People profile - Office & contact', () => {
     const { default: HR } = await import('./HR');
     render(<HR activeSub="hr-people" onSubChange={() => {}} />);
     fireEvent.click((await screen.findAllByText('Leo Low'))[0]);
-    expect(await screen.findByText('Office & contact')).toBeTruthy();
+    expect(await screen.findByText('Office & Contact')).toBeTruthy();
     expect(screen.getByText('949-555-0101')).toBeTruthy();
     expect(screen.getByText('1 Main St, San Clemente, CA 92672')).toBeTruthy();
     expect(screen.getByText(/Synced with Microsoft 365 10\/07\/2026/)).toBeTruthy();

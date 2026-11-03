@@ -164,6 +164,14 @@ def _active(e) -> bool:
     return e is not None and (e.status or "active").lower() == "active" and not (e.deleted_at or "")
 
 
+def _scheduled(e) -> bool:
+    """Judged by the no-show scan and actuals: active AND On the Schedule
+    (shift_roster.on_schedule, 11/03/2026). Recipients stay on _active - an
+    off-schedule manager still hears about their team."""
+    import shift_roster
+    return e is not None and shift_roster.on_schedule(e)
+
+
 def _is_live(row) -> bool:
     return (getattr(row, "weather_status", "") or "") != "cancelled"
 
@@ -596,7 +604,7 @@ def noshow_scan(db: Session, now_utc: datetime = None) -> dict:
     judged += [(em, work_date, [], exp) for (em, work_date), exp in usual.items()]
     for em, work_date, day_rows, usual_exp in judged:
         person = people.get(em)
-        if not _active(person) or em in exempt:
+        if not _scheduled(person) or em in exempt:
             continue
         on_leave = (em, work_date) in leave
         on_holiday = (em, work_date) in holidays
@@ -920,7 +928,7 @@ def actuals(db: Session, emails: Iterable[str], start: str, end: str, now_utc: d
 
     for (em, work_date), day_rows in sorted(by_day.items()):
         person = people.get(em)
-        if not _active(person):
+        if not _scheduled(person):
             continue
         cfg = settings(person.company or "")
         cell = {"shiftId": "", "shifts": len(day_rows), "status": "upcoming", "firstIn": "", "lastOut": "",
