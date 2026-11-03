@@ -205,6 +205,12 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
                   {doc.unresolved?.length > 0 && <Chip tone="orange">{doc.unresolved.length} Unfilled</Chip>}
                 </div>
               )}
+              {/* Not on the intake form: the new hire types these in the document while signing (Nov 3 2026). */}
+              {doc.atSigning?.length > 0 && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }} data-testid={`at-signing-${doc.documentId}`}>
+                  Filled by them while signing: {doc.atSigning.join(', ')}
+                </div>
+              )}
             </div>
             {doc.canOpen
               ? <button type="button" className="primary-btn" onClick={() => setPreview(doc)} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Eye size={13} /> Open</button>

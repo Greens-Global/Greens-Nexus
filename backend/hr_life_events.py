@@ -439,7 +439,8 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
                 # and whether they have (Oct 14).
                 "detailsForm": list(s.details_form or []),
                 # Who fills each variable, for this packet (Nov 3 2026).
-                "fieldSources": dict(getattr(s, "field_sources", None) or {}),
+                "fieldSources": {k: {**c, "source": hpd._source_for(s, str(c.get("source") or ""))}
+                                 for k, c in (getattr(s, "field_sources", None) or {}).items() if isinstance(c, dict)},
                 # The federal forms sent after the documents (Neil, 11/02/2026).
                 "federalForms": list(getattr(s, "federal_forms", None) or []),
                 # What the documents themselves ask (Oct 14): the person's

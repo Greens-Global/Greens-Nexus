@@ -1013,7 +1013,7 @@ def packet_document_pdf(eid: str, did: str, user: dict = Depends(require_hr_read
     prints = setting is None or hpd.doc_prints_pay(setting, hpd.row_snap(db, row))
     if prints and not comp:
         raise HTTPException(403, "This document shows pay - Pay & Benefits access is needed.")
-    pdf, _missing = hpd.render_row(db, row, hpd.event_pay(db, ev, setting) if comp else {})
+    pdf, _missing = hpd.render_row(db, row, hpd.event_pay(db, ev, setting) if comp else {}, setting=setting)
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="{hle._safe_name(row.title)}.pdf"'})
 

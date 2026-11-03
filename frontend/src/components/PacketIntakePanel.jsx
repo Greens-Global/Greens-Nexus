@@ -23,14 +23,20 @@ const docNote = (docs) => <span style={{ fontSize: 12, color: 'var(--muted)' }}>
 // server sends (`fields`) say who fills each one now; a choice HR makes here
 // is kept in the editor (`fieldSources`) and saved with the packet. Built-ins,
 // the always-asked details and pay are shown, never changed here.
+// One tick per field (Pranshu, later 11/03/2026): Intake Form ticked = asked on
+// the intake form; not ticked = the new hire fills it in the document while
+// signing (a Nexus Sign box). HR is never asked a hiring packet's fields at the
+// offer - only pay. Same For Everyone = one value printed for every hire.
 const LOCKED = { standard: 'The New Hire - Always Asked', nexus: 'Nexus Fills It', pay: 'HR At The Offer (Pay & Benefits)', form: 'The New Hire - Also Ask, Below' };
-const CHOICES = [['person', 'The New Hire (Intake Form)'], ['hr', 'HR At The Offer'], ['same', 'One Value For Everyone']];
 
 function FieldRow({ r, choice, onChange }) {
-  const c = choice || { source: r.fill === 'none' ? '' : r.fill, value: r.value, required: r.required, sensitive: r.sensitive };
-  const box = (k, label, title) => (
+  const c = choice || { source: r.fill, value: r.value, required: r.required, sensitive: r.sensitive };
+  const same = c.source === 'same';
+  const intake = c.source === 'person';
+  const box = (checked, label, title, toggle) => (
     <label title={title} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer' }}>
-      <input type="checkbox" checked={!!c[k]} onChange={e => onChange({ ...c, [k]: e.target.checked })} style={{ accentColor: 'var(--pine)' }} /> {label}
+      <input type="checkbox" aria-label={`${r.label}: ${label}`} checked={checked} onChange={e => toggle(e.target.checked)}
+        style={{ accentColor: 'var(--pine)' }} /> {label}
     </label>
   );
   return (
@@ -40,23 +46,24 @@ function FieldRow({ r, choice, onChange }) {
         {docNote(r.documents)}
       </div>
       <div style={{ flex: '1 1 260px', minWidth: 0, display: 'grid', gap: 6 }}>
-        {r.editable ? (
-          <select className="form-input" aria-label={`Who fills ${r.label}`} value={c.source || ''} onChange={e => onChange(e.target.value ? { ...c, source: e.target.value } : null)}
-            style={{ fontSize: 12.5, borderColor: c.source ? undefined : 'hsl(var(--color-orange))' }}>
-            {!c.source && <option value="">- Nobody Yet -</option>}
-            {CHOICES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-          </select>
-        ) : <span style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>{LOCKED[r.fill] || r.fill}</span>}
-        {r.editable && c.source === 'same' && (
-          <input className="form-input" aria-label={`${r.label} for everyone`} value={c.value || ''} placeholder="The value every hire gets"
-            onChange={e => onChange({ ...c, value: e.target.value })} style={{ fontSize: 12.5 }} />
-        )}
-        {r.editable && (c.source === 'person' || c.source === 'hr') && (
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-            {box('required', 'Required', 'They cannot go on without it')}
-            {c.source === 'person' && box('sensitive', 'Private', 'Only people with Pay & Benefits access see the answer')}
+        {r.editable ? (<>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+            {box(intake, 'Intake Form', 'Ticked: asked on the intake form. Not ticked: they fill it in the document while signing.',
+              on => onChange({ ...c, source: on ? 'person' : 'signing' }))}
+            {!same && box(!!c.required, 'Required', 'They cannot go on without it', on => onChange({ ...c, required: on }))}
+            {!same && box(!!c.sensitive, 'Private', 'Only people with Pay & Benefits access see the answer', on => onChange({ ...c, sensitive: on }))}
+            {box(same, 'Same For Everyone', 'One value printed for every hire - nobody types it',
+              on => onChange({ ...c, source: on ? 'same' : 'signing' }))}
           </div>
-        )}
+          {same ? (
+            <input className="form-input" aria-label={`${r.label} for everyone`} value={c.value || ''} placeholder="The value every hire gets"
+              onChange={e => onChange({ ...c, value: e.target.value })} style={{ fontSize: 12.5 }} />
+          ) : (
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {intake ? 'Asked on the intake form.' : 'They fill it in the document while signing.'}
+            </span>
+          )}
+        </>) : <span style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>{LOCKED[r.fill] || r.fill}</span>}
       </div>
     </div>
   );
@@ -94,7 +101,7 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
   const form = data?.form || [];
   const fields = data?.fields || [];
   const asked = form.filter(f => f.type !== 'heading');
-  const nobody = fields.filter(r => r.fill === 'none' && !fieldSources[r.token]?.source).length;
+  const atSigning = fields.filter(r => r.editable && r.fill === 'signing').length;
   const setChoice = (token, c) => {
     const next = { ...fieldSources };
     if (c) next[token] = c; else delete next[token];
@@ -121,10 +128,10 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
       </div>
       {data && (
         <div style={{ fontSize: 13, marginTop: 8, lineHeight: 1.55 }} data-testid="intake-summary">
-          The new hire answers <b>{(data.standard || []).length + asked.length}</b> questions
-          {asked.some(f => f.sensitive) ? ` (${asked.filter(f => f.sensitive).length} private)` : ''}.
-          {' '}HR answers <b>{(data.hrAtOffer || []).length}</b> at the offer.
-          {nobody > 0 && <span style={{ color: 'hsl(var(--color-orange))', fontWeight: 600 }}> {nobody} {nobody === 1 ? 'field has' : 'fields have'} nobody filling {nobody === 1 ? 'it' : 'them'} yet.</span>}
+          The new hire answers <b>{(data.standard || []).length + asked.length}</b> questions on the intake form
+          {asked.some(f => f.sensitive) ? ` (${asked.filter(f => f.sensitive).length} private)` : ''}
+          {' '}and fills <b>{atSigning}</b> in the documents while signing.
+          {(data.hrAtOffer || []).length > 0 && <> HR enters <b>{data.hrAtOffer.length}</b> pay {data.hrAtOffer.length === 1 ? 'field' : 'fields'} at the offer.</>}
         </div>
       )}
       {problem && (
@@ -147,7 +154,7 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
 
         <div style={sub}>Every Field In These Documents</div>
         <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55 }}>
-          Pick who fills each one for this packet. The templates are not changed - another packet can choose differently.
+          Tick Intake Form to ask it on the intake form; leave it unticked and the new hire fills it in the document while signing. The templates are not changed - another packet can choose differently.
         </div>
         {fields.length === 0 ? (
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 6 }}>Add documents to see the fields they print.</div>
@@ -181,8 +188,8 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
       {children}
 
       {data?.hrAtOffer?.length > 0 && (<>
-        <div style={sub}>Filled At The Offer By HR</div>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Asked on the Make An Offer form, before anything is sent.</div>
+        <div style={sub}>Pay, Entered At The Offer By HR</div>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Entered on the Make An Offer form with Pay & Benefits access - never typed by the new hire.</div>
         {data.hrAtOffer.map(q => (
           <div key={q.token} style={row}>
             <span style={{ fontWeight: 600 }}>{q.label}{q.required ? ' *' : ''}</span>

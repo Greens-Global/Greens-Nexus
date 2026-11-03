@@ -707,6 +707,36 @@ def unresolved(snap: Snap, merge: dict) -> list:
     return sorted(t for t in snap.tokens if t != "today" and not t.startswith("template.") and t not in merge)
 
 
+class FillBox(str):
+    """A blank the new hire fills in the document while signing (Pranshu,
+    11/03/2026): prints as a line; the PDF records where it landed
+    (doc_export's nxFill) and build_envelope puts their Nexus Sign text box
+    there - Required and Private as the packet set them."""
+    LINE = "_" * 16
+
+    def __new__(cls, token: str, label: str, required: bool = False, sensitive: bool = False):
+        s = super().__new__(cls, cls.LINE)
+        s.fill_box = {"token": token, "label": label, "required": bool(required), "sensitive": bool(sensitive)}
+        return s
+
+
+def signing_blanks(setting, snap: Snap, merge: dict) -> dict:
+    """{token: FillBox} - what a hiring packet's document still leaves unfilled
+    that the new hire may type: never pay, a built-in or a dotted variable
+    (those stay problems for HR). Nothing on any other packet."""
+    if setting is None or not _is_hire(setting):
+        return {}
+    reserved = _reserved_tokens()
+    out = {}
+    for t in unresolved(snap, merge):
+        if t in reserved or "." in t or is_pay_token(t, snap.defs):
+            continue
+        fd = snap.defs.get(t) or {}
+        out[t] = FillBox(t, str(fd.get("label") or t.replace("_", " ").title())[:120],
+                         fd.get("required"), fd.get("sensitive"))
+    return out
+
+
 def render(db: Session, snap: Snap, *, title: str, letterhead_id: str, merge: dict,
            employee_id: str = "", entity_id: str = "", anchors: Optional[list] = None) -> bytes:
     """The PDF of a packet document. A transient Document is used for the
@@ -826,6 +856,8 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
     for snap in snaps:
         merge = full_merge(db, snap, employee_id=employee_id, candidate_id=candidate_id, entity_id=entity_id,
                            overrides=values, pay=pay_values)
+        blanks = signing_blanks(setting, snap, merge)
+        merge.update(blanks)
         if not can_see_pay:
             # A preview for someone without pay access prints [Pay] - the
             # real figure is only ever rendered for Pay & Benefits holders.
@@ -837,7 +869,8 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
                     merge[t] = "[Restricted]"
         docs.append({"templateId": snap.tpl.id, "name": snap.name, "version": snap.version,
                      "printsPay": doc_prints_pay(setting, snap), "signs": sorted(snap.signature_roles),
-                     "unresolved": unresolved(snap, merge)})
+                     "unresolved": unresolved(snap, merge),
+                     "atSigning": [b.fill_box["label"] for b in blanks.values()]})
     return {"snaps": snaps, "problems": list(dict.fromkeys(problems)), "parties": parties, "remap": remap,
             "values": values, "printsPay": prints, "documents": docs,
             "verifier": {"role": vrole, "roleLabel": role_label(vrole), "email": vemail,
@@ -1035,12 +1068,20 @@ def row_snap(db: Session, row: Document) -> Snap:
     return Snap(stub, row.content or {}, meta, row.template_version or 0)
 
 
-def render_row(db: Session, row: Document, pay: dict, anchors: Optional[list] = None) -> tuple:
-    """(pdf, unresolved) for a generated document, pay merged in at render."""
+def render_row(db: Session, row: Document, pay: dict, anchors: Optional[list] = None,
+               setting: Optional[HrPacketSetting] = None, blanks: Optional[dict] = None) -> tuple:
+    """(pdf, unresolved) for a generated document, pay merged in at render. With
+    the packet's `setting`, a hiring packet's leftover fields print as blanks
+    the new hire fills while signing (collected into `blanks`)."""
     from routers.documents import render_document
     snap = row_snap(db, row)
     merge = full_merge(db, snap, employee_id=row.employee_id or "", candidate_id=row.candidate_id or "",
                        entity_id=row.entity_id or "", overrides=row.merge_overrides or {}, pay=pay)
+    if setting is not None:
+        found = signing_blanks(setting, with_sources(setting, [snap])[0], merge)
+        merge.update(found)
+        if blanks is not None:
+            blanks.update(found)
     return render_document(db, row, merge, anchors=anchors), unresolved(snap, merge)
 
 
@@ -1070,6 +1111,7 @@ def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
     p = event_plan(db, ev, setting, sender=ev.created_by or user["email"], can_see_pay=True)
     stale = outdated(db, ev, p)
     unresolved_by_tpl = {d["templateId"]: d["unresolved"] for d in p["documents"]}
+    signing_by_tpl = {d["templateId"]: d.get("atSigning", []) for d in p["documents"]}
     prints_by_tpl = {d["templateId"]: d["printsPay"] for d in p["documents"]}
     docs = []
     for e in ev.documents or []:
@@ -1081,7 +1123,9 @@ def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
                      "publishedBy": (tpl.published_by if tpl else "") or "",
                      "outdated": bool(stale.get(e["documentId"])),
                      "printsPay": prints, "canOpen": can_see_pay or not prints,
-                     "unresolved": unresolved_by_tpl.get(e.get("templateId"), [])})
+                     "unresolved": unresolved_by_tpl.get(e.get("templateId"), []),
+                     # Filled by the new hire while signing (Nov 3 2026), not a problem.
+                     "atSigning": signing_by_tpl.get(e.get("templateId"), [])})
     problems = list(p["problems"])
     if ev.kind in CANDIDATE_KINDS:
         problems += _hire_problems(db, ev)
@@ -1334,16 +1378,25 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
     pay = event_pay(db, ev, setting)
     remap = p["remap"]
     rendered = []
+    private_blank = False
     for e in ev.documents or []:
         row = db.query(Document).filter(Document.id == e["documentId"]).first()
-        anchors = []
-        pdf, missing = render_row(db, row, pay, anchors=anchors)
+        anchors, blanks = [], {}
+        pdf, missing = render_row(db, row, pay, anchors=anchors, setting=setting, blanks=blanks)
         if missing:
             raise hle.PacketError(f'"{row.title}" still has unfilled details: {", ".join(missing)}.', 409)
         text = "".join(pg.extract_text() or "" for pg in PdfReader(io.BytesIO(pdf)).pages)
         if "{{" in text:
             raise hle.PacketError(f'"{row.title}" still shows an unfilled variable - fix the template or the values.', 409)
-        rendered.append((row, e, pdf, [{**f, "role": remap.get(f["role"], f["role"])} for f in signing_fields(anchors)]))
+        placed = [{**f, "role": remap.get(f["role"], f["role"])} for f in signing_fields(anchors)]
+        # The blanks the new hire fills while signing: a text box on each line, theirs only.
+        for n, a in enumerate(a for a in anchors if a.get("fill") in blanks):
+            box = blanks[a["fill"]].fill_box
+            private_blank = private_blank or box["sensitive"]
+            placed.append({"id": f"fill{n + 1}", "role": first["key"], "type": "text", "label": box["label"],
+                           "required": box["required"], "sensitive": box["sensitive"], "page": a["page"],
+                           "x": round(a["x"], 5), "y": round(a["y"], 5), "w": round(a["w"], 5), "h": round(a["h"], 5)})
+        rendered.append((row, e, pdf, placed))
     if ev.kind == "offer" and (ev.inputs or {}).get("jd_in_offer"):
         rendered = offer_with_jd(ev, rendered, signer=first["key"])
     docs = []
@@ -1404,7 +1457,7 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
                         if ev.kind in CANDIDATE_KINDS else ""),
             ip=ip, user_agent=user_agent, excluded_ack=excluded_ack, document_class="employment",
             link_kind="life_event", link_id=ev.id, sender_signs_first=sender_first,
-            prints_pay=p["printsPay"], saved=saved)
+            prints_pay=p["printsPay"] or private_blank, saved=saved)
     except HTTPException as ex:
         federal_discard(docs)
         raise hle.PacketError(str(ex.detail), ex.status_code)
@@ -1653,15 +1706,32 @@ def def_source(fd: Optional[dict]) -> str:
 
 # ── who fills each variable, per packet (Pranshu, 11/03/2026) ───────────────
 # "From that hiring packet only I want to get few fields in the intake form":
-# the packet lists every variable its documents print and says who fills each
-# - the new hire on the intake form ('person'), HR when the offer is made
-# ('hr') or one value for every hire ('same'). The choice is laid over the
-# templates' own field definitions (with_sources) wherever a packet reads its
-# documents, so the intake form, HR's offer questions, the readiness check
-# and the documents follow ONE choice. The templates are never changed - two
-# packets can use the same template and choose differently.
+# the packet lists every variable its documents print and says who fills each.
+# On a HIRING packet (Pranshu, later 11/03/2026: "HR at the offer is not
+# logical"): ticked = asked on the intake form ('person'), not ticked = the new
+# hire fills it in the document while signing ('signing', a Nexus Sign box -
+# FillBox below), or one value for every hire ('same'). HR never answers a
+# hiring packet's fields at the offer - only pay, with Pay & Benefits. An old
+# 'hr' choice, and a template's own HR Answers variable, read as 'signing'.
+# An offer letter or another letter keeps 'hr' (HR At The Offer) and 'same'.
+# The choice is laid over the templates' own field definitions (with_sources)
+# wherever a packet reads its documents, so the intake form, the readiness
+# check and the documents follow ONE choice. The templates are never changed.
 
-FIELD_SOURCES = ("person", "hr", "same")
+HIRE_SOURCES = ("person", "signing", "same")
+LETTER_SOURCES = ("hr", "same")
+FIELD_SOURCES = HIRE_SOURCES + ("hr",)
+
+
+def _is_hire(setting) -> bool:
+    return (getattr(setting, "event", "") or "hire") == "hire"
+
+
+def _source_for(setting_or_event, src: str) -> str:
+    """A stored choice as it reads now: on a hiring packet 'hr' is 'signing'."""
+    event = setting_or_event if isinstance(setting_or_event, str) else (
+        getattr(setting_or_event, "event", "") or "hire")
+    return "signing" if event == "hire" and src == "hr" else src
 
 
 def _with_source(fd: dict, choice: dict) -> dict:
@@ -1670,31 +1740,45 @@ def _with_source(fd: dict, choice: dict) -> dict:
         g.update({"source": "", "default": str(choice.get("value") or "")})
     else:
         g["source"] = choice.get("source")
-        if choice.get("source") == "person":
+        if choice.get("source") in ("person", "signing"):
             g["sensitive"] = bool(choice.get("sensitive"))
     return g
 
 
 def with_sources(setting, snaps: list) -> list:
-    """The packet's documents with its own Filled By choices applied. Safe to
-    apply twice; a packet with no choices gets its snaps back unchanged."""
+    """The packet's documents with its own Filled By choices applied (and, on a
+    hiring packet, a template's HR Answers variable turned into one the new hire
+    fills while signing - never pay). Safe to apply twice."""
     import copy
-    choices = (getattr(setting, "field_sources", None) or {}) if setting is not None else {}
-    if not choices:
+    hire = setting is not None and _is_hire(setting)
+    raw = (getattr(setting, "field_sources", None) or {}) if setting is not None else {}
+    choices = {t: {**c, "source": _source_for(setting, str(c.get("source") or ""))}
+               for t, c in raw.items() if isinstance(c, dict)}
+    if not choices and not hire:
         return snaps
     out = []
     for s in snaps:
-        hit = {t: c for t, c in choices.items()
-               if t in s.tokens and isinstance(c, dict) and c.get("source") in FIELD_SOURCES}
-        if not hit:
+        hit = {t: c for t, c in choices.items() if t in s.tokens and c.get("source") in FIELD_SOURCES}
+        defs, changed = [], False
+        for fd in s.field_defs:
+            t = fd.get("token")
+            if t in hit:
+                defs.append(_with_source(fd, hit[t]))
+                changed = True
+            elif hire and def_source(fd) == "hr" and not is_pay_token(t or "", s.defs):
+                defs.append({**fd, "source": "signing"})
+                changed = True
+            else:
+                defs.append(fd)
+        have = {fd.get("token") for fd in s.field_defs}
+        added = [_with_source({"token": t, "label": t.replace("_", " ").title(), "type": "text"}, c)
+                 for t, c in hit.items() if t not in have]
+        if not changed and not added:
             out.append(s)
             continue
-        have = {fd.get("token") for fd in s.field_defs}
-        defs = [_with_source(fd, hit[fd.get("token")]) if fd.get("token") in hit else fd for fd in s.field_defs]
-        defs += [_with_source({"token": t, "label": t.replace("_", " ").title(), "type": "text"}, c)
-                 for t, c in hit.items() if t not in have]
         g = copy.copy(s)
-        g.field_defs, g.defs = defs, {fd.get("token"): fd for fd in defs}
+        g.field_defs = defs + added
+        g.defs = {fd.get("token"): fd for fd in g.field_defs}
         out.append(g)
     return out
 
@@ -1717,20 +1801,21 @@ def clean_field_sources(raw, snaps: list, event: str, own_keys=(), strict: bool 
         if not isinstance(c, dict) or token not in printed or token in reserved or "." in token or token in own_keys:
             continue                     # no longer printed, or not this list's to fill
         label = (defs.get(token) or {}).get("label") or token.replace("_", " ").title()
-        src = str(c.get("source") or "")
+        src = _source_for(event, str(c.get("source") or ""))
         value = _CTRL.sub("", str(c.get("value") or "")).strip()[:500]
-        problem = ("" if src in FIELD_SOURCES else f'Pick who fills "{label}".') or (
+        allowed = HIRE_SOURCES if event == "hire" else LETTER_SOURCES + ("person",)
+        problem = ("" if src in allowed else f'Pick who fills "{label}".') or (
             f'"{label}" cannot be asked on an intake form - only a hiring packet has one. Pick HR At The Offer '
             f'or One Value For Everyone.' if src == "person" and event != "hire" else
             f'"{label}" is pay - HR enters it when the offer is made, with Pay & Benefits access.'
-            if src != "hr" and is_pay_token(token, defs) else
+            if (src != "hr" or event == "hire") and is_pay_token(token, defs) else
             f'Type the value every hire gets for "{label}".' if src == "same" and not value else "")
         if problem:
             if strict:
                 raise PacketProblem(problem)
             continue
         out[token] = {"source": src, "required": bool(c.get("required")) and src != "same",
-                      "sensitive": bool(c.get("sensitive")) and src == "person",
+                      "sensitive": bool(c.get("sensitive")) and src in ("person", "signing"),
                       **({"value": value} if src == "same" else {})}
     return out
 
@@ -1767,13 +1852,15 @@ def field_rows(snaps: list, own_form: list, choices: dict) -> list:
                 fill = "form"
             else:
                 src = def_source(fd)
-                fill = src if src in ("person", "hr") else "same" if str(fd.get("default") or "").strip() else "none"
+                # Not on the intake form, no value for everyone: the new hire fills it while signing.
+                fill = (src if src in ("person", "signing") else "same" if str(fd.get("default") or "").strip()
+                        else "signing")
             label = own[t]["label"] if t in own else fd.get("label") or t.replace("_", " ").title()
             rows[t] = {"token": t, "label": str(label)[:120], "type": fd.get("type") or "text", "documents": [s.name],
                        "fill": fill, "value": str(fd.get("default") or "") if fill == "same" else "",
                        "required": bool((own.get(t) or fd).get("required")),
                        "sensitive": bool((own.get(t) or fd).get("sensitive")),
-                       "editable": fill in ("person", "hr", "same", "none"), "packetChoice": t in (choices or {})}
+                       "editable": fill in ("person", "signing", "same"), "packetChoice": t in (choices or {})}
             seen.append(t)
     return [rows[t] for t in seen]
 
@@ -1849,7 +1936,7 @@ def intake_preview(db: Session, template_ids: list, details_form, entity_id: str
     # The editor's Filled By choices as they stand, unsaved - one still being
     # typed (a value left empty) is left out rather than refused.
     choices = clean_field_sources(field_sources, snaps, "hire", {f.get("key") for f in own}, strict=False)
-    packet = SimpleNamespace(details_form=own, field_sources=choices)
+    packet = SimpleNamespace(details_form=own, field_sources=choices, event="hire")
     snaps = with_sources(packet, snaps)
     view = FormView(packet, snaps)
 
@@ -2209,6 +2296,8 @@ def unfilled_variables(setting: HrPacketSetting, snaps: list) -> list:
     nothing fills: not built in, not asked of the person (the template's Ask
     The Person or the Details Form), not answered by HR, no Default Value,
     not pay. HR would have to type each one on every packet."""
+    if _is_hire(setting):
+        return []          # on a hiring packet whatever is left, the new hire fills while signing
     reserved = _reserved_tokens()
     snaps = with_sources(setting, snaps)
     form = {f["key"] for f in form_fields(FormView(setting, snaps))}
@@ -2304,7 +2393,9 @@ def readiness(db: Session, setting: HrPacketSetting) -> list:
     # 7. Every variable has a source.
     missing = unfilled_variables(setting, snaps)
     out.append(_check("variables", not missing, "Every Variable Is Filled",
-                      "Nexus fills each one, or it is asked of the person or of HR" if not missing else
+                      ("Nexus fills each one, the intake form asks it, or the new hire fills it while signing"
+                       if setting.event == "hire" else "Nexus fills each one, or it is asked of the person or of HR")
+                      if not missing else
                       "Nothing fills " + ", ".join(m["label"] for m in missing[:6]) + ("..." if len(missing) > 6 else "") +
                       (" - in the template mark each one Ask The Person or HR Answers, give it a Default Value, "
                        "or add it to the Details Form."

@@ -299,7 +299,9 @@ class DynamicTests(ReviewCase):
         review = self._review(ev["id"])
         self.assertIn('Jane left Emergency Contact Name, Emergency Contact Phone empty, and "NDA - Jane Doe" prints '
                       'them - click Edit to fill them in.', review["problems"])
-        self.assertIn('"NDA - Jane Doe" still has unfilled details: probation.', review["problems"])
+        # Probation is asked nowhere: the new hire fills it while signing (Nov 3 2026) - not a problem.
+        self.assertFalse(any("probation" in x for x in review["problems"]))
+        self.assertEqual(next(d for d in review["documents"] if d["title"] == "NDA - Jane Doe")["atSigning"], ["Probation"])
         self.assertFalse(review["canVerify"])
 
     def test_a_publish_regenerates_and_a_stale_verify_is_refused(self):
