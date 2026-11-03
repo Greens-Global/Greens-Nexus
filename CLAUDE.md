@@ -955,6 +955,33 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   (`maintenance_services.local_today` / `TodayCache`); resolving a
   preventive ticket by ANY path needs a photo (`require_finish_photo`).
 
+- **Construction Jobs (Neil, 11/03/2026, plan
+  https://claude.ai/artifact/B5jm924fPPQ85AEDjBoSHr).** ONE Job record
+  (`construction_projects`, `job_type` work_order | project) per piece of
+  work, always in a company (`company_id`, walled like the rest of Nexus);
+  the work lives in its home module: the Job's own task project
+  (`task_project_id`, stamped from the company's "Work Order" /
+  "Construction Project" template) holds schedule, milestones and the Punch
+  section (Done, then the project status Verified) - Neil overrode Sagar's
+  08/04 "independent of Tasks" rule; Tickets are the maintenance work
+  orders (Start Job links a ticket; job complete resolves it through the
+  desk's own update path); crews from Shifts placements at `project-<id>`,
+  hours from `time_punches.jobsite` (hours only, never pay); forms via
+  `doc_form_entries.linked_project_id` under the ONE form reach rule; money
+  is read from Intacct by the job's Project-Job code (`intacct_project_id`),
+  never keyed into Nexus, for `_may_see_cost` + Accounting grant + entity
+  access only - change order and contract dollars follow `_may_see_cost`
+  everywhere (weekly report and PDFs render them per viewer). Field writes
+  use ONE idempotency mechanism: the `Idempotency-Key` in
+  `nexus_idempotency_keys` (phone-made ids are only the record's own id and
+  the outbox sends that id as the key; docs/Offline.md). Closeout writes to
+  Asset Management only through its per-row save (`post_changes`) as the
+  person closing out, under their edit permission, with fixed `cx-<record
+  id>` ids that are only ever created, never overwritten, never PUT
+  /workspace. "Done needs a photo" is enforced on the construction punch
+  route only - completing a punch task from Tasks does not ask (known gap).
+  AI stays off: nothing in the module waits on it.
+
 ## Gotchas
 
 - The shared dev database (Supabase `greens-nexus-dev`) backs the live
