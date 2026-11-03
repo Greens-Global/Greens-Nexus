@@ -311,8 +311,10 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
   }
   useGroupDirty(numsDirty, saveNums);
   // The Save row names what it saves: on a card that mixes switches and
-  // boxes, only the boxes wait for it.
-  const numNames = numKeys.filter((k) => NUM_LABELS[k] && (hrPlus || !SHIFT_SETTING_PARTS.labor.includes(k))).map((k) => NUM_LABELS[k]);
+  // boxes, only the boxes wait for it. The labor boxes only for whoever
+  // sees the labor budget (canSeeLaborBudget, HR++).
+  const laborShown = typeof cfg?.canSeeLaborBudget === 'boolean' ? cfg.canSeeLaborBudget : hrPlus;
+  const numNames = numKeys.filter((k) => NUM_LABELS[k] && (laborShown || !SHIFT_SETTING_PARTS.labor.includes(k))).map((k) => NUM_LABELS[k]);
   const numNote = `Saves ${numNames.length > 2 ? `${numNames.slice(0, -1).join(', ')} and ${numNames[numNames.length - 1]}` : numNames.join(' and ')}. Switches and lists save as you go.`;
   // The team time zone moves every shift with no shift type (Settings
   // critique, 11/02/2026): it asks first, naming the old zone and the new.
@@ -323,12 +325,27 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
       { title: 'Change Team Time Zone?', confirmText: 'Change Time Zone', cancelText: 'Keep Current Zone' });
     if (ok) save({ timeZone: next });
   }
+  // In a Settings group (`part`), Use the Default drops only that group's own
+  // settings (11/02/2026) - the company keeps what it set in the others, the
+  // labor budget included; on its own the panel drops the whole override
+  // (the server keeps the labor budget for someone who may not see it).
   async function useDefaults() {
-    const ok = await dialog.confirm(`Drop the shift settings ${companyName} has of its own? It then follows the default settings, and whatever changes there.`, { title: 'Use the Default', confirmText: 'Use the Default' });
+    const ok = await dialog.confirm(part
+      ? `Drop what ${companyName} has of its own here? These settings then follow the default settings, and whatever changes there. The other shift settings stay as they are.`
+      : `Drop the shift settings ${companyName} has of its own? It then follows the default settings, and whatever changes there.`,
+    { title: 'Use the Default', confirmText: 'Use the Default' });
     if (!ok) return;
-    try { await api.shiftRequestSettingsReset(company); toastOk?.(`${companyName} now uses the default settings.`); setTick((t) => t + 1); tell({ reload: true }); }
-    catch (e) { toastErr?.(e?.message || 'Could not drop the settings.'); }
+    try {
+      if (part) await api.shiftRequestSettingsResetKeys(company, SHIFT_SETTING_PARTS[part]);
+      else await api.shiftRequestSettingsReset(company);
+      toastOk?.(`${companyName} now uses the default settings${part ? ' here' : ''}.`); setTick((t) => t + 1); tell({ reload: true });
+    } catch (e) { toastErr?.(e?.message || 'Could not drop the settings.'); }
   }
+  // This group's settings differ from the defaults for the company (part mode).
+  const partOwn = !!(part && company && cfg?.hasOverride && defaults && SHIFT_SETTING_PARTS[part].some((k) => !same(cfg?.[k], defaults[k])));
+  // The labor budget block: the server says whether this person is HR++ for
+  // the company (canSeeLaborBudget); an older API falls back to the role.
+  const seesLabor = typeof cfg?.canSeeLaborBudget === 'boolean' ? cfg.canSeeLaborBudget : hrPlus;
   // Each part is rows (SettingsUI): in Settings the group card holds them;
   // on its own the panel puts each part on a card under its heading.
   const block = (key, title, rows) => (!show(key) ? null : part ? <div key={key}>{rows}</div> : (
@@ -344,7 +361,14 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
       <AsyncSection loading={!cfg && !error} error={!!error} onRetry={() => setTick((t) => t + 1)} errorMessage="The shift settings could not be loaded right now." skeleton={<div style={{ padding: part ? 14 : 0 }}><SkeletonBlocks count={part ? 2 : 3} height={36} borderRadius={8} /></div>}>
         {cfg && (
           <div style={{ display: 'grid', gap: part ? 0 : 18 }}>
-            {company && show('basics') && (
+            {partOwn && (
+              <div className="nx-set-note" data-part-own={part} style={{ borderTop: 'none', borderBottom: '1px solid var(--line)', borderRadius: 0, color: 'var(--ink)' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--nx-own)', flexShrink: 0 }} aria-hidden="true" />
+                <span style={{ flex: 1, minWidth: 200 }}>{`${companyName} has its own settings here. Changes here apply to ${companyName} only.`}</span>
+                <button type="button" className="link-btn" onClick={useDefaults} style={{ marginTop: 0, color: 'var(--wk-brand)' }}>Use the Default</button>
+              </div>
+            )}
+            {company && show('basics') && !partOwn && (
               <div className="nx-set-note" style={{ borderTop: 'none', borderBottom: part ? '1px solid var(--line)' : 'none', borderRadius: part ? 0 : 10, color: cfg.hasOverride ? 'var(--ink)' : 'var(--muted)' }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: cfg.hasOverride ? 'var(--nx-own)' : 'var(--line)', flexShrink: 0 }} aria-hidden="true" />
                 <span style={{ flex: 1, minWidth: 200 }}>
@@ -352,7 +376,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                     ? `${companyName} has its own settings. Changes ${part ? 'in any shift group' : 'here'} apply to ${companyName} only.`
                     : `Using the default settings. Changing anything here saves settings for ${companyName} only.`}
                 </span>
-                {cfg.hasOverride && <button type="button" className="link-btn" onClick={useDefaults} style={{ marginTop: 0, color: 'var(--wk-brand)' }}>Use the Default</button>}
+                {cfg.hasOverride && !part && <button type="button" className="link-btn" onClick={useDefaults} style={{ marginTop: 0, color: 'var(--wk-brand)' }}>Use the Default</button>}
               </div>
             )}
             {block('requests', 'Requests And Visibility', (
@@ -441,7 +465,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                   hint="Minutes before 40 hours of regular time in a payroll week (Sunday to Saturday). 0 turns it off." />
               </>
             ))}
-            {hrPlus && block('labor', 'Labor Budget', (
+            {seesLabor && block('labor', 'Labor Budget', (
               <>
                 {/* Weekly labor budget (Neil, 11/02/2026): the planner's "of ... budget", HR++ only. */}
                 <div className="nx-set-note" style={{ borderTop: 'none', borderBottom: '1px solid var(--line)' }}>Shown on the shift planner to HR and administrators only - never to managers. 0 means no budget.</div>

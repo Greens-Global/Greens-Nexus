@@ -22,7 +22,9 @@ vi.mock('../api', () => ({
 }));
 const confirm = vi.fn();
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirm(...a) } }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true }) }));
+// A Super Administrator by default: mode and the test recipients are theirs (11/02/2026).
+const role = { isGlobalAdmin: true };
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, isGlobalAdmin: role.isGlobalAdmin }) }));
 
 const WeeklyDigestSettings = (await import('./WeeklyDigestSettings')).default;
 
@@ -30,6 +32,7 @@ const CFG = { mode: 'off', test_recipients: [], sendDay: 1, leadMinutes: 120, in
               defaultSendTime: '08:00', defaultTimeZone: 'America/Los_Angeles' };
 
 beforeEach(() => {
+  role.isGlobalAdmin = true;
   getWeeklyDigestConfig.mockReset().mockResolvedValue({ ...CFG });
   updateWeeklyDigestConfig.mockReset().mockImplementation(async (p) => ({ ...CFG, ...p }));
   getWeeklyDigestLog.mockReset().mockResolvedValue({ rows: [{
@@ -86,6 +89,13 @@ describe('WeeklyDigestSettings', () => {
     fireEvent.click(saveButton());
     expect(await screen.findByText(/whole number from 30 to 360/)).toBeTruthy();
     expect(updateWeeklyDigestConfig).not.toHaveBeenCalled();
+  });
+
+  it('leaves the mode to a Super Administrator (11/02/2026)', async () => {
+    role.isGlobalAdmin = false;
+    render(<WeeklyDigestSettings />);
+    expect(await screen.findByText(/only a Super Administrator can change them/)).toBeTruthy();
+    expect(screen.getByText('Live').closest('label').querySelector('input').disabled).toBe(true);
   });
 
   it('asks before switching to Live, and stays put when told no', async () => {

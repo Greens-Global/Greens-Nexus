@@ -566,7 +566,7 @@ class ApiTests(_Case):
         app.include_router(digest_router.router)
         from auth import require_administrator
         app.dependency_overrides[require_administrator] = lambda: {
-            "email": "admin@greensglobal.com", "role": "administrator", "level": 4}
+            "email": "admin@greensglobal.com", "role": "owner", "level": 5}   # a Super Administrator: mode and test addresses are theirs (Neil, 11/02/2026)
         self.client = TestClient(app)
 
     def test_saves_valid_settings(self):
@@ -576,6 +576,18 @@ class ApiTests(_Case):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["leadMinutes"], 90)
         self.assertEqual(r.json()["test_recipients"], ["qa@greensglobal.com"])
+
+    def test_mode_and_test_recipients_are_a_super_administrator_s(self):
+        # Neil, 11/02/2026: an Administrator and a level 1-3 Full grant holder
+        # (walls off) are refused a change; an unchanged mode sent back passes.
+        from auth import require_administrator
+        for level, role in ((4, "administrator"), (3, "manager")):
+            self.client.app.dependency_overrides[require_administrator] = lambda lv=level, ro=role: {
+                "email": "lower@greensglobal.com", "role": ro, "level": lv}
+            self.assertEqual(self.client.put("/weekly-digest/config", json={"mode": "live"}).status_code, 403, role)
+            self.assertEqual(self.client.put("/weekly-digest/config", json={"test_recipients": ["x@greensglobal.com"]}).status_code,
+                             403, role)
+            self.assertEqual(self.client.put("/weekly-digest/config", json={"mode": "off", "sendDay": 2}).status_code, 200, role)
 
     def test_rejects_bad_values(self):
         for body in ({"sendDay": 0}, {"sendDay": 8}, {"leadMinutes": 5}, {"defaultSendTime": "7am"},
@@ -605,7 +617,7 @@ class SendTestTests(_Case):
         app.include_router(digest_router.router)
         from auth import require_administrator
         app.dependency_overrides[require_administrator] = lambda: {
-            "email": "admin@greensglobal.com", "role": "administrator", "level": 4}
+            "email": "admin@greensglobal.com", "role": "owner", "level": 5}   # a Super Administrator: mode and test addresses are theirs (Neil, 11/02/2026)
         self.client = TestClient(app)
         self._emp(AMY)
         self._task("Old task", "2026-09-20")
@@ -631,6 +643,15 @@ class SendTestTests(_Case):
         r = self._send(to=[AMY.upper()])
         self.assertTrue(r.json()["sent"])
         self.assertIn(">Extend</a>", self.sent[0]["html"])
+
+    def test_only_a_super_administrator_names_other_addresses(self):
+        from auth import require_administrator
+        for level, role in ((4, "administrator"), (3, "manager")):
+            self.client.app.dependency_overrides[require_administrator] = lambda lv=level, ro=role: {
+                "email": "lower@greensglobal.com", "role": ro, "level": lv}
+            self.assertEqual(self._send(to=["inbox@elsewhere.com"]).status_code, 403, role)
+            self.assertEqual(self._send().json()["recipients"], ["lower@greensglobal.com"], role)   # themselves: fine
+        self.assertEqual(len(self.sent), 2)
 
     def test_nothing_overdue_sends_nothing(self):
         self._emp("bob@greensglobal.com")

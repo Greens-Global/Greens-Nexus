@@ -34,6 +34,9 @@ vi.mock('../api', () => ({
   },
 }));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: () => Promise.resolve(true), undo: () => {} } }));
+// A Super Administrator by default: the minimum wage is every company's (11/02/2026).
+const role = { isGlobalAdmin: true };
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, isGlobalAdmin: role.isGlobalAdmin }) }));
 
 const { ReadinessThresholds } = await import('./PayrollReadiness');
 const { MinWageForm } = await import('./CaReview');
@@ -67,6 +70,20 @@ describe('HR and pay Settings panels keep the one save pattern', () => {
     expect(group.saves.every(s => typeof s === 'function')).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
     await waitFor(() => expect(group.dirty).toBe(false));
+  });
+
+  it('California Minimum Wage is read-only for anyone but a Super Administrator: no Save row, never dirty', async () => {
+    role.isGlobalAdmin = false;
+    try {
+      const { container, group } = renderInGroup(<MinWageForm toastOk={() => {}} toastErr={() => {}} />);
+      expect(await screen.findByText('Only a Super Administrator can change this.')).toBeInTheDocument();
+      expect(saveRows(container)).toBe(0);
+      expect(screen.getByLabelText('Minimum Wage').readOnly).toBe(true);
+      expect(typedFields(container)).toHaveLength(0);
+      expect(group.dirty).toBe(false);
+    } finally {
+      role.isGlobalAdmin = true;
+    }
   });
 
   it('Leave Policies has one Save, no second Save Policies / Save Start Date button', async () => {

@@ -21,7 +21,7 @@ const api = {
   getPeopleDirectory: vi.fn(() => Promise.resolve([])),
 };
 vi.mock('../../api', () => ({ api: new Proxy({}, { get: (_, k) => api[k] || (() => Promise.resolve({})) }) }));
-vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, myLevel: 5 }) }));
+vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, myLevel: 5, isGlobalAdmin: true }) }));
 vi.mock('../../ui/dialog', () => ({ dialog: { confirm: vi.fn(() => Promise.resolve(true)) } }));
 vi.mock('../../tasks/TasksContext', () => ({ useTasks: () => ({ taskById: {} }) }));
 vi.mock('../../tasks/TaskDetailDrawer', () => ({ default: () => null }));

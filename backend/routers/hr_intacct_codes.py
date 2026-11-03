@@ -98,15 +98,26 @@ def load_state(db: Session) -> dict:
     }
 
 
-def save_state(db: Session, state: dict, by: str) -> None:
-    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == SETTINGS_KEY).first()
-    if not row:
-        row = models.NexusSetting(key=SETTINGS_KEY)
-        db.add(row)
-    row.value = json.dumps({"nightly": state.get("nightly") or {}, "synced": state.get("synced") or {},
-                            "lastRun": state.get("lastRun") or {}})
-    row.updated_by = by
-    row.updated_at = _now()
+def save_state(db: Session, state: dict, by: str, nightly_for: Optional[str] = None) -> None:
+    """Merge `state` into what is stored NOW, under the row lock
+    (scoped_settings.merge_save, 11/02/2026). The nightly pass reads the
+    state, then spends a while fetching from Intacct: written whole, it
+    would undo a nightly switch flipped meanwhile. So a sync (nightly_for
+    None) writes only what it owns - the codes it wrote (added to the stored
+    ones) and the last run - and a switch (nightly_for = that company) only
+    that company's nightly flag."""
+    import scoped_settings
+
+    def build(stored: dict) -> dict:
+        cur = {"nightly": dict(stored.get("nightly") or {}), "synced": dict(stored.get("synced") or {}),
+               "lastRun": stored.get("lastRun") or {}}
+        if nightly_for is not None:
+            cur["nightly"][nightly_for] = bool((state.get("nightly") or {}).get(nightly_for))
+        else:
+            cur["synced"].update(state.get("synced") or {})
+            cur["lastRun"] = state.get("lastRun") or cur["lastRun"]
+        return cur
+    scoped_settings.merge_save(db, SETTINGS_KEY, build, by)
 
 
 # ── The Intacct employees: Intacct direct, else the ledger ───────────────────
@@ -556,10 +567,12 @@ def put_settings(body: NightlyIn, user: dict = Depends(require_hr_write), db: Se
     ent = db.query(models.HrEntity).filter(models.HrEntity.id == body.companyId).first()
     if ent is None or (scope is not None and ent.id not in scope):
         raise HTTPException(404, "Company not found")
+    import scoped_settings
+    scoped_settings.lock_row(db, SETTINGS_KEY)
     state = load_state(db)
     before = bool(state["nightly"].get(ent.id))
     state["nightly"][ent.id] = bool(body.nightly)
-    save_state(db, state, user["email"])
+    save_state(db, state, user["email"], nightly_for=ent.id)
     if before != bool(body.nightly):
         db.add(models.AuditLog(timestamp=_now(), user_email=user["email"], user_role=str(user.get("role") or ""),
                                action="Nightly employee code sync " + ("on" if body.nightly else "off"),

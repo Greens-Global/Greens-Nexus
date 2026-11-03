@@ -49,9 +49,9 @@ const INBOUND_META = {
 };
 
 // The Settings switch (components/settings/SettingsUI.jsx), named by the
-// setting it turns on.
-function Toggle({ on, onChange, label, id }) {
-  return <Switch id={id} label={label} checked={!!on} onChange={() => onChange()} />;
+// setting it turns on; `disabled` when only a Super Administrator may change it.
+function Toggle({ on, onChange, label, id, disabled = false }) {
+  return <Switch id={id} label={label} checked={!!on} disabled={disabled} onChange={() => onChange()} />;
 }
 
 // A visible label tied to its box (`id`), and the hint under it.
@@ -75,11 +75,17 @@ const typedOf = (c) => ({
   dueSoonDays: String(c.dueSoonDays ?? 0), overdueRepeatDays: String(c.overdueRepeatDays ?? 0), inboundMailbox: c.inboundMailbox || '',
 });
 const wholeDays = (v) => Math.max(0, Math.floor(Number(v) || 0));
+// The mail plumbing a Super Administrator alone may change (11/02/2026).
+const PLUMBING = ['fromMailbox', 'cc', 'replyTo', 'inboundMailbox'];
 
 // `toastOk` / `toastErr` (optional): the Settings shell's toasts; without
 // them the panel says so on a line of its own.
 export default function TaskNotifySettings({ toastOk, toastErr }) {
-  const { myLevel } = useRole();
+  const { myLevel, isGlobalAdmin } = useRole();
+  // The mail plumbing - the sender, Always CC, reply-to and email replies -
+  // is the whole organization's (Neil, 11/02/2026): a Super Administrator's
+  // to change (the server refuses a change from anyone else).
+  const locked = !isGlobalAdmin;
   const [tab, setTab] = useState('settings');
   const [cfg, setCfg] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -112,10 +118,10 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
   const save = async () => {
     if (!dirty || saving) return false;
     const body = {};
-    for (const k of ['fromMailbox', 'replyTo', 'logoUrl', 'inboundMailbox']) {
+    for (const k of ['fromMailbox', 'replyTo', 'logoUrl', 'inboundMailbox'].filter((x) => !locked || !PLUMBING.includes(x))) {
       if (draft[k] !== typedSaved[k]) body[k] = draft[k].trim();
     }
-    if (draft.cc !== typedSaved.cc) body.defaultCc = draft.cc.split(',').map((s) => s.trim()).filter(Boolean);
+    if (!locked && draft.cc !== typedSaved.cc) body.defaultCc = draft.cc.split(',').map((s) => s.trim()).filter(Boolean);
     for (const k of ['dueSoonDays', 'overdueRepeatDays']) {
       if (draft[k] !== typedSaved[k]) body[k] = wholeDays(draft[k]);
     }
@@ -147,6 +153,7 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
   // one typed and not saved yet) ask which one first, and save the two
   // together - never start reading the reply-to address by surprise.
   const toggleInbound = async () => {
+    if (locked) return;
     if (cfg.inboundEnabled) { instant({ inboundEnabled: false }, 'Email replies'); return; }
     const saved = (cfg.inboundMailbox || '').trim();
     const typed = (draft.inboundMailbox || '').trim();
@@ -210,20 +217,25 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
                   <Toggle id="task-notify-overdue-off" label="Let People Turn Off Overdue Reminders" on={!!cfg.allowUserOverdueOff}
                     onChange={() => instant({ allowUserOverdueOff: !cfg.allowUserOverdueOff }, 'Overdue reminder choice')} />
                 </Field>
-                <InboundSwitch on={!!cfg.inboundEnabled} onChange={toggleInbound} />
+                <InboundSwitch on={!!cfg.inboundEnabled} onChange={toggleInbound} locked={locked} />
               </div>
             </div>
 
             <div style={{ ...card, padding: 18 }}>
+              {locked && (
+                <div style={{ fontSize: 11.5, color: NX.dim, marginBottom: 12 }}>
+                  The sending mailbox, Default CC, reply-to address and email replies apply to every company - only a Super Administrator can change them.
+                </div>
+              )}
               <Field label="Shared Mailbox (Sender)" id="task-notify-from" hint="Leave blank to send from the default Nexus mailbox.">
-                <input id="task-notify-from" value={draft.fromMailbox} onChange={(e) => editDraft({ fromMailbox: e.target.value })}
+                <input id="task-notify-from" value={draft.fromMailbox} onChange={(e) => editDraft({ fromMailbox: e.target.value })} readOnly={locked}
                   placeholder="tasks@companydomain.com" style={inputStyle} />
               </Field>
               <Field label="Default CC" id="task-notify-cc" hint="Comma-separated. Applied to every task notification.">
-                <input id="task-notify-cc" value={draft.cc} onChange={(e) => editDraft({ cc: e.target.value })} placeholder="ops@companydomain.com" style={inputStyle} />
+                <input id="task-notify-cc" value={draft.cc} onChange={(e) => editDraft({ cc: e.target.value })} readOnly={locked} placeholder="ops@companydomain.com" style={inputStyle} />
               </Field>
               <Field label="Reply-To Address" id="task-notify-reply">
-                <input id="task-notify-reply" value={draft.replyTo} onChange={(e) => editDraft({ replyTo: e.target.value })} placeholder="tasks@companydomain.com" style={inputStyle} />
+                <input id="task-notify-reply" value={draft.replyTo} onChange={(e) => editDraft({ replyTo: e.target.value })} readOnly={locked} placeholder="tasks@companydomain.com" style={inputStyle} />
               </Field>
               <Field label="Company Logo URL" id="task-notify-logo" hint="Shown in the email header. Blank uses the logo from Settings > Branding & Email.">
                 <input id="task-notify-logo" value={draft.logoUrl} onChange={(e) => editDraft({ logoUrl: e.target.value })} placeholder="https://…/logo.png" style={inputStyle} />
@@ -237,7 +249,7 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
                   style={{ ...inputStyle, width: 120 }} />
               </Field>
 
-              <InboundSection cfg={cfg} draft={draft} editDraft={editDraft} />
+              <InboundSection cfg={cfg} draft={draft} editDraft={editDraft} locked={locked} />
 
               {err && <div style={{ fontSize: 12.5, color: NX.red, margin: '14px 0 0' }}>{err}</div>}
               <SaveRow dirty={dirty} busy={saving} onSave={save} onDiscard={() => { reset(); setErr(''); }}
@@ -262,7 +274,9 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
 // because draining it marks messages read and files them away - a visible
 // takeover of a mailbox somebody may be watching. The switch saves when
 // clicked (InboundSwitch); the mailbox to read is a typed field of the draft.
-function InboundSwitch({ on, onChange }) {
+// Both are the organization's mail plumbing: read-only (`locked`) for anyone
+// but a Super Administrator.
+function InboundSwitch({ on, onChange, locked = false }) {
   return (
     <div style={{ ...field, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
       <div style={{ minWidth: 0 }}>
@@ -272,12 +286,12 @@ function InboundSwitch({ on, onChange }) {
           task, with any files they attached.
         </div>
       </div>
-      <Toggle label="Accept Replies by Email" on={on} onChange={onChange} />
+      <Toggle label="Accept Replies by Email" on={on} disabled={locked} onChange={onChange} />
     </div>
   );
 }
 
-function InboundSection({ cfg, draft, editDraft }) {
+function InboundSection({ cfg, draft, editDraft, locked = false }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
   const [err, setErr] = useState('');
@@ -301,7 +315,7 @@ function InboundSection({ cfg, draft, editDraft }) {
         hint={draft.inboundMailbox
           ? 'Overrides the reply-to address above.'
           : `Blank uses the reply-to address above${cfg.replyTo ? ` (${cfg.replyTo})` : ''}.`}>
-        <input id="task-notify-inbound" value={draft.inboundMailbox} onChange={(e) => editDraft({ inboundMailbox: e.target.value })}
+        <input id="task-notify-inbound" value={draft.inboundMailbox} onChange={(e) => editDraft({ inboundMailbox: e.target.value })} readOnly={locked}
           placeholder={cfg.replyTo || 'tasks@companydomain.com'} style={inputStyle} />
       </Field>
 

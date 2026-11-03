@@ -48,7 +48,10 @@ const typedOf = (c) => ({ recipients: (c.test_recipients || []).join(', '), lead
 // `toastOk` / `toastErr` (optional): the Settings shell's toasts; without
 // them the panel says so on a line of its own.
 export default function WeeklyDigestSettings({ toastOk, toastErr }) {
-  const { can } = useRole();
+  const { can, isGlobalAdmin } = useRole();
+  // Mode and the test recipients are the whole organization's (Neil,
+  // 11/02/2026): a Super Administrator's to change.
+  const modeLocked = !isGlobalAdmin;
   const [tab, setTab] = useState('settings');   // settings | log
   const [cfg, setCfg] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -78,7 +81,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
   };
   // Only a switch INTO live asks (same rule as the daily settings).
   const pickMode = async (mode) => {
-    if (mode === cfg.mode) return;
+    if (mode === cfg.mode || modeLocked) return;
     if (mode === 'live') {
       const ok = await dialog.confirm(
         'Everyone with an overdue task or other work waiting gets their digest on the next send day. Check Test mode with a few real people first.',
@@ -97,7 +100,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
       return false;
     }
     const body = {};
-    if (draft.recipients !== typedSaved.recipients) body.test_recipients = splitList(draft.recipients);
+    if (!modeLocked && draft.recipients !== typedSaved.recipients) body.test_recipients = splitList(draft.recipients);
     if (draft.leadMinutes !== typedSaved.leadMinutes) body.leadMinutes = lead;
     setSaving(true); setErr('');
     try {
@@ -147,6 +150,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
       )}
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Mode</label>
+        {modeLocked && <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>Mode and the test recipients apply to every company - only a Super Administrator can change them.</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {MODES.map((m) => (
             <label key={m.key} style={{
@@ -154,7 +158,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
               border: `1px solid ${cfg.mode === m.key ? NX.blue : NX.border}`, borderRadius: 8,
               background: cfg.mode === m.key ? 'var(--wk-brand-tint)' : 'transparent', cursor: 'pointer',
             }}>
-              <input type="radio" name="weekly-digest-mode" checked={cfg.mode === m.key}
+              <input type="radio" name="weekly-digest-mode" checked={cfg.mode === m.key} disabled={modeLocked}
                 onChange={() => pickMode(m.key)} style={{ marginTop: 3 }} />
               <span>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.label}</div>
@@ -236,7 +240,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
         {(cfg.mode === 'test' || draft.recipients !== typedSaved.recipients) && (
           <div style={{ marginBottom: 4 }}>
             <label style={fieldLabel} htmlFor="weekly-digest-recipients">Test Recipients</label>
-            <input id="weekly-digest-recipients" value={draft.recipients} onChange={(e) => editDraft({ recipients: e.target.value })}
+            <input id="weekly-digest-recipients" value={draft.recipients} onChange={(e) => editDraft({ recipients: e.target.value })} readOnly={modeLocked}
               placeholder="you@company.com, another@company.com" style={inputStyle} />
             <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 4 }}>
               Comma-separated. Each employee's digest is built from their own tasks and sent here instead, with a

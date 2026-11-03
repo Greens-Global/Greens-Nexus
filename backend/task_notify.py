@@ -96,20 +96,72 @@ def get_settings(db: Session) -> dict:
     return merged
 
 
-def save_settings(db: Session, patch: dict, actor_email: str) -> dict:
-    merged = get_settings(db)
-    merged.update({k: v for k, v in patch.items() if k != "enabledEvents"})
-    if "enabledEvents" in patch:
-        merged["enabledEvents"] = {**merged["enabledEvents"], **(patch["enabledEvents"] or {})}
-    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
-    if not row:
-        row = models.NexusSetting(key=_SETTINGS_KEY)
-        db.add(row)
-    row.value = json.dumps(merged)
-    row.updated_by = actor_email
-    row.updated_at = datetime.now(timezone.utc).isoformat()
+# The organization's mail plumbing (Neil, 11/02/2026): which mailbox Nexus
+# sends from and reads, where replies go and who is copied on every email.
+# Super Administrators only - the rest of the screen (events, reminders,
+# batching) keeps its manager access.
+PLUMBING_KEYS = ("fromMailbox", "replyTo", "defaultCc", "inboundEnabled", "inboundMailbox")
+PLUMBING_REFUSED = ("Only a Super Administrator can change the sending mailbox, the reply-to "
+                    "address, Always CC or email replies.")
+
+
+def clean(patch: dict) -> dict:
+    """A settings PATCH, checked: the known keys only (anything else is
+    dropped), each of its type and inside its bounds, so a bad value never
+    reaches a reader (task_notify_prefs.due_soon_days, _my_notify_payload).
+    ValueError with the reason to show."""
+    import scoped_settings as ss
+    if not isinstance(patch, dict):
+        raise ValueError("Settings must be an object.")
+    labels = {"fromMailbox": "The sending mailbox", "replyTo": "The reply-to address",
+              "inboundMailbox": "The reply mailbox"}
+    out: dict = {}
+    for k, v in patch.items():
+        if k in labels:
+            out[k] = ss.clean_email(v, labels[k])
+        elif k == "defaultCc":
+            out[k] = ss.clean_email_list(v, "Always CC", limit=50)
+        elif k == "logoUrl":
+            out[k] = ss.clean_text(v, "The logo address")
+        elif k in ("inboundEnabled", "allowUserOverdueOff"):
+            out[k] = bool(v)
+        elif k == "dueSoonDays":
+            out[k] = ss.clean_int(v, "Due-soon reminder days", 0, 30)
+        elif k == "overdueRepeatDays":
+            out[k] = ss.clean_int(v, "Overdue repeat days", 0, 90)
+        elif k == "batchWindowMinutes":
+            out[k] = ss.clean_int(v, "The batch window", 0, 1440)
+        elif k == "enabledEvents":
+            out[k] = ss.clean_bool_map(v, "Email events", _DEFAULT_SETTINGS["enabledEvents"])
+    return out
+
+
+def save_settings(db: Session, patch: dict, actor_email: str, user: dict | None = None) -> dict:
+    """Merge a PATCH into the stored settings under the row lock (two saves
+    at once never lose each other's keys). With `user`, a CHANGE to the mail
+    plumbing (PLUMBING_KEYS) is refused unless they are a Super
+    Administrator - the form sends its whole copy back, so an unchanged
+    value passes. Raises ValueError (a bad value) / PermissionError."""
+    import scoped_settings as ss
+    patch = clean(patch)
+    ss.lock_row(db, _SETTINGS_KEY)
+    if user is not None:
+        import auth
+        if ss.changed_keys(get_settings(db), patch, PLUMBING_KEYS) and not auth.is_global_admin(user, db):
+            raise PermissionError(PLUMBING_REFUSED)
+
+    def build(stored: dict) -> dict:
+        merged = json.loads(json.dumps(_DEFAULT_SETTINGS))
+        merged.update({k: v for k, v in stored.items() if k in _DEFAULT_SETTINGS and k != "enabledEvents"})
+        merged["enabledEvents"] = {**merged["enabledEvents"], **(stored.get("enabledEvents") or {})}
+        merged.update({k: v for k, v in patch.items() if k != "enabledEvents"})
+        if "enabledEvents" in patch:
+            merged["enabledEvents"] = {**merged["enabledEvents"], **patch["enabledEvents"]}
+        return merged
+
+    ss.merge_save(db, _SETTINGS_KEY, build, actor_email)
     db.commit()
-    return merged
+    return get_settings(db)
 
 
 # ── Recipient resolution ──────────────────────────────────────────────────

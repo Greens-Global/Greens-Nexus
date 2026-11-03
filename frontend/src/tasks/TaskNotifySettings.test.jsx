@@ -22,7 +22,9 @@ const api = {
 };
 
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => (...a) => api[k](...a) }) }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myLevel: 3 }) }));
+// A Super Administrator by default: the mail plumbing is theirs (11/02/2026).
+const role = { isGlobalAdmin: true };
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myLevel: 3, isGlobalAdmin: role.isGlobalAdmin }) }));
 // The Replies log resolves each row's task code from the store, and opens the
 // drawer on click. Neither needs the real provider here.
 vi.mock('./TasksContext', () => ({
@@ -180,5 +182,21 @@ describe('turning email replies on', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Accept Replies by Email' }));
     await waitFor(() => expect(api.updateTaskNotifySettings).toHaveBeenCalledWith({ inboundEnabled: true, inboundMailbox: 'replies@greensglobal.com' }));
     ask.mockRestore();
+  });
+
+  it('is read-only for anyone but a Super Administrator: switch off-limits, mail fields locked, never dirty', async () => {
+    role.isGlobalAdmin = false;
+    try {
+      render(<TaskNotifySettings />);
+      await screen.findByText('Accept Replies by Email');
+      expect(screen.getByText(/only a Super Administrator can change them/)).toBeTruthy();
+      expect(screen.getByRole('switch', { name: 'Accept Replies by Email' }).disabled).toBe(true);
+      for (const name of ['Shared Mailbox (Sender)', 'Default CC', 'Reply-To Address']) {
+        expect(screen.getByLabelText(name).readOnly).toBe(true);
+      }
+      expect(screen.getByRole('button', { name: /^Save$/ }).disabled).toBe(true);
+    } finally {
+      role.isGlobalAdmin = true;
+    }
   });
 });

@@ -15,10 +15,12 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import auth
 import models
 from auth import require_administrator, require_module_grant
 from database import get_db
 import graph_mail
+import settings_walls
 import workforce_scorecard as sc
 
 router = APIRouter(prefix="/workforce-scorecard", tags=["Workforce Scorecard"])
@@ -114,24 +116,36 @@ def update_config(body: ConfigIn, user: dict = Depends(require_administrator), d
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     try:
         patch = sc.validate(patch)
+        # Whether the weekly email goes out, and who the tests go to, is the
+        # whole organization's (Neil, 11/02/2026): Super Administrators only.
+        # The row lock first: the change is judged against the value stored
+        # now, so a stale form never writes back a mode a Super Administrator changed.
+        import scoped_settings
+        scoped_settings.lock_row(db, sc._SETTINGS_KEY)
+        settings_walls.refuse_change(db, user, sc.get_settings(db), patch, ("mode", "test_recipients"))
         return sc.save_settings(db, patch, user["email"])
     except ValueError as e:
         raise HTTPException(400, str(e))
 
 
-@router.get("/recipients", dependencies=[Depends(require_administrator)])
-def list_recipients(db: Session = Depends(get_db)):
+@router.get("/recipients")
+def list_recipients(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     """Who the next send would go to and with what scope - so "why did / didn't
-    X get it" is answerable before going live."""
+    X get it" is answerable before going live. Only the people inside the
+    caller's company wall (11/02/2026)."""
     cfg = sc.get_settings(db)
+    mine = settings_walls.people_scope(db, user)
     return {"rows": [{"email": emp.work_email, "name": sc._name(emp), "scope": kind,
                       "peopleInScope": None if scope is None else len(scope)}
-                     for emp, scope, kind in sc.recipients(db, cfg)]}
+                     for emp, scope, kind in sc.recipients(db, cfg)
+                     if mine is None or (emp.work_email or "").lower() in mine]}
 
 
-@router.get("/log", dependencies=[Depends(require_administrator)])
-def get_log(manager_email: str = "", limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
-    q = db.query(models.NexusWorkforceScorecardLog)
+@router.get("/log")
+def get_log(manager_email: str = "", limit: int = 50, offset: int = 0,
+            user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    q = settings_walls.scope_query(db, user, db.query(models.NexusWorkforceScorecardLog),
+                                   models.NexusWorkforceScorecardLog.manager_email)
     if manager_email:
         q = q.filter(models.NexusWorkforceScorecardLog.manager_email == manager_email.strip().lower())
     total = q.count()
@@ -150,12 +164,12 @@ def _recipient(db: Session, email: str, cfg: dict):
     return None, None, ""
 
 
-@router.delete("/log/{log_id}", dependencies=[Depends(require_administrator)])
-def force_resend(log_id: str, db: Session = Depends(get_db)):
+@router.delete("/log/{log_id}")
+def force_resend(log_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     """Clears one manager's dedupe row for that week and sends their scorecard
     for it right now, whatever the day (same shape as the digest's)."""
     row = db.query(models.NexusWorkforceScorecardLog).filter(models.NexusWorkforceScorecardLog.id == log_id).first()
-    if not row:
+    if not row or not settings_walls.in_scope(db, user, row.manager_email):
         raise HTTPException(404, "Log entry not found.")
     email, week = row.manager_email, row.week_start
     db.delete(row)
@@ -185,10 +199,15 @@ def test_send(body: TestSendIn, user: dict = Depends(require_administrator), db:
     gives them) and mails it only to the test recipients or the admin."""
     cfg = sc.get_settings(db)
     email = (body.manager_email or "").strip().lower()
-    emp, scope, kind = _recipient(db, email, cfg) if email else (None, None, "")
+    emp, scope, kind = _recipient(db, email, cfg) if email and settings_walls.in_scope(db, user, email) else (None, None, "")
     if not emp:
         raise HTTPException(404, "That person is not a scorecard recipient - give their role the Workforce Scorecard grant first.")
     to = [str(e).strip() for e in (body.to or cfg.get("test_recipients") or []) if str(e).strip()] or [user["email"]]
+    # Who a test goes to is the Super Administrators' (Neil, 11/02/2026):
+    # anyone else sends to the saved test recipients or to themselves.
+    allowed = {str(e).strip().lower() for e in (cfg.get("test_recipients") or [])} | {user["email"].lower()}
+    if any(e.lower() not in allowed for e in to) and not auth.is_global_admin(user, db):
+        raise HTTPException(403, "Only a Super Administrator can send a test to other addresses.")
     ws = _week(body.week_start or "", cfg, db, emp.work_email)
     try:
         result = sc.send_test(db, emp, scope, cfg, to, ws, kind)

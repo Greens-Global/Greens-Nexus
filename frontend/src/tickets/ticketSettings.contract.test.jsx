@@ -33,7 +33,7 @@ vi.mock('../api', () => ({
     getTicketDeskAgents: vi.fn(() => Promise.resolve([])),
   },
 }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myLevel: 4, can: () => true }) }));
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myLevel: 4, can: () => true, isGlobalAdmin: true }) }));
 vi.mock('../tasks/components', () => ({
   usePeople: () => [],
   PersonMultiSelect: ({ value, onChange }) => (

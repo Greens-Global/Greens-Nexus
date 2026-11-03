@@ -57,7 +57,10 @@ const cleanStandards = (std) => Object.fromEntries(Object.entries(std || {}).map
 // `toastOk` / `toastErr` (optional): the Settings shell's toasts; without
 // them the panel says so on a line of its own.
 export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
-  const { can } = useRole();
+  const { can, isGlobalAdmin } = useRole();
+  // Mode and the test recipients are the whole organization's (Neil,
+  // 11/02/2026): a Super Administrator's to change.
+  const modeLocked = !isGlobalAdmin;
   const [tab, setTab] = useState('settings');   // settings | recipients | log
   const [cfg, setCfg] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -84,7 +87,7 @@ export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
     }
   };
   const pickMode = async (mode) => {
-    if (mode === cfg.mode) return;
+    if (mode === cfg.mode || modeLocked) return;
     if (mode === 'live') {
       const ok = await dialog.confirm(
         'Every manager holding the Workforce Scorecard grant gets a real email on the next send day. Check the Recipients tab, and Test mode with a few real managers first.',
@@ -101,7 +104,7 @@ export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
   const save = async () => {
     if (!dirty || saving) return false;
     const body = {};
-    if (draft.test !== typedSaved.test) body.test_recipients = splitList(draft.test);
+    if (!modeLocked && draft.test !== typedSaved.test) body.test_recipients = splitList(draft.test);
     if (draft.company !== typedSaved.company) body.companyRecipients = splitList(draft.company);
     if (draft.working !== typedSaved.working) body.workingTimeOffTypes = splitList(draft.working);
     for (const k of ['onTrackPct', 'belowPct', 'shortToleranceMin']) {
@@ -160,12 +163,13 @@ export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
       )}
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Mode</label>
+        {modeLocked && <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>Mode and the test recipients apply to every company - only a Super Administrator can change them.</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {MODES.map((m) => (
             <label key={m.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px',
               border: `1px solid ${cfg.mode === m.key ? NX.blue : NX.border}`, borderRadius: 8,
               background: cfg.mode === m.key ? 'var(--wk-brand-tint)' : 'transparent', cursor: 'pointer' }}>
-              <input type="radio" name="workforce-scorecard-mode" checked={cfg.mode === m.key}
+              <input type="radio" name="workforce-scorecard-mode" checked={cfg.mode === m.key} disabled={modeLocked}
                 onChange={() => pickMode(m.key)} style={{ marginTop: 3 }} />
               <span>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.label}</div>
@@ -294,7 +298,7 @@ export default function WorkforceScorecardSettings({ toastOk, toastErr }) {
       {(cfg.mode === 'test' || draft.test !== typedSaved.test) && (
         <div style={{ marginBottom: 4 }}>
           <label style={fieldLabel} htmlFor="wsc-test-recipients">Test Recipients</label>
-          <input id="wsc-test-recipients" value={draft.test} onChange={(e) => editDraft({ test: e.target.value })}
+          <input id="wsc-test-recipients" value={draft.test} onChange={(e) => editDraft({ test: e.target.value })} readOnly={modeLocked}
             placeholder="you@company.com, another@company.com" style={inputStyle} />
           <div style={hint}>Comma-separated. Each manager's scorecard is built from their own team and sent here instead, with a "[TEST -&gt; manager]" subject prefix.</div>
         </div>

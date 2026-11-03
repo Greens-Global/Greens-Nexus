@@ -3448,6 +3448,19 @@ def _require_company_tracking_scope(user: dict, company_id: str, db: Session):
         raise HTTPException(404, "Company not found")
 
 
+@router.get("/monitoring/companies")
+def list_monitoring_companies(user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
+    """The companies whose Workforce Analytics Policy this caller may open
+    (11/02/2026) - Settings' company list for a Full Employee Tracking grant
+    holder who cannot read People's company list (/hr/entities). Names
+    only, within the same scope as the policy routes."""
+    from auth import hr_scope
+    from models import HrEntity
+    scope = hr_scope(user, db)
+    return [{"id": e.id, "name": e.name or ""} for e in db.query(HrEntity).order_by(HrEntity.name).all()
+            if scope is None or e.id in scope]
+
+
 @router.get("/monitoring/policy/{company_id}")
 def get_company_monitoring_policy(company_id: str, user: dict = Depends(require_tracking_full),
                                   db: Session = Depends(get_db)):
@@ -10043,6 +10056,7 @@ def _pay_type(db: Session, em: str) -> str:
 
 _AUTOLUNCH_KEY = "timeclock_autolunch"
 _AUTOLUNCH_DEFAULT = {"enabled": False, "afterMin": 360, "deductMin": 30}
+_AUTOLUNCH_MIN_AFTER = 60   # the shortest segment a lunch may be deducted from (11/02/2026)
 
 
 # ── Pay rules per company (Settings redesign phase 4, Oct 23 2026) ─────────
@@ -10057,20 +10071,31 @@ def _company_of(db: Session, email: str) -> str:
     return scoped_settings.company_of_email(db, email) if email else ""
 
 
-def _pay_company(db: Session, company: str) -> str:
+def _pay_company(db: Session, company: str, user: dict | None = None) -> str:
+    """The company a pay-rule call names ('' = the tenant row). With `user`,
+    a company outside their reach (_visible_companies: the walls, a People
+    grant limited to other companies) is not theirs to read or change: 404,
+    as across every wall (11/02/2026)."""
     from models import HrEntity
     cid = (company or "").strip()
     if cid and not db.query(HrEntity.id).filter(HrEntity.id == cid).first():
         raise HTTPException(404, "Company not found.")
+    if cid and user is not None:
+        admit = _visible_companies(db, user)
+        if admit is not None and cid not in admit:
+            raise HTTPException(404, "Company not found.")
     return cid
 
 
-def _pay_rule_payload(db: Session, key: str, cfg: dict, company_id: str) -> dict:
+def _pay_rule_payload(db: Session, key: str, cfg: dict, company_id: str, user: dict | None = None) -> dict:
     """A rule as the Settings screen reads it: the rule itself, whose it is,
-    whether the company has one of its own, and the companies to pick from."""
+    whether the company has one of its own, and the companies to pick from -
+    with `user`, only the companies they may see (11/02/2026)."""
     from models import HrEntity
+    admit = _visible_companies(db, user) if user is not None else None
     return {**cfg, "company": company_id, "hasOverride": scoped_settings.has_override(db, key, company_id),
-            "companies": [{"id": e.id, "name": e.name or ""} for e in db.query(HrEntity).order_by(HrEntity.name).all()]}
+            "companies": [{"id": e.id, "name": e.name or ""} for e in db.query(HrEntity).order_by(HrEntity.name).all()
+                          if admit is None or e.id in admit]}
 
 
 def _save_pay_rule(db: Session, key: str, cfg: dict, company_id: str, reset: bool, user: dict) -> None:
@@ -10100,8 +10125,8 @@ def _autolunch_cfg(db: Session, company_id: str = "") -> dict:
 
 @router.get("/payroll/autolunch")
 def get_autolunch(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
-    return _pay_rule_payload(db, _AUTOLUNCH_KEY, _autolunch_cfg(db, cid), cid)
+    cid = _pay_company(db, company, user)
+    return _pay_rule_payload(db, _AUTOLUNCH_KEY, _autolunch_cfg(db, cid), cid, user)
 
 
 class AutoLunchIn(BaseModel):
@@ -10114,11 +10139,17 @@ class AutoLunchIn(BaseModel):
 @router.put("/payroll/autolunch")
 def set_autolunch(body: AutoLunchIn, company: str = "", user: dict = Depends(require_administrator),
                   db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
+    cid = _pay_company(db, company, user)
     cfg = {"enabled": bool(body.enabled), "afterMin": max(0, int(body.afterMin)),
            "deductMin": max(0, int(body.deductMin))}
+    # A deduction after 0 minutes would take lunch off every worked segment,
+    # however short (11/02/2026): at least an hour, at most a day.
+    if cfg["enabled"] and not (body.reset and cid) and not (_AUTOLUNCH_MIN_AFTER <= cfg["afterMin"] <= 24 * 60):
+        raise HTTPException(400, "Deduct lunch after a shift of at least 60 minutes (and at most 24 hours).")
+    if cfg["enabled"] and not (body.reset and cid) and cfg["deductMin"] >= cfg["afterMin"]:
+        raise HTTPException(400, "The lunch deducted must be shorter than the shift it is taken from.")
     _save_pay_rule(db, _AUTOLUNCH_KEY, cfg, cid, body.reset, user)
-    return _pay_rule_payload(db, _AUTOLUNCH_KEY, _autolunch_cfg(db, cid), cid)
+    return _pay_rule_payload(db, _AUTOLUNCH_KEY, _autolunch_cfg(db, cid), cid, user)
 
 
 # ── Punch rounding (SwipeClock parity) ─────────────────────────────────────────
@@ -10167,8 +10198,8 @@ def _round_punch(t: datetime, nearest: int) -> datetime:
 
 @router.get("/payroll/rounding")
 def get_rounding(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
-    return _pay_rule_payload(db, _ROUNDING_KEY, _rounding_cfg(db, cid), cid)
+    cid = _pay_company(db, company, user)
+    return _pay_rule_payload(db, _ROUNDING_KEY, _rounding_cfg(db, cid), cid, user)
 
 
 class RoundingIn(BaseModel):
@@ -10180,10 +10211,10 @@ class RoundingIn(BaseModel):
 @router.put("/payroll/rounding")
 def set_rounding(body: RoundingIn, company: str = "", user: dict = Depends(require_administrator),
                  db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
+    cid = _pay_company(db, company, user)
     cfg = {"enabled": bool(body.enabled), "nearestMin": min(30, max(0, int(body.nearestMin)))}
     _save_pay_rule(db, _ROUNDING_KEY, cfg, cid, body.reset, user)
-    return _pay_rule_payload(db, _ROUNDING_KEY, _rounding_cfg(db, cid), cid)
+    return _pay_rule_payload(db, _ROUNDING_KEY, _rounding_cfg(db, cid), cid, user)
 
 
 # ── India Contractor Policy (Neil, Oct 27 2026, india_contractor_pay.py) ─────
@@ -10191,9 +10222,9 @@ def set_rounding(body: RoundingIn, company: str = "", user: dict = Depends(requi
 # Starts (11/01/2026 by default - months that start before it keep the old
 # rules, so October is never re-priced). Same permissions as Punch Rounding.
 
-def _india_policy_payload(db: Session, cid: str) -> dict:
+def _india_policy_payload(db: Session, cid: str, user: dict | None = None) -> dict:
     cfg = india_contractor_pay.config(db, cid)
-    out = _pay_rule_payload(db, india_contractor_pay.SETTING_KEY, cfg, cid)
+    out = _pay_rule_payload(db, india_contractor_pay.SETTING_KEY, cfg, cid, user)
     out.update({"defaultStart": india_contractor_pay.DEFAULT_START, "version": india_contractor_pay.POLICY_VERSION,
                 "companyCountry": india_contractor_pay.company_country(db, cid) if cid else "",
                 "enabled": india_contractor_pay.enabled_for_company(db, cid, cfg) if cid else None})
@@ -10203,7 +10234,7 @@ def _india_policy_payload(db: Session, cid: str) -> dict:
 @router.get("/payroll/india-contractor-policy")
 def get_india_contractor_policy(company: str = "", user: dict = Depends(require_team_read),
                                 db: Session = Depends(get_db)):
-    return _india_policy_payload(db, _pay_company(db, company))
+    return _india_policy_payload(db, _pay_company(db, company, user), user)
 
 
 class IndiaPolicyIn(BaseModel):
@@ -10215,7 +10246,7 @@ class IndiaPolicyIn(BaseModel):
 @router.put("/payroll/india-contractor-policy")
 def set_india_contractor_policy(body: IndiaPolicyIn, company: str = "", user: dict = Depends(require_administrator),
                                 db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
+    cid = _pay_company(db, company, user)
     mode = (body.mode or "").strip().lower()
     if mode and mode not in india_contractor_pay.MODES:
         raise HTTPException(400, "India Contractor Policy is on, off or the default.")
@@ -10227,7 +10258,7 @@ def set_india_contractor_policy(body: IndiaPolicyIn, company: str = "", user: di
             raise HTTPException(400, "Policy Starts must be a date.")
     _save_pay_rule(db, india_contractor_pay.SETTING_KEY,
                    {"mode": mode, "startDate": start or india_contractor_pay.DEFAULT_START}, cid, body.reset, user)
-    return _india_policy_payload(db, cid)
+    return _india_policy_payload(db, cid, user)
 
 
 # ── Payroll export codes (Neil, Oct 17 2026) ──────────────────────────────────
@@ -10405,8 +10436,8 @@ def _paid_break_credit(windows: list, worked_min: int, cfg: dict) -> int:
 
 @router.get("/payroll/breakpolicy")
 def get_breakpolicy(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
-    return _pay_rule_payload(db, _BREAKPOLICY_KEY, _breakpolicy_cfg(db, cid), cid)
+    cid = _pay_company(db, company, user)
+    return _pay_rule_payload(db, _BREAKPOLICY_KEY, _breakpolicy_cfg(db, cid), cid, user)
 
 
 class BreakPolicyIn(BaseModel):
@@ -10420,11 +10451,15 @@ class BreakPolicyIn(BaseModel):
 @router.put("/payroll/breakpolicy")
 def set_breakpolicy(body: BreakPolicyIn, company: str = "", user: dict = Depends(require_administrator),
                     db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
+    cid = _pay_company(db, company, user)
     cfg = {"enabled": bool(body.enabled), "paidBreakMin": max(0, int(body.paidBreakMin)),
            "restMaxMin": max(1, int(body.restMaxMin)), "longBreakMin": max(15, int(body.longBreakMin))}
+    # A rest break is shorter than a long (meal) break (11/02/2026): with the
+    # two crossed, one break would count as both.
+    if not (body.reset and cid) and cfg["restMaxMin"] > cfg["longBreakMin"]:
+        raise HTTPException(400, "The longest rest break must not be longer than a long break.")
     _save_pay_rule(db, _BREAKPOLICY_KEY, cfg, cid, body.reset, user)
-    return _pay_rule_payload(db, _BREAKPOLICY_KEY, _breakpolicy_cfg(db, cid), cid)
+    return _pay_rule_payload(db, _BREAKPOLICY_KEY, _breakpolicy_cfg(db, cid), cid, user)
 
 
 @router.get("/team-exceptions")
@@ -12260,7 +12295,7 @@ def _reasons_company(db: Session, company: str, user: dict) -> str:
     if company == "default":
         return ""
     if company:
-        return _pay_company(db, company)
+        return _pay_company(db, company, user)
     return _company_of(db, user.get("email") or "")
 
 
@@ -12283,7 +12318,7 @@ def save_timeoff_types(body: TimeOffTypesIn, company: str = "", user: dict = Dep
     """Replace the custom time-off reasons - the default for every company,
     or one company's own (?company=). Removing one leaves existing requests
     of that type as they are."""
-    cid = "" if company in ("", "default") else _pay_company(db, company)
+    cid = "" if company in ("", "default") else _pay_company(db, company, user)
     if cid:
         _require_company_manage(user, db, cid, "time-off reasons")
     else:
@@ -12968,8 +13003,8 @@ def _second_hr_on(db: Session, email: str) -> bool:
 
 @router.get("/timeoff/approval-settings")
 def get_timeoff_approval(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    cid = _pay_company(db, company)
-    return _pay_rule_payload(db, _TIMEOFF_APPROVAL_KEY, _timeoff_approval_cfg(db, cid), cid)
+    cid = _pay_company(db, company, user)
+    return _pay_rule_payload(db, _TIMEOFF_APPROVAL_KEY, _timeoff_approval_cfg(db, cid), cid, user)
 
 
 class TimeOffApprovalIn(BaseModel):
@@ -12985,9 +13020,9 @@ def set_timeoff_approval(body: TimeOffApprovalIn, company: str = "", user: dict 
     me = (user.get("email") or "").strip().lower()
     if not (level_for(me, db) >= _LEVELS["administrator"] or _module_level(me, "hr", db) >= _MODULE_LEVEL_RANK["full"]):
         raise HTTPException(403, "Only an administrator or HR with Full access can change this.")
-    cid = _pay_company(db, company)
+    cid = _pay_company(db, company, user)
     _save_pay_rule(db, _TIMEOFF_APPROVAL_KEY, {"secondHr": bool(body.secondHr)}, cid, body.reset, user)
-    return _pay_rule_payload(db, _TIMEOFF_APPROVAL_KEY, _timeoff_approval_cfg(db, cid), cid)
+    return _pay_rule_payload(db, _TIMEOFF_APPROVAL_KEY, _timeoff_approval_cfg(db, cid), cid, user)
 
 
 def _hr_level_recipients(db: Session, employee_email: str, actor: str) -> list:

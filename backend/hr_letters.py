@@ -275,16 +275,42 @@ def has_override(db: Session, company_id: str) -> bool:
 
 
 def save_settings(db: Session, company_id: str, cfg: dict, actor: str) -> dict:
-    clean = _normalize(cfg)
+    """Store what was SENT (11/02/2026): a type or the letterhead left out
+    keeps what is stored, never a code default or a blank. A company's
+    override keeps only what differs from the organization's settings, so a
+    later change there still reaches it (an override left empty is removed).
+    Merged under the row lock. Returns the effective settings. The caller
+    commits."""
+    cid = company_id or ""
+    cfg = cfg or {}
+    sent: dict = {}
     for k in TYPE_KEYS:
-        tid = clean[k]["templateId"]
+        v = cfg.get(k)
+        if isinstance(v, dict):
+            sent[k] = {"on": bool(v.get("on", True)), "templateId": _clean(v.get("templateId"), 80)}
+    if "letterheadId" in cfg:
+        sent["letterheadId"] = _clean(cfg.get("letterheadId"), 80)
+    for k in TYPE_KEYS:
+        tid = (sent.get(k) or {}).get("templateId")
         if tid and not db.query(DocTemplate).filter(DocTemplate.id == tid, DocTemplate.status == "active").first():
             raise LetterError(f"The template picked for {type_label(k)} is not an active template in Documents.")
-    lid = clean["letterheadId"]
+    lid = sent.get("letterheadId")
     if lid and not db.query(DocLetterhead).filter(DocLetterhead.id == lid).first():
         raise LetterError("That letterhead no longer exists.")
-    sc.save(db, SETTINGS_BASE, company_id or "", clean, actor)
-    return clean
+    known = _defaults()
+    inherited = settings_for(db, "") if cid else None
+
+    def build(stored: dict) -> dict:
+        own = {k: v for k, v in stored.items() if k in known}
+        own.update(sent)
+        return sc.sparse(own, inherited) if inherited is not None else own
+    key = sc.key_for(SETTINGS_BASE, cid)
+    sc.lock_row(db, key)
+    if inherited is not None and not build(sc.saved(db, SETTINGS_BASE, cid, known)):
+        sc.reset(db, SETTINGS_BASE, cid)
+    else:
+        sc.merge_save(db, key, build, actor)
+    return settings_for(db, cid)
 
 
 def enabled_types(db: Session, company_id: str) -> list:

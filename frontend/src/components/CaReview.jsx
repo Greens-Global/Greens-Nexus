@@ -25,6 +25,7 @@ import { dialog } from '../ui/dialog';
 import SaveRow from './SaveRow';
 import { useDraft } from '../lib/useDraft';
 import { useGroupDirty } from '../lib/groupDirty';
+import { useRole } from '../contexts/RoleContext';
 
 const DAY = 86400000;
 const addDays = (iso, n) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * DAY).toISOString().slice(0, 10);
@@ -316,6 +317,11 @@ function FlagRow({ f, busy, onPay, onHandled, onNote, onReopen, onAdjust }) {
 // save pattern, Oct 23 2026); a failed load says so with Retry instead of
 // showing a made-up figure that a Save would then write.
 export function MinWageForm({ current, onSaved, toastOk, toastErr }) {
+  // One figure every company shares (Neil, 11/02/2026): a Super
+  // Administrator's to change - everyone else reads it, and a read-only
+  // box registers no draft.
+  const { isGlobalAdmin } = useRole() || {};
+  const locked = !isGlobalAdmin;
   const [saved, setSaved] = useState(current !== undefined && current !== null ? { minWage: current } : null);
   const { draft, patch, dirty: changed, reset } = useDraft(saved);
   const [busy, setBusy] = useState(false);
@@ -329,7 +335,7 @@ export function MinWageForm({ current, onSaved, toastOk, toastErr }) {
     if (current !== undefined) return;
     load();
   }, [current, load]);
-  const dirty = changed && String(draft?.minWage ?? '') !== String(saved?.minWage ?? '');
+  const dirty = !locked && changed && String(draft?.minWage ?? '') !== String(saved?.minWage ?? '');
   const valid = Number(draft?.minWage) > 0;
   async function save() {
     if (!valid) return false;
@@ -343,7 +349,7 @@ export function MinWageForm({ current, onSaved, toastOk, toastErr }) {
     } catch (e) { toastErr?.(e?.message || 'Could not save the minimum wage.'); return false; }
     finally { setBusy(false); }
   }
-  useGroupDirty(dirty, save);
+  useGroupDirty(dirty, locked ? undefined : save);
   if (loadErr) return <ErrorBanner message={loadErr} onRetry={load} />;
   if (!saved || !draft) return <div style={{ padding: 16, textAlign: 'center' }}><Spinner size="inline" /></div>;
   return (
@@ -354,10 +360,14 @@ export function MinWageForm({ current, onSaved, toastOk, toastErr }) {
       <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--ink)', maxWidth: 240 }}>
         Minimum Wage ($/hr)
         <input className="form-input" type="number" min={0.01} step={0.01} aria-label="Minimum Wage" value={draft.minWage}
-          onChange={e => patch({ minWage: e.target.value })} style={{ fontSize: 13 }} />
+          onChange={e => patch({ minWage: e.target.value })} readOnly={locked} style={{ fontSize: 13 }} />
       </label>
-      <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} saveDisabled={!valid}
-        note={valid ? 'Applies to every California review from then on.' : 'Enter a wage above $0.00.'} />
+      {locked
+        ? <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Only a Super Administrator can change this.</p>
+        : (
+          <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} saveDisabled={!valid}
+            note={valid ? 'Applies to every California review from then on.' : 'Enter a wage above $0.00.'} />
+        )}
     </div>
   );
 }
